@@ -221,7 +221,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "RootClaimTooHeavy": _C.LIMIT_EXCEEDED,
     "BasketDepositPending": _C.TOO_EARLY,
     "RootWeightSettingDisabled": _C.DISABLED,
-    "RootWeightCapExceeded": _C.LIMIT_EXCEEDED,
+    "BasketConcentrationCapExceeded": _C.LIMIT_EXCEEDED,
     "BasketTradingDisabled": _C.DISABLED,
     "BasketTradingFrozen": _C.DISABLED,
     "BasketTurnoverBudgetExceeded": _C.RATE_LIMITED,

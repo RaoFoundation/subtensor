@@ -961,7 +961,7 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn sudo_set_root_weights_cap() {
+    fn sudo_set_basket_concentration_cap() {
         #[extrinsic_call]
         _(RawOrigin::Root, 4096u16);
     }

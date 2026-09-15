@@ -20,10 +20,10 @@ use crate::tests::claim_root::{
 };
 use crate::tests::mock::*;
 use crate::{
-    BASKET_TRADE_REFILL_BLOCKS, BasketClaimed, BasketDailyTurnoverCap, BasketLiquidityCap,
-    BasketRate, BasketShares, BasketTradeBucket, BasketTradingEnabled, BasketTradingFrozen,
-    ColdkeySwapAnnouncements, DEFAULT_BASKET_DAILY_TURNOVER_CAP, DefaultMinStake, Error, Event,
-    NetworksAdded, RootWeightsCap, SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice,
+    BASKET_TRADE_REFILL_BLOCKS, BasketClaimed, BasketConcentrationCap, BasketDailyTurnoverCap,
+    BasketLiquidityCap, BasketRate, BasketShares, BasketTradeBucket, BasketTradingEnabled,
+    BasketTradingFrozen, ColdkeySwapAnnouncements, DEFAULT_BASKET_DAILY_TURNOVER_CAP,
+    DefaultMinStake, Error, Event, NetworksAdded, SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice,
     SubnetProtocolFlow, SubnetTAO, SubnetTaoFlow, SubtokenEnabled, TotalStake, Uids,
 };
 use codec::Encode;
@@ -1056,25 +1056,25 @@ fn test_swap_basket_refuses_destination_over_concentration_cap() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         assert_eq!(SubtensorModule::get_all_subnet_netuids().len(), 3);
-        RootWeightsCap::<Test>::insert(NetUid::ROOT, u16::MAX / 2);
+        BasketConcentrationCap::<Test>::put(u16::MAX / 2);
         let held = escrow_alpha(&fund.hotkey, fund.netuid_a);
 
         // 60% of the fund into B: over the cap.
         assert_noop!(
             swap(&fund, fund.netuid_a, fund.netuid_b, held * 6 / 10),
-            Error::<Test>::RootWeightCapExceeded
+            Error::<Test>::BasketConcentrationCapExceeded
         );
         // 40% is fine.
         assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, held * 4 / 10));
         // Topping B up past the cap is refused even though this trade alone is small.
         assert_noop!(
             swap(&fund, fund.netuid_a, fund.netuid_b, held * 2 / 10),
-            Error::<Test>::RootWeightCapExceeded
+            Error::<Test>::BasketConcentrationCapExceeded
         );
         // The cash slot is a destination like any other.
         assert_noop!(
             swap(&fund, fund.netuid_a, NetUid::ROOT, held * 6 / 10),
-            Error::<Test>::RootWeightCapExceeded
+            Error::<Test>::BasketConcentrationCapExceeded
         );
     });
 }
@@ -1095,7 +1095,7 @@ fn test_swap_basket_allows_selling_out_of_over_cap_position() {
         ));
         assert_eq!(escrow_alpha(&fund.hotkey, fund.netuid_a), 0);
         refill_turnover_bucket(&fund.hotkey);
-        RootWeightsCap::<Test>::insert(NetUid::ROOT, u16::MAX / 2);
+        BasketConcentrationCap::<Test>::put(u16::MAX / 2);
         let held_b = escrow_alpha(&fund.hotkey, fund.netuid_b);
 
         // B holds 100% (> 50%): selling 30% of it back into A is allowed ...
@@ -1103,7 +1103,7 @@ fn test_swap_basket_allows_selling_out_of_over_cap_position() {
         // ... but moving 60% would put A over the cap.
         assert_noop!(
             swap(&fund, fund.netuid_b, fund.netuid_a, held_b * 6 / 10),
-            Error::<Test>::RootWeightCapExceeded
+            Error::<Test>::BasketConcentrationCapExceeded
         );
     });
 }
@@ -1115,7 +1115,7 @@ fn test_swap_basket_concentration_cap_skipped_on_young_chain() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         assert!(
-            SubtensorModule::binding_root_weights_cap(
+            SubtensorModule::binding_basket_concentration_cap(
                 SubtensorModule::get_all_subnet_netuids().len() as u64
             )
             .is_none()
@@ -1255,12 +1255,12 @@ fn setup_cash_fund_with_thin_pool() -> (Fund, NetUid) {
     zero_claim_threshold();
     register_on_root(&hotkey, 0);
     NetworksAdded::<Test>::insert(NetUid::ROOT, true);
-    // 16 destinations on chain so `RootWeightsCap` (1/16) is enforced.
+    // 16 destinations on chain so `BasketConcentrationCap` (1/16) is enforced.
     for raw in 100u16..113 {
         NetworksAdded::<Test>::insert(NetUid::from(raw), true);
     }
     assert!(
-        SubtensorModule::binding_root_weights_cap(
+        SubtensorModule::binding_basket_concentration_cap(
             SubtensorModule::get_all_subnet_netuids().len() as u64
         )
         .is_some()
@@ -1377,7 +1377,7 @@ fn finding_2_1_thin_pool_drain_is_stopped_by_liquidity_cap() {
         // The fund holds at most the cap's share of the pool's alpha reserve.
         let holding = escrow_alpha(&fund.hotkey, netuid_c);
         let reserve = SubnetAlphaIn::<Test>::get(netuid_c).to_u64();
-        assert!(SubtensorModule::share_within_root_cap(
+        assert!(SubtensorModule::share_within_cap(
             holding,
             reserve,
             BasketLiquidityCap::<Test>::get() as u64
@@ -1526,11 +1526,11 @@ fn finding_crash_lock_blocks_selling_a_falling_holding() {
 }
 
 /// Finding §4 "cash slot": root is a capped destination like any subnet, so with the cap
-/// binding a fund cannot hold more than `RootWeightsCap` (1/16) of NAV as TAO — it cannot
+/// binding a fund cannot hold more than `BasketConcentrationCap` (1/16) of NAV as TAO — it cannot
 /// de-risk into cash. Documents current behaviour; flip when a separate cash cap (§5.4)
 /// lands.
 #[test]
-fn finding_cash_slot_is_capped_at_root_weights_cap() {
+fn finding_cash_slot_is_capped_at_concentration_cap() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         // Root + A + B + 13 placeholders = 16 destinations: the default 1/16 cap binds.
@@ -1540,15 +1540,15 @@ fn finding_cash_slot_is_capped_at_root_weights_cap() {
         let available = SubtensorModule::get_all_subnet_netuids().len() as u64;
         assert_eq!(available, 16);
         assert_eq!(
-            SubtensorModule::binding_root_weights_cap(available),
-            Some(u64::from(RootWeightsCap::<Test>::get(NetUid::ROOT)))
+            SubtensorModule::binding_basket_concentration_cap(available),
+            Some(u64::from(BasketConcentrationCap::<Test>::get()))
         );
 
         let held = escrow_alpha(&fund.hotkey, fund.netuid_a);
         // 10% of the fund into cash: refused.
         assert_noop!(
             swap(&fund, fund.netuid_a, NetUid::ROOT, held / 10),
-            Error::<Test>::RootWeightCapExceeded
+            Error::<Test>::BasketConcentrationCapExceeded
         );
         // 6% (just under 1/16): allowed.
         assert_ok!(swap(&fund, fund.netuid_a, NetUid::ROOT, held * 6 / 100));

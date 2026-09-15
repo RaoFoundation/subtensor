@@ -1,12 +1,12 @@
 ---
 title: Basket trading for stakers
-description: What runtime v459 basket trading means if you stake on root — nothing to do, what stays the same, how to see what your validator holds and trades, what the guardrails protect, and how to move if you disagree.
+description: What runtime v460 basket trading means if you stake on root — nothing to do, what stays the same, how to see what your validator holds and trades, what the guardrails protect, and how to move if you disagree.
 ---
 
 If you stake TAO on root (netuid 0), your validator runs a **basket**: a fund
 of subnet alpha built from its root dividends, in which you hold **beta**, a
 share of the whole fund ([Root Reborn](/docs/guides/root-reborn)). Runtime
-v459 lets the validator actively trade that basket with
+v460 lets the validator actively trade that basket with
 [`swap-basket`](/docs/tx/swap-basket). This page is what that means for you.
 The operator's side is [Basket trading](/docs/guides/basket-trading); the
 governance side is [Basket trading for governance](/docs/guides/basket-trading-governance).
@@ -19,10 +19,11 @@ accrual, and the claim path are exactly as before. There is no opt-in, no
 migration, and no new command you need to run.
 
 What does change over time is the fund's NAV — its realizable TAO value —
-and therefore what your beta is worth when you claim. Before v459 the NAV
-moved with subnet prices and the validator's weight vector; now it also
-moves with the validator's trades. Good trading raises it; bad trading
-lowers it. That is the same bet you already make when you pick a validator.
+and therefore what your beta is worth when you claim. Before v460 the NAV
+moved only with subnet prices — dividends landed where they were earned and
+nothing else changed the mix; now it also moves with the validator's trades.
+Good trading raises it; bad trading lowers it. That is the same bet you
+already make when you pick a validator.
 
 Trading launches **off** network-wide. Until governance enables it, no fund
 can trade.
@@ -31,10 +32,10 @@ can trade.
 
 ```bash
 btcli root list                                  # every fund: NAV, price vs the index
-btcli root list 5F...validator                   # one fund: weights, holdings, NAV, your position
+btcli root list 5F...validator                   # one fund: holdings, NAV, your position
 btcli root list --mine                           # your positions: staked and accrued τ per validator
 btcli query validator-basket --hotkey 5F...validator          # holdings: (netuid, alpha, TAO value)
-btcli query validator-basket-summary --hotkey 5F...validator  # NAV, shares, weights, lifetime return
+btcli query validator-basket-summary --hotkey 5F...validator  # NAV, shares, holdings, lifetime return
 btcli query basket-trading-status --hotkey 5F...validator     # is the fund trading, and how much budget is left
 ```
 
@@ -77,8 +78,8 @@ trade that fails any of them does nothing at all:
 - **A turnover budget of 10% of NAV.** The fund holds a bucket of that size;
   each trade drains it by the TAO it moves, and it refills over one day. At
   most one budget can be spent at any instant, and about one per day.
-- **No position above 1/16 of NAV.** The same concentration rule as the
-  weight vector; the cash slot counts too.
+- **No position above 1/16 of NAV.** A buy may not leave any holding above
+  that share of the fund; the cash slot counts too.
 - **No position above 10% of a pool's alpha.** Stops the fund from being
   used to pump a thin subnet and left holding alpha it cannot sell for
   what it paid.
@@ -122,4 +123,4 @@ same numbers every explorer shows.
   [`basket-position`](/docs/query/basket-position),
   [`root-basket-portfolio`](/docs/query/root-basket-portfolio),
   [`root-basket-owed`](/docs/query/root-basket-owed)
-- Release: [v459 — Basket Trading](/releases/v459-upgrade)
+- Release: [v460 — Basket Trading](/releases/v460-upgrade)

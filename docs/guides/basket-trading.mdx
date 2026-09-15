@@ -3,19 +3,20 @@ title: Basket trading
 description: How a root validator rebalances its beta basket with swap_basket — the trader proxy, the btcli and SDK flow, every guardrail with its default and error, and what governance can change.
 ---
 
-**Basket trading** (runtime v459) lets a root validator actively manage the
-basket its root dividends built. Until now the only lever was the weight
-vector: [`set_root_weights`](/docs/tx/set-root-weights) decides where *new*
-yield goes, but positions already in the fund stay where they landed. The
+**Basket trading** (runtime v460) lets a root validator actively manage the
+basket its root dividends built. It is the only lever: dividends accumulate
+in place on the subnet they were earned on, direct deposits mirror the
+current holdings, and neither changes the fund's composition. The
 [`swap-basket`](/docs/tx/swap-basket) call sells part of one holding for TAO
-and buys another holding with it, in one transaction.
+and buys another holding with it, in one transaction — that is how a fund's
+composition moves.
 
 This guide is for the operator of a root validator. It assumes you know the
 fund model from [Root Reborn](/docs/guides/root-reborn): one escrowed fund
 per validator, stakers hold **beta** (a share of the fund), and the fund's
 value is its **NAV** — what selling every holding would fetch right now.
-For what changed on chain in v459, see the
-[release notes](/releases/v459-upgrade). Two companion pages cover the other
+For what changed on chain in v460, see the
+[release notes](/releases/v460-upgrade). Two companion pages cover the other
 seats at the table: [Basket trading for governance](/docs/guides/basket-trading-governance)
 (enable, freeze, tune) and [Basket trading for stakers](/docs/guides/basket-trading-for-stakers)
 (what changes for the people whose beta you manage: nothing to do, and how
@@ -85,11 +86,11 @@ move more than 1/16 of NAV into cash in one trade.
 
 The intended setup is that the validator's coldkey stays offline and a
 separate **trader key** (usually a multisig) does the trading through a
-proxy. Runtime v459 adds a proxy type for exactly this:
+proxy. Runtime v460 adds a proxy type for exactly this:
 
 - **`BasketTrading`** (proxy type index 18) admits one call:
   `swap_basket`. A `BasketTrading` delegate cannot stake, unstake,
-  transfer, set weights, claim, or change keys.
+  transfer, claim, or change keys.
 - No existing proxy gains trading rights at the upgrade. `NonTransfer`,
   `NonCritical`, `Staking`, and `NonFungible` delegates are all refused
   `swap_basket`. Only `Any` and `BasketTrading` admit it.
@@ -127,7 +128,7 @@ and buy netuid 64 with the proceeds.
 ### 1. Look at the fund and the budget
 
 ```bash
-btcli root list 5F...val                                 # holdings, NAV, weights
+btcli root list 5F...val                                 # holdings, NAV, lifetime return
 btcli query validator-basket --hotkey 5F...val           # (netuid, alpha, TAO value) rows
 btcli query basket-trading-status --hotkey 5F...val      # gates and the turnover bucket
 ```
@@ -296,14 +297,15 @@ A trade whose `tao_mid` is larger than the bucket's current level fails with
 `BasketTurnoverBudgetExceeded`. A fund that has never traded starts with a
 full bucket. The bucket follows the fund through a hotkey swap.
 
-### 1/16 concentration cap → `RootWeightCapExceeded`
+### 1/16 concentration cap → `BasketConcentrationCapExceeded`
 
 After the trade, the destination holding's realizable value may not exceed
-`RootWeightsCap` of fund NAV — default 1/16, the same cap that applies to
-`set_root_weights`. Topping up a holding that is already at the cap is
-refused, and so is moving more than 1/16 of NAV into the cash slot. On a
-chain with fewer than 16 subnets the check is skipped. Refusal is
-`RootWeightCapExceeded`.
+`BasketConcentrationCap` of fund NAV — default 1/16, so a traded fund
+spreads across at least 16 holdings. Topping up a holding that is already at
+the cap is refused, and so is moving more than 1/16 of NAV into the cash
+slot. Only buys are checked: a holding that grows past the cap through price
+moves or in-place dividends is left alone. On a chain with fewer than 16
+subnets the check is skipped. Refusal is `BasketConcentrationCapExceeded`.
 
 ### 10% per-pool liquidity cap → `BasketLiquidityCapExceeded`
 
@@ -377,17 +379,16 @@ falling NAV can lower `remaining_tao` without any trade.
 - **Winners run.** A holding that appreciates past 1/16 of NAV or past 10%
   of its pool is not clipped. The caps stop you from *buying* more of it,
   not from holding it.
-- **Dividends keep flowing.** Root dividends deploy into the fund exactly as
-  before, by the weight vector or in place, whether trading is enabled,
-  disabled, or frozen. Deposits, claims, and `set_root_weights` are not
-  touched by any trading gate.
+- **Dividends keep flowing.** Root dividends accumulate in place exactly as
+  before, whether trading is enabled, disabled, or frozen. Deposits and
+  claims are not touched by any trading gate.
 - **Stakers are unaffected by the mechanics.** A trade does not change
   shares, entitlements, or the claim path. What changes is the fund's
   composition — and, over time, its NAV.
 
 ## Governance knobs
 
-All four setters are root-only calls on `AdminUtils`:
+All five setters are root-only calls on `AdminUtils`:
 
 | Call | Effect | Default |
 |---|---|---|
@@ -395,10 +396,10 @@ All four setters are root-only calls on `AdminUtils`:
 | `sudo_set_basket_trading_frozen(hotkey, frozen)` | Freeze or unfreeze one fund. | not frozen |
 | `sudo_set_basket_daily_turnover_cap(cap)` | Bucket capacity as a u16 share of NAV (`65535` = 100%). Zero is rejected. | `6553` (10%) |
 | `sudo_set_basket_liquidity_cap(cap)` | Largest share of a pool's alpha reserve a fund may hold after a buy (`65535` = 100%). Zero is rejected. | `6553` (10%) |
+| `sudo_set_basket_concentration_cap(cap)` | Largest share of fund NAV one holding may reach through a buy (`65535` = 100%). Zero is rejected. | `4096` (1/16) |
 
-The 1/16 concentration cap is the existing `RootWeightsCap`, set with
-`sudo_set_root_weights_cap`. The 2% band and the 7200-block refill period
-are runtime constants, not hyperparameters.
+The 2% band and the 7200-block refill period are runtime constants, not
+hyperparameters.
 
 Raise the liquidity cap if funds legitimately need larger positions in
 mid-depth pools; lower it to tighten the per-pool value at risk. Raise the
@@ -427,4 +428,4 @@ accurate, while the 2% band and the turnover bucket still hold exactly.
   [Basket trading for stakers](/docs/guides/basket-trading-for-stakers),
   [Root Reborn](/docs/guides/root-reborn),
   [Proxy accounts](/docs/guides/proxies), [Multisig](/docs/guides/multisig)
-- Release: [v459 — Basket Trading](/releases/v459-upgrade)
+- Release: [v460 — Basket Trading](/releases/v460-upgrade)

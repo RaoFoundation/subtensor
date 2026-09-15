@@ -886,16 +886,12 @@ mod tests {
             hotkey: hotkey.clone(),
             amount_staked: TaoBalance::from(1),
         });
-        let set_root_weights = RuntimeCall::SubtensorModule(SubtensorCall::set_root_weights {
-            dests: vec![1],
-            weights: vec![1],
-        });
         let claim = RuntimeCall::SubtensorModule(SubtensorCall::claim_root_with_hotkey { hotkey });
         let remark = RuntimeCall::System(SystemCall::remark { remark: vec![] });
 
         // The trading proxy admits the trade and nothing adjacent to it.
         assert!(proxy_type_filter(&ProxyType::BasketTrading, &swap_basket));
-        for denied in [&stake_into_basket, &set_root_weights, &claim, &remark] {
+        for denied in [&stake_into_basket, &claim, &remark] {
             assert!(!proxy_type_filter(&ProxyType::BasketTrading, denied));
         }
 

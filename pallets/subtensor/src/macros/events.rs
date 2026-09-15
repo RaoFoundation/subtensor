@@ -42,7 +42,8 @@ mod events {
         ),
         /// a caller successfully sets their weights on a subnetwork.
         WeightsSet(NetUidStorageIndex, u16),
-        /// a root validator set its beta-basket distribution vector (uid on the root subnet).
+        /// Retired (kept for SCALE index stability): emitted by the removed
+        /// `set_root_weights` extrinsic. Never emitted on current runtimes.
         RootWeightsSet(u16),
         /// a new neuron account has been registered to the chain.
         NeuronRegistered(NetUid, u16, T::AccountId),
@@ -475,23 +476,24 @@ mod events {
             tao: TaoBalance,
         },
 
-        /// A validator's beta basket (fund) received a dividend deposit: the dividend was
-        /// deployed across subnets per the validator's weight vector, adding `tao` of
-        /// realizable NAV to the fund and minting `shares` fund shares at the pre-deposit NAV.
+        /// A validator's beta basket (fund) received a dividend deposit: the dividend alpha
+        /// was credited in place to the fund's holding on the subnet it was earned on,
+        /// adding `tao` of realizable NAV to the fund and minting `shares` fund shares at
+        /// the pre-deposit NAV.
         BasketDeposited {
             /// Validator hotkey whose basket received the deposit.
             hotkey: T::AccountId,
-            /// Realizable NAV the deposit added to the fund (post-buy NAV minus the
-            /// pre-buy snapshot; the deposit bears its own buy slippage).
+            /// Realizable NAV the deposit added to the fund (the origin holding's
+            /// realizable value after the credit minus before it).
             tao: TaoBalance,
             /// Fund shares minted at the pre-deposit NAV (grows `BasketShares`).
             shares: u64,
         },
 
         /// A staker deposited TAO from their balance directly into a validator's beta
-        /// basket: the TAO was deployed across subnets per the validator's weight vector
-        /// and `shares` fund shares were credited to the staker via their claimed
-        /// watermark.
+        /// basket: the TAO was split across the fund's current holdings by value (or held
+        /// as the root cash slot of an empty fund) and `shares` fund shares were credited
+        /// to the staker via their claimed watermark.
         BasketStakedIn {
             /// Validator hotkey whose basket received the deposit.
             hotkey: T::AccountId,

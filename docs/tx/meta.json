@@ -73,7 +73,6 @@
     "set-perpetual-lock",
     "set-reject-locked-alpha",
     "set-root-claim-threshold",
-    "set-root-weights",
     "set-subnet-identity",
     "set-take",
     "set-weights",

@@ -18,8 +18,9 @@ the middle is taken from the fund's turnover bucket, which holds
 `BasketDailyTurnoverCap` of NAV and refills over 7200 blocks
 (`BasketTurnoverBudgetExceeded`); the destination holding may not end
 above the `BasketLiquidityCap` share of the destination pool's alpha
-reserve (`BasketLiquidityCapExceeded`) nor above the `RootWeightsCap`
-share of fund NAV (`RootWeightCapExceeded`). Trading
+reserve (`BasketLiquidityCapExceeded`) nor above the
+`BasketConcentrationCap` share of fund NAV
+(`BasketConcentrationCapExceeded`). Trading
 must be enabled network-wide and not frozen for the hotkey. Query
 `basket_trading_status` for the remaining budget and
 `validator_basket` for current holdings before trading. Pass `all`
@@ -33,7 +34,7 @@ swap` derives it from a quote and `--max-slippage`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2118-L2143) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2098-L2123) |
 
 ## Parameters
 
@@ -92,7 +93,7 @@ result = sub.execute_tool("swap_basket", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2125`](/code/pallets/subtensor/src/macros/dispatches.rs#L2118-L2143):
+`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2105`](/code/pallets/subtensor/src/macros/dispatches.rs#L2098-L2123):
 
 ```rust
 #[pallet::call_index(150)]
@@ -123,6 +124,6 @@ pub fn swap_basket(
 }
 ```
 
-Delegates to [`do_swap_basket`](/code/pallets/subtensor/src/staking/basket_trade.rs#L63).
+Delegates to [`do_swap_basket`](/code/pallets/subtensor/src/staking/basket_trade.rs#L64).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 459
+Spec version: 460
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -291,13 +291,12 @@ class SubtensorModule:
     RevealPeriodEpochs = Item('SubtensorModule', 'RevealPeriodEpochs', 'u64')
     LastColdkeyHotkeyStakeBlock = Item('SubtensorModule', 'LastColdkeyHotkeyStakeBlock', 'u64')
     RootStakeUnlockInterval = Item('SubtensorModule', 'RootStakeUnlockInterval', 'u64')
-    RootWeightSettingEnabled = Item('SubtensorModule', 'RootWeightSettingEnabled', 'bool')
     BasketTradingEnabled = Item('SubtensorModule', 'BasketTradingEnabled', 'bool')
     BasketTradingFrozen = Item('SubtensorModule', 'BasketTradingFrozen', '()')
     BasketDailyTurnoverCap = Item('SubtensorModule', 'BasketDailyTurnoverCap', 'u16')
     BasketLiquidityCap = Item('SubtensorModule', 'BasketLiquidityCap', 'u16')
     BasketTradeBucket = Item('SubtensorModule', 'BasketTradeBucket', '(u64, u64)')
-    RootWeightsCap = Item('SubtensorModule', 'RootWeightsCap', 'u16')
+    BasketConcentrationCap = Item('SubtensorModule', 'BasketConcentrationCap', 'u16')
     RootClaimableThreshold = Item('SubtensorModule', 'RootClaimableThreshold', 'FixedI128')
     RootClaimable = Item('SubtensorModule', 'RootClaimable', 'BTreeMap')
     RootClaimed = Item('SubtensorModule', 'RootClaimed', 'u128')

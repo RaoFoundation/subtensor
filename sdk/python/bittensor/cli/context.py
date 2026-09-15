@@ -103,7 +103,6 @@ _REVIEW_TITLES = {
     "root_register": "Register",
     "burned_register": "Register",
     "register_subnet": "Register",
-    "set_root_weights": "Weights",
     "set_weights": "Weights",
     "commit_weights": "Weights",
     "reveal_weights": "Weights",

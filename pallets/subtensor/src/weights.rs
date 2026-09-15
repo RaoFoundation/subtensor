@@ -2834,8 +2834,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::StakingHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::BasketLiquidityCap` (r:1 w:0)
 	/// Proof: `SubtensorModule::BasketLiquidityCap` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::RootWeightsCap` (r:1 w:0)
-	/// Proof: `SubtensorModule::RootWeightsCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::BasketConcentrationCap` (r:1 w:0)
+	/// Proof: `SubtensorModule::BasketConcentrationCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `h` is `[1, 256]`.
 	fn swap_basket(h: u32, ) -> Weight {
 		// Proof Size summary in bytes:
@@ -6544,8 +6544,8 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::StakingHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::BasketLiquidityCap` (r:1 w:0)
 	/// Proof: `SubtensorModule::BasketLiquidityCap` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::RootWeightsCap` (r:1 w:0)
-	/// Proof: `SubtensorModule::RootWeightsCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::BasketConcentrationCap` (r:1 w:0)
+	/// Proof: `SubtensorModule::BasketConcentrationCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `h` is `[1, 256]`.
 	fn swap_basket(h: u32, ) -> Weight {
 		// Proof Size summary in bytes:

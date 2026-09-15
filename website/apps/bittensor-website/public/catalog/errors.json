@@ -480,6 +480,24 @@
         }
       ]
     },
+    "BasketConcentrationCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "The `swap_basket` buy would leave the destination holding above the `BasketConcentrationCap` share of fund NAV (holdings marked at realizable value; the cap is u16-normalized, so 4096 means 1/16). Buy less, or spread the fund across more holdings \u2014 at the 1/16 cap a traded fund needs at least 16. Query `BasketConcentrationCap` for the live cap. Not enforced while the chain has fewer subnets than the cap demands.",
+      "docs_url": "/docs/errors/chain/BasketConcentrationCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketConcentrationCapExceeded/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 372,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L372",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "BasketDepositPending": {
       "code": "too_early",
       "description": "A queued root-dividend deposit on this validator could not be settled yet, so an operation that changes the hotkey's root claimant base was refused. No current dispatch raises it; if it appears, wait for the pending deposit to flush (the next claim or basket operation on the hotkey settles it) and retry.",
@@ -492,15 +510,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 377,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L377",
+          "line": 375,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L375",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
     "BasketHasNoWeights": {
       "code": "invalid_argument",
-      "description": "Retired on current runtimes: a basket deposit into a validator with no usable root weight vector is now held as the fund's root (TAO cash) slot instead of erroring. Seeing this error means the chain is running an older runtime \u2014 have the validator set root weights with `btcli root weights set` (or `set_root_weights`) first.",
+      "description": "Retired on current runtimes: a basket deposit into a fund with no holdings is held as the fund's root (TAO cash) slot instead of erroring, and root weight vectors no longer exist. Seeing this error means the chain is running an older runtime.",
       "docs_url": "/docs/errors/chain/BasketHasNoWeights",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketHasNoWeights/content.md",
       "pallets": [
@@ -528,8 +546,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 393,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L393",
+          "line": 391,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L391",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -546,8 +564,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 397,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L397",
+          "line": 395,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L395",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -564,8 +582,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 389,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L389",
+          "line": 387,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L387",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -582,8 +600,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 379,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L379",
+          "line": 377,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L377",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -600,8 +618,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 382,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L382",
+          "line": 380,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L380",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -618,8 +636,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 387,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L387",
+          "line": 385,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L385",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -708,8 +726,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 191,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L191",
+          "line": 184,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L184",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -761,7 +779,7 @@
     },
     "CanNotSetRootNetworkWeights": {
       "code": "invalid_argument",
-      "description": "`set_weights` was called with netuid 0, the root network, where normal weight setting is not allowed. Use a non-root `netuid` argument; root weights are handled by a separate mechanism.",
+      "description": "`set_weights` was called with netuid 0, the root network, where weight setting is not allowed: root validators do not set weights at all. Use a non-root `netuid` argument.",
       "docs_url": "/docs/errors/chain/CanNotSetRootNetworkWeights",
       "markdown_url": "/llms.mdx/docs/errors/chain/CanNotSetRootNetworkWeights/content.md",
       "pallets": [
@@ -1203,8 +1221,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 215,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L215",
+          "line": 208,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L208",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1221,8 +1239,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 213,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L213",
+          "line": 206,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L206",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1536,8 +1554,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 211,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L211",
+          "line": 204,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L204",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -1966,8 +1984,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 217,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L217",
+          "line": 210,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L210",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2794,8 +2812,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 205,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L205",
+          "line": 198,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L198",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3136,8 +3154,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 189,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L189",
+          "line": 182,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L182",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3154,8 +3172,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 203,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L203",
+          "line": 196,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L196",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3172,8 +3190,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 201,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L201",
+          "line": 194,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L194",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3244,8 +3262,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 187,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L187",
+          "line": 180,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L180",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3342,8 +3360,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 197,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L197",
+          "line": 190,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L190",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3360,8 +3378,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 199,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L199",
+          "line": 192,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L192",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3459,8 +3477,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 193,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L193",
+          "line": 186,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L186",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4019,8 +4037,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 207,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L207",
+          "line": 200,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L200",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4279,8 +4297,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 209,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L209",
+          "line": 202,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L202",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4693,8 +4711,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 368,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L368",
+          "line": 367,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L367",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4753,27 +4771,9 @@
         }
       ]
     },
-    "RootWeightCapExceeded": {
-      "code": "limit_exceeded",
-      "description": "One destination in the `set_root_weights` vector takes a larger share of the basket than the `RootWeightsCap` hyperparameter allows (share = weight / sum of weights; the cap is u16-normalized, so 4096 means 1/16). Spread the vector across more destinations \u2014 at the launch cap of 1/16 a basket needs at least 16 \u2014 or lower the largest entries. Query `RootWeightsCap[0]` for the live cap. Not enforced while the chain has fewer subnets than the cap demands.",
-      "docs_url": "/docs/errors/chain/RootWeightCapExceeded",
-      "markdown_url": "/llms.mdx/docs/errors/chain/RootWeightCapExceeded/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 374,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L374",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
     "RootWeightSettingDisabled": {
       "code": "disabled",
-      "description": "`set_root_weights` is disabled network-wide (`RootWeightSettingEnabled` is false). Root Reborn launched gated and runtime 449 opened the gate, so on current mainnet this only appears if governance has switched weight setting back off. Funds then run the null strategy (dividends accumulate in place on their origin subnet) until it is re-enabled; dividends keep accruing meanwhile.",
+      "description": "Retired on current runtimes: the `set_root_weights` extrinsic and its network-wide gate were removed. Funds have no target vector \u2014 dividends accumulate in place on their origin subnet and composition changes only through `swap_basket`. Seeing this error means the chain is running an older runtime.",
       "docs_url": "/docs/errors/chain/RootWeightSettingDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/RootWeightSettingDisabled/content.md",
       "pallets": [
@@ -4783,8 +4783,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 363,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L363",
+          "line": 362,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L362",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5089,8 +5089,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 185,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L185",
+          "line": 178,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L178",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5891,8 +5891,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 195,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L195",
+          "line": 188,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L188",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]

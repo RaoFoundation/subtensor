@@ -21,9 +21,9 @@ pub struct BasketHolding {
 
 /// Everything an explorer needs to render one validator's beta basket in a single call:
 /// valuation (realizable NAV and spot NAV), share supply (share price = `nav_tao / shares`),
-/// lifetime flow counters (performance = `(nav + redeemed) / deposited`), the validator's
-/// weight vector (strategy), and the per-subnet holdings breakdown.
-#[freeze_struct("f467309dda61a20e")]
+/// lifetime flow counters (performance = `(nav + redeemed) / deposited`), and the per-subnet
+/// holdings breakdown.
+#[freeze_struct("f58c97af0cb26e41")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct BasketSummary<AccountId: TypeInfo + Encode + Decode> {
     pub hotkey: AccountId,
@@ -37,8 +37,6 @@ pub struct BasketSummary<AccountId: TypeInfo + Encode + Decode> {
     pub deposited_tao: TaoBalance,
     /// Lifetime TAO redeemed (claimed) out of the fund.
     pub redeemed_tao: TaoBalance,
-    /// The validator's root weight vector `w` (its curation strategy), exactly as stored.
-    pub weights: Vec<(NetUid, u16)>,
     /// Per-subnet holdings, each valued at spot and realizable.
     pub holdings: Vec<BasketHolding>,
 }
@@ -202,7 +200,6 @@ impl<T: Config> Pallet<T> {
             shares: BasketShares::<T>::get(hotkey),
             deposited_tao: BasketDepositedTao::<T>::get(hotkey),
             redeemed_tao: BasketRedeemedTao::<T>::get(hotkey),
-            weights: Self::get_validator_root_weights(hotkey),
             holdings,
         }
     }

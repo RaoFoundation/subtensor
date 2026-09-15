@@ -123,7 +123,7 @@ pub trait WeightInfo {
 	fn sudo_set_owner_cut_auto_lock_enabled() -> Weight;
 	fn sudo_set_collateral_lock_share() -> Weight;
 	fn sudo_set_collateral_drain_ratio() -> Weight;
-	fn sudo_set_root_weights_cap() -> Weight;
+	fn sudo_set_basket_concentration_cap() -> Weight;
 	fn sudo_set_basket_trading_enabled() -> Weight;
 	fn sudo_set_basket_trading_frozen() -> Weight;
 	fn sudo_set_basket_daily_turnover_cap() -> Weight;
@@ -1470,9 +1470,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(8_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
-	/// Storage: `SubtensorModule::RootWeightsCap` (r:0 w:1)
-	/// Proof: `SubtensorModule::RootWeightsCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn sudo_set_root_weights_cap() -> Weight {
+	/// Storage: `SubtensorModule::BasketConcentrationCap` (r:0 w:1)
+	/// Proof: `SubtensorModule::BasketConcentrationCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_basket_concentration_cap() -> Weight {
 		// Measured on the reference Benchmarking runner (validate-benchmarks,
 		// steps 50 / repeat 20): weight 4_916_000, io r 0 w 1.
 		Weight::from_parts(4_916_000, 0)
@@ -2897,9 +2897,9 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(8_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
-	/// Storage: `SubtensorModule::RootWeightsCap` (r:0 w:1)
-	/// Proof: `SubtensorModule::RootWeightsCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn sudo_set_root_weights_cap() -> Weight {
+	/// Storage: `SubtensorModule::BasketConcentrationCap` (r:0 w:1)
+	/// Proof: `SubtensorModule::BasketConcentrationCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_basket_concentration_cap() -> Weight {
 		// Measured on the reference Benchmarking runner (validate-benchmarks,
 		// steps 50 / repeat 20): weight 4_916_000, io r 0 w 1.
 		Weight::from_parts(4_916_000, 0)

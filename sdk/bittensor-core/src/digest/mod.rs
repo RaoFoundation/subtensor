@@ -198,7 +198,7 @@ mod tests {
         let digest = metadata_digest(&metadata, &chain_info(spec_version)).unwrap();
         assert_eq!(
             hex::encode(digest),
-            "55df58be72b74ef6c40882b8f06670730d34c80493e09a6b6114f75e9927f1d7"
+            "6071b21739021ae701c517b0c5c141e5c651d1f6a7b34f09274e28aebdc46c62"
         );
     }
 

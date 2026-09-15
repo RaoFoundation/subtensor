@@ -467,7 +467,6 @@ call_filter_group!(
     SubtensorCommonCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::set_weights),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_root_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::commit_weights),
@@ -608,8 +607,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_coldkey_swap_reannouncement_delay),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_epochs_per_block),
-        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_root_weight_setting_enabled),
-        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_root_weights_cap),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_concentration_cap),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_trading_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_trading_frozen),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_daily_turnover_cap),

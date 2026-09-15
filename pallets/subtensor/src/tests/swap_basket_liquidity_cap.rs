@@ -10,14 +10,14 @@
 
 use crate::staking::BasketFlushWork;
 use crate::tests::claim_root::{
-    escrow_alpha, flush_baskets, register_on_root, set_root_weights_direct, zero_claim_threshold,
+    escrow_alpha, flush_baskets, register_on_root, zero_claim_threshold,
 };
 use crate::tests::mock::*;
 use crate::{
-    BASKET_TRADE_REFILL_BLOCKS, BasketDailyTurnoverCap, BasketLiquidityCap, BasketTradeBucket,
-    BasketTradingEnabled, Error, Owner, PendingBasketDeposits, RootClaimableThreshold,
-    RootWeightsCap, SubnetAlphaIn, SubnetAlphaOut, SubnetMechanism, SubnetMovingPrice, SubnetTAO,
-    SubtokenEnabled, TotalStake,
+    BASKET_TRADE_REFILL_BLOCKS, BasketConcentrationCap, BasketDailyTurnoverCap, BasketLiquidityCap,
+    BasketTradeBucket, BasketTradingEnabled, Error, Owner, PendingBasketDeposits,
+    RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut, SubnetMechanism, SubnetMovingPrice,
+    SubnetTAO, SubtokenEnabled, TotalStake,
 };
 use frame_support::dispatch::GetDispatchInfo;
 use frame_support::pallet_prelude::Weight;
@@ -315,7 +315,7 @@ fn nav_share_bps(hotkey: &U256, netuid: NetUid) -> u64 {
 fn winner_env(coldkey: U256, hotkey: U256) -> (NetUid, NetUid) {
     BasketTradingEnabled::<Test>::put(true);
     BasketDailyTurnoverCap::<Test>::put(u16::MAX);
-    RootWeightsCap::<Test>::insert(NetUid::ROOT, u16::MAX / 2 + 1);
+    BasketConcentrationCap::<Test>::put(u16::MAX / 2 + 1);
     SubtensorModule::set_tao_weight(u64::MAX);
     let a = make_pool(
         &U256::from(11),
@@ -358,11 +358,11 @@ fn test_over_cap_winner_only_blocks_further_buys() {
         // Refused: topping up the winner.
         assert_noop!(
             SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, a, 10 * TAO, 0),
-            Error::<Test>::RootWeightCapExceeded
+            Error::<Test>::BasketConcentrationCapExceeded
         );
         assert_noop!(
             SubtensorModule::do_swap_basket(coldkey, hotkey, b, a, 10 * TAO, 0),
-            Error::<Test>::RootWeightCapExceeded
+            Error::<Test>::BasketConcentrationCapExceeded
         );
         assert_eq!(escrow_alpha(&hotkey, a), winner);
 
@@ -409,10 +409,10 @@ fn test_over_cap_winner_only_blocks_further_buys() {
     });
 }
 
-/// The non-trade paths never consult a cap: curated dividend deployment keeps buying the
-/// over-cap winner per the weight vector, dust consolidation leaves it alone (curated or
-/// not), a claim redeems it strictly pro-rata with every other holding, and a hotkey swap
-/// moves it by value.
+/// The non-trade paths never consult a cap: a dividend keeps accruing in place (the over-cap
+/// winner is left exactly as it is, and a direct deposit still mirrors it), dust
+/// consolidation leaves an above-threshold holding alone, a claim redeems it strictly
+/// pro-rata with every other holding, and a hotkey swap moves it by value.
 #[test]
 fn test_over_cap_winner_untouched_by_dividends_dust_claims_and_hotkey_swap() {
     new_test_ext(1).execute_with(|| {
@@ -420,7 +420,7 @@ fn test_over_cap_winner_untouched_by_dividends_dust_claims_and_hotkey_swap() {
         let hotkey = U256::from(2);
         let alice = U256::from(3);
         let (a, b) = winner_env(coldkey, hotkey);
-        set_root_weights_direct(&hotkey, 0, &[(a, u16::MAX / 2), (b, u16::MAX / 2)]);
+        register_on_root(&hotkey, 0);
         zero_claim_threshold();
         // A real staker so dividends have a claimant base.
         mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
@@ -433,8 +433,8 @@ fn test_over_cap_winner_untouched_by_dividends_dust_claims_and_hotkey_swap() {
         assert!(nav_share_bps(&hotkey, a) > 7_000);
         let winner = escrow_alpha(&hotkey, a);
 
-        // Dividends (origin B) are sold and redeployed per weights: half lands in A even
-        // though A is over the cap.
+        // Dividends (origin B) accumulate on B; A is over the cap but nothing consults it.
+        let b_before_dividend = escrow_alpha(&hotkey, b);
         SubtensorModule::distribute_emission(
             b,
             AlphaBalance::ZERO,
@@ -443,23 +443,38 @@ fn test_over_cap_winner_untouched_by_dividends_dust_claims_and_hotkey_swap() {
             AlphaBalance::ZERO,
         );
         flush_baskets();
-        let after_dividend = escrow_alpha(&hotkey, a);
         assert!(
-            after_dividend > winner,
-            "dividends must keep flowing into the winner"
+            escrow_alpha(&hotkey, b) > b_before_dividend,
+            "dividends must keep flowing into the fund"
+        );
+        assert_eq!(
+            escrow_alpha(&hotkey, a),
+            winner,
+            "an in-place dividend leaves A alone"
         );
 
-        // Dust consolidation: with A orphaned from the weight vector and a live threshold,
-        // an above-threshold holding is not swept.
-        set_root_weights_direct(&hotkey, 0, &[(b, u16::MAX)]);
+        // A direct deposit mirrors the holdings, winner included: no cap on the way in.
+        let depositor = U256::from(5);
+        add_balance_to_coldkey_account(&depositor, TaoBalance::from(20 * TAO));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            depositor,
+            hotkey,
+            (10 * TAO).into(),
+        ));
+        let after_deposit = escrow_alpha(&hotkey, a);
+        assert!(
+            after_deposit > winner,
+            "deposits must keep mirroring the winner"
+        );
+
+        // Dust consolidation: with a live threshold, an above-threshold holding is not swept.
         RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(TAO));
         assert_eq!(
             SubtensorModule::consolidate_dust_basket_holdings(&hotkey),
             0
         );
-        assert_eq!(escrow_alpha(&hotkey, a), after_dividend);
+        assert_eq!(escrow_alpha(&hotkey, a), after_deposit);
         zero_claim_threshold();
-        set_root_weights_direct(&hotkey, 0, &[(a, u16::MAX / 2), (b, u16::MAX / 2)]);
 
         // A claim redeems pro-rata: A and B shrink by the same fraction (±1%).
         let a_before = escrow_alpha(&hotkey, a);
@@ -564,9 +579,19 @@ fn test_over_liquidity_cap_winner_only_blocks_further_buys() {
             0
         ));
 
-        // Allowed: dividends deployed into it by the weight vector.
-        set_root_weights_direct(&hotkey, 0, &[(thin, u16::MAX)]);
+        // Allowed: a direct deposit mirroring the holdings still buys it (the liquidity cap
+        // guards trades only), and dividends earned on it accumulate in place.
         let before = escrow_alpha(&hotkey, thin);
+        let depositor = U256::from(5);
+        add_balance_to_coldkey_account(&depositor, TaoBalance::from(20 * TAO));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            depositor,
+            hotkey,
+            (10 * TAO).into(),
+        ));
+        assert!(escrow_alpha(&hotkey, thin) > before);
+        let thin_before = escrow_alpha(&hotkey, thin);
+        let deep_before = escrow_alpha(&hotkey, deep);
         SubtensorModule::distribute_emission(
             deep,
             AlphaBalance::ZERO,
@@ -575,7 +600,8 @@ fn test_over_liquidity_cap_winner_only_blocks_further_buys() {
             AlphaBalance::ZERO,
         );
         flush_baskets();
-        assert!(escrow_alpha(&hotkey, thin) > before);
+        assert!(escrow_alpha(&hotkey, deep) > deep_before);
+        assert_eq!(escrow_alpha(&hotkey, thin), thin_before);
     });
 }
 
@@ -670,7 +696,7 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
         let hotkey = U256::from(2);
         let alice = U256::from(3);
         let (a, b) = winner_env(coldkey, hotkey);
-        set_root_weights_direct(&hotkey, 0, &[(a, u16::MAX / 2), (b, u16::MAX / 2)]);
+        register_on_root(&hotkey, 0);
         zero_claim_threshold();
         mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
@@ -740,7 +766,7 @@ fn test_swap_basket_declared_weight_covers_failing_multi_credit_flush() {
         let hotkey = U256::from(2);
         let alice = U256::from(3);
         let (a, b) = winner_env(coldkey, hotkey);
-        set_root_weights_direct(&hotkey, 0, &[(a, u16::MAX / 2), (b, u16::MAX / 2)]);
+        register_on_root(&hotkey, 0);
         zero_claim_threshold();
         // Enormous claimant base: the per-stake rate increment rounds to zero, so the
         // batch mint is dust and the whole deposit rolls back.
@@ -782,11 +808,10 @@ fn test_swap_basket_declared_weight_covers_failing_multi_credit_flush() {
                 1_000
             );
         }
-        // Quotes: scan (one per credit) + one curated attempt's 3 sweeps over the holdings
-        // + the post-buy sweep's 2 destination rows. Rows: one sell per credit + 2 buys. No
-        // per-credit retry term.
+        // Quotes: scan (one per credit) + one attempt's NAV sweep over the holdings + two
+        // quotes per credit. Rows: one in-place credit per origin. No per-credit retry term.
         let credits = origins.len() as u64;
-        let flush_work = BasketFlushWork::new(credits + 3 * holdings_before + 2, credits + 2);
+        let flush_work = BasketFlushWork::new(credits + holdings_before + 2 * credits, credits);
         let bound = SubtensorModule::basket_flush_work_bound();
         assert!(flush_work.quotes <= bound.quotes && flush_work.rows <= bound.rows);
         assert_eq!(

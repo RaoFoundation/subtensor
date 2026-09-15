@@ -423,7 +423,6 @@ def render_validator_detail(
         return
 
     hotkey = summary["hotkey"]
-    weights = summary.get("weights") or []
     holdings = summary.get("holdings") or []
 
     if yours and yours.total.rao > 0:
@@ -431,21 +430,6 @@ def render_validator_detail(
         app_ctx.output.message(
             f"your position on {hotkey}: {record['total']} "
             f"(staked {record['staked']}, accrued {record['accrued']})"
-        )
-
-    if weights:
-        app_ctx.output.entity_list(
-            f"weights of {hotkey}",
-            "subnet",
-            [app_ctx.output.subnet_text(w["netuid"]) for w in weights],
-            ["share", "weight (u16)"],
-            [[f"{w['share']:.2%}", str(w["weight"])] for w in weights],
-            weights,
-        )
-    else:
-        app_ctx.output.message(
-            f"no custom root weights on {hotkey}: "
-            "dividends accumulate in place on their origin subnet"
         )
 
     lifetime = summary.get("lifetime_return")

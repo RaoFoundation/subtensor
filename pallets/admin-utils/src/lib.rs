@@ -135,17 +135,10 @@ pub mod pallet {
             drain_ratio: U64F64,
         },
 
-        /// Root basket weight setting (`set_root_weights`) was enabled or disabled
-        /// network-wide.
-        RootWeightSettingToggled {
-            /// Whether validators can now set root basket weights.
-            enabled: bool,
-        },
-
-        /// The root basket concentration cap (`RootWeightsCap`) was set.
-        RootWeightsCapSet {
-            /// Max u16-normalized share of a basket vector one destination may take
-            /// (`u16::MAX` = 100%).
+        /// The basket concentration cap (`BasketConcentrationCap`) was set.
+        BasketConcentrationCapSet {
+            /// Max u16-normalized share of fund NAV one holding may reach through a
+            /// `swap_basket` buy (`u16::MAX` = 100%).
             cap: u16,
         },
 
@@ -2496,42 +2489,24 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Enables or disables root basket weight setting (`set_root_weights`)
-        /// network-wide. Root Reborn launches with this OFF so every fund runs the
-        /// null (accumulate in place) strategy as the observable baseline; flip it on
-        /// later to open basket curation. Gates only the setter — existing vectors,
-        /// dividend deployment, and reads are unaffected. Root-only.
-        #[pallet::call_index(103)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_commit_reveal_weights_enabled())]
-        pub fn sudo_set_root_weight_setting_enabled(
-            origin: OriginFor<T>,
-            enabled: bool,
-        ) -> DispatchResult {
-            ensure_root(origin)?;
-            pallet_subtensor::RootWeightSettingEnabled::<T>::put(enabled);
-            Self::deposit_event(Event::RootWeightSettingToggled { enabled });
-            log::debug!("RootWeightSettingToggled( enabled: {enabled:?} )");
-            Ok(())
-        }
-
-        /// Sets the root basket concentration cap ([`pallet_subtensor::RootWeightsCap`]):
-        /// the largest u16-normalized share (`u16::MAX` = 100%) any single destination may
-        /// take of a `set_root_weights` vector. A cap of `u16::MAX / 16 + 1` forces funds
-        /// to spread across at least 16 destinations. The check softens to an equal split
-        /// when fewer destinations exist on chain. Root-only.
+        /// Sets the basket concentration cap ([`pallet_subtensor::BasketConcentrationCap`]):
+        /// the largest u16-normalized share (`u16::MAX` = 100%) of fund NAV any single
+        /// holding may reach through a `swap_basket` buy. A cap of `u16::MAX / 16 + 1`
+        /// forces traded funds to spread across at least 16 holdings. The check is skipped
+        /// while fewer subnets exist on chain than the cap demands. Root-only.
         #[pallet::call_index(105)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_root_weights_cap())]
-        pub fn sudo_set_root_weights_cap(origin: OriginFor<T>, cap: u16) -> DispatchResult {
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_concentration_cap())]
+        pub fn sudo_set_basket_concentration_cap(origin: OriginFor<T>, cap: u16) -> DispatchResult {
             ensure_root(origin)?;
             ensure!(cap > 0, Error::<T>::ValueNotInBounds);
-            pallet_subtensor::RootWeightsCap::<T>::insert(NetUid::ROOT, cap);
-            Self::deposit_event(Event::RootWeightsCapSet { cap });
-            log::debug!("RootWeightsCapSet( cap: {cap:?} )");
+            pallet_subtensor::BasketConcentrationCap::<T>::put(cap);
+            Self::deposit_event(Event::BasketConcentrationCapSet { cap });
+            log::debug!("BasketConcentrationCapSet( cap: {cap:?} )");
             Ok(())
         }
 
         /// Enables or disables validator basket trading (`swap_basket`) network-wide.
-        /// Defaults OFF. Gates only the trade path: deposits, claims, dividend deployment,
+        /// Defaults OFF. Gates only the trade path: deposits, claims, dividend accrual,
         /// and reads are unaffected. Root-only.
         #[pallet::call_index(106)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_trading_enabled())]

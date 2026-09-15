@@ -81,7 +81,6 @@ def seed_root_validator_summary(fake: FakeSubstrate) -> None:
             "spot_nav_tao": 1_500_000_000,
             "deposited_tao": 1_000_000_000,
             "redeemed_tao": 0,
-            "weights": [(1, 65535)],
             "holdings": [
                 {
                     "netuid": 1,
@@ -361,7 +360,7 @@ class TestRoot:
         result = invoke("root", "list", BOB, "--coldkey", BOB)
 
         assert result.exit_code == 0, result.exception
-        assert "weights of" in result.output
+        assert "weights of" not in result.output
         assert "fund holdings of" in result.output
         assert "nav τ1.250000000" in result.output
 
@@ -378,7 +377,8 @@ class TestRoot:
         payload = json.loads(result.output)
         assert payload["hotkey"] == BOB
         assert payload["nav_tao"] == "τ1.250000000"
-        assert payload["weights"] == [{"netuid": 1, "weight": 65535, "share": 1.0}]
+        assert "weights" not in payload
+        assert [holding["netuid"] for holding in payload["holdings"]] == [1]
 
 
 class TestTransactions:

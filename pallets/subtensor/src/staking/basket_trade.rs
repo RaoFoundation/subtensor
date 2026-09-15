@@ -52,7 +52,8 @@ impl<T: Config> Pallet<T> {
     /// * the TAO through the middle is taken from the fund's turnover bucket;
     /// * the destination holding may not end above [`crate::BasketLiquidityCap`] of the
     ///   destination pool's alpha reserve;
-    /// * the destination holding may not end above [`crate::RootWeightsCap`] of fund NAV.
+    /// * the destination holding may not end above [`crate::BasketConcentrationCap`] of fund
+    ///   NAV.
     ///
     /// AMM fees are charged like any user swap; the block-author fee is settled through the
     /// same helpers `stake_into_subnet` / `unstake_from_subnet` use.
@@ -203,7 +204,7 @@ impl<T: Config> Pallet<T> {
             .saturating_sub(destination_before.unwrap_or(0))
             .saturating_add(origin_after)
             .saturating_add(destination_value);
-        Self::ensure_within_root_cap(destination_value, nav_after)?;
+        Self::ensure_within_concentration_cap(destination_value, nav_after)?;
 
         Ok(BasketTradeOutcome {
             tao_mid,
@@ -364,21 +365,37 @@ impl<T: Config> Pallet<T> {
         let reserve = SubnetAlphaIn::<T>::get(netuid).to_u64();
         let cap = BasketLiquidityCap::<T>::get() as u64;
         ensure!(
-            Self::share_within_root_cap(held, reserve, cap),
+            Self::share_within_cap(held, reserve, cap),
             Error::<T>::BasketLiquidityCapExceeded
         );
         Ok(())
     }
 
+    /// The basket concentration cap ([`crate::BasketConcentrationCap`], u16-normalized) when
+    /// it is enforceable with `available` subnets, else `None`. A cap of 1/16 needs at least
+    /// 16 destinations to be satisfiable, so the rule is skipped while the chain has fewer
+    /// (young chains, tests).
+    pub(crate) fn binding_basket_concentration_cap(available: u64) -> Option<u64> {
+        let cap = BasketConcentrationCap::<T>::get() as u64;
+        let min_dests_for_cap = (u16::MAX as u64).div_ceil(cap.max(1));
+        (available >= min_dests_for_cap).then_some(cap)
+    }
+
+    /// `part / whole <= cap / u16::MAX`, computed in u128 so chain-scale TAO values cannot
+    /// overflow. `whole == 0` (empty fund) trivially passes.
+    pub(crate) fn share_within_cap(part: u64, whole: u64, cap: u64) -> bool {
+        u128::from(part).saturating_mul(u128::from(u16::MAX))
+            <= u128::from(cap).saturating_mul(u128::from(whole))
+    }
+
     /// Post-trade concentration check: the destination holding's realizable value may not
-    /// exceed `RootWeightsCap[ROOT]` of fund NAV. Same rule and same young-chain softening
-    /// as `do_set_root_weights`.
-    fn ensure_within_root_cap(destination_value: u64, nav: u64) -> DispatchResult {
+    /// exceed [`crate::BasketConcentrationCap`] of fund NAV.
+    fn ensure_within_concentration_cap(destination_value: u64, nav: u64) -> DispatchResult {
         let available = Self::get_all_subnet_netuids().len() as u64;
-        if let Some(cap) = Self::binding_root_weights_cap(available) {
+        if let Some(cap) = Self::binding_basket_concentration_cap(available) {
             ensure!(
-                Self::share_within_root_cap(destination_value, nav, cap),
-                Error::<T>::RootWeightCapExceeded
+                Self::share_within_cap(destination_value, nav, cap),
+                Error::<T>::BasketConcentrationCapExceeded
             );
         }
         Ok(())

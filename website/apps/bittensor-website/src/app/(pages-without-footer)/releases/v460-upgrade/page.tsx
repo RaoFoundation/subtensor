@@ -5,14 +5,14 @@ import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V459 Upgrade — Basket Trading',
+  title: 'The V460 Upgrade — Basket Trading',
   description:
-    'V459 adds swap_basket: a root validator can sell one holding of its beta basket and buy ' +
+    'V460 adds swap_basket: a root validator can sell one holding of its beta basket and buy ' +
     'another, through a dedicated BasketTrading proxy. Every trade is boxed in by a 2% ' +
     'per-leg price band, a token-bucket turnover budget of 10% of NAV per day, a 10% ' +
     'liquidity cap per pool, the 1/16 concentration cap, and governance freeze switches. ' +
     'Trading launches gated off.',
-  alternates: {canonical: '/releases/v459-upgrade'},
+  alternates: {canonical: '/releases/v460-upgrade'},
 };
 
 const DocLink = ({href, children}: {href: string; children: React.ReactNode}) => (
@@ -26,7 +26,7 @@ const page = () => {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <h1 className={styles.paper_title}>The V459 Upgrade</h1>
+          <h1 className={styles.paper_title}>The V460 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             Basket Trading · September 2026
           </p>
@@ -35,10 +35,13 @@ const page = () => {
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Introduction</h2>
           <p>
-            Spec <strong>459</strong> lets a root validator actively trade its beta basket.
-            Until now a fund&apos;s composition changed only through the dividend stream:{' '}
-            <code>set_root_weights</code> decides where new yield is deployed, but existing
-            holdings stay where they are. The new{' '}
+            Spec <strong>460</strong> lets a root validator actively trade its beta basket, and
+            makes trading the <em>only</em> way a fund&apos;s composition changes. Until now a
+            fund could also be steered through the dividend stream: a{' '}
+            <code>set_root_weights</code> vector decided where new yield was deployed. That
+            design is removed — dividends now always accumulate in place on the subnet they
+            were earned on, direct deposits mirror the fund&apos;s current holdings, and the
+            new{' '}
             <DocLink href='/docs/tx/swap-basket'>
               <code>swap_basket</code>
             </DocLink>{' '}
@@ -68,7 +71,7 @@ const page = () => {
             The intended setup is a validator coldkey that grants a <code>BasketTrading</code>{' '}
             proxy (new <code>ProxyType</code>, index 18) to a trader account, usually a
             multisig. That proxy type admits exactly one call: <code>swap_basket</code>. It
-            cannot stake, unstake, transfer, set weights, or change keys.
+            cannot stake, unstake, transfer, claim, or change keys.
           </p>
           <p>
             The grant is opt-in in both directions. No existing proxy gains trading rights at
@@ -147,10 +150,11 @@ btcli root swap --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
             </li>
             <li>
               <strong>Concentration cap: 1/16 of NAV.</strong> The destination holding&apos;s
-              realizable value may not end above <code>RootWeightsCap</code> of fund NAV, the
-              same 1/16 rule and young-chain softening as <code>set_root_weights</code>.
+              realizable value may not end above <code>BasketConcentrationCap</code> of fund
+              NAV — the 1/16 rule (and young-chain softening) that used to bound{' '}
+              <code>set_root_weights</code> vectors, carried over as a pure trade guardrail.
               Selling out of an over-cap position is always allowed. Refusal is{' '}
-              <code>RootWeightCapExceeded</code>.
+              <code>BasketConcentrationCapExceeded</code>.
             </li>
             <li>
               <strong>Switches.</strong> <code>BasketTradingEnabled</code> is the network-wide
@@ -285,25 +289,43 @@ btcli root swap --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
               <DocLink href='/docs/errors/chain/BasketMinOutNotMet'>
                 <code>BasketMinOutNotMet</code>
               </DocLink>
-              . <code>SlippageTooHigh</code> and <code>RootWeightCapExceeded</code> are reused
-              for the band and the concentration cap.
+              , and{' '}
+              <DocLink href='/docs/errors/chain/BasketConcentrationCapExceeded'>
+                <code>BasketConcentrationCapExceeded</code>
+              </DocLink>
+              . <code>SlippageTooHigh</code> is reused for the band.
             </li>
             <li>
               <strong>Storage</strong> <code>BasketTradingEnabled</code> (bool, default off),{' '}
               <code>BasketTradingFrozen</code> (per hotkey),{' '}
               <code>BasketDailyTurnoverCap</code> (u16, default 6553 = 10%),{' '}
-              <code>BasketLiquidityCap</code> (u16, default 6553 = 10%), and{' '}
+              <code>BasketLiquidityCap</code> (u16, default 6553 = 10%),{' '}
+              <code>BasketConcentrationCap</code> (u16, default 4096 = 1/16; the value
+              governance had set in <code>RootWeightsCap</code> is carried over), and{' '}
               <code>BasketTradeBucket</code> (per hotkey:{' '}
               <code>(tao_available, last_refill_block)</code>; a missing row is a full bucket).
+            </li>
+            <li>
+              <strong>Removed.</strong> The <code>set_root_weights</code> extrinsic (call 146),
+              its <code>RootWeightSettingEnabled</code> gate and{' '}
+              <code>sudo_set_root_weight_setting_enabled</code> setter, the{' '}
+              <code>RootWeightsCap</code> map, the <code>validator_root_weights</code> read /{' '}
+              <code>get_validator_weights</code> runtime API, and the <code>weights</code> field
+              of <code>BasketSummary</code>. A migration clears every stored root vector; no
+              fund&apos;s holdings change. Weights only ever decided how an earned dividend was
+              deployed, never what a validator earned, so no validator&apos;s income moves.
             </li>
             <li>
               <strong>Admin setters</strong> (root-only, in <code>AdminUtils</code>):{' '}
               <code>sudo_set_basket_trading_enabled(enabled)</code> (106),{' '}
               <code>sudo_set_basket_trading_frozen(hotkey, frozen)</code> (107),{' '}
-              <code>sudo_set_basket_daily_turnover_cap(cap)</code> (108), and{' '}
-              <code>sudo_set_basket_liquidity_cap(cap)</code> (109), with events{' '}
+              <code>sudo_set_basket_daily_turnover_cap(cap)</code> (108),{' '}
+              <code>sudo_set_basket_liquidity_cap(cap)</code> (109), and{' '}
+              <code>sudo_set_basket_concentration_cap(cap)</code> (105, replacing{' '}
+              <code>sudo_set_root_weights_cap</code>), with events{' '}
               <code>BasketTradingToggled</code>, <code>BasketTradingFrozenSet</code>,{' '}
-              <code>BasketDailyTurnoverCapSet</code>, and <code>BasketLiquidityCapSet</code>.
+              <code>BasketDailyTurnoverCapSet</code>, <code>BasketLiquidityCapSet</code>, and{' '}
+              <code>BasketConcentrationCapSet</code>.
               A zero cap is rejected with <code>ValueNotInBounds</code>.
             </li>
             <li>
@@ -319,7 +341,7 @@ btcli root swap --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
               push through, and the bucket&apos;s capacity at current NAV.
             </li>
             <li>
-              <strong>Weights.</strong> <code>swap_basket</code> and the four setters have
+              <strong>Weights.</strong> <code>swap_basket</code> and the five setters have
               their own benchmarks and <code>WeightInfo</code> entries, measured on the
               reference benchmarking hardware.
             </li>

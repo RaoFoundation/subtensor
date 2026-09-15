@@ -83,7 +83,7 @@ from .staking import (
     UnstakeAllAlpha,
 )
 from .transfer import Transfer, TransferAll
-from .weights import CommitWeights, RevealWeights, SetRootWeights, SetWeights, normalize
+from .weights import CommitWeights, RevealWeights, SetWeights, normalize
 
 __all__ = [
     "ALL",
@@ -154,7 +154,6 @@ __all__ = [
     "SetPerpetualLock",
     "SetRejectLockedAlpha",
     "SetRootClaimThreshold",
-    "SetRootWeights",
     "SetSubnetEmissionEnabled",
     "SetSubnetIdentity",
     "SetTake",

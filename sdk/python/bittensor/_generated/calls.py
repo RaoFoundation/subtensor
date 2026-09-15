@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 459
+Spec version: 460
 """
 from typing import Any, NamedTuple
 
@@ -491,11 +491,6 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_reject_locked_alpha', {'enabled': enabled})
 
     @staticmethod
-    def set_root_weights(dests: 'Any', weights: 'Any') -> Call:
-        "--- Sets a root validator's basket distribution vector `w` on the root subnet (netuid 0). `dests` are subnet netuids and `weights` are the proportions of the validator's root dividends to deploy into each subnet's alpha basket. Requires at least [`crate::MIN_ROOT_BASKET_WEIGHTS`] positive destinations (softened when fewer networks exist), and no destination may take a larger share of the vector than [`crate::RootWeightsCap`] (skipped while fewer destinations exist than the cap demands).  # Args: * `origin`: the root validator hotkey. * `dests` (Vec<u16>): destination subnet netuids. * `weights` (Vec<u16>): per-subnet weights (normalized on use)."
-        return Call('SubtensorModule', 'set_root_weights', {'dests': dests, 'weights': weights})
-
-    @staticmethod
     def set_subnet_identity(netuid: 'NetUid', subnet_name: 'Any', github_repo: 'Any', subnet_contact: 'Any', subnet_url: 'Any', discord: 'Any', description: 'Any', logo_url: 'Any', additional: 'Any') -> Call:
         'Set the identity information for a subnet. # Arguments * `origin`: The signature of the calling coldkey, which must be the owner of the subnet.  * `netuid`: The unique network identifier of the subnet.  * `subnet_name`: The name of the subnet.  * `github_repo`: The GitHub repository associated with the subnet identity.  * `subnet_contact`: The contact information for the subnet.'
         return Call('SubtensorModule', 'set_subnet_identity', {'netuid': netuid, 'subnet_name': subnet_name, 'github_repo': github_repo, 'subnet_contact': subnet_contact, 'subnet_url': subnet_url, 'discord': discord, 'description': description, 'logo_url': logo_url, 'additional': additional})
@@ -512,7 +507,7 @@ class SubtensorModule:
 
     @staticmethod
     def stake_into_basket(hotkey: 'AccountId32', amount_staked: 'TaoBalance') -> Call:
-        "Stakes TAO from the caller's balance directly into a validator's basket.  The TAO is deployed across subnets per the validator's root weight vector (exactly like a dividend deposit) and the caller is credited a fund entitlement at the fund's pre-buy realizable NAV, priced against the realizable value the deposit added — the depositor bears their own entry slippage and swap fees. An uncurated fund (no usable weight vector) is mirrored instead: the deposit deploys pro-rata across the fund's current holdings by realizable value, keeping deposits symmetric with claims (which redeem pro-rata of every holding); a deposit into an empty uncurated fund is held as the fund's root (TAO cash) slot. The credited entitlement is redeemable through [`Pallet::claim_root_with_hotkey`] (or coldkey-wide [`Pallet::claim_root`]); it does not require or affect root stake, and it does not change any staker's dividend accrual.  # Arguments * `origin`: The signature of the caller's coldkey. * `hotkey`: The root-registered validator whose basket to deposit into. * `amount_staked`: TAO to take from the caller's balance and deploy.  # Events * `BasketStakedIn`: On success, with the TAO taken, the realizable value added, and the entitlement credited.  # Errors * `HotKeyAccountNotExists`: The hotkey is not a registered account. * `HotKeyNotRegisteredInSubNet`: The hotkey is not registered on root. * `AmountTooLow`: Below the minimum stake, or the deposit's realizable value rounds to zero entitlement. * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`."
+        "Stakes TAO from the caller's balance directly into a validator's basket.  The TAO enters by the fund's current holdings: it is split pro-rata across every holding by realizable value and buys each one, so the deposit acquires the exposure the fund already has and stays symmetric with claims (which redeem pro-rata of every holding). A deposit into a fund with no holdings is held as the fund's root (TAO cash) slot. Inflows never change a fund's composition; only the validator's [`Pallet::swap_basket`] trades do. The caller is credited a fund entitlement at the fund's pre-buy realizable NAV, priced against the realizable value the deposit added — the depositor bears their own entry slippage and swap fees. The credited entitlement is redeemable through [`Pallet::claim_root_with_hotkey`] (or coldkey-wide [`Pallet::claim_root`]); it does not require or affect root stake, and it does not change any staker's dividend accrual.  # Arguments * `origin`: The signature of the caller's coldkey. * `hotkey`: The root-registered validator whose basket to deposit into. * `amount_staked`: TAO to take from the caller's balance and deploy.  # Events * `BasketStakedIn`: On success, with the TAO taken, the realizable value added, and the entitlement credited.  # Errors * `HotKeyAccountNotExists`: The hotkey is not a registered account. * `HotKeyNotRegisteredInSubNet`: The hotkey is not registered on root. * `AmountTooLow`: Below the minimum stake, the deposit's realizable value rounds to zero entitlement, or a holding cannot be priced (or would receive a zero-TAO slice) so the deposit cannot buy every position its shares claim. * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`."
         return Call('SubtensorModule', 'stake_into_basket', {'hotkey': hotkey, 'amount_staked': amount_staked})
 
     @staticmethod
@@ -547,7 +542,7 @@ class SubtensorModule:
 
     @staticmethod
     def swap_basket(hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', amount: 'AlphaBalance', min_amount_out: 'u64') -> Call:
-        "--- Rebalances a root validator's beta basket: sells `amount` of the fund's `origin_netuid` holding for TAO and buys `destination_netuid` with it. Either side may be root (netuid 0), the fund's TAO cash slot. Fund shares and staker entitlements are unchanged; only the fund's composition moves.  Guardrails: each AMM leg must fill fully within 2% of the subnet's moving price; the TAO through the middle is taken from the fund's turnover bucket (`BasketDailyTurnoverCap` of NAV, refilling over 7200 blocks); the destination holding may not end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above `RootWeightsCap` of NAV. Trading must be enabled network-wide and not frozen for the hotkey by governance. On top of the protocol band the caller may set its own floor: the buy leg must credit at least `min_amount_out` or the trade rolls back.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey` (or its `BasketTrading` proxy). * `hotkey`: The root-registered validator whose basket to rebalance. * `origin_netuid`: Subnet to sell out of (root = the TAO slot). * `destination_netuid`: Subnet to buy into (root = the TAO slot). * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root). * `min_amount_out`: Least amount the buy leg must credit to the destination holding, in `destination_netuid` alpha (rao of TAO when the destination is root), after fees. `0` sets no floor; the 2% protocol band still applies.  # Events * `BasketSwapped`: On success, with the amounts on both legs.  # Errors * `BasketTradingDisabled`, `BasketTradingFrozen`: Gated off. * `BasketSameSubnet`: Origin equals destination. * `NonAssociatedColdKey`: Caller does not own `hotkey`. * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root. * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin. * `SlippageTooHigh`: A leg could not fill within 2% of the moving price. * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`. * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds. * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap. * `RootWeightCapExceeded`: The destination would exceed the concentration cap."
+        "--- Rebalances a root validator's beta basket: sells `amount` of the fund's `origin_netuid` holding for TAO and buys `destination_netuid` with it. Either side may be root (netuid 0), the fund's TAO cash slot. Fund shares and staker entitlements are unchanged; only the fund's composition moves.  Guardrails: each AMM leg must fill fully within 2% of the subnet's moving price; the TAO through the middle is taken from the fund's turnover bucket (`BasketDailyTurnoverCap` of NAV, refilling over 7200 blocks); the destination holding may not end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above `BasketConcentrationCap` of NAV. Trading must be enabled network-wide and not frozen for the hotkey by governance. On top of the protocol band the caller may set its own floor: the buy leg must credit at least `min_amount_out` or the trade rolls back.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey` (or its `BasketTrading` proxy). * `hotkey`: The root-registered validator whose basket to rebalance. * `origin_netuid`: Subnet to sell out of (root = the TAO slot). * `destination_netuid`: Subnet to buy into (root = the TAO slot). * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root). * `min_amount_out`: Least amount the buy leg must credit to the destination holding, in `destination_netuid` alpha (rao of TAO when the destination is root), after fees. `0` sets no floor; the 2% protocol band still applies.  # Events * `BasketSwapped`: On success, with the amounts on both legs.  # Errors * `BasketTradingDisabled`, `BasketTradingFrozen`: Gated off. * `BasketSameSubnet`: Origin equals destination. * `NonAssociatedColdKey`: Caller does not own `hotkey`. * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root. * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin. * `SlippageTooHigh`: A leg could not fill within 2% of the moving price. * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`. * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds. * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap. * `BasketConcentrationCapExceeded`: The destination would exceed the concentration cap."
         return Call('SubtensorModule', 'swap_basket', {'hotkey': hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'amount': amount, 'min_amount_out': min_amount_out})
 
     @staticmethod
@@ -928,6 +923,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_alpha_values', {'netuid': netuid, 'alpha_low': alpha_low, 'alpha_high': alpha_high})
 
     @staticmethod
+    def sudo_set_basket_concentration_cap(cap: 'u16') -> Call:
+        'Sets the basket concentration cap ([`pallet_subtensor::BasketConcentrationCap`]): the largest u16-normalized share (`u16::MAX` = 100%) of fund NAV any single holding may reach through a `swap_basket` buy. A cap of `u16::MAX / 16 + 1` forces traded funds to spread across at least 16 holdings. The check is skipped while fewer subnets exist on chain than the cap demands. Root-only.'
+        return Call('AdminUtils', 'sudo_set_basket_concentration_cap', {'cap': cap})
+
+    @staticmethod
     def sudo_set_basket_daily_turnover_cap(cap: 'u16') -> Call:
         "Sets the basket daily turnover budget ([`pallet_subtensor::BasketDailyTurnoverCap`]): the capacity of each fund's `swap_basket` turnover bucket as a u16-normalized share of fund NAV (`u16::MAX` = 100%). The bucket refills over 7200 blocks, so at most one capacity can be traded at any instant and about one per day sustained. Root-only."
         return Call('AdminUtils', 'sudo_set_basket_daily_turnover_cap', {'cap': cap})
@@ -939,7 +939,7 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_basket_trading_enabled(enabled: 'bool') -> Call:
-        'Enables or disables validator basket trading (`swap_basket`) network-wide. Defaults OFF. Gates only the trade path: deposits, claims, dividend deployment, and reads are unaffected. Root-only.'
+        'Enables or disables validator basket trading (`swap_basket`) network-wide. Defaults OFF. Gates only the trade path: deposits, claims, dividend accrual, and reads are unaffected. Root-only.'
         return Call('AdminUtils', 'sudo_set_basket_trading_enabled', {'enabled': enabled})
 
     @staticmethod
@@ -1226,16 +1226,6 @@ class AdminUtils:
     def sudo_set_rho(netuid: 'NetUid', rho: 'u16') -> Call:
         'The extrinsic sets the rho for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the rho.'
         return Call('AdminUtils', 'sudo_set_rho', {'netuid': netuid, 'rho': rho})
-
-    @staticmethod
-    def sudo_set_root_weight_setting_enabled(enabled: 'bool') -> Call:
-        'Enables or disables root basket weight setting (`set_root_weights`) network-wide. Root Reborn launches with this OFF so every fund runs the null (accumulate in place) strategy as the observable baseline; flip it on later to open basket curation. Gates only the setter — existing vectors, dividend deployment, and reads are unaffected. Root-only.'
-        return Call('AdminUtils', 'sudo_set_root_weight_setting_enabled', {'enabled': enabled})
-
-    @staticmethod
-    def sudo_set_root_weights_cap(cap: 'u16') -> Call:
-        'Sets the root basket concentration cap ([`pallet_subtensor::RootWeightsCap`]): the largest u16-normalized share (`u16::MAX` = 100%) any single destination may take of a `set_root_weights` vector. A cap of `u16::MAX / 16 + 1` forces funds to spread across at least 16 destinations. The check softens to an equal split when fewer destinations exist on chain. Root-only.'
-        return Call('AdminUtils', 'sudo_set_root_weights_cap', {'cap': cap})
 
     @staticmethod
     def sudo_set_serving_rate_limit(netuid: 'NetUid', serving_rate_limit: 'u64') -> Call:

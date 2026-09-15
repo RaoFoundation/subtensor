@@ -5,10 +5,10 @@ description: How the root key enables, freezes, and tunes validator basket tradi
 
 This guide is for whoever holds the chain's root (sudo) key or sits on its
 multisig. It covers the four `AdminUtils` calls that control
-[basket trading](/docs/guides/basket-trading) (runtime v459), what each one
+[basket trading](/docs/guides/basket-trading) (runtime v460), what each one
 bounds, and what to do when a validator's trader key looks compromised. The
 staker view is in [Basket trading for stakers](/docs/guides/basket-trading-for-stakers);
-the on-chain surface is in the [v459 release notes](/releases/v459-upgrade).
+the on-chain surface is in the [v460 release notes](/releases/v460-upgrade).
 
 All four calls are root-only. Submit them as the sudo key with
 `btcli call ... --sudo`, or through the sudo multisig with `--multisig`
@@ -39,8 +39,8 @@ btcli call AdminUtils.sudo_set_basket_trading_enabled --args '{"enabled": true}'
 ```
 
 While it is off, every `swap_basket` fails with `BasketTradingDisabled`.
-Deposits, claims, dividend deployment, and `set_root_weights` are not
-affected by this switch in either direction.
+Deposits, claims, and dividend accrual are not affected by this switch in
+either direction.
 
 ### Freeze one fund
 
@@ -184,5 +184,5 @@ their root stake to another validator at any time
   [Basket trading for stakers](/docs/guides/basket-trading-for-stakers)
 - Calls: `AdminUtils.sudo_set_basket_trading_enabled` (106),
   `sudo_set_basket_trading_frozen` (107), `sudo_set_basket_daily_turnover_cap` (108),
-  `sudo_set_basket_liquidity_cap` (109); the 1/16 cap is `sudo_set_root_weights_cap`
-- Release: [v459 — Basket Trading](/releases/v459-upgrade)
+  `sudo_set_basket_liquidity_cap` (109), `sudo_set_basket_concentration_cap` (105)
+- Release: [v460 — Basket Trading](/releases/v460-upgrade)

@@ -1718,8 +1718,9 @@ class SwapBasket(Intent):
     ``BasketDailyTurnoverCap`` of NAV and refills over 7200 blocks
     (``BasketTurnoverBudgetExceeded``); the destination holding may not end
     above the ``BasketLiquidityCap`` share of the destination pool's alpha
-    reserve (``BasketLiquidityCapExceeded``) nor above the ``RootWeightsCap``
-    share of fund NAV (``RootWeightCapExceeded``). Trading
+    reserve (``BasketLiquidityCapExceeded``) nor above the
+    ``BasketConcentrationCap`` share of fund NAV
+    (``BasketConcentrationCapExceeded``). Trading
     must be enabled network-wide and not frozen for the hotkey. Query
     ``basket_trading_status`` for the remaining budget and
     ``validator_basket`` for current holdings before trading. Pass ``all``

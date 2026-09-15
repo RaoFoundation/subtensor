@@ -76,14 +76,11 @@ pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 /// and refund unused weight after dispatch.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
 
-/// Minimum number of positive destination weights required by `set_root_weights`. Softened
-/// to the number of available destinations when fewer networks exist than this floor.
-pub const MIN_ROOT_BASKET_WEIGHTS: u16 = 8;
-
-/// Default [`RootWeightsCap`]: the largest u16-normalized share of a root basket vector a
-/// single destination may take. `u16::MAX / 16 + 1` (= 4096) is the smallest cap that
-/// admits a 16-way equal split, so a fund must curate at least 16 destinations.
-pub const DEFAULT_ROOT_WEIGHTS_CAP: u16 = u16::MAX / 16 + 1;
+/// Default [`BasketConcentrationCap`]: the largest u16-normalized share of a fund's NAV a
+/// single holding may reach through a `swap_basket` buy. `u16::MAX / 16 + 1` (= 4096) is
+/// the smallest cap that admits a 16-way equal split, so a traded fund must spread across
+/// at least 16 holdings.
+pub const DEFAULT_BASKET_CONCENTRATION_CAP: u16 = u16::MAX / 16 + 1;
 
 /// Default [`BasketDailyTurnoverCap`]: the `swap_basket` turnover bucket holds 10% of fund
 /// NAV (u16-normalized).
@@ -2987,20 +2984,9 @@ pub mod pallet {
     #[pallet::storage]
     pub type RootStakeUnlockInterval<T> = StorageValue<_, u64, ValueQuery>;
 
-    /// Master switch for `set_root_weights` (basket curation). Defaults to OFF: Root Reborn
-    /// launches with every fund uncurated — dividends accumulate in place — so the null
-    /// strategy is the observable network-wide baseline, and validators cannot stampede
-    /// into TAO-cash (netuid 0) vectors on day one, which would recreate the old
-    /// mechanical sell-pressure regime under a new name. Flipped on later via
-    /// `AdminUtils::sudo_set_root_weight_setting_enabled` (or a migration in the enabling
-    /// upgrade). Gates only the setter: existing stored vectors, dividend deployment, and
-    /// all read paths are unaffected.
-    #[pallet::storage]
-    pub type RootWeightSettingEnabled<T> = StorageValue<_, bool, ValueQuery>;
-
     /// Master switch for `swap_basket` (validator-directed basket rebalancing). Defaults to
     /// OFF. Flipped on via `AdminUtils::sudo_set_basket_trading_enabled`. Gates only the
-    /// trade path: deposits, claims, dividend deployment, and all read paths are unaffected.
+    /// trade path: deposits, claims, dividend accrual, and all read paths are unaffected.
     #[pallet::storage]
     pub type BasketTradingEnabled<T> = StorageValue<_, bool, ValueQuery>;
 
@@ -3040,7 +3026,7 @@ pub mod pallet {
     /// --- ITEM --> max share of a subnet's alpha reserve (`SubnetAlphaIn`) a fund may hold
     /// on that subnet after a `swap_basket` buy (u16-normalized, `u16::MAX` = 100%).
     ///
-    /// The concentration cap ([`RootWeightsCap`]) marks holdings at realizable value, which
+    /// The concentration cap ([`BasketConcentrationCap`]) marks holdings at realizable value, which
     /// is bounded by the pool's TAO reserve, so on a thin pool a fund could keep buying while
     /// counterparties sell back into its own price support and the realizable share never
     /// grows. This cap bounds the fund's exposure to any one pool's liquidity instead: with
@@ -3061,22 +3047,23 @@ pub mod pallet {
         StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u64), OptionQuery>;
 
     #[pallet::type_value]
-    /// Default share cap for a single root basket destination: 1/16 of the vector
-    /// (u16-normalized; 4096/65535 admits exactly 16 equal-weight destinations).
-    pub fn DefaultRootWeightsCap<T: Config>() -> u16 {
-        crate::DEFAULT_ROOT_WEIGHTS_CAP
+    /// Default concentration cap for a single basket holding: 1/16 of fund NAV
+    /// (u16-normalized; 4096/65535 admits exactly 16 equal holdings).
+    pub fn DefaultBasketConcentrationCap<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_CONCENTRATION_CAP
     }
 
-    #[pallet::storage] // --- MAP ( netuid ) --> Max share one destination may take of a root basket.
-    /// Concentration cap on `set_root_weights` vectors, u16-normalized (`u16::MAX` = 100%
-    /// of the vector's summed weight). A cap of 1/16 forces a fund to spread across at
-    /// least 16 destinations, so basket curation cannot recreate single-subnet
-    /// concentration. Like [`RootClaimableThreshold`], only the `NetUid::ROOT` entry is
-    /// consulted; other entries are inert. Skipped at check time while fewer destinations
+    /// --- ITEM --> max share of a fund's NAV one holding may reach through a `swap_basket`
+    /// buy, u16-normalized (`u16::MAX` = 100%). Holdings are marked at realizable value. A
+    /// cap of 1/16 forces a traded fund to spread across at least 16 holdings, so trading
+    /// cannot recreate single-subnet concentration. Only buys are checked: a holding that
+    /// grows past the cap through price appreciation or in-place dividends is left alone
+    /// (it can be sold down, not topped up). Skipped at check time while fewer subnets
     /// exist than the cap demands (young chains, tests). Set via
-    /// `AdminUtils::sudo_set_root_weights_cap`.
-    pub type RootWeightsCap<T: Config> =
-        StorageMap<_, Blake2_128Concat, NetUid, u16, ValueQuery, DefaultRootWeightsCap<T>>;
+    /// `AdminUtils::sudo_set_basket_concentration_cap`.
+    #[pallet::storage]
+    pub type BasketConcentrationCap<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketConcentrationCap<T>>;
 
     #[pallet::storage] // --- MAP(netuid ) --> Root claim threshold
     /// Basket redemption is fund-level (not per-subnet), so only the `NetUid::ROOT` entry is
