@@ -4710,6 +4710,48 @@ fn test_root_register_auto_childkeys_to_every_subnet_owner() {
     });
 }
 
+#[test]
+fn test_root_register_requires_hotkey_ownership() {
+    new_test_ext(1).execute_with(|| {
+        add_network(NetUid::ROOT, 1, 0);
+        SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 10);
+        SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 10);
+
+        let owner_cold = U256::from(1001);
+        let owner_hot = U256::from(1002);
+        let val_cold = U256::from(3001);
+        let val_hot = U256::from(3002);
+        let other_cold = U256::from(4001);
+        let fresh_hot = U256::from(4002);
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        register_ok_neuron(netuid, val_hot, val_cold, 0);
+        SubtensorModule::set_burn(NetUid::ROOT, TaoBalance::from(1_000));
+        add_balance_to_coldkey_account(&other_cold, TaoBalance::from(1_000_000_000));
+
+        // Check all storage stays unchanged, including balances, registration
+        // counters, delegate state, and both sides of auto-parent relationships.
+        assert_noop!(
+            SubtensorModule::root_register(RuntimeOrigin::signed(other_cold), val_hot),
+            Error::<Test>::NonAssociatedColdKey
+        );
+
+        // The existing owner can still register and receive auto-parent edges.
+        root_register_ok(val_hot, val_cold);
+        assert!(Uids::<Test>::contains_key(NetUid::ROOT, val_hot));
+        assert_eq!(Owner::<Test>::get(val_hot), val_cold);
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid),
+            vec![(u64::MAX, owner_hot)]
+        );
+
+        // A new hotkey is paired with the signer before ownership is checked.
+        assert!(!Owner::<Test>::contains_key(fresh_hot));
+        root_register_ok(fresh_hot, other_cold);
+        assert!(Uids::<Test>::contains_key(NetUid::ROOT, fresh_hot));
+        assert_eq!(Owner::<Test>::get(fresh_hot), other_cold);
+    });
+}
+
 // Root prune must drop the protocol auto-parent edges so ParentKeys
 // on owners do not grow with senate churn.
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::children::test_root_prune_clears_auto_parent_edges --exact --show-output --nocapture

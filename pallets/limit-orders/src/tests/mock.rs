@@ -135,6 +135,17 @@ thread_local! {
 
 pub struct MockSwap;
 
+parameter_types! {
+    pub static FrozenOrderSigner: Option<AccountId> = None;
+}
+
+pub struct OrderSignerFilter;
+impl frame_support::traits::Contains<AccountId> for OrderSignerFilter {
+    fn contains(signer: &AccountId) -> bool {
+        FrozenOrderSigner::get().as_ref() != Some(signer)
+    }
+}
+
 impl MockSwap {
     pub fn set_price(price: f64) {
         MOCK_PRICE.with(|p| *p.borrow_mut() = U64F64::from_num(price));
@@ -536,6 +547,7 @@ pub fn fee_recipient() -> AccountId {
 
 impl pallet_limit_orders::Config for Test {
     type SwapInterface = MockSwap;
+    type OrderSignerFilter = OrderSignerFilter;
     type TimeProvider = MockTime;
     type MaxOrdersPerBatch = ConstU32<64>;
     type PalletId = LimitOrdersPalletId;
@@ -707,6 +719,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     ext.register_extension(sp_keystore::KeystoreExt::new(keystore));
     ext.execute_with(|| {
         System::set_block_number(1);
+        FrozenOrderSigner::set(None);
         MockSwap::clear_log();
         // Simulate genesis_build: register the pallet hotkey and enable the pallet.
         let pallet_acct: AccountId = LimitOrdersPalletId::get().into_account_truncating();

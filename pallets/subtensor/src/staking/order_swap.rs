@@ -145,14 +145,15 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
         let available =
             Self::get_stake_for_hotkey_and_coldkey_on_subnet(from_hotkey, from_coldkey, netuid);
         ensure!(available >= amount, Error::<T>::NotEnoughStakeToWithdraw);
-        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+        let removed = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
             from_hotkey,
             from_coldkey,
             netuid,
             amount,
         );
+        ensure!(removed == amount, Error::<T>::NotEnoughStakeToWithdraw);
         Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            to_hotkey, to_coldkey, netuid, amount,
+            to_hotkey, to_coldkey, netuid, removed,
         );
         if netuid.is_root() {
             Self::touch_root_stake_age(to_coldkey, to_hotkey);

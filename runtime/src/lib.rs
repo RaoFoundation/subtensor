@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 456,
+    spec_version: 458,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -625,6 +625,108 @@ impl ProxyInterface<AccountId> for Proxier {
 }
 
 pub struct CommitmentsI;
+
+#[test]
+#[allow(clippy::unwrap_used)]
+fn lease_recovery_rolls_back_real_proxy_storage_on_a_late_failure() {
+    use frame_support::{assert_noop, assert_ok};
+    use pallet_subtensor::{
+        Lock, SubnetLeaseShares, SubnetLeases, SubnetUidToLeaseId, staking::lock::LockState,
+        subnets::leasing::SubnetLease,
+    };
+    use sp_runtime::{BuildStorage, Percent};
+    use substrate_fixed::types::U64F64;
+
+    let old = AccountId::new([81; 32]);
+    let new = AccountId::new([82; 32]);
+    let lease_coldkey = AccountId::new([83; 32]);
+    let lease_hotkey = AccountId::new([84; 32]);
+    let netuid = subtensor_runtime_common::NetUid::from(1);
+    let storage = RuntimeGenesisConfig {
+        balances: pallet_balances::GenesisConfig {
+            balances: vec![(lease_coldkey.clone(), 100_000_000_000u64.into())],
+            dev_accounts: None,
+        },
+        ..Default::default()
+    }
+    .build_storage()
+    .unwrap();
+    sp_io::TestExternalities::new(storage).execute_with(|| {
+        System::set_block_number(1);
+        SubnetLeases::<Runtime>::insert(
+            0,
+            SubnetLease {
+                beneficiary: old.clone(),
+                coldkey: lease_coldkey.clone(),
+                hotkey: lease_hotkey.clone(),
+                emissions_share: Percent::from_percent(30),
+                end_block: None,
+                netuid,
+                cost: 0u64.into(),
+            },
+        );
+        SubnetUidToLeaseId::<Runtime>::insert(netuid, 0);
+        SubnetLeaseShares::<Runtime>::insert(0, &old, U64F64::from_num(1));
+        assert_ok!(Proxier::add_lease_beneficiary_proxy(&lease_coldkey, &old));
+        SubtensorModule::insert_lock_state(
+            &new,
+            netuid,
+            &lease_hotkey,
+            LockState {
+                locked_mass: 1_000u64.into(),
+                conviction: U64F64::from_num(0),
+                last_update: 1,
+            },
+        );
+        assert_noop!(
+            SubtensorModule::do_swap_coldkey(&old, &new),
+            pallet_subtensor::Error::<Runtime>::ActiveLockExists
+        );
+        assert!(
+            Proxy::find_proxy(
+                &lease_coldkey,
+                &old,
+                Some(ProxyType::SubnetLeaseBeneficiary)
+            )
+            .is_ok()
+        );
+        assert!(
+            Proxy::find_proxy(
+                &lease_coldkey,
+                &new,
+                Some(ProxyType::SubnetLeaseBeneficiary)
+            )
+            .is_err()
+        );
+        assert_eq!(
+            SubnetLeaseShares::<Runtime>::get(0, &old),
+            U64F64::from_num(1)
+        );
+        assert!(!SubnetLeaseShares::<Runtime>::contains_key(0, &new));
+        assert_eq!(SubnetLeases::<Runtime>::get(0).unwrap().beneficiary, old);
+
+        Lock::<Runtime>::remove((&new, netuid, &lease_hotkey));
+        assert_ok!(SubtensorModule::do_swap_coldkey(&old, &new));
+        assert!(
+            Proxy::find_proxy(
+                &lease_coldkey,
+                &old,
+                Some(ProxyType::SubnetLeaseBeneficiary)
+            )
+            .is_err()
+        );
+        assert!(
+            Proxy::find_proxy(
+                &lease_coldkey,
+                &new,
+                Some(ProxyType::SubnetLeaseBeneficiary)
+            )
+            .is_ok()
+        );
+        assert_eq!(SubnetLeases::<Runtime>::get(0).unwrap().beneficiary, new);
+    });
+}
+
 impl SubnetDissolveHook for CommitmentsI {
     fn on_subnet_dissolve(
         netuid: NetUid,
@@ -1353,8 +1455,34 @@ impl frame_support::traits::UnixTime for LimitOrdersUnixTime {
     }
 }
 
+pub struct LimitOrderSignerFilter;
+impl frame_support::traits::Contains<AccountId> for LimitOrderSignerFilter {
+    fn contains(signer: &AccountId) -> bool {
+        !pallet_subtensor::ColdkeySwapAnnouncements::<Runtime>::contains_key(signer)
+            && !pallet_subtensor::ColdkeySwapDisputes::<Runtime>::contains_key(signer)
+    }
+}
+
+#[test]
+fn limit_order_signers_are_blocked_during_recovery_or_dispute() {
+    use frame_support::traits::Contains;
+    sp_io::TestExternalities::default().execute_with(|| {
+        let signer = AccountId::new([71; 32]);
+        assert!(LimitOrderSignerFilter::contains(&signer));
+        pallet_subtensor::ColdkeySwapAnnouncements::<Runtime>::insert(&signer, (0, Hash::zero()));
+        assert!(!LimitOrderSignerFilter::contains(&signer));
+        pallet_subtensor::ColdkeySwapDisputes::<Runtime>::insert(&signer, 0);
+        assert!(!LimitOrderSignerFilter::contains(&signer));
+        pallet_subtensor::ColdkeySwapAnnouncements::<Runtime>::remove(&signer);
+        assert!(!LimitOrderSignerFilter::contains(&signer));
+        pallet_subtensor::ColdkeySwapDisputes::<Runtime>::remove(&signer);
+        assert!(LimitOrderSignerFilter::contains(&signer));
+    });
+}
+
 impl pallet_limit_orders::Config for Runtime {
     type SwapInterface = SubtensorModule;
+    type OrderSignerFilter = LimitOrderSignerFilter;
     #[cfg(feature = "runtime-benchmarks")]
     type TimeProvider = LimitOrdersUnixTime;
     #[cfg(not(feature = "runtime-benchmarks"))]

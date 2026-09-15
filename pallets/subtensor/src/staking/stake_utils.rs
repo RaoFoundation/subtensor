@@ -635,23 +635,36 @@ impl<T: Config> Pallet<T> {
     /// * `hotkey`: The account ID of the hotkey.
     /// * `coldkey`: The account ID of the coldkey (owner).
     /// * `netuid`: The unique identifier of the subnet.
-    /// * `amount`: The amount of alpha to be added.
+    /// * `amount`: The amount of alpha to be removed.
     ///
+    /// # Returns
+    /// The alpha actually removed from the hotkey's pool, measured as the real change in the
+    /// pool's shared value. This is zero when the coldkey's quoted position cannot cover
+    /// `amount`, and can be below `amount` if the pool holds less than the quote implied.
+    /// Callers that credit or settle a destination must use this value, never `amount`,
+    /// so that alpha is conserved.
     pub fn decrease_stake_for_hotkey_and_coldkey_on_subnet(
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
         netuid: NetUid,
         amount: AlphaBalance,
-    ) {
+    ) -> AlphaBalance {
         let mut alpha_share_pool = Self::get_alpha_share_pool(hotkey.clone(), netuid);
         let amount = amount.to_u64();
 
         // We expect a negative value here
-        if let Ok(value) = alpha_share_pool.try_get_value(coldkey)
-            && value >= amount
-        {
-            alpha_share_pool.update_value_for_one(coldkey, (amount as i64).neg());
+        let Ok(value) = alpha_share_pool.try_get_value(coldkey) else {
+            return AlphaBalance::ZERO;
+        };
+        if value < amount {
+            return AlphaBalance::ZERO;
         }
+
+        let pool_before = Self::get_stake_for_hotkey_on_subnet(hotkey, netuid);
+        alpha_share_pool.update_value_for_one(coldkey, (amount as i64).neg());
+        let pool_after = Self::get_stake_for_hotkey_on_subnet(hotkey, netuid);
+
+        pool_before.saturating_sub(pool_after)
     }
 
     /// Remove a staking-hotkey association once the pair has no stake left anywhere.
@@ -856,8 +869,11 @@ impl<T: Config> Pallet<T> {
         Self::ensure_available_to_unstake(coldkey, netuid, alpha)?;
         Self::ensure_hotkey_covers_collateral(coldkey, hotkey, netuid, alpha)?;
 
-        //  Decrease alpha on subnet
-        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid, alpha);
+        //  Decrease alpha on subnet. Only alpha that really left the position may be sold:
+        //  a silent short debit would otherwise still be swapped for TAO in full.
+        let alpha_removed =
+            Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid, alpha);
+        ensure!(alpha_removed == alpha, Error::<T>::NotEnoughStakeToWithdraw);
 
         // Swap the alpha for TAO.
         let swap_result = Self::swap_alpha_for_tao(netuid, alpha, price_limit, drop_fees)?;
@@ -1108,13 +1124,16 @@ impl<T: Config> Pallet<T> {
             alpha,
         )?;
 
-        // Decrease alpha on origin keys
-        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+        // Decrease alpha on origin keys. The destination is credited only with what was
+        // really debited; a transfer that cannot debit the full amount is refused so that
+        // alpha is conserved across the two positions.
+        let alpha_removed = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
             origin_hotkey,
             origin_coldkey,
             netuid,
             alpha,
         );
+        ensure!(alpha_removed == alpha, Error::<T>::NotEnoughStakeToWithdraw);
         if netuid == NetUid::ROOT {
             Self::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(
                 origin_hotkey,
@@ -1129,12 +1148,12 @@ impl<T: Config> Pallet<T> {
             Self::maybe_become_delegate(destination_hotkey);
         }
 
-        // Increase alpha on destination keys
+        // Increase alpha on destination keys by exactly what the origin lost
         Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
             destination_hotkey,
             destination_coldkey,
             netuid,
-            alpha,
+            alpha_removed,
         );
         if netuid == NetUid::ROOT {
             Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(

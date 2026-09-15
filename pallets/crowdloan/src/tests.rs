@@ -1329,7 +1329,11 @@ fn test_withdraw_fails_if_crowdloan_has_already_been_finalized() {
                 min_contribution,
                 cap,
                 end,
-                Some(noop_call()),
+                Some(Box::new(RuntimeCall::TestPallet(
+                    pallet_test::Call::<Test>::transfer_funds {
+                        dest: U256::from(42)
+                    },
+                ))),
                 None,
             ));
 
@@ -1394,6 +1398,121 @@ fn test_withdraw_fails_if_no_contribution_exists() {
                 Crowdloan::withdraw(RuntimeOrigin::signed(contributor), crowdloan_id),
                 pallet_crowdloan::Error::<Test>::NoContribution
             );
+        });
+}
+
+#[test]
+fn test_finalize_requires_full_settlement_and_preserves_unsolicited_deposits() {
+    for amount in [0u64, 50, 99, 100] {
+        TestState::default()
+            .with_balance(U256::from(1), 200.into())
+            .with_balance(U256::from(2), 100.into())
+            .build_and_execute(|| {
+                let creator = U256::from(1);
+                let contributor = U256::from(2);
+                let dest = U256::from(42);
+                assert_ok!(Crowdloan::create(
+                    RuntimeOrigin::signed(creator),
+                    50.into(),
+                    10.into(),
+                    100.into(),
+                    50,
+                    Some(Box::new(RuntimeCall::TestPallet(
+                        pallet_test::Call::<Test>::transfer_some_funds {
+                            dest,
+                            amount: amount.into(),
+                        },
+                    ))),
+                    None,
+                ));
+                assert_ok!(Crowdloan::contribute(
+                    RuntimeOrigin::signed(contributor),
+                    0,
+                    50.into(),
+                ));
+                let before = pallet_crowdloan::Crowdloans::<Test>::get(0).unwrap();
+                // An unsolicited deposit must neither count as settlement nor prevent it.
+                assert_ok!(Balances::transfer_allow_death(
+                    RuntimeOrigin::signed(creator),
+                    before.funds_account,
+                    7.into(),
+                ));
+                if amount < 100 {
+                    frame_support::assert_noop!(
+                        Crowdloan::finalize(RuntimeOrigin::signed(creator), 0),
+                        pallet_crowdloan::Error::<Test>::FundsNotSettled,
+                    );
+                    assert_eq!(Balances::free_balance(before.funds_account), 107.into());
+                    assert_eq!(Balances::free_balance(dest), 0.into());
+                    assert_eq!(pallet_crowdloan::Crowdloans::<Test>::get(0), Some(before));
+                    assert!(pallet_crowdloan::CurrentCrowdloanId::<Test>::get().is_none());
+                    run_to_block(60);
+                    assert_ok!(Crowdloan::withdraw(RuntimeOrigin::signed(contributor), 0));
+                } else {
+                    assert_ok!(Crowdloan::finalize(RuntimeOrigin::signed(creator), 0));
+                    assert_eq!(Balances::free_balance(before.funds_account), 7.into());
+                    assert_eq!(Balances::free_balance(dest), 100.into());
+                    assert!(
+                        pallet_crowdloan::Crowdloans::<Test>::get(0)
+                            .unwrap()
+                            .finalized
+                    );
+                }
+            });
+    }
+}
+
+#[test]
+fn test_finalize_preserves_inherited_call_filters() {
+    use frame_support::traits::OriginTrait;
+
+    TestState::default()
+        .with_balance(U256::from(1), 100.into())
+        .with_balance(U256::from(2), 100.into())
+        .build_and_execute(|| {
+            let creator = U256::from(1);
+            let call = Box::new(RuntimeCall::TestPallet(
+                pallet_test::Call::<Test>::transfer_funds {
+                    dest: U256::from(42),
+                },
+            ));
+            assert_ok!(Crowdloan::create(
+                RuntimeOrigin::signed(creator),
+                50.into(),
+                10.into(),
+                100.into(),
+                50,
+                Some(call),
+                None,
+            ));
+            assert_ok!(Crowdloan::contribute(
+                RuntimeOrigin::signed(U256::from(2)),
+                0,
+                50.into(),
+            ));
+
+            let before = pallet_crowdloan::Crowdloans::<Test>::get(0);
+            let events = System::events();
+            let mut origin = RuntimeOrigin::signed(creator);
+            origin.add_filter(|call| !matches!(call, RuntimeCall::TestPallet(_)));
+            assert_err!(
+                Crowdloan::finalize(origin, 0),
+                frame_system::Error::<Test>::CallFiltered,
+            );
+            assert_eq!(pallet_crowdloan::Crowdloans::<Test>::get(0), before);
+            assert_eq!(System::events(), events);
+            assert!(pallet_crowdloan::CurrentCrowdloanId::<Test>::get().is_none());
+
+            // A permitted stored call still executes through a filtered origin.
+            let mut origin = RuntimeOrigin::signed(creator);
+            origin.add_filter(|_| true);
+            assert_ok!(Crowdloan::finalize(origin, 0));
+            assert!(
+                pallet_crowdloan::Crowdloans::<Test>::get(0)
+                    .unwrap()
+                    .finalized
+            );
+            assert!(pallet_crowdloan::CurrentCrowdloanId::<Test>::get().is_none());
         });
 }
 
@@ -1793,7 +1912,11 @@ fn test_finalize_fails_if_crowdloan_has_already_been_finalized() {
                 min_contribution,
                 cap,
                 end,
-                Some(noop_call()),
+                Some(Box::new(RuntimeCall::TestPallet(
+                    pallet_test::Call::<Test>::transfer_funds {
+                        dest: U256::from(42)
+                    },
+                ))),
                 None,
             ));
 
@@ -2378,7 +2501,11 @@ fn test_dissolve_fails_if_crowdloan_has_been_finalized() {
                 min_contribution,
                 cap,
                 end,
-                Some(noop_call()),
+                Some(Box::new(RuntimeCall::TestPallet(
+                    pallet_test::Call::<Test>::transfer_funds {
+                        dest: U256::from(42)
+                    },
+                ))),
                 None,
             ));
 
@@ -2596,7 +2723,11 @@ fn test_update_min_contribution_fails_if_crowdloan_has_been_finalized() {
                 min_contribution,
                 cap,
                 end,
-                Some(noop_call()),
+                Some(Box::new(RuntimeCall::TestPallet(
+                    pallet_test::Call::<Test>::transfer_funds {
+                        dest: U256::from(42)
+                    },
+                ))),
                 None,
             ));
 
@@ -2841,7 +2972,11 @@ fn test_update_end_fails_if_crowdloan_has_been_finalized() {
                 min_contribution,
                 cap,
                 end,
-                Some(noop_call()),
+                Some(Box::new(RuntimeCall::TestPallet(
+                    pallet_test::Call::<Test>::transfer_funds {
+                        dest: U256::from(42)
+                    },
+                ))),
                 None,
             ));
 
@@ -3105,7 +3240,11 @@ fn test_update_cap_fails_if_crowdloan_has_been_finalized() {
                 min_contribution,
                 cap,
                 end,
-                Some(noop_call()),
+                Some(Box::new(RuntimeCall::TestPallet(
+                    pallet_test::Call::<Test>::transfer_funds {
+                        dest: U256::from(42)
+                    },
+                ))),
                 None,
             ));
 

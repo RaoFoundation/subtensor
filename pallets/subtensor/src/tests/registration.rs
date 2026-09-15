@@ -16,6 +16,85 @@ use crate::{AxonInfoOf, Error};
 *********************************************/
 
 #[test]
+fn test_registration_collateral_swap_requires_full_charge() {
+    for use_register_limit in [false, true] {
+        for deep_pool in [false, true] {
+            new_test_ext(1).execute_with(|| {
+                let netuid = NetUid::from(1);
+                let coldkey = U256::from(667);
+                let hotkey = U256::from(668);
+                add_network(netuid, 13, 0);
+                SubnetMechanism::<Test>::insert(netuid, 1);
+                let reserve = if deep_pool {
+                    10_000_000_000_000u64
+                } else {
+                    100_000_000_000u64
+                };
+                mock::setup_reserves(netuid, reserve.into(), reserve.into());
+                let charge = TaoBalance::from(20_000_000_000u64);
+                SubtensorModule::set_burn(netuid, charge);
+                CollateralLockShare::<Test>::insert(netuid, u16::MAX / 2);
+                add_balance_to_coldkey_account(&coldkey, 100_000_000_000u64.into());
+                // Pre-existing association makes assert_noop cover all payment
+                // and registration storage, independently of account creation.
+                assert_ok!(SubtensorModule::create_account_if_non_existent(
+                    &coldkey, &hotkey
+                ));
+                let register = || {
+                    if use_register_limit {
+                        SubtensorModule::register_limit(
+                            RuntimeOrigin::signed(coldkey),
+                            netuid,
+                            hotkey,
+                            charge.to_u64(),
+                        )
+                    } else {
+                        SubtensorModule::burned_register(
+                            RuntimeOrigin::signed(coldkey),
+                            netuid,
+                            hotkey,
+                        )
+                    }
+                };
+
+                if !deep_pool {
+                    assert_noop!(register(), Error::<Test>::SlippageTooHigh);
+                    assert!(!Uids::<Test>::contains_key(netuid, hotkey));
+                    assert_eq!(SubtensorModule::get_burn(netuid), charge);
+                    assert_eq!(
+                        SubtensorModule::get_miner_collateral_locked(netuid, &hotkey, &coldkey),
+                        AlphaBalance::ZERO
+                    );
+                } else {
+                    let balance_before = SubtensorModule::get_coldkey_balance(&coldkey);
+                    let (alpha, _) = mock::swap_tao_to_alpha(netuid, charge);
+                    let topup = SubtensorModule::get_collateral_topup_tao(
+                        netuid, &hotkey, &coldkey, charge,
+                    );
+                    let expected_lock = AlphaBalance::from(
+                        u128::from(alpha.to_u64())
+                            .saturating_mul(u128::from(topup.to_u64()))
+                            .checked_div(u128::from(charge.to_u64()))
+                            .unwrap() as u64,
+                    );
+                    assert_ok!(register());
+                    assert_eq!(
+                        SubtensorModule::get_coldkey_balance(&coldkey),
+                        balance_before.saturating_sub(charge)
+                    );
+                    assert!(Uids::<Test>::contains_key(netuid, hotkey));
+                    assert_eq!(
+                        SubtensorModule::get_miner_collateral_locked(netuid, &hotkey, &coldkey),
+                        expected_lock
+                    );
+                    assert!(expected_lock > AlphaBalance::ZERO);
+                }
+            });
+        }
+    }
+}
+
+#[test]
 fn test_init_new_network_registration_defaults() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);

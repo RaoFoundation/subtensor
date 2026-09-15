@@ -6,10 +6,374 @@
 use super::mock::*;
 use crate::{subnets::leasing::SubnetLeaseOf, *};
 use frame_support::{StorageDoubleMap, assert_err, assert_ok};
+use pallet_subtensor_utility as pallet_utility;
 use sp_core::U256;
 use sp_runtime::Percent;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::AlphaBalance;
+
+#[test]
+fn test_coldkey_swap_migrates_lease_shares_beneficiary_and_proxy() {
+    new_test_ext(1).execute_with(|| {
+        let beneficiary = U256::from(1);
+        let contributor = U256::from(2);
+        let destination = U256::from(3);
+        let new_beneficiary = U256::from(4);
+        setup_crowdloan(
+            0,
+            10_000_000_000,
+            1_000_000_000_000,
+            beneficiary,
+            &[(contributor, 600_000_000_000), (destination, 390_000_000_000)],
+        );
+        let (lease_id, lease) = setup_leased_network(
+            beneficiary,
+            Percent::from_percent(30),
+            Some(500),
+            Some(100_000_000_000),
+        );
+        let combined_share = SubnetLeaseShares::<Test>::get(lease_id, contributor)
+            + SubnetLeaseShares::<Test>::get(lease_id, destination);
+
+        // The destination already owns a share, but has no stake yet.
+        assert_ok!(SubtensorModule::do_swap_coldkey(&contributor, &destination));
+        assert!(!SubnetLeaseShares::<Test>::contains_key(lease_id, contributor));
+        assert_eq!(SubnetLeaseShares::<Test>::get(lease_id, destination), combined_share);
+        assert_ok!(SubtensorModule::do_swap_coldkey(&beneficiary, &new_beneficiary));
+        let migrated = SubnetLeases::<Test>::get(lease_id).unwrap();
+        assert_eq!(migrated.beneficiary, new_beneficiary);
+        assert_eq!(migrated.coldkey, lease.coldkey);
+        assert_eq!(migrated.hotkey, lease.hotkey);
+        assert_eq!(SubnetOwner::<Test>::get(lease.netuid), lease.coldkey);
+        assert!(PROXIES.with_borrow(|proxies| {
+            proxies.0.contains(&(lease.coldkey, new_beneficiary))
+                && !proxies.0.contains(&(lease.coldkey, beneficiary))
+        }));
+
+        System::set_block_number(<Test as Config>::LeaseDividendsDistributionInterval::get() as u64);
+        SubtensorModule::distribute_leased_network_dividends(
+            lease_id,
+            AlphaBalance::from(5_000_000_000_u64),
+        );
+        for retired in [contributor, beneficiary] {
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &lease.hotkey, &retired, lease.netuid,
+                ),
+                AlphaBalance::ZERO,
+            );
+        }
+        for current in [destination, new_beneficiary] {
+            assert!(SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &lease.hotkey, &current, lease.netuid,
+            ) > AlphaBalance::ZERO);
+        }
+
+        System::set_block_number(500);
+        let hotkey = U256::from(5);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(&new_beneficiary, &hotkey));
+        assert_err!(
+            SubtensorModule::do_terminate_lease(RuntimeOrigin::signed(beneficiary), lease_id, hotkey),
+            Error::<Test>::ExpectedBeneficiaryOrigin,
+        );
+        assert_ok!(SubtensorModule::do_terminate_lease(
+            RuntimeOrigin::signed(new_beneficiary), lease_id, hotkey,
+        ));
+        assert_eq!(SubnetOwner::<Test>::get(lease.netuid), new_beneficiary);
+        assert!(!PROXIES.with_borrow(|proxies| proxies.0.contains(&(lease.coldkey, new_beneficiary))));
+    });
+}
+
+#[test]
+fn lease_payouts_require_funded_debits_and_roll_back() {
+    let dividends = 1_500_000_000u64;
+    // Empty payer, partial funding, insufficient final payout, and late minimum failure.
+    for (available, tao_reserves) in [
+        (0, 100_000_000_000u64),
+        (dividends / 2, 100_000_000_000),
+        (dividends - 1, 100_000_000_000),
+        (dividends, 100_000_000),
+    ] {
+        new_test_ext(1).execute_with(|| {
+            let beneficiary = U256::from(1);
+            let contributor = U256::from(2);
+            setup_crowdloan(
+                0,
+                500_000_000_000,
+                1_000_000_000_000,
+                beneficiary,
+                &[(contributor, 500_000_000_000)],
+            );
+            let (lease_id, lease) =
+                setup_leased_network(beneficiary, Percent::from_percent(30), Some(500), None);
+            setup_reserves(lease.netuid, tao_reserves.into(), 100_000_000_000u64.into());
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &lease.hotkey,
+                &lease.coldkey,
+                lease.netuid,
+                available.into(),
+            );
+            System::set_block_number(
+                <Test as Config>::LeaseDividendsDistributionInterval::get() as u64
+            );
+            let stake = |coldkey| {
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &lease.hotkey,
+                    &coldkey,
+                    lease.netuid,
+                )
+            };
+            let before = (stake(lease.coldkey), stake(contributor), stake(beneficiary));
+            let total = TotalHotkeyAlpha::<Test>::get(lease.hotkey, lease.netuid);
+            let events = System::events();
+
+            SubtensorModule::distribute_leased_network_dividends(lease_id, 5_000_000_000u64.into());
+
+            assert_eq!(
+                (stake(lease.coldkey), stake(contributor), stake(beneficiary)),
+                before
+            );
+            assert_eq!(
+                TotalHotkeyAlpha::<Test>::get(lease.hotkey, lease.netuid),
+                total
+            );
+            assert_eq!(System::events(), events);
+            assert_eq!(
+                AccumulatedLeaseDividends::<Test>::get(lease_id),
+                dividends.into()
+            );
+
+            // Retry the same accrued dividends once funding and the minimum permit payment.
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &lease.hotkey,
+                &lease.coldkey,
+                lease.netuid,
+                (dividends - available).into(),
+            );
+            setup_reserves(
+                lease.netuid,
+                100_000_000_000u64.into(),
+                100_000_000_000u64.into(),
+            );
+            SubtensorModule::distribute_leased_network_dividends(lease_id, AlphaBalance::ZERO);
+            assert_eq!(stake(lease.coldkey), AlphaBalance::ZERO);
+            assert_eq!(
+                stake(contributor).saturating_add(stake(beneficiary)),
+                dividends.into()
+            );
+            assert_eq!(
+                TotalHotkeyAlpha::<Test>::get(lease.hotkey, lease.netuid),
+                dividends.into()
+            );
+            assert_eq!(
+                AccumulatedLeaseDividends::<Test>::get(lease_id),
+                AlphaBalance::ZERO
+            );
+        });
+    }
+}
+
+#[test]
+fn underfunded_lease_dividends_remain_pending_after_owner_changes() {
+    new_test_ext(1).execute_with(|| {
+        let beneficiary = U256::from(1);
+        setup_crowdloan(0, 10_000_000_000, 1_000_000_000_000, beneficiary,
+            &[(U256::from(2), 990_000_000_000)]);
+        let (_, lease) = setup_leased_network(beneficiary, Percent::from_percent(30), Some(500), None);
+        // The subnet owner can change between emission epochs; the lease payer stays fixed.
+        let new_owner = U256::from(201);
+        let new_hotkey = U256::from(202);
+        SubnetOwner::<Test>::insert(lease.netuid, new_owner);
+        SubnetOwnerHotkey::<Test>::insert(lease.netuid, new_hotkey);
+        setup_reserves(lease.netuid, 100_000_000_000u64.into(), 100_000_000_000u64.into());
+        System::set_block_number(<Test as Config>::LeaseDividendsDistributionInterval::get() as u64);
+        let cut = AlphaBalance::from(5_000_000_000u64);
+        SubtensorModule::distribute_dividends_and_incentives(
+            lease.netuid, cut, Default::default(), Default::default(), Default::default(),
+        );
+        // Preserve owner-cut allocation while refusing to mint unfunded lease payouts.
+        assert_eq!(TotalHotkeyAlpha::<Test>::get(new_hotkey, lease.netuid), cut);
+        assert_eq!(TotalHotkeyAlpha::<Test>::get(lease.hotkey, lease.netuid), AlphaBalance::ZERO);
+        assert_eq!(SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &lease.hotkey, &U256::from(2), lease.netuid,
+        ), AlphaBalance::ZERO);
+        assert_eq!(AccumulatedLeaseDividends::<Test>::get(0),
+            AlphaBalance::from(lease.emissions_share.mul_ceil(cut.to_u64())));
+    });
+}
+
+#[test]
+fn test_coldkey_swap_migrates_lease_awaiting_dissolution_cleanup() {
+    new_test_ext(1).execute_with(|| {
+        let beneficiary = U256::from(1);
+        let contributor = U256::from(2);
+        let destination = U256::from(3);
+        let new_beneficiary = U256::from(4);
+        setup_crowdloan(
+            0,
+            10_000_000_000,
+            1_000_000_000_000,
+            beneficiary,
+            &[(contributor, 990_000_000_000)],
+        );
+        let (lease_id, lease) =
+            setup_leased_network(beneficiary, Percent::from_percent(30), Some(500), None);
+        let share = SubnetLeaseShares::<Test>::get(lease_id, contributor);
+
+        assert_ok!(SubtensorModule::do_dissolve_network(lease.netuid));
+        assert!(!SubtensorModule::if_subnet_exist(lease.netuid));
+        assert_eq!(
+            SubnetUidToLeaseId::<Test>::get(lease.netuid),
+            Some(lease_id)
+        );
+
+        assert_ok!(SubtensorModule::do_swap_coldkey(&contributor, &destination));
+        assert!(!SubnetLeaseShares::<Test>::contains_key(
+            lease_id,
+            contributor
+        ));
+        assert_eq!(SubnetLeaseShares::<Test>::get(lease_id, destination), share);
+
+        assert_ok!(SubtensorModule::do_swap_coldkey(
+            &beneficiary,
+            &new_beneficiary
+        ));
+        assert_eq!(
+            SubnetLeases::<Test>::get(lease_id).unwrap().beneficiary,
+            new_beneficiary
+        );
+        assert!(PROXIES.with_borrow(|proxies| {
+            proxies.0.contains(&(lease.coldkey, new_beneficiary))
+                && !proxies.0.contains(&(lease.coldkey, beneficiary))
+        }));
+    });
+}
+
+#[test]
+fn test_coldkey_swap_rolls_back_if_lease_shares_overflow() {
+    new_test_ext(1).execute_with(|| {
+        let beneficiary = U256::from(1);
+        let contributor = U256::from(2);
+        let destination = U256::from(3);
+        setup_crowdloan(
+            0,
+            10_000_000_000,
+            1_000_000_000_000,
+            beneficiary,
+            &[(contributor, 990_000_000_000)],
+        );
+        let (lease_id, _) =
+            setup_leased_network(beneficiary, Percent::from_percent(30), Some(500), None);
+        // Corrupt destination state must fail atomically, never silently lose shares.
+        SubnetLeaseShares::<Test>::insert(lease_id, destination, U64F64::from_bits(u128::MAX));
+        frame_support::assert_noop!(
+            SubtensorModule::do_swap_coldkey(&contributor, &destination),
+            sp_runtime::ArithmeticError::Overflow,
+        );
+    });
+}
+
+#[test]
+fn test_crowdloan_batch_filter_failure_rolls_back_unsettled_finalization() {
+    use frame_support::traits::OriginTrait;
+
+    new_test_ext(1).execute_with(|| {
+        let creator = U256::from(1);
+        let contributor = U256::from(2);
+        let cap = 1_000_000_000_000u64;
+        let deposit = 10_000_000_000u64;
+        add_balance_to_coldkey_account(&creator, deposit.into());
+        add_balance_to_coldkey_account(&contributor, (cap - deposit).into());
+        let call = RuntimeCall::Utility(pallet_utility::Call::batch {
+            calls: vec![
+                RuntimeCall::System(frame_system::Call::remark_with_event { remark: vec![1] }),
+                RuntimeCall::SubtensorModule(crate::Call::burned_register {
+                    netuid: 1.into(),
+                    hotkey: U256::from(3),
+                }),
+                RuntimeCall::SubtensorModule(crate::Call::register_leased_network {
+                    emissions_share: Percent::from_percent(30),
+                    end_block: Some(500),
+                }),
+            ],
+        });
+        assert_ok!(Crowdloan::create(
+            RuntimeOrigin::signed(creator),
+            deposit.into(),
+            10.into(),
+            cap.into(),
+            50,
+            Some(Box::new(call)),
+            None,
+        ));
+        assert_ok!(Crowdloan::contribute(
+            RuntimeOrigin::signed(contributor),
+            0,
+            (cap - deposit).into(),
+        ));
+        let before = pallet_crowdloan::Crowdloans::<Test>::get(0).unwrap();
+        let events = System::events();
+        let mut origin = RuntimeOrigin::signed(creator);
+        // Model the NonCritical proxy's restriction on burned registration.
+        origin.add_filter(|call| {
+            !matches!(
+                call,
+                RuntimeCall::SubtensorModule(crate::Call::burned_register { .. })
+            )
+        });
+        frame_support::assert_noop!(
+            Crowdloan::finalize(origin, 0),
+            pallet_crowdloan::Error::<Test>::FundsNotSettled,
+        );
+        assert_eq!(System::events(), events);
+        assert_eq!(Balances::free_balance(before.funds_account), cap.into());
+        assert_eq!(pallet_crowdloan::Crowdloans::<Test>::get(0), Some(before));
+        assert!(pallet_crowdloan::CurrentCrowdloanId::<Test>::get().is_none());
+        assert!(SubnetLeases::<Test>::iter().next().is_none());
+        System::set_block_number(60);
+        assert_ok!(Crowdloan::withdraw(RuntimeOrigin::signed(contributor), 0));
+    });
+}
+
+#[test]
+fn test_crowdloan_lease_finalization_settles_raised_funds() {
+    new_test_ext(1).execute_with(|| {
+        let creator = U256::from(1);
+        let contributor = U256::from(2);
+        let cap = 1_000_000_000_000u64;
+        let deposit = 10_000_000_000u64;
+        add_balance_to_coldkey_account(&creator, deposit.into());
+        add_balance_to_coldkey_account(&contributor, (cap - deposit).into());
+        assert_ok!(Crowdloan::create(
+            RuntimeOrigin::signed(creator),
+            deposit.into(),
+            10.into(),
+            cap.into(),
+            50,
+            Some(Box::new(RuntimeCall::SubtensorModule(
+                crate::Call::register_leased_network {
+                    emissions_share: Percent::from_percent(30),
+                    end_block: Some(500),
+                },
+            ))),
+            None,
+        ));
+        assert_ok!(Crowdloan::contribute(
+            RuntimeOrigin::signed(contributor),
+            0,
+            (cap - deposit).into(),
+        ));
+        assert_ok!(Crowdloan::finalize(RuntimeOrigin::signed(creator), 0));
+        let crowdloan = pallet_crowdloan::Crowdloans::<Test>::get(0).unwrap();
+        assert!(crowdloan.finalized);
+        assert_eq!(
+            Balances::free_balance(crowdloan.funds_account),
+            TaoBalance::ZERO
+        );
+        assert_eq!(SubnetLeases::<Test>::get(0).unwrap().beneficiary, creator);
+        assert!(pallet_crowdloan::CurrentCrowdloanId::<Test>::get().is_none());
+    });
+}
 
 #[test]
 fn test_register_leased_network_works() {

@@ -429,7 +429,10 @@ impl<T: Config> Pallet<T> {
 
         // 3. Swap owner.
         // Owner( hotkey ) -> coldkey -- the coldkey that owns the hotkey.
-        Owner::<T>::remove(old_hotkey);
+        // Retained stake still needs the old hotkey's account and owner.
+        if !keep_stake {
+            Owner::<T>::remove(old_hotkey);
+        }
         Self::set_hotkey_owner(coldkey, new_hotkey)?;
         weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
 
@@ -441,8 +444,10 @@ impl<T: Config> Pallet<T> {
             hotkeys.push(new_hotkey.clone());
         }
 
-        // 5. Remove the old key.
-        hotkeys.retain(|hk| *hk != *old_hotkey);
+        // 5. Retire the old key only when its stake moves too.
+        if !keep_stake {
+            hotkeys.retain(|hk| *hk != *old_hotkey);
+        }
         OwnedHotkeys::<T>::insert(coldkey, hotkeys);
 
         weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
@@ -861,11 +866,15 @@ impl<T: Config> Pallet<T> {
                 }
                 let alpha_old =
                     Self::get_stake_for_hotkey_and_coldkey_on_subnet(old_hotkey, coldkey, netuid);
-                Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                // Credit the new hotkey with exactly what left the old one.
+                let alpha_moved = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
                     old_hotkey, coldkey, netuid, alpha_old,
                 );
                 Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                    new_hotkey, coldkey, netuid, alpha_old,
+                    new_hotkey,
+                    coldkey,
+                    netuid,
+                    alpha_moved,
                 );
                 weight.saturating_accrue(T::DbWeight::get().reads_writes(2, 2));
 
