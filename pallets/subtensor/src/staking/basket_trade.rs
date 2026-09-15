@@ -48,12 +48,14 @@ impl<T: Config> Pallet<T> {
     ///
     /// Guardrails (see the storage docs on [`crate::BasketDailyTurnoverCap`]):
     /// * each AMM leg must fill fully within [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] of
-    ///   both the subnet's moving (EMA) price and its spot price;
-    /// * the TAO through the middle is taken from the fund's turnover bucket;
+    ///   the strictest of the subnet's slow moving (EMA) price, its fast moving price, and
+    ///   its spot price ([`Self::basket_trade_price_limit`]);
+    /// * the TAO through the middle is taken from the fund's turnover bucket, sized from
+    ///   the fund's guarded NAV ([`Self::guarded_basket_holding_value`]);
     /// * the destination holding may not end above [`crate::BasketLiquidityCap`] of the
     ///   destination pool's alpha reserve;
-    /// * the destination holding may not end above [`crate::BasketConcentrationCap`] of fund
-    ///   NAV.
+    /// * the destination holding may not end above [`crate::BasketConcentrationCap`] of the
+    ///   fund's guarded NAV.
     ///
     /// AMM fees are charged like any user swap; the block-author fee is settled through the
     /// same helpers `stake_into_subnet` / `unstake_from_subnet` use.
@@ -150,18 +152,31 @@ impl<T: Config> Pallet<T> {
         amount: u64,
         min_amount_out: u64,
     ) -> Result<BasketTradeOutcome, DispatchError> {
+        // Every holding is valued twice: at its realizable quote (the NAV the fund could
+        // pay out, used for bookkeeping) and at its guarded mark (the same, capped at the
+        // slow-EMA value of the alpha — the figure the turnover budget and the
+        // concentration cap are measured against, see [`Self::guarded_basket_holding_value`]).
         let before = Self::try_valued_basket_holdings(hotkey)?;
-        let nav_before: u64 = before
+        let guarded_before: Vec<(NetUid, u64)> = before
             .iter()
-            .fold(0u64, |nav, (_, _, value)| nav.saturating_add(*value));
-        let value_before = |netuid: NetUid| -> Option<u64> {
-            before
+            .map(|(netuid, alpha, value)| {
+                (
+                    *netuid,
+                    Self::guarded_basket_holding_value(*netuid, alpha.to_u64(), *value),
+                )
+            })
+            .collect();
+        let guarded_nav_before: u64 = guarded_before
+            .iter()
+            .fold(0u64, |nav, (_, value)| nav.saturating_add(*value));
+        let guarded_value_before = |netuid: NetUid| -> u64 {
+            guarded_before
                 .iter()
-                .find(|(row, _, _)| *row == netuid)
-                .map(|(_, _, value)| *value)
+                .find(|(row, _)| *row == netuid)
+                .map(|(_, value)| *value)
+                .unwrap_or(0)
         };
-        let origin_before = value_before(origin_netuid).unwrap_or(0);
-        let destination_before = value_before(destination_netuid);
+        let destination_is_new = !before.iter().any(|(row, _, _)| *row == destination_netuid);
 
         // --- 1. Sell leg: origin holding -> free TAO on the origin pot.
         let tao_mid: u64 = Self::sell_basket_leg(hotkey, escrow, origin_netuid, amount.into())?;
@@ -170,8 +185,9 @@ impl<T: Config> Pallet<T> {
             Error::<T>::AmountTooLow
         );
 
-        // --- 2. Turnover budget, charged on the TAO through the middle.
-        Self::consume_basket_trade_budget(hotkey, nav_before, tao_mid)?;
+        // --- 2. Turnover budget, charged on the TAO through the middle and sized from the
+        // guarded (un-pumpable) NAV.
+        Self::consume_basket_trade_budget(hotkey, guarded_nav_before, tao_mid)?;
 
         // --- 3. Move the cash from the origin pot to the destination pot.
         let destination_account =
@@ -194,35 +210,64 @@ impl<T: Config> Pallet<T> {
         Self::ensure_within_liquidity_cap(hotkey, escrow, destination_netuid)?;
 
         // --- 5. Shape rule on the post-trade fund. The trade moved only the origin and
-        // destination pools (root is 1:1), so every other row's quote is unchanged and the
-        // full re-valuation collapses to re-quoting those two holdings.
-        let origin_after = Self::realizable_basket_holding_value(hotkey, escrow, origin_netuid)?;
-        let destination_value =
-            Self::realizable_basket_holding_value(hotkey, escrow, destination_netuid)?;
-        let nav_after: u64 = nav_before
-            .saturating_sub(origin_before)
-            .saturating_sub(destination_before.unwrap_or(0))
+        // destination pools (root is 1:1), so every other row's mark is unchanged and the
+        // full re-valuation collapses to re-quoting those two holdings. The destination is
+        // measured at its realizable value (a pump there only makes the check stricter);
+        // the fund it is measured against is the guarded NAV, which a same-block pump of
+        // any held pool cannot inflate.
+        let (_, origin_after) = Self::basket_holding_marks(hotkey, escrow, origin_netuid)?;
+        let (destination_value, destination_after) =
+            Self::basket_holding_marks(hotkey, escrow, destination_netuid)?;
+        let guarded_nav_after: u64 = guarded_nav_before
+            .saturating_sub(guarded_value_before(origin_netuid))
+            .saturating_sub(guarded_value_before(destination_netuid))
             .saturating_add(origin_after)
-            .saturating_add(destination_value);
-        Self::ensure_within_concentration_cap(destination_value, nav_after)?;
+            .saturating_add(destination_after);
+        Self::ensure_within_concentration_cap(destination_value, guarded_nav_after)?;
 
         Ok(BasketTradeOutcome {
             tao_mid,
             alpha_bought: alpha_bought.to_u64(),
-            holdings: (before.len() as u64).saturating_add(u64::from(destination_before.is_none())),
+            holdings: (before.len() as u64).saturating_add(u64::from(destination_is_new)),
         })
     }
 
-    /// Realizable TAO value of the fund's current holding on `netuid`, priced like a row of
-    /// [`Self::try_valued_basket_holdings`] (terminal garbage is zero).
-    fn realizable_basket_holding_value(
+    /// The fund's current holding on `netuid` at both marks: `(realizable, guarded)`, priced
+    /// like a row of [`Self::try_valued_basket_holdings`] (terminal garbage is zero) and
+    /// then capped by [`Self::guarded_basket_holding_value`].
+    fn basket_holding_marks(
         hotkey: &T::AccountId,
         escrow: &T::AccountId,
         netuid: NetUid,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<(u64, u64), DispatchError> {
         let held =
             Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid).to_u64();
-        Ok(Self::try_realizable_tao_for_alpha(netuid, held)?.unwrap_or(0))
+        let realizable = Self::try_realizable_tao_for_alpha(netuid, held)?.unwrap_or(0);
+        Ok((
+            realizable,
+            Self::guarded_basket_holding_value(netuid, held, realizable),
+        ))
+    }
+
+    /// The guarded mark of `alpha` on `netuid` given its `realizable` quote:
+    /// `min(realizable, alpha × slow EMA)`. Root cash is TAO 1:1 and passes through.
+    ///
+    /// The realizable quote is bounded only by the pool's TAO reserve, and a pumper grows
+    /// that reserve by whatever TAO they deposit — so for one block a held thin pool can be
+    /// marked at roughly the pump size, inflating the NAV the turnover budget and the
+    /// concentration cap are measured against (a refused oversize buy becomes admitted).
+    /// The slow EMA cannot be moved inside a block, so capping the mark at the EMA value
+    /// of the alpha makes both guards un-pumpable. The cap is one-sided on purpose: a pool
+    /// trading above its monthly EMA — or above parity, where the slow EMA clamps at 1.0 —
+    /// is under-marked, which only tightens the guards (smaller budget, stricter cap).
+    pub(crate) fn guarded_basket_holding_value(netuid: NetUid, alpha: u64, realizable: u64) -> u64 {
+        if netuid.is_root() {
+            return realizable;
+        }
+        let ema_value: u64 = Self::get_moving_alpha_price(netuid)
+            .saturating_mul(U64F64::saturating_from_num(alpha))
+            .saturating_to_num::<u64>();
+        realizable.min(ema_value)
     }
 
     /// Sell `alpha` of the fund's `netuid` holding for TAO, leaving the TAO on the subnet's
@@ -290,29 +335,46 @@ impl<T: Config> Pallet<T> {
         Ok(out.amount_paid_out)
     }
 
-    /// AMM `price_limit` (TAO per alpha × 10⁹) for one trade leg: the stricter of the
-    /// subnet's moving (EMA) price and its spot price, shifted by
+    /// AMM `price_limit` (TAO per alpha × 10⁹) for one trade leg: the strictest of the
+    /// subnet's slow moving (emission EMA) price, its fast moving price
+    /// ([`crate::SubnetFastMovingPrice`]), and its spot price, shifted by
     /// [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] against the trade (up for a buy ceiling,
-    /// down for a sell floor). The EMA anchor defeats a pre-trade pump; the spot anchor caps
-    /// the trade's own price impact. A subnet with no moving price yet is refused.
+    /// down for a sell floor).
     ///
-    /// When spot has already crossed the EMA-anchored bound the engine would reject the
-    /// order with its own `PriceLimitExceeded`; refusing here keeps the caller-facing error
+    /// Each anchor closes a different hole. Spot caps the trade's own price impact. The fast
+    /// EMA (two-hour half-life, updated from the previous block's closing spot) is a price
+    /// nobody can move inside a block: a key holder who lifts spot and has the fund buy, or
+    /// dumps spot and has the fund sell, finds the fund bound to within 2% of where the pool
+    /// traded before the move, so the fund never fills at the manipulated price. Pulling
+    /// the anchor along means holding the pump — and the capital behind it — against
+    /// arbitrage for several half-lives. The slow EMA (monthly) stays in the min/max as the
+    /// level cap on how far even a held pump can carry the fund. A subnet missing either
+    /// EMA (never emitted, or not yet updated since the fast series was introduced) is
+    /// refused.
+    ///
+    /// When spot has already crossed the anchored bound the engine would reject the order
+    /// with its own `PriceLimitExceeded`; refusing here keeps the caller-facing error
     /// `SlippageTooHigh` for every way a leg can miss the band.
     fn basket_trade_price_limit(netuid: NetUid, leg: Leg) -> Result<TaoBalance, DispatchError> {
-        let ema: U64F64 = Self::get_moving_alpha_price(netuid);
+        let slow: U64F64 = Self::get_moving_alpha_price(netuid);
         ensure!(
-            ema > U64F64::saturating_from_num(0),
+            slow > U64F64::saturating_from_num(0),
+            Error::<T>::SlippageTooHigh
+        );
+        let fast: U64F64 =
+            SubnetFastMovingPrice::<T>::get(netuid).ok_or(Error::<T>::SlippageTooHigh)?;
+        ensure!(
+            fast > U64F64::saturating_from_num(0),
             Error::<T>::SlippageTooHigh
         );
         let spot: U64F64 = T::SwapInterface::current_alpha_price(netuid.into());
         let (reference, bps) = match leg {
             Leg::Buy => (
-                ema.min(spot),
+                slow.min(fast).min(spot),
                 BPS_DENOMINATOR.saturating_add(crate::BASKET_TRADE_MAX_SLIPPAGE_BPS),
             ),
             Leg::Sell => (
-                ema.max(spot),
+                slow.max(fast).max(spot),
                 BPS_DENOMINATOR.saturating_sub(crate::BASKET_TRADE_MAX_SLIPPAGE_BPS),
             ),
         };
@@ -330,8 +392,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Take `tao_mid` out of the fund's turnover bucket after refilling it for the blocks
-    /// elapsed (capacity `nav_before × BasketDailyTurnoverCap / u16::MAX`, full refill over
-    /// [`crate::BASKET_TRADE_REFILL_BLOCKS`]).
+    /// elapsed (capacity `nav_before × BasketDailyTurnoverCap / u16::MAX` with `nav_before`
+    /// the guarded NAV, full refill over [`crate::BASKET_TRADE_REFILL_BLOCKS`]).
     fn consume_basket_trade_budget(
         hotkey: &T::AccountId,
         nav_before: u64,
@@ -389,7 +451,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Post-trade concentration check: the destination holding's realizable value may not
-    /// exceed [`crate::BasketConcentrationCap`] of fund NAV.
+    /// exceed [`crate::BasketConcentrationCap`] of the fund's guarded NAV.
     fn ensure_within_concentration_cap(destination_value: u64, nav: u64) -> DispatchResult {
         let available = Self::get_all_subnet_netuids().len() as u64;
         if let Some(cap) = Self::binding_basket_concentration_cap(available) {

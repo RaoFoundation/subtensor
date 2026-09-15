@@ -72,8 +72,11 @@ pay you right now.
 The validator cannot trade freely. Every trade must pass these checks, and a
 trade that fails any of them does nothing at all:
 
-- **Each leg fills within 2% of the subnet's moving and spot price.** The
-  fund cannot be sold into a crash or bought into a spike, and one trade
+- **Each leg fills within 2% of the subnet's moving prices and spot.** Two
+  moving averages anchor the band — a slow one (about a month) and a fast
+  one (about two hours, written each block from the previous block's
+  close) — so the fund cannot be sold into a crash or bought into a spike,
+  a price someone just pumped or dumped cannot be traded at, and one trade
   cannot move a pool's price by more than about 2%.
 - **A turnover budget of 10% of NAV.** The fund holds a bucket of that size;
   each trade drains it by the TAO it moves, and it refills over one day. At

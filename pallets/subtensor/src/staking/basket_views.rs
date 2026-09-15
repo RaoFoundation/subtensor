@@ -200,11 +200,31 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    /// The fund's guarded NAV: every holding at
+    /// [`Self::guarded_basket_holding_value`] — its realizable quote capped at the slow-EMA
+    /// value of the alpha — summed. This is the NAV the `swap_basket` turnover budget and
+    /// concentration cap are measured against; unlike the realizable NAV it cannot be
+    /// inflated by pumping a held pool inside a block. Valuation failures mark the row at
+    /// zero (a view, not a money path).
+    pub fn get_validator_basket_guarded_nav_tao(hotkey: &T::AccountId) -> TaoBalance {
+        let mut nav: u64 = 0;
+        for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
+            let realizable = Self::realizable_tao_for_alpha(netuid, alpha.to_u64());
+            nav = nav.saturating_add(Self::guarded_basket_holding_value(
+                netuid,
+                alpha.to_u64(),
+                realizable,
+            ));
+        }
+        nav.into()
+    }
+
     /// Explorer / CLI view of one fund's `swap_basket` status as a trade at the current
-    /// block would see it.
+    /// block would see it (the budget is sized from the guarded NAV, exactly as a trade
+    /// sizes it).
     pub fn get_basket_trading_status(hotkey: &T::AccountId) -> BasketTradingStatus {
         let now = Self::get_current_block_as_u64();
-        let nav = Self::get_validator_basket_nav_tao(hotkey).to_u64();
+        let nav = Self::get_validator_basket_guarded_nav_tao(hotkey).to_u64();
         let budget = Self::basket_trade_budget_tao(nav);
         BasketTradingStatus {
             enabled: BasketTradingEnabled::<T>::get(),

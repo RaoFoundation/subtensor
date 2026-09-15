@@ -109,11 +109,15 @@ btcli root swap --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
           <ul className={styles.list}>
             <li>
               <strong>Per-leg price band: 2%.</strong> Each AMM leg must fill{' '}
-              <em>completely</em> within 2% of the stricter of two references: the
-              subnet&apos;s moving (EMA) price and its spot price. A buy may not fill above{' '}
-              <code>1.02 × min(EMA, spot)</code>; a sell may not fill below{' '}
-              <code>0.98 × max(EMA, spot)</code>. The EMA anchor defeats a pre-trade pump
-              or dump; the spot anchor caps the trade&apos;s own price impact. Any miss is{' '}
+              <em>completely</em> within 2% of the strictest of three references: the
+              subnet&apos;s slow moving price (the monthly emission EMA), its new fast moving
+              price (<code>SubnetFastMovingPrice</code>, a two-hour-half-life EMA of spot
+              written each block from the previous block&apos;s close), and its spot price.
+              A buy may not fill above <code>1.02 × min(slow, fast, spot)</code>; a sell may
+              not fill below <code>0.98 × max(slow, fast, spot)</code>. The fast anchor is a
+              price nobody can move inside a block, so a same-block pump or dump cannot make
+              the fund fill at the manipulated price; the slow anchor caps how far a held pump
+              can carry it; the spot anchor caps the trade&apos;s own price impact. Any miss is{' '}
               <code>SlippageTooHigh</code>, and the whole trade rolls back.
             </li>
             <li>
@@ -208,6 +212,30 @@ btcli root swap --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
             counterparty, not expected costs.
           </p>
           <p>
+            That 1.3% figure assumed the band&apos;s moving-price anchor sits near spot. The
+            security review showed it did not have to: the only smoothed reference was the
+            monthly emission EMA, which sits stale after any real move, and the band
+            re-anchored to spot on every leg. A key holder could lift spot toward a stale-high
+            EMA and have the fund chain-buy near it, or dump toward a stale-low EMA and have
+            it chain-sell — 1.1% / 4.1% / 6.9% of NAV per day on the buy leg and 1.1% / 3.1% /
+            4.7% on the sell leg at EMA-to-spot ratios of 1.35, 2 and 4, all inside one block.
+            The fast moving price closes this: replaying those sequences against the fixed
+            band, the attacker&apos;s profit is at most rounding on either leg and the fund
+            fills one in-band leg at the pre-move price. Regaining the old extraction now
+            means holding a 30–100%-of-reserve pump against arbitrage for about ten hours, at
+            which point the 1.3%-per-day bound above applies — at that capital-time cost,
+            not for free.
+          </p>
+          <p>
+            The same review found the concentration cap&apos;s and the turnover budget&apos;s
+            NAV denominator pumpable: a same-block pump of a thin pool the fund holds marked
+            that holding at roughly the pump size, so a 1,500 τ buy the cap had refused
+            became admitted, and a 9,500 τ buy the budget had refused too. Both are now
+            measured against a <strong>guarded NAV</strong> that marks every holding at the
+            lower of its realizable value and its alpha times the slow moving price, which
+            cannot be moved inside a block; the same buys stay refused under the pump.
+          </p>
+          <p>
             For today&apos;s largest funds (about 12,500 τ) the liquidity cap barely binds: 10%
             of a median mainnet pool is about 700 τ, which is about the fund&apos;s 1/16 slice.
             It binds correctly as funds grow. Raise <code>BasketLiquidityCap</code> if funds
@@ -220,16 +248,18 @@ btcli root swap --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
           <h2 className={styles.subtitle}>Edges to know about</h2>
           <ul className={styles.list}>
             <li>
-              The 2% band is per leg, not per block or per day. With spot below the EMA,
-              several legs in one block can walk a subnet&apos;s price up to{' '}
-              <code>1.02 × EMA</code>. The EMA itself moves slowly: on mainnet its half-life
-              is about eight hours.
+              The 2% band is per leg, not per block or per day, but every leg is bound to
+              the fast moving price as well, so several legs in one block cannot walk a
+              subnet&apos;s price more than about 2% from where it opened the block. The
+              slow EMA moves slowly (a half-life of about a month on mainnet); the fast one
+              has a two-hour half-life.
             </li>
             <li>
-              Because the band is anchored to the EMA, a fund cannot sell a holding whose spot
-              has fallen more than 2% below the moving price, or buy one that has risen more
-              than 2% above it, until the average catches up. After a 5% drop a sell is
-              refused for roughly ten hours. Stop-losses are not possible by design.
+              Because the band is anchored to the moving prices, a fund cannot sell a holding
+              whose spot has fallen more than 2% below either average, or buy one that has
+              risen more than 2% above either, until the averages catch up. After a real 5%
+              move the fast anchor is back in band in about four hours; the slow anchor can
+              hold the direction shut for weeks. Stop-losses are not possible by design.
             </li>
             <li>
               A subnet with no moving price yet (before <code>start_call</code>, or newly

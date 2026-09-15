@@ -70,6 +70,33 @@ impl<T: Config> Pallet<T> {
         let new_moving: I96F32 =
             I96F32::saturating_from_num(current_price.saturating_add(current_moving));
         SubnetMovingPrice::<T>::insert(netuid, new_moving);
+
+        Self::update_fast_moving_price(netuid);
+    }
+
+    /// Advance the fast spot-price EMA ([`SubnetFastMovingPrice`]) one block:
+    /// `fast += (spot - fast) × (1 - 2^(-1/H))` with `H` =
+    /// [`crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS`] (`ln 2 / H` to fixed-point precision).
+    /// The first update seeds it at spot. The spot fed here is unclamped: this series
+    /// anchors `swap_basket` price bounds and must track the price a pool actually trades
+    /// at, above parity included (the slow EMA's 1.0 clamp is an emission concern).
+    pub fn update_fast_moving_price(netuid: NetUid) {
+        let spot: U64F64 = T::SwapInterface::current_alpha_price(netuid.into());
+        let next = match SubnetFastMovingPrice::<T>::get(netuid) {
+            None => spot,
+            Some(fast) => {
+                // ln 2 / H: the per-block weight that halves the distance to spot every H blocks.
+                let alpha: U64F64 = U64F64::saturating_from_num(core::f64::consts::LN_2).safe_div(
+                    U64F64::saturating_from_num(crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS.max(1)),
+                );
+                if spot >= fast {
+                    fast.saturating_add(spot.saturating_sub(fast).saturating_mul(alpha))
+                } else {
+                    fast.saturating_sub(fast.saturating_sub(spot).saturating_mul(alpha))
+                }
+            }
+        };
+        SubnetFastMovingPrice::<T>::insert(netuid, next);
     }
 
     /// Gets the Median Subnet Alpha Price

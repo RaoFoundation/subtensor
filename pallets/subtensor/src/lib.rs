@@ -96,11 +96,20 @@ pub const BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
 pub const DEFAULT_BASKET_LIQUIDITY_CAP: u16 = u16::MAX / 10;
 
 /// Max deviation of a `swap_basket` leg's execution price from its reference, in basis
-/// points (2%). The reference is the *stricter* of the subnet's moving (EMA) price and its
-/// spot price: the EMA anchor defeats a pre-trade pump, the spot anchor caps the trade's own
-/// price impact. Applied to the sell leg as a floor and the buy leg as a ceiling via the AMM
+/// points (2%). The reference is the *strictest* of the subnet's slow moving (emission
+/// EMA) price, its fast moving price ([`SubnetFastMovingPrice`]), and its spot price: the
+/// fast anchor defeats a same-block (or short-held) pump or dump, the slow anchor caps how
+/// far a held pump can carry the fund, and the spot anchor caps the trade's own price
+/// impact. Applied to the sell leg as a floor and the buy leg as a ceiling via the AMM
 /// `price_limit`; a leg that cannot fill fully within the bound fails.
 pub const BASKET_TRADE_MAX_SLIPPAGE_BPS: u64 = 200;
+
+/// Half-life, in blocks, of the fast subnet price EMA ([`SubnetFastMovingPrice`]) that
+/// anchors `swap_basket` price bounds: 600 blocks (about two hours at 12s blocks). Short
+/// enough that honest trading self-heals after a real price move within hours; long enough
+/// that pulling the anchor toward a manipulated price requires holding that price — and
+/// the capital behind it — against arbitrage for several half-lives.
+pub const BASKET_FAST_EMA_HALF_LIFE_BLOCKS: u64 = 600;
 
 pub struct SubtensorDustRemoval<T>(PhantomData<T>);
 impl<T> frame_support::traits::OnUnbalanced<pallet_balances::CreditOf<T, ()>>
@@ -1667,6 +1676,18 @@ pub mod pallet {
     #[pallet::storage]
     pub type SubnetMovingPrice<T: Config> =
         StorageMap<_, Identity, NetUid, I96F32, ValueQuery, DefaultMovingPrice<T>>;
+
+    /// MAP ( netuid ) --> fast moving price | A fast EMA of the subnet's spot price
+    /// (TAO per alpha, unclamped) with a [`BASKET_FAST_EMA_HALF_LIFE_BLOCKS`] half-life,
+    /// updated once per block right after [`SubnetMovingPrice`] from the spot at the end of
+    /// the previous block, so no extrinsic in the current block can move it. It is a trading
+    /// anchor only — `swap_basket` bounds every leg to within
+    /// [`BASKET_TRADE_MAX_SLIPPAGE_BPS`] of the strictest of this, the slow EMA, and spot —
+    /// and plays no part in emission. Absent until the subnet's first update after the
+    /// upgrade (trading on it is refused until then).
+    #[pallet::storage]
+    pub type SubnetFastMovingPrice<T: Config> =
+        StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
 
     /// MAP ( netuid ) --> root_prop | The subnet root proportion.
     #[pallet::storage]

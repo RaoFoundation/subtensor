@@ -108,6 +108,16 @@ Think of a stolen trader key with a willing counterparty. With liquidity cap
   that can be traded at any instant is `C` of NAV, and about `C` per day
   sustained. Worst case at the defaults: about **1.3% of NAV in a burst and
   about 1.3% of NAV per day** until the fund is frozen.
+- **What the anchors add.** The 1.3% bound assumes the band's moving-price
+  anchor sits near spot. Since the fast moving price (two-hour half-life)
+  joined the band, an attack that moves spot inside a block, or holds it
+  for less than a few hours, extracts nothing beyond rounding on either
+  leg; reaching the 1.3%-per-day bound requires holding a pump of 30–100%
+  of a pool's TAO reserve against arbitrage for about ten hours. The
+  budget and the 1/16 cap are measured against a guarded NAV (each holding
+  at the lower of its realizable value and its slow-moving-price value), so
+  a same-block pump of a held pool cannot enlarge the bucket or admit an
+  oversize buy.
 
 Lowering `L` shrinks the first term almost quadratically; lowering `C`
 shrinks the daily total linearly. These are bounds for a stolen key, not

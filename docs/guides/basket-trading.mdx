@@ -253,35 +253,51 @@ check names the exact error you see when it refuses the trade.
 
 ### 2% price band per leg → `SlippageTooHigh`
 
-Each leg must fill **completely** within 2% of the stricter of two
-reference prices: the subnet's **moving price** (an on-chain exponential
-moving average, about eight hours' half-life on mainnet) and its **spot
-price**.
+Each leg must fill **completely** within 2% of the strictest of three
+reference prices:
 
-- A buy may not fill above `1.02 × min(moving, spot)`.
-- A sell may not fill below `0.98 × max(moving, spot)`.
+- the subnet's **slow moving price** (`SubnetMovingPrice`, the emission
+  EMA — an exponential moving average with a half-life of about a month on
+  mainnet, capped at 1 τ per α);
+- its **fast moving price** (`SubnetFastMovingPrice`, an EMA of spot with a
+  600-block half-life, about two hours, written once per block from the
+  previous block's closing price and not capped);
+- its **spot price**.
 
-The moving-price anchor stops a trade at a price someone just pumped or
-dumped. The spot anchor caps the trade's own price impact. If either leg
+A buy may not fill above `1.02 × min(slow, fast, spot)`. A sell may not fill
+below `0.98 × max(slow, fast, spot)`.
+
+Each anchor closes a different hole. Spot caps the trade's own price impact.
+The fast anchor is a price nobody can move inside a block: if someone lifts
+spot and then has the fund buy — or dumps spot and has the fund sell — the
+fund is still bound to within 2% of where the pool traded before the move,
+so it never fills at the manipulated price. Pulling the fast anchor along
+means holding the pump, and the capital behind it, against arbitrage for
+several half-lives. The slow anchor is the level cap: even a pump held for
+hours cannot carry the fund past 2% of the monthly average. If either leg
 would cross its bound, the trade fails with `SlippageTooHigh` and nothing
 moves. Practical consequences:
 
 - **Size legs to the pool.** On a constant-product pool a buy of about 1% of
   the TAO reserve moves the price about 2%. Split larger positions into
   slices and let the pool settle between them.
-- **You cannot chase a move.** A holding whose spot has fallen more than 2%
-  below its moving price cannot be sold until the average catches up
-  (roughly ten hours after a 5% drop). The same holds for buying after a
+- **You cannot trade a move that just happened.** Legs are bound to within
+  2% of the last couple of hours' average price. After a real 5% move, the
+  fast anchor is back within the band about four hours later; the slow
+  anchor still applies on top, so a holding whose spot has fallen more than
+  2% below its monthly average cannot be sold until that average catches
+  up (weeks after a large drop), and the same holds for buying after a
   spike. Stop-losses are not possible by design.
-- A subnet with no moving price yet (before `start_call`) cannot be
-  traded. The moving price is capped at 1 τ per α, so a subnet trading
-  above that cannot be bought within the band.
+- A subnet with no moving price yet (before `start_call`, or a subnet that
+  does not emit) cannot be traded. The slow price is capped at 1 τ per α,
+  so a subnet trading above that cannot be bought within the band.
 
 ### Turnover budget: a token bucket of 10% of NAV per day → `BasketTurnoverBudgetExceeded`
 
 Each fund has a **bucket** whose capacity is `BasketDailyTurnoverCap` of
-its current NAV — default 10%. Every trade takes `tao_mid` out of the
-bucket. The bucket refills continuously at `capacity / 7200` per block, so
+its current **guarded NAV** — default 10%. The guarded NAV marks every
+holding at the lower of its realizable value and its alpha times the slow
+moving price (the concentration cap section below explains why). Every trade takes `tao_mid` out of the bucket. The bucket refills continuously at `capacity / 7200` per block, so
 an empty bucket is full again after one day (7200 blocks at 12 seconds).
 
 Two properties follow:
@@ -300,12 +316,26 @@ full bucket. The bucket follows the fund through a hotkey swap.
 ### 1/16 concentration cap → `BasketConcentrationCapExceeded`
 
 After the trade, the destination holding's realizable value may not exceed
-`BasketConcentrationCap` of fund NAV — default 1/16, so a traded fund
-spreads across at least 16 holdings. Topping up a holding that is already at
-the cap is refused, and so is moving more than 1/16 of NAV into the cash
-slot. Only buys are checked: a holding that grows past the cap through price
-moves or in-place dividends is left alone. On a chain with fewer than 16
-subnets the check is skipped. Refusal is `BasketConcentrationCapExceeded`.
+`BasketConcentrationCap` of the fund's **guarded NAV** — default 1/16, so a
+traded fund spreads across at least 16 holdings. Topping up a holding that
+is already at the cap is refused, and so is moving more than 1/16 of NAV
+into the cash slot. Only buys are checked: a holding that grows past the cap
+through price moves or in-place dividends is left alone. On a chain with
+fewer than 16 subnets the check is skipped. Refusal is
+`BasketConcentrationCapExceeded`.
+
+The guarded NAV exists because a holding's realizable value is bounded only
+by its pool's TAO reserve, and anyone can grow that reserve for one block by
+buying into the pool. A same-block pump of a thin pool the fund holds could
+otherwise mark that holding at roughly the pump size, inflating the NAV
+both this cap and the turnover budget are measured against, and turning a
+refused oversize buy into an admitted one. The guarded NAV marks each
+holding at `min(realizable value, alpha × slow moving price)`; the slow
+price cannot be moved inside a block, so neither guard can be pumped. The
+cap on the mark is one-sided on purpose: a pool trading above its monthly
+average (or above 1 τ per α, where the slow price is capped) is under-marked,
+which only tightens the guards. `basket_trading_status` reports the budget
+from the same guarded NAV a trade uses.
 
 ### 10% per-pool liquidity cap → `BasketLiquidityCapExceeded`
 
@@ -357,7 +387,7 @@ gates and the bucket for one validator:
 |---|---|
 | `enabled` | The network-wide gate. |
 | `frozen` | Whether governance froze this fund. |
-| `budget_tao` | The bucket's capacity: 10% of current NAV. It moves with NAV. |
+| `budget_tao` | The bucket's capacity: 10% of the fund's guarded NAV (holdings marked at the lower of realizable value and slow-moving-price value). It moves with NAV. |
 | `remaining_tao` | What is in the bucket now — the largest `tao_mid` a trade at this block could push through. |
 | `used_tao` | `budget_tao − remaining_tao`. |
 | `refill_per_block_tao` | How much the bucket gains every block: `budget_tao / refill_blocks`. |
@@ -403,15 +433,38 @@ hyperparameters.
 
 Raise the liquidity cap if funds legitimately need larger positions in
 mid-depth pools; lower it to tighten the per-pool value at risk. Raise the
-turnover cap only once the liquidity cap is in place: with both at their
-defaults, the most a stolen trader key and a willing counterparty can
-extract is about 13% of the TAO traded — 9% through a thin pool and 4% at
-the edges of the band, plus fees — which is about 1.3% of NAV per full
-bucket, and about that much per day until governance freezes the fund.
-This bound assumes pools near the 0.5 balancer-weight equilibrium; if a
-pool's balancer weights skew far from equilibrium, the price-impact
-estimate behind the 9% figure, and so the daily figure, becomes less
-accurate, while the 2% band and the turnover bucket still hold exactly.
+turnover cap only once the liquidity cap is in place.
+
+**What a stolen trader key can extract.** The band is what bounds this, so
+the number depends on which price the band is anchored to.
+
+- *Attacks inside a block, or shorter than a few fast half-lives.* The fund
+  can only fill within 2% of a price the attacker did not move. Replaying
+  the audit's lift-buy-dump and dump-sell-buyback sequences at slow-EMA/spot
+  divergences of 1.35×, 2× and 4× against the fixed band, the attacker's
+  cash profit is at most rounding (≤ 0.01% of NAV) on either leg and the
+  fund fills at most one in-band leg. Before the fast anchor the same
+  sequences took 1.1% / 4.1% / 6.9% of NAV per day on the buy leg and 1.1% /
+  3.1% / 4.7% on the sell leg, because the band re-anchored to the
+  manipulated spot on every leg while the stale slow price stayed the only
+  smoothed reference.
+- *A pump held for most of a day.* An attacker who buys 30–100% of a pool's
+  TAO reserve and holds that price against arbitrage for roughly five fast
+  half-lives (about ten hours) drags the fast anchor to the held level; the
+  slow anchor still caps how far. Only then does the older analysis apply:
+  with the default 10% budget and 10% liquidity cap the most a stolen key
+  and a willing counterparty can extract is about 13% of the TAO traded —
+  9% through a thin pool and 4% at the edges of the band, plus fees — which
+  is about 1.3% of NAV per full bucket, about that much per day until
+  governance freezes the fund, and now at the capital-time cost of the held
+  pump rather than for free. That bound assumes pools near the 0.5
+  balancer-weight equilibrium; if a pool's balancer weights skew far from
+  equilibrium, the price-impact estimate behind the 9% figure becomes less
+  accurate, while the 2% band and the turnover bucket still hold exactly.
+
+The guarded NAV keeps the budget and the cap honest through all of this: a
+same-block pump of a held pool no longer enlarges the bucket or admits an
+oversize buy.
 
 ## Reference
 

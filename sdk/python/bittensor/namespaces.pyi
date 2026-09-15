@@ -448,8 +448,10 @@ class Staking(_ReadNamespace):
         """A validator's `swap_basket` trading status: gates and the turnover bucket.
 
         `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.
-        The turnover budget is a token bucket: `budget_tao` is its capacity at current
-        NAV (`BasketDailyTurnoverCap` share of NAV), `remaining_tao` what a trade right
+        The turnover budget is a token bucket: `budget_tao` is its capacity
+        (`BasketDailyTurnoverCap` share of the fund's guarded NAV — each holding at
+        the lower of its realizable value and its slow-moving-price value, so a
+        pumped pool cannot enlarge it), `remaining_tao` what a trade right
         now could push through the fund, `used_tao` the difference, and the bucket
         refills by `refill_per_block_tao` every block (`budget_tao / refill_blocks`,
         a full refill over `refill_blocks` = 7200 blocks).

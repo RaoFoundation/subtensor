@@ -23,8 +23,9 @@ use crate::{
     BASKET_TRADE_REFILL_BLOCKS, BasketClaimed, BasketConcentrationCap, BasketDailyTurnoverCap,
     BasketLiquidityCap, BasketRate, BasketShares, BasketTradeBucket, BasketTradingEnabled,
     BasketTradingFrozen, ColdkeySwapAnnouncements, DEFAULT_BASKET_DAILY_TURNOVER_CAP,
-    DefaultMinStake, Error, Event, NetworksAdded, SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice,
-    SubnetProtocolFlow, SubnetTAO, SubnetTaoFlow, SubtokenEnabled, TotalStake, Uids,
+    DefaultMinStake, Error, Event, NetworksAdded, SubnetAlphaIn, SubnetAlphaOut,
+    SubnetFastMovingPrice, SubnetMovingPrice, SubnetProtocolFlow, SubnetTAO, SubnetTaoFlow,
+    SubtokenEnabled, TotalStake, Uids,
 };
 use codec::Encode;
 use frame_support::dispatch::DispatchResultWithPostInfo;
@@ -33,7 +34,7 @@ use frame_support::weights::Weight;
 use frame_support::{assert_noop, assert_ok};
 use sp_core::U256;
 use sp_runtime::traits::Hash;
-use substrate_fixed::types::I96F32;
+use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::SwapHandler;
 
@@ -80,6 +81,8 @@ fn setup_fund() -> Fund {
     fund_pool(netuid_b);
     SubnetMovingPrice::<Test>::insert(netuid_a, I96F32::from_num(1));
     SubnetMovingPrice::<Test>::insert(netuid_b, I96F32::from_num(1));
+    SubnetFastMovingPrice::<Test>::insert(netuid_a, U64F64::from_num(1));
+    SubnetFastMovingPrice::<Test>::insert(netuid_b, U64F64::from_num(1));
 
     SubtensorModule::set_tao_weight(u64::MAX);
     zero_claim_threshold();
@@ -145,6 +148,11 @@ fn swap_with_min(
 
 fn nav(hotkey: &U256) -> u64 {
     SubtensorModule::get_validator_basket_nav_tao(hotkey).to_u64()
+}
+
+/// The NAV the turnover budget and the concentration cap are measured against.
+fn guarded_nav(hotkey: &U256) -> u64 {
+    SubtensorModule::get_validator_basket_guarded_nav_tao(hotkey).to_u64()
 }
 
 fn author_balance() -> u64 {
@@ -652,7 +660,7 @@ fn test_swap_basket_sell_refused_when_spot_below_ema_band() {
     });
 }
 
-/// A subnet with no moving price yet cannot be traded on either leg.
+/// A subnet with no moving price yet — slow or fast — cannot be traded on either leg.
 #[test]
 fn test_swap_basket_refused_without_moving_price() {
     new_test_ext(1).execute_with(|| {
@@ -668,6 +676,23 @@ fn test_swap_basket_refused_without_moving_price() {
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SlippageTooHigh
         );
+        SubnetMovingPrice::<Test>::insert(fund.netuid_a, I96F32::from_num(1));
+
+        // The fast anchor is required too: a subnet not yet updated since the fast series
+        // was introduced (or never emitting) is refused on either leg.
+        SubnetFastMovingPrice::<Test>::remove(fund.netuid_b);
+        assert_noop!(
+            swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
+            Error::<Test>::SlippageTooHigh
+        );
+        SubnetFastMovingPrice::<Test>::insert(fund.netuid_b, U64F64::from_num(1));
+        SubnetFastMovingPrice::<Test>::remove(fund.netuid_a);
+        assert_noop!(
+            swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
+            Error::<Test>::SlippageTooHigh
+        );
+        SubnetFastMovingPrice::<Test>::insert(fund.netuid_a, U64F64::from_num(1));
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, TRADE));
     });
 }
 
@@ -954,7 +979,7 @@ fn test_swap_basket_turnover_bucket_drains_refuses_and_refills() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         BasketDailyTurnoverCap::<Test>::put(DEFAULT_BASKET_DAILY_TURNOVER_CAP);
-        let budget = SubtensorModule::basket_trade_budget_tao(nav(&fund.hotkey));
+        let budget = SubtensorModule::basket_trade_budget_tao(guarded_nav(&fund.hotkey));
         // 10% of a ~100 TAO fund: two 4 TAO trades fit, a third does not.
         assert!(
             budget > 2 * TRADE && budget < 3 * TRADE,
@@ -1014,7 +1039,7 @@ fn test_swap_basket_turnover_bucket_drains_refuses_and_refills() {
         System::set_block_number(
             start + BASKET_TRADE_REFILL_BLOCKS / 2 + BASKET_TRADE_REFILL_BLOCKS,
         );
-        let budget_now = SubtensorModule::basket_trade_budget_tao(nav(&fund.hotkey));
+        let budget_now = SubtensorModule::basket_trade_budget_tao(guarded_nav(&fund.hotkey));
         let status = SubtensorModule::get_basket_trading_status(&fund.hotkey);
         assert_eq!(status.tao_available.to_u64(), budget_now);
         System::set_block_number(start + 10 * BASKET_TRADE_REFILL_BLOCKS);
@@ -1035,7 +1060,7 @@ fn test_swap_basket_turnover_charges_root_origin_at_face() {
         assert_ok!(swap(&fund, fund.netuid_a, NetUid::ROOT, 3 * TRADE));
         let start = System::block_number();
         refill_turnover_bucket(&fund.hotkey);
-        let budget = SubtensorModule::basket_trade_budget_tao(nav(&fund.hotkey));
+        let budget = SubtensorModule::basket_trade_budget_tao(guarded_nav(&fund.hotkey));
 
         assert_ok!(swap(&fund, NetUid::ROOT, fund.netuid_b, TRADE));
         assert_eq!(
@@ -1175,7 +1200,7 @@ fn test_swap_basket_freeze_and_bucket_follow_hotkey_swap() {
         // And the moved bucket is what the next trade draws from: tightening the cap clamps
         // the carried level to the new (smaller) budget, then the trade takes its tao_mid.
         BasketDailyTurnoverCap::<Test>::put(DEFAULT_BASKET_DAILY_TURNOVER_CAP);
-        let budget = SubtensorModule::basket_trade_budget_tao(nav(&new_hotkey));
+        let budget = SubtensorModule::basket_trade_budget_tao(guarded_nav(&new_hotkey));
         assert!(
             bucket.0 > budget,
             "carried level exceeds the tightened budget"
@@ -1246,10 +1271,12 @@ fn setup_cash_fund_with_thin_pool() -> (Fund, NetUid) {
     remove_owner_registration_stake(netuid_c);
     fund_pool(netuid_a);
     SubnetMovingPrice::<Test>::insert(netuid_a, I96F32::from_num(1));
+    SubnetFastMovingPrice::<Test>::insert(netuid_a, U64F64::from_num(1));
     // Thin pool: 1 000 τ against 100 000 α.
     SubnetTAO::<Test>::insert(netuid_c, TaoBalance::from(THIN_POOL_TAO));
     SubnetAlphaIn::<Test>::insert(netuid_c, AlphaBalance::from(THIN_POOL_ALPHA));
     SubnetMovingPrice::<Test>::insert(netuid_c, I96F32::from_num(0.01));
+    SubnetFastMovingPrice::<Test>::insert(netuid_c, U64F64::from_num(0.01));
 
     SubtensorModule::set_tao_weight(u64::MAX);
     zero_claim_threshold();
@@ -1405,7 +1432,7 @@ fn finding_2_2_bucket_denies_a_second_budget_in_the_adjacent_block() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         BasketDailyTurnoverCap::<Test>::put(u16::MAX / 2);
-        let budget = SubtensorModule::basket_trade_budget_tao(nav(&fund.hotkey));
+        let budget = SubtensorModule::basket_trade_budget_tao(guarded_nav(&fund.hotkey));
         let start = System::block_number();
 
         // Spend the whole bucket in this block (two slices; tao_mid trails alpha by the fee).
@@ -1446,7 +1473,7 @@ fn finding_2_2_bucket_denies_a_second_budget_in_the_adjacent_block() {
 
         // A full refill period later the bucket is whole again.
         System::set_block_number(start + BASKET_TRADE_REFILL_BLOCKS);
-        let budget_now = SubtensorModule::basket_trade_budget_tao(nav(&fund.hotkey));
+        let budget_now = SubtensorModule::basket_trade_budget_tao(guarded_nav(&fund.hotkey));
         assert_eq!(
             SubtensorModule::get_basket_trading_status(&fund.hotkey)
                 .tao_available
@@ -1457,21 +1484,23 @@ fn finding_2_2_bucket_denies_a_second_budget_in_the_adjacent_block() {
     });
 }
 
-/// Finding §2.3 (Low): the 2% band is per leg, not per block. With spot below the EMA,
-/// chained buy legs in one block each pass (`ceiling = 1.02 × min(EMA, spot)`) and walk
-/// the price up to 1.02 × EMA — here +20% or more in a single block. Documents current
-/// behaviour; flip if a per-block price or rate bound is added.
+/// Finding §2.3, fixed: the 2% band is per leg, but every leg is bound to the fast
+/// anchor as well as the slow EMA and spot. With spot 20% below a stale-high slow EMA,
+/// chained buy legs in one block can no longer walk the price up toward the slow EMA
+/// (`ceiling = 1.02 × min(slow, fast, spot)` with the fast anchor at the block's opening
+/// price): the walk stops within 2% of where the pool opened.
 #[test]
-fn finding_2_3_chained_legs_in_one_block_walk_price_to_ema_ceiling() {
+fn finding_2_3_chained_legs_in_one_block_stop_at_fast_anchor() {
     new_test_ext(1).execute_with(|| {
         let (fund, netuid_c) = setup_cash_fund_with_thin_pool();
-        // Isolate the band: the walk accumulates well over 10% of the thin pool's alpha
-        // reserve, which the liquidity cap would otherwise stop first.
+        // Isolate the band: the walk would otherwise hit the liquidity cap first.
         BasketLiquidityCap::<Test>::put(u16::MAX);
-        // Spot 0.01 sits 20% below a 0.0125 EMA.
+        // Spot 0.01 sits 20% below a stale 0.0125 slow EMA; the fast anchor is the spot the
+        // pool opened the block at.
         let ema = 0.0125f64;
         SubnetMovingPrice::<Test>::insert(netuid_c, I96F32::from_num(ema));
         let spot_before = spot(netuid_c);
+        SubnetFastMovingPrice::<Test>::insert(netuid_c, U64F64::from_num(spot_before));
         let block = System::block_number();
 
         let mut legs = 0u32;
@@ -1485,14 +1514,14 @@ fn finding_2_3_chained_legs_in_one_block_walk_price_to_ema_ceiling() {
         assert_eq!(refused_with, Error::<Test>::SlippageTooHigh.into());
 
         let spot_after = spot(netuid_c);
-        assert!(legs >= 10, "legs = {legs}");
+        assert!(legs >= 1, "legs = {legs}");
+        // Stopped by the fast anchor: within 2% of the opening price, far below the stale
+        // slow EMA that used to be the binding ceiling.
         assert!(
-            spot_after / spot_before > 1.20,
+            spot_after <= spot_before * 1.02 * 1.001,
             "price moved {spot_before} -> {spot_after} in one block"
         );
-        // Stopped only by the EMA ceiling, not by any per-block rule.
-        assert!(spot_after <= ema * 1.02 * 1.001);
-        assert!(spot_after > ema);
+        assert!(spot_after < ema);
     });
 }
 

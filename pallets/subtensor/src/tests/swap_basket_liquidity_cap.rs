@@ -16,15 +16,15 @@ use crate::tests::mock::*;
 use crate::{
     BASKET_TRADE_REFILL_BLOCKS, BasketConcentrationCap, BasketDailyTurnoverCap, BasketLiquidityCap,
     BasketTradeBucket, BasketTradingEnabled, Error, Owner, PendingBasketDeposits,
-    RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut, SubnetMechanism, SubnetMovingPrice,
-    SubnetTAO, SubtokenEnabled, TotalStake,
+    RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut, SubnetFastMovingPrice, SubnetMechanism,
+    SubnetMovingPrice, SubnetTAO, SubtokenEnabled, TotalStake,
 };
 use frame_support::dispatch::GetDispatchInfo;
 use frame_support::pallet_prelude::Weight;
 use frame_support::{assert_noop, assert_ok};
 use sp_core::U256;
 use sp_runtime::Saturating;
-use substrate_fixed::types::I96F32;
+use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::SwapHandler;
 
@@ -44,6 +44,7 @@ fn make_pool(hotkey: &U256, coldkey: &U256, tao: u64, alpha: u64) -> NetUid {
     let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
     add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(tao));
     SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(tao as f64 / alpha as f64));
+    SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(tao as f64 / alpha as f64));
     netuid
 }
 
@@ -160,8 +161,7 @@ fn buy_slices_until_refused(
     netuid: NetUid,
 ) -> (u64, sp_runtime::DispatchError) {
     for _ in 0..200 {
-        let spot = <Test as crate::Config>::SwapInterface::current_alpha_price(netuid);
-        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(spot.to_num::<f64>()));
+        pin_ema_to_spot(netuid);
         let slice = SubnetTAO::<Test>::get(netuid).to_u64() * 9 / 1000;
         if let Err(err) =
             SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, netuid, slice, 0)
@@ -299,9 +299,12 @@ fn appreciate(netuid: NetUid, num: u64) {
     pin_ema_to_spot(netuid);
 }
 
+/// Pin both price anchors (slow emission EMA and fast trading EMA) to the current spot,
+/// the steady state after a price has held for a while.
 fn pin_ema_to_spot(netuid: NetUid) {
     let spot = <Test as crate::Config>::SwapInterface::current_alpha_price(netuid);
     SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(spot.to_num::<f64>()));
+    SubnetFastMovingPrice::<Test>::insert(netuid, spot);
 }
 
 /// Realizable share of the fund a holding represents, in basis points.
@@ -605,12 +608,15 @@ fn test_over_liquidity_cap_winner_only_blocks_further_buys() {
     });
 }
 
-/// Profit-taking after a sharp run-up is not blocked by the band. The sell floor is
-/// `0.98 × max(EMA, spot)`, so with spot far above a stale EMA the first slice fills at
-/// 0.98 × spot, and chained slices may walk the price down to 0.98 × EMA. Only a sale that
-/// would push spot below that (a drawdown relative to the EMA) waits for the EMA.
+/// Profit-taking after a sharp run-up is not blocked by the band, but it is paced by the
+/// fast anchor. The sell floor is `0.98 × max(slow, fast, spot)`: with spot far above a
+/// stale slow EMA the first slices fill at 0.98 × spot, and chained slices in one block
+/// walk the price down only to 0.98 × the fast anchor (about 2% below where the pool
+/// opened) — not all the way to 0.98 × the slow EMA as they once could. As the fast EMA
+/// follows the price down over the next hours, more can be sold; the slow EMA remains the
+/// floor for a drawdown relative to the monthly average.
 #[test]
-fn test_profit_taking_after_run_up_is_not_blocked_by_band() {
+fn test_profit_taking_after_run_up_is_paced_by_fast_anchor() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
         let hotkey = U256::from(2);
@@ -625,41 +631,56 @@ fn test_profit_taking_after_run_up_is_not_blocked_by_band() {
         );
         make_fund_with_cash(coldkey, hotkey, 100 * TAO);
         hold(&hotkey, a, 1_000_000 * TAO);
-        // Run-up ×4 with the EMA left where it was (price 1.0): spot is 4× EMA.
+        // Run-up ×4 that the fast anchor has followed (pinned to spot by `appreciate`),
+        // with the slow EMA left where it was (price 1.0): spot is 4× the slow EMA.
         appreciate(a, 2);
         SubnetMovingPrice::<Test>::insert(a, I96F32::from_num(1.0));
         let p0 = <Test as crate::Config>::SwapInterface::current_alpha_price(a).to_num::<f64>();
         assert!(p0 > 3.9);
 
-        // Buying the runaway subnet is refused by the band (spot > 1.02 × EMA).
+        // Buying the runaway subnet is refused by the band (spot > 1.02 × slow EMA).
         assert_noop!(
             SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, a, TAO, 0),
             Error::<Test>::SlippageTooHigh
         );
 
-        // Selling is not: band-sized slices fill until spot reaches 0.98 × EMA.
-        let mut legs = 0;
-        let mut sold = 0u64;
-        loop {
-            let slice = SubnetAlphaIn::<Test>::get(a).to_u64() * 9 / 1000;
-            match SubtensorModule::do_swap_basket(coldkey, hotkey, a, NetUid::ROOT, slice, 0) {
-                Ok(_) => {
-                    legs += 1;
-                    sold += slice;
+        // Selling is not: band-sized slices fill until spot reaches 0.98 × the fast anchor.
+        let sell_slices = || {
+            let mut legs = 0;
+            let mut sold = 0u64;
+            loop {
+                let slice = SubnetAlphaIn::<Test>::get(a).to_u64() * 9 / 1000;
+                match SubtensorModule::do_swap_basket(coldkey, hotkey, a, NetUid::ROOT, slice, 0) {
+                    Ok(_) => {
+                        legs += 1;
+                        sold += slice;
+                    }
+                    Err(err) => {
+                        assert_eq!(err, Error::<Test>::SlippageTooHigh.into());
+                        break;
+                    }
                 }
-                Err(err) => {
-                    assert_eq!(err, Error::<Test>::SlippageTooHigh.into());
-                    break;
-                }
+                assert!(legs < 200);
             }
-            assert!(legs < 200);
-        }
+            (legs, sold)
+        };
+        let (legs, sold) = sell_slices();
         let p1 = <Test as crate::Config>::SwapInterface::current_alpha_price(a).to_num::<f64>();
-        assert!(legs >= 30, "only {legs} legs");
-        assert!(sold > 200_000 * TAO, "sold {sold}");
-        // Stopped at the EMA floor, not at the run-up price.
-        assert!((0.97..1.02).contains(&p1), "price {p1}");
+        assert!(legs >= 1, "only {legs} legs");
+        assert!(sold > 0);
+        // Stopped by the fast anchor: about 2% below the run-up price, far above the slow
+        // EMA floor that used to be the only stop.
+        assert!(p1 >= p0 * 0.98 * 0.999 && p1 < p0, "price {p0} -> {p1}");
         assert!(escrow_alpha(&hotkey, NetUid::ROOT) > 100 * TAO);
+
+        // Hours later the fast EMA has caught up with the new spot: the next slices fill
+        // again, walking another ~2% down. The slow EMA is still the floor far below.
+        pin_ema_to_spot(a);
+        SubnetMovingPrice::<Test>::insert(a, I96F32::from_num(1.0));
+        let (legs, _) = sell_slices();
+        let p2 = <Test as crate::Config>::SwapInterface::current_alpha_price(a).to_num::<f64>();
+        assert!(legs >= 1, "only {legs} legs after the anchor caught up");
+        assert!(p2 >= p1 * 0.98 * 0.999 && p2 < p1, "price {p1} -> {p2}");
     });
 }
 

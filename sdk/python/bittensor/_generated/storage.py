@@ -111,6 +111,7 @@ class SubtensorModule:
     TotalStake = Item('SubtensorModule', 'TotalStake', 'TaoBalance')
     SubnetMovingAlpha = Item('SubtensorModule', 'SubnetMovingAlpha', 'FixedI128')
     SubnetMovingPrice = Item('SubtensorModule', 'SubnetMovingPrice', 'FixedI128')
+    SubnetFastMovingPrice = Item('SubtensorModule', 'SubnetFastMovingPrice', 'FixedU128')
     RootProp = Item('SubtensorModule', 'RootProp', 'FixedU128')
     SubnetVolume = Item('SubtensorModule', 'SubnetVolume', 'u128')
     SubnetTAO = Item('SubtensorModule', 'SubnetTAO', 'TaoBalance')
