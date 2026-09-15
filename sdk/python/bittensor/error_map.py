@@ -219,7 +219,6 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "BetaBasketSeedInProgress": _C.TOO_EARLY,
     "BasketDepositPending": _C.TOO_EARLY,
     "RootClaimTooHeavy": _C.LIMIT_EXCEEDED,
-    "BasketDepositPending": _C.TOO_EARLY,
     "RootWeightSettingDisabled": _C.DISABLED,
     "BasketConcentrationCapExceeded": _C.LIMIT_EXCEEDED,
     "BasketTradingDisabled": _C.DISABLED,

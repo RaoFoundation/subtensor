@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 460
+Spec version: 461
 """
 from dataclasses import dataclass
 
@@ -84,7 +84,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 40): ErrorInfo('SubtensorModule', 'FaucetDisabled', 'Faucet is disabled.'),
     (7, 41): ErrorInfo('SubtensorModule', 'NotSubnetOwner', 'Not a subnet owner.'),
     (7, 42): ErrorInfo('SubtensorModule', 'RegistrationNotPermittedOnRootSubnet', 'Operation is not permitted on the root subnet.'),
-    (7, 43): ErrorInfo('SubtensorModule', 'StakeTooLowForRoot', 'Retired: root admission is burn-based and no longer stake-gated. Kept so later error variants keep their metadata indices.'),
+    (7, 43): ErrorInfo('SubtensorModule', 'StakeTooLowForRoot', 'A root registrant must hold at least as much root stake as the seat it would evict.'),
     (7, 44): ErrorInfo('SubtensorModule', 'AllNetworksInImmunity', 'All subnets are in the immunity period.'),
     (7, 45): ErrorInfo('SubtensorModule', 'NotEnoughBalanceToPaySwapHotKey', 'Not enough balance to pay swapping hotkey.'),
     (7, 46): ErrorInfo('SubtensorModule', 'NotRootSubnet', 'Netuid does not match for setting root network weights.'),

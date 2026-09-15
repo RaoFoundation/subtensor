@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 460
+Spec version: 461
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -97,6 +97,8 @@ class SubtensorModule:
     AccountFlags = Item('SubtensorModule', 'AccountFlags', 'u128')
     Delegates = Item('SubtensorModule', 'Delegates', 'PerU16')
     ChildkeyTake = Item('SubtensorModule', 'ChildkeyTake', 'PerU16')
+    ChildkeyThresholdChecks = Item('SubtensorModule', 'ChildkeyThresholdChecks', '()')
+    ChildkeyThresholdSuspended = Item('SubtensorModule', 'ChildkeyThresholdSuspended', '()')
     PendingChildKeys = Item('SubtensorModule', 'PendingChildKeys', '(Vec<(u64, AccountId32)>, u64)')
     ChildKeys = Item('SubtensorModule', 'ChildKeys', 'Vec<(u64, AccountId32)>')
     ParentKeys = Item('SubtensorModule', 'ParentKeys', 'Vec<(u64, AccountId32)>')
@@ -139,6 +141,8 @@ class SubtensorModule:
     Alpha = Item('SubtensorModule', 'Alpha', 'FixedU128')
     TotalHotkeySharesV2 = Item('SubtensorModule', 'TotalHotkeySharesV2', 'SafeFloat')
     AlphaV2 = Item('SubtensorModule', 'AlphaV2', 'SafeFloat')
+    AlphaSharePoolEpoch = Item('SubtensorModule', 'AlphaSharePoolEpoch', 'u64')
+    AlphaShareEpoch = Item('SubtensorModule', 'AlphaShareEpoch', 'u64')
     Lock = Item('SubtensorModule', 'Lock', 'LockState')
     LockingColdkeys = Item('SubtensorModule', 'LockingColdkeys', '()')
     HotkeyLock = Item('SubtensorModule', 'HotkeyLock', 'LockState')

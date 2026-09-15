@@ -1928,7 +1928,7 @@
       ]
     },
     "FundsNotSettled": {
-      "code": "invalid_argument",
+      "code": "policy_violation",
       "description": "`finalize` ran the configured `call`, but the raised funds were still in the crowdloan's funds account afterwards, so finalization was refused. This happens when the call does not spend the raised amount, or when a wrapper such as `Utility.batch` returns Ok after its inner call failed. Fix the finalization call so it consumes the full `raised` amount, then `finalize` again.",
       "docs_url": "/docs/errors/chain/FundsNotSettled",
       "markdown_url": "/llms.mdx/docs/errors/chain/FundsNotSettled/content.md",
@@ -4206,8 +4206,8 @@
       ]
     },
     "OrderSignerFrozen": {
-      "code": "disabled",
-      "description": "The order's `signer` coldkey has a pending coldkey swap announcement or an open swap dispute, so its assets cannot be moved and the order is refused. Wait for the swap to complete or be cleared (`btcli wallet swap-check` shows status), then execute the order again.",
+      "code": "not_authorized",
+      "description": "The order owner is temporarily prohibited from moving funds, so the order cannot be executed. Retry once the owner's freeze has lifted.",
       "docs_url": "/docs/errors/chain/OrderSignerFrozen",
       "markdown_url": "/llms.mdx/docs/errors/chain/OrderSignerFrozen/content.md",
       "pallets": [

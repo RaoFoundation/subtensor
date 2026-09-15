@@ -80,7 +80,7 @@ staked back to root.
   value, so it buys exactly the exposure the fund already has; a deposit
   into a fund with no holdings yet is held as the fund's TAO cash slot
   (netuid 0). There is no target vector for inflows to chase.
-- **Only trades move composition.** Since runtime v460 a validator reshapes
+- **Only trades move composition.** Since runtime v461 a validator reshapes
   its fund with [`swap-basket`](/docs/tx/swap-basket), selling one holding
   (or TAO cash) for another under price, budget, liquidity, and
   concentration guardrails — no single holding may end a buy above the
@@ -138,7 +138,7 @@ principal and accrued entitlement throughout.
 ## For validators: shape the basket
 
 There is no weight vector to set. Root Reborn launched with every fund on
-the accumulate-in-place strategy, and runtime v460 made that the only
+the accumulate-in-place strategy, and runtime v461 made that the only
 inflow rule: dividends land where they were earned, deposits mirror the
 current holdings, and the validator changes composition only by trading.
 The retired `set_root_weights` call, its `RootWeightSettingDisabled` gate,
@@ -331,11 +331,11 @@ basket distribution vector for its own fund, not a vote on network-wide
 emission. Runtime v450 opened the network-wide gate and pinned a 1/16
 concentration cap on the vector.
 
-Runtime v460 removed it again. Weights only ever decided how an
+Runtime v461 removed it again. Weights only ever decided how an
 already-earned dividend was *deployed*; they never decided what a validator
 earned. With `swap-basket` giving validators direct control of composition,
 a passive target vector that every inflow chased was redundant and made
-deposits harder to reason about, so v460 made accumulate-in-place the only
+deposits harder to reason about, so v461 made accumulate-in-place the only
 inflow rule: dividends land on the subnet they were earned on, direct
 deposits mirror the current holdings, and only trades move composition. The
 1/16 concentration rule survives as `BasketConcentrationCap`, the guardrail
