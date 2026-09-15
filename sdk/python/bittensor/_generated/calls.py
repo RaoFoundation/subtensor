@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 460
+Spec version: 463
 """
 from typing import Any, NamedTuple
 
@@ -25,6 +25,7 @@ BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
 ConsensusMode = Any
+DerivativesParams = Any
 Determinism = Any
 EquivocationProof = Any
 FixedI128 = Any
@@ -44,6 +45,7 @@ ProxyType = Any
 PulsesPayload = Any
 RecycleOrBurnEnum = Any
 RuntimeCall = Any
+Side = Any
 TaoBalance = Any
 TickIndex = Any
 Timepoint = Any
@@ -1657,3 +1659,32 @@ class LimitOrders:
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
+
+
+class Derivatives:
+    """Call builders for the Derivatives pallet."""
+
+    @staticmethod
+    def add(netuid: 'NetUid', side: 'Side', deposit: 'TaoBalance', leverage_percent: 'u16', min_amount_out: 'TaoBalance') -> Call:
+        "Add `side` exposure on `netuid`: `leverage_percent / 100` times `deposit`, measured against the pool's TAO reserve. One call covers open, add, reduce, and flip.  With no position, or one on the same side, `deposit` is taken from the caller's free balance as cushion, and a tranche is lifted from the pool and folded into the position. There is no term: the position runs while its cushion pays the weekly interest.  With a position on the other side, this settles the matching share of it at the current price and pays that share of the cushion, less interest and any loss, to the caller. If the exposure asked for is larger than the position, the whole position is closed and the rest, if it reaches `MinDeposit`, opens on the new side. Only the deposit for that rest is taken from the caller.  The leverage must be above zero and at most the side's maximum (`MaxShortLeverage` or `MaxLongLeverage`).  `min_amount_out` is the caller's floor on the TAO this call pays them, after interest. It binds when the add reduces or closes a position: a payout below it fails the call with `SettlementBelowMinimum` and nothing moves, so a price pushed against the settlement in the same block cannot take more than the caller allowed. An add that only opens or grows pays nothing out and must pass zero. Zero is no floor.  Refused with `DerivativesDisabled` while [`DerivativesEnabled`] is `false`, whichever of open, add, reduce, or flip it would have been. Use `close` to exit a position while the switch is off. Refused with `LongsDisabled` while [`LongsEnabled`] is `false` if the result would be a long: a long opened, grown, or flipped into. A long-side `add` that only reduces or closes a short is not a long, and goes through."
+        return Call('Derivatives', 'add', {'netuid': netuid, 'side': side, 'deposit': deposit, 'leverage_percent': leverage_percent, 'min_amount_out': min_amount_out})
+
+    @staticmethod
+    def close(netuid: 'NetUid', min_amount_out: 'TaoBalance') -> Call:
+        "Settle the caller's position on `netuid` in full, at the current price. Only the owner can close a position; the chain forfeits one that can no longer pay its interest. A position the pool's quote says is underwater is not traded: everything held for it goes to the pool in kind and the caller is paid nothing.  `min_amount_out` is the caller's floor on the payout, after interest. Below it the call fails with `SettlementBelowMinimum` and the position stays as it was; since an underwater close pays nothing, any floor above zero also keeps an underwater position from being forfeited by a price pushed against it in the same block. Zero is no floor.  Works whether or not [`DerivativesEnabled`] is set: the switch stops positions from being opened or grown, never from being closed."
+        return Call('Derivatives', 'close', {'netuid': netuid, 'min_amount_out': min_amount_out})
+
+    @staticmethod
+    def sudo_set_derivatives_enabled(enabled: 'bool') -> Call:
+        'Turn derivatives on or off network-wide. Root only. Off, every `add` fails with `DerivativesDisabled`; `close` still works, and the weekly interest collection, forfeits, parked-liquidity releases, and dissolution settlement of open positions carry on. Launches off. Distinct from a `pool_share` of zero, which pauses adds but leaves the pallet on.'
+        return Call('Derivatives', 'sudo_set_derivatives_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def sudo_set_longs_enabled(enabled: 'bool') -> Call:
+        'Turn the long side on or off. Root only. Off, every `add` whose result would be a long fails with `LongsDisabled`: opening a long, growing one, or flipping a short into one. Shorts are unaffected, and so are `close`, the weekly interest collection, forfeits, parked-liquidity releases, and dissolution settlement, on longs already open as much as on shorts. Launches off: shorts are the launch product, and longs wait on a decision about their collateral and leverage.'
+        return Call('Derivatives', 'sudo_set_longs_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def sudo_set_params(params: 'DerivativesParams') -> Call:
+        'Set the three parameters. Root only. A `pool_share` of zero pauses new adds; open positions keep the rate they were added with and settle as usual. Either interest rate at zero is refused with `ZeroInterestRate`.'
+        return Call('Derivatives', 'sudo_set_params', {'params': params})
