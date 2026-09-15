@@ -662,10 +662,11 @@ impl<T: Config> Pallet<T> {
     /// per-child (`MAX_CHILDREN`) reverse-edge updates done by
     /// `remove_outgoing_child_relations`.
     fn childkey_threshold_check_weight() -> Weight {
-        let subnets = Self::get_all_subnet_netuids().len() as u64;
-        // Valuation: alpha + price reads per subnet; exemption/relation scan: two reads per
-        // subnet the hotkey could be a parent on.
-        let scan = T::DbWeight::get().reads(subnets.saturating_mul(6).saturating_add(4));
+        // O(1) subnet count; never enumerate the network map just to size the budget.
+        let subnets = u64::from(TotalNetworks::<T>::get());
+        // Valuation: netuid list plus alpha and price reads per subnet; exemption/relation
+        // scan: two reads per subnet the hotkey could be a parent on.
+        let scan = T::DbWeight::get().reads(subnets.saturating_mul(6).saturating_add(5));
         // Per pruned subnet: pending removal, pivot read/write, one read/write per child.
         let per_subnet = T::DbWeight::get().reads_writes(
             MAX_CHILDREN.saturating_add(2),
@@ -678,11 +679,16 @@ impl<T: Config> Pallet<T> {
     /// Drain the threshold-check queue within `limit`. A parent stays queued until every
     /// non-exempt relation it no longer qualifies for has been pruned. Returns the weight used.
     pub fn process_childkey_threshold_checks(limit: Weight) -> Weight {
+        // Queue head read plus the subnet-count read used to size one item.
+        let overhead = T::DbWeight::get().reads(2);
+        if !overhead.all_lte(limit) {
+            return Weight::zero();
+        }
         let mut used = T::DbWeight::get().reads(1);
         if ChildkeyThresholdChecks::<T>::iter_keys().next().is_none() {
             return used;
         }
-        used.saturating_accrue(T::DbWeight::get().reads(1));
+        used = overhead;
         let per_item = Self::childkey_threshold_check_weight();
         let mut finished: Vec<T::AccountId> = Vec::new();
         for hotkey in ChildkeyThresholdChecks::<T>::iter_keys() {

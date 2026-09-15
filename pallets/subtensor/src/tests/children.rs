@@ -5357,3 +5357,37 @@ fn test_childkey_prune_leaves_incoming_parents_untouched() {
         assert_eq!(SubtensorModule::get_parents(&f.parent, f.netuid).len(), 3);
     });
 }
+
+// With a queued parent but not enough idle weight for one check, the processor does no work
+// beyond its bookkeeping reads and leaves the parent queued for a later block.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_childkey_threshold_processor_respects_small_budget --exact
+#[test]
+fn test_childkey_threshold_processor_respects_small_budget() {
+    new_test_ext(1).execute_with(|| {
+        let f = childkey_threshold_fixture();
+        mock_set_children(&f.coldkey, &f.parent, f.netuid, &[(u64::MAX, f.child)]);
+        StakeThreshold::<Test>::put(u64::MAX / 2);
+        SubtensorModule::queue_childkey_threshold_check(&f.parent);
+        assert!(ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+
+        let tiny = <Test as frame_system::Config>::DbWeight::get().reads(2);
+        let used = SubtensorModule::process_childkey_threshold_checks(tiny);
+        assert!(used.all_lte(tiny), "must not exceed the offered budget");
+        assert!(ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        assert_eq!(
+            SubtensorModule::get_children(&f.parent, f.netuid),
+            vec![(u64::MAX, f.child)]
+        );
+
+        // Zero budget: nothing at all.
+        assert_eq!(
+            SubtensorModule::process_childkey_threshold_checks(Weight::zero()),
+            Weight::zero()
+        );
+
+        // A full budget finishes the job.
+        run_block_idle();
+        assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
+    });
+}
