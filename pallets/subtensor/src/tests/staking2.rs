@@ -68,10 +68,10 @@ fn test_stake_base_case() {
             "Subnet Alpha Out not updated correctly"
         );
 
-        // Check total stake update
+        // Check total stake update: it tracks the reserve, so the swap fee is excluded.
         assert_eq!(
             TotalStake::<Test>::get(),
-            initial_total_stake + tao_to_swap,
+            initial_total_stake + tao_to_swap - fee.into(),
             "Total stake not updated correctly"
         );
     });
@@ -103,6 +103,7 @@ fn test_stake_into_subnet_refunds_unswapped_tao_at_price_limit() {
 
         let balance_before = SubtensorModule::get_coldkey_balance(&coldkey);
         let total_stake_before = TotalStake::<Test>::get();
+        let subnet_tao_before = SubnetTAO::<Test>::get(netuid);
 
         // Tight limit (1.1 RAO/Alpha) so the AMM cannot consume the full stake.
         assert_ok!(SubtensorModule::stake_into_subnet(
@@ -125,11 +126,17 @@ fn test_stake_into_subnet_refunds_unswapped_tao_at_price_limit() {
             "unswapped TAO must be refunded: consumed {consumed:?} >= stake {stake:?}"
         );
 
-        // TotalStake must track the consumed TAO exactly, not the full stake.
+        // TotalStake must track the TAO that entered the reserve (consumed minus the swap
+        // fee), not the full stake and not the fee paid to the block author.
+        let total_stake_delta = total_stake_after.saturating_sub(total_stake_before);
         assert_eq!(
-            total_stake_after.saturating_sub(total_stake_before),
-            consumed,
-            "TotalStake must equal consumed TAO (no stranded over-count)"
+            total_stake_delta,
+            SubnetTAO::<Test>::get(netuid).saturating_sub(subnet_tao_before),
+            "TotalStake must move with SubnetTAO"
+        );
+        assert!(
+            total_stake_delta < consumed,
+            "TotalStake must exclude the swap fee: {total_stake_delta:?} >= {consumed:?}"
         );
     });
 }
