@@ -1271,8 +1271,10 @@ mod tests {
         AccountId, Runtime, System, addr_from_index, execute_precompile, mapped_account,
         new_test_ext, precompiles, selector_u32,
     };
+    use frame_support::dispatch::{GetDispatchInfo, Pays};
+    use pallet_evm::{Context, GasWeightMapping, PrecompileSet};
     use precompile_utils::solidity::encode_with_selector;
-    use precompile_utils::testing::PrecompileTesterExt;
+    use precompile_utils::testing::{MockHandle, PrecompileTesterExt};
     use sp_core::{H160, H256, U256};
     use sp_runtime::traits::Hash;
     use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance, Token};
@@ -1885,6 +1887,68 @@ mod tests {
                     0_u32
                 );
             }
+        });
+    }
+
+    // A `Pays::No` call dispatched from the EVM must still be charged gas for the weight it
+    // consumed; otherwise the block accounts none of its execution time.
+    #[test]
+    fn neuron_precompile_charges_gas_for_pays_no_dispatch() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0xE0202);
+            let (netuid, caller_account) = setup_registered_caller(caller);
+            pallet_subtensor::Pallet::<Runtime>::set_commit_reveal_weights_enabled(netuid, false);
+            pallet_subtensor::Pallet::<Runtime>::set_stake_threshold(0);
+
+            let dests = vec![REGISTERED_UID];
+            let weights = vec![u16::MAX];
+            let call = crate::mock::RuntimeCall::SubtensorModule(
+                pallet_subtensor::Call::<Runtime>::set_weights {
+                    netuid,
+                    dests: dests.clone(),
+                    weights: weights.clone(),
+                    version_key: VERSION_KEY,
+                },
+            );
+            let info = call.get_dispatch_info();
+            assert_eq!(info.pays_fee, Pays::No);
+            let declared_gas = <Runtime as pallet_evm::Config>::GasWeightMapping::weight_to_gas(
+                info.total_weight(),
+            );
+            assert!(declared_gas > 0);
+
+            let precompile_address = addr_from_index(NeuronPrecompile::<Runtime>::INDEX);
+            let mut handle = MockHandle::new(
+                precompile_address,
+                Context {
+                    address: precompile_address,
+                    caller,
+                    apparent_value: U256::zero(),
+                },
+            );
+            handle.input = encode_with_selector(
+                selector_u32("setWeights(uint16,uint16[],uint16[],uint64)"),
+                (TEST_NETUID_U16, dests, weights, VERSION_KEY),
+            );
+            handle.gas_limit = u64::MAX;
+
+            let result = precompiles::<NeuronPrecompile<Runtime>>()
+                .execute(&mut handle)
+                .expect("routed to the neuron precompile");
+            assert!(result.is_ok(), "setWeights failed: {result:?}");
+            assert_eq!(
+                pallet_subtensor::Weights::<Runtime>::get(
+                    NetUidStorageIndex::from(netuid),
+                    REGISTERED_UID
+                ),
+                vec![(REGISTERED_UID, u16::MAX)]
+            );
+            assert!(
+                handle.gas_used >= declared_gas,
+                "gas_used {} must cover the dispatched weight ({declared_gas} gas)",
+                handle.gas_used
+            );
+            let _ = caller_account;
         });
     }
 }

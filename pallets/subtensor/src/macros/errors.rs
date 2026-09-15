@@ -375,5 +375,7 @@ mod errors {
         /// A queued root-dividend deposit could not be settled. Operations which change
         /// the hotkey's root claimant base must retry after the deposit becomes executable.
         BasketDepositPending,
+        /// A per-subnet weight batch is empty or has more items than there are networks.
+        InvalidBatchLength,
     }
 }

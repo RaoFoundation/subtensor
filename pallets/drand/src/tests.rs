@@ -946,3 +946,35 @@ fn test_migrate_set_oldest_round() {
         assert_eq!(weight, expected);
     });
 }
+
+#[test]
+fn validate_unsigned_rejects_set_beacon_config() {
+    new_test_ext().execute_with(|| {
+        let block_number = 100_000_000;
+        let alice = sp_keyring::Sr25519Keyring::Alice;
+        System::set_block_number(block_number);
+
+        let info: BeaconInfoResponse = serde_json::from_str(DRAND_INFO_RESPONSE).unwrap();
+        let config_payload = BeaconConfigurationPayload {
+            block_number,
+            config: info.try_into_beacon_config().unwrap(),
+            public: alice.public(),
+        };
+        let signature = alice.sign(&config_payload.encode());
+        let call = Call::set_beacon_config {
+            config_payload,
+            signature: Some(signature),
+        };
+
+        // Root-only calls are never valid as bare (unsigned) transactions, whoever
+        // signs the payload.
+        assert_eq!(
+            Drand::validate_unsigned(TransactionSource::External, &call),
+            Err(InvalidTransaction::Call.into())
+        );
+        assert_eq!(
+            Drand::validate_unsigned(TransactionSource::Local, &call),
+            Err(InvalidTransaction::Call.into())
+        );
+    });
+}

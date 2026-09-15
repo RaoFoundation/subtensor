@@ -23,7 +23,7 @@ pub use pallet::*;
 use scale_info::prelude::collections::BTreeSet;
 use sp_runtime::SaturatedConversion;
 use sp_runtime::{Saturating, Weight, traits::Zero};
-use sp_std::{boxed::Box, vec::Vec};
+use sp_std::{boxed::Box, ops::Bound, vec::Vec};
 use subtensor_runtime_common::{NetUid, clear_prefix_with_meter};
 use tle::{
     curves::drand::TinyBLS381,
@@ -143,6 +143,14 @@ pub mod pallet {
     #[pallet::getter(fn timelocked_index)]
     pub type TimelockedIndex<T: Config> =
         StorageValue<_, BTreeSet<(NetUid, T::AccountId)>, ValueQuery>;
+
+    /// Last `TimelockedIndex` entry visited by a reveal pass that hit the per-block
+    /// decryption budget. The next pass resumes after it so a burst of matured
+    /// commitments at the front of the index cannot starve the rest. Absent when the
+    /// previous pass covered the whole index.
+    #[pallet::storage]
+    pub type TimelockRevealCursor<T: Config> =
+        StorageValue<_, (NetUid, T::AccountId), OptionQuery>;
 
     /// Identity data by account
     #[pallet::storage]
@@ -481,7 +489,27 @@ fn decrypt_timelock_ciphertext(
     Ok(decrypted_bytes)
 }
 
+/// Upper bound on timelock decryptions one block's `on_initialize` performs. Each
+/// decryption is a BLS pairing (the benchmarked `reveal_timelocked_commitments` unit);
+/// fields left over are revealed by later blocks in index order.
+pub const MAX_TIMELOCK_REVEALS_PER_BLOCK: u32 = 32;
+
 impl<T: Config> Pallet<T> {
+    /// Index entries in visiting order: those after the cursor first, then the rest.
+    fn timelock_reveal_order(
+        index: &BTreeSet<(NetUid, T::AccountId)>,
+        cursor: Option<&(NetUid, T::AccountId)>,
+    ) -> Vec<(NetUid, T::AccountId)> {
+        match cursor {
+            Some(cursor) => index
+                .range((Bound::Excluded(cursor), Bound::Unbounded))
+                .chain(index.range((Bound::Unbounded, Bound::Included(cursor))))
+                .cloned()
+                .collect(),
+            None => index.iter().cloned().collect(),
+        }
+    }
+
     pub fn reveal_timelocked_commitments() -> Result<Weight, sp_runtime::DispatchError> {
         let mut total_weight = Weight::from_parts(0, 0);
 
@@ -489,8 +517,19 @@ impl<T: Config> Pallet<T> {
         total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
         let oldest_kept = pallet_drand::OldestStoredRound::<T>::get();
         total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
+        let cursor = TimelockRevealCursor::<T>::get();
+        total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
 
-        for (netuid, who) in index.clone() {
+        let mut decryptions: u32 = 0;
+        let mut last_visited: Option<(NetUid, T::AccountId)> = None;
+        let mut budget_exhausted = false;
+
+        for (netuid, who) in Self::timelock_reveal_order(&index, cursor.as_ref()) {
+            if decryptions >= MAX_TIMELOCK_REVEALS_PER_BLOCK {
+                budget_exhausted = true;
+                break;
+            }
+            last_visited = Some((netuid, who.clone()));
             let maybe_registration = <CommitmentOf<T>>::get(netuid, &who);
             total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
 
@@ -545,6 +584,20 @@ impl<T: Config> Pallet<T> {
                             }
                         };
 
+                        if decryptions >= MAX_TIMELOCK_REVEALS_PER_BLOCK {
+                            // Out of decryption budget: leave the field for a later block.
+                            remain_fields.push(Data::TimelockEncrypted {
+                                encrypted,
+                                reveal_round,
+                            });
+                            still_pending = true;
+                            budget_exhausted = true;
+                            continue;
+                        }
+                        decryptions = decryptions.saturating_add(1);
+                        total_weight = total_weight.saturating_add(
+                            <T as pallet::Config>::WeightInfo::reveal_timelocked_commitments(),
+                        );
                         mutated = true;
 
                         match decrypt_timelock_ciphertext(
@@ -650,6 +703,16 @@ impl<T: Config> Pallet<T> {
                     }
                 }
             }
+        }
+
+        if budget_exhausted {
+            if last_visited != cursor {
+                TimelockRevealCursor::<T>::set(last_visited);
+                total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
+            }
+        } else if cursor.is_some() {
+            TimelockRevealCursor::<T>::kill();
+            total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
         }
 
         Ok(total_weight)
