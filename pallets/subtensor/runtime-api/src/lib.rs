@@ -4,7 +4,10 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use codec::Compact;
 use pallet_subtensor::rpc_info::{
-    basket_info::{BasketPosition, BasketSummary, BetaPosition, BetaPricing, BetaPricingPage},
+    basket_info::{
+        BasketPosition, BasketSummary, BasketTradingStatus, BetaPosition, BetaPricing,
+        BetaPricingPage,
+    },
     delegate_info::DelegateInfo,
     dynamic_info::DynamicInfo,
     metagraph::{Metagraph, SelectiveMetagraph},
@@ -96,10 +99,8 @@ sp_api::decl_runtime_apis! {
         fn get_validator_basket(hotkey: AccountId32) -> Vec<(NetUid, AlphaBalance, TaoBalance)>;
         /// Network-wide total beta basket NAV across all validators, in TAO (marked).
         fn get_root_basket_total_nav() -> TaoBalance;
-        /// A validator's basket weight vector `w`: (subnet, weight) it deploys dividends into.
-        fn get_validator_weights(hotkey: AccountId32) -> Vec<(NetUid, u16)>;
         /// Full explorer-facing summary of one validator's basket: NAV (realizable and spot),
-        /// shares, lifetime deposit/redemption counters, weights, and per-subnet holdings.
+        /// shares, lifetime deposit/redemption counters, and per-subnet holdings.
         fn get_validator_basket_summary(hotkey: AccountId32) -> BasketSummary<AccountId32>;
         /// Summaries for every validator with an active basket (network-wide leaderboard).
         fn get_all_validator_baskets() -> Vec<BasketSummary<AccountId32>>;
@@ -143,5 +144,9 @@ sp_api::decl_runtime_apis! {
         /// with owed β, all marked against the same published index snapshot.
         #[api_version(3)]
         fn get_beta_portfolio(coldkey: AccountId32) -> Vec<BetaPosition<AccountId32>>;
+        /// One fund's `swap_basket` trading status: the network-wide and per-hotkey gates
+        /// plus the turnover window a trade at the current block would be charged to.
+        #[api_version(4)]
+        fn get_basket_trading_status(hotkey: AccountId32) -> BasketTradingStatus;
     }
 }

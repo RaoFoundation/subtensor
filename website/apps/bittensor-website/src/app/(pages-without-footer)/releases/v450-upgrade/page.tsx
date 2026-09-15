@@ -397,7 +397,7 @@ btcli root register`}
             <p className={styles.step_title}>3 · Set</p>
             <p>
               Replace the allocation. Hotkey signs. 16 destinations, 1/16 each (
-              <DocLink href='/docs/tx/set-root-weights'>
+              <DocLink href='/docs/guides/root-reborn'>
                 <code>set_root_weights</code>
               </DocLink>
               ).

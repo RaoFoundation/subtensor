@@ -6,9 +6,9 @@
 //! deposit share pricing, redemption sizing, and what dashboards report can never diverge.
 
 use super::*;
+use crate::rpc_info::basket_info::BasketTradingStatus;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use sp_runtime::DispatchError;
-use subtensor_runtime_common::NetUidStorageIndex;
 use subtensor_swap_interface::{Order, SwapHandler};
 
 impl<T: Config> Pallet<T> {
@@ -74,18 +74,30 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Every escrow holding with its realizable TAO value: `(netuid, alpha, value)`. One
+    /// sim-swap per row; terminal garbage values at zero, every unknown valuation error
+    /// propagates. NAV is the sum of the values; the row count sizes weight.
+    pub(crate) fn try_valued_basket_holdings(
+        hotkey: &T::AccountId,
+    ) -> Result<Vec<(NetUid, AlphaBalance, u64)>, DispatchError> {
+        Self::get_basket_holdings(hotkey)
+            .into_iter()
+            .map(|(netuid, alpha)| {
+                let value =
+                    Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())?.unwrap_or(0);
+                Ok((netuid, alpha, value))
+            })
+            .collect()
+    }
+
     /// Fallible NAV for share pricing and claims. Terminal garbage contributes zero; every
     /// unknown valuation error aborts the money-moving operation.
     pub(crate) fn try_get_validator_basket_nav_tao(
         hotkey: &T::AccountId,
     ) -> Result<u64, DispatchError> {
-        let mut nav = 0u64;
-        for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
-            if let Some(value) = Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())? {
-                nav = nav.saturating_add(value);
-            }
-        }
-        Ok(nav)
+        Ok(Self::try_valued_basket_holdings(hotkey)?
+            .into_iter()
+            .fold(0u64, |nav, (_, _, value)| nav.saturating_add(value)))
     }
 
     /// Single source of truth for redemption sizing: a staker's owed shares are worth
@@ -162,6 +174,67 @@ impl<T: Config> Pallet<T> {
             .collect()
     }
 
+    /// TAO the fund's `swap_basket` turnover bucket holds at block `now` given a bucket
+    /// capacity of `budget`: the stored level plus `budget / BASKET_TRADE_REFILL_BLOCKS` per
+    /// block elapsed since the last refill, clamped to `budget`. A fund with no stored
+    /// bucket (never traded) is full. Clamping also absorbs a NAV drop: the level can never
+    /// exceed one current budget.
+    pub fn basket_trade_bucket_at(hotkey: &T::AccountId, now: u64, budget: u64) -> u64 {
+        match BasketTradeBucket::<T>::get(hotkey) {
+            None => budget,
+            Some((level, last_refill_block)) => {
+                let elapsed = now.saturating_sub(last_refill_block);
+                let refill = Self::mul_div_u64(budget, elapsed, crate::BASKET_TRADE_REFILL_BLOCKS);
+                level.saturating_add(refill).min(budget)
+            }
+        }
+    }
+
+    /// Capacity of a fund's `swap_basket` turnover bucket at `nav`
+    /// (`nav × BasketDailyTurnoverCap / u16::MAX`).
+    pub fn basket_trade_budget_tao(nav: u64) -> u64 {
+        Self::mul_div_u64(
+            nav,
+            BasketDailyTurnoverCap::<T>::get() as u64,
+            u16::MAX as u64,
+        )
+    }
+
+    /// The fund's guarded NAV: every holding at
+    /// [`Self::guarded_basket_holding_value`] — its realizable quote capped at the slow-EMA
+    /// value of the alpha — summed. This is the NAV the `swap_basket` turnover budget and
+    /// concentration cap are measured against; unlike the realizable NAV it cannot be
+    /// inflated by pumping a held pool inside a block. Valuation failures mark the row at
+    /// zero (a view, not a money path).
+    pub fn get_validator_basket_guarded_nav_tao(hotkey: &T::AccountId) -> TaoBalance {
+        let mut nav: u64 = 0;
+        for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
+            let realizable = Self::realizable_tao_for_alpha(netuid, alpha.to_u64());
+            nav = nav.saturating_add(Self::guarded_basket_holding_value(
+                netuid,
+                alpha.to_u64(),
+                realizable,
+            ));
+        }
+        nav.into()
+    }
+
+    /// Explorer / CLI view of one fund's `swap_basket` status as a trade at the current
+    /// block would see it (the budget is sized from the guarded NAV, exactly as a trade
+    /// sizes it).
+    pub fn get_basket_trading_status(hotkey: &T::AccountId) -> BasketTradingStatus {
+        let now = Self::get_current_block_as_u64();
+        let nav = Self::get_validator_basket_guarded_nav_tao(hotkey).to_u64();
+        let budget = Self::basket_trade_budget_tao(nav);
+        BasketTradingStatus {
+            enabled: BasketTradingEnabled::<T>::get(),
+            frozen: BasketTradingFrozen::<T>::contains_key(hotkey),
+            refill_blocks: crate::BASKET_TRADE_REFILL_BLOCKS,
+            tao_available: Self::basket_trade_bucket_at(hotkey, now, budget).into(),
+            budget_tao: budget.into(),
+        }
+    }
+
     /// Network-wide total beta basket NAV across all validators, in TAO (mark-to-market).
     /// Sampling this over time yields the TAO/day flowing to root stakers.
     pub fn get_root_basket_total_nav_tao() -> TaoBalance {
@@ -174,17 +247,5 @@ impl<T: Config> Pallet<T> {
             ));
         }
         u64::try_from(nav).unwrap_or(u64::MAX).into()
-    }
-
-    /// A validator's beta basket weight vector `w`: the `(subnet, weight)` pairs it deploys its
-    /// root dividends into (its curation strategy), exactly as stored.
-    pub fn get_validator_root_weights(hotkey: &T::AccountId) -> Vec<(NetUid, u16)> {
-        Uids::<T>::try_get(NetUid::ROOT, hotkey)
-            .ok()
-            .map(|uid| Weights::<T>::get(NetUidStorageIndex::ROOT, uid))
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(dest, weight)| (NetUid::from(dest), weight))
-            .collect()
     }
 }

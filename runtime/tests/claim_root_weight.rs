@@ -26,6 +26,9 @@ fn expected_root_claim_weight(limit: u32) -> frame_support::weights::Weight {
         .saturating_add(
             pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root_scan(limit),
         )
+        // Flat allowance for flushing the validator's queued dividend credits first; shared
+        // by every basket extrinsic that flushes.
+        .saturating_add(pallet_subtensor::Pallet::<Runtime>::basket_flush_weight_bound())
         // FRAME folds the runtime's dispatch-extension weight into `call_weight`.
         .saturating_add(
             pallet_subtensor::weights::SubstrateWeight::<Runtime>::check_coldkey_swap_extension(),

@@ -74,11 +74,16 @@ DESCRIPTIONS: dict[str, str] = {
         "due to insufficient funds, the existential deposit, or frozen/reserved balance. Check "
         "the coldkey's balance with `btcli wallet balance` and reduce the amount or top up."
     ),
+    "BasketDepositPending": (
+        "A queued root-dividend deposit on this validator could not be settled yet, so an "
+        "operation that changes the hotkey's root claimant base was refused. No current "
+        "dispatch raises it; if it appears, wait for the pending deposit to flush (the next "
+        "claim or basket operation on the hotkey settles it) and retry."
+    ),
     "BasketHasNoWeights": (
-        "Retired on current runtimes: a basket deposit into a validator with no usable root "
-        "weight vector is now held as the fund's root (TAO cash) slot instead of erroring. "
-        "Seeing this error means the chain is running an older runtime — have the validator "
-        "set root weights with `btcli root weights set` (or `set_root_weights`) first."
+        "Retired on current runtimes: a basket deposit into a fund with no holdings is held "
+        "as the fund's root (TAO cash) slot instead of erroring, and root weight vectors no "
+        "longer exist. Seeing this error means the chain is running an older runtime."
     ),
     "BeneficiaryDoesNotOwnHotkey": (
         "When ending a subnet lease, the hotkey passed for the ownership handover is not owned "
@@ -88,10 +93,51 @@ DESCRIPTIONS: dict[str, str] = {
     "RootClaimTooHeavy": (
         "A root claim would process more than the fixed 256-unit admission envelope. Only "
         "root-relevant validator hotkeys and their stored basket rows count as claim work; "
-        "classifying the staking-hotkey relationship vector is separately capped at 256. "
+        "classifying the staking-hotkey relationship vector is separately capped at 256, and "
+        "the queued dividend credits plus weight-vector destinations the claim would flush "
+        "first are capped at 512 across all validators claimed (one validator always fits). "
         "Unrelated subnet stakes are not multiplied by the total network count. Split a "
         "coldkey-wide claim by validator where that fits, and investigate or consolidate an "
         "individually oversized basket."
+    ),
+    "BasketLiquidityCapExceeded": (
+        "The trade would leave the fund holding more of the destination subnet than "
+        "`BasketLiquidityCap` allows as a share of that subnet's alpha reserve "
+        "(u16-normalized, default 10%). This bounds the fund's exposure to any one pool's "
+        "liquidity. Trade a smaller amount, or pick a deeper pool; query `validator_basket` "
+        "for the current holding and `subnet` for the pool's alpha reserve."
+    ),
+    "BasketMinOutNotMet": (
+        "The `swap_basket` buy leg credited less than the `min_amount_out` floor you set "
+        "(destination alpha, or TAO when the destination is netuid 0), so the whole trade "
+        "rolled back; nothing moved. The pool moved between your quote and execution, or "
+        "the floor was set above what the trade could ever yield. Re-quote and retry, or "
+        "widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 "
+        "disables this check; the 2% protocol band still applies."
+    ),
+    "BasketSameSubnet": (
+        "`swap_basket` was called with the same origin and destination netuid. A basket "
+        "trade sells one holding to buy another; pick two different subnets (netuid 0 is "
+        "the fund's TAO cash slot)."
+    ),
+    "BasketTradingDisabled": (
+        "`swap_basket` is switched off network-wide (`BasketTradingEnabled` is false). "
+        "Governance opens it with `AdminUtils.sudo_set_basket_trading_enabled`. Deposits, "
+        "claims, and dividend deployment are unaffected."
+    ),
+    "BasketTradingFrozen": (
+        "Governance froze basket trading for this validator hotkey "
+        "(`BasketTradingFrozen[hotkey]`), typically after a suspected key compromise. The "
+        "fund still accepts deposits and pays claims; only `swap_basket` is refused until "
+        "`AdminUtils.sudo_set_basket_trading_frozen(hotkey, false)`."
+    ),
+    "BasketTurnoverBudgetExceeded": (
+        "The trade would push more TAO through the fund than its turnover bucket holds. "
+        "The bucket's capacity is `BasketDailyTurnoverCap` (u16-normalized share of fund "
+        "NAV, default 10%); it refills continuously over 7200 blocks and each swap takes "
+        "the TAO through its middle out of it, so at most one capacity can be traded at "
+        "any instant. Query `basket_trading_status` for the remaining budget, the capacity, "
+        "and the refill rate; trade a smaller amount or wait for the bucket to refill."
     ),
     "BetaBasketSeedInProgress": (
         "The `migrate_seed_beta_basket_v2` seed has not completed (it normally finishes "
@@ -106,9 +152,9 @@ DESCRIPTIONS: dict[str, str] = {
         "whether the call was re-enabled in a newer runtime version."
     ),
     "CanNotSetRootNetworkWeights": (
-        "`set_weights` was called with netuid 0, the root network, where normal weight setting "
-        "is not allowed. Use a non-root `netuid` argument; root weights are handled by a "
-        "separate mechanism."
+        "`set_weights` was called with netuid 0, the root network, where weight setting is "
+        "not allowed: root validators do not set weights at all. Use a non-root `netuid` "
+        "argument."
     ),
     "CannotAffordLockCost": (
         "The coldkey's free balance cannot cover the current dynamic subnet-creation lock cost. "
@@ -644,20 +690,19 @@ DESCRIPTIONS: dict[str, str] = {
         "only happens on misconfigured or freshly bootstrapped chains. Verify netuid 0 exists "
         "in `NetworksAdded`."
     ),
-    "RootWeightCapExceeded": (
-        "One destination in the `set_root_weights` vector takes a larger share of the basket "
-        "than the `RootWeightsCap` hyperparameter allows (share = weight / sum of weights; "
-        "the cap is u16-normalized, so 4096 means 1/16). Spread the vector across more "
-        "destinations — at the launch cap of 1/16 a basket needs at least 16 — or lower the "
-        "largest entries. Query `RootWeightsCap[0]` for the live cap. Not enforced while "
-        "the chain has fewer subnets than the cap demands."
+    "BasketConcentrationCapExceeded": (
+        "The `swap_basket` buy would leave the destination holding above the "
+        "`BasketConcentrationCap` share of fund NAV (holdings marked at realizable value; the "
+        "cap is u16-normalized, so 4096 means 1/16). Buy less, or spread the fund across more "
+        "holdings — at the 1/16 cap a traded fund needs at least 16. Query "
+        "`BasketConcentrationCap` for the live cap. Not enforced while the chain has fewer "
+        "subnets than the cap demands."
     ),
     "RootWeightSettingDisabled": (
-        "`set_root_weights` is disabled network-wide (`RootWeightSettingEnabled` is false). "
-        "Root Reborn launched gated and runtime 449 opened the gate, so on current mainnet "
-        "this only appears if governance has switched weight setting back off. Funds then "
-        "run the null strategy (dividends accumulate in place on their origin subnet) until "
-        "it is re-enabled; dividends keep accruing meanwhile."
+        "Retired on current runtimes: the `set_root_weights` extrinsic and its network-wide "
+        "gate were removed. Funds have no target vector — dividends accumulate in place on "
+        "their origin subnet and composition changes only through `swap_basket`. Seeing this "
+        "error means the chain is running an older runtime."
     ),
     "RootStakeLocked": (
         "A root (netuid 0) exit was attempted before `RootStakeUnlockInterval` blocks "
@@ -855,10 +900,5 @@ DESCRIPTIONS: dict[str, str] = {
         "Withdrawing TAO from the coldkey (e.g. paying a registration burn or adding stake) "
         "would leave the account at zero, below what keeps it alive. Check the coldkey's free "
         "balance and leave at least the existential deposit after the amount withdrawn."
-    ),
-    "BasketDepositPending": (
-        "A queued root-dividend deposit for this hotkey could not be settled yet, so an "
-        "operation that changes the hotkey's root claimant base was refused. Wait until the "
-        "deposit is settled or expires, then retry."
     ),
 }

@@ -20,7 +20,6 @@ import {
     getTotalHotkeyAlpha,
     isSubtokenEnabled,
     rootRegister,
-    setRootWeights,
     startCall,
     sudoSetAdminFreezeWindow,
     sudoSetEmaPriceHalvingPeriod,
@@ -29,7 +28,6 @@ import {
     sudoSetSubnetMovingAlpha,
     sudoSetSubtokenEnabled,
     sudoSetTempo,
-    sudoSetWeightsSetRateLimit,
     tao,
     waitForBlocks,
 } from "../../utils";
@@ -119,10 +117,8 @@ describeSuite({
                 // Set threshold to 0 to allow claiming any amount (claims consult the ROOT entry)
                 await sudoSetRootClaimThreshold(api, ROOT_NETUID, 0n);
 
-                // Register the validator on root and clear the weights rate limit so the
-                // basket vector can be set immediately.
+                // Register the validator on root so it earns root dividends into its fund.
                 await rootRegister(api, owner1Coldkey, owner1HotkeyAddress);
-                await sudoSetWeightsSetRateLimit(api, ROOT_NETUID, 0);
 
                 // Add stake to ROOT subnet for the staker (makes them eligible for root dividends)
                 const rootStakeAmount = tao(100);
@@ -134,10 +130,8 @@ describeSuite({
                 log(`Root stake: ${rootStake}`);
                 expect(rootStake, "Should have stake on root subnet").toBeGreaterThan(0n);
 
-                // The validator must set its basket weight vector for dividends to be deposited
-                // into the fund (otherwise they are recycled). Route them into subnet 1.
-                await setRootWeights(api, owner1Hotkey, [netuid1], [65535]);
-                log("Set root weights: 100% to netuid1");
+                // Root dividends accumulate in the validator's fund as alpha on the subnet
+                // they are earned on; nothing needs to be configured.
 
                 // Add stake to both dynamic subnets (owner stake to enable emissions flow)
                 const subnetStakeAmount = tao(50);
@@ -283,10 +277,8 @@ describeSuite({
                 // Set threshold to 0 to allow claiming any amount (claims consult the ROOT entry)
                 await sudoSetRootClaimThreshold(api, ROOT_NETUID, 0n);
 
-                // Register the validator on root and clear the weights rate limit so the
-                // basket vector can be set immediately.
+                // Register the validator on root so it earns root dividends into its fund.
                 await rootRegister(api, owner1Coldkey, owner1HotkeyAddress);
-                await sudoSetWeightsSetRateLimit(api, ROOT_NETUID, 0);
 
                 // Add stake to ROOT subnet for the staker
                 const rootStakeAmount = tao(100);
@@ -296,10 +288,6 @@ describeSuite({
                 // Get initial ROOT stake
                 const rootStakeBefore = await getStake(api, owner1HotkeyAddress, stakerColdkeyAddress, ROOT_NETUID);
                 log(`Root stake before: ${rootStakeBefore}`);
-
-                // Route the validator's basket into subnet 1 so dividends are deposited.
-                await setRootWeights(api, owner1Hotkey, [netuid1], [65535]);
-                log("Set root weights: 100% to netuid1");
 
                 // Add stake to both dynamic subnets (owner stake to enable emissions flow)
                 const subnetStakeAmount = tao(50);

@@ -1,5 +1,6 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use crate::staking::BasketFlushWork;
 use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
@@ -7,9 +8,9 @@ use crate::{
     DefaultMinRootClaimAmount, Error, Keys, LastEpochBlock, MAX_ROOT_CLAIM_THRESHOLD,
     MAX_ROOT_CLAIM_WORK, NetworksAdded, NumStakingColdkeys, PendingBasketDeposits,
     RegistrationsThisInterval, RootAlphaDividendsPerSubnet, RootClaimableThreshold,
-    StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn, SubnetMovingPrice,
-    SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
-    Weights,
+    StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn, SubnetAlphaOut,
+    SubnetMovingPrice, SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo,
+    TotalStake, Uids,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -20,20 +21,11 @@ use sp_core::U256;
 use sp_runtime::DispatchError;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64, U96F32};
-use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance, Token};
+use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 
 // =============================================================================
 // Helpers
 // =============================================================================
-
-/// Directly assign a root UID and a beta-basket weight vector `w` to a validator hotkey,
-/// bypassing the `set_root_weights` extrinsic's validation (which is exercised separately).
-/// `dests` are `(subnet, weight)` pairs.
-pub(super) fn set_root_weights_direct(hotkey: &U256, uid: u16, dests: &[(NetUid, u16)]) {
-    Uids::<Test>::insert(NetUid::ROOT, hotkey, uid);
-    let zipped: Vec<(u16, u16)> = dests.iter().map(|(n, w)| (u16::from(*n), *w)).collect();
-    Weights::<Test>::insert(NetUidStorageIndex::ROOT, uid, zipped);
-}
 
 /// Ensure a subnet has deep, balanced AMM reserves so basket swaps execute with negligible
 /// slippage and never fail for lack of liquidity. Also funds the subnet free-balance pot so
@@ -45,12 +37,6 @@ pub(super) fn fund_pool(netuid: NetUid) {
     if let Some(subnet_account) = SubtensorModule::get_subnet_account_id(netuid) {
         add_balance_to_coldkey_account(&subnet_account, tao);
     }
-}
-
-/// Open the network-wide `set_root_weights` gate (closed by default at launch so every
-/// fund starts on the null accumulate strategy) for tests exercising the extrinsic.
-pub(super) fn enable_root_weight_setting() {
-    crate::RootWeightSettingEnabled::<Test>::put(true);
 }
 
 /// Claims are fund-level and consult only the ROOT threshold entry; zero it for tests that
@@ -73,9 +59,9 @@ pub(super) fn flush_baskets() {
     }
 }
 
-/// Grant a hotkey a root-network UID without setting any weights: it qualifies for root
-/// dividends (the epoch split pays root dividends only to root-registered hotkeys) while
-/// its fund stays on the uncurated accumulate-in-place strategy.
+/// Grant a hotkey a root-network UID: it qualifies for root dividends (the epoch split pays
+/// root dividends only to root-registered hotkeys), which accumulate in place on their
+/// origin subnet.
 pub(super) fn register_on_root(hotkey: &U256, uid: u16) {
     Uids::<Test>::insert(NetUid::ROOT, hotkey, uid);
 }
@@ -236,10 +222,13 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
             SubtensorModule::root_claim_declared_work(),
             MAX_ROOT_CLAIM_WORK
         );
+        // Claim envelope plus the flat pending-deposit flush allowance every flushing
+        // extrinsic declares.
         let envelope = <Test as crate::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
             .saturating_add(<Test as crate::Config>::WeightInfo::claim_root_scan(
                 MAX_ROOT_CLAIM_WORK,
-            ));
+            ))
+            .saturating_add(SubtensorModule::basket_flush_weight_bound());
         assert!(
             declared_weight.all_gte(envelope),
             "declared {declared_weight:?} must cover the {envelope:?} admission envelope"
@@ -263,6 +252,68 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
         assert!(
             declared_weight.all_lte(max_extrinsic),
             "declared weight {declared_weight:?} exceeds max extrinsic {max_extrinsic:?}"
+        );
+    });
+}
+
+/// A claim first flushes the validator's queued dividend credits; that work is charged into
+/// the post-dispatch weight through the same `basket_flush_weight` model as `swap_basket`
+/// and `stake_into_basket`, and the total refunds below the flat declared cap.
+#[test]
+fn test_claim_root_charges_flush_work_and_refunds_below_declared() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+        let coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let owner = U256::from(1003);
+        let owner_hot = U256::from(1004);
+        let netuid = add_dynamic_network(&owner_hot, &owner);
+        remove_owner_registration_stake(netuid);
+        fund_pool(netuid);
+        register_on_root(&hotkey, 0);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            10_000_000_000u64.into(),
+        );
+        // Queue one uncurated credit; the claim's flush deposits it (scan 1 + attempt on
+        // an empty fund: 0 holdings + 2 quotes, and one in-place row).
+        let credit = 1_000_000u64;
+        SubnetAlphaOut::<Test>::mutate(netuid, |t| *t = t.saturating_add(credit.into()));
+        SubtensorModule::enqueue_basket_deposit(&hotkey, netuid, credit.into());
+        let expected_flush_work = BasketFlushWork::new(1 + 2, 1);
+
+        let declared = RuntimeCall::SubtensorModule(crate::Call::claim_root_with_hotkey { hotkey })
+            .get_dispatch_info()
+            .call_weight;
+
+        let outcome =
+            SubtensorModule::root_claim_for_hotkey(&hotkey, &coldkey, false).expect("claim runs");
+        assert_eq!(outcome.flush, expected_flush_work);
+        assert!(
+            !PendingBasketDeposits::<Test>::contains_key(hotkey, netuid),
+            "the claim flushed the queued credit"
+        );
+        assert!(outcome.tao > 0, "the flushed dividend was redeemed");
+
+        let actual = SubtensorModule::root_claim_actual_weight(1, 0, &outcome);
+        let without_flush = SubtensorModule::root_claim_actual_weight(
+            1,
+            0,
+            &crate::staking::RootClaimOutcome {
+                flush: BasketFlushWork::default(),
+                ..outcome
+            },
+        );
+        assert_eq!(
+            actual,
+            without_flush.saturating_add(SubtensorModule::basket_flush_weight(expected_flush_work))
+        );
+        assert!(
+            actual.all_lt(declared),
+            "actual {actual:?} must refund below declared {declared:?}"
         );
     });
 }
@@ -354,46 +405,11 @@ fn test_coldkey_wide_claim_selects_only_root_relevant_hotkeys() {
 }
 
 // =============================================================================
-// Beta basket: setting weights (extrinsic validation)
-// =============================================================================
-
-#[test]
-fn test_set_root_weights_rejects_unregistered_hotkey() {
-    new_test_ext(1).execute_with(|| {
-        let owner_coldkey = U256::from(1001);
-        let hotkey = U256::from(1002);
-        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
-
-        // Launch default: the network-wide gate is closed, so weight setting fails for
-        // everyone regardless of registration — every fund runs the null strategy.
-        assert_noop!(
-            SubtensorModule::set_root_weights(
-                RuntimeOrigin::signed(hotkey),
-                vec![u16::from(netuid)],
-                vec![u16::MAX],
-            ),
-            Error::<Test>::RootWeightSettingDisabled
-        );
-        enable_root_weight_setting();
-
-        // `hotkey` is not registered on the root subnet, so it cannot set root weights.
-        assert_noop!(
-            SubtensorModule::set_root_weights(
-                RuntimeOrigin::signed(hotkey),
-                vec![u16::from(netuid)],
-                vec![u16::MAX],
-            ),
-            Error::<Test>::HotKeyNotRegisteredInSubNet
-        );
-    });
-}
-
-// =============================================================================
 // Beta basket: accrual
 // =============================================================================
 
 #[test]
-fn test_root_basket_accrues_per_weights() {
+fn test_root_basket_accrues_dividend_as_fund_shares() {
     new_test_ext(1).execute_with(|| {
         let owner_coldkey = U256::from(1001);
         let hotkey = U256::from(1002);
@@ -418,8 +434,8 @@ fn test_root_basket_accrues_per_weights() {
             10_000_000u64.into(),
         );
 
-        // Route the basket 100% back into this subnet.
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        // Root-registered so the epoch pays this hotkey root dividends.
+        register_on_root(&hotkey, 0);
 
         assert_eq!(escrow_alpha(&hotkey, netuid), 0);
         assert_eq!(fund_shares(&hotkey), 0);
@@ -619,81 +635,24 @@ fn test_subnet_owner_root_validator_dividend_is_basketed_and_claimable() {
     });
 }
 
-#[test]
-fn test_root_basket_routes_to_target_subnet() {
-    new_test_ext(1).execute_with(|| {
-        let owner_a = U256::from(1001);
-        let hotkey = U256::from(1002);
-        let coldkey = U256::from(1003);
-        let owner_b = U256::from(2001);
-        let hotkey_b = U256::from(2002);
-
-        let netuid_a = add_dynamic_network(&hotkey, &owner_a);
-        let netuid_b = add_dynamic_network(&hotkey_b, &owner_b);
-        remove_owner_registration_stake(netuid_a);
-        fund_pool(netuid_a);
-        fund_pool(netuid_b);
-
-        SubtensorModule::set_tao_weight(u64::MAX);
-
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-            2_000_000u64.into(),
-        );
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &owner_a,
-            netuid_a,
-            10_000_000u64.into(),
-        );
-
-        // Route the basket entirely into subnet B (different from the dividend origin A).
-        set_root_weights_direct(&hotkey, 0, &[(netuid_b, u16::MAX)]);
-
-        SubtensorModule::distribute_emission(
-            netuid_a,
-            AlphaBalance::ZERO,
-            AlphaBalance::ZERO,
-            1_000_000u64.into(),
-            AlphaBalance::ZERO,
-        );
-        flush_baskets();
-
-        // The holding should be on B, not A; the fund is denominated at the validator level.
-        assert!(escrow_alpha(&hotkey, netuid_b) > 0);
-        assert_eq!(escrow_alpha(&hotkey, netuid_a), 0);
-        assert!(fund_shares(&hotkey) > 0);
-        assert!(has_fund(&hotkey));
-    });
-}
-
 // =============================================================================
 // Beta basket: protocol-flow accounting (symmetric)
 // =============================================================================
 
-/// The basket must book protocol flow symmetrically: the origin sell on A is an outflow, each
-/// redistribution buy on B/C is an inflow, and the claim sell on B/C is an outflow that nets the
-/// deposit-then-claim round-trip back toward zero on the dest pools.
+/// Protocol flow is booked symmetrically and only when TAO actually crosses a pool: an
+/// in-place dividend records nothing, a direct deposit's buy is an inflow, and the claim
+/// sell is an outflow that nets the deposit-then-claim round-trip back toward zero.
 #[test]
 fn test_root_basket_records_symmetric_protocol_flow() {
     new_test_ext(1).execute_with(|| {
         let owner_a = U256::from(1001);
         let hotkey = U256::from(1002);
         let coldkey = U256::from(1003);
-        let owner_b = U256::from(2001);
-        let hotkey_b = U256::from(2002);
-        let owner_c = U256::from(3001);
-        let hotkey_c = U256::from(3002);
+        let bob = U256::from(1004);
 
         let netuid_a = add_dynamic_network(&hotkey, &owner_a);
-        let netuid_b = add_dynamic_network(&hotkey_b, &owner_b);
-        let netuid_c = add_dynamic_network(&hotkey_c, &owner_c);
         remove_owner_registration_stake(netuid_a);
         fund_pool(netuid_a);
-        fund_pool(netuid_b);
-        fund_pool(netuid_c);
 
         SubtensorModule::set_tao_weight(u64::MAX);
         zero_claim_threshold();
@@ -710,15 +669,10 @@ fn test_root_basket_records_symmetric_protocol_flow() {
             netuid_a,
             10_000_000u64.into(),
         );
-
-        // Split the basket 50/50 across B and C (neither is the dividend origin A).
-        set_root_weights_direct(&hotkey, 0, &[(netuid_b, u16::MAX), (netuid_c, u16::MAX)]);
-
-        // No protocol flow has been recorded on any subnet yet.
+        register_on_root(&hotkey, 0);
         assert_eq!(SubnetProtocolFlow::<Test>::get(netuid_a), 0);
-        assert_eq!(SubnetProtocolFlow::<Test>::get(netuid_b), 0);
-        assert_eq!(SubnetProtocolFlow::<Test>::get(netuid_c), 0);
 
+        // An in-place dividend moves no TAO through the pool: nothing is booked.
         SubtensorModule::distribute_emission(
             netuid_a,
             AlphaBalance::ZERO,
@@ -727,48 +681,38 @@ fn test_root_basket_records_symmetric_protocol_flow() {
             AlphaBalance::ZERO,
         );
         flush_baskets();
+        assert!(escrow_alpha(&hotkey, netuid_a) > 0);
+        assert_eq!(
+            SubnetProtocolFlow::<Test>::get(netuid_a),
+            0,
+            "accumulating in place must not book protocol flow"
+        );
 
-        let flow_a = SubnetProtocolFlow::<Test>::get(netuid_a);
-        let flow_b = SubnetProtocolFlow::<Test>::get(netuid_b);
-        let flow_c = SubnetProtocolFlow::<Test>::get(netuid_c);
+        // A direct deposit mirrors the holding: its buy on A is an inflow.
+        let deposit = 5_000_000u64;
+        add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * deposit));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
+            hotkey,
+            deposit.into(),
+        ));
+        let flow_in = SubnetProtocolFlow::<Test>::get(netuid_a);
+        assert!(flow_in > 0, "buy on A must be an inflow, got {flow_in}");
 
-        // Origin sell on A is booked as an outflow (negative); the buys on B and C as inflows.
-        assert!(flow_a < 0, "origin sell must be an outflow, got {flow_a}");
-        assert!(flow_b > 0, "buy on B must be an inflow, got {flow_b}");
-        assert!(flow_c > 0, "buy on C must be an inflow, got {flow_c}");
-
-        // Symmetry: every TAO sold on A is spent buying on B and C, so the inflows exactly offset
-        // the outflow across subnets.
-        assert_abs_diff_eq!(flow_b + flow_c, -flow_a, epsilon = 10i64);
-
-        // Now redeem the basket. The fund-level claim sells the staker's pro-rata slice of BOTH
-        // holdings back to TAO, booking an outflow on each dest that nets the round-trip back
-        // toward zero.
+        // Bob redeems: the claim sells his slice back to TAO, booking an outflow that nets
+        // the round trip back toward zero (only fees/slippage remain).
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
-            RuntimeOrigin::signed(coldkey),
+            RuntimeOrigin::signed(bob),
             hotkey
         ));
-
-        let flow_b_after = SubnetProtocolFlow::<Test>::get(netuid_b);
-        let flow_c_after = SubnetProtocolFlow::<Test>::get(netuid_c);
-
-        // Claim recorded an outflow: the dest flow decreased, and the deposit+claim round-trip
-        // leaves a residual far smaller than the original inflow (only swap fees/slippage remain).
+        let flow_after = SubnetProtocolFlow::<Test>::get(netuid_a);
         assert!(
-            flow_b_after < flow_b,
-            "claim must book an outflow on B: {flow_b_after} !< {flow_b}"
+            flow_after < flow_in,
+            "claim must book an outflow on A: {flow_after} !< {flow_in}"
         );
         assert!(
-            flow_c_after < flow_c,
-            "claim must book an outflow on C: {flow_c_after} !< {flow_c}"
-        );
-        assert!(
-            flow_b_after.abs() < flow_b,
-            "round-trip residual on B should be smaller than the inflow: {flow_b_after} vs {flow_b}"
-        );
-        assert!(
-            flow_c_after.abs() < flow_c,
-            "round-trip residual on C should be smaller than the inflow: {flow_c_after} vs {flow_c}"
+            flow_after.abs() < flow_in,
+            "round-trip residual should be smaller than the inflow: {flow_after} vs {flow_in}"
         );
     });
 }
@@ -816,8 +760,8 @@ fn test_root_claim_consolidates_dust_holdings() {
             10_000_000u64.into(),
         );
 
-        // Curated basket: everything into B.
-        set_root_weights_direct(&hotkey, 0, &[(netuid_b, u16::MAX)]);
+        // The dividend lands on A: a healthy holding well above the dust bar.
+        register_on_root(&hotkey, 0);
         SubtensorModule::distribute_emission(
             netuid_a,
             AlphaBalance::ZERO,
@@ -827,11 +771,11 @@ fn test_root_claim_consolidates_dust_holdings() {
         );
         flush_baskets();
         assert!(
-            escrow_alpha(&hotkey, netuid_b) > 0,
-            "fund must hold B alpha"
+            escrow_alpha(&hotkey, netuid_a) > 0,
+            "fund must hold A alpha"
         );
 
-        // Plant a dust holding on C (e.g. left behind by an earlier, wider weight vector).
+        // Plant a dust holding on C (e.g. a position whose value collapsed).
         let escrow = SubtensorModule::get_beta_escrow_account_id();
         mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
@@ -858,25 +802,21 @@ fn test_root_claim_consolidates_dust_holdings() {
     });
 }
 
-/// A below-threshold claim is a no-op for redemption but still consolidates orphaned dust
-/// (leaving curated holdings alone) and is charged as a scan (plus the swept row), not as
-/// a full per-row claim.
+/// A below-threshold claim is a no-op for redemption but still consolidates every dust
+/// holding (there is no exempt set: a row that cannot pay any claimant is cashed) and is
+/// charged for the swept rows plus a scan, not as a full per-row claim.
 #[test]
 fn test_root_claim_noop_below_threshold_costs_scan_and_sweeps_dust() {
     new_test_ext(1).execute_with(|| {
         let owner_a = U256::from(1001);
-        let owner_b = U256::from(1004);
         let owner_c = U256::from(1006);
         let hotkey = U256::from(1002);
-        let hotkey_b = U256::from(1005);
         let hotkey_c = U256::from(1007);
         let coldkey = U256::from(1003);
         let netuid_a = add_dynamic_network(&hotkey, &owner_a);
-        let netuid_b = add_dynamic_network(&hotkey_b, &owner_b);
         let netuid_c = add_dynamic_network(&hotkey_c, &owner_c);
         remove_owner_registration_stake(netuid_a);
         fund_pool(netuid_a);
-        fund_pool(netuid_b);
         fund_pool(netuid_c);
 
         SubtensorModule::set_tao_weight(u64::MAX);
@@ -895,7 +835,7 @@ fn test_root_claim_noop_below_threshold_costs_scan_and_sweeps_dust() {
             10_000_000u64.into(),
         );
 
-        set_root_weights_direct(&hotkey, 0, &[(netuid_b, u16::MAX)]);
+        register_on_root(&hotkey, 0);
         SubtensorModule::distribute_emission(
             netuid_a,
             AlphaBalance::ZERO,
@@ -905,12 +845,12 @@ fn test_root_claim_noop_below_threshold_costs_scan_and_sweeps_dust() {
         );
         flush_baskets();
         assert!(
-            escrow_alpha(&hotkey, netuid_b) > 0,
-            "fund must hold B alpha"
+            escrow_alpha(&hotkey, netuid_a) > 0,
+            "fund must hold A alpha"
         );
         assert_eq!(escrow_alpha(&hotkey, NetUid::ROOT), 0);
 
-        // Plant an orphaned dust holding on C (not in the weight vector).
+        // Plant a dust holding on C.
         let escrow = SubtensorModule::get_beta_escrow_account_id();
         mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
@@ -919,8 +859,8 @@ fn test_root_claim_noop_below_threshold_costs_scan_and_sweeps_dust() {
             1_000u64.into(),
         );
 
-        // Threshold above the whole fund NAV: the claim no-ops. The orphaned C dust is
-        // consolidated; the curated B holding — also below the bar — must stay.
+        // Threshold above the whole fund NAV: the claim no-ops, and both subnet rows —
+        // the C dust and the A holding, each realizably below the bar — are cashed.
         RootClaimableThreshold::<Test>::insert(
             NetUid::ROOT,
             I96F32::from_num(MAX_ROOT_CLAIM_THRESHOLD),
@@ -928,7 +868,7 @@ fn test_root_claim_noop_below_threshold_costs_scan_and_sweeps_dust() {
 
         let shares_before = fund_shares(&hotkey);
         let stake_before = root_stake_of(&hotkey, &coldkey);
-        let b_before = escrow_alpha(&hotkey, netuid_b);
+        let nav_before = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
 
         let post = SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey)
             .expect("no-op claim succeeds");
@@ -940,25 +880,25 @@ fn test_root_claim_noop_below_threshold_costs_scan_and_sweeps_dust() {
             stake_before,
             "no payout below threshold"
         );
-        // ...the orphaned dust was consolidated into the root slot, the curated holding kept.
-        assert_eq!(escrow_alpha(&hotkey, netuid_c), 0, "orphaned C dust swept");
-        assert_eq!(
-            escrow_alpha(&hotkey, netuid_b),
-            b_before,
-            "curated B holding must not be swept"
-        );
+        // ...every dust row was consolidated into the root slot, NAV-continuous (minus
+        // slippage on sub-threshold amounts).
+        assert_eq!(escrow_alpha(&hotkey, netuid_c), 0, "C dust swept");
+        assert_eq!(escrow_alpha(&hotkey, netuid_a), 0, "A dust swept");
+        let root_slot = escrow_alpha(&hotkey, NetUid::ROOT);
         assert!(
-            escrow_alpha(&hotkey, NetUid::ROOT) > 0,
+            root_slot > 0,
             "swept value held as the fund's root (TAO) slot"
         );
+        assert!(root_slot <= nav_before);
+        assert!(root_slot >= nav_before * 99 / 100);
 
-        // Charged as one active unit (the swept row) plus a two-row scan (B + the new root
+        // Charged as two active units (the swept rows) plus a one-row scan (the root
         // slot) — not the full per-row claim weight.
         let actual = post
             .actual_weight
             .expect("claim reports benchmark-derived actual weight");
-        let expected = <Test as crate::Config>::WeightInfo::claim_root(1)
-            .saturating_add(<Test as crate::Config>::WeightInfo::claim_root_scan(2));
+        let expected = <Test as crate::Config>::WeightInfo::claim_root(2)
+            .saturating_add(<Test as crate::Config>::WeightInfo::claim_root_scan(1));
         assert_eq!(actual, expected);
     });
 }
@@ -990,7 +930,7 @@ fn test_root_basket_claim_swaps_to_root() {
             10_000_000u64.into(),
         );
 
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -1054,7 +994,7 @@ fn test_root_basket_proportional_two_stakers() {
             10_000_000u64.into(),
         );
 
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -1124,8 +1064,8 @@ fn test_claim_root_targets_one_hotkey_only() {
             10_000_000u64.into(),
         );
 
-        set_root_weights_direct(&hot_a, 0, &[(netuid_a, u16::MAX)]);
-        set_root_weights_direct(&hot_b, 1, &[(netuid_b, u16::MAX)]);
+        register_on_root(&hot_a, 0);
+        register_on_root(&hot_b, 1);
 
         SubtensorModule::distribute_emission(
             netuid_a,
@@ -1201,7 +1141,7 @@ fn test_root_basket_hotkey_swap_migrates() {
             10_000_000u64.into(),
         );
 
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -1271,7 +1211,7 @@ fn test_root_basket_dissolve_converts_to_root_slot() {
             10_000_000u64.into(),
         );
 
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -1340,7 +1280,7 @@ fn test_root_basket_dissolve_preserves_owed_not_stake() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -1431,7 +1371,7 @@ fn test_root_basket_total_stake_conserved() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         // --- Distribution must not move TotalStake (sell + rebuy is TAO-neutral).
         let ts_before_distribute = TotalStake::<Test>::get().to_u64();
@@ -1492,7 +1432,7 @@ fn test_root_basket_compounds_when_escrow_grows() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -1571,7 +1511,7 @@ fn test_root_basket_fully_drains_on_claims() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -1643,7 +1583,7 @@ fn test_root_basket_disproportional_two_stakers() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -1675,10 +1615,11 @@ fn test_root_basket_disproportional_two_stakers() {
     });
 }
 
-/// A weight vector that spans multiple subnets splits the basket across them in proportion
-/// to the weights.
+/// Dividends from several subnets each stay on the subnet they were earned on: a fund's
+/// composition is the emission-weighted portfolio its dividends describe, with no protocol
+/// trade and no other subnet bought.
 #[test]
-fn test_root_basket_splits_across_multiple_subnets() {
+fn test_root_basket_dividends_accumulate_on_their_origins() {
     new_test_ext(1).execute_with(|| {
         let owner_a = U256::from(1001);
         let hotkey = U256::from(1002);
@@ -1710,10 +1651,14 @@ fn test_root_basket_splits_across_multiple_subnets() {
             netuid_a,
             10_000_000u64.into(),
         );
+        register_on_root(&hotkey, 0);
 
-        // 50/50 split between B and C (neither is the origin A).
-        set_root_weights_direct(&hotkey, 0, &[(netuid_b, u16::MAX), (netuid_c, u16::MAX)]);
-
+        let pool_c_before = (
+            SubnetTAO::<Test>::get(netuid_c),
+            SubnetAlphaIn::<Test>::get(netuid_c),
+        );
+        // Dividends earned on A and on B (the fund's hotkey is the origin's dividend
+        // earner through `distribute_emission` in the mock).
         SubtensorModule::distribute_emission(
             netuid_a,
             AlphaBalance::ZERO,
@@ -1723,271 +1668,125 @@ fn test_root_basket_splits_across_multiple_subnets() {
         );
         flush_baskets();
 
-        let basket_b = escrow_alpha(&hotkey, netuid_b);
-        let basket_c = escrow_alpha(&hotkey, netuid_c);
-
-        assert!(basket_b > 0 && basket_c > 0, "both targets must be funded");
+        assert!(
+            escrow_alpha(&hotkey, netuid_a) > 0,
+            "origin holds the dividend"
+        );
         assert_eq!(
-            escrow_alpha(&hotkey, netuid_a),
+            escrow_alpha(&hotkey, netuid_b),
             0,
-            "origin must hold nothing"
+            "no other subnet is bought"
         );
-        // Equal weights + equal-depth pools => ~equal split.
-        assert_abs_diff_eq!(basket_b, basket_c, epsilon = 1_000u64);
-    });
-}
-
-#[test]
-fn test_set_root_weights_rejects_below_min_length() {
-    new_test_ext(1).execute_with(|| {
-        let hotkey = U256::from(1002);
-        let coldkey = U256::from(1003);
-        // Create enough subnets that the floor is the full MIN_ROOT_BASKET_WEIGHTS.
-        let mut dests = Vec::new();
-        for i in 0..crate::MIN_ROOT_BASKET_WEIGHTS {
-            let hk = U256::from(2000u64 + u64::from(i));
-            let ck = U256::from(3000u64 + u64::from(i));
-            let netuid = add_dynamic_network(&hk, &ck);
-            dests.push(u16::from(netuid));
-        }
-
-        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
-        SubnetworkN::<Test>::insert(NetUid::ROOT, 1);
-        Uids::<Test>::insert(NetUid::ROOT, hotkey, 0u16);
-        Keys::<Test>::insert(NetUid::ROOT, 0u16, hotkey);
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-            2_000_000u64.into(),
-        );
-        enable_root_weight_setting();
-
-        assert_noop!(
-            SubtensorModule::set_root_weights(
-                RuntimeOrigin::signed(hotkey),
-                dests.get(..3).unwrap_or_default().to_vec(),
-                vec![u16::MAX; 3],
-            ),
-            Error::<Test>::WeightVecLengthIsLow
-        );
-    });
-}
-
-/// Oversized destination vectors must be rejected before the duplicate/validity scans so a
-/// unique u16 payload cannot burn unbounded CPU or storage reads.
-#[test]
-fn test_set_root_weights_rejects_len_above_network_ceiling() {
-    new_test_ext(1).execute_with(|| {
-        let hotkey = U256::from(1002);
-        let coldkey = U256::from(1003);
-        let owner = U256::from(1001);
-        let _netuid = add_dynamic_network(&hotkey, &owner);
-
-        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
-        SubnetworkN::<Test>::insert(NetUid::ROOT, 1);
-        Uids::<Test>::insert(NetUid::ROOT, hotkey, 0u16);
-        Keys::<Test>::insert(NetUid::ROOT, 0u16, hotkey);
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-            2_000_000u64.into(),
-        );
-
-        enable_root_weight_setting();
-        let available = SubtensorModule::get_all_subnet_netuids().len();
-        assert!(available > 0);
-        // One past the NetworksAdded ceiling — unique u16s so the old O(n²) path would
-        // have scanned fully before validity failed.
-        let dests: Vec<u16> = (0..=available as u16).collect();
-        let values = vec![1u16; dests.len()];
-
-        assert_noop!(
-            SubtensorModule::set_root_weights(RuntimeOrigin::signed(hotkey), dests, values,),
-            Error::<Test>::UidsLengthExceedUidsInSubNet
-        );
-    });
-}
-
-/// The `set_root_weights` extrinsic stores the validator's vector under the root weights index.
-#[test]
-fn test_set_root_weights_stores_vector() {
-    new_test_ext(1).execute_with(|| {
-        let owner_coldkey = U256::from(1001);
-        let hotkey = U256::from(1002);
-        let coldkey = U256::from(1003);
-        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
-
-        // Register the validator on root (uid 0) and give it stake.
-        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
-        SubnetworkN::<Test>::insert(NetUid::ROOT, 1);
-        Uids::<Test>::insert(NetUid::ROOT, hotkey, 0u16);
-        Keys::<Test>::insert(NetUid::ROOT, 0u16, hotkey);
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-            2_000_000u64.into(),
-        );
-
-        enable_root_weight_setting();
-        // With root + one subnet available, the floor softens to 2 positive weights.
-        assert_ok!(SubtensorModule::set_root_weights(
-            RuntimeOrigin::signed(hotkey),
-            vec![u16::from(NetUid::ROOT), u16::from(netuid)],
-            vec![1, u16::MAX],
-        ));
-
-        let stored = Weights::<Test>::get(NetUidStorageIndex::ROOT, 0u16);
-        assert_eq!(stored.len(), 2);
-        assert!(stored.iter().any(|(d, _)| *d == u16::from(netuid)));
-    });
-}
-
-/// The `set_root_weights` extrinsic accepts root (uid 0) as a basket destination, so the
-/// held-as-root-TAO slot is reachable through the real on-chain path (not just direct storage
-/// writes). Producer validation must agree with the `distribute_root_alpha_to_basket` consumer.
-#[test]
-fn test_set_root_weights_accepts_root_destination() {
-    new_test_ext(1).execute_with(|| {
-        let owner_coldkey = U256::from(1001);
-        let hotkey = U256::from(1002);
-        let coldkey = U256::from(1003);
-        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
-
-        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
-        SubnetworkN::<Test>::insert(NetUid::ROOT, 1);
-        Uids::<Test>::insert(NetUid::ROOT, hotkey, 0u16);
-        Keys::<Test>::insert(NetUid::ROOT, 0u16, hotkey);
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-            2_000_000u64.into(),
-        );
-
-        enable_root_weight_setting();
-        // A vector mixing root (uid 0) and a subnet is accepted and stored verbatim.
-        assert_ok!(SubtensorModule::set_root_weights(
-            RuntimeOrigin::signed(hotkey),
-            vec![u16::from(NetUid::ROOT), u16::from(netuid)],
-            vec![u16::MAX, u16::MAX],
-        ));
-
-        let stored = Weights::<Test>::get(NetUidStorageIndex::ROOT, 0u16);
         assert_eq!(
-            stored,
-            vec![
-                (u16::from(NetUid::ROOT), u16::MAX),
-                (u16::from(netuid), u16::MAX)
-            ]
+            escrow_alpha(&hotkey, netuid_c),
+            0,
+            "no other subnet is bought"
         );
-    });
-}
-
-/// With enough destinations on chain, no single entry may take a larger share of the
-/// vector than `RootWeightsCap` (default 1/16): concentrated vectors are rejected and
-/// an equal spread is accepted.
-#[test]
-fn test_set_root_weights_enforces_concentration_cap() {
-    new_test_ext(1).execute_with(|| {
-        let hotkey = U256::from(1002);
-        let coldkey = U256::from(1003);
-
-        // 15 subnets + root = 16 destinations: exactly what the default 1/16 cap
-        // demands, so the check is live.
-        let mut dests: Vec<u16> = vec![u16::from(NetUid::ROOT)];
-        for i in 0..15u64 {
-            let hk = U256::from(2000u64.saturating_add(i));
-            let ck = U256::from(3000u64.saturating_add(i));
-            dests.push(u16::from(add_dynamic_network(&hk, &ck)));
-        }
-
-        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
-        SubnetworkN::<Test>::insert(NetUid::ROOT, 1);
-        Uids::<Test>::insert(NetUid::ROOT, hotkey, 0u16);
-        Keys::<Test>::insert(NetUid::ROOT, 0u16, hotkey);
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-            2_000_000u64.into(),
-        );
-        enable_root_weight_setting();
-        SubtensorModule::set_weights_set_rate_limit(NetUid::ROOT, 0);
-
-        assert_eq!(SubtensorModule::get_all_subnet_netuids().len(), 16);
         assert_eq!(
-            crate::RootWeightsCap::<Test>::get(NetUid::ROOT),
-            crate::DEFAULT_ROOT_WEIGHTS_CAP
+            escrow_alpha(&hotkey, NetUid::ROOT),
+            0,
+            "nothing is sold to cash"
         );
-
-        // One destination at double everyone else's weight takes 200/1700 > 1/16.
-        let mut concentrated = vec![100u16; dests.len()];
-        if let Some(first) = concentrated.first_mut() {
-            *first = 200;
-        }
-        assert_noop!(
-            SubtensorModule::set_root_weights(
-                RuntimeOrigin::signed(hotkey),
-                dests.clone(),
-                concentrated,
+        assert_eq!(
+            (
+                SubnetTAO::<Test>::get(netuid_c),
+                SubnetAlphaIn::<Test>::get(netuid_c),
             ),
-            Error::<Test>::RootWeightCapExceeded
+            pool_c_before,
+            "an unrelated pool is untouched"
         );
-
-        // An equal 16-way split sits exactly at the cap and passes.
-        assert_ok!(SubtensorModule::set_root_weights(
-            RuntimeOrigin::signed(hotkey),
-            dests.clone(),
-            vec![100u16; dests.len()],
-        ));
-
-        // Governance can relax the cap: at 100% the same concentrated vector passes.
-        crate::RootWeightsCap::<Test>::insert(NetUid::ROOT, u16::MAX);
-        let mut concentrated = vec![100u16; dests.len()];
-        if let Some(first) = concentrated.first_mut() {
-            *first = u16::MAX;
-        }
-        assert_ok!(SubtensorModule::set_root_weights(
-            RuntimeOrigin::signed(hotkey),
-            dests,
-            concentrated,
-        ));
+        assert!(fund_shares(&hotkey) > 0);
     });
 }
 
-/// While the chain has fewer destinations than the cap demands (here 2 < 16), the
-/// concentration check is skipped entirely — mirroring the diversity-floor softening —
-/// so young chains and tests can still set skewed vectors.
+/// Inflows never change composition. A fund holding B:C = 3:1 receives a dividend on A and
+/// a direct deposit; afterwards B:C is still 3:1 (the dividend sits on A as a new holding
+/// and the deposit mirrored every holding). Only `swap_basket` moves the ratio.
 #[test]
-fn test_set_root_weights_cap_skipped_below_required_destinations() {
+fn test_root_basket_composition_unchanged_by_inflows() {
     new_test_ext(1).execute_with(|| {
-        let owner_coldkey = U256::from(1001);
+        let owner_a = U256::from(1001);
         let hotkey = U256::from(1002);
         let coldkey = U256::from(1003);
-        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+        let owner_b = U256::from(2001);
+        let hotkey_b = U256::from(2002);
+        let owner_c = U256::from(3001);
+        let hotkey_c = U256::from(3002);
 
-        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
-        SubnetworkN::<Test>::insert(NetUid::ROOT, 1);
-        Uids::<Test>::insert(NetUid::ROOT, hotkey, 0u16);
-        Keys::<Test>::insert(NetUid::ROOT, 0u16, hotkey);
+        let netuid_a = add_dynamic_network(&hotkey, &owner_a);
+        let netuid_b = add_dynamic_network(&hotkey_b, &owner_b);
+        let netuid_c = add_dynamic_network(&hotkey_c, &owner_c);
+        remove_owner_registration_stake(netuid_a);
+        for netuid in [netuid_a, netuid_b, netuid_c] {
+            fund_pool(netuid);
+        }
+
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
         mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
             &coldkey,
             NetUid::ROOT,
             2_000_000u64.into(),
         );
-        enable_root_weight_setting();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner_a,
+            netuid_a,
+            10_000_000u64.into(),
+        );
+        register_on_root(&hotkey, 0);
 
-        // Maximally concentrated (a dust root slot plus everything on one subnet), yet
-        // accepted: only 2 destinations exist, far below the 16 the default cap demands.
-        assert_ok!(SubtensorModule::set_root_weights(
-            RuntimeOrigin::signed(hotkey),
-            vec![u16::from(NetUid::ROOT), u16::from(netuid)],
-            vec![1, u16::MAX],
+        // The fund holds B:C = 3:1 (equal-depth pools, price ~1).
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        let held_b = 3_000_000u64;
+        let held_c = 1_000_000u64;
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid_b,
+            held_b.into(),
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid_c,
+            held_c.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, held_b + held_c);
+        let ratio_bps =
+            |hk: &U256| escrow_alpha(hk, netuid_b) * 10_000 / escrow_alpha(hk, netuid_c);
+        let target_bps = held_b * 10_000 / held_c;
+
+        // A dividend earned on A: lands on A, B and C untouched.
+        SubtensorModule::distribute_emission(
+            netuid_a,
+            AlphaBalance::ZERO,
+            AlphaBalance::ZERO,
+            4_000_000u64.into(),
+            AlphaBalance::ZERO,
+        );
+        flush_baskets();
+        assert!(escrow_alpha(&hotkey, netuid_a) > 0);
+        assert_eq!(escrow_alpha(&hotkey, netuid_b), held_b);
+        assert_eq!(escrow_alpha(&hotkey, netuid_c), held_c);
+
+        // A direct deposit: mirrors A, B, and C by value, so B:C stays 3:1 (±1%).
+        let bob = U256::from(4001);
+        add_balance_to_coldkey_account(&bob, TaoBalance::from(20_000_000u64));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
+            hotkey,
+            8_000_000u64.into(),
         ));
+        assert!(escrow_alpha(&hotkey, netuid_b) > held_b);
+        assert!(escrow_alpha(&hotkey, netuid_c) > held_c);
+        let after = ratio_bps(&hotkey);
+        assert!(
+            after.abs_diff(target_bps) <= target_bps / 100,
+            "inflows moved composition: {after} bps vs {target_bps}"
+        );
     });
 }
 
@@ -2024,7 +1823,7 @@ fn test_claim1_principal_never_lost() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -2077,7 +1876,7 @@ fn test_claim_then_move_max_includes_pending_basket() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&origin_hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&origin_hotkey, 0);
         NetworksAdded::<Test>::insert(NetUid::ROOT, true);
         crate::SubtokenEnabled::<Test>::insert(NetUid::ROOT, true);
         let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &dest_hotkey);
@@ -2154,7 +1953,7 @@ fn test_claim2_accrued_basket_unchanged_when_others_stake() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -2218,7 +2017,7 @@ fn test_claim3_basket_compounds() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -2278,7 +2077,7 @@ fn test_claim4_no_dilution_or_skim_on_late_stake() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         // Alice accrues a basket.
         SubtensorModule::distribute_emission(
@@ -2397,7 +2196,7 @@ fn test_root_basket_rpc_views() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -2470,7 +2269,7 @@ fn test_root_basket_end_to_end_via_coinbase() {
         );
 
         // Validator routes its basket back into the subnet.
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         assert_eq!(escrow_alpha(&hotkey, netuid), 0);
 
@@ -2496,142 +2295,60 @@ fn test_root_basket_end_to_end_via_coinbase() {
 }
 
 // =============================================================================
-// Beta basket: root (UID 0) slot — "opt out of subnets, hold yield as root TAO"
+// Beta basket: root (UID 0) slot — the fund's TAO cash position
 // =============================================================================
-
-/// A root-weighted (UID 0) slice is held as root stake under the escrow at 1:1, minting fund
-/// shares, and is TotalStake-neutral (the origin sell is balanced by the root-stake credit —
-/// no swap, since root has no AMM pool).
-#[test]
-fn test_root_basket_uid0_holds_as_root_stake() {
-    new_test_ext(1).execute_with(|| {
-        let owner_coldkey = U256::from(1001);
-        let hotkey = U256::from(1002);
-        let coldkey = U256::from(1003);
-        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
-        remove_owner_registration_stake(netuid);
-        fund_pool(netuid);
-
-        SubtensorModule::set_tao_weight(u64::MAX);
-
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-            2_000_000u64.into(),
-        );
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &owner_coldkey,
-            netuid,
-            10_000_000u64.into(),
-        );
-
-        // Validator opts out of subnets: 100% of the basket weight on root (UID 0).
-        set_root_weights_direct(&hotkey, 0, &[(NetUid::ROOT, u16::MAX)]);
-
-        assert_eq!(escrow_alpha(&hotkey, NetUid::ROOT), 0);
-        assert_eq!(fund_shares(&hotkey), 0);
-
-        let ts_before = TotalStake::<Test>::get().to_u64();
-        let pending_root_alpha = 1_000_000u64;
-        SubtensorModule::distribute_emission(
-            netuid,
-            AlphaBalance::ZERO,
-            AlphaBalance::ZERO,
-            pending_root_alpha.into(),
-            AlphaBalance::ZERO,
-        );
-        flush_baskets();
-        let ts_after = TotalStake::<Test>::get().to_u64();
-
-        // A root slot now exists: shares minted, escrow holds root stake, claimable rate set.
-        let escrow_root = escrow_alpha(&hotkey, NetUid::ROOT);
-        let shares = fund_shares(&hotkey);
-        assert!(escrow_root > 0, "escrow must hold root stake");
-        assert!(shares > 0, "fund shares must be minted");
-        assert!(has_fund(&hotkey));
-
-        // Held at 1:1 (N/P starts at 1): escrow root stake ~= minted shares.
-        assert_abs_diff_eq!(escrow_root, shares, epsilon = 10u64);
-
-        // No subnet alpha was bought for the root slice (no subnet escrow position created).
-        assert_eq!(escrow_alpha(&hotkey, netuid), 0);
-
-        // Sell-origin then credit-to-root nets to zero: distribution is TotalStake-neutral.
-        assert_eq!(
-            ts_before, ts_after,
-            "root deposit must be TotalStake-neutral"
-        );
-    });
-}
 
 /// Redeeming a root slot reassigns the escrow's root stake to the staker: the staker's root
 /// stake grows, the escrow drains, shares are consumed, and it is TotalStake-neutral (no swap,
-/// no minted TAO — total root stake is conserved, just moved between coldkeys).
+/// no minted TAO — total root stake is conserved, just moved between coldkeys). The cash slot
+/// is opened the way a fund gets cash without trading: a direct deposit into an empty fund.
 #[test]
 fn test_root_basket_uid0_claim_reassigns_no_swap() {
     new_test_ext(1).execute_with(|| {
         let owner_coldkey = U256::from(1001);
         let hotkey = U256::from(1002);
-        let coldkey = U256::from(1003);
+        let bob = U256::from(1003);
         let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
         remove_owner_registration_stake(netuid);
         fund_pool(netuid);
 
         SubtensorModule::set_tao_weight(u64::MAX);
         zero_claim_threshold();
+        register_on_root(&hotkey, 0);
 
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-            2_000_000u64.into(),
-        );
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &owner_coldkey,
-            netuid,
-            10_000_000u64.into(),
-        );
-        set_root_weights_direct(&hotkey, 0, &[(NetUid::ROOT, u16::MAX)]);
-
-        SubtensorModule::distribute_emission(
-            netuid,
-            AlphaBalance::ZERO,
-            AlphaBalance::ZERO,
-            1_000_000u64.into(),
-            AlphaBalance::ZERO,
-        );
-        flush_baskets();
+        let deposit = 2_000_000u64;
+        add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * deposit));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
+            hotkey,
+            deposit.into(),
+        ));
 
         let shares_before = fund_shares(&hotkey);
         let escrow_before = escrow_alpha(&hotkey, NetUid::ROOT);
-        let root_before = root_stake_of(&hotkey, &coldkey);
-        assert!(shares_before > 0);
-        assert!(escrow_before > 0);
+        let root_before = root_stake_of(&hotkey, &bob);
+        assert_eq!(shares_before, deposit);
+        assert_eq!(escrow_before, deposit);
+        assert_eq!(root_before, 0);
 
         let ts_before = TotalStake::<Test>::get().to_u64();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
-            RuntimeOrigin::signed(coldkey),
+            RuntimeOrigin::signed(bob),
             hotkey
         ));
         let ts_after = TotalStake::<Test>::get().to_u64();
 
-        let gain = root_stake_of(&hotkey, &coldkey).saturating_sub(root_before);
+        let gain = root_stake_of(&hotkey, &bob);
         let escrow_after = escrow_alpha(&hotkey, NetUid::ROOT);
 
-        // Staker gained root stake; the escrow gave up ~the same amount (a pure reassignment).
-        assert!(gain > 0, "staker must accumulate root TAO");
-        assert_abs_diff_eq!(
-            gain,
-            escrow_before.saturating_sub(escrow_after),
-            epsilon = 10u64
-        );
+        // Staker gained root stake; the escrow gave up exactly the same amount (a pure
+        // reassignment, no swap).
+        assert_eq!(gain, deposit, "staker must receive the whole cash slot");
+        assert_eq!(escrow_after, 0);
 
-        // Shares consumed, watermark advanced, TotalStake untouched (no swap, no mint).
-        assert!(fund_shares(&hotkey) < shares_before);
-        assert!(BasketClaimed::<Test>::get(hotkey, coldkey) > 0);
+        // Shares consumed, watermark settled, TotalStake untouched (no swap, no mint).
+        assert_eq!(fund_shares(&hotkey), 0);
+        assert_eq!(BasketClaimed::<Test>::get(hotkey, bob), 0);
         assert_eq!(ts_before, ts_after, "root claim must be TotalStake-neutral");
     });
 }
@@ -2664,7 +2381,7 @@ fn test_root_basket_uid0_compounds() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(NetUid::ROOT, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -2752,7 +2469,7 @@ fn test_root_basket_conservation_interleaved() {
         );
 
         // Fund composition: 50% subnet B, 50% root (cash) slot.
-        set_root_weights_direct(&hotkey, 0, &[(netuid_b, 32768), (NetUid::ROOT, 32768)]);
+        register_on_root(&hotkey, 0);
 
         let ts_start = TotalStake::<Test>::get().to_u64();
         let deposit = |amount: u64| {
@@ -2832,7 +2549,7 @@ fn test_root_basket_claim_idempotent() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -2907,7 +2624,7 @@ fn test_root_basket_self_referential_origin() {
 
         // 100% of the basket routed back into the origin subnet: every future dividend both
         // sells and buys the very asset the fund holds.
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         // Alice accrues the first deposit alone.
         SubtensorModule::distribute_emission(
@@ -3009,7 +2726,7 @@ fn test_root_basket_large_magnitudes_no_saturation() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         // Fund at supply scale: escrow holds 2e16 alpha (price 1 => NAV 2e16), 2e16 shares out.
         // (Direct stake write: the mock helper's subnet-balance top-up overflows the test-chain
@@ -3069,7 +2786,7 @@ fn test_root_basket_unstake_preserves_accrued() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -3122,9 +2839,9 @@ fn test_root_basket_unstake_preserves_accrued() {
 }
 
 /// Pro-rata redemption preserves fund composition: after one of two equal stakers claims from a
-/// fund with a 2:1 split across two subnets, the ratio between the remaining holdings is
-/// unchanged, and the second claimant's payout matches the first (no ordering advantage beyond
-/// AMM slippage).
+/// fund holding three subnets (a 2:1 split plus the dividend's origin), the ratio between the
+/// remaining holdings is unchanged, and the second claimant's payout matches the first (no
+/// ordering advantage beyond AMM slippage).
 #[test]
 fn test_root_basket_claim_preserves_composition() {
     new_test_ext(1).execute_with(|| {
@@ -3164,8 +2881,23 @@ fn test_root_basket_claim_preserves_composition() {
             10_000_000u64.into(),
         );
 
-        // 2:1 composition across B and C.
-        set_root_weights_direct(&hotkey, 0, &[(netuid_b, 43690), (netuid_c, 21845)]);
+        // 2:1 composition across B and C (held from an earlier fund life, at par), then a
+        // dividend on A mints alice's and bob's shares against that NAV.
+        register_on_root(&hotkey, 0);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid_b,
+            4_000_000u64.into(),
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid_c,
+            2_000_000u64.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, 6_000_000u64);
 
         SubtensorModule::distribute_emission(
             netuid_a,
@@ -3175,6 +2907,8 @@ fn test_root_basket_claim_preserves_composition() {
             AlphaBalance::ZERO,
         );
         flush_baskets();
+        let a_before = escrow_alpha(&hotkey, netuid_a) as f64;
+        assert!(a_before > 0.0);
 
         let b_before = escrow_alpha(&hotkey, netuid_b) as f64;
         let c_before = escrow_alpha(&hotkey, netuid_c) as f64;
@@ -3189,13 +2923,18 @@ fn test_root_basket_claim_preserves_composition() {
         ));
         let alice_gain = root_stake_of(&hotkey, &alice).saturating_sub(alice_root_before);
 
-        // Composition is preserved: both holdings shrank by the same fraction.
+        // Composition is preserved: every holding shrank by the same fraction.
+        let a_after = escrow_alpha(&hotkey, netuid_a) as f64;
         let b_after = escrow_alpha(&hotkey, netuid_b) as f64;
         let c_after = escrow_alpha(&hotkey, netuid_c) as f64;
         let ratio_after = b_after / c_after;
         assert!(
             (ratio_after - ratio_before).abs() / ratio_before < 0.001,
             "claim skewed composition: {ratio_before} -> {ratio_after}"
+        );
+        assert!(
+            ((a_after / a_before) - (b_after / b_before)).abs() < 0.001,
+            "claim must take the same fraction of A as of B"
         );
 
         // Bob's payout matches Alice's (equal stakes), modulo slippage from her claim.
@@ -3241,7 +2980,7 @@ fn test_root_basket_dust_deposit_recycled() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         let ts_before = TotalStake::<Test>::get().to_u64();
         // Deposit directly into the basket: the rate increment (~1e3 / 1e16 < 2^-32) rounds to
@@ -3257,10 +2996,10 @@ fn test_root_basket_dust_deposit_recycled() {
     });
 }
 
-/// A claim below the dust threshold is a complete no-op: nothing is consumed, and the full
-/// amount remains claimable once the threshold permits. The fund's holding here is CURATED
-/// (the weight vector points at it), so the dust sweep must leave it alone even though its
-/// value is below the threshold — deliberate positions compound, only orphaned dust sweeps.
+/// A claim below the dust threshold consumes nothing: no shares, no watermark, no payout, and
+/// the full amount remains claimable once the threshold permits. The fund's sole holding is
+/// itself below the bar, so the dust sweep cashes it into the root slot — NAV-continuous, so
+/// the later claim pays out of that cash.
 #[test]
 fn test_root_basket_threshold_skip_consumes_nothing() {
     new_test_ext(1).execute_with(|| {
@@ -3285,7 +3024,7 @@ fn test_root_basket_threshold_skip_consumes_nothing() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         // Accrue less than the (soon-raised) claim threshold. The deposit itself must land,
         // so flush with the threshold zeroed — the queue gate uses the same threshold and
@@ -3308,8 +3047,9 @@ fn test_root_basket_threshold_skip_consumes_nothing() {
         assert!(owed_before > 0);
         assert!(escrow_before > 0);
 
-        // Below threshold: skipped, nothing consumed. The holding is curated, so the dust
-        // sweep exempts it despite its sub-threshold value.
+        // Below threshold: skipped, nothing consumed. The sub-threshold holding is swept
+        // into the fund's root cash slot, which keeps its value for the claim below.
+        let nav_before = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(coldkey),
             hotkey
@@ -3322,9 +3062,11 @@ fn test_root_basket_threshold_skip_consumes_nothing() {
         assert_eq!(root_stake_of(&hotkey, &coldkey), root_before);
         assert_eq!(
             escrow_alpha(&hotkey, netuid),
-            escrow_before,
-            "curated holding must not be swept"
+            0,
+            "dust holding swept to cash"
         );
+        let cash = escrow_alpha(&hotkey, NetUid::ROOT);
+        assert!(cash > 0 && cash <= nav_before && cash >= nav_before * 99 / 100);
 
         // Lower the threshold: the full amount pays out.
         zero_claim_threshold();
@@ -3368,7 +3110,7 @@ fn test_root_basket_coldkey_swap_carries_owed_with_zero_stake() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         SubtensorModule::distribute_emission(
             netuid,
@@ -3534,7 +3276,7 @@ fn test_root_basket_rounding_zero_root_row_does_not_block_payable_rows() {
         );
 
         // Curated destination so dust consolidation will not flatten the 1-alpha row.
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         let escrow = SubtensorModule::get_beta_escrow_account_id();
         // One rao of root cash rounds to zero for Alice, while the curated alpha row pays.
@@ -3634,7 +3376,7 @@ fn test_root_basket_claim_writes_off_only_claimants_terminal_garbage_slice() {
             NetUid::ROOT,
             100u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(healthy, u16::MAX), (garbage, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         let escrow = SubtensorModule::get_beta_escrow_account_id();
         mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
@@ -3692,7 +3434,7 @@ fn test_root_basket_claim_chunks_oversized_executable_holding() {
             NetUid::ROOT,
             1u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         let alpha_reserve = SubnetAlphaIn::<Test>::get(netuid).to_u64();
         let oversized = alpha_reserve.saturating_mul(1_100);
@@ -3751,7 +3493,7 @@ fn test_root_basket_revives_after_full_drain() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         // Epoch 1: accrue and fully drain.
         SubtensorModule::distribute_emission(
@@ -3794,8 +3536,10 @@ fn test_root_basket_revives_after_full_drain() {
 }
 
 /// The escrow's own root stake is excluded from the claimant base, so a sole staker's claim
-/// stays correct across repeated root deposits (no value is stranded by denominator
-/// dilution): after accrual the staker can drain the escrow's root slot to ~zero.
+/// stays correct across repeated dividends while the fund holds root cash (no value is
+/// stranded by denominator dilution): after accrual the staker drains the whole fund, root
+/// slot included. Were the escrow's cash counted, each dividend would under-credit the rate
+/// and leave `P > Σ owed`, i.e. a root-slot residual after the claim.
 #[test]
 fn test_root_basket_uid0_excludes_escrow_from_denominator() {
     new_test_ext(1).execute_with(|| {
@@ -3821,11 +3565,20 @@ fn test_root_basket_uid0_excludes_escrow_from_denominator() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(NetUid::ROOT, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
-        // Two deposits: the second runs while the escrow already holds root stake from the first.
-        // If the escrow's root stake were counted in the claimant base, the second deposit would
-        // under-credit the rate and strand value in the escrow.
+        // The sole staker opens the fund with cash: the escrow now holds root stake equal to
+        // the staker's own root stake, the worst case for a diluted denominator.
+        let cash = 2_000_000u64;
+        add_balance_to_coldkey_account(&coldkey, TaoBalance::from(2 * cash));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            coldkey,
+            hotkey,
+            cash.into(),
+        ));
+        assert_eq!(escrow_alpha(&hotkey, NetUid::ROOT), cash);
+
+        // Two dividends land while the escrow holds root stake.
         for _ in 0..2 {
             SubtensorModule::distribute_emission(
                 netuid,
@@ -3834,11 +3587,8 @@ fn test_root_basket_uid0_excludes_escrow_from_denominator() {
                 1_000_000u64.into(),
                 AlphaBalance::ZERO,
             );
-            // Flush per iteration: the point is two separate deposits, the second landing
-            // while the escrow already holds root stake from the first.
             flush_baskets();
         }
-
         let escrow_before = escrow_alpha(&hotkey, NetUid::ROOT);
         assert!(escrow_before > 0);
 
@@ -3854,6 +3604,7 @@ fn test_root_basket_uid0_excludes_escrow_from_denominator() {
             escrow_after <= escrow_before / 1_000 + 10,
             "root slot must drain to ~0; residual {escrow_after} of {escrow_before}"
         );
+        assert!(fund_shares(&hotkey) <= 20);
     });
 }
 
@@ -3930,19 +3681,8 @@ fn test_become_root_validator_basket_journey() {
             TaoBalance::from(2_000_000_000u64),
         ));
 
-        // --- Step 3: curate the basket — route dividends into the subnet (plus a
-        // dust root slot so the min-weight floor softens to available dests = 2).
-        // Registration stamps `LastUpdate`, so on-chain the first weight-set
-        // waits out the rate limit; zero it here to stay in one block.
-        SubtensorModule::set_weights_set_rate_limit(NetUid::ROOT, 0);
-        enable_root_weight_setting();
-        assert_ok!(SubtensorModule::set_root_weights(
-            RuntimeOrigin::signed(validator_hotkey),
-            vec![u16::from(NetUid::ROOT), u16::from(netuid)],
-            vec![1, u16::MAX],
-        ));
-
-        // --- Step 4: a delegator subscribes to the fund.
+        // --- Step 3: a delegator subscribes to the fund. There is nothing to
+        // curate: dividends accumulate on the subnet they are earned on.
         add_balance_to_coldkey_account(&staker_coldkey, TaoBalance::from(2_000_000_000u64));
         assert_ok!(SubtensorModule::add_stake(
             RuntimeOrigin::signed(staker_coldkey),
@@ -3953,8 +3693,8 @@ fn test_become_root_validator_basket_journey() {
         let staker_principal = root_stake_of(&validator_hotkey, &staker_coldkey);
         assert!(staker_principal > 0);
 
-        // --- Step 5: an epoch pays the validator root dividends; the chain
-        // sells them and buys the basket per the weight vector.
+        // --- Step 4: an epoch pays the validator root dividends; they land in
+        // the fund as alpha on the origin subnet.
         SubtensorModule::distribute_emission(
             netuid,
             AlphaBalance::ZERO,
@@ -3967,7 +3707,7 @@ fn test_become_root_validator_basket_journey() {
         assert!(escrow_alpha(&validator_hotkey, netuid) > 0);
         assert!(SubtensorModule::get_basket_owed_shares(&validator_hotkey, &staker_coldkey) > 0);
 
-        // --- Step 6: the staker claims — accrued entitlement comes back as
+        // --- Step 5: the staker claims — accrued entitlement comes back as
         // TAO staked on root, on top of untouched principal.
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(staker_coldkey),

@@ -444,6 +444,19 @@ class Staking(_ReadNamespace):
         staker holds no beta there.
         """
 
+    async def basket_trading_status(self, hotkey_ss58: str, *, block: Optional[int] = None) -> dict:
+        """A validator's `swap_basket` trading status: gates and the turnover bucket.
+
+        `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.
+        The turnover budget is a token bucket: `budget_tao` is its capacity
+        (`BasketDailyTurnoverCap` share of the fund's guarded NAV — each holding at
+        the lower of its realizable value and its slow-moving-price value, so a
+        pumped pool cannot enlarge it), `remaining_tao` what a trade right
+        now could push through the fund, `used_tao` the difference, and the bucket
+        refills by `refill_per_block_tao` every block (`budget_tao / refill_blocks`,
+        a full refill over `refill_blocks` = 7200 blocks).
+        """
+
     async def root_basket_owed(self, coldkey_ss58: str, *, block: Optional[int] = None) -> Balance:
         """Total TAO a coldkey would realize by claiming its root dividends now.
 
@@ -581,17 +594,6 @@ class Staking(_ReadNamespace):
         accumulator that includes migration-seeded history). For staker returns
         use `chain_pricing` (`staker_twr` / `stake_price` ratios), not rate
         deltas. All figures are TAO (or alpha for the holdings themselves).
-        """
-
-    async def validator_root_weights(self, hotkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
-        """A validator's root dividend distribution vector (basket weights).
-
-        The `(netuid, weight)` pairs its root dividends are deployed into each
-        epoch, exactly as stored (u16, max-upscaled), plus each destination's
-        normalized `share` of the total.     Netuid 0 means "hold as TAO / root
-        stake". An empty list means no custom weights are set; the fund is
-        uncurated and each subnet's dividend accumulates in place on that
-        subnet, trade-free (no sell, no redeploy).
         """
 
 class Subnets(_ReadNamespace):

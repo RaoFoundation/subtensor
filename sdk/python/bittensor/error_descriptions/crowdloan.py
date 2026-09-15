@@ -73,6 +73,13 @@ DESCRIPTIONS: dict[str, str] = {
         "`MinimumDeposit` pallet constant and create the crowdloan with at least that initial "
         "deposit."
     ),
+    "FundsNotSettled": (
+        "`finalize` ran the configured `call`, but the raised funds were still in the "
+        "crowdloan's funds account afterwards, so finalization was refused. This happens "
+        "when the call does not spend the raised amount, or when a wrapper such as "
+        "`Utility.batch` returns Ok after its inner call failed. Fix the finalization call "
+        "so it consumes the full `raised` amount, then `finalize` again."
+    ),
     "InvalidCrowdloanId": (
         "No crowdloan exists in the `Crowdloans` storage map for the given `crowdloan_id`; it "
         "was never created or has been dissolved. Check `Crowdloans` for the id and "
@@ -129,10 +136,5 @@ DESCRIPTIONS: dict[str, str] = {
         "`cap` when computing remaining room, or a contributor count decrement, indicating "
         "inconsistent state. Inspect the `Crowdloans` and `Contributions` entries for the "
         "`crowdloan_id`."
-    ),
-    "FundsNotSettled": (
-        "The crowdloan's finalization call returned without spending the full amount raised. "
-        "Finalization must consume the whole raised balance; fix the configured call so it "
-        "settles the funds, then finalize again."
     ),
 }

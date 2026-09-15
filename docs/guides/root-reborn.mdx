@@ -1,14 +1,14 @@
 ---
 title: Root Reborn
-description: Validator-curated baskets — why root yield stopped being force-sold, how the fund works, and the btcli commands to allocate, curate, and claim.
+description: Validator baskets — why root yield stopped being force-sold, how the fund works, and the btcli commands to allocate, trade, and claim.
 ---
 
 **Root Reborn** (runtime v441) turns the root network from a passive dividend
 pipe into a competitive allocation layer. Root stake's yield used to be sold
-to TAO mechanically, every block, the moment it arrived. Now it is deployed
-into **baskets** — per-validator, escrowed index funds of subnet alpha,
-curated by each validator's root weights — and realized only when a staker
-claims.
+to TAO mechanically, every block, the moment it arrived. Now it accumulates
+in **baskets** — per-validator, escrowed index funds of subnet alpha, held
+where they were earned and reshaped only by each validator's trades — and is
+realized only when a staker claims.
 
 The share unit of a basket is a **beta token**: a stable count that grows
 with accruals and shrinks on claim, while its TAO value moves with the
@@ -47,10 +47,12 @@ standardized, and competitive.
 ## How the fund works
 
 Each root validator runs a single fund. Every epoch, its root alpha dividend
-on each subnet is sold to TAO once, then redeployed across the subnets in its
-**root weights** vector — buying each destination's alpha into the fund.
-Root stakers accrue an entitlement to the fund in proportion to their root
-stake; a claim pays it out as TAO staked back to root.
+on each subnet is credited straight into the fund's holding on that subnet —
+no sell, no redeploy, no target vector. The validator reshapes the fund only
+by trading one holding for another with
+[`swap-basket`](/docs/tx/swap-basket). Root stakers accrue an entitlement to
+the fund in proportion to their root stake; a claim pays it out as TAO
+staked back to root.
 
 - **Holdings are real stake.** Positions are ordinary stake entries held by
   a chain-owned **escrow** account (a pallet sub-account with no private
@@ -64,28 +66,30 @@ stake; a claim pays it out as TAO staked back to root.
   holdings would actually fetch at current pool depth, net of fees. A thin
   pool cannot inflate book value; deposit pricing and redemption sizing use
   the same quote.
-- **Deposits price at NAV.** New dividends enter at the fund's
-  pre-deposit value, so existing holders are neither diluted nor gifted, and
-  each deposit bears its own swap slippage.
+- **Deposits price at NAV.** New dividends and direct deposits enter at the
+  fund's pre-deposit value, so existing holders are neither diluted nor
+  gifted, and each deposit bears its own swap slippage.
 - **Claims are proportional.** A claim redeems the staker's owed fraction of
   every holding pro-rata, preserving fund composition.
-- **Default is accumulate-in-place: hold what you earned.** A validator with
-  no custom weights still accrues — each subnet's dividend is credited
-  straight into the fund's holding on that subnet, with no sell and no
-  redeploy. The protocol executes zero trades (no swap fees, no slippage,
-  no mechanical sell pressure) on behalf of a validator that expressed no
-  preference, so the default basket is the emission-weighted portfolio the
-  dividends themselves describe. Setting a weight vector is what turns on
-  the sell-and-redeploy engine. Weight netuid 0 to hold a slice as TAO
-  instead of subnet alpha. `set_root_weights` requires at least 8 positive
-  destinations (softened when fewer networks exist) and caps any single
-  destination at the `RootWeightsCap` share of the vector — 1/16 at launch,
-  so a curated basket spreads across at least 16 destinations. Netuid 0
-  remains a valid destination to keep part of a curated basket in TAO.
+- **Inflows never change composition.** Dividends accumulate in place: each
+  subnet's dividend is credited into the fund's holding on that subnet. The
+  protocol executes zero trades (no swap fees, no slippage, no mechanical
+  sell pressure), so an untraded basket is the emission-weighted portfolio
+  the dividends themselves describe. A direct deposit
+  (`btcli root allocate`) is split across the fund's current holdings by
+  value, so it buys exactly the exposure the fund already has; a deposit
+  into a fund with no holdings yet is held as the fund's TAO cash slot
+  (netuid 0). There is no target vector for inflows to chase.
+- **Only trades move composition.** Since runtime v461 a validator reshapes
+  its fund with [`swap-basket`](/docs/tx/swap-basket), selling one holding
+  (or TAO cash) for another under price, budget, liquidity, and
+  concentration guardrails — no single holding may end a buy above the
+  `BasketConcentrationCap` share of fund NAV (1/16 at launch). See
+  [Basket trading](/docs/guides/basket-trading).
 
-Root validators are transparent fund managers: weight vectors are public,
-fund NAV and lifetime return are queryable, and the scoreboard is who made
-their stakers the most TAO.
+Root validators are transparent fund managers: holdings and trades are
+public, fund NAV and lifetime return are queryable, and the scoreboard is
+who made their stakers the most TAO.
 
 ## Becoming a root validator
 
@@ -119,58 +123,54 @@ Steps to a working fund:
    member (``ImmunityPeriod``). A seat with no stake behind it earns
    nothing and is the first to be evicted after that window, so
    add root TAO to your own hotkey right away
-   (`btcli stake add --netuid 0 --amount ... --hotkey <your hotkey>`). Stake
-   also gates weight-setting: the hotkey must clear the minimum stake to
-   set weights.
-3. **Curate** your basket weights with `btcli root weights` (next section).
-   Until you set a vector, dividends accumulate in place — each subnet's
-   dividend stays in that subnet's alpha, trade-free.
-4. **Earn.** Registration marks the hotkey as a delegate with the default
-   18% take; your dividends deploy into the basket each epoch and your
-   stakers accrue the rest pro-rata.
+   (`btcli stake add --netuid 0 --amount ... --hotkey <your hotkey>`).
+3. **Earn.** Registration marks the hotkey as a delegate with the default
+   18% take; each epoch your dividends land in the basket as alpha on the
+   subnets they were earned on, and your stakers accrue the rest pro-rata.
+4. **Shape** the basket, if you want to, with `btcli root swap` (next
+   section). Nothing is required: an untraded fund simply holds what it
+   earned.
 
 Losing the seat is not catastrophic: eviction never touches stake or basket
 state, and re-registering only costs the burn again. Stakers keep their
 principal and accrued entitlement throughout.
 
-## For validators: curate the basket
+## For validators: shape the basket
 
-Root Reborn launched with `set_root_weights` gated off network-wide, so
-every fund began on the null strategy — dividends accumulating in place —
-and the network got a clean, uniform baseline before curation opened.
-Runtime v450 opened the gate and pinned the concentration cap
-(`RootWeightsCap`): no destination may take more than 1/16 of the vector,
-so a curated basket spreads across at least 16 destinations. The
-`RootWeightSettingDisabled` error now only appears if governance switches
-the gate back off.
+There is no weight vector to set. Root Reborn launched with every fund on
+the accumulate-in-place strategy, and runtime v461 made that the only
+inflow rule: dividends land where they were earned, deposits mirror the
+current holdings, and the validator changes composition only by trading.
+The retired `set_root_weights` call, its `RootWeightSettingDisabled` gate,
+and the `validator-root-weights` read are gone; see
+[History of `set_root_weights`](#history-of-set_root_weights).
 
-Curate with your **hotkey** (it must be registered on the root network and
-hold the minimum stake to set weights; the root weights rate limit applies).
-`btcli root weights` always submits equal weights — every chosen destination
-gets exactly 1/N, so on mainnet a set needs at least 16 netuids:
+Trade with your **coldkey** (or a `BasketTrading` proxy): sell `amount` of
+one holding — or TAO from the fund's cash slot, netuid 0 — and buy another
+with the proceeds. Fund shares, rates, and every staker's entitlement are
+untouched; only the composition of the escrow holdings changes.
 
 ```bash
-btcli root weights set --netuids 0,4,8,... -w my_wallet  # replace: equal 1/N across 16+ netuids
-btcli root weights add --netuid 23                       # join the set, renormalize to 1/(N+1)
-btcli root weights remove --netuid 8                     # drop out, renormalize
-btcli root weights show 5F...                            # a validator's non-zero weights
-btcli root list 5F...                 # full fund: weights, holdings, NAV, lifetime return
+btcli root list 5F...                                 # holdings, NAV, lifetime return
+btcli root swap --hotkey 5F... --from 4 --to 8 --amount 100   # sell 100 α of subnet 4, buy subnet 8
+btcli root swap --hotkey 5F... --from 0 --to 8 --amount 50    # deploy 50 τ of cash into subnet 8
+btcli root swap --hotkey 5F... --from 8 --to 0 --amount all   # take profit into cash
 ```
 
 ```python
-intent = bt.SetRootWeights(netuids=[0, 4, 8, ...], weights=[0.2, 0.3, 0.1, ...])
+intent = bt.SwapBasket(hotkey_ss58="5F...", origin_netuid=4, dest_netuid=8, amount=100.0)
 await client.execute(intent, wallet)
 ```
 
-Uneven vectors are available through the SDK (above) or the raw transaction
-command `btcli tx set-root-weights`; the `btcli root weights` porcelain is
-deliberately equal-weight. Weights are relative — they are normalized and
-quantized to u16 before submission
-([`set-root-weights`](/docs/tx/set-root-weights)). Every destination must be
-netuid 0 or an existing subnet, and a share above the cap fails with
-`RootWeightCapExceeded`. Read a vector back with
-[`validator-root-weights`](/docs/query/validator-root-weights); inspect the
-fund with [`validator-basket`](/docs/query/validator-basket) and
+Every trade runs under the guardrails described in
+[Basket trading](/docs/guides/basket-trading): each AMM leg must fill within
+2% of the subnet's moving and spot price, the TAO through the middle draws
+from a daily turnover bucket, the destination holding may not end above the
+`BasketLiquidityCap` share of its pool's alpha reserve, and it may not end
+above the `BasketConcentrationCap` share of fund NAV
+(`BasketConcentrationCapExceeded`) — 1/16 at launch, so a traded fund
+spreads across at least 16 holdings. Inspect the fund with
+[`validator-basket`](/docs/query/validator-basket) and
 [`validator-basket-nav`](/docs/query/validator-basket-nav).
 
 ## For stakers: accrue and claim
@@ -252,28 +252,27 @@ root-stakes to.
 - **Owed is a live quote.** [`root-basket-owed`](/docs/query/root-basket-owed)
   marks your entitlement at current pool prices, so the number moves with the
   market — a claim realizes whatever the pools pay at execution time.
-- **Orphaned dust self-consolidates, and fees follow real work.** Any basket
-  holding on a subnet the validator's current weight vector no longer points
-  at, worth less than the claim threshold, is folded into the fund's root
-  (TAO) slot as a side effect of the next claim, deleting the holding.
-  Curated positions are exempt — a deliberate small holding keeps compounding
-  instead of being flattened to TAO. The transaction fee is charged by what
-  the claim actually did: redeemed and consolidated holdings pay full weight,
-  holdings merely scanned pay a small per-row cost — so a fund littered with
-  stale dust positions gets cheaper to claim after its first claim, not more
-  expensive forever.
+- **Dust self-consolidates, and fees follow real work.** Any basket holding
+  worth less than the claim threshold — too small to pay any claimant — is
+  folded into the fund's root (TAO) slot as a side effect of the next claim,
+  deleting the holding. A position bought with `swap-basket` is far above
+  the threshold at entry, so only a collapsed one is ever swept. The
+  transaction fee is charged by what the claim actually did: redeemed and
+  consolidated holdings pay full weight, holdings merely scanned pay a small
+  per-row cost — so a fund littered with dust positions gets cheaper to
+  claim after its first claim, not more expensive forever.
 
 ### What existing root stakers should know
 
 - **Nothing to do on upgrade.** Your root stake keeps earning; anything you
   had accrued under the old claim system was migrated into basket
   entitlement on the same validator ([details below](#migrating-from-v437)).
-- **Your validator is now a fund manager.** Where your yield goes is their
-  root weight vector, and it differs per validator. Inspect it before — and
-  while — you delegate: `btcli root list 5F...` shows weights,
-  holdings, NAV, and lifetime return. If you disagree with the curation,
-  claim out and allocate to a different validator; your principal moves at
-  face value.
+- **Your validator is now a fund manager.** What your yield is held in is
+  their basket — the subnets they earn on, reshaped by their trades — and it
+  differs per validator. Inspect it before — and while — you delegate:
+  `btcli root list 5F...` shows holdings, NAV, and lifetime return. If you
+  disagree with how they trade, claim out and allocate to a different
+  validator; your principal moves at face value.
 - **Accrued yield is market-priced.** Until claimed, your entitlement is a
   slice of a fund holding subnet alpha: its TAO quote moves with the pools.
   Principal is unaffected — it stays plain TAO on netuid 0.
@@ -299,7 +298,6 @@ and as `betaBasket_*` RPC methods for integrators:
 | [`validator-basket`](/docs/query/validator-basket) | A validator's holdings: (netuid, alpha, TAO value) rows |
 | [`validator-basket-nav`](/docs/query/validator-basket-nav) | A validator's fund NAV in TAO |
 | [`root-basket-total-nav`](/docs/query/root-basket-total-nav) | Network-wide basket NAV |
-| [`validator-root-weights`](/docs/query/validator-root-weights) | A validator's distribution vector |
 | [`root-claim-threshold`](/docs/query/root-claim-threshold) | The minimum per-validator claim payout |
 
 Since v450 the runtime also computes the **standardized pricing layer**
@@ -330,7 +328,19 @@ commit `2303a8d07` on 2024-07-18, was renamed to `set_tao_weights` in
 Root Reborn reintroduced `set_root_weights` in `b3de5f31e` on 2026-06-15
 with new arguments and semantics (call index 146): the hotkey publishes a
 basket distribution vector for its own fund, not a vote on network-wide
-emission.
+emission. Runtime v450 opened the network-wide gate and pinned a 1/16
+concentration cap on the vector.
+
+Runtime v461 removed it again. Weights only ever decided how an
+already-earned dividend was *deployed*; they never decided what a validator
+earned. With `swap-basket` giving validators direct control of composition,
+a passive target vector that every inflow chased was redundant and made
+deposits harder to reason about, so v461 made accumulate-in-place the only
+inflow rule: dividends land on the subnet they were earned on, direct
+deposits mirror the current holdings, and only trades move composition. The
+1/16 concentration rule survives as `BasketConcentrationCap`, the guardrail
+on `swap-basket` buys. Stored vectors were cleared by the upgrade; funds kept
+every holding they had.
 
 ## Migrating from v437
 

@@ -21,9 +21,9 @@ pub struct BasketHolding {
 
 /// Everything an explorer needs to render one validator's beta basket in a single call:
 /// valuation (realizable NAV and spot NAV), share supply (share price = `nav_tao / shares`),
-/// lifetime flow counters (performance = `(nav + redeemed) / deposited`), the validator's
-/// weight vector (strategy), and the per-subnet holdings breakdown.
-#[freeze_struct("f467309dda61a20e")]
+/// lifetime flow counters (performance = `(nav + redeemed) / deposited`), and the per-subnet
+/// holdings breakdown.
+#[freeze_struct("f58c97af0cb26e41")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct BasketSummary<AccountId: TypeInfo + Encode + Decode> {
     pub hotkey: AccountId,
@@ -37,8 +37,6 @@ pub struct BasketSummary<AccountId: TypeInfo + Encode + Decode> {
     pub deposited_tao: TaoBalance,
     /// Lifetime TAO redeemed (claimed) out of the fund.
     pub redeemed_tao: TaoBalance,
-    /// The validator's root weight vector `w` (its curation strategy), exactly as stored.
-    pub weights: Vec<(NetUid, u16)>,
     /// Per-subnet holdings, each valued at spot and realizable.
     pub holdings: Vec<BasketHolding>,
 }
@@ -202,7 +200,6 @@ impl<T: Config> Pallet<T> {
             shares: BasketShares::<T>::get(hotkey),
             deposited_tao: BasketDepositedTao::<T>::get(hotkey),
             redeemed_tao: BasketRedeemedTao::<T>::get(hotkey),
-            weights: Self::get_validator_root_weights(hotkey),
             holdings,
         }
     }
@@ -276,4 +273,25 @@ impl<T: Config> Pallet<T> {
             })
             .collect()
     }
+}
+
+/// One fund's `swap_basket` trading status as a trade at the current block would see it.
+/// `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze. The
+/// turnover budget is a token bucket: `tao_available` is what a trade now could push
+/// through the fund, `budget_tao` the bucket's capacity at current NAV, and it refills at
+/// `budget_tao / refill_blocks` per block.
+#[freeze_struct("9ae6f8b94367d627")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct BasketTradingStatus {
+    /// `BasketTradingEnabled`: the network-wide gate.
+    pub enabled: bool,
+    /// `BasketTradingFrozen[hotkey]`: governance froze this fund's trading.
+    pub frozen: bool,
+    /// Blocks for an empty bucket to refill completely (`BASKET_TRADE_REFILL_BLOCKS`); the
+    /// refill rate is `budget_tao / refill_blocks` per block.
+    pub refill_blocks: u64,
+    /// TAO the bucket holds right now: the most a trade at this block could push through.
+    pub tao_available: TaoBalance,
+    /// The bucket's capacity: `BasketDailyTurnoverCap` share of current NAV.
+    pub budget_tao: TaoBalance,
 }

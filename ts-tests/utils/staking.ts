@@ -318,52 +318,6 @@ export async function getRootClaimed(
     return await api.query.SubtensorModule.RootClaimed.getValue(netuid, hotkey, coldkey);
 }
 
-/// Root Reborn launches with `set_root_weights` gated off network-wide
-/// (`RootWeightSettingEnabled = false`); flip the switch on via sudo so tests can
-/// exercise curated baskets. Idempotent.
-async function sudoEnableRootWeightSetting(api: TypedApi<typeof subtensor>): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
-    const inner = api.tx.AdminUtils.sudo_set_root_weight_setting_enabled({ enabled: true });
-    const tx = api.tx.Sudo.sudo({ call: inner.decodedCall });
-    await waitForTransactionWithRetry(api, tx, alice, "sudo_set_root_weight_setting_enabled");
-}
-
-/// Sets a root validator's beta-basket weight vector (the distribution its root dividends are
-/// deployed into). Signed by the validator hotkey; requires a root UID.
-/// Enables the network-wide weight-setting gate (off at launch) via sudo first.
-/// Pads with other live netuids at weight 1 when needed to satisfy MIN_ROOT_BASKET_WEIGHTS (8),
-/// softened to the number of available destinations.
-export async function setRootWeights(
-    api: TypedApi<typeof subtensor>,
-    hotkey: KeyringPair,
-    dests: number[],
-    weights: number[]
-): Promise<void> {
-    await sudoEnableRootWeightSetting(api);
-    const MIN_ROOT_BASKET_WEIGHTS = 8;
-    const paddedDests = [...dests];
-    const paddedWeights = [...weights];
-    const totalNetworks = Number(await api.query.SubtensorModule.TotalNetworks.getValue());
-    const required = Math.min(MIN_ROOT_BASKET_WEIGHTS, totalNetworks);
-    for (let netuid = 0; paddedDests.length < required && netuid < 4096; netuid++) {
-        if (paddedDests.includes(netuid)) {
-            continue;
-        }
-        const exists = await api.query.SubtensorModule.NetworksAdded.getValue(netuid);
-        if (!exists) {
-            continue;
-        }
-        paddedDests.push(netuid);
-        paddedWeights.push(1);
-    }
-    const tx = api.tx.SubtensorModule.set_root_weights({
-        dests: paddedDests,
-        weights: paddedWeights,
-    });
-    await waitForTransactionWithRetry(api, tx, hotkey, "set_root_weights");
-}
-
 /// A validator's unified fund-shares-per-root-stake accumulator (I96F32 raw bits).
 export async function getBasketRate(api: TypedApi<typeof subtensor>, hotkey: string): Promise<bigint> {
     return await api.query.SubtensorModule.BasketRate.getValue(hotkey);
