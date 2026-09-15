@@ -546,9 +546,15 @@ impl<T: Config> Pallet<T> {
             // --- 2) Reset per-block registrations counter for the new block.
             Self::set_registrations_this_block(netuid, 0);
 
-            // --- 3) Root keeps interval-based admission, so reset that counter on the root epoch boundary.
-            if netuid.is_root() && Self::should_run_epoch(netuid, current_block) {
-                Self::set_registrations_this_interval(netuid, 0);
+            // --- 3) Root keeps interval-based admission, so reset that counter once per
+            // root tempo. Root never runs an epoch, so its `LastEpochBlock` anchor does not
+            // advance and `should_run_epoch` cannot be used here: it would reset the counter
+            // every block and leave the interval cap inert. A zero tempo resets every block.
+            if netuid.is_root() {
+                let tempo = u64::from(Tempo::<T>::get(netuid));
+                if current_block.checked_rem(tempo).is_none_or(|rem| rem == 0) {
+                    Self::set_registrations_this_interval(netuid, 0);
+                }
             }
         }
     }

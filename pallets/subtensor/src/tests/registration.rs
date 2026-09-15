@@ -1252,7 +1252,9 @@ fn test_update_registration_prices_for_networks_many_half_lives_over_thousands_o
             RegistrationsThisInterval::<Test>::insert(root, root_interval_seed);
 
             let next_block: u64 = System::block_number() + 1;
-            let root_should_reset_interval = SubtensorModule::should_run_epoch(root, next_block);
+            // Root never runs an epoch; its interval counter resets once per root tempo.
+            let root_tempo = u64::from(Tempo::<Test>::get(root));
+            let root_should_reset_interval = root_tempo == 0 || next_block % root_tempo == 0;
 
             step_block(1);
 

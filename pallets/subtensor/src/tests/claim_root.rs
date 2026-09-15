@@ -4,11 +4,12 @@ use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
     AlphaV2, BasketClaimed, BasketRate, BasketRedeemedTao, BasketShares, BurnIncreaseMult,
-    DefaultMinRootClaimAmount, Error, Keys, MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK,
-    NetworksAdded, NumStakingColdkeys, PendingBasketDeposits, RootAlphaDividendsPerSubnet,
-    RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn,
-    SubnetMovingPrice, SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo,
-    TotalStake, Uids, Weights,
+    DefaultMinRootClaimAmount, Error, Keys, LastEpochBlock, MAX_ROOT_CLAIM_THRESHOLD,
+    MAX_ROOT_CLAIM_WORK, NetworksAdded, NumStakingColdkeys, PendingBasketDeposits,
+    RegistrationsThisInterval, RootAlphaDividendsPerSubnet, RootClaimableThreshold,
+    StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn, SubnetMovingPrice,
+    SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
+    Weights,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -4022,6 +4023,210 @@ fn test_root_register_zero_stake_keys_shield_staked_members() {
             );
             assert!(Uids::<Test>::contains_key(NetUid::ROOT, staked_hotkey));
         }
+    });
+}
+
+/// Root admission with a full senate: a registrant may only evict a seat that holds no more
+/// root stake than it does. Zero-stake keys therefore cannot walk the eviction ladder
+/// through staked validators, the burn is not charged on refusal, and a registrant that does
+/// out-stake the lowest seat evicts exactly that seat.
+/// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::claim_root::test_root_register_requires_registrant_to_out_stake_pruned_seat --exact
+#[test]
+fn test_root_register_requires_registrant_to_out_stake_pruned_seat() {
+    new_test_ext(1).execute_with(|| {
+        const TAO: u64 = 1_000_000_000;
+        add_network(NetUid::ROOT, 100, 0);
+        // Deliberately unsorted stakes so eviction order proves stake ordering.
+        let stakes_tao: [u64; 8] = [500, 100, 300, 200, 800, 50, 400, 600];
+        SubtensorModule::set_max_allowed_uids(NetUid::ROOT, stakes_tao.len() as u16);
+        SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, u16::MAX);
+        SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, u16::MAX / 3);
+        SubtensorModule::set_min_burn(NetUid::ROOT, TaoBalance::ZERO);
+        SubtensorModule::set_burn(NetUid::ROOT, TaoBalance::ZERO);
+        let mut incumbents = Vec::new();
+        for (i, stake) in stakes_tao.iter().enumerate() {
+            let coldkey = U256::from(10_000 + i as u64);
+            let hotkey = U256::from(20_000 + i as u64);
+            root_register_ok(hotkey, coldkey);
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                AlphaBalance::from(stake * TAO),
+            );
+            incumbents.push(hotkey);
+        }
+        assert_eq!(
+            SubnetworkN::<Test>::get(NetUid::ROOT) as usize,
+            stakes_tao.len()
+        );
+
+        // Age every seat past the (mainnet) immunity period, then mainnet admission params.
+        run_to_block(7_300);
+        SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 1);
+        SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 2);
+        SubtensorModule::set_immunity_period(NetUid::ROOT, 7200);
+        SubtensorModule::set_min_burn(NetUid::ROOT, TaoBalance::from(TAO));
+        SubtensorModule::set_burn(NetUid::ROOT, TaoBalance::from(TAO));
+
+        // A zero-stake registrant is refused and not charged; every incumbent keeps its seat.
+        let attacker = U256::from(777);
+        add_balance_to_coldkey_account(&attacker, TaoBalance::from(1_000 * TAO));
+        let balance_before = SubtensorModule::get_coldkey_balance(&attacker);
+        for i in 0..stakes_tao.len() as u64 {
+            let sybil = U256::from(30_000 + i);
+            assert_err!(
+                SubtensorModule::root_register(RuntimeOrigin::signed(attacker), sybil),
+                Error::<Test>::StakeTooLowForRoot
+            );
+            step_block(1);
+        }
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&attacker),
+            balance_before
+        );
+        for hotkey in &incumbents {
+            assert!(Uids::<Test>::contains_key(NetUid::ROOT, hotkey));
+        }
+
+        // A registrant with 60 TAO out-stakes only the 50 TAO seat, which it evicts.
+        let mid_coldkey = U256::from(40_000);
+        let mid_hotkey = U256::from(40_001);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &mid_coldkey,
+            &mid_hotkey
+        ));
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &mid_hotkey,
+            &mid_coldkey,
+            NetUid::ROOT,
+            AlphaBalance::from(60 * TAO),
+        );
+        let victim_uid = SubtensorModule::get_root_neuron_to_prune().expect("candidate");
+        let victim_hotkey = Keys::<Test>::get(NetUid::ROOT, victim_uid);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_on_subnet(&victim_hotkey, NetUid::ROOT),
+            AlphaBalance::from(50 * TAO)
+        );
+        root_register_ok(mid_hotkey, mid_coldkey);
+        assert_eq!(Keys::<Test>::get(NetUid::ROOT, victim_uid), mid_hotkey);
+        assert!(!Uids::<Test>::contains_key(NetUid::ROOT, victim_hotkey));
+        step_block(1);
+
+        // The next lowest non-immune seat holds 100 TAO: another 60 TAO registrant is refused.
+        let low_coldkey = U256::from(40_002);
+        let low_hotkey = U256::from(40_003);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &low_coldkey,
+            &low_hotkey
+        ));
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &low_hotkey,
+            &low_coldkey,
+            NetUid::ROOT,
+            AlphaBalance::from(60 * TAO),
+        );
+        add_balance_to_coldkey_account(&low_coldkey, TaoBalance::from(100 * TAO));
+        assert_err!(
+            SubtensorModule::root_register(RuntimeOrigin::signed(low_coldkey), low_hotkey),
+            Error::<Test>::StakeTooLowForRoot
+        );
+
+        // A whale evicts the lowest non-immune seat as before.
+        let whale_coldkey = U256::from(40_004);
+        let whale_hotkey = U256::from(40_005);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &whale_coldkey,
+            &whale_hotkey
+        ));
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &whale_hotkey,
+            &whale_coldkey,
+            NetUid::ROOT,
+            AlphaBalance::from(10_000 * TAO),
+        );
+        let victim_uid = SubtensorModule::get_root_neuron_to_prune().expect("candidate");
+        let victim_hotkey = Keys::<Test>::get(NetUid::ROOT, victim_uid);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_on_subnet(&victim_hotkey, NetUid::ROOT),
+            AlphaBalance::from(100 * TAO)
+        );
+        root_register_ok(whale_hotkey, whale_coldkey);
+        assert_eq!(Keys::<Test>::get(NetUid::ROOT, victim_uid), whale_hotkey);
+        assert_eq!(
+            incumbents
+                .iter()
+                .filter(|hotkey| Uids::<Test>::contains_key(NetUid::ROOT, *hotkey))
+                .count(),
+            stakes_tao.len() - 2,
+            "only the 50 and 100 TAO seats were displaced"
+        );
+    });
+}
+
+/// Root's per-interval registration cap binds once per root tempo. The counter used to be
+/// reset every block because it keyed off an epoch anchor root never advances.
+/// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::claim_root::test_root_register_interval_cap_binds_per_tempo --exact
+#[test]
+fn test_root_register_interval_cap_binds_per_tempo() {
+    new_test_ext(1).execute_with(|| {
+        const TAO: u64 = 1_000_000_000;
+        add_network(NetUid::ROOT, 100, 0);
+        SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 64);
+        SubtensorModule::set_min_burn(NetUid::ROOT, TaoBalance::ZERO);
+        SubtensorModule::set_burn(NetUid::ROOT, TaoBalance::ZERO);
+        SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 1);
+        SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 2);
+        let cap = 3 * SubtensorModule::get_target_registrations_per_interval(NetUid::ROOT);
+        let coldkey = U256::from(3001);
+        add_balance_to_coldkey_account(&coldkey, TaoBalance::from(1_000 * TAO));
+
+        // Start just after a tempo boundary. Root never runs an epoch, so its epoch anchor
+        // stays where it was set at creation for the whole test.
+        run_to_block(201);
+        let stale_anchor = LastEpochBlock::<Test>::get(NetUid::ROOT);
+
+        let mut accepted = 0u16;
+        let mut refused = 0u16;
+        for i in 0..20u64 {
+            let result = SubtensorModule::root_register(
+                RuntimeOrigin::signed(coldkey),
+                U256::from(4000 + i),
+            );
+            match result {
+                Ok(()) => accepted += 1,
+                Err(error) => {
+                    assert_eq!(
+                        error,
+                        Error::<Test>::TooManyRegistrationsThisInterval.into()
+                    );
+                    refused += 1;
+                }
+            }
+            assert!(
+                RegistrationsThisInterval::<Test>::get(NetUid::ROOT) <= cap,
+                "interval counter must never exceed the cap"
+            );
+            step_block(1);
+        }
+        assert_eq!(accepted, cap, "exactly 3x target registrations per tempo");
+        assert_eq!(refused, 20 - cap);
+        assert_eq!(RegistrationsThisInterval::<Test>::get(NetUid::ROOT), cap);
+        assert_eq!(LastEpochBlock::<Test>::get(NetUid::ROOT), stale_anchor);
+
+        // The counter resets on the next tempo boundary and admission resumes.
+        run_to_block(300);
+        assert_eq!(RegistrationsThisInterval::<Test>::get(NetUid::ROOT), 0);
+        assert_ok!(SubtensorModule::root_register(
+            RuntimeOrigin::signed(coldkey),
+            U256::from(5000)
+        ));
+        assert_eq!(RegistrationsThisInterval::<Test>::get(NetUid::ROOT), 1);
+
+        // A zero tempo resets the counter every block instead of locking root.
+        Tempo::<Test>::insert(NetUid::ROOT, 0);
+        step_block(1);
+        assert_eq!(RegistrationsThisInterval::<Test>::get(NetUid::ROOT), 0);
     });
 }
 
