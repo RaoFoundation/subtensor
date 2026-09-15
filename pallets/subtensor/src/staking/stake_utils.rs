@@ -567,6 +567,12 @@ impl<T: Config> Pallet<T> {
         alpha_share_pool.update_value_for_all((amount as i64).neg());
     }
 
+    /// True when the hotkey's share pool on `netuid` has a non-zero denominator, i.e. at
+    /// least one coldkey holds shares that a pool-wide credit would be distributed to.
+    pub fn hotkey_share_pool_has_members(hotkey: &T::AccountId, netuid: NetUid) -> bool {
+        Self::get_alpha_share_pool(hotkey.clone(), netuid).has_members()
+    }
+
     /// Buys shares in the hotkey on a given subnet
     ///
     /// The function updates share totals given current prices.

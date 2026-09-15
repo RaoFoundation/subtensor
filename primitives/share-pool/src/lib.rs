@@ -465,6 +465,11 @@ where
         }
     }
 
+    /// True when at least one member holds shares, so a pool-wide update reaches someone.
+    pub fn has_members(&self) -> bool {
+        !self.state_ops.get_denominator().is_zero()
+    }
+
     /// Value of one member's shares: `floor(V * S / D)`, capped at `V`.
     ///
     /// The cap is a correctness invariant, not a workaround. Every member's shares `S` are a
