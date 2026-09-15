@@ -219,6 +219,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "BasketHasNoWeights": _C.INVALID_ARGUMENT,
     "BetaBasketSeedInProgress": _C.TOO_EARLY,
     "RootClaimTooHeavy": _C.LIMIT_EXCEEDED,
+    "BasketDepositPending": _C.TOO_EARLY,
     "RootWeightSettingDisabled": _C.DISABLED,
     "RootWeightCapExceeded": _C.LIMIT_EXCEEDED,
     "RootStakeLocked": _C.TOO_EARLY,
@@ -362,6 +363,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "BlockDurationTooShort": _C.INVALID_ARGUMENT,
     "BlockDurationTooLong": _C.INVALID_ARGUMENT,
     "InvalidCrowdloanId": _C.NOT_FOUND,
+    "FundsNotSettled": _C.POLICY_VIOLATION,
     "CapRaised": _C.LIMIT_EXCEEDED,
     "ContributionPeriodEnded": _C.EXPIRED,
     "ContributionTooLow": _C.INVALID_ARGUMENT,
@@ -380,7 +382,6 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "MaxContributionReached": _C.LIMIT_EXCEEDED,
     "MaximumContributionTooLow": _C.INVALID_ARGUMENT,
     "MinimumContributionTooHigh": _C.INVALID_ARGUMENT,
-    "FundsNotSettled": _C.POLICY_VIOLATION,
     # ── Swap ────────────────────────────────────────────────────────────
     "FeeRateTooHigh": _C.INVALID_ARGUMENT,
     "InsufficientInputAmount": _C.INVALID_ARGUMENT,
@@ -459,7 +460,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "PartialFillNotSupportedForLinkedAmount": _C.INVALID_ARGUMENT,
     "PartialFillNotSupportedForProvider": _C.INVALID_ARGUMENT,
     "LinkedOutputNotPrunable": _C.INVALID_ARGUMENT,
-    "OrderSignerFrozen": _C.DISABLED,
+    "OrderSignerFrozen": _C.NOT_AUTHORIZED,
     # ── Derivatives ─────────────────────────────────────────────────────
     "SubnetNotDynamic": _C.SUBTOKEN_DISABLED,
     "NoPosition": _C.NOT_FOUND,

@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 458
+Spec version: 459
 """
 from dataclasses import dataclass
 
@@ -84,7 +84,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 40): ErrorInfo('SubtensorModule', 'FaucetDisabled', 'Faucet is disabled.'),
     (7, 41): ErrorInfo('SubtensorModule', 'NotSubnetOwner', 'Not a subnet owner.'),
     (7, 42): ErrorInfo('SubtensorModule', 'RegistrationNotPermittedOnRootSubnet', 'Operation is not permitted on the root subnet.'),
-    (7, 43): ErrorInfo('SubtensorModule', 'StakeTooLowForRoot', 'Retired: root admission is burn-based and no longer stake-gated. Kept so later error variants keep their metadata indices.'),
+    (7, 43): ErrorInfo('SubtensorModule', 'StakeTooLowForRoot', 'A root registrant must hold at least as much root stake as the seat it would evict.'),
     (7, 44): ErrorInfo('SubtensorModule', 'AllNetworksInImmunity', 'All subnets are in the immunity period.'),
     (7, 45): ErrorInfo('SubtensorModule', 'NotEnoughBalanceToPaySwapHotKey', 'Not enough balance to pay swapping hotkey.'),
     (7, 46): ErrorInfo('SubtensorModule', 'NotRootSubnet', 'Netuid does not match for setting root network weights.'),
@@ -405,15 +405,4 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (32, 25): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForProvider', 'Partial fill submitted against a provider (`has_linked_order`).'),
     (32, 26): ErrorInfo('LimitOrders', 'LinkedOutputNotPrunable', '`prune_linked_output` called by a non-signer on an unexpired record.'),
     (32, 27): ErrorInfo('LimitOrders', 'OrderSignerFrozen', 'The order owner is temporarily prohibited from moving funds.'),
-    (33, 0): ErrorInfo('Derivatives', 'SubnetNotDynamic', 'The subnet does not exist, is not AMM-priced, or has its subtoken disabled.'),
-    (33, 1): ErrorInfo('Derivatives', 'NoPosition', 'No such position.'),
-    (33, 2): ErrorInfo('Derivatives', 'DepositTooLow', 'The deposit is below `MinDeposit`.'),
-    (33, 3): ErrorInfo('Derivatives', 'LeverageOutOfRange', "Leverage is zero or above the side's maximum (`MaxShortLeverage` or `MaxLongLeverage`)."),
-    (33, 4): ErrorInfo('Derivatives', 'ZeroExposure', 'Leverage times deposit rounds to nothing, or the pool would swap it for nothing.'),
-    (33, 5): ErrorInfo('Derivatives', 'PoolCapExceeded', 'Open positions of this side would exceed `pool_share` of the lent reserve. A `pool_share` of zero means adds are paused.'),
-    (33, 6): ErrorInfo('Derivatives', 'PalletHotkeyUnset', 'The pallet has not claimed its hotkey yet; no position can be opened.'),
-    (33, 7): ErrorInfo('Derivatives', 'ZeroInterestRate', '`sudo_set_params` was given a `short_interest_rate` or `long_interest_rate` of zero. Both must be above zero; a `pool_share` of zero is the pause instead.'),
-    (33, 8): ErrorInfo('Derivatives', 'DerivativesDisabled', 'Derivatives are switched off network-wide ([`DerivativesEnabled`] is `false`), so nothing can be added. Open positions can still be closed by their owners.'),
-    (33, 9): ErrorInfo('Derivatives', 'LongsDisabled', 'Longs are switched off ([`LongsEnabled`] is `false`), so no `add` may open, grow, or flip into a long. Shorts can still be added, reduced, and closed; an open long can still be closed by its owner.'),
-    (33, 10): ErrorInfo('Derivatives', 'SettlementBelowMinimum', 'The settlement would pay the caller less TAO than the `min_amount_out` they set, or an `add` that only opens or grows a position was given a floor above zero. Nothing moved; the position is as it was. Pass a lower floor, or zero for none.'),
 }

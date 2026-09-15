@@ -13,7 +13,7 @@ use alloc::collections::BTreeMap;
 use approx::{assert_abs_diff_eq, assert_relative_eq};
 use codec::{Decode, Encode};
 use frame_support::{
-    StorageHasher, Twox64Concat, assert_ok,
+    StorageHasher, Twox64Concat, assert_err, assert_ok,
     storage::unhashed::{get, get_raw, put, put_raw},
     storage_alias,
     traits::{Currency, Hooks, StorageInstance, StoredMap, fungible::Inspect},
@@ -1692,6 +1692,291 @@ fn test_migrate_fix_root_subnet_tao() {
             SubnetTAO::<Test>::get(NetUid::ROOT),
             expected_total_stake.into()
         );
+    });
+}
+
+// Root pot reconciliation: holdings on netuid 0 exceed SubnetTAO[0] (and the root subnet
+// account) by a legacy dividend that skipped the counters. The last root unstaker is stuck
+// until the migration mints the exact shortfall into the pot and lifts the counters.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::migration::test_migrate_fix_root_pot_shortfall --exact --show-output
+#[test]
+fn test_migrate_fix_root_pot_shortfall() {
+    use crate::migrations::migrate_fix_root_pot_shortfall::{
+        MIGRATION_NAME, migrate_fix_root_pot_shortfall,
+    };
+    use crate::migrations::migrate_total_alpha_staked::{
+        TotalAlphaStakedMigration, TotalAlphaStakedProgress,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        const TAO: u64 = 1_000_000_000;
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let staker_a = U256::from(1003);
+        let staker_b = U256::from(1004);
+        add_network(NetUid::ROOT, 10, 0);
+        let _netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+        let root_pot = SubtensorModule::get_subnet_account_id(NetUid::ROOT).expect("root pot");
+
+        let root_holdings = || {
+            TotalHotkeyAlpha::<Test>::iter().fold(0_u64, |acc, (_, netuid, alpha)| {
+                if netuid.is_root() {
+                    acc.saturating_add(alpha.to_u64())
+                } else {
+                    acc
+                }
+            })
+        };
+        let root_stake_of = |coldkey: &U256| {
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                coldkey,
+                NetUid::ROOT,
+            )
+            .to_u64()
+        };
+
+        let stake_a = 1_000 * TAO;
+        let stake_b = 300 * TAO;
+        add_balance_to_coldkey_account(&staker_a, TaoBalance::from(stake_a + TAO));
+        add_balance_to_coldkey_account(&staker_b, TaoBalance::from(stake_b + TAO));
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(staker_a),
+            hotkey,
+            NetUid::ROOT,
+            stake_a.into()
+        ));
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(staker_b),
+            hotkey,
+            NetUid::ROOT,
+            stake_b.into()
+        ));
+        assert_eq!(
+            SubnetTAO::<Test>::get(NetUid::ROOT).to_u64(),
+            root_holdings()
+        );
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&root_pot).to_u64(),
+            root_holdings()
+        );
+
+        // Inject the historical gap: holdings credited, no TAO moved, counters untouched.
+        let gap = 172 * TAO;
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &staker_a,
+            NetUid::ROOT,
+            gap.into(),
+        );
+        assert_eq!(
+            root_holdings() - SubnetTAO::<Test>::get(NetUid::ROOT).to_u64(),
+            gap
+        );
+
+        // A exits first; the pot still covers it with B's TAO. B is then stuck.
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(staker_a),
+            hotkey,
+            NetUid::ROOT,
+            root_stake_of(&staker_a).into()
+        ));
+        assert_eq!(root_holdings(), stake_b);
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&root_pot).to_u64(),
+            stake_b - gap
+        );
+        assert_err!(
+            SubtensorModule::remove_stake(
+                RuntimeOrigin::signed(staker_b),
+                hotkey,
+                NetUid::ROOT,
+                stake_b.into()
+            ),
+            Error::<Test>::InsufficientTaoBalance
+        );
+
+        let total_issuance_before = TotalIssuance::<Test>::get().to_u64();
+        let balances_issuance_before = <Test as crate::Config>::Currency::total_issuance().to_u64();
+        let total_stake_before = TotalStake::<Test>::get().to_u64();
+        let alpha_out_before = SubnetAlphaOut::<Test>::get(NetUid::ROOT);
+        assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+
+        // The migration reads the live O(1) aggregate, which tracks the per-hotkey map.
+        assert_eq!(
+            TotalAlphaStaked::<Test>::get(NetUid::ROOT).to_u64(),
+            root_holdings()
+        );
+
+        // While the aggregate backfill is still running the migration defers: nothing is
+        // minted and the marker stays unset so it retries at the next upgrade.
+        TotalAlphaStakedMigration::<Test>::put(TotalAlphaStakedProgress { cursor: Vec::new() });
+        migrate_fix_root_pot_shortfall::<Test>();
+        assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert_eq!(TotalIssuance::<Test>::get().to_u64(), total_issuance_before);
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&root_pot).to_u64(),
+            stake_b - gap
+        );
+        TotalAlphaStakedMigration::<Test>::kill();
+
+        let weight = migrate_fix_root_pot_shortfall::<Test>();
+        assert!(!weight.is_zero());
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+
+        // Counter and pot both match holdings again; the gap was minted, not moved.
+        assert_eq!(
+            SubnetTAO::<Test>::get(NetUid::ROOT).to_u64(),
+            root_holdings()
+        );
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&root_pot).to_u64(),
+            root_holdings()
+        );
+        assert_eq!(
+            TotalIssuance::<Test>::get().to_u64(),
+            total_issuance_before + gap
+        );
+        assert_eq!(
+            <Test as crate::Config>::Currency::total_issuance().to_u64(),
+            balances_issuance_before + gap
+        );
+        assert_eq!(TotalStake::<Test>::get().to_u64(), total_stake_before + gap);
+        assert_eq!(SubnetAlphaOut::<Test>::get(NetUid::ROOT), alpha_out_before);
+
+        // Running again changes nothing.
+        let rerun_weight = migrate_fix_root_pot_shortfall::<Test>();
+        assert!(rerun_weight.all_lte(weight));
+        assert_eq!(
+            SubnetTAO::<Test>::get(NetUid::ROOT).to_u64(),
+            root_holdings()
+        );
+        assert_eq!(
+            TotalIssuance::<Test>::get().to_u64(),
+            total_issuance_before + gap
+        );
+        assert_eq!(TotalStake::<Test>::get().to_u64(), total_stake_before + gap);
+
+        // Even without the marker a second pass finds no gap and mints nothing.
+        HasMigrationRun::<Test>::remove(MIGRATION_NAME.to_vec());
+        migrate_fix_root_pot_shortfall::<Test>();
+        assert_eq!(
+            TotalIssuance::<Test>::get().to_u64(),
+            total_issuance_before + gap
+        );
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&root_pot).to_u64(),
+            root_holdings()
+        );
+
+        // The last root staker can now exit in full.
+        let b_balance_before = SubtensorModule::get_coldkey_balance(&staker_b).to_u64();
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(staker_b),
+            hotkey,
+            NetUid::ROOT,
+            stake_b.into()
+        ));
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&staker_b).to_u64(),
+            b_balance_before + stake_b
+        );
+        assert_eq!(root_holdings(), 0);
+        assert_eq!(SubnetTAO::<Test>::get(NetUid::ROOT), TaoBalance::ZERO);
+    });
+}
+
+// Failure path: when the issuance cap allows only part of the shortfall to be minted, the
+// migration credits what it could, leaves its marker unset and finishes on the next run.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::migration::test_migrate_fix_root_pot_shortfall_partial_mint_stays_pending --exact --show-output
+#[test]
+fn test_migrate_fix_root_pot_shortfall_partial_mint_stays_pending() {
+    use crate::coinbase::tao::MAX_TAO_ISSUANCE;
+    use crate::migrations::migrate_fix_root_pot_shortfall::{
+        MIGRATION_NAME, migrate_fix_root_pot_shortfall,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        const TAO: u64 = 1_000_000_000;
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let staker = U256::from(1003);
+        let filler = U256::from(1005);
+        add_network(NetUid::ROOT, 10, 0);
+        let _netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+        let root_pot = SubtensorModule::get_subnet_account_id(NetUid::ROOT).expect("root pot");
+
+        let stake = 300 * TAO;
+        add_balance_to_coldkey_account(&staker, TaoBalance::from(stake + TAO));
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(staker),
+            hotkey,
+            NetUid::ROOT,
+            stake.into()
+        ));
+        let gap = 100 * TAO;
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &staker,
+            NetUid::ROOT,
+            gap.into(),
+        );
+        let pot_before = SubtensorModule::get_coldkey_balance(&root_pot).to_u64();
+        let recorded_before = SubnetTAO::<Test>::get(NetUid::ROOT).to_u64();
+
+        // Leave room for only half the gap under the 21M cap.
+        let headroom = gap / 2;
+        let issuance = <Test as crate::Config>::Currency::total_issuance().to_u64();
+        assert_ok!(Balances::force_set_balance(
+            RuntimeOrigin::root(),
+            filler,
+            TaoBalance::from(MAX_TAO_ISSUANCE - issuance - headroom),
+        ));
+
+        migrate_fix_root_pot_shortfall::<Test>();
+        assert!(
+            !HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()),
+            "a partial mint must leave the migration pending"
+        );
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&root_pot).to_u64(),
+            pot_before + headroom
+        );
+        assert_eq!(
+            SubnetTAO::<Test>::get(NetUid::ROOT).to_u64(),
+            recorded_before + headroom
+        );
+        assert_eq!(
+            <Test as crate::Config>::Currency::total_issuance().to_u64(),
+            MAX_TAO_ISSUANCE
+        );
+
+        // Free the cap; the retry mints exactly the remaining half and completes.
+        assert_ok!(Balances::force_set_balance(
+            RuntimeOrigin::root(),
+            filler,
+            TaoBalance::ZERO
+        ));
+        migrate_fix_root_pot_shortfall::<Test>();
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&root_pot).to_u64(),
+            pot_before + gap
+        );
+        assert_eq!(
+            SubnetTAO::<Test>::get(NetUid::ROOT).to_u64(),
+            recorded_before + gap
+        );
+        assert_eq!(
+            SubnetTAO::<Test>::get(NetUid::ROOT),
+            TotalAlphaStaked::<Test>::get(NetUid::ROOT).to_u64().into()
+        );
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(staker),
+            hotkey,
+            NetUid::ROOT,
+            (stake + gap).into()
+        ));
     });
 }
 

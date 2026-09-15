@@ -49,12 +49,13 @@ type SubnetLeaseAllowed = (
     SubnetManagementCalls,
 );
 
-/// `NonTransfer`: excludes liquid value movement, coldkey swaps, and EVM,
-/// Contracts, and Crowdloan calls that can move value indirectly.
+/// `NonTransfer`: excludes liquid value movement, coldkey swaps, sudo, and EVM,
+/// Contracts, and Crowdloan calls that can move value indirectly. Sudo is
+/// excluded because a sudo-key principal would otherwise hand the delegate
+/// root, including forced transfers.
 type NonTransferAllowed = (
     InfraCommonCalls,
     AdminAll,
-    SudoCalls,
     StakeManagementCalls,
     PowRegistrationCalls,
     BurnedRegistrationCalls,
@@ -66,14 +67,15 @@ type NonTransferAllowed = (
     RootClaimCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    SubtensorValueCalls,
     SubtensorCommonCalls,
 );
 
-/// `NonFungible`: nothing that moves TAO/alpha and no key swaps.
+/// `NonFungible`: nothing that moves, locks, burns or spends TAO/alpha, no key
+/// swaps, and no sudo.
 type NonFungibleAllowed = (
     InfraCommonCalls,
     AdminAll,
-    SudoCalls,
     PowRegistrationCalls,
     FaucetCalls,
     CriticalNetworkCalls,
@@ -104,6 +106,7 @@ type NonCriticalAllowed = (
     RootClaimCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    SubtensorValueCalls,
     SubtensorCommonCalls,
 );
 
@@ -142,7 +145,8 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
             (_, ProxyType::Any) => false,
             // Keep this positive list explicit. A future proxy type that can
             // move value must not become addable through `NonTransfer` by
-            // default.
+            // default. `SudoUncheckedSetCode` is not listed: `NonTransfer`
+            // no longer reaches Sudo.
             (
                 ProxyType::NonTransfer,
                 ProxyType::Owner
@@ -154,7 +158,6 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                 | ProxyType::Registration
                 | ProxyType::RootWeights
                 | ProxyType::ChildKeys
-                | ProxyType::SudoUncheckedSetCode
                 | ProxyType::SwapHotkey
                 | ProxyType::SubnetLeaseBeneficiary
                 | ProxyType::RootClaim,
@@ -307,12 +310,13 @@ mod tests {
     // Because the inventory groups partition every runtime call, the two must
     // agree exactly; a missing or extra group in the filter shows up as a diff.
     #[test]
-    fn non_transfer_excludes_transfers_coldkey_swaps_and_indirect_value_pallets() {
+    fn non_transfer_excludes_transfers_coldkey_swaps_sudo_and_indirect_value_pallets() {
         let denied = &(&group_calls::<BalanceTransferCalls>()
             | &group_calls::<BalanceMaintenanceCalls>())
             | &(&group_calls::<StakeTransferCalls>() | &group_calls::<ColdkeySwapCalls>());
         let denied = &denied
             | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls, DerivativesCalls)>();
+        let denied = &denied | &group_calls::<SudoCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -320,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn non_fungible_is_everything_but_value_movement_and_key_swaps() {
+    fn non_fungible_is_everything_but_value_movement_key_swaps_and_sudo() {
         let denied = &(&(&group_calls::<BalanceTransferCalls>()
             | &group_calls::<BalanceMaintenanceCalls>())
             | &(&group_calls::<StakeManagementCalls>() | &group_calls::<StakeTransferCalls>()))
@@ -329,10 +333,152 @@ mod tests {
                 | &(&group_calls::<HotkeySwapCalls>() | &group_calls::<ColdkeySwapCalls>()));
         let denied = &denied
             | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls, DerivativesCalls)>();
+        let denied = &denied | &group_calls::<(SubtensorValueCalls, SudoCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
         );
+    }
+
+    /// Executable-filter proof (the pallet mock allows everything, so this must live in
+    /// the runtime): `NonFungible` cannot dispatch the calls that spend, lock or destroy the
+    /// principal's TAO/alpha, neither `NonTransfer` nor `NonFungible` can reach Sudo, and
+    /// ordinary non-fungible operations still pass. Sudo-capable value-moving delegation
+    /// also stays refused through the metadata the runtime API advertises.
+    #[test]
+    fn non_fungible_cannot_move_value_and_no_non_financial_proxy_reaches_sudo() {
+        use subtensor_runtime_common::{AccountId, AlphaBalance, NetUid, TaoBalance};
+
+        let hotkey = AccountId::new([7; 32]);
+        let netuid = NetUid::from(1);
+        let value_calls = [
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::add_stake_burn {
+                hotkey: hotkey.clone(),
+                netuid,
+                amount: TaoBalance::from(1),
+                limit: None,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::lock_stake {
+                hotkey: hotkey.clone(),
+                netuid,
+                amount: AlphaBalance::from(1),
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_lock {
+                destination_hotkey: hotkey.clone(),
+                netuid,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::set_perpetual_lock {
+                netuid,
+                enabled: true,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::recycle_alpha {
+                hotkey: hotkey.clone(),
+                amount: AlphaBalance::from(1),
+                netuid,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::burn_alpha {
+                hotkey: hotkey.clone(),
+                amount: AlphaBalance::from(1),
+                netuid,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::register_network {
+                hotkey: hotkey.clone(),
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::register_network_with_identity {
+                hotkey: hotkey.clone(),
+                identity: None,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::register_leased_network {
+                emissions_share: sp_runtime::Percent::from_percent(10),
+                end_block: None,
+            }),
+        ];
+        let sudo_calls = [
+            RuntimeCall::Sudo(pallet_sudo::Call::sudo {
+                call: alloc::boxed::Box::new(RuntimeCall::Balances(
+                    pallet_balances::Call::force_transfer {
+                        source: hotkey.clone().into(),
+                        dest: hotkey.clone().into(),
+                        value: TaoBalance::from(1),
+                    },
+                )),
+            }),
+            RuntimeCall::Sudo(pallet_sudo::Call::set_key {
+                new: hotkey.clone().into(),
+            }),
+        ];
+        let non_fungible_calls = [
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::set_weights {
+                netuid,
+                dests: vec![0],
+                weights: vec![1],
+                version_key: 0,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::serve_axon {
+                netuid,
+                version: 1,
+                ip: 1,
+                port: 1,
+                ip_type: 4,
+                protocol: 0,
+                placeholder1: 0,
+                placeholder2: 0,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::set_reject_locked_alpha {
+                enabled: true,
+            }),
+        ];
+
+        for call in &value_calls {
+            let name = call.get_call_metadata().function_name;
+            assert!(
+                !ProxyType::NonFungible.filter(call),
+                "NonFungible must not dispatch {name}"
+            );
+            assert!(
+                ProxyType::NonTransfer.filter(call),
+                "NonTransfer keeps {name}"
+            );
+            assert!(
+                ProxyType::NonCritical.filter(call),
+                "NonCritical keeps {name}"
+            );
+        }
+        for call in &sudo_calls {
+            let name = call.get_call_metadata().function_name;
+            for proxy_type in [
+                ProxyType::NonTransfer,
+                ProxyType::NonFungible,
+                ProxyType::NonCritical,
+            ] {
+                assert!(
+                    !proxy_type.filter(call),
+                    "{proxy_type:?} must not dispatch Sudo::{name}"
+                );
+            }
+            assert!(ProxyType::Any.filter(call));
+        }
+        for call in &non_fungible_calls {
+            let name = call.get_call_metadata().function_name;
+            assert!(
+                ProxyType::NonFungible.filter(call),
+                "NonFungible still dispatches {name}"
+            );
+        }
+
+        // The advertised allowlist agrees with the executable filter.
+        for proxy_type in [ProxyType::NonTransfer, ProxyType::NonFungible] {
+            let advertised = allowed_calls(proxy_type);
+            for call in value_calls.iter().chain(sudo_calls.iter()) {
+                let metadata = call.get_call_metadata();
+                let name = format!("{}::{}", metadata.pallet_name, metadata.function_name);
+                assert_eq!(
+                    advertised.contains(&name),
+                    proxy_type.filter(call),
+                    "{name}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -479,7 +625,6 @@ mod tests {
             ProxyType::Registration,
             ProxyType::RootWeights,
             ProxyType::ChildKeys,
-            ProxyType::SudoUncheckedSetCode,
             ProxyType::SwapHotkey,
             ProxyType::SubnetLeaseBeneficiary,
             ProxyType::RootClaim,

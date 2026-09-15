@@ -1068,6 +1068,11 @@ impl<T: Config> Pallet<T> {
             Self::maybe_add_coldkey_index(coldkey);
         }
 
+        // A suspended parent may qualify again: queue the metered re-check (one read).
+        if ChildkeyThresholdSuspended::<T>::contains_key(hotkey) {
+            ChildkeyThresholdChecks::<T>::insert(hotkey, ());
+        }
+
         // Deposit and log the staking event.
         Self::deposit_event(Event::StakeAdded(
             coldkey.clone(),
@@ -1211,6 +1216,19 @@ impl<T: Config> Pallet<T> {
     ) -> SharePool<AlphaShareKey<T>, HotkeyAlphaSharePoolDataOperations<T>> {
         let ops = HotkeyAlphaSharePoolDataOperations::new(hotkey, netuid);
         SharePool::<AlphaShareKey<T>, HotkeyAlphaSharePoolDataOperations<T>>::new(ops)
+    }
+
+    /// True when a stored share row belongs to a pool epoch that has since been closed.
+    /// Such rows are worth nothing and must be skipped by every path that would otherwise
+    /// value the raw share directly (for example the dissolution settlement fallback).
+    pub fn alpha_share_is_retired(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> bool {
+        let pool_epoch = AlphaSharePoolEpoch::<T>::get(hotkey, netuid);
+        // A pool that has never been closed has no stamped rows; skip the row read.
+        pool_epoch != 0 && AlphaShareEpoch::<T>::get((hotkey, coldkey, netuid)) != pool_epoch
     }
 
     /// Validate add_stake user input
@@ -1613,6 +1631,21 @@ impl<T: Config> HotkeyAlphaSharePoolDataOperations<T> {
             _marker: sp_std::marker::PhantomData,
         }
     }
+
+    /// Raw stored share for `key`, reading the deprecated `Alpha` map first and then `AlphaV2`.
+    /// Does not apply the pool-epoch check.
+    fn raw_share(&self, key: &AlphaShareKey<T>) -> Result<SafeFloat, ()> {
+        if let Ok(share_v1) = Alpha::<T>::try_get((&(self.hotkey), key, self.netuid)) {
+            return Ok(SafeFloat::from(share_v1));
+        }
+        AlphaV2::<T>::try_get((&(self.hotkey), key, self.netuid))
+    }
+
+    /// True when the share row for `key` was written in the pool's current epoch. Rows from
+    /// an earlier epoch belong to a pool that has since been closed and read as absent.
+    fn share_is_current(&self, key: &AlphaShareKey<T>) -> bool {
+        !Pallet::<T>::alpha_share_is_retired(&self.hotkey, key, self.netuid)
+    }
 }
 
 // Alpha share key is coldkey because the HotkeyAlphaSharePoolDataOperations struct already has hotkey and netuid
@@ -1626,26 +1659,16 @@ impl<T: Config> SharePoolDataOperations<AlphaShareKey<T>>
     }
 
     fn get_share(&self, key: &AlphaShareKey<T>) -> SafeFloat {
-        // Read the deprecated Alpha map first and, if value is not available, try new AlphaV2
-        let maybe_share_v1 = Alpha::<T>::try_get((&(self.hotkey), key, self.netuid));
-        if let Ok(share_v1) = maybe_share_v1 {
-            return SafeFloat::from(share_v1);
-        }
-
-        AlphaV2::<T>::get((&(self.hotkey), key, self.netuid))
+        self.try_get_share(key)
+            .unwrap_or_else(|_| SafeFloat::zero())
     }
 
     fn try_get_share(&self, key: &AlphaShareKey<T>) -> Result<SafeFloat, ()> {
-        // Read the deprecated Alpha map first and, if value is not available, try new AlphaV2
-        let maybe_share_v1 = Alpha::<T>::try_get((&(self.hotkey), key, self.netuid));
-        if let Ok(share_v1) = maybe_share_v1 {
-            return Ok(SafeFloat::from(share_v1));
-        }
-
-        let maybe_share = AlphaV2::<T>::try_get((&(self.hotkey), key, self.netuid));
-        if let Ok(share) = maybe_share {
+        let share = self.raw_share(key)?;
+        if share.is_zero() || self.share_is_current(key) {
             Ok(share)
         } else {
+            // Left over from a closed pool: worth nothing and not a position.
             Err(())
         }
     }
@@ -1685,18 +1708,28 @@ impl<T: Config> SharePoolDataOperations<AlphaShareKey<T>>
             Alpha::<T>::remove((&self.hotkey, key, self.netuid));
         }
 
+        let pool_epoch = AlphaSharePoolEpoch::<T>::get(&self.hotkey, self.netuid);
         if !share.is_zero() {
             AlphaV2::<T>::insert((&self.hotkey, key, self.netuid), share);
+            // Stamp the row with the pool's epoch so it stays readable until the pool is
+            // next closed. Epoch 0 is the default: a never-closed pool has no stamped rows,
+            // so nothing needs writing.
+            if pool_epoch != 0 {
+                AlphaShareEpoch::<T>::insert((&self.hotkey, key, self.netuid), pool_epoch);
+            }
         } else {
             AlphaV2::<T>::remove((&self.hotkey, key, self.netuid));
+            if pool_epoch != 0 {
+                AlphaShareEpoch::<T>::remove((&self.hotkey, key, self.netuid));
+            }
         }
     }
 
     fn set_denominator(&mut self, update: SafeFloat) {
         // Lazy TotalHotkeyShares -> TotalHotkeySharesV2 migration happens right here
         // Delete the TotalHotkeyShares entry, insert into TotalHotkeySharesV2
-        let maybe_denominator_v1 = TotalHotkeyShares::<T>::try_get(&(self.hotkey), self.netuid);
-        if maybe_denominator_v1.is_ok() {
+        let previous = self.get_denominator();
+        if TotalHotkeyShares::<T>::contains_key(&(self.hotkey), self.netuid) {
             TotalHotkeyShares::<T>::remove(&self.hotkey, self.netuid);
         }
 
@@ -1704,6 +1737,14 @@ impl<T: Config> SharePoolDataOperations<AlphaShareKey<T>>
             TotalHotkeySharesV2::<T>::insert(&self.hotkey, self.netuid, update);
         } else {
             TotalHotkeySharesV2::<T>::remove(&self.hotkey, self.netuid);
+            if !previous.is_zero() {
+                // The pool is closed. Move to a new epoch so every share row written so far
+                // reads as absent; rows cannot be enumerated per pool, so they are retired
+                // lazily instead of deleted.
+                AlphaSharePoolEpoch::<T>::mutate(&self.hotkey, self.netuid, |epoch| {
+                    *epoch = epoch.saturating_add(1);
+                });
+            }
         }
     }
 }

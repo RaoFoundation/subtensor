@@ -221,6 +221,41 @@ impl SafeFloat {
         }
     }
 
+    /// Exact `self - a` for `self >= a`, computed in U256 at the finer of the two
+    /// granularities so no digit of either operand is dropped before subtracting.
+    ///
+    /// The plain `sub` first truncates the smaller operand to the larger operand's
+    /// granularity, so it can report a difference larger than the true one. This
+    /// helper never does: if the exact result needs more than `SAFE_FLOAT_MAX_EXP`
+    /// digits it is rounded toward zero, so the returned value is always `<=` the
+    /// true difference. Returns `None` when `self < a` or the exponent gap does not
+    /// fit in U256; callers fall back to `sub` in that (practically unreachable) case.
+    pub fn sub_exact_floor(&self, a: &SafeFloat) -> Option<Self> {
+        if a.is_zero() {
+            return Some(self.clone());
+        }
+        if self.is_zero() {
+            return None;
+        }
+
+        let exponent = self.exponent.min(a.exponent);
+        let scale = |value: &SafeFloat| -> Option<U256> {
+            let shift = value.exponent.checked_sub(exponent)?;
+            let factor = U256::from(10).checked_pow(U256::from(shift as u64))?;
+            U256::from(value.mantissa).checked_mul(factor)
+        };
+        let minuend = scale(self)?;
+        let subtrahend = scale(a)?;
+        let difference = minuend.checked_sub(subtrahend)?;
+
+        let mut result = SafeFloat::zero();
+        if result.normalize(&difference, exponent) {
+            Some(result)
+        } else {
+            None
+        }
+    }
+
     /// Calculate self * a / b without loss of precision
     pub fn mul_div(&self, a: &SafeFloat, b: &SafeFloat) -> Option<Self> {
         if b.mantissa == 0_u128 {
@@ -261,6 +296,14 @@ impl SafeFloat {
     /// Returns true if self > a
     /// Both values should be normalized
     pub fn gt(&self, a: &SafeFloat) -> bool {
+        // Zero is stored with exponent 0, which is not comparable by exponent.
+        if self.is_zero() {
+            return false;
+        }
+        if a.is_zero() {
+            return true;
+        }
+
         let ten = U256::from(10);
 
         if self.exponent == a.exponent {
@@ -391,6 +434,11 @@ pub trait SharePoolDataOperations<Key> {
     /// Update single share for a given key by provided signed value
     fn set_share(&mut self, key: &Key, share: SafeFloat);
     /// Update share pool denominator by provided signed value
+    ///
+    /// Writing a zero denominator means the pool has been fully drained and is being
+    /// closed. Implementations must retire every share recorded for the pool at that
+    /// point: any share written before the zero denominator must read back as zero (or
+    /// absent) afterwards, so that a later deposit re-opens the pool with a clean ledger.
     fn set_denominator(&mut self, update: SafeFloat);
 }
 
@@ -500,32 +548,55 @@ where
             .unwrap_or_default()
     }
 
-    /// Update the value associated with an item identified by the Key
-    /// Returns actual update
+    /// Update the value associated with an item identified by the Key.
     ///
+    /// Accounting invariant: the denominator `D` is the sum of all stored member shares.
+    /// Every rounding in this function is chosen so that `sum(shares) <= D` can never be
+    /// violated, and it holds with equality except for sub-ulp truncation of the member's
+    /// own share:
+    ///
+    /// * The denominator is moved first, by the (rounded) `shares_per_update`.
+    /// * The member share is then moved by the *exact* change the denominator actually
+    ///   underwent, never by an independently rounded copy of `shares_per_update`. A member
+    ///   can therefore never gain more shares than the denominator gained, and never lose
+    ///   fewer shares than the denominator lost.
+    /// * A withdrawal that leaves the pool with zero value closes the pool: the denominator
+    ///   is written to zero, which retires every remaining share (see
+    ///   [`SharePoolDataOperations::set_denominator`]). Nothing of value is lost because the
+    ///   pool is empty, and no stale share can claim a later deposit.
+    /// * A deposit into a pool that has shares but no value cannot be priced (it would divide
+    ///   by zero and hand the depositor no shares). Such a pool is closed first and the
+    ///   deposit re-opens it.
     pub fn update_value_for_one(&mut self, key: &K, update: i64) {
         let shared_value: u64 = self.state_ops.get_shared_value();
-        let current_share: SafeFloat = self.state_ops.get_share(key);
-        let denominator: SafeFloat = self.state_ops.get_denominator();
+        let mut denominator: SafeFloat = self.state_ops.get_denominator();
+        let magnitude: u64 = update.unsigned_abs();
 
-        // Then, update this key's share
+        if update > 0 && shared_value == 0 && !denominator.is_zero() {
+            // Shares with nothing behind them are worth exactly zero. Retire them so the
+            // deposit below opens a clean pool instead of being donated to those shares.
+            self.state_ops.set_denominator(SafeFloat::zero());
+            denominator = SafeFloat::zero();
+        }
+
         if denominator.is_zero() {
-            // Initialize the pool. The first key gets all.
-            let update_float: SafeFloat =
-                SafeFloat::new(update.unsigned_abs() as u128, 0).unwrap_or_default();
-            self.state_ops.set_denominator(update_float.clone());
-            self.state_ops.set_share(key, update_float);
+            // Initialize the pool. The first key gets all. A withdrawal from an empty pool
+            // has nothing to remove and must not conjure shares.
+            if update > 0 {
+                let update_float: SafeFloat =
+                    SafeFloat::new(magnitude as u128, 0).unwrap_or_default();
+                self.state_ops.set_denominator(update_float.clone());
+                self.state_ops.set_share(key, update_float);
+            }
         } else {
-            let mut new_denominator;
-            let mut new_current_share;
-
+            let current_share: SafeFloat = self.state_ops.get_share(key);
             let shares_per_update: SafeFloat =
                 self.get_shares_per_update(update, shared_value, &denominator);
 
             // Handle SafeFloat overflows quietly here because this overflow of i64 exponent
             // is extremely hypothetical and should never happen in practice.
-            if update > 0 {
-                new_denominator = match denominator.add(&shares_per_update) {
+            let (mut new_denominator, mut new_current_share) = if update > 0 {
+                let new_denominator = match denominator.add(&shares_per_update) {
                     Some(new_denominator) => new_denominator,
                     None => {
                         log::error!(
@@ -533,58 +604,85 @@ where
                             shares_per_update,
                             denominator,
                         );
-                        // Return the value as it was before the failed addition
-                        denominator
+                        denominator.clone()
                     }
                 };
-
-                new_current_share = match current_share.add(&shares_per_update) {
+                // The member may gain at most what the denominator really gained.
+                let denominator_gain = match new_denominator.sub_exact_floor(&denominator) {
+                    Some(gain) => gain,
+                    None => {
+                        log::error!(
+                            "SafeFloat::sub_exact_floor failed for {:?} - {:?}; using truncating sub",
+                            new_denominator,
+                            denominator,
+                        );
+                        new_denominator.sub(&denominator).unwrap_or_default()
+                    }
+                };
+                let new_current_share = match current_share.add(&denominator_gain) {
                     Some(new_current_share) => new_current_share,
                     None => {
                         log::error!(
                             "SafeFloat::add overflow when adding {:?} to {:?}; keeping old current_share",
-                            shares_per_update,
+                            denominator_gain,
                             current_share,
                         );
-                        // Return the value as it was before the failed addition
                         current_share
                     }
                 };
+                (new_denominator, new_current_share)
             } else {
-                new_denominator = match denominator.sub(&shares_per_update) {
+                let new_denominator = match denominator.sub(&shares_per_update) {
                     Some(new_denominator) => new_denominator,
                     None => {
                         log::error!(
-                            "SafeFloat::add overflow when adding {:?} to {:?}; keeping old denominator",
+                            "SafeFloat::sub overflow when subtracting {:?} from {:?}; keeping old denominator",
                             shares_per_update,
                             denominator,
                         );
-                        // Return the value as it was before the failed addition
-                        denominator
+                        denominator.clone()
                     }
                 };
-
-                new_current_share = match current_share.sub(&shares_per_update) {
-                    Some(new_current_share) => new_current_share,
+                // The member must lose at least what the denominator really lost. The exact
+                // difference is representable here, so this is the true loss.
+                let denominator_loss = match denominator.sub_exact_floor(&new_denominator) {
+                    Some(loss) => loss,
                     None => {
                         log::error!(
-                            "SafeFloat::add overflow when adding {:?} to {:?}; keeping old current_share",
-                            shares_per_update,
-                            current_share,
+                            "SafeFloat::sub_exact_floor failed for {:?} - {:?}; using truncating sub",
+                            denominator,
+                            new_denominator,
                         );
-                        // Return the value as it was before the failed addition
-                        current_share
+                        denominator.sub(&new_denominator).unwrap_or_default()
                     }
                 };
-            }
+                if denominator_loss.gt(&current_share) {
+                    // Callers only withdraw up to the quoted value, so the loss never exceeds
+                    // the share. Should it ever, the denominator must not drop below the sum
+                    // of the remaining shares: take only this member's whole share out of it.
+                    let new_denominator = denominator.sub(&current_share).unwrap_or_default();
+                    (new_denominator, SafeFloat::zero())
+                } else {
+                    // `sub` returns None only for a zero share, which means nothing is left.
+                    let new_current_share = current_share
+                        .sub(&denominator_loss)
+                        .unwrap_or_else(SafeFloat::zero);
+                    (new_denominator, new_current_share)
+                }
+            };
 
-            // Withdrawing the integer value reported for a position can leave a positive
-            // fractional share worth less than one rao. If retained, later emissions can make
-            // that supposedly drained position visible again. Canonicalize such withdrawal
-            // dust to zero and remove it from the denominator so the remaining pool shares
-            // continue to sum to the denominator. Never interpret a failed valuation as zero.
-            let updated_shared_value = shared_value.saturating_sub(update.unsigned_abs());
-            if update < 0
+            let updated_shared_value = if update >= 0 {
+                shared_value.saturating_add(magnitude)
+            } else {
+                shared_value.saturating_sub(magnitude)
+            };
+
+            if update < 0 && updated_shared_value == 0 {
+                // The pool is empty. Close it so no share, dust or stale, survives to claim
+                // the next deposit.
+                new_denominator = SafeFloat::zero();
+                new_current_share = SafeFloat::zero();
+            } else if update < 0
                 && !new_current_share.is_zero()
                 && Self::try_get_value_from_parts(
                     updated_shared_value,
@@ -593,6 +691,12 @@ where
                 ) == Some(0)
                 && let Some(denominator_without_dust) = new_denominator.sub(&new_current_share)
             {
+                // Withdrawing the integer value reported for a position can leave a positive
+                // fractional share worth less than one rao. If retained, later emissions can
+                // make that supposedly drained position visible again. Canonicalize such
+                // withdrawal dust to zero and remove it from the denominator so the remaining
+                // pool shares continue to sum to the denominator. Never interpret a failed
+                // valuation as zero.
                 new_denominator = denominator_without_dust;
                 new_current_share = SafeFloat::zero();
             }
@@ -608,7 +712,7 @@ where
 
 // cargo test --package share-pool --lib -- tests --nocapture
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::arithmetic_side_effects)]
 mod tests {
     use super::*;
     use approx::assert_abs_diff_eq;
@@ -660,8 +764,321 @@ mod tests {
         }
 
         fn set_denominator(&mut self, update: SafeFloat) {
+            // Contract: a zero denominator closes the pool and retires every share.
+            if update.is_zero() {
+                self.share.clear();
+            }
             self.denominator = update;
         }
+    }
+
+    /// Deterministic LCG so grind tests are reproducible without extra dependencies.
+    fn lcg(seed: u64) -> impl FnMut() -> u64 {
+        let mut state = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        move || {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            state
+        }
+    }
+
+    /// Sum of all stored shares, accumulated in SafeFloat.
+    fn sum_of_shares(pool: &SharePool<u16, MockSharePoolDataOperations>) -> SafeFloat {
+        pool.state_ops
+            .share
+            .values()
+            .fold(SafeFloat::zero(), |acc, share| acc.add(share).unwrap())
+    }
+
+    /// `a / b` as f64, computed in SafeFloat first so tiny exponents do not underflow f64.
+    fn ratio(a: &SafeFloat, b: &SafeFloat) -> f64 {
+        if b.is_zero() {
+            return 0.0;
+        }
+        a.div(b).map(f64::from).unwrap_or(f64::INFINITY)
+    }
+
+    /// Replays the audit grind (pool-wide dividend, small member deposit, partial member
+    /// withdrawal, all in a random order) and returns the peak raw `S / D` seen for any
+    /// member together with the peak `sum(S) / D`.
+    fn grind(seed: u64, ops: usize) -> (f64, f64) {
+        const RAO: u64 = 1_000_000_000;
+        let mock_ops = MockSharePoolDataOperations::new();
+        let mut pool = SharePool::<u16, MockSharePoolDataOperations>::new(mock_ops);
+        let members = [1_u16, 2_u16];
+        // Tiny genuine seeds, as in the audit.
+        pool.update_value_for_one(&members[0], (6 * RAO / 1000) as i64);
+        pool.update_value_for_one(&members[1], (6 * RAO / 1000) as i64);
+
+        let mut next = lcg(seed);
+        let mut peak_member_ratio = 0.0_f64;
+        let mut peak_sum_ratio = 0.0_f64;
+        for _ in 0..ops {
+            let who = members[(next() % 2) as usize];
+            match next() % 3 {
+                0 => {
+                    let dividend = 1 + (next() % (100 * RAO));
+                    pool.update_value_for_all(dividend as i64);
+                }
+                1 => {
+                    let amount = 1 + (next() % (RAO / 1000));
+                    pool.update_value_for_one(&who, amount as i64);
+                }
+                _ => {
+                    let quote = pool.get_value(&who);
+                    if quote > 0 {
+                        let amount = 1 + (next() % quote);
+                        pool.update_value_for_one(&who, -(amount as i64));
+                    }
+                }
+            }
+            let denominator = pool.state_ops.get_denominator();
+            let shared_value = pool.state_ops.get_shared_value();
+            let mut sum_of_quotes = 0_u128;
+            for member in &members {
+                let share = pool.state_ops.get_share(member);
+                peak_member_ratio = peak_member_ratio.max(ratio(&share, &denominator));
+                sum_of_quotes += pool.get_value(member) as u128;
+                // The uncapped quote floor(V * S / D) must already be within the pool: the
+                // `min(V)` cap in `get_value` is a backstop that a reachable state never needs.
+                let uncapped: u64 = SafeFloat::from(shared_value)
+                    .mul_div(&share, &denominator)
+                    .map(u64::from)
+                    .unwrap_or_default();
+                assert!(
+                    uncapped <= shared_value,
+                    "seed {seed}: uncapped quote {uncapped} exceeds pool value {shared_value}; the cap was needed"
+                );
+            }
+            peak_sum_ratio = peak_sum_ratio.max(ratio(&sum_of_shares(&pool), &denominator));
+            assert!(
+                sum_of_quotes <= shared_value as u128,
+                "seed {seed}: members are quoted {sum_of_quotes} but the pool only holds {shared_value}"
+            );
+        }
+        (peak_member_ratio, peak_sum_ratio)
+    }
+
+    // The pre-fix accounting applied an independently rounded `shares_per_update` to the
+    // denominator and to the member share, so `S / D` drifted above 1 without bound under
+    // dividends interleaved with partial withdrawals (the audit measured 1458x in 299 ops).
+    // With the denominator-derived share update the ratio is bounded by 1 on every step.
+    // cargo test --package share-pool --lib -- tests::test_grind_keeps_member_share_within_denominator --exact
+    #[test]
+    fn test_grind_keeps_member_share_within_denominator() {
+        let mut worst_member = 0.0_f64;
+        let mut worst_sum = 0.0_f64;
+        for seed in 0..200_u64 {
+            let (member_ratio, sum_ratio) = grind(seed, 3000);
+            worst_member = worst_member.max(member_ratio);
+            worst_sum = worst_sum.max(sum_ratio);
+        }
+        println!("peak S/D over 200 seeds x 3000 ops = {worst_member:.18}");
+        println!("peak sum(S)/D over 200 seeds x 3000 ops = {worst_sum:.18}");
+        assert!(
+            worst_sum <= 1.0,
+            "sum of shares exceeded the denominator: {worst_sum}"
+        );
+        assert!(
+            worst_member <= 1.0,
+            "a member share exceeded the denominator: {worst_member}"
+        );
+    }
+
+    // Deposits and withdrawals move the denominator and the member share by the same exact
+    // amount. sum(S) never exceeds D, and the only slack below D is sub-ulp truncation of a
+    // member's own share (when a deposit dwarfs its existing position) or of the denominator
+    // (dust cleanup), each at most one unit in the 21st digit.
+    // cargo test --package share-pool --lib -- tests::test_denominator_equals_sum_of_shares --exact
+    #[test]
+    fn test_denominator_equals_sum_of_shares() {
+        let mock_ops = MockSharePoolDataOperations::new();
+        let mut pool = SharePool::<u16, MockSharePoolDataOperations>::new(mock_ops);
+        let members = [1_u16, 2_u16, 3_u16];
+        let mut next = lcg(42);
+        pool.update_value_for_one(&members[0], 1_000_000_000);
+        for step in 0..5000 {
+            let who = members[(next() % 3) as usize];
+            let shared_value = pool.state_ops.get_shared_value();
+            match next() % 4 {
+                0 => pool.update_value_for_all(
+                    (1 + next() % (shared_value / 10).clamp(1, 1_000_000_000_000_000)) as i64,
+                ),
+                1 | 2 => pool.update_value_for_one(
+                    &who,
+                    (1 + next() % shared_value.min(1_000_000_000_000_000)) as i64,
+                ),
+                _ => {
+                    let quote = pool.get_value(&who);
+                    if quote > 0 {
+                        pool.update_value_for_one(
+                            &who,
+                            -((1 + next() % (quote / 10).max(1)) as i64),
+                        );
+                    }
+                }
+            }
+            let denominator = pool.state_ops.get_denominator();
+            let sum = sum_of_shares(&pool);
+            assert!(
+                !sum.gt(&denominator),
+                "step {step}: sum(S) {sum:?} > D {denominator:?}"
+            );
+            let slack = denominator.sub_exact_floor(&sum).unwrap();
+            assert!(
+                ratio(&slack, &denominator) < 1e-15,
+                "step {step}: D - sum(S) = {slack:?} is not sub-ulp of D {denominator:?}"
+            );
+        }
+    }
+
+    // A pool whose last member withdraws everything is closed (D == 0) and re-opens cleanly:
+    // the next depositor owns the whole pool and old members quote nothing.
+    // cargo test --package share-pool --lib -- tests::test_drained_pool_reopens_clean --exact
+    #[test]
+    fn test_drained_pool_reopens_clean() {
+        let mock_ops = MockSharePoolDataOperations::new();
+        let mut pool = SharePool::<u16, MockSharePoolDataOperations>::new(mock_ops);
+
+        pool.update_value_for_one(&1, 1_000);
+        pool.update_value_for_one(&2, 3_000);
+        pool.update_value_for_all(400);
+        assert_eq!(pool.get_value(&1), 1_100);
+        assert_eq!(pool.get_value(&2), 3_300);
+
+        pool.update_value_for_one(&1, -1_100);
+        pool.update_value_for_one(&2, -3_300);
+        assert_eq!(pool.state_ops.get_shared_value(), 0);
+        assert!(pool.state_ops.get_denominator().is_zero());
+        assert!(pool.state_ops.get_share(&1).is_zero());
+        assert!(pool.state_ops.get_share(&2).is_zero());
+
+        pool.update_value_for_one(&3, 700);
+        assert_eq!(pool.get_value(&3), 700);
+        pool.update_value_for_all(300);
+        assert_eq!(pool.get_value(&3), 1_000);
+        assert_eq!(pool.get_value(&1), 0);
+        assert_eq!(pool.get_value(&2), 0);
+        assert_eq!(
+            pool.state_ops.get_denominator(),
+            pool.state_ops.get_share(&3)
+        );
+    }
+
+    // Legacy state: stored shares exceed the denominator (S = 2D for two members). The
+    // inflated member drains the whole pool through the value cap. That must close the pool,
+    // so the other inflated share cannot sweep a later depositor, who recovers in full.
+    // cargo test --package share-pool --lib -- tests::test_stale_inflated_share_cannot_claim_later_deposit --exact
+    #[test]
+    fn test_stale_inflated_share_cannot_claim_later_deposit() {
+        let mut mock_ops = MockSharePoolDataOperations::new();
+        mock_ops.set_shared_value(1_000_000);
+        mock_ops.set_denominator(100u64.into());
+        mock_ops.set_share(&1, 200u64.into());
+        mock_ops.set_share(&2, 200u64.into());
+        let mut pool = SharePool::<u16, MockSharePoolDataOperations>::new(mock_ops);
+
+        // Capped quote: the whole pool.
+        assert_eq!(pool.get_value(&1), 1_000_000);
+        pool.update_value_for_one(&1, -1_000_000);
+        assert_eq!(pool.state_ops.get_shared_value(), 0);
+        assert!(pool.state_ops.get_denominator().is_zero());
+        assert!(
+            pool.state_ops.get_share(&2).is_zero(),
+            "stale share retired"
+        );
+
+        // Innocent later depositor.
+        pool.update_value_for_one(&3, 50_000);
+        assert_eq!(pool.get_value(&3), 50_000);
+        assert_eq!(pool.get_value(&1), 0);
+        assert_eq!(pool.get_value(&2), 0);
+        pool.update_value_for_all(50_000);
+        assert_eq!(pool.get_value(&3), 100_000);
+        assert_eq!(pool.get_value(&2), 0);
+        pool.update_value_for_one(&3, -100_000);
+        assert_eq!(pool.state_ops.get_shared_value(), 0);
+    }
+
+    // A pool that still has shares but no value cannot price a deposit. It is closed and
+    // re-opened by the deposit, so the depositor gets the whole pool instead of nothing.
+    // cargo test --package share-pool --lib -- tests::test_deposit_into_valueless_pool_reopens_it --exact
+    #[test]
+    fn test_deposit_into_valueless_pool_reopens_it() {
+        let mut mock_ops = MockSharePoolDataOperations::new();
+        mock_ops.set_shared_value(0);
+        mock_ops.set_denominator(100u64.into());
+        mock_ops.set_share(&1, 300u64.into());
+        let mut pool = SharePool::<u16, MockSharePoolDataOperations>::new(mock_ops);
+
+        pool.update_value_for_one(&2, 5_000);
+        assert_eq!(pool.get_value(&2), 5_000);
+        assert_eq!(pool.get_value(&1), 0);
+        assert_eq!(
+            pool.state_ops.get_denominator(),
+            pool.state_ops.get_share(&2)
+        );
+    }
+
+    // A withdrawal from an empty pool must not create shares out of nothing.
+    #[test]
+    fn test_withdrawal_from_empty_pool_is_noop() {
+        let mock_ops = MockSharePoolDataOperations::new();
+        let mut pool = SharePool::<u16, MockSharePoolDataOperations>::new(mock_ops);
+        pool.update_value_for_one(&1, -10);
+        assert!(pool.state_ops.get_denominator().is_zero());
+        assert!(pool.state_ops.get_share(&1).is_zero());
+        assert_eq!(pool.state_ops.get_shared_value(), 0);
+    }
+
+    // Regression for the original unbacked-value report: under the pre-fix grind a single
+    // member quote reached 5x the pool and the pair together far more. Now every quote is
+    // backed on every step, and after the grind each member can withdraw exactly its quote
+    // with the pool never going negative and the last member closing it.
+    // cargo test --package share-pool --lib -- tests::test_no_unbacked_value_after_grind --exact
+    #[test]
+    fn test_no_unbacked_value_after_grind() {
+        for seed in [5_u64, 17, 99, 1234] {
+            let (member_ratio, _) = grind(seed, 333);
+            assert!(member_ratio <= 1.0, "seed {seed}: S/D = {member_ratio}");
+        }
+
+        let mock_ops = MockSharePoolDataOperations::new();
+        let mut pool = SharePool::<u16, MockSharePoolDataOperations>::new(mock_ops);
+        let mut next = lcg(5);
+        pool.update_value_for_one(&1, 6_000_000);
+        pool.update_value_for_one(&2, 6_000_000);
+        for _ in 0..2000 {
+            let who = if next() % 2 == 0 { 1_u16 } else { 2_u16 };
+            match next() % 3 {
+                0 => pool.update_value_for_all((1 + next() % 100_000_000_000) as i64),
+                1 => pool.update_value_for_one(&who, (1 + next() % 1_000_000) as i64),
+                _ => {
+                    let quote = pool.get_value(&who);
+                    if quote > 0 {
+                        pool.update_value_for_one(&who, -((1 + next() % quote) as i64));
+                    }
+                }
+            }
+        }
+        let shared_value = pool.state_ops.get_shared_value();
+        let quote_1 = pool.get_value(&1);
+        let quote_2 = pool.get_value(&2);
+        assert!(quote_1 as u128 + quote_2 as u128 <= shared_value as u128);
+        pool.update_value_for_one(&1, -(quote_1 as i64));
+        assert_eq!(pool.state_ops.get_shared_value(), shared_value - quote_1);
+        let quote_2_after = pool.get_value(&2);
+        assert!(
+            quote_2_after >= quote_2,
+            "member 2 must not lose value to member 1's exit"
+        );
+        pool.update_value_for_one(&2, -(quote_2_after as i64));
+        let leftover = pool.state_ops.get_shared_value();
+        assert!(
+            leftover <= 2,
+            "at most rounding dust may remain: {leftover}"
+        );
     }
 
     #[test]
@@ -1136,6 +1553,20 @@ mod tests {
             assert_eq!(b_plus_a.mantissa, expected_m);
             assert_eq!(b_plus_a.exponent, expected_e);
         });
+    }
+
+    #[test]
+    fn test_safefloat_gt_handles_zero() {
+        let zero = SafeFloat::zero();
+        let small = SafeFloat::new(1u128, -12).unwrap();
+        let large = SafeFloat::new(1u128, 12).unwrap();
+        assert!(!zero.gt(&zero));
+        assert!(!zero.gt(&small));
+        assert!(!zero.gt(&large));
+        assert!(small.gt(&zero));
+        assert!(large.gt(&zero));
+        assert!(large.gt(&small));
+        assert!(!small.gt(&large));
     }
 
     #[test]

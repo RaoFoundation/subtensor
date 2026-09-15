@@ -129,9 +129,7 @@ DESCRIPTIONS: dict[str, str] = {
         "`expires_at`. The signer may prune at any time; anyone may prune only after expiry."
     ),
     "OrderSignerFrozen": (
-        "The order's signer (the coldkey whose assets the order moves) has a pending coldkey "
-        "swap announcement or an open swap dispute, so its funds cannot move until that is "
-        "resolved. Check with `btcli wallet swap-check`; the order can be executed once the "
-        "announcement is cleared or the swap completes."
+        "The order owner is temporarily prohibited from moving funds, so the order cannot be "
+        "executed. Retry once the owner's freeze has lifted."
     ),
 }

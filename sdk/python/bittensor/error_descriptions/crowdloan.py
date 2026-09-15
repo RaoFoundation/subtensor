@@ -131,9 +131,8 @@ DESCRIPTIONS: dict[str, str] = {
         "`crowdloan_id`."
     ),
     "FundsNotSettled": (
-        "`finalize` dispatched the crowdloan's stored call, but it did not spend the full "
-        "amount raised: the funds account still holds raised TAO afterwards (a batched call "
-        "may have returned Ok after a child failed). Nothing was committed. Check the stored "
-        "call with `Crowdloan.Crowdloans` and correct it before finalizing again."
+        "The crowdloan's finalization call returned without spending the full amount raised. "
+        "Finalization must consume the whole raised balance; fix the configured call so it "
+        "settles the funds, then finalize again."
     ),
 }

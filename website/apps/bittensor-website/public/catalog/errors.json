@@ -482,7 +482,7 @@
     },
     "BasketDepositPending": {
       "code": "too_early",
-      "description": "The validator has a queued root-dividend deposit that could not be settled yet, and the call would change the hotkey's root claimant base before it does. Check the pending basket deposits for the hotkey and retry once the deposit becomes executable.",
+      "description": "A queued root-dividend deposit for this hotkey could not be settled yet, so an operation that changes the hotkey's root claimant base was refused. Wait until the deposit is settled or expires, then retry.",
       "docs_url": "/docs/errors/chain/BasketDepositPending",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketDepositPending/content.md",
       "pallets": [
@@ -1395,8 +1395,7 @@
       "docs_url": "/docs/errors/chain/DepositTooLow",
       "markdown_url": "/llms.mdx/docs/errors/chain/DepositTooLow/content.md",
       "pallets": [
-        "Crowdloan",
-        "Derivatives"
+        "Crowdloan"
       ],
       "sources": [
         {
@@ -1405,13 +1404,6 @@
           "line": 241,
           "url": "/code/pallets/crowdloan/src/lib.rs#L241",
           "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
-        },
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 321,
-          "url": "/code/pallets/derivatives/src/lib.rs#L321",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -1446,24 +1438,6 @@
           "line": 182,
           "url": "/code/pallets/swap/src/pallet/mod.rs#L182",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
-        }
-      ]
-    },
-    "DerivativesDisabled": {
-      "code": "disabled",
-      "description": "Derivatives are switched off network-wide (`Derivatives.DerivativesEnabled` is false, shown as `enabled` in `deriv params`), so nothing can be added: no open, grow, reduce, or flip. Governance turns it on with `Derivatives.sudo_set_derivatives_enabled`. Existing positions can still be closed with `deriv close`, and the chain keeps collecting their interest.",
-      "docs_url": "/docs/errors/chain/DerivativesDisabled",
-      "markdown_url": "/llms.mdx/docs/errors/chain/DerivativesDisabled/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 337,
-          "url": "/code/pallets/derivatives/src/lib.rs#L337",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -1829,7 +1803,7 @@
     },
     "FundsNotSettled": {
       "code": "policy_violation",
-      "description": "`finalize` dispatched the crowdloan's stored call, but it did not spend the full amount raised: the funds account still holds raised TAO afterwards (a batched call may have returned Ok after a child failed). Nothing was committed. Check the stored call with `Crowdloan.Crowdloans` and correct it before finalizing again.",
+      "description": "The crowdloan's finalization call returned without spending the full amount raised. Finalization must consume the whole raised balance; fix the configured call so it settles the funds, then finalize again.",
       "docs_url": "/docs/errors/chain/FundsNotSettled",
       "markdown_url": "/llms.mdx/docs/errors/chain/FundsNotSettled/content.md",
       "pallets": [
@@ -2871,24 +2845,6 @@
         }
       ]
     },
-    "LeverageOutOfRange": {
-      "code": "invalid_argument",
-      "description": "The requested leverage is zero or above the side's maximum: 1x for shorts, 1.5x for longs (`max_short_leverage` / `max_long_leverage` in `deriv params`). Pass a `--leverage` at or below it.",
-      "docs_url": "/docs/errors/chain/LeverageOutOfRange",
-      "markdown_url": "/llms.mdx/docs/errors/chain/LeverageOutOfRange/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 324,
-          "url": "/code/pallets/derivatives/src/lib.rs#L324",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-        }
-      ]
-    },
     "LimitOrdersDisabled": {
       "code": "disabled",
       "description": "Order execution was attempted while the pallet's global switch is off. Check the `LimitOrdersEnabled` storage value; root must call `set_pallet_status` with true to enable the pallet.",
@@ -3057,24 +3013,6 @@
           "line": 332,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L332",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "LongsDisabled": {
-      "code": "disabled",
-      "description": "Longs are switched off (`Derivatives.LongsEnabled` is false, shown as `longs_enabled` in `deriv params`): shorts are the launch product, and longs wait on a decision about their collateral and leverage. No add may open a long, grow one, or flip a short through zero into one. Shorts work as usual with `deriv short`; a `deriv long` that only reduces or closes a short goes through; an open long can still be closed with `deriv close`. Governance turns longs on with `Derivatives.sudo_set_longs_enabled`.",
-      "docs_url": "/docs/errors/chain/LongsDisabled",
-      "markdown_url": "/llms.mdx/docs/errors/chain/LongsDisabled/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 341,
-          "url": "/code/pallets/derivatives/src/lib.rs#L341",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -3653,24 +3591,6 @@
         }
       ]
     },
-    "NoPosition": {
-      "code": "not_found",
-      "description": "That owner has no position on that subnet. Check the owner and netuid against `derivative-positions`; it may already have been closed, or forfeited once its cushion could no longer pay its interest.",
-      "docs_url": "/docs/errors/chain/NoPosition",
-      "markdown_url": "/llms.mdx/docs/errors/chain/NoPosition/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 319,
-          "url": "/code/pallets/derivatives/src/lib.rs#L319",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-        }
-      ]
-    },
     "NoSelfProxy": {
       "code": "invalid_argument",
       "description": "An account attempted to register itself as its own proxy, which is not allowed. Check the `delegate` argument to `add_proxy` and ensure it differs from the calling (delegator) account.",
@@ -4160,8 +4080,8 @@
       ]
     },
     "OrderSignerFrozen": {
-      "code": "disabled",
-      "description": "The order's signer (the coldkey whose assets the order moves) has a pending coldkey swap announcement or an open swap dispute, so its funds cannot move until that is resolved. Check with `btcli wallet swap-check`; the order can be executed once the announcement is cleared or the swap completes.",
+      "code": "not_authorized",
+      "description": "The order owner is temporarily prohibited from moving funds, so the order cannot be executed. Retry once the owner's freeze has lifted.",
       "docs_url": "/docs/errors/chain/OrderSignerFrozen",
       "markdown_url": "/llms.mdx/docs/errors/chain/OrderSignerFrozen/content.md",
       "pallets": [
@@ -4275,24 +4195,6 @@
         }
       ]
     },
-    "PalletHotkeyUnset": {
-      "code": "too_early",
-      "description": "The pallet has not claimed its custody hotkey yet, so nothing can be added. Check `Derivatives.PalletHotkey`; it is set by `on_runtime_upgrade` in the upgrade block.",
-      "docs_url": "/docs/errors/chain/PalletHotkeyUnset",
-      "markdown_url": "/llms.mdx/docs/errors/chain/PalletHotkeyUnset/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 331,
-          "url": "/code/pallets/derivatives/src/lib.rs#L331",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-        }
-      ]
-    },
     "PartialFillNotSupportedForLinkedAmount": {
       "code": "invalid_argument",
       "description": "A `partial_fill` was submitted against a linked (consuming) order. Linked amounts must execute in one shot; omit `partial_fill` and execute the resolved amount in full.",
@@ -4363,24 +4265,6 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/PaymentOverflow/content.md",
       "pallets": [
         "EVM"
-      ]
-    },
-    "PoolCapExceeded": {
-      "code": "limit_exceeded",
-      "description": "Open positions of this side would together borrow more than `pool_share` of the lent reserve, or the deposit alone would take the whole pool. A `pool_share` of zero means root has paused new positions. Check `deriv params`; try a smaller deposit or wait for other positions to close.",
-      "docs_url": "/docs/errors/chain/PoolCapExceeded",
-      "markdown_url": "/llms.mdx/docs/errors/chain/PoolCapExceeded/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 329,
-          "url": "/code/pallets/derivatives/src/lib.rs#L329",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-        }
       ]
     },
     "PreLogExists": {
@@ -4878,24 +4762,6 @@
         }
       ]
     },
-    "SettlementBelowMinimum": {
-      "code": "insufficient_liquidity",
-      "description": "The settlement would pay you less TAO than the `min_amount_out` floor you set, after interest, so nothing moved and the position is as it was. Either the pool price moved against you since the quote (someone may have pushed it in the same block), or the position is underwater and a close would pay nothing. Re-quote and retry; widen `--max-slippage` (btcli) or lower `min_amount_out` (SDK) to accept less; a floor of 0 disables the check. Also raised when an add that only opens or grows a position is given a floor above zero: such an add pays nothing out, so leave the floor at 0.",
-      "docs_url": "/docs/errors/chain/SettlementBelowMinimum",
-      "markdown_url": "/llms.mdx/docs/errors/chain/SettlementBelowMinimum/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 345,
-          "url": "/code/pallets/derivatives/src/lib.rs#L345",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-        }
-      ]
-    },
     "SignatoriesOutOfOrder": {
       "code": "invalid_argument",
       "description": "The `other_signatories` list is not sorted in strictly ascending account order, which the multisig pallet requires for a canonical account derivation. Sort the list and remove duplicates before resubmitting.",
@@ -5136,24 +5002,6 @@
           "line": 260,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L260",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "SubnetNotDynamic": {
-      "code": "subtoken_disabled",
-      "description": "The subnet does not exist, is not AMM-priced, has its subtoken disabled, or has an empty reserve. Check the subnet exists and that `subnets show` reports a live pool.",
-      "docs_url": "/docs/errors/chain/SubnetNotDynamic",
-      "markdown_url": "/llms.mdx/docs/errors/chain/SubnetNotDynamic/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 317,
-          "url": "/code/pallets/derivatives/src/lib.rs#L317",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -6091,42 +5939,6 @@
           "line": 46,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L46",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "ZeroExposure": {
-      "code": "invalid_argument",
-      "description": "Leverage times the deposit rounds to nothing against the pool reserve, or the pool would swap the lifted slice for nothing. Use a larger deposit relative to the pool.",
-      "docs_url": "/docs/errors/chain/ZeroExposure",
-      "markdown_url": "/llms.mdx/docs/errors/chain/ZeroExposure/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 326,
-          "url": "/code/pallets/derivatives/src/lib.rs#L326",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-        }
-      ]
-    },
-    "ZeroInterestRate": {
-      "code": "invalid_argument",
-      "description": "`sudo_set_params` was given a `short_interest_rate` or `long_interest_rate` of zero. Both rates must be above zero; to pause new positions set `pool_share` to zero instead.",
-      "docs_url": "/docs/errors/chain/ZeroInterestRate",
-      "markdown_url": "/llms.mdx/docs/errors/chain/ZeroInterestRate/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 334,
-          "url": "/code/pallets/derivatives/src/lib.rs#L334",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },

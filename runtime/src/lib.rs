@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 458,
+    spec_version: 462,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1693,6 +1693,12 @@ type Migrations = (
     // that predate on-chain stamping. Lives here rather than in the pallet hook so
     // try-runtime validates its pre/post-upgrade invariants against real network state.
     pallet_subtensor::migrations::migrate_stamp_beta_baselines::stamp_beta_baselines::Migration<
+        Runtime,
+    >,
+    // Mint the historical root dividend shortfall into the root subnet account and raise
+    // SubnetTAO[0] / TotalStake to match root holdings, so every root staker can exit.
+    // One-shot, guarded by HasMigrationRun; try-runtime checks the reconciliation invariants.
+    pallet_subtensor::migrations::migrate_fix_root_pot_shortfall::fix_root_pot_shortfall::Migration<
         Runtime,
     >,
 );

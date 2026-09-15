@@ -337,6 +337,12 @@ impl<T: Config> Pallet<T> {
                     weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 3));
                 }
 
+                // Child relations followed the hotkey; a `keep_stake` swap leaves the new
+                // hotkey without the stake that qualified them, and the old hotkey may have
+                // dropped below the threshold too.
+                Self::queue_childkey_threshold_check(new_hotkey);
+                Self::queue_childkey_threshold_check(old_hotkey);
+
                 Self::deposit_event(Event::HotkeySwapped {
                     coldkey,
                     old_hotkey: old_hotkey.clone(),
@@ -618,6 +624,12 @@ impl<T: Config> Pallet<T> {
             block,
             &mut weight,
         );
+
+        // 11. Child relations followed the hotkey; a `keep_stake` swap leaves the new hotkey
+        // without the stake that qualified them, and the old hotkey may have dropped below
+        // the threshold too.
+        Self::queue_childkey_threshold_check(new_hotkey);
+        Self::queue_childkey_threshold_check(old_hotkey);
 
         // 12. Emit an event for the hotkey swap
         Self::deposit_event(Event::HotkeySwappedOnSubnet {

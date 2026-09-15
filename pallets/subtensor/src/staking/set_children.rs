@@ -531,10 +531,7 @@ impl<T: Config> Pallet<T> {
         // (checking with check_weights_min_stake wouldn't work because it considers
         // grandparent stake in this case)
         ensure!(
-            children.is_empty()
-                || Self::get_total_stake_for_hotkey(&hotkey) >= StakeThreshold::<T>::get().into()
-                || SubnetOwnerHotkey::<T>::try_get(netuid)
-                    .is_ok_and(|owner_hotkey| owner_hotkey.eq(&hotkey)),
+            children.is_empty() || Self::hotkey_meets_childkey_threshold(&hotkey, netuid),
             Error::<T>::NotEnoughStakeToSetChildkeys
         );
 
@@ -616,7 +613,26 @@ impl<T: Config> Pallet<T> {
         PendingChildKeys::<T>::iter_prefix(netuid).for_each(
             |(hotkey, (children, cool_down_block))| {
                 if (cool_down_block < current_block) || !start_call_occured {
-                    Self::persist_pending_chidren_ok(netuid, &hotkey, &children);
+                    // The stake gate checked at scheduling must still hold when the relation
+                    // goes live; stake moved off the parent during the cooldown voids it.
+                    if children.is_empty()
+                        || Self::hotkey_meets_childkey_threshold(&hotkey, netuid)
+                    {
+                        Self::persist_pending_chidren_ok(netuid, &hotkey, &children);
+                        // A parent whose stake meets the threshold is not suspended. The
+                        // owner exemption is local to the owned subnet and must not lift the
+                        // global flag, so only the stake test clears it here.
+                        if !children.is_empty()
+                            && Self::get_total_stake_for_hotkey(&hotkey)
+                                >= StakeThreshold::<T>::get().into()
+                        {
+                            ChildkeyThresholdSuspended::<T>::remove(&hotkey);
+                        }
+                    } else {
+                        log::debug!(
+                            "Dropping pending children of {hotkey:?} on {netuid:?}: parent stake fell below the threshold"
+                        );
+                    }
                     to_remove.push(hotkey);
                 }
             },
@@ -625,6 +641,85 @@ impl<T: Config> Pallet<T> {
         for hotkey in to_remove {
             PendingChildKeys::<T>::remove(netuid, hotkey);
         }
+    }
+
+    /// True when `hotkey` may hold child relations on `netuid`: it holds at least
+    /// `StakeThreshold` in total stake, or it is the subnet's owner hotkey.
+    pub fn hotkey_meets_childkey_threshold(hotkey: &T::AccountId, netuid: NetUid) -> bool {
+        Self::get_total_stake_for_hotkey(hotkey) >= StakeThreshold::<T>::get().into()
+            || SubnetOwnerHotkey::<T>::try_get(netuid).is_ok_and(|owner| owner.eq(hotkey))
+    }
+
+    /// Called when stake has left (or, for a suspended parent, returned to) `hotkey`. If the
+    /// hotkey is a parent (has live child relations) or is currently suspended, it is queued
+    /// for a threshold re-check; the all-subnet valuation happens in `on_idle` under its
+    /// weight budget, never inside the signed extrinsic. Costs one or two reads, plus one
+    /// write for parents.
+    pub fn queue_childkey_threshold_check(hotkey: &T::AccountId) {
+        if ChildkeyThresholdSuspended::<T>::contains_key(hotkey)
+            || ChildKeys::<T>::iter_key_prefix(hotkey).next().is_some()
+        {
+            ChildkeyThresholdChecks::<T>::insert(hotkey, ());
+        }
+    }
+
+    /// Weight of one queued re-check: the all-subnet valuation plus the two flag writes.
+    fn childkey_threshold_check_weight() -> Weight {
+        // O(1) subnet count; never enumerate the network map just to size the budget.
+        let subnets = u64::from(TotalNetworks::<T>::get());
+        T::DbWeight::get()
+            .reads(subnets.saturating_mul(4).saturating_add(3))
+            .saturating_add(T::DbWeight::get().writes(2))
+    }
+
+    /// Drain the threshold-check queue within `limit`. Each queued hotkey is valued once and
+    /// its suspension flag set or cleared; no relation row is rewritten. Returns the weight
+    /// used.
+    pub fn process_childkey_threshold_checks(limit: Weight) -> Weight {
+        // Queue head read plus the subnet-count read used to size one item.
+        let overhead = T::DbWeight::get().reads(2);
+        if !overhead.all_lte(limit) {
+            return Weight::zero();
+        }
+        let mut used = T::DbWeight::get().reads(1);
+        if ChildkeyThresholdChecks::<T>::iter_keys().next().is_none() {
+            return used;
+        }
+        used = overhead;
+        let per_item = Self::childkey_threshold_check_weight();
+        let mut done: Vec<T::AccountId> = Vec::new();
+        for hotkey in ChildkeyThresholdChecks::<T>::iter_keys() {
+            if !used.saturating_add(per_item).all_lte(limit) {
+                break;
+            }
+            used.saturating_accrue(per_item);
+            Self::recheck_childkey_threshold(&hotkey);
+            done.push(hotkey);
+        }
+        for hotkey in done {
+            ChildkeyThresholdChecks::<T>::remove(hotkey);
+        }
+        used
+    }
+
+    /// Value `hotkey` against `StakeThreshold` and set or clear its suspension flag. While
+    /// suspended, every child relation the hotkey holds (except on subnets it owns) is
+    /// inert: `get_children` and `get_parents` hide those edges, so stake inheritance and
+    /// dividend routing ignore them until the parent qualifies again. The relation rows
+    /// themselves are untouched, so nothing here is proportional to how many hotkeys share a
+    /// child.
+    pub fn recheck_childkey_threshold(hotkey: &T::AccountId) {
+        if Self::get_total_stake_for_hotkey(hotkey) >= StakeThreshold::<T>::get().into() {
+            ChildkeyThresholdSuspended::<T>::remove(hotkey);
+        } else {
+            ChildkeyThresholdSuspended::<T>::insert(hotkey, ());
+        }
+    }
+
+    /// True when `parent`'s child relations on `netuid` are currently inert.
+    fn childkeys_suspended(parent: &T::AccountId, netuid: NetUid) -> bool {
+        ChildkeyThresholdSuspended::<T>::contains_key(parent)
+            && !SubnetOwnerHotkey::<T>::try_get(netuid).is_ok_and(|owner| owner.eq(parent))
     }
 
     // If child-parent consistency is broken, fail setting new children silently
@@ -663,6 +758,9 @@ impl<T: Config> Pallet<T> {
     /// let children = SubtensorModule::get_children(&hotkey, netuid);
      */
     pub fn get_children(hotkey: &T::AccountId, netuid: NetUid) -> Vec<(u64, T::AccountId)> {
+        if Self::childkeys_suspended(hotkey, netuid) {
+            return Vec::new();
+        }
         ChildKeys::<T>::get(hotkey, netuid)
     }
 
@@ -681,6 +779,9 @@ impl<T: Config> Pallet<T> {
      */
     pub fn get_parents(child: &T::AccountId, netuid: NetUid) -> Vec<(u64, T::AccountId)> {
         ParentKeys::<T>::get(child, netuid)
+            .into_iter()
+            .filter(|(_, parent)| !Self::childkeys_suspended(parent, netuid))
+            .collect()
     }
 
     /// Sets the childkey take for a given hotkey.

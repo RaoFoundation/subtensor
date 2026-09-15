@@ -2653,21 +2653,25 @@ fn test_swap_hotkey_with_existing_stake() {
             ),
             0.into()
         );
-        assert_eq!(
+        // Each quote is a floor; the merged position is floored once, so it may differ
+        // from the sum of the two quotes by one rao.
+        assert_abs_diff_eq!(
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
                 &new_hotkey,
                 &staker1,
                 netuid
             ),
-            hk2_stake_1 + hk1_stake_1
+            hk2_stake_1 + hk1_stake_1,
+            epsilon = 1.into()
         );
-        assert_eq!(
+        assert_abs_diff_eq!(
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
                 &new_hotkey,
                 &staker2,
                 netuid
             ),
-            hk2_stake_2 + hk1_stake_2
+            hk2_stake_2 + hk1_stake_2,
+            epsilon = 1.into()
         );
 
         // Check total stake transfer

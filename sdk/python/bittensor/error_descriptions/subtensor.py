@@ -861,4 +861,9 @@ DESCRIPTIONS: dict[str, str] = {
         "would leave the account at zero, below what keeps it alive. Check the coldkey's free "
         "balance and leave at least the existential deposit after the amount withdrawn."
     ),
+    "BasketDepositPending": (
+        "A queued root-dividend deposit for this hotkey could not be settled yet, so an "
+        "operation that changes the hotkey's root claimant base was refused. Wait until the "
+        "deposit is settled or expires, then retry."
+    ),
 }

@@ -172,12 +172,15 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
             let held =
                 Self::get_stake_for_hotkey_and_coldkey_on_subnet(from_hotkey, from_coldkey, netuid);
             ensure!(held >= alpha, Error::<T>::NotEnoughStakeToWithdraw);
-            Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            // Only alpha that really left the pallet's position goes back on the pool's
+            // books; a share pool that debits less would otherwise leave alpha counted twice.
+            let removed = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
                 from_hotkey,
                 from_coldkey,
                 netuid,
                 alpha,
             );
+            ensure!(removed == alpha, Error::<T>::NotEnoughStakeToWithdraw);
             SubnetAlphaOut::<T>::mutate(netuid, |total| *total = total.saturating_sub(alpha));
         }
 
@@ -216,7 +219,10 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
         let held = Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid);
         ensure!(held >= alpha, Error::<T>::NotEnoughStakeToWithdraw);
 
-        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid, alpha);
+        // Only alpha that really left the position may be sold.
+        let removed =
+            Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid, alpha);
+        ensure!(removed == alpha, Error::<T>::NotEnoughStakeToWithdraw);
         let swap = Self::swap_alpha_for_tao(
             netuid,
             alpha,
@@ -287,6 +293,7 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
         )
     }
 
+    #[transactional]
     fn recycle_alpha(
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
@@ -303,7 +310,10 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
             SubnetAlphaOut::<T>::get(netuid) >= alpha,
             Error::<T>::InsufficientLiquidity
         );
-        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid, alpha);
+        // Only alpha that really left the position is recycled.
+        let removed =
+            Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid, alpha);
+        ensure!(removed == alpha, Error::<T>::NotEnoughStakeToWithdraw);
         Self::recycle_subnet_alpha(netuid, alpha);
         Ok(())
     }
@@ -371,7 +381,15 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
         }
         let held = Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, from_coldkey, netuid);
         ensure!(held >= alpha, Error::<T>::NotEnoughStakeToWithdraw);
-        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, from_coldkey, netuid, alpha);
+        // The owner is credited only with what was really debited, so alpha is conserved
+        // across the two positions.
+        let removed = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            hotkey,
+            from_coldkey,
+            netuid,
+            alpha,
+        );
+        ensure!(removed == alpha, Error::<T>::NotEnoughStakeToWithdraw);
         Self::increase_stake_for_hotkey_and_coldkey_on_subnet(hotkey, to_coldkey, netuid, alpha);
         Ok(())
     }
