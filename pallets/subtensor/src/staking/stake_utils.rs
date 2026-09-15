@@ -1714,17 +1714,18 @@ impl<T: Config> SharePoolDataOperations<AlphaShareKey<T>>
         }
 
         if !update.is_zero() {
-            TotalHotkeySharesV2::<T>::insert(&self.hotkey, self.netuid, update);
-        } else {
-            TotalHotkeySharesV2::<T>::remove(&self.hotkey, self.netuid);
-            if !previous.is_zero() {
-                // The pool is closed. Move to a new epoch so every share row written so far
-                // reads as absent; rows cannot be enumerated per pool, so they are retired
-                // lazily instead of deleted.
+            if previous.is_zero() {
+                // Opening a pool starts a new epoch, so every share row written before this
+                // point reads as absent: rows left by a close under this code, and rows left
+                // by pools that were drained before epochs existed. Rows cannot be
+                // enumerated per pool, so they are retired lazily instead of deleted.
                 AlphaSharePoolEpoch::<T>::mutate(&self.hotkey, self.netuid, |epoch| {
                     *epoch = epoch.saturating_add(1);
                 });
             }
+            TotalHotkeySharesV2::<T>::insert(&self.hotkey, self.netuid, update);
+        } else {
+            TotalHotkeySharesV2::<T>::remove(&self.hotkey, self.netuid);
         }
     }
 }
