@@ -17,6 +17,7 @@
     "timestamp",
     "tx-rate-limit",
     "---Delegation---",
+    "childkey-threshold-suspended",
     "children",
     "delegate",
     "delegate-take",
