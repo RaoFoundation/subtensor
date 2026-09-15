@@ -16,7 +16,7 @@ use frame_support::assert_ok;
 use sp_core::U256;
 use sp_runtime::PerU16;
 use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
-use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex};
+use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
 #[allow(clippy::arithmetic_side_effects)]
@@ -4871,5 +4871,97 @@ fn test_alpha_dividends_floor_capture_only_from_take() {
             gained >= 999_999u64.into() && gained <= 1_000_000u64.into(),
             "unexpected owner stake gain: {gained:?}"
         );
+    });
+}
+
+// Nominator dividends paid to a hotkey whose share pool has no members must not be left
+// unowned in `TotalHotkeyAlpha`, where the next depositor would be quoted all of them.
+#[test]
+fn test_nominator_dividends_to_memberless_pool_go_to_owner() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hk = U256::from(1);
+        let owner_ck = U256::from(2);
+        let validator_hk = U256::from(10);
+        let validator_ck = U256::from(11);
+        let depositor = U256::from(99);
+
+        let netuid = add_dynamic_network(&owner_hk, &owner_ck);
+        register_ok_neuron(netuid, validator_hk, validator_ck, 0);
+        // A 0% take routes the whole dividend to the nominator path.
+        Delegates::<Test>::insert(validator_hk, PerU16::from_parts(0));
+        assert!(!SubtensorModule::hotkey_share_pool_has_members(
+            &validator_hk,
+            netuid
+        ));
+
+        let divs: u64 = 1_000_000_000;
+        let mut alpha_dividends: BTreeMap<U256, U96F32> = BTreeMap::new();
+        alpha_dividends.insert(validator_hk, U96F32::saturating_from_num(divs));
+        SubtensorModule::distribute_dividends_and_incentives(
+            netuid,
+            AlphaBalance::ZERO,
+            BTreeMap::new(),
+            alpha_dividends,
+            BTreeMap::new(),
+        );
+
+        // The dividend is owned by the hotkey's owner and the pool now has members.
+        assert_eq!(
+            TotalHotkeyAlpha::<Test>::get(validator_hk, netuid).to_u64(),
+            divs
+        );
+        assert!(SubtensorModule::hotkey_share_pool_has_members(
+            &validator_hk,
+            netuid
+        ));
+        let owner_quote = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &validator_hk,
+            &validator_ck,
+            netuid,
+        );
+        assert_eq!(owner_quote.to_u64(), divs);
+        assert_eq!(
+            AlphaDividendsPerSubnet::<Test>::get(netuid, validator_hk).to_u64(),
+            divs
+        );
+
+        // A later depositor is quoted only what it bought.
+        let tao_in: u64 = 100_000_000;
+        add_balance_to_coldkey_account(&depositor, TaoBalance::from(tao_in));
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(depositor),
+            validator_hk,
+            netuid,
+            TaoBalance::from(tao_in)
+        ));
+        let depositor_alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &validator_hk,
+            &depositor,
+            netuid,
+        );
+        assert!(depositor_alpha.to_u64() < divs / 2);
+        let owner_after = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &validator_hk,
+            &validator_ck,
+            netuid,
+        );
+        assert!(owner_after.to_u64() + 1 >= divs);
+
+        // Once the pool has members, further dividends are shared pool-wide.
+        let mut alpha_dividends: BTreeMap<U256, U96F32> = BTreeMap::new();
+        alpha_dividends.insert(validator_hk, U96F32::saturating_from_num(divs));
+        SubtensorModule::distribute_dividends_and_incentives(
+            netuid,
+            AlphaBalance::ZERO,
+            BTreeMap::new(),
+            alpha_dividends,
+            BTreeMap::new(),
+        );
+        let depositor_after = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &validator_hk,
+            &depositor,
+            netuid,
+        );
+        assert!(depositor_after > depositor_alpha);
     });
 }
