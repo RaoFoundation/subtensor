@@ -48,7 +48,8 @@ Human approval lives in GitHub **environment settings**, not workflow code:
 | Stage | Environment | Gate |
 |-------|-------------|------|
 | devnet | `devnet` | none — deploys automatically, then runs the devnet smoke suite |
-| testnet | `testnet` | environment reviewers (one-click approval), then smoke suite + SDK release candidate to PyPI |
+| testnet | `testnet` | environment reviewers (one-click approval), then smoke suite |
+| SDK rc | `pypi` | environment reviewers (separate approval), then SDK release candidate to PyPI |
 | mainnet | `mainnet` | environment reviewers **plus** the multisig ceremony below |
 
 Deploys to devnet and testnet are direct `setCode` transactions via the CI

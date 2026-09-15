@@ -25,8 +25,8 @@ name: Release Train
 #   - the ship lever is the spec_version bump: merges without a bump build
 #     and then no-op at every deploy guard
 #   - human gates live in environment settings, not in this file: `devnet`
-#     has no required reviewers (automatic), `testnet`/`mainnet` gates are
-#     whatever reviewers are configured on those environments
+#     has no required reviewers (automatic), `testnet`/`pypi`/`mainnet` gates
+#     are whatever reviewers are configured on those environments
 #   - trains queue (no cancel): a stale train no-ops at each deploy because
 #     of the spec_version guard
 #
@@ -358,7 +358,11 @@ jobs:
     name: Publish SDK rc to PyPI
     needs: [rc-versions, build-core-rc]
     runs-on: [self-hosted, fireactions-turbo-8]
-    environment: testnet
+    # Own gate, separate from the testnet deploy approval: approving the
+    # testnet chain upgrade must not also release an SDK rc to PyPI. The
+    # PyPI trusted publishers for `bittensor` and `bittensor-core` must be
+    # registered against this workflow + the `pypi` environment.
+    environment: pypi
     permissions:
       id-token: write
       contents: read
