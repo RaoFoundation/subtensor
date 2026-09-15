@@ -776,6 +776,17 @@ fn test_later_depositor_recovers_stake_after_pool_drained_through_cap() {
             AlphaBalance::ZERO,
             "stale share is retired"
         );
+        // A dividend landing on the closed pool must not revive the leftover row.
+        SubtensorModule::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, 1_000.into());
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &coldkey_b, netuid
+            ),
+            AlphaBalance::ZERO
+        );
+        assert!(SubtensorModule::alpha_share_is_retired(
+            &hotkey, &coldkey_b, netuid
+        ));
 
         // Innocent C stakes fresh TAO into the same hotkey.
         let c_tao_in = DefaultMinStake::<Test>::get() * 50.into();
@@ -788,6 +799,11 @@ fn test_later_depositor_recovers_stake_after_pool_drained_through_cap() {
             c_tao_in,
         ));
         let c_paid = c_balance_before - SubtensorModule::get_coldkey_balance(&coldkey_c);
+        assert_eq!(
+            AlphaSharePoolEpoch::<Test>::get(hotkey, netuid),
+            epoch_before + 2,
+            "re-opening the pool moves it to a new epoch again"
+        );
         let pool_after_c = TotalHotkeyAlpha::<Test>::get(hotkey, netuid);
         let quote_c = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey, &coldkey_c, netuid,
@@ -895,7 +911,13 @@ fn test_deposit_into_valueless_pool_with_dormant_shares() {
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &dormant, netuid),
             AlphaBalance::ZERO
         );
-        assert_eq!(AlphaSharePoolEpoch::<Test>::get(hotkey, netuid), 1);
+        // Closed (shares without value) and re-opened: two transitions.
+        assert_eq!(AlphaSharePoolEpoch::<Test>::get(hotkey, netuid), 2);
+        assert_eq!(
+            AlphaShareEpoch::<Test>::get((hotkey, depositor, netuid)),
+            2,
+            "the live row is stamped with the new epoch"
+        );
 
         // Dividends go to the live member only.
         SubtensorModule::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, amount);
@@ -907,6 +929,70 @@ fn test_deposit_into_valueless_pool_with_dormant_shares() {
         );
         assert_eq!(
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &dormant, netuid),
+            AlphaBalance::ZERO
+        );
+    });
+}
+
+// Pre-upgrade state: a pool drained through the cap under the old code left inflated rows
+// behind with no denominator and no epoch stamps. Re-opening it must retire those rows.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_legacy_leftover_rows_cannot_claim_reopened_pool --exact
+#[test]
+fn test_legacy_leftover_rows_cannot_claim_reopened_pool() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(9001);
+        let owner_hotkey = U256::from(9002);
+        let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let hotkey = U256::from(3);
+        let leftover = U256::from(1);
+        let depositor = U256::from(2);
+        let _ = SubtensorModule::create_account_if_non_existent(&leftover, &hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&depositor, &hotkey);
+
+        // Legacy drained pool: no denominator, no value, an inflated row, no epoch rows.
+        AlphaV2::<Test>::insert(
+            (hotkey, leftover, netuid),
+            SafeFloat::from(10_000_000_000_u64),
+        );
+        assert!(!TotalHotkeySharesV2::<Test>::contains_key(hotkey, netuid));
+        assert_eq!(AlphaSharePoolEpoch::<Test>::get(hotkey, netuid), 0);
+
+        let amount: AlphaBalance = 5_000_000_000_u64.into();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &depositor, netuid, amount,
+        );
+        assert_eq!(AlphaSharePoolEpoch::<Test>::get(hotkey, netuid), 1);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &depositor, netuid
+            ),
+            amount,
+            "the depositor owns the whole re-opened pool"
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &leftover, netuid),
+            AlphaBalance::ZERO,
+            "pre-epoch leftover row is retired"
+        );
+        assert_eq!(
+            SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &leftover,
+                netuid,
+                1.into()
+            ),
+            AlphaBalance::ZERO
+        );
+        // Dividends go to the live member only.
+        SubtensorModule::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, amount);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &depositor, netuid
+            ),
+            amount * 2.into()
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &leftover, netuid),
             AlphaBalance::ZERO
         );
     });

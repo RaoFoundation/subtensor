@@ -523,8 +523,9 @@ where
         let shared_value: u64 = self.state_ops.get_shared_value();
         let denominator: SafeFloat = self.state_ops.get_denominator();
 
-        // Then, update this key's share
-        if denominator.mantissa == 0 {
+        // A pool with no denominator, or with shares but no value, is (re)opened by a
+        // deposit and always accepts it; otherwise the deposit must buy at least one share.
+        if denominator.mantissa == 0 || (update > 0 && shared_value == 0) {
             true
         } else {
             // There are already keys in the pool, set or update this key

@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 462
+Spec version: 460
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -459,16 +459,3 @@ class LimitOrders:
     LimitOrdersEnabled = Item('LimitOrders', 'LimitOrdersEnabled', 'bool')
     LinkedOutputs = Item('LimitOrders', 'LinkedOutputs', 'LinkedOutput')
     HasMigrationRun = Item('LimitOrders', 'HasMigrationRun', 'bool')
-
-class Derivatives:
-    Params = Item('Derivatives', 'Params', 'DerivativesParams')
-    DerivativesEnabled = Item('Derivatives', 'DerivativesEnabled', 'bool')
-    LongsEnabled = Item('Derivatives', 'LongsEnabled', 'bool')
-    Positions = Item('Derivatives', 'Positions', 'Position')
-    OpenByNetuid = Item('Derivatives', 'OpenByNetuid', '()')
-    Due = Item('Derivatives', 'Due', '()')
-    NextDue = Item('Derivatives', 'NextDue', 'u32')
-    Footprint = Item('Derivatives', 'Footprint', 'u64')
-    PalletHotkey = Item('Derivatives', 'PalletHotkey', 'AccountId32')
-    DissolutionPrice = Item('Derivatives', 'DissolutionPrice', 'DissolutionPrices')
-    Parked = Item('Derivatives', 'Parked', '(TaoBalance, AlphaBalance)')
