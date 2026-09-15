@@ -8,9 +8,9 @@ use subtensor_runtime_common::{NetUid, TaoBalance};
 #[cfg(test)]
 use crate::{
     BalanceOf, CommitmentInfo, CommitmentOf, Config, Data, Error, Event, LastBondsReset,
-    LastCommitment, MAX_TIMELOCK_REVEALS_PER_BLOCK, MaxSpace, Pallet, Registration,
-    RevealFailure, RevealedCommitments, TimelockRevealCursor, TimelockedIndex, UsageTracker,
-    UsedSpaceOf, WeightInfo,
+    LastCommitment, MAX_TIMELOCK_REVEALS_PER_BLOCK, MaxSpace, Pallet, Registration, RevealFailure,
+    RevealedCommitments, TimelockRevealCursor, TimelockedIndex, UsageTracker, UsedSpaceOf,
+    WeightInfo,
     mock::{
         Balances, DRAND_QUICKNET_SIG_2000_HEX, DRAND_QUICKNET_SIG_HEX, RuntimeEvent, RuntimeOrigin,
         Test, TestMaxFields, insert_drand_pulse, new_test_ext, produce_ciphertext,
@@ -2841,8 +2841,7 @@ fn reveal_timelocked_commitments_is_bounded_and_metered_per_block() {
         let weight = Pallet::<Test>::reveal_timelocked_commitments().expect("reveal pass");
         let revealed_after_first = revealed_field_count(&accounts, netuid);
         assert_eq!(
-            revealed_after_first,
-            MAX_TIMELOCK_REVEALS_PER_BLOCK as usize,
+            revealed_after_first, MAX_TIMELOCK_REVEALS_PER_BLOCK as usize,
             "one pass decrypts exactly the per-block budget"
         );
         assert!(
@@ -2857,7 +2856,10 @@ fn reveal_timelocked_commitments_is_bounded_and_metered_per_block() {
         let mut passes: usize = 1;
         while revealed_field_count(&accounts, netuid) < total_fields {
             passes += 1;
-            assert!(passes <= 8, "backlog must drain in a bounded number of passes");
+            assert!(
+                passes <= 8,
+                "backlog must drain in a bounded number of passes"
+            );
             System::<Test>::set_block_number(1 + passes as u64);
             assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
         }

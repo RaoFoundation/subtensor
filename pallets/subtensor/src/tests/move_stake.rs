@@ -2579,7 +2579,12 @@ fn endow_alpha_only(funder: U256, receiver: U256, hotkey: U256, netuid: NetUid, 
 fn system_account_state(who: &U256) -> (bool, u64, u32, u32) {
     let exists = frame_system::Account::<Test>::contains_key(who);
     let account = frame_system::Account::<Test>::get(who);
-    (exists, account.nonce, account.providers, account.sufficients)
+    (
+        exists,
+        account.nonce,
+        account.providers,
+        account.sufficients,
+    )
 }
 
 // A TAO-less coldkey that transfers stake across subnets to another coldkey must not have

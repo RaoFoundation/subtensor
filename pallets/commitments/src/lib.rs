@@ -149,8 +149,7 @@ pub mod pallet {
     /// commitments at the front of the index cannot starve the rest. Absent when the
     /// previous pass covered the whole index.
     #[pallet::storage]
-    pub type TimelockRevealCursor<T: Config> =
-        StorageValue<_, (NetUid, T::AccountId), OptionQuery>;
+    pub type TimelockRevealCursor<T: Config> = StorageValue<_, (NetUid, T::AccountId), OptionQuery>;
 
     /// Identity data by account
     #[pallet::storage]

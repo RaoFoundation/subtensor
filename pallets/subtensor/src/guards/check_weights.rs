@@ -82,9 +82,8 @@ impl<T: Config> CheckWeights<T> {
     /// to a block is free block space for the sender.
     fn check_batch_size(call: &Call<T>) -> Result<(), Error<T>> {
         let items = match call {
-            Call::batch_commit_weights { netuids, .. } | Call::batch_set_weights { netuids, .. } => {
-                netuids.len()
-            }
+            Call::batch_commit_weights { netuids, .. }
+            | Call::batch_set_weights { netuids, .. } => netuids.len(),
             Call::batch_reveal_weights { uids_list, .. } => uids_list.len(),
             _ => return Ok(()),
         };

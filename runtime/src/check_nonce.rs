@@ -240,7 +240,12 @@ mod tests {
     fn account_state(who: &AccountId) -> (bool, u32, u32, u32) {
         let exists = frame_system::Account::<Runtime>::contains_key(who);
         let account = frame_system::Account::<Runtime>::get(who);
-        (exists, account.nonce, account.providers, account.sufficients)
+        (
+            exists,
+            account.nonce,
+            account.providers,
+            account.sufficients,
+        )
     }
 
     fn validate_and_prepare(
@@ -301,7 +306,10 @@ mod tests {
             let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
             let info = call.get_dispatch_info();
             let ed = <Runtime as pallet_balances::Config>::ExistentialDeposit::get();
-            assert_ok!(Balances::mint_into(&signer, TaoBalance::from(ed.to_u64() * 10)));
+            assert_ok!(Balances::mint_into(
+                &signer,
+                TaoBalance::from(ed.to_u64() * 10)
+            ));
             assert_eq!(account_state(&signer), (true, 0, 1, 0));
 
             assert_ok!(validate_and_prepare(&signer, 0, &call, &info));
