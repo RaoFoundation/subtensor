@@ -156,8 +156,10 @@ impl<T: Config> PCRelations<T> {
     }
 }
 
-/// Upper bound on child-relation subnets pruned per queued threshold check.
+/// Upper bound on child-relation subnets pruned per queued threshold check pass.
 const MAX_CHILDKEY_PRUNE_RELATIONS: u64 = 8;
+/// Maximum children a parent may register on one subnet (see `do_schedule_children`).
+const MAX_CHILDREN: u64 = 5;
 
 impl<T: Config> Pallet<T> {
     /// Set childkeys vector making sure there are no empty vectors in the state
@@ -654,39 +656,44 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Weight of re-checking one queued parent: the all-subnet valuation plus removing up to
-    /// `MAX_CHILDKEY_PRUNE_RELATIONS` relations.
+    /// Worst-case weight of one pass over a queued parent: the all-subnet valuation, an
+    /// owner-exemption read per relation subnet, and for each of the up to
+    /// `MAX_CHILDKEY_PRUNE_RELATIONS` pruned subnets the pending removal plus the pivot and
+    /// per-child (`MAX_CHILDREN`) relation updates done by `persist_child_parent_relations`.
     fn childkey_threshold_check_weight() -> Weight {
         let subnets = Self::get_all_subnet_netuids().len() as u64;
-        T::DbWeight::get()
-            .reads(subnets.saturating_mul(4).saturating_add(4))
-            .saturating_add(
-                T::DbWeight::get().reads_writes(
-                    MAX_CHILDKEY_PRUNE_RELATIONS.saturating_mul(3),
-                    MAX_CHILDKEY_PRUNE_RELATIONS
-                        .saturating_mul(3)
-                        .saturating_add(1),
-                ),
-            )
+        // Valuation: alpha + price reads per subnet; exemption/relation scan: two reads per
+        // subnet the hotkey could be a parent on.
+        let scan = T::DbWeight::get().reads(subnets.saturating_mul(6).saturating_add(4));
+        // Per pruned subnet: pending removal, pivot read/write, one read/write per child.
+        let per_subnet = T::DbWeight::get().reads_writes(
+            MAX_CHILDREN.saturating_add(2),
+            MAX_CHILDREN.saturating_add(2),
+        );
+        scan.saturating_add(per_subnet.saturating_mul(MAX_CHILDKEY_PRUNE_RELATIONS))
+            .saturating_add(T::DbWeight::get().writes(1))
     }
 
-    /// Drain the threshold-check queue within `limit`. Returns the weight used.
+    /// Drain the threshold-check queue within `limit`. A parent stays queued until every
+    /// non-exempt relation it no longer qualifies for has been pruned. Returns the weight used.
     pub fn process_childkey_threshold_checks(limit: Weight) -> Weight {
-        let per_item = Self::childkey_threshold_check_weight();
-        let mut used = T::DbWeight::get().reads(2);
-        if !used.saturating_add(per_item).all_lte(limit) {
+        let mut used = T::DbWeight::get().reads(1);
+        if ChildkeyThresholdChecks::<T>::iter_keys().next().is_none() {
             return used;
         }
-        let mut done: Vec<T::AccountId> = Vec::new();
+        used.saturating_accrue(T::DbWeight::get().reads(1));
+        let per_item = Self::childkey_threshold_check_weight();
+        let mut finished: Vec<T::AccountId> = Vec::new();
         for hotkey in ChildkeyThresholdChecks::<T>::iter_keys() {
             if !used.saturating_add(per_item).all_lte(limit) {
                 break;
             }
             used.saturating_accrue(per_item);
-            Self::prune_childkeys_below_threshold(&hotkey);
-            done.push(hotkey);
+            if Self::prune_childkeys_below_threshold(&hotkey) {
+                finished.push(hotkey);
+            }
         }
-        for hotkey in done {
+        for hotkey in finished {
             ChildkeyThresholdChecks::<T>::remove(hotkey);
         }
         used
@@ -695,25 +702,33 @@ impl<T: Config> Pallet<T> {
     /// Drop `hotkey`'s live child relations (and any pending ones on the same subnets)
     /// wherever it no longer meets the childkey stake threshold. Subnet owner hotkeys keep
     /// theirs. A parent that falls below the threshold therefore cannot keep routing stake to
-    /// its children; it must re-qualify and schedule them again. At most
-    /// `MAX_CHILDKEY_PRUNE_RELATIONS` subnets are handled per call; the rest stay queued.
-    pub fn prune_childkeys_below_threshold(hotkey: &T::AccountId) {
-        let live_netuids: Vec<NetUid> = ChildKeys::<T>::iter_key_prefix(hotkey)
-            .take(MAX_CHILDKEY_PRUNE_RELATIONS as usize)
+    /// its children; it must re-qualify and schedule them again.
+    ///
+    /// Prunes at most `MAX_CHILDKEY_PRUNE_RELATIONS` non-exempt subnets per call. Returns
+    /// `true` when nothing prunable remains (the hotkey qualifies, or every remaining relation
+    /// is exempt or was pruned), `false` when another pass is needed.
+    pub fn prune_childkeys_below_threshold(hotkey: &T::AccountId) -> bool {
+        let batch = MAX_CHILDKEY_PRUNE_RELATIONS as usize;
+        // Exempt (owner) relations are skipped without consuming the batch, so a parent that
+        // owns subnets still makes progress on its other relations.
+        let prunable: Vec<NetUid> = ChildKeys::<T>::iter_key_prefix(hotkey)
+            .filter(|netuid| {
+                !SubnetOwnerHotkey::<T>::try_get(*netuid).is_ok_and(|owner| owner.eq(hotkey))
+            })
+            .take(batch.saturating_add(1))
             .collect();
-        if live_netuids.is_empty() {
-            return;
+        if prunable.is_empty() {
+            return true;
         }
         if Self::get_total_stake_for_hotkey(hotkey) >= StakeThreshold::<T>::get().into() {
-            return;
+            return true;
         }
-        for netuid in live_netuids {
-            if SubnetOwnerHotkey::<T>::try_get(netuid).is_ok_and(|owner| owner.eq(hotkey)) {
-                continue;
-            }
+        let finished = prunable.len() <= batch;
+        for netuid in prunable.into_iter().take(batch) {
             PendingChildKeys::<T>::remove(netuid, hotkey);
             Self::persist_pending_chidren_ok(netuid, hotkey, &Vec::new());
         }
+        finished
     }
 
     // If child-parent consistency is broken, fail setting new children silently

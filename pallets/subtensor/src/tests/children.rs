@@ -5229,3 +5229,86 @@ fn test_childkey_threshold_queue_only_holds_parents() {
         );
     });
 }
+
+// A parent with relations on more than one batch of subnets (and an owner-exempt relation
+// in the mix) is pruned across successive idle passes and stays queued until finished;
+// the owner-exempt relation survives.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_childkey_prune_resumes_across_idle_passes --exact
+#[test]
+fn test_childkey_prune_resumes_across_idle_passes() {
+    new_test_ext(1).execute_with(|| {
+        const TAO: u64 = 1_000_000_000;
+        let coldkey = U256::from(1_000);
+        let parent = U256::from(2_000);
+        let child = U256::from(2_002);
+        StakeThreshold::<Test>::put(1_000 * TAO);
+
+        // `parent` owns the first subnet (exempt there) and is a plain parent on ten more.
+        let owned = add_dynamic_network(&parent, &coldkey);
+        let mut netuids = vec![owned];
+        for i in 0..10u64 {
+            let owner_coldkey = U256::from(9_100 + i);
+            let owner_hotkey = U256::from(9_200 + i);
+            netuids.push(add_dynamic_network(&owner_hotkey, &owner_coldkey));
+        }
+        for netuid in &netuids {
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &parent,
+                &coldkey,
+                *netuid,
+                AlphaBalance::from(1_000 * TAO),
+            );
+            mock_set_children(&coldkey, &parent, *netuid, &[(u64::MAX, child)]);
+            assert_eq!(
+                SubtensorModule::get_children(&parent, *netuid),
+                vec![(u64::MAX, child)]
+            );
+        }
+
+        // Stake leaves everywhere; the extrinsic path only queues the parent.
+        for netuid in &netuids {
+            SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                &parent,
+                &coldkey,
+                *netuid,
+                AlphaBalance::from(1_000 * TAO),
+            );
+        }
+        // The owner registration keeps a little stake on the owned subnet; raise the bar so
+        // the parent is unambiguously below it.
+        StakeThreshold::<Test>::put(u64::MAX / 2);
+        assert!(
+            SubtensorModule::get_total_stake_for_hotkey(&parent).to_u64()
+                < StakeThreshold::<Test>::get()
+        );
+        SubtensorModule::queue_childkey_threshold_check(&parent);
+        assert!(ChildkeyThresholdChecks::<Test>::contains_key(parent));
+
+        // First pass prunes one batch and keeps the parent queued.
+        run_block_idle();
+        let live_after_first = netuids
+            .iter()
+            .filter(|netuid| !SubtensorModule::get_children(&parent, **netuid).is_empty())
+            .count();
+        assert_eq!(
+            live_after_first, 3,
+            "8 of 10 non-exempt relations pruned, owner kept"
+        );
+        assert!(ChildkeyThresholdChecks::<Test>::contains_key(parent));
+
+        // Second pass finishes and dequeues; only the owner-exempt relation remains.
+        run_block_idle();
+        assert!(!ChildkeyThresholdChecks::<Test>::contains_key(parent));
+        for netuid in &netuids {
+            if *netuid == owned {
+                assert_eq!(
+                    SubtensorModule::get_children(&parent, *netuid),
+                    vec![(u64::MAX, child)]
+                );
+            } else {
+                assert_eq!(SubtensorModule::get_children(&parent, *netuid), vec![]);
+                assert_eq!(SubtensorModule::get_parents(&child, *netuid), vec![]);
+            }
+        }
+    });
+}
