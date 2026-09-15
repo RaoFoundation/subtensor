@@ -5,14 +5,14 @@ import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V456 Upgrade — Basket Trading',
+  title: 'The V459 Upgrade — Basket Trading',
   description:
-    'V456 adds swap_basket: a root validator can sell one holding of its beta basket and buy ' +
+    'V459 adds swap_basket: a root validator can sell one holding of its beta basket and buy ' +
     'another, through a dedicated BasketTrading proxy. Every trade is boxed in by a 2% ' +
     'per-leg price band, a token-bucket turnover budget of 10% of NAV per day, a 10% ' +
     'liquidity cap per pool, the 1/16 concentration cap, and governance freeze switches. ' +
     'Trading launches gated off.',
-  alternates: {canonical: '/releases/v456-upgrade'},
+  alternates: {canonical: '/releases/v459-upgrade'},
 };
 
 const DocLink = ({href, children}: {href: string; children: React.ReactNode}) => (
@@ -26,7 +26,7 @@ const page = () => {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <h1 className={styles.paper_title}>The V456 Upgrade</h1>
+          <h1 className={styles.paper_title}>The V459 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             Basket Trading · September 2026
           </p>
@@ -35,7 +35,7 @@ const page = () => {
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Introduction</h2>
           <p>
-            Spec <strong>456</strong> lets a root validator actively trade its beta basket.
+            Spec <strong>459</strong> lets a root validator actively trade its beta basket.
             Until now a fund&apos;s composition changed only through the dividend stream:{' '}
             <code>set_root_weights</code> decides where new yield is deployed, but existing
             holdings stay where they are. The new{' '}

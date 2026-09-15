@@ -1,12 +1,12 @@
 ---
 title: Basket trading for stakers
-description: What runtime v456 basket trading means if you stake on root — nothing to do, what stays the same, how to see what your validator holds and trades, what the guardrails protect, and how to move if you disagree.
+description: What runtime v459 basket trading means if you stake on root — nothing to do, what stays the same, how to see what your validator holds and trades, what the guardrails protect, and how to move if you disagree.
 ---
 
 If you stake TAO on root (netuid 0), your validator runs a **basket**: a fund
 of subnet alpha built from its root dividends, in which you hold **beta**, a
 share of the whole fund ([Root Reborn](/docs/guides/root-reborn)). Runtime
-v456 lets the validator actively trade that basket with
+v459 lets the validator actively trade that basket with
 [`swap-basket`](/docs/tx/swap-basket). This page is what that means for you.
 The operator's side is [Basket trading](/docs/guides/basket-trading); the
 governance side is [Basket trading for governance](/docs/guides/basket-trading-governance).
@@ -19,7 +19,7 @@ accrual, and the claim path are exactly as before. There is no opt-in, no
 migration, and no new command you need to run.
 
 What does change over time is the fund's NAV — its realizable TAO value —
-and therefore what your beta is worth when you claim. Before v456 the NAV
+and therefore what your beta is worth when you claim. Before v459 the NAV
 moved with subnet prices and the validator's weight vector; now it also
 moves with the validator's trades. Good trading raises it; bad trading
 lowers it. That is the same bet you already make when you pick a validator.
@@ -122,4 +122,4 @@ same numbers every explorer shows.
   [`basket-position`](/docs/query/basket-position),
   [`root-basket-portfolio`](/docs/query/root-basket-portfolio),
   [`root-basket-owed`](/docs/query/root-basket-owed)
-- Release: [v456 — Basket Trading](/releases/v456-upgrade)
+- Release: [v459 — Basket Trading](/releases/v459-upgrade)

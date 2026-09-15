@@ -3,7 +3,7 @@ title: Basket trading
 description: How a root validator rebalances its beta basket with swap_basket — the trader proxy, the btcli and SDK flow, every guardrail with its default and error, and what governance can change.
 ---
 
-**Basket trading** (runtime v456) lets a root validator actively manage the
+**Basket trading** (runtime v459) lets a root validator actively manage the
 basket its root dividends built. Until now the only lever was the weight
 vector: [`set_root_weights`](/docs/tx/set-root-weights) decides where *new*
 yield goes, but positions already in the fund stay where they landed. The
@@ -14,8 +14,8 @@ This guide is for the operator of a root validator. It assumes you know the
 fund model from [Root Reborn](/docs/guides/root-reborn): one escrowed fund
 per validator, stakers hold **beta** (a share of the fund), and the fund's
 value is its **NAV** — what selling every holding would fetch right now.
-For what changed on chain in v456, see the
-[release notes](/releases/v456-upgrade). Two companion pages cover the other
+For what changed on chain in v459, see the
+[release notes](/releases/v459-upgrade). Two companion pages cover the other
 seats at the table: [Basket trading for governance](/docs/guides/basket-trading-governance)
 (enable, freeze, tune) and [Basket trading for stakers](/docs/guides/basket-trading-for-stakers)
 (what changes for the people whose beta you manage: nothing to do, and how
@@ -85,7 +85,7 @@ move more than 1/16 of NAV into cash in one trade.
 
 The intended setup is that the validator's coldkey stays offline and a
 separate **trader key** (usually a multisig) does the trading through a
-proxy. Runtime v456 adds a proxy type for exactly this:
+proxy. Runtime v459 adds a proxy type for exactly this:
 
 - **`BasketTrading`** (proxy type index 18) admits one call:
   `swap_basket`. A `BasketTrading` delegate cannot stake, unstake,
@@ -427,4 +427,4 @@ accurate, while the 2% band and the turnover bucket still hold exactly.
   [Basket trading for stakers](/docs/guides/basket-trading-for-stakers),
   [Root Reborn](/docs/guides/root-reborn),
   [Proxy accounts](/docs/guides/proxies), [Multisig](/docs/guides/multisig)
-- Release: [v456 — Basket Trading](/releases/v456-upgrade)
+- Release: [v459 — Basket Trading](/releases/v459-upgrade)
