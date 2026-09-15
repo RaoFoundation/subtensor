@@ -253,6 +253,34 @@ impl Legs {
         }
     }
 
+    /// The escrow as a `(tao, alpha)` pair: the lifted TAO of a short, the lifted alpha of a
+    /// long. What a settlement hands back untouched, in the token it was lifted in.
+    pub fn escrow_pair(&self) -> (TaoBalance, AlphaBalance) {
+        match self {
+            Legs::Short { escrow, .. } => (*escrow, AlphaBalance::ZERO),
+            Legs::Long { escrow, .. } => (TaoBalance::ZERO, *escrow),
+        }
+    }
+
+    /// These legs with the escrow zeroed: the proceeds and the debt alone. A partial
+    /// settlement unwinds this much of a position and leaves the escrow where it is, so the
+    /// pool is not re-deepened between the buybacks of one position; see
+    /// [`Position::held`].
+    pub fn without_escrow(&self) -> Legs {
+        match self {
+            Legs::Short { proceeds, debt, .. } => Legs::Short {
+                proceeds: *proceeds,
+                debt: *debt,
+                escrow: TaoBalance::ZERO,
+            },
+            Legs::Long { proceeds, debt, .. } => Legs::Long {
+                proceeds: *proceeds,
+                debt: *debt,
+                escrow: AlphaBalance::ZERO,
+            },
+        }
+    }
+
     /// The `fraction` of each leg that a partial settlement unwinds, rounded down so the
     /// remainder (`self` minus this) never goes negative.
     pub fn part(&self, fraction: Perquintill) -> Legs {
@@ -353,7 +381,16 @@ impl Lent {
 /// settling a fraction is multiplication. Nothing here is per tranche. A position has no term:
 /// it lives until its owner closes it, or until its cushion can no longer pay its interest and
 /// the chain forfeits it.
-#[freeze_struct("d1bea716fab8bb55")]
+///
+/// **A partial settlement hands nothing back to the pool.** It unwinds its share of the
+/// proceeds and the debt, pays the owner, and books what the pool is owed for that share in
+/// [`Position::held`]; the escrow stays in the legs whole. Everything goes back in one return
+/// at the full close, after the last buyback. Re-adding a settled share's slice while the
+/// position was still open deepened the pool at the price the position's own opening trade
+/// had pushed, so every later buyback climbed a flatter curve and paid the owner more than
+/// one close would have, out of the pool. Held back, the unwind is the same trade whether it
+/// runs in one step or a hundred.
+#[freeze_struct("27aa3ad0cee5fc91")]
 #[derive(
     Encode,
     Decode,
@@ -386,6 +423,12 @@ pub struct Position<BlockNumber> {
     /// Block the chain next collects this position's interest: one [`INTEREST_PERIOD`] after
     /// it opened or was last collected. Adds and reductions do not move it.
     pub due: BlockNumber,
+    /// The pool's, held by the pallet until the position closes, as `(tao, alpha)`: what the
+    /// partial settlements so far bought back or repaid, and everything an underwater share
+    /// forfeited in kind. The TAO sits on the pallet account and the alpha is staked at the
+    /// pallet hotkey, both outside the pool's price. Returned with the escrow in one go at
+    /// the full close, a forfeit, or the dissolution settlement.
+    pub held: (TaoBalance, AlphaBalance),
 }
 
 impl<BlockNumber: Copy + Saturating + UniqueSaturatedInto<u64> + From<u32>> Position<BlockNumber> {
@@ -399,11 +442,31 @@ impl<BlockNumber: Copy + Saturating + UniqueSaturatedInto<u64> + From<u32>> Posi
             interest_owed: TaoBalance::ZERO,
             since: now,
             due: now.saturating_add(INTEREST_PERIOD.into()),
+            held: (TaoBalance::ZERO, AlphaBalance::ZERO),
         }
     }
 
     pub fn side(&self) -> Side {
         self.legs.side()
+    }
+
+    /// Everything the pallet holds for the pool besides the debt and the proceeds: the escrow
+    /// plus what earlier partial settlements left in [`Position::held`]. The pair a full
+    /// settlement hands back on top of what its own closing trade bought or repaid.
+    pub fn escrow_and_held(&self) -> (TaoBalance, AlphaBalance) {
+        let (escrow_tao, escrow_alpha) = self.legs.escrow_pair();
+        (
+            escrow_tao.saturating_add(self.held.0),
+            escrow_alpha.saturating_add(self.held.1),
+        )
+    }
+
+    /// Book `tao` and `alpha` as the pool's, to go back at the full close.
+    pub fn hold(&mut self, tao: TaoBalance, alpha: AlphaBalance) {
+        self.held = (
+            self.held.0.saturating_add(tao),
+            self.held.1.saturating_add(alpha),
+        );
     }
 
     /// Fold a tranche of the same side in at `now`. Every field is a sum, so this is addition;
@@ -724,7 +787,54 @@ mod tests {
             interest_owed: TaoBalance::ZERO,
             since: 0,
             due: 7 * 7_200,
+            held: (TaoBalance::ZERO, AlphaBalance::ZERO),
         }
+    }
+
+    #[test]
+    fn a_partial_leaves_the_escrow_and_books_what_the_pool_is_owed_as_held() {
+        let mut position = short();
+        let part = position.legs.part(Perquintill::from_percent(40));
+        assert_eq!(
+            part.without_escrow(),
+            Legs::Short {
+                proceeds: TaoBalance::from(40),
+                debt: AlphaBalance::from(400),
+                escrow: TaoBalance::ZERO,
+            }
+        );
+        position.legs = position.legs.minus(&part.without_escrow());
+        position.hold(TaoBalance::ZERO, AlphaBalance::from(400));
+        assert_eq!(
+            position.legs,
+            Legs::Short {
+                proceeds: TaoBalance::from(60),
+                debt: AlphaBalance::from(600),
+                escrow: TaoBalance::from(100),
+            }
+        );
+        // The footprint still counts the whole escrow: it is still out of the pool.
+        assert_eq!(position.legs.footprint(), 160);
+        assert_eq!(
+            position.escrow_and_held(),
+            (TaoBalance::from(100), AlphaBalance::from(400))
+        );
+        position.hold(TaoBalance::from(7), AlphaBalance::from(1));
+        assert_eq!(
+            position.held,
+            (TaoBalance::from(7), AlphaBalance::from(401))
+        );
+
+        let long = Legs::Long {
+            proceeds: AlphaBalance::from(30),
+            debt: TaoBalance::from(20),
+            escrow: AlphaBalance::from(10),
+        };
+        assert_eq!(
+            long.escrow_pair(),
+            (TaoBalance::ZERO, AlphaBalance::from(10))
+        );
+        assert_eq!(long.without_escrow().footprint(), 30);
     }
 
     #[test]

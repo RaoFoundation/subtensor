@@ -64,12 +64,18 @@ impl<T: Config> Pallet<T> {
     /// on what the call would leave open rather than on the side asked for: a long-side add
     /// that only reduces or closes a short goes through, one that would leave a long does
     /// not. `close` is the exit.
+    ///
+    /// `min_amount_out` is the caller's floor on the TAO this call pays them, after interest:
+    /// the settled share's payout when the add reduces or closes a position, nothing when it
+    /// only opens or grows one. Below the floor the whole call fails with
+    /// `SettlementBelowMinimum` and nothing moves. Zero is no floor.
     pub(crate) fn do_add(
         owner: T::AccountId,
         netuid: NetUid,
         side: Side,
         deposit: TaoBalance,
         leverage_percent: u16,
+        min_amount_out: TaoBalance,
     ) -> DispatchResult {
         with_storage_layer(|| {
             ensure!(
@@ -94,13 +100,28 @@ impl<T: Config> Pallet<T> {
             );
             let now = frame_system::Pallet::<T>::block_number();
             let (position, deposit) = match existing {
-                None => (Position::empty(side, now), deposit),
-                Some(position) if position.side() == side => (position, deposit),
-                Some(position) => {
-                    match Self::reduce(&owner, netuid, position, deposit, leverage_percent)? {
+                Some(position) if position.side() != side => {
+                    // The floor is checked in `do_settle` against what the reduction or the
+                    // close pays.
+                    match Self::reduce(
+                        &owner,
+                        netuid,
+                        position,
+                        deposit,
+                        leverage_percent,
+                        min_amount_out,
+                    )? {
                         None => return Ok(()),
                         Some(rest) => (Position::empty(side, now), rest),
                     }
+                }
+                existing => {
+                    // An add that only opens or grows pays nothing out, so any floor is unmet.
+                    ensure!(min_amount_out.is_zero(), Error::<T>::SettlementBelowMinimum);
+                    (
+                        existing.unwrap_or_else(|| Position::empty(side, now)),
+                        deposit,
+                    )
                 }
             };
             Self::grow(owner, netuid, position, deposit, leverage_percent)
@@ -183,13 +204,14 @@ impl<T: Config> Pallet<T> {
     /// Other side: `leverage` times the deposit comes off the position. Less than it holds
     /// settles that share and returns `None`; more closes it and returns the part of the deposit
     /// past the flip point, to open the other side with, or `None` if that part is below
-    /// `MinDeposit`.
+    /// `MinDeposit`. `min_amount_out` is the floor on what the settlement pays.
     fn reduce(
         owner: &T::AccountId,
         netuid: NetUid,
         position: Position<BlockNumberFor<T>>,
         deposit: TaoBalance,
         leverage_percent: u16,
+        min_amount_out: TaoBalance,
     ) -> Result<Option<TaoBalance>, DispatchError> {
         let asked = Self::asked_exposure(deposit, leverage_percent);
         ensure!(asked > 0, Error::<T>::ZeroExposure);
@@ -198,11 +220,11 @@ impl<T: Config> Pallet<T> {
         if asked < held {
             // Both fit in u64: `asked < held <= u64::MAX`.
             let fraction = Perquintill::from_rational(asked as u64, held as u64);
-            Self::do_settle(owner, netuid, fraction)?;
+            Self::do_settle(owner, netuid, fraction, min_amount_out)?;
             return Ok(None);
         }
 
-        Self::do_settle(owner, netuid, Perquintill::one())?;
+        Self::do_settle(owner, netuid, Perquintill::one(), min_amount_out)?;
         Ok(Self::flip_surplus(&position, deposit, leverage_percent))
     }
 
@@ -310,10 +332,25 @@ impl<T: Config> Pallet<T> {
     /// debt as the shortfall. The owner has already lost everything a swap could cost them, so
     /// a swap at that point would be a market order paid for by the pool, and one that anyone
     /// who saw the close coming could trade against.
+    ///
+    /// **A partial settlement returns nothing to the pool.** What the pool is owed for the
+    /// settled share, the alpha bought back or the TAO repaid, and everything an underwater
+    /// share forfeits, is booked in [`Position::held`]; the escrow stays in the legs. All of
+    /// it goes back in one return at the full close, after the last buyback. See
+    /// [`Position`] for why.
+    ///
+    /// **`min_amount_out` is the owner's floor on the payout**, checked after the interest
+    /// comes off and before anything is paid or returned. A payout below it fails the whole
+    /// settlement with `SettlementBelowMinimum`, and the position stays exactly as it was:
+    /// an underwater share pays nothing, so with any floor above zero it is not forfeited
+    /// either. The settlement trades at the live price, which anyone can move in the same
+    /// block ahead of it; the floor is what bounds what that can cost the owner. Zero is no
+    /// floor.
     pub(crate) fn do_settle(
         owner: &T::AccountId,
         netuid: NetUid,
         fraction: Perquintill,
+        min_amount_out: TaoBalance,
     ) -> DispatchResult {
         with_storage_layer(|| {
             let mut position = Positions::<T>::take(owner, netuid).ok_or(Error::<T>::NoPosition)?;
@@ -358,13 +395,12 @@ impl<T: Config> Pallet<T> {
                 }
             };
 
+            // What this share owes the pool from its own closing trade: the alpha it bought
+            // back or the TAO it repaid, plus whatever it forfeits. The escrow is not in
+            // here; it goes back with `held` at the full close only.
             let (mut tao_to_pool, alpha_to_pool, shortfall, interest_paid) = if covered {
                 let (mut tao_to_pool, alpha_to_pool, shortfall) = match part {
-                    Legs::Short {
-                        proceeds,
-                        debt,
-                        escrow,
-                    } => {
+                    Legs::Short { proceeds, debt, .. } => {
                         pot = pot.saturating_add(proceeds);
                         let (spent, bought) = T::Pool::buy_alpha_for(
                             &pallet_account,
@@ -375,13 +411,13 @@ impl<T: Config> Pallet<T> {
                         )?;
                         pot = pot.saturating_sub(spent);
                         // Bought surplus is dust that goes back with the debt.
-                        (escrow, bought, Lent::Alpha(debt.saturating_sub(bought)))
+                        (
+                            TaoBalance::ZERO,
+                            bought,
+                            Lent::Alpha(debt.saturating_sub(bought)),
+                        )
                     }
-                    Legs::Long {
-                        proceeds,
-                        debt,
-                        escrow,
-                    } => {
+                    Legs::Long { proceeds, debt, .. } => {
                         pot = pot.saturating_add(T::Pool::sell_alpha_internal(
                             &pallet_account,
                             &pallet_hotkey,
@@ -389,7 +425,11 @@ impl<T: Config> Pallet<T> {
                             proceeds,
                         )?);
                         let repaid = take(&mut pot, debt);
-                        (repaid, escrow, Lent::Tao(debt.saturating_sub(repaid)))
+                        (
+                            repaid,
+                            AlphaBalance::ZERO,
+                            Lent::Tao(debt.saturating_sub(repaid)),
+                        )
                     }
                 };
 
@@ -419,30 +459,22 @@ impl<T: Config> Pallet<T> {
                 // pool's already.
                 let interest_paid = take(&mut rest, interest_due);
                 let (tao_to_pool, alpha_to_pool, shortfall) = match part {
-                    Legs::Short {
-                        proceeds,
-                        debt,
-                        escrow,
-                    } => (
-                        pot.saturating_add(proceeds)
-                            .saturating_add(escrow)
-                            .saturating_add(interest_paid),
+                    Legs::Short { proceeds, debt, .. } => (
+                        pot.saturating_add(proceeds).saturating_add(interest_paid),
                         AlphaBalance::ZERO,
                         Lent::Alpha(debt),
                     ),
-                    Legs::Long {
-                        proceeds,
-                        debt,
-                        escrow,
-                    } => (
-                        pot.saturating_add(interest_paid),
-                        proceeds.saturating_add(escrow),
-                        Lent::Tao(debt),
-                    ),
+                    Legs::Long { proceeds, debt, .. } => {
+                        (pot.saturating_add(interest_paid), proceeds, Lent::Tao(debt))
+                    }
                 };
                 pot = TaoBalance::ZERO;
                 (tao_to_pool, alpha_to_pool, shortfall, interest_paid)
             };
+
+            // The owner's floor, on the payout after interest. Below it nothing has happened:
+            // the storage layer drops the trade, and the position is as it was.
+            ensure!(pot >= min_amount_out, Error::<T>::SettlementBelowMinimum);
 
             // Pay the owner before the pool so the last TAO leaving the pallet account is the
             // pool's share; an owner that cannot be paid forfeits to the pool rather than failing
@@ -450,9 +482,15 @@ impl<T: Config> Pallet<T> {
             let payout = Self::pay_tao(&pallet_account, owner, pot);
             tao_to_pool = tao_to_pool.saturating_add(pot.saturating_sub(payout));
 
-            Self::return_to_pool(netuid, tao_to_pool, alpha_to_pool)?;
-
             if full {
+                // One return for everything: this trade's, the escrow, and what the partial
+                // settlements before it held back.
+                let (escrow_tao, escrow_alpha) = position.escrow_and_held();
+                Self::return_to_pool(
+                    netuid,
+                    tao_to_pool.saturating_add(escrow_tao),
+                    alpha_to_pool.saturating_add(escrow_alpha),
+                )?;
                 Self::remove(owner, netuid, &position);
                 Self::deposit_event(Event::PositionClosed {
                     owner: owner.clone(),
@@ -470,9 +508,13 @@ impl<T: Config> Pallet<T> {
                 return Ok(());
             }
 
-            Footprint::<T>::mutate(netuid, side, |f| *f = f.saturating_sub(part.footprint()));
+            // Held back, not returned. The escrow stays in the legs and in the footprint: it
+            // is still out of the pool, so it still counts against the cap.
+            position.hold(tao_to_pool, alpha_to_pool);
+            let settled = part.without_escrow();
+            Footprint::<T>::mutate(netuid, side, |f| *f = f.saturating_sub(settled.footprint()));
             position.cushion = rest;
-            position.legs = position.legs.minus(&part);
+            position.legs = position.legs.minus(&settled);
             position.exposure_tao = position.exposure_tao.saturating_sub(TaoBalance::from(
                 fraction.mul_floor(position.exposure_tao.to_u64()),
             ));
@@ -603,27 +645,28 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Hand a starved position back to the pool whole: every TAO and every alpha the pallet
-    /// holds for it, with no swap. The pool gets its slice back in kind plus the cushion; the
-    /// owner gets nothing. Because nothing is traded, a forfeit moves no price.
+    /// holds for it, with no swap. The pool gets its slice back in kind plus the cushion and
+    /// whatever earlier partial settlements held for it; the owner gets nothing. Because
+    /// nothing is traded, a forfeit moves no price.
     fn forfeit(
         owner: &T::AccountId,
         netuid: NetUid,
         position: Position<BlockNumberFor<T>>,
     ) -> DispatchResult {
         let side = position.side();
+        let (escrow_tao, escrow_alpha) = position.escrow_and_held();
         let (tao, alpha) = match position.legs {
-            Legs::Short {
-                proceeds, escrow, ..
-            } => (
+            Legs::Short { proceeds, .. } => (
                 position
                     .cushion
                     .saturating_add(proceeds)
-                    .saturating_add(escrow),
-                AlphaBalance::ZERO,
+                    .saturating_add(escrow_tao),
+                escrow_alpha,
             ),
-            Legs::Long {
-                proceeds, escrow, ..
-            } => (position.cushion, proceeds.saturating_add(escrow)),
+            Legs::Long { proceeds, .. } => (
+                position.cushion.saturating_add(escrow_tao),
+                proceeds.saturating_add(escrow_alpha),
+            ),
         };
         Self::return_to_pool(netuid, tao, alpha)?;
         Self::remove(owner, netuid, &position);
@@ -893,10 +936,12 @@ impl<T: Config> Pallet<T> {
             }
         };
 
+        // Plus whatever earlier partial settlements held back for the pool.
+        let (held_tao, held_alpha) = position.held;
         if let Err(error) = T::Pool::return_liquidity(
             netuid,
-            tao_to_pool,
-            alpha_to_pool,
+            tao_to_pool.saturating_add(held_tao),
+            alpha_to_pool.saturating_add(held_alpha),
             &pallet_account,
             &pallet_hotkey,
         ) {

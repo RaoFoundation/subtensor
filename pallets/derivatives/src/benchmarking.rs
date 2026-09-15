@@ -52,6 +52,7 @@ fn pumped_short<T: Config>(owner: &T::AccountId, netuid: NetUid) {
         Side::Short,
         TaoBalance::from(CUSHION_TAO),
         100,
+        TaoBalance::ZERO,
     )
     .unwrap();
     T::Pool::buy_alpha_internal(&whale, &whale, netuid, TaoBalance::from(PUMP_TAO)).unwrap();
@@ -99,6 +100,7 @@ mod benchmarks {
             Side::Long,
             TaoBalance::from(2 * CUSHION_TAO),
             100,
+            TaoBalance::ZERO,
         );
 
         let after = Positions::<T>::get(&owner, netuid).unwrap();
@@ -116,7 +118,7 @@ mod benchmarks {
         pumped_short::<T>(&owner, netuid);
 
         #[extrinsic_call]
-        _(RawOrigin::Signed(owner.clone()), netuid);
+        _(RawOrigin::Signed(owner.clone()), netuid, TaoBalance::ZERO);
 
         assert!(!Positions::<T>::contains_key(&owner, netuid));
         assert_eq!(Footprint::<T>::get(netuid, Side::Short), 0);
@@ -134,6 +136,7 @@ mod benchmarks {
             Side::Short,
             TaoBalance::from(CUSHION_TAO),
             100,
+            TaoBalance::ZERO,
         )
         .unwrap();
         // A year of interest on a 1x short is about half the cushion: a large swap, still paid.

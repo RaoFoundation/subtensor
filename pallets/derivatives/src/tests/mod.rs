@@ -6,6 +6,7 @@
 
 pub(crate) mod mock;
 mod safety;
+mod settlement;
 
 use frame_support::{assert_err, assert_ok};
 use sp_core::U256;
@@ -54,17 +55,34 @@ fn add(who: U256, side: Side, amount: u64) -> sp_runtime::DispatchResult {
 }
 
 fn add_at(who: U256, side: Side, amount: u64, leverage_percent: u16) -> sp_runtime::DispatchResult {
+    add_at_min(who, side, amount, leverage_percent, 0)
+}
+
+/// `add` with a floor on the TAO it pays out.
+fn add_at_min(
+    who: U256,
+    side: Side,
+    amount: u64,
+    leverage_percent: u16,
+    min_amount_out: u64,
+) -> sp_runtime::DispatchResult {
     Derivatives::add(
         RuntimeOrigin::signed(who),
         netuid(),
         side,
         amount.into(),
         leverage_percent,
+        min_amount_out.into(),
     )
 }
 
 fn close(who: U256) -> sp_runtime::DispatchResult {
-    Derivatives::close(RuntimeOrigin::signed(who), netuid())
+    close_min(who, 0)
+}
+
+/// `close` with a floor on the payout.
+fn close_min(who: U256, min_amount_out: u64) -> sp_runtime::DispatchResult {
+    Derivatives::close(RuntimeOrigin::signed(who), netuid(), min_amount_out.into())
 }
 
 /// Advance to `block` as the chain would: the interest queue is walked block by block, one
@@ -330,6 +348,7 @@ fn open_rejects_bad_inputs() {
                 Side::Short,
                 DEPOSIT.into(),
                 100,
+                TaoBalance::ZERO,
             ),
             Error::<Test>::SubnetNotDynamic
         );
@@ -843,7 +862,9 @@ fn adding_the_other_side_reduces_pro_rata_and_pays_that_share_out() {
         let (p1, d1, e1) = legs(&after);
         assert_close(p1, p0 / 2, 1);
         assert_close(d1, d0 / 2, 1);
-        assert_close(e1, e0 / 2, 1);
+        // The escrow does not move on a reduction: it is still out of the pool, and it still
+        // counts against the cap.
+        assert_eq!(e1, e0);
         assert_close(
             u64::from(after.exposure_tao),
             u64::from(before.exposure_tao) / 2,
@@ -864,13 +885,24 @@ fn adding_the_other_side_reduces_pro_rata_and_pays_that_share_out() {
         assert!(back > DEPOSIT, "back = {back}");
         assert_close(back, DEPOSIT, DEPOSIT / 50);
         assert_close(u64::from(after.cushion), DEPOSIT, 1);
+        // The alpha the buyback bought is held for the pool, staked at the pallet hotkey; the
+        // pool has only the TAO the buyback spent. Nothing was re-added.
+        let (held_tao, held_alpha) = (u64::from(after.held.0), u64::from(after.held.1));
+        assert_eq!(held_tao, 0);
+        // The exact-output buyback overshoots by a few rao of alpha; that dust is held too.
+        assert!(held_alpha >= d0 / 2);
+        assert_close(held_alpha, d0 / 2, 10);
         assert_eq!(
             balance(&pallet_account()),
             u64::from(after.cushion) + p1 + e1
         );
+        assert_eq!(
+            stake(&pallet_account(), &pallet_hotkey(), netuid()),
+            held_alpha
+        );
         let (t1, a1) = reserves(netuid());
         assert_close(t1 + p1 + e1, t0, DEPOSIT / 50);
-        assert_close(a1, a0, 100);
+        assert_eq!(a1, a0 - held_alpha);
 
         let (fraction, payout, shortfall, exposure_tao) = last_reduced_event();
         assert_eq!(fraction, Perquintill::from_percent(50));
@@ -879,14 +911,17 @@ fn adding_the_other_side_reduces_pro_rata_and_pays_that_share_out() {
         assert_eq!(exposure_tao, u64::from(after.exposure_tao));
 
         // Closing the rest: over both halves the pool is whole. The second buyback ran against
-        // a pool that already had the first half's slice back, so the two halves do not add up
-        // to one buyback to the rao; the difference is one part in 10^4 of the deposit.
+        // the same curve the first one left, so the two halves add up to exactly one buyback,
+        // and the two payouts to exactly what one close would have paid.
         assert_ok!(close(alice()));
-        assert_close(balance(&alice()), wallet + 2 * DEPOSIT, DEPOSIT / 5_000);
+        assert_close(balance(&alice()), wallet + 2 * DEPOSIT, 2);
+        assert!(balance(&alice()) <= wallet + 2 * DEPOSIT);
         assert_eq!(balance(&pallet_account()), 0);
+        assert_eq!(stake(&pallet_account(), &pallet_hotkey(), netuid()), 0);
         let (t2, a2) = reserves(netuid());
-        assert_close(t2, t0, DEPOSIT / 5_000);
-        assert_close(a2, a0, 100);
+        assert_close(t2, t0, 2);
+        assert!(t2 >= t0);
+        assert_eq!(a2, a0);
     });
 }
 
@@ -967,26 +1002,46 @@ fn reducing_an_underwater_position_forfeits_that_share_to_the_pool() {
 
         assert_ok!(add_at(alice(), Side::Long, DEPOSIT / 2, 100));
 
-        // Half is gone: Alice got nothing for it, the pool got everything the pallet held for
-        // that half in kind, with no swap, and the other half is still open (and just as
-        // underwater). The interest, which the forfeited half could not pay, came off the
-        // cushion that stays, as plain TAO.
+        // Half is gone: Alice got nothing for it, and the other half is still open (and just
+        // as underwater). The interest, which the forfeited half could not pay, came off the
+        // cushion that stays. Nothing was swapped and nothing reached the pool yet: what the
+        // forfeited half owed it, in kind, is held on the position until the close, with the
+        // escrow, which stays in the legs whole.
         assert_eq!(balance(&alice()), wallet);
         let rest = position(&alice(), netuid()).unwrap();
         let interest = u64::from(before.interest_due(1 + DAY));
         assert!(interest > 0);
         assert_close(u64::from(rest.cushion), DEPOSIT / 2 - interest, 1);
         assert_eq!(rest.interest_owed, TaoBalance::ZERO);
-        let (t1, a1) = reserves(netuid());
-        assert_eq!(a1, a0);
-        assert_close(
-            t1,
-            t0 + DEPOSIT / 2 + proceeds / 2 + escrow / 2 + interest,
-            2,
+        assert_eq!(reserves(netuid()), (t0, a0));
+        let (p1, d1, e1) = legs(&rest);
+        assert_close(p1, proceeds / 2, 1);
+        assert_close(d1, debt / 2, 1);
+        assert_eq!(e1, escrow);
+        let (held_tao, held_alpha) = (u64::from(rest.held.0), u64::from(rest.held.1));
+        assert_close(held_tao, DEPOSIT / 2 + proceeds / 2 + interest, 2);
+        assert_eq!(held_alpha, 0);
+        assert_eq!(
+            balance(&pallet_account()),
+            u64::from(rest.cushion) + p1 + e1 + held_tao
         );
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), p1 + e1);
         let (_, payout, shortfall, _) = last_reduced_event();
         assert_eq!(payout, 0);
         assert_close(shortfall, debt / 2, 1);
+
+        // The close forfeits the other half the same way, and the pool gets everything the
+        // pallet held for the position in one return: both halves' cushion, proceeds, and
+        // escrow, plus the interest, all as TAO.
+        assert_ok!(close(alice()));
+        assert_eq!(last_closer(), Closer::Underwater);
+        assert_eq!(balance(&alice()), wallet);
+        assert_eq!(balance(&pallet_account()), 0);
+        assert_eq!(stake(&pallet_account(), &pallet_hotkey(), netuid()), 0);
+        let (t2, a2) = reserves(netuid());
+        assert_eq!(a2, a0);
+        assert_eq!(t2, t0 + DEPOSIT + proceeds + escrow);
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), 0);
     });
 }
 

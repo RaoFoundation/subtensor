@@ -25,12 +25,20 @@
 //! and the chain keeps collecting interest from, and settling, whatever is open. Nothing
 //! already lent to a position is ever left in limbo by a switch.
 //!
-//! Two rules keep a settlement from being a trade the pool pays for. A position whose pot the
+//! Three rules keep a settlement from being a trade the pool pays for. A position whose pot the
 //! pool's own quote says cannot repay its debt is not swapped at all: everything held for it
-//! goes back in kind, so there is no market order for anyone to trade against. And liquidity
+//! goes back in kind, so there is no market order for anyone to trade against. Liquidity
 //! handed back while the spot price is more than [`PARK_THRESHOLD_PERCENT`] from the moving
 //! price is parked in the pallet, not re-added at the pushed price; `on_idle` releases it once
-//! the spot is back.
+//! the spot is back. And a partial settlement hands nothing back at all: what the pool is owed
+//! for the settled share is held on the position ([`Position::held`]) and returned with the
+//! rest at the full close, so unwinding in steps is the same trade as unwinding in one and
+//! cannot re-deepen the pool between its own buybacks.
+//!
+//! One rule keeps a settlement from being a trade the *owner* pays for: `add` and `close`
+//! take a `min_amount_out`, the owner's floor on the TAO paid out after interest. A
+//! settlement that would pay less fails whole with `SettlementBelowMinimum`, so a price
+//! pushed against it in the same block can take no more than the owner allowed.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -331,6 +339,10 @@ pub mod pallet {
         /// or flip into a long. Shorts can still be added, reduced, and closed; an open long
         /// can still be closed by its owner.
         LongsDisabled,
+        /// The settlement would pay the caller less TAO than the `min_amount_out` they set,
+        /// or an `add` that only opens or grows a position was given a floor above zero.
+        /// Nothing moved; the position is as it was. Pass a lower floor, or zero for none.
+        SettlementBelowMinimum,
     }
 
     #[pallet::hooks]
@@ -379,6 +391,13 @@ pub mod pallet {
         /// The leverage must be above zero and at most the side's maximum (`MaxShortLeverage`
         /// or `MaxLongLeverage`).
         ///
+        /// `min_amount_out` is the caller's floor on the TAO this call pays them, after
+        /// interest. It binds when the add reduces or closes a position: a payout below it
+        /// fails the call with `SettlementBelowMinimum` and nothing moves, so a price pushed
+        /// against the settlement in the same block cannot take more than the caller allowed.
+        /// An add that only opens or grows pays nothing out and must pass zero. Zero is no
+        /// floor.
+        ///
         /// Refused with `DerivativesDisabled` while [`DerivativesEnabled`] is `false`, whichever
         /// of open, add, reduce, or flip it would have been. Use `close` to exit a position
         /// while the switch is off. Refused with `LongsDisabled` while [`LongsEnabled`] is
@@ -392,9 +411,17 @@ pub mod pallet {
             side: Side,
             deposit: TaoBalance,
             leverage_percent: u16,
+            min_amount_out: TaoBalance,
         ) -> DispatchResult {
             let owner = ensure_signed(origin)?;
-            Self::do_add(owner, netuid, side, deposit, leverage_percent)
+            Self::do_add(
+                owner,
+                netuid,
+                side,
+                deposit,
+                leverage_percent,
+                min_amount_out,
+            )
         }
 
         /// Settle the caller's position on `netuid` in full, at the current price. Only the
@@ -402,13 +429,23 @@ pub mod pallet {
         /// interest. A position the pool's quote says is underwater is not traded: everything
         /// held for it goes to the pool in kind and the caller is paid nothing.
         ///
+        /// `min_amount_out` is the caller's floor on the payout, after interest. Below it the
+        /// call fails with `SettlementBelowMinimum` and the position stays as it was; since an
+        /// underwater close pays nothing, any floor above zero also keeps an underwater
+        /// position from being forfeited by a price pushed against it in the same block. Zero
+        /// is no floor.
+        ///
         /// Works whether or not [`DerivativesEnabled`] is set: the switch stops positions from
         /// being opened or grown, never from being closed.
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::close())]
-        pub fn close(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
+        pub fn close(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            min_amount_out: TaoBalance,
+        ) -> DispatchResult {
             let owner = ensure_signed(origin)?;
-            Self::do_settle(&owner, netuid, Perquintill::one())
+            Self::do_settle(&owner, netuid, Perquintill::one(), min_amount_out)
         }
 
         /// Set the three parameters. Root only. A `pool_share` of zero pauses new adds; open
