@@ -411,8 +411,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 441,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L441",
+          "line": 445,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L445",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -933,8 +933,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 435,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L435",
+          "line": 439,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L439",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -1651,8 +1651,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 443,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L443",
+          "line": 447,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L447",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -1909,6 +1909,24 @@
         }
       ]
     },
+    "FundsNotSettled": {
+      "code": "invalid_argument",
+      "description": "`finalize` ran the configured `call`, but the raised funds were still in the crowdloan's funds account afterwards, so finalization was refused. This happens when the call does not spend the raised amount, or when a wrapper such as `Utility.batch` returns Ok after its inner call failed. Fix the finalization call so it consumes the full `raised` amount, then `finalize` again.",
+      "docs_url": "/docs/errors/chain/FundsNotSettled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/FundsNotSettled/content.md",
+      "pallets": [
+        "Crowdloan"
+      ],
+      "sources": [
+        {
+          "pallet": "Crowdloan",
+          "path": "pallets/crowdloan/src/lib.rs",
+          "line": 295,
+          "url": "/code/pallets/crowdloan/src/lib.rs#L295",
+          "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+        }
+      ]
+    },
     "GasLimitTooHigh": {
       "code": "invalid_argument",
       "description": "The transaction's `gas_limit` exceeds the block gas limit configured for the EVM. Compare the `gas_limit` argument against the chain's block gas limit and lower it.",
@@ -2110,8 +2128,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 431,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L431",
+          "line": 435,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L435",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2723,8 +2741,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 407,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L407",
+          "line": 411,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L411",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2947,8 +2965,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 425,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L425",
+          "line": 429,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L429",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2965,8 +2983,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 458,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L458",
+          "line": 462,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L462",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2983,8 +3001,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 454,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L454",
+          "line": 458,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L458",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3001,8 +3019,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 456,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L456",
+          "line": 460,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L460",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3019,8 +3037,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 464,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L464",
+          "line": 468,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L468",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3037,8 +3055,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 452,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L452",
+          "line": 456,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L456",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3630,8 +3648,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 450,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L450",
+          "line": 454,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L454",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4109,8 +4127,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 409,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L409",
+          "line": 413,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L413",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4127,8 +4145,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 411,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L411",
+          "line": 415,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L415",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4145,8 +4163,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 413,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L413",
+          "line": 417,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L417",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4163,8 +4181,26 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 423,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L423",
+          "line": 427,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L427",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "OrderSignerFrozen": {
+      "code": "disabled",
+      "description": "The order's `signer` coldkey has a pending coldkey swap announcement or an open swap dispute, so its assets cannot be moved and the order is refused. Wait for the swap to complete or be cleared (`btcli wallet swap-check` shows status), then execute the order again.",
+      "docs_url": "/docs/errors/chain/OrderSignerFrozen",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderSignerFrozen/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 470,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L470",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4261,8 +4297,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 439,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L439",
+          "line": 443,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L443",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4279,8 +4315,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 460,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L460",
+          "line": 464,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L464",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4297,8 +4333,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 462,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L462",
+          "line": 466,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L466",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4315,8 +4351,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 429,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L429",
+          "line": 433,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L433",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4360,8 +4396,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 415,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L415",
+          "line": 419,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L419",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4495,8 +4531,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 427,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L427",
+          "line": 431,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L431",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4513,8 +4549,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 433,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L433",
+          "line": 437,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L437",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4675,8 +4711,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 421,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L421",
+          "line": 425,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L425",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5151,8 +5187,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 419,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L419",
+          "line": 423,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L423",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5711,8 +5747,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 417,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L417",
+          "line": 421,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L421",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -6026,8 +6062,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 448,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L448",
+          "line": 452,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L452",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]

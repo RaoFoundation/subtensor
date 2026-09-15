@@ -753,9 +753,9 @@
         "pallet": "Crowdloan",
         "call": "contribute",
         "path": "pallets/crowdloan/src/lib.rs",
-        "line": 440,
-        "end_line": 536,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L438-L536",
+        "line": 442,
+        "end_line": 538,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L440-L538",
         "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
@@ -845,9 +845,9 @@
         "pallet": "Crowdloan",
         "call": "create",
         "path": "pallets/crowdloan/src/lib.rs",
-        "line": 341,
-        "end_line": 425,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L331-L425",
+        "line": 343,
+        "end_line": 427,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L333-L427",
         "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
@@ -1020,9 +1020,9 @@
         "pallet": "Crowdloan",
         "call": "dissolve",
         "path": "pallets/crowdloan/src/lib.rs",
-        "line": 763,
-        "end_line": 805,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L761-L805",
+        "line": 781,
+        "end_line": 823,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L779-L823",
         "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
@@ -1169,9 +1169,9 @@
         "pallet": "Crowdloan",
         "call": "finalize",
         "path": "pallets/crowdloan/src/lib.rs",
-        "line": 611,
-        "end_line": 674,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L609-L674",
+        "line": 615,
+        "end_line": 692,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L613-L692",
         "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
@@ -1911,9 +1911,9 @@
         "pallet": "Crowdloan",
         "call": "refund",
         "path": "pallets/crowdloan/src/lib.rs",
-        "line": 688,
-        "end_line": 750,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L686-L750",
+        "line": 706,
+        "end_line": 768,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L704-L768",
         "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
@@ -2859,9 +2859,9 @@
         "pallet": "Crowdloan",
         "call": "set_max_contribution",
         "path": "pallets/crowdloan/src/lib.rs",
-        "line": 935,
-        "end_line": 967,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L933-L967",
+        "line": 953,
+        "end_line": 985,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L951-L985",
         "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
@@ -4838,9 +4838,9 @@
         "pallet": "Crowdloan",
         "call": "update_cap",
         "path": "pallets/crowdloan/src/lib.rs",
-        "line": 898,
-        "end_line": 923,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L896-L923",
+        "line": 916,
+        "end_line": 941,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L914-L941",
         "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
@@ -4885,9 +4885,9 @@
         "pallet": "Crowdloan",
         "call": "update_end",
         "path": "pallets/crowdloan/src/lib.rs",
-        "line": 863,
-        "end_line": 887,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L861-L887",
+        "line": 881,
+        "end_line": 905,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L879-L905",
         "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
@@ -4941,9 +4941,9 @@
         "pallet": "Crowdloan",
         "call": "update_min_contribution",
         "path": "pallets/crowdloan/src/lib.rs",
-        "line": 819,
-        "end_line": 852,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L817-L852",
+        "line": 837,
+        "end_line": 870,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L835-L870",
         "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
@@ -5030,9 +5030,9 @@
         "pallet": "Crowdloan",
         "call": "withdraw",
         "path": "pallets/crowdloan/src/lib.rs",
-        "line": 548,
-        "end_line": 592,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L546-L592",
+        "line": 550,
+        "end_line": 594,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L548-L594",
         "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
