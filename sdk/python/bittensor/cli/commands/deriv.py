@@ -9,16 +9,28 @@ no expiry.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Optional
 
 import typer
 
+from ...balance import Balance
 from ...intents import AddPosition, ClosePosition
 from ...intents.derivatives import leverage_percent
 from ...settings import guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..tx import _parse_money
+
+# Default `--max-slippage`, in percent of the quoted payout.
+DEFAULT_MAX_SLIPPAGE_PCT = 1.0
+
+MAX_SLIPPAGE_HELP = (
+    "Your floor on what the settlement pays you, in percent under the quoted payout: the call "
+    "rolls back (`SettlementBelowMinimum`) if it would pay less than "
+    "`quote × (1 - max_slippage/100)` after interest. Bounds what a price pushed against you in "
+    "the same block can take. 100 disables the floor."
+)
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -58,21 +70,154 @@ def _add_options():
         netuid=typer.Option(..., "--netuid", help=AddPosition.field_help("netuid")),
         amount=typer.Option(..., "--amount", help=AddPosition.field_help("amount")),
         leverage=typer.Option(1.0, "--leverage", help=AddPosition.field_help("leverage")),
+        max_slippage=typer.Option(
+            DEFAULT_MAX_SLIPPAGE_PCT,
+            "--max-slippage",
+            min=0.0,
+            max=100.0,
+            help=MAX_SLIPPAGE_HELP
+            + " Only binds when the add reduces or closes your position; an open pays "
+            "nothing out and sets no floor.",
+        ),
     )
 
 
-def _submit_add(app_ctx: AppContext, side: str, netuid: int, amount: str, leverage: float) -> None:
+def _floor(quoted: Balance, max_slippage_pct: float) -> Balance:
+    """The user floor: ``quoted × (1 - max_slippage / 100)``, floored to whole rao."""
+    factor = Decimal(1) - Decimal(str(max_slippage_pct)) / Decimal(100)
+    return Balance.from_rao(max(int(Decimal(quoted.rao) * factor), 0))
+
+
+async def _quote_buyback_rao(client, netuid: int, alpha_rao: int, estimate_rao: int) -> int:
+    """TAO the pool charges right now for exactly `alpha_rao` alpha.
+
+    The swap simulation quotes alpha out for TAO in; one pass from the
+    constant-product estimate and a proportional correction lands within the
+    simulation's own rounding of the exact-output figure, and the user's
+    slippage margin covers the rest.
+    """
+    if alpha_rao <= 0:
+        return 0
+    probe = max(estimate_rao, 1)
+    quote = await client.read("quote_stake", netuid=netuid, amount_tao=Balance.from_rao(probe).tao)
+    got = quote.alpha.rao
+    if got <= 0:
+        return estimate_rao
+    return -(-probe * alpha_rao // got)
+
+
+async def _quote_payout(client, coldkey: str, netuid: int, fraction: Decimal) -> Optional[Balance]:
+    """What settling `fraction` of `coldkey`'s position on `netuid` would pay right now,
+    by the pool's own swap simulation, after the interest the whole position owes. None
+    when there is no position to settle."""
+    pos = await client.read("derivative_position", coldkey_ss58=coldkey, netuid=netuid)
+    if pos is None:
+        return None
+    fraction = min(max(fraction, Decimal(0)), Decimal(1))
+    cushion = int(Decimal(pos["cushion"].rao) * fraction)
+    proceeds = int(Decimal(pos["proceeds"].rao) * fraction)
+    debt = int(Decimal(pos["debt"].rao) * fraction)
+    interest = pos["interest_due_tao"].rao
+    if pos["side"] == "Short":
+        # The read's equity prices the whole debt on a constant-product curve; scale it to
+        # the share as the first guess for the exact-output quote.
+        estimate = pos["cushion"].rao + pos["proceeds"].rao - pos["equity_tao"].rao - interest
+        estimate = int(Decimal(max(estimate, 0)) * fraction)
+        cost = await _quote_buyback_rao(client, netuid, debt, estimate)
+        payout = cushion + proceeds - cost - interest
+    else:
+        sale = await client.read(
+            "quote_unstake", netuid=netuid, amount_alpha=Balance.from_rao(proceeds).tao
+        )
+        payout = cushion + sale.tao.rao - debt - interest
+    return Balance.from_rao(max(payout, 0))
+
+
+def _floor_rows(quoted: Optional[Balance], floor: Balance, max_slippage_pct: float) -> list[tuple]:
+    if quoted is None:
+        return [
+            (
+                "warning",
+                "no quote available: the floor is 0, so a price pushed against the settlement "
+                "in the same block can take from what you get back",
+                "yellow",
+            )
+        ]
+    rows: list[tuple] = [("expected payout", f"~{quoted} (quoted now, after interest)")]
+    if floor.rao > 0:
+        rows.append(
+            (
+                "minimum payout",
+                f"{floor} (expected less {max_slippage_pct:g}% max slippage; the call rolls "
+                "back below this)",
+            )
+        )
+    else:
+        rows.append(
+            (
+                "warning",
+                "the quote says this settlement pays nothing (underwater): with no floor it "
+                "forfeits the share to the pool in kind",
+                "yellow",
+            )
+        )
+    return rows
+
+
+def _submit_add(
+    app_ctx: AppContext,
+    side: str,
+    netuid: int,
+    amount: str,
+    leverage: float,
+    max_slippage: float,
+) -> None:
     try:
         money = _parse_money(amount, False)
     except ValueError as error:
         app_ctx.output.error(f"invalid value for `--amount`: {error}")
         raise typer.Exit(2)
     try:
-        leverage_percent(leverage)
+        percent = leverage_percent(leverage)
     except ValueError as error:
         app_ctx.output.error(f"invalid value for `--leverage`: {error}")
         raise typer.Exit(2)
-    app_ctx.submit(AddPosition(netuid=netuid, side=side, amount=money, leverage=leverage))
+    owner = app_ctx.review_account()
+
+    async def _settling_share(client) -> Optional[Balance]:
+        """The quoted payout of the share this add settles, or None if it settles nothing:
+        no position, or one on the same side."""
+        if owner is None:
+            return None
+        pos = await client.read("derivative_position", coldkey_ss58=owner, netuid=netuid)
+        if pos is None or pos["side"] == side:
+            return None
+        asked = Decimal(money.rao) * Decimal(percent) / Decimal(100)
+        held = Decimal(pos["exposure_tao"].rao)
+        fraction = asked / held if held > 0 else Decimal(1)
+        return await _quote_payout(client, owner, netuid, fraction)
+
+    quoted: Optional[Balance] = None
+    settles = False
+    if max_slippage < 100.0:
+        try:
+            with app_ctx.output.activity("quoting the settlement…"):
+                quoted = app_ctx.run(_settling_share)
+            settles = quoted is not None
+        except Exception:
+            # The floor is a convenience; a quoting hiccup must not block the add.
+            quoted = None
+    floor = _floor(quoted, max_slippage) if quoted is not None else Balance.from_rao(0)
+    intent = AddPosition(
+        netuid=netuid, side=side, amount=money, leverage=leverage, min_amount_out=floor
+    )
+    if not settles:
+        app_ctx.submit(intent)
+        return
+    app_ctx.submit(
+        intent,
+        card_sections=[("Settlement", _floor_rows(quoted, floor, max_slippage))],
+    )
 
 
 _ADD = _add_options()
@@ -85,6 +230,7 @@ def add_short(
     netuid: int = _ADD["netuid"],
     amount: str = _ADD["amount"],
     leverage: float = _ADD["leverage"],
+    max_slippage: float = _ADD["max_slippage"],
 ):
     """Add short exposure: borrow alpha from the pool and sell it for TAO now.
 
@@ -93,8 +239,13 @@ def add_short(
     `--leverage` the multiple of it, up to 1x. With no position, or a short,
     `--amount` is deposited as cushion. Against a long it takes that much off
     at the current price instead, and flips to a short if there is more.
+
+    When it takes exposure off a long, btcli quotes that share's payout first
+    and sets `min_amount_out` to the quote less `--max-slippage` (default 1%),
+    so a pool that moves against you between the quote and execution rolls
+    the call back instead of paying less.
     """
-    _submit_add(ctx_of(ctx), "Short", netuid, amount, leverage)
+    _submit_add(ctx_of(ctx), "Short", netuid, amount, leverage, max_slippage)
 
 
 @app.command("long")
@@ -104,6 +255,7 @@ def add_long(
     netuid: int = _ADD["netuid"],
     amount: str = _ADD["amount"],
     leverage: float = _ADD["leverage"],
+    max_slippage: float = _ADD["max_slippage"],
 ):
     """Add long exposure: borrow TAO from the pool and buy alpha with it now.
 
@@ -113,11 +265,16 @@ def add_long(
     `--amount` is deposited as cushion. Against a short it takes that much off
     at the current price instead, and flips to a long if there is more.
 
+    When it takes exposure off a short, btcli quotes that share's payout first
+    and sets `min_amount_out` to the quote less `--max-slippage` (default 1%),
+    so a pool that moves against you between the quote and execution rolls
+    the call back instead of paying less.
+
     Not enabled at launch: while `longs_enabled` in `deriv params` is off,
     this fails with `LongsDisabled` whenever it would leave a long open.
     Reducing or closing a short with it still works.
     """
-    _submit_add(ctx_of(ctx), "Long", netuid, amount, leverage)
+    _submit_add(ctx_of(ctx), "Long", netuid, amount, leverage, max_slippage)
 
 
 @app.command("close")
@@ -125,13 +282,41 @@ def add_long(
 def close_position(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", help=ClosePosition.field_help("netuid")),
+    max_slippage: float = typer.Option(
+        DEFAULT_MAX_SLIPPAGE_PCT,
+        "--max-slippage",
+        min=0.0,
+        max=100.0,
+        help=MAX_SLIPPAGE_HELP,
+    ),
 ):
     """Close your position on a subnet and settle it against the pool.
 
     The trade is reversed at today's price, the pool is repaid with the
     interest owed, and you get what is left of your cushion.
+
+    btcli quotes the payout first and sets `min_amount_out` to the quote less
+    `--max-slippage` (default 1%), so a pool that moves against you between
+    the quote and execution rolls the close back instead of paying less. If
+    the quote says the position is underwater the floor is 0 and the close
+    forfeits everything to the pool; `--max-slippage 100` disables the floor.
     """
-    ctx_of(ctx).submit(ClosePosition(netuid=netuid))
+    app_ctx: AppContext = ctx_of(ctx)
+    owner = app_ctx.review_account()
+    quoted: Optional[Balance] = None
+    if owner is not None and max_slippage < 100.0:
+        try:
+            with app_ctx.output.activity("quoting the close…"):
+                quoted = app_ctx.run(
+                    lambda client: _quote_payout(client, owner, netuid, Decimal(1))
+                )
+        except Exception:
+            quoted = None
+    floor = _floor(quoted, max_slippage) if quoted is not None else Balance.from_rao(0)
+    app_ctx.submit(
+        ClosePosition(netuid=netuid, min_amount_out=floor),
+        card_sections=[("Settlement", _floor_rows(quoted, floor, max_slippage))],
+    )
 
 
 def _runway_cell(days: Optional[float]) -> str:

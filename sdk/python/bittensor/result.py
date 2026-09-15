@@ -311,6 +311,12 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "is false); open or add to a short with `btcli deriv short` instead, or "
         "close an open position with `btcli deriv close`"
     ),
+    "SettlementBelowMinimum": (
+        "the settlement would pay less than your `min_amount_out` floor (btcli sets it "
+        "from a quote less `--max-slippage`, default 1%); re-quote and retry, widen "
+        "`--max-slippage` / lower `min_amount_out`, or pass `--max-slippage 100` "
+        "(min_amount_out=0) to settle at any price"
+    ),
     "SlippageTooHigh": (
         "the price moved past the slippage-protection limit (stake trades are "
         "protected by default with a 5% tolerance); retry, raise the tolerance "

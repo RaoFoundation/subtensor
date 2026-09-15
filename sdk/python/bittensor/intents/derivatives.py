@@ -67,6 +67,15 @@ class AddPosition(Intent):
     nothing is deposited. Asking for more than the position holds closes it
     and opens the rest on the new side, taking only that rest's cushion.
 
+    `min_amount_out` is your floor on the TAO the call pays you, after
+    interest. It binds when the add reduces or closes a position: the
+    settlement runs at the live pool price, which anyone can move in the same
+    block ahead of it, and a payout below the floor fails the whole call with
+    `SettlementBelowMinimum` instead of filling worse. An add that only opens
+    or grows pays nothing out and must leave it at `0`, which is also no
+    floor. `btcli deriv short` / `long` derive it from a quote and
+    `--max-slippage`.
+
     Refused with `DerivativesDisabled` while the network-wide switch is off
     (`enabled` in `btcli deriv params`); `ClosePosition` still works then.
     Refused with `LongsDisabled` while the long side is off (`longs_enabled`,
@@ -100,12 +109,23 @@ class AddPosition(Intent):
             )
         },
     )
+    min_amount_out: Money = field(
+        default=0,
+        metadata={
+            "help": (
+                "Least TAO this call must pay you, after interest, when it reduces or closes a "
+                "position; below it the call fails with `SettlementBelowMinimum` and nothing "
+                "moves. Must be 0 for an add that only opens or grows. 0 (default) is no floor."
+            )
+        },
+    )
 
     def __post_init__(self):
         self.side = check_side(self.side)
         self.amount = tao_amount(self.amount)
         self.leverage = float(self.leverage)
         leverage_percent(self.leverage)
+        self.min_amount_out = tao_amount(self.min_amount_out)
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -114,16 +134,27 @@ class AddPosition(Intent):
                 side=self.side,
                 deposit=self.amount.rao,
                 leverage_percent=leverage_percent(self.leverage),
+                min_amount_out=self.min_amount_out.rao,
             )
         )
 
     def summary(self) -> str:
+        floor = f", at least {self.min_amount_out} back" if self.min_amount_out.rao > 0 else ""
         return (
-            f"add {self.side.lower()} {self.amount} at {self.leverage:g}x on netuid {self.netuid}"
+            f"add {self.side.lower()} {self.amount} at {self.leverage:g}x on netuid "
+            f"{self.netuid}{floor}"
         )
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
+        notes: list[str] = []
+        if self.min_amount_out.rao == 0:
+            notes.append(
+                "no floor on the payout: if this reduces or closes a position, a price pushed "
+                "against it in the same block can take from what you get back; set "
+                "`min_amount_out` (btcli: `--max-slippage`) to bound that"
+            )
         return [
+            *notes,
             "against an open position of the other side this reduces or flips it at the "
             "current price: that share's loss or profit is realized now",
             "interest accrues per block on exposure for as long as the position is open, at the "
@@ -150,6 +181,15 @@ class ClosePosition(Intent):
     position is underwater the pool absorbs the shortfall and you get nothing
     back. Works whether or not the network-wide switch is on: the switch
     gates adds, never exits.
+
+    `min_amount_out` is your floor on the payout, after interest. The close
+    runs at the live pool price, which anyone can move in the same block
+    ahead of it; a payout below the floor fails the call with
+    `SettlementBelowMinimum` and leaves the position as it was. Since an
+    underwater close pays nothing, any floor above `0` also stops a price
+    pushed against you from forfeiting the position. `0` (the default) is
+    no floor. `btcli deriv close` derives it from a quote and
+    `--max-slippage`.
     """
 
     op = "close_derivative"
@@ -157,9 +197,36 @@ class ClosePosition(Intent):
     wraps = (("Derivatives", "close"),)
 
     netuid: int = field(metadata={"help": "Subnet the position is on."})
+    min_amount_out: Money = field(
+        default=0,
+        metadata={
+            "help": (
+                "Least TAO the close must pay you, after interest; below it the call fails with "
+                "`SettlementBelowMinimum` and the position stays open. 0 (default) is no floor."
+            )
+        },
+    )
+
+    def __post_init__(self):
+        self.min_amount_out = tao_amount(self.min_amount_out)
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(calls.Derivatives.close(netuid=self.netuid))
+        return await substrate.compose(
+            calls.Derivatives.close(
+                netuid=self.netuid,
+                min_amount_out=self.min_amount_out.rao,
+            )
+        )
 
     def summary(self) -> str:
-        return f"close derivatives position on netuid {self.netuid}"
+        floor = f" for at least {self.min_amount_out}" if self.min_amount_out.rao > 0 else ""
+        return f"close derivatives position on netuid {self.netuid}{floor}"
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        if self.min_amount_out.rao > 0:
+            return []
+        return [
+            "no floor on the payout: a price pushed against the close in the same block can "
+            "take from what you get back, and an underwater close forfeits everything to the "
+            "pool; set `min_amount_out` (btcli: `--max-slippage`) to bound that"
+        ]

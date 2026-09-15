@@ -50,4 +50,13 @@ DESCRIPTIONS: dict[str, str] = {
         "only reduces or closes a short goes through; an open long can still be closed with "
         "`deriv close`. Governance turns longs on with `Derivatives.sudo_set_longs_enabled`."
     ),
+    "SettlementBelowMinimum": (
+        "The settlement would pay you less TAO than the `min_amount_out` floor you set, after "
+        "interest, so nothing moved and the position is as it was. Either the pool price moved "
+        "against you since the quote (someone may have pushed it in the same block), or the "
+        "position is underwater and a close would pay nothing. Re-quote and retry; widen "
+        "`--max-slippage` (btcli) or lower `min_amount_out` (SDK) to accept less; a floor of 0 "
+        "disables the check. Also raised when an add that only opens or grows a position is "
+        "given a floor above zero: such an add pays nothing out, so leave the floor at 0."
+    ),
 }

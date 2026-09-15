@@ -468,6 +468,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "ZeroInterestRate": _C.INVALID_ARGUMENT,
     "DerivativesDisabled": _C.DISABLED,
     "LongsDisabled": _C.DISABLED,
+    "SettlementBelowMinimum": _C.INSUFFICIENT_LIQUIDITY,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────
