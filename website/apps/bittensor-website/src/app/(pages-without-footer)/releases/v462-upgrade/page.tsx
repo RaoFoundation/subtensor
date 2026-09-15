@@ -6,15 +6,15 @@ import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V456 Upgrade — Shorts',
+  title: 'The V462 Upgrade — Shorts',
   description:
-    'V456 adds pallet-derivatives and launches shorts: a short on any subnet’s alpha, borrowed ' +
+    'V462 adds pallet-derivatives and launches shorts: a short on any subnet’s alpha, borrowed ' +
     'from the subnet’s own pool. One position per subnet and one call to add to it or take from ' +
     'it; no expiry. No synthetic tokens, nothing minted or burned: the pool lends out at most 25% ' +
     'of itself, at 52% a year on shorts, paid to the pool. Longs are built, tested, and disabled ' +
     'at launch behind their own switch. btcli deriv short, list, and close are the working ' +
     'surface. Launches switched off.',
-  alternates: {canonical: '/releases/v456-upgrade'},
+  alternates: {canonical: '/releases/v462-upgrade'},
 };
 
 const DocLink = ({href, children}: {href: string; children: React.ReactNode}) => (
@@ -204,7 +204,7 @@ const page = () => {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <h1 className={styles.paper_title}>The V456 Upgrade</h1>
+          <h1 className={styles.paper_title}>The V462 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             Shorts · September 2026
           </p>
@@ -226,7 +226,7 @@ const page = () => {
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Introduction</h2>
           <p>
-            Spec <strong>456</strong> adds <code>pallet-derivatives</code> and launches{' '}
+            Spec <strong>462</strong> adds <code>pallet-derivatives</code> and launches{' '}
             <strong>shorts</strong>. Anyone can now take a short on a subnet&apos;s alpha, backed
             by a TAO deposit, for as long as it pays its interest. A short profits when alpha
             falls. The pallet also implements <strong>longs</strong>, which profit when alpha
