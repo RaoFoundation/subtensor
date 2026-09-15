@@ -84,6 +84,103 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes() {
     });
 }
 
+// A pool is closed (drained through the value cap by an inflated share) and re-opened by a
+// new depositor. The retired member still has a raw share row. Dissolution settlement must
+// not value that row: the whole pot goes to the live depositor, the retired member gets 0.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::destroy_alpha_tests::test_settle_stakes_skips_shares_retired_by_pool_close --exact
+#[test]
+fn test_settle_stakes_skips_shares_retired_by_pool_close() {
+    new_test_ext(0).execute_with(|| {
+        let owner_cold = U256::from(1001);
+        let owner_hot = U256::from(1002);
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        setup_reserves(
+            netuid,
+            1_000_000_000_000u64.into(),
+            1_000_000_000_000u64.into(),
+        );
+        remove_owner_registration_stake(netuid);
+
+        let hotkey = U256::from(3);
+        let drainer = U256::from(1);
+        let retired = U256::from(2);
+        let depositor = U256::from(4);
+        for coldkey in [&drainer, &retired, &depositor] {
+            assert_ok!(SubtensorModule::create_account_if_non_existent(
+                coldkey, &hotkey
+            ));
+        }
+        let stake = DefaultMinStake::<Test>::get() * 100.into();
+        for coldkey in [&drainer, &retired] {
+            add_balance_to_coldkey_account(coldkey, stake * 2.into());
+            assert_ok!(SubtensorModule::stake_into_subnet(
+                &hotkey,
+                coldkey,
+                netuid,
+                stake,
+                <Test as Config>::SwapInterface::max_price(),
+                false,
+            ));
+        }
+        // Legacy divergent state, then a drain through the cap closes the pool.
+        inflate_alpha_share(&hotkey, &drainer, netuid, 2);
+        inflate_alpha_share(&hotkey, &retired, netuid, 2);
+        let pool_value = TotalHotkeyAlpha::<Test>::get(hotkey, netuid);
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(drainer),
+            hotkey,
+            netuid,
+            pool_value,
+        ));
+        assert!(!TotalHotkeySharesV2::<Test>::contains_key(hotkey, netuid));
+        assert!(
+            !AlphaV2::<Test>::get((hotkey, retired, netuid)).is_zero(),
+            "retired raw row still exists"
+        );
+        assert!(SubtensorModule::alpha_share_is_retired(
+            &hotkey, &retired, netuid
+        ));
+
+        // A new depositor re-opens the pool.
+        add_balance_to_coldkey_account(&depositor, stake * 2.into());
+        assert_ok!(SubtensorModule::stake_into_subnet(
+            &hotkey,
+            &depositor,
+            netuid,
+            stake,
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        ));
+        assert!(!SubtensorModule::alpha_share_is_retired(
+            &hotkey, &depositor, netuid
+        ));
+
+        // Back the pot counter with real TAO so settlement can pay out.
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).expect("subnet");
+        add_balance_to_coldkey_account(&subnet_account, SubnetTAO::<Test>::get(netuid));
+
+        // Only the live position may be counted and paid.
+        let retired_before = SubtensorModule::get_coldkey_balance(&retired);
+        let depositor_before = SubtensorModule::get_coldkey_balance(&depositor);
+        let status = run_destroy_alpha_get_total_and_settle(netuid);
+        let live_value = TotalHotkeyAlpha::<Test>::get(hotkey, netuid).to_u64() as u128;
+        assert_eq!(
+            status.subnet_total_alpha_value,
+            Some(live_value),
+            "only the live depositor's value is counted"
+        );
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&retired),
+            retired_before,
+            "a retired share receives nothing on dissolution"
+        );
+        assert!(
+            SubtensorModule::get_coldkey_balance(&depositor) > depositor_before,
+            "the live depositor is paid"
+        );
+    });
+}
+
 #[test]
 fn test_destroy_alpha_in_out_stakes_clean_alpha() {
     new_test_ext(0).execute_with(|| {

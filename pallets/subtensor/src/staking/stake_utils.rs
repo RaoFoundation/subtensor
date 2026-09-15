@@ -1193,6 +1193,18 @@ impl<T: Config> Pallet<T> {
         SharePool::<AlphaShareKey<T>, HotkeyAlphaSharePoolDataOperations<T>>::new(ops)
     }
 
+    /// True when a stored share row belongs to a pool epoch that has since been closed.
+    /// Such rows are worth nothing and must be skipped by every path that would otherwise
+    /// value the raw share directly (for example the dissolution settlement fallback).
+    pub fn alpha_share_is_retired(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> bool {
+        AlphaShareEpoch::<T>::get((hotkey, coldkey, netuid))
+            != AlphaSharePoolEpoch::<T>::get(hotkey, netuid)
+    }
+
     /// Validate add_stake user input
     pub fn validate_add_stake(
         coldkey: &T::AccountId,
@@ -1606,8 +1618,7 @@ impl<T: Config> HotkeyAlphaSharePoolDataOperations<T> {
     /// True when the share row for `key` was written in the pool's current epoch. Rows from
     /// an earlier epoch belong to a pool that has since been closed and read as absent.
     fn share_is_current(&self, key: &AlphaShareKey<T>) -> bool {
-        AlphaShareEpoch::<T>::get((&(self.hotkey), key, self.netuid))
-            == AlphaSharePoolEpoch::<T>::get(&(self.hotkey), self.netuid)
+        !Pallet::<T>::alpha_share_is_retired(&self.hotkey, key, self.netuid)
     }
 }
 

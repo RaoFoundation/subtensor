@@ -623,6 +623,12 @@ impl<T: Config> Pallet<T> {
                     continue;
                 }
 
+                // Rows left behind by a closed pool are worth nothing; never let the raw
+                // share fallback below revive them.
+                if Self::alpha_share_is_retired(&hot, &cold, netuid) {
+                    continue;
+                }
+
                 // Primary: actual α value via share pool.
                 let pool = Self::get_alpha_share_pool(hot.clone(), netuid);
                 let actual_val_u64 = pool.try_get_value(&cold).unwrap_or(0);
@@ -709,6 +715,12 @@ impl<T: Config> Pallet<T> {
                     exhausted = true;
                 }
                 if this_netuid != netuid {
+                    continue;
+                }
+
+                // Rows left behind by a closed pool are worth nothing; never let the raw
+                // share fallback below revive them.
+                if Self::alpha_share_is_retired(&hot, &cold, netuid) {
                     continue;
                 }
 
