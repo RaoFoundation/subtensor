@@ -414,8 +414,8 @@
         "container": "SubtensorModule",
         "name": "ChildkeyThresholdSuspended",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 1505,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1505",
+        "line": 1531,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1531",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
