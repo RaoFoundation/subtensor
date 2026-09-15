@@ -160,7 +160,6 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidIdentity": _C.INVALID_ARGUMENT,
     "MechanismDoesNotExist": _C.SUBNET_NOT_EXISTS,  # also Swap
     "StakeUnavailable": _C.INSUFFICIENT_BALANCE,
-    "BasketDepositPending": _C.TOO_EARLY,
     "SubnetNotExists": _C.SUBNET_NOT_EXISTS,
     "TooManyUnrevealedCommits": _C.LIMIT_EXCEEDED,
     "ExpiredWeightCommit": _C.EXPIRED,
