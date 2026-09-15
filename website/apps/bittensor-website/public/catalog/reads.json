@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 2654,
-        "end_line": 2664,
-        "url": "/code/runtime/src/lib.rs#L2654-L2664",
+        "line": 2663,
+        "end_line": 2673,
+        "url": "/code/runtime/src/lib.rs#L2663-L2673",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -932,9 +932,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_hotkey_conviction",
         "path": "runtime/src/lib.rs",
-        "line": 2515,
-        "end_line": 2517,
-        "url": "/code/runtime/src/lib.rs#L2515-L2517",
+        "line": 2524,
+        "end_line": 2526,
+        "url": "/code/runtime/src/lib.rs#L2524-L2526",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1394,9 +1394,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_most_convicted_hotkey_on_subnet",
         "path": "runtime/src/lib.rs",
-        "line": 2519,
-        "end_line": 2521,
-        "url": "/code/runtime/src/lib.rs#L2519-L2521",
+        "line": 2528,
+        "end_line": 2530,
+        "url": "/code/runtime/src/lib.rs#L2528-L2530",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1647,9 +1647,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 2666,
-        "end_line": 2694,
-        "url": "/code/runtime/src/lib.rs#L2666-L2694",
+        "line": 2675,
+        "end_line": 2703,
+        "url": "/code/runtime/src/lib.rs#L2675-L2703",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1676,9 +1676,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 2696,
-        "end_line": 2724,
-        "url": "/code/runtime/src/lib.rs#L2696-L2724",
+        "line": 2705,
+        "end_line": 2733,
+        "url": "/code/runtime/src/lib.rs#L2705-L2733",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1757,9 +1757,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2532,
-        "end_line": 2534,
-        "url": "/code/runtime/src/lib.rs#L2532-L2534",
+        "line": 2541,
+        "end_line": 2543,
+        "url": "/code/runtime/src/lib.rs#L2541-L2543",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1822,9 +1822,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2544,
-        "end_line": 2546,
-        "url": "/code/runtime/src/lib.rs#L2544-L2546",
+        "line": 2553,
+        "end_line": 2555,
+        "url": "/code/runtime/src/lib.rs#L2553-L2555",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2394,9 +2394,9 @@
         "container": "SubnetRegistrationRuntimeApi",
         "name": "get_network_registration_cost",
         "path": "runtime/src/lib.rs",
-        "line": 2525,
-        "end_line": 2527,
-        "url": "/code/runtime/src/lib.rs#L2525-L2527",
+        "line": 2534,
+        "end_line": 2536,
+        "url": "/code/runtime/src/lib.rs#L2534-L2536",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2691,9 +2691,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2538,
-        "end_line": 2540,
-        "url": "/code/runtime/src/lib.rs#L2538-L2540",
+        "line": 2547,
+        "end_line": 2549,
+        "url": "/code/runtime/src/lib.rs#L2547-L2549",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
