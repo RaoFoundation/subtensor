@@ -340,8 +340,8 @@ impl<T: Config> Pallet<T> {
                 // Child relations followed the hotkey; a `keep_stake` swap leaves the new
                 // hotkey without the stake that qualified them, and the old hotkey may have
                 // dropped below the threshold too.
-                Self::prune_childkeys_below_threshold(new_hotkey);
-                Self::prune_childkeys_below_threshold(old_hotkey);
+                Self::queue_childkey_threshold_check(new_hotkey);
+                Self::queue_childkey_threshold_check(old_hotkey);
 
                 Self::deposit_event(Event::HotkeySwapped {
                     coldkey,
@@ -628,8 +628,8 @@ impl<T: Config> Pallet<T> {
         // 11. Child relations followed the hotkey; a `keep_stake` swap leaves the new hotkey
         // without the stake that qualified them, and the old hotkey may have dropped below
         // the threshold too.
-        Self::prune_childkeys_below_threshold(new_hotkey);
-        Self::prune_childkeys_below_threshold(old_hotkey);
+        Self::queue_childkey_threshold_check(new_hotkey);
+        Self::queue_childkey_threshold_check(old_hotkey);
 
         // 12. Emit an event for the hotkey swap
         Self::deposit_event(Event::HotkeySwappedOnSubnet {

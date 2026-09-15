@@ -1491,6 +1491,13 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// MAP ( parent ) --> () | Parents with live child relations whose stake just left them.
+    /// Drained in `on_idle`, where each parent's total stake is re-checked against
+    /// `StakeThreshold` and its relations pruned if it no longer qualifies.
+    #[pallet::storage]
+    pub type ChildkeyThresholdChecks<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
+
     /// DMAP ( netuid, parent ) --> (Vec<(proportion,child)>, cool_down_block)
     #[pallet::storage]
     pub type PendingChildKeys<T: Config> = StorageDoubleMap<

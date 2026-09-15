@@ -156,6 +156,9 @@ impl<T: Config> PCRelations<T> {
     }
 }
 
+/// Upper bound on child-relation subnets pruned per queued threshold check.
+const MAX_CHILDKEY_PRUNE_RELATIONS: u64 = 8;
+
 impl<T: Config> Pallet<T> {
     /// Set childkeys vector making sure there are no empty vectors in the state
     fn set_childkeys(parent: T::AccountId, netuid: NetUid, childkey_vec: Vec<(u64, T::AccountId)>) {
@@ -641,15 +644,63 @@ impl<T: Config> Pallet<T> {
             || SubnetOwnerHotkey::<T>::try_get(netuid).is_ok_and(|owner| owner.eq(hotkey))
     }
 
-    /// Once stake has left `hotkey`, drop its live child relations (and any pending ones on
-    /// the same subnets) wherever it no longer meets the childkey stake threshold. Subnet
-    /// owner hotkeys keep theirs. A parent that falls below the threshold therefore cannot
-    /// keep routing stake to its children; it must re-qualify and schedule them again.
-    ///
-    /// Bounded by the hotkey's own relations: a hotkey with no live children pays one prefix
-    /// read and nothing else. Pending entries elsewhere are re-checked when they mature.
+    /// Called when stake has left `hotkey`. If the hotkey is a parent (has live child
+    /// relations) it is queued for a threshold re-check; the all-subnet valuation and any
+    /// pruning happen in `on_idle` under its weight budget, never inside the signed
+    /// extrinsic. Costs one prefix read, plus one write for parents.
+    pub fn queue_childkey_threshold_check(hotkey: &T::AccountId) {
+        if ChildKeys::<T>::iter_key_prefix(hotkey).next().is_some() {
+            ChildkeyThresholdChecks::<T>::insert(hotkey, ());
+        }
+    }
+
+    /// Weight of re-checking one queued parent: the all-subnet valuation plus removing up to
+    /// `MAX_CHILDKEY_PRUNE_RELATIONS` relations.
+    fn childkey_threshold_check_weight() -> Weight {
+        let subnets = Self::get_all_subnet_netuids().len() as u64;
+        T::DbWeight::get()
+            .reads(subnets.saturating_mul(4).saturating_add(4))
+            .saturating_add(
+                T::DbWeight::get().reads_writes(
+                    MAX_CHILDKEY_PRUNE_RELATIONS.saturating_mul(3),
+                    MAX_CHILDKEY_PRUNE_RELATIONS
+                        .saturating_mul(3)
+                        .saturating_add(1),
+                ),
+            )
+    }
+
+    /// Drain the threshold-check queue within `limit`. Returns the weight used.
+    pub fn process_childkey_threshold_checks(limit: Weight) -> Weight {
+        let per_item = Self::childkey_threshold_check_weight();
+        let mut used = T::DbWeight::get().reads(2);
+        if !used.saturating_add(per_item).all_lte(limit) {
+            return used;
+        }
+        let mut done: Vec<T::AccountId> = Vec::new();
+        for hotkey in ChildkeyThresholdChecks::<T>::iter_keys() {
+            if !used.saturating_add(per_item).all_lte(limit) {
+                break;
+            }
+            used.saturating_accrue(per_item);
+            Self::prune_childkeys_below_threshold(&hotkey);
+            done.push(hotkey);
+        }
+        for hotkey in done {
+            ChildkeyThresholdChecks::<T>::remove(hotkey);
+        }
+        used
+    }
+
+    /// Drop `hotkey`'s live child relations (and any pending ones on the same subnets)
+    /// wherever it no longer meets the childkey stake threshold. Subnet owner hotkeys keep
+    /// theirs. A parent that falls below the threshold therefore cannot keep routing stake to
+    /// its children; it must re-qualify and schedule them again. At most
+    /// `MAX_CHILDKEY_PRUNE_RELATIONS` subnets are handled per call; the rest stay queued.
     pub fn prune_childkeys_below_threshold(hotkey: &T::AccountId) {
-        let live_netuids: Vec<NetUid> = ChildKeys::<T>::iter_key_prefix(hotkey).collect();
+        let live_netuids: Vec<NetUid> = ChildKeys::<T>::iter_key_prefix(hotkey)
+            .take(MAX_CHILDKEY_PRUNE_RELATIONS as usize)
+            .collect();
         if live_netuids.is_empty() {
             return;
         }

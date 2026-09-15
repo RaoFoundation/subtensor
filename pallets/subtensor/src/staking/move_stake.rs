@@ -544,9 +544,9 @@ impl<T: Config> Pallet<T> {
             )
         }?;
 
-        // Stake left the origin hotkey: drop child relations it no longer qualifies for.
+        // Stake left the origin hotkey: queue its child relations for the threshold re-check.
         if origin_hotkey != destination_hotkey {
-            Self::prune_childkeys_below_threshold(origin_hotkey);
+            Self::queue_childkey_threshold_check(origin_hotkey);
         }
 
         Ok(moved)

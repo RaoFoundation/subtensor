@@ -84,8 +84,8 @@ impl<T: Config> Pallet<T> {
                 PendingChildKeys::<T>::remove(netuid, &hotkey);
             })
         }
-        // 7. Drop live child relations the hotkey no longer qualifies for.
-        Self::prune_childkeys_below_threshold(&hotkey);
+        // 7. Queue the live child relations for the threshold re-check in on_idle.
+        Self::queue_childkey_threshold_check(&hotkey);
 
         // Done and ok.
         Ok(())
@@ -166,8 +166,8 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // 5. Drop child relations the hotkey no longer qualifies for.
-        Self::prune_childkeys_below_threshold(&hotkey);
+        // 5. Queue the live child relations for the threshold re-check in on_idle.
+        Self::queue_childkey_threshold_check(&hotkey);
 
         // 6. Done and ok.
         Ok(())
@@ -269,8 +269,8 @@ impl<T: Config> Pallet<T> {
             false,
         )?;
 
-        // 5. Drop child relations the hotkey no longer qualifies for.
-        Self::prune_childkeys_below_threshold(&hotkey);
+        // 5. Queue the live child relations for the threshold re-check in on_idle.
+        Self::queue_childkey_threshold_check(&hotkey);
 
         // 6. Done and ok.
         Ok(())
@@ -361,8 +361,8 @@ impl<T: Config> Pallet<T> {
                 PendingChildKeys::<T>::remove(netuid, &hotkey);
             })
         }
-        // 7. Drop live child relations the hotkey no longer qualifies for.
-        Self::prune_childkeys_below_threshold(&hotkey);
+        // 7. Queue the live child relations for the threshold re-check in on_idle.
+        Self::queue_childkey_threshold_check(&hotkey);
 
         // Done and ok.
         Ok(())

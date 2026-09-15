@@ -259,6 +259,14 @@ mod hooks {
                 weight.saturating_accrue(Self::process_network_registration_queue());
             }
 
+            // Parents whose stake just left them: re-check the childkey threshold and prune
+            // relations here, metered, instead of inside the stake extrinsics.
+            if weight.all_lt(limit) {
+                weight.saturating_accrue(Self::process_childkey_threshold_checks(
+                    limit.saturating_sub(weight),
+                ));
+            }
+
             // Continue the multi-block beta-basket seed migration until HasMigrationRun is set.
             // Always call it while the cursor exists: its adaptive limits normally respect the
             // remaining weight, but it deliberately performs one overweight item when needed

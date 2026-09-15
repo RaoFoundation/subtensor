@@ -5110,6 +5110,10 @@ fn test_live_children_pruned_when_parent_falls_below_threshold() {
             SubtensorModule::get_total_stake_for_hotkey(&f.parent).to_u64()
                 < StakeThreshold::<Test>::get()
         );
+        // The extrinsic only queues the parent; on_idle does the metered re-check.
+        assert!(ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        run_block_idle();
+        assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
         assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
         assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
 
@@ -5173,11 +5177,55 @@ fn test_keep_stake_hotkey_swap_does_not_carry_children_to_unstaked_hotkey() {
             SubtensorModule::get_total_stake_for_hotkey(&new_hotkey),
             TaoBalance::ZERO
         );
+        assert!(ChildkeyThresholdChecks::<Test>::contains_key(new_hotkey));
+        run_block_idle();
         assert_eq!(SubtensorModule::get_children(&new_hotkey, f.netuid), vec![]);
         assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
         assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
         assert!(!PendingChildKeys::<Test>::contains_key(
             f.netuid, new_hotkey
         ));
+        assert!(!ChildkeyThresholdChecks::<Test>::contains_key(new_hotkey));
+    });
+}
+
+// A hotkey without child relations is never queued, and a queued parent that still
+// qualifies is dropped from the queue without losing its relations.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_childkey_threshold_queue_only_holds_parents --exact
+#[test]
+fn test_childkey_threshold_queue_only_holds_parents() {
+    new_test_ext(1).execute_with(|| {
+        let f = childkey_threshold_fixture();
+        // Not a parent yet: a stake exit does not queue anything.
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent,
+            f.netuid,
+            AlphaBalance::from(1_000_000_000_u64),
+        ));
+        assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent,
+            f.netuid,
+            vec![(u64::MAX, f.child)],
+        ));
+        wait_and_set_pending_children(f.netuid);
+
+        // A parent that stays above the threshold is queued, checked, and keeps its children.
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent,
+            f.netuid,
+            AlphaBalance::from(1_000_000_000_u64),
+        ));
+        assert!(ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        run_block_idle();
+        assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        assert_eq!(
+            SubtensorModule::get_children(&f.parent, f.netuid),
+            vec![(u64::MAX, f.child)]
+        );
     });
 }
