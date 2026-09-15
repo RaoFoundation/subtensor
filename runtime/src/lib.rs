@@ -1670,6 +1670,12 @@ type Migrations = (
     pallet_subtensor::migrations::migrate_stamp_beta_baselines::stamp_beta_baselines::Migration<
         Runtime,
     >,
+    // Mint the historical root dividend shortfall into the root subnet account and raise
+    // SubnetTAO[0] / TotalStake to match root holdings, so every root staker can exit.
+    // One-shot, guarded by HasMigrationRun; try-runtime checks the reconciliation invariants.
+    pallet_subtensor::migrations::migrate_fix_root_pot_shortfall::fix_root_pot_shortfall::Migration<
+        Runtime,
+    >,
 );
 
 // Unchecked extrinsic type as expected by this runtime.
