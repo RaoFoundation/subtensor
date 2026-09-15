@@ -5392,13 +5392,14 @@ fn test_childkey_threshold_processor_respects_small_budget() {
     });
 }
 
-// A child with a long incoming-parent list makes each reverse edge expensive. The idle pass
-// admits an edge only if its measured cost fits: with a budget that covers one edge the
-// prune stops after it, leaves the parent's remaining edge in place and the parent queued;
-// the next pass finishes. Interrupted state stays consistent (no dangling reverse entries).
-// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_childkey_prune_meters_reverse_edges_by_measured_length --exact
+// Each reverse edge is admitted only after reserving the cost of a cap-sized `ParentKeys`
+// row. With a budget for exactly one edge the prune stops after it, leaves the other edge in
+// place and the parent queued; the next pass finishes. Interrupted state stays consistent.
+// A legacy row longer than the cap is left intact (and the parent dequeued) instead of being
+// rewritten beyond the reservation.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_childkey_prune_reserves_capped_reverse_edge_cost --exact
 #[test]
-fn test_childkey_prune_meters_reverse_edges_by_measured_length() {
+fn test_childkey_prune_reserves_capped_reverse_edge_cost() {
     new_test_ext(1).execute_with(|| {
         let f = childkey_threshold_fixture();
         let child_b = U256::from(2_003);
@@ -5409,41 +5410,52 @@ fn test_childkey_prune_meters_reverse_edges_by_measured_length() {
             f.netuid,
             &[(u64::MAX / 2, f.child), (u64::MAX / 2, child_b)],
         );
-        // Give the first child a long incoming-parent list (legacy/unbounded state).
-        let mut crowd: Vec<(u64, U256)> = (0..60u64)
-            .map(|i| (1_000, U256::from(50_000 + i)))
-            .collect();
-        crowd.push((u64::MAX / 2, f.parent));
-        ParentKeys::<Test>::insert(f.child, f.netuid, crowd.clone());
         StakeThreshold::<Test>::put(u64::MAX / 2);
         SubtensorModule::queue_childkey_threshold_check(&f.parent);
 
-        // Budget: admission + the parent's ChildKeys row + one cheap edge (child_b), but
-        // not the 61-entry vector of `f.child`.
         let db = <Test as frame_system::Config>::DbWeight::get();
         let subnets = u64::from(TotalNetworks::<Test>::get());
         let admission = db.reads(subnets * 6 + 5).saturating_add(db.writes(1));
-        let two_entry_row = db.reads_writes(1, 1) + Weight::from_parts(0, 3 * 40);
-        let cheap_edge = db.reads_writes(1, 1) + Weight::from_parts(0, 2 * 40);
-        let budget = db.reads(2) + admission + two_entry_row + cheap_edge;
+        let row = |entries: u64| db.reads_writes(1, 1) + Weight::from_parts(0, (entries + 1) * 40);
+        // Budget: bookkeeping + admission + the parent's own row + one cap-sized edge.
+        let budget = db.reads(2) + admission + row(5) + row(512);
         let used = SubtensorModule::process_childkey_threshold_checks(budget);
         assert!(used.all_lte(budget), "must not exceed the offered budget");
 
-        // child_b's edge is gone, f.child's edge (expensive) is still there, parent queued.
+        // Exactly one edge (the last in the row, child_b) was removed; the parent is queued.
         assert_eq!(SubtensorModule::get_parents(&child_b, f.netuid), vec![]);
         assert_eq!(
             SubtensorModule::get_children(&f.parent, f.netuid),
             vec![(u64::MAX / 2, f.child)]
         );
-        assert_eq!(ParentKeys::<Test>::get(f.child, f.netuid).len(), 61);
+        assert_eq!(
+            SubtensorModule::get_parents(&f.child, f.netuid),
+            vec![(u64::MAX / 2, f.parent)]
+        );
         assert!(ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
 
-        // A full pass finishes: the crowd keeps its 60 entries, the parent's is removed.
+        // A full pass finishes.
         run_block_idle();
         assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
         assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
-        let remaining = ParentKeys::<Test>::get(f.child, f.netuid);
-        assert_eq!(remaining.len(), 60);
-        assert!(remaining.iter().all(|(_, who)| *who != f.parent));
+        assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
+
+        // Oversized legacy row: the edge is kept and the parent still leaves the queue.
+        TransactionType::SetChildren.set_last_block_on_subnet::<Test>(&f.parent, f.netuid, 0);
+        mock_set_children(&f.coldkey, &f.parent, f.netuid, &[(u64::MAX, f.child)]);
+        let mut crowd: Vec<(u64, U256)> = (0..600u64)
+            .map(|i| (1_000, U256::from(50_000 + i)))
+            .collect();
+        crowd.push((u64::MAX, f.parent));
+        ParentKeys::<Test>::insert(f.child, f.netuid, crowd);
+        StakeThreshold::<Test>::put(u64::MAX / 2);
+        SubtensorModule::queue_childkey_threshold_check(&f.parent);
+        run_block_idle();
+        assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        assert_eq!(
+            SubtensorModule::get_children(&f.parent, f.netuid),
+            vec![(u64::MAX, f.child)]
+        );
+        assert_eq!(ParentKeys::<Test>::get(f.child, f.netuid).len(), 601);
     });
 }

@@ -158,8 +158,13 @@ impl<T: Config> PCRelations<T> {
 
 /// Upper bound on child-relation subnets pruned per queued threshold check pass.
 const MAX_CHILDKEY_PRUNE_RELATIONS: u64 = 8;
+/// Maximum children a parent may register on one subnet (see `do_schedule_children`).
+const MAX_CHILDREN: u64 = 5;
 /// Encoded size of one `(u64, AccountId)` relation entry, for proof-size metering.
 const RELATION_ENTRY_BYTES: u64 = 40;
+/// Largest child `ParentKeys` row the idle prune will rewrite. Reserved in full before the
+/// row is read; longer legacy rows are left untouched.
+const MAX_REVERSE_RELATION_ENTRIES: u64 = 512;
 
 impl<T: Config> Pallet<T> {
     /// Set childkeys vector making sure there are no empty vectors in the state
@@ -727,7 +732,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Metered pruning pass. Handles at most `MAX_CHILDKEY_PRUNE_RELATIONS` non-exempt
-    /// subnets and, within them, only the reverse edges whose measured cost fits in `budget`.
+    /// subnets and, within them, only the reverse edges whose reserved (cap-sized) cost fits
+    /// in `budget`.
     /// Returns `(finished, weight_used)`: `finished` is `true` when nothing prunable remains
     /// (the hotkey qualifies, or every remaining relation is exempt or was pruned).
     fn prune_childkeys_below_threshold_within(
@@ -765,37 +771,53 @@ impl<T: Config> Pallet<T> {
         (finished, used)
     }
 
-    /// Remove `parent`'s child relations on `netuid` one reverse edge at a time, each admitted
-    /// only if its measured cost (the child's whole `ParentKeys` vector) fits in `budget`.
-    /// Touches only the parent's outgoing edges (at most five) and never the
-    /// parent's own incoming parents. Returns `(finished, weight_used)`; when unfinished the
-    /// parent's `ChildKeys` row holds exactly the edges still to remove.
+    /// Remove `parent`'s child relations on `netuid` one reverse edge at a time. Before a
+    /// child's `ParentKeys` row is touched, the cost of a row holding
+    /// `MAX_REVERSE_RELATION_ENTRIES` entries (read and write) is reserved from `budget`; the
+    /// row's real length is then checked with `decode_len`, and a legacy row longer than the
+    /// cap is left in place (logged) so no work beyond the reservation is ever performed.
+    /// Touches only the parent's outgoing edges (at most five) and never the parent's own
+    /// incoming parents. Returns `(finished, weight_used)`; when unfinished the parent's
+    /// `ChildKeys` row holds exactly the edges still to remove.
     fn remove_outgoing_child_relations(
         parent: &T::AccountId,
         netuid: NetUid,
         budget: Weight,
     ) -> (bool, Weight) {
-        let mut children = ChildKeys::<T>::get(parent, netuid);
-        let mut used = Self::relation_vector_weight(children.len());
+        // The parent's own row is bounded by the five-children rule.
+        let mut used = Self::relation_vector_weight(MAX_CHILDREN as usize);
         if !used.all_lte(budget) {
             return (false, Weight::zero());
         }
+        let reserve = Self::relation_vector_weight(MAX_REVERSE_RELATION_ENTRIES as usize);
+        let mut children = ChildKeys::<T>::get(parent, netuid);
         let mut removed: Vec<(u64, T::AccountId)> = Vec::new();
+        let mut kept: Vec<(u64, T::AccountId)> = Vec::new();
         while let Some((proportion, child)) = children.last().cloned() {
-            let parents = ParentKeys::<T>::get(&child, netuid);
-            let edge_weight = Self::relation_vector_weight(parents.len());
-            if !used.saturating_add(edge_weight).all_lte(budget) {
+            if !used.saturating_add(reserve).all_lte(budget) {
                 break;
             }
-            used.saturating_accrue(edge_weight);
-            let mut parents = parents;
+            used.saturating_accrue(reserve);
+            let len = ParentKeys::<T>::decode_len(&child, netuid).unwrap_or(0) as u64;
+            children.pop();
+            if len > MAX_REVERSE_RELATION_ENTRIES {
+                // Oversized legacy row: leave this edge intact rather than exceed the
+                // reservation. The relation survives; it is logged for follow-up.
+                log::warn!(
+                    "childkey prune: {child:?} on {netuid:?} has {len} parents (> {MAX_REVERSE_RELATION_ENTRIES}); keeping edge from {parent:?}"
+                );
+                kept.push((proportion, child));
+                continue;
+            }
+            let mut parents = ParentKeys::<T>::get(&child, netuid);
             PCRelations::<T>::remove_edge(&mut parents, parent);
             Self::set_parentkeys(child.clone(), netuid, parents);
-            children.pop();
             removed.push((proportion, child));
         }
         let finished = children.is_empty();
-        Self::set_childkeys(parent.clone(), netuid, children);
+        // Remaining (unprocessed) edges first, then any oversized ones we decided to keep.
+        children.extend(kept);
+        Self::set_childkeys(parent.clone(), netuid, children.clone());
         if !removed.is_empty() {
             log::trace!(
                 "PrunedChildren( netuid:{:?}, hotkey:{:?}, children:{:?} )",
@@ -805,7 +827,7 @@ impl<T: Config> Pallet<T> {
             );
         }
         if finished {
-            Self::deposit_event(Event::SetChildren(parent.clone(), netuid, Vec::new()));
+            Self::deposit_event(Event::SetChildren(parent.clone(), netuid, children));
         }
         (finished, used)
     }
