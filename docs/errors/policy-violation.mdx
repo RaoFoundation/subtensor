@@ -20,6 +20,7 @@ The exact chain error names (from the extrinsic receipt) that classify to `polic
 | Chain error | Description |
 | --- | --- |
 | [`AccountRejectsLockedAlpha`](/docs/errors/chain/AccountRejectsLockedAlpha) | Locked alpha was being transferred to a coldkey whose `AccountFlags` do not have the accept-locked-alpha bit set, e.g. during a lock transfer or coldkey swap of locks. Check the destination coldkey's `AccountFlags` storage and have the recipient opt in to receiving locked alpha before retrying. |
+| [`FundsNotSettled`](/docs/errors/chain/FundsNotSettled) | The crowdloan's finalization call returned without spending the full amount raised. Finalization must consume the whole raised balance; fix the configured call so it settles the funds, then finalize again. |
 | [`KeepStakeBlockedByCollateral`](/docs/errors/chain/KeepStakeBlockedByCollateral) | A hotkey swap with keep_stake=true was refused because the old hotkey still has standing miner registration collateral. keep_stake leaves stake on the old key while the UID moves, which would strand the bond. Retry with keep_stake=false so collateral migrates with the UID; on-chain hotkey lineage maps track the rename for blacklist continuity. Or drain the bond through earned emission first. |
 
 The same explanation is available in the terminal: `btcli explain policy_violation` (or `btcli explain <ChainErrorName>` for one exact chain error).

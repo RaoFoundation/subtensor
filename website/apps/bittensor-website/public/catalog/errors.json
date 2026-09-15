@@ -480,6 +480,24 @@
         }
       ]
     },
+    "BasketDepositPending": {
+      "code": "too_early",
+      "description": "A queued root-dividend deposit for this hotkey could not be settled yet, so an operation that changes the hotkey's root claimant base was refused. Wait until the deposit is settled or expires, then retry.",
+      "docs_url": "/docs/errors/chain/BasketDepositPending",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketDepositPending/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 377,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L377",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "BasketHasNoWeights": {
       "code": "invalid_argument",
       "description": "Retired on current runtimes: a basket deposit into a validator with no usable root weight vector is now held as the fund's root (TAO cash) slot instead of erroring. Seeing this error means the chain is running an older runtime \u2014 have the validator set root weights with `btcli root weights set` (or `set_root_weights`) first.",
@@ -1780,6 +1798,24 @@
           "line": 201,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L201",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "FundsNotSettled": {
+      "code": "policy_violation",
+      "description": "The crowdloan's finalization call returned without spending the full amount raised. Finalization must consume the whole raised balance; fix the configured call so it settles the funds, then finalize again.",
+      "docs_url": "/docs/errors/chain/FundsNotSettled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/FundsNotSettled/content.md",
+      "pallets": [
+        "Crowdloan"
+      ],
+      "sources": [
+        {
+          "pallet": "Crowdloan",
+          "path": "pallets/crowdloan/src/lib.rs",
+          "line": 295,
+          "url": "/code/pallets/crowdloan/src/lib.rs#L295",
+          "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
         }
       ]
     },
@@ -4039,6 +4075,24 @@
           "path": "pallets/limit-orders/src/lib.rs",
           "line": 427,
           "url": "/code/pallets/limit-orders/src/lib.rs#L427",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "OrderSignerFrozen": {
+      "code": "not_authorized",
+      "description": "The order owner is temporarily prohibited from moving funds, so the order cannot be executed. Retry once the owner's freeze has lifted.",
+      "docs_url": "/docs/errors/chain/OrderSignerFrozen",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderSignerFrozen/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 470,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L470",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]

@@ -98,6 +98,7 @@ class SubtensorModule:
     Delegates = Item('SubtensorModule', 'Delegates', 'PerU16')
     ChildkeyTake = Item('SubtensorModule', 'ChildkeyTake', 'PerU16')
     ChildkeyThresholdChecks = Item('SubtensorModule', 'ChildkeyThresholdChecks', '()')
+    ChildkeyThresholdSuspended = Item('SubtensorModule', 'ChildkeyThresholdSuspended', '()')
     PendingChildKeys = Item('SubtensorModule', 'PendingChildKeys', '(Vec<(u64, AccountId32)>, u64)')
     ChildKeys = Item('SubtensorModule', 'ChildKeys', 'Vec<(u64, AccountId32)>')
     ParentKeys = Item('SubtensorModule', 'ParentKeys', 'Vec<(u64, AccountId32)>')
