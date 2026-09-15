@@ -15,7 +15,7 @@ future operations sign with the new coldkey.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_coldkey_announced`](/code/pallets/subtensor/src/macros/dispatches.rs#L2161-L2183) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_coldkey_announced`](/code/pallets/subtensor/src/macros/dispatches.rs#L2162-L2184) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("swap_coldkey_announced", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_coldkey_announced` — [`pallets/subtensor/src/macros/dispatches.rs#L2163`](/code/pallets/subtensor/src/macros/dispatches.rs#L2161-L2183):
+`SubtensorModule.swap_coldkey_announced` — [`pallets/subtensor/src/macros/dispatches.rs#L2164`](/code/pallets/subtensor/src/macros/dispatches.rs#L2162-L2184):
 
 ```rust
 #[pallet::call_index(126)]
@@ -92,6 +92,6 @@ pub fn swap_coldkey_announced(
 }
 ```
 
-Delegates to [`do_swap_coldkey`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L8).
+Delegates to [`do_swap_coldkey`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L9).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -15,7 +15,7 @@ illiquid until you switch back to decaying and the lock runs off.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_perpetual_lock`](/code/pallets/subtensor/src/macros/dispatches.rs#L2433-L2442) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_perpetual_lock`](/code/pallets/subtensor/src/macros/dispatches.rs#L2434-L2443) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("set_perpetual_lock", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_perpetual_lock` — [`pallets/subtensor/src/macros/dispatches.rs#L2435`](/code/pallets/subtensor/src/macros/dispatches.rs#L2433-L2442):
+`SubtensorModule.set_perpetual_lock` — [`pallets/subtensor/src/macros/dispatches.rs#L2436`](/code/pallets/subtensor/src/macros/dispatches.rs#L2434-L2443):
 
 ```rust
 #[pallet::call_index(138)]
@@ -82,6 +82,6 @@ pub fn set_perpetual_lock(
 }
 ```
 
-Delegates to [`do_set_perpetual_lock`](/code/pallets/subtensor/src/staking/lock.rs#L656).
+Delegates to [`do_set_perpetual_lock`](/code/pallets/subtensor/src/staking/lock.rs#L666).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
