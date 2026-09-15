@@ -4847,7 +4847,18 @@
       "description": "The settlement would pay you less TAO than the `min_amount_out` floor you set, after interest, so nothing moved and the position is as it was. Either the pool price moved against you since the quote (someone may have pushed it in the same block), or the position is underwater and a close would pay nothing. Re-quote and retry; widen `--max-slippage` (btcli) or lower `min_amount_out` (SDK) to accept less; a floor of 0 disables the check. Also raised when an add that only opens or grows a position is given a floor above zero: such an add pays nothing out, so leave the floor at 0.",
       "docs_url": "/docs/errors/chain/SettlementBelowMinimum",
       "markdown_url": "/llms.mdx/docs/errors/chain/SettlementBelowMinimum/content.md",
-      "pallets": []
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 345,
+          "url": "/code/pallets/derivatives/src/lib.rs#L345",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+        }
+      ]
     },
     "SignatoriesOutOfOrder": {
       "code": "invalid_argument",
