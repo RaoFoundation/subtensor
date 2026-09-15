@@ -1676,6 +1676,15 @@ type Migrations = (
     pallet_subtensor::migrations::migrate_fix_root_pot_shortfall::fix_root_pot_shortfall::Migration<
         Runtime,
     >,
+    // Remove the root weight vector design: clear Weights[ROOT], kill the
+    // set_root_weights gate, and carry the 1/16 concentration cap over to
+    // BasketConcentrationCap (now a swap_basket guardrail only). Funds have no target
+    // composition: dividends accumulate in place and deposits mirror the holdings; only
+    // swap_basket changes composition. Lives here so try-runtime checks the cleanup and
+    // the cap carry-over against real network state.
+    pallet_subtensor::migrations::migrate_remove_root_weights::remove_root_weights::Migration<
+        Runtime,
+    >,
 );
 
 // Unchecked extrinsic type as expected by this runtime.

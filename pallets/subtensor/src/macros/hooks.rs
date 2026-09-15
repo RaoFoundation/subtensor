@@ -197,12 +197,6 @@ mod hooks {
                 // so ORU stays idempotent for try-runtime). Fresh key so chains that ran the
                 // superseded per-slot v1 seed still convert.
                 .saturating_add(migrations::migrate_seed_beta_basket::kickoff_seed_beta_basket_v2::<T>())
-                // Remove the root weight vector design: clear Weights[ROOT], kill the
-                // set_root_weights gate, and carry the 1/16 concentration cap over to
-                // BasketConcentrationCap (now a swap_basket guardrail only). Funds have no
-                // target composition: dividends accumulate in place and deposits mirror
-                // the holdings; only swap_basket changes composition.
-                .saturating_add(migrations::migrate_remove_root_weights::migrate_remove_root_weights::<T>())
                 // Root admission: 1 reg/block, 2/interval, 7200-block immunity,
                 // 1 TAO burn floor. Prune in `do_root_register` skips immune UIDs.
                 .saturating_add(migrations::migrate_tune_root_registration::migrate_tune_root_registration::<T>())
@@ -225,10 +219,11 @@ mod hooks {
                 // Schedule stale StakingHotkeys relationship cleanup. It runs after storage GC
                 // and uses only otherwise-unused on_idle weight; normal operations stay enabled.
                 .saturating_add(migrations::migrate_cleanup_staking_hotkeys::kickoff_staking_hotkeys_cleanup::<T>());
-            // The beta-baseline seed (`migrate_stamp_beta_baselines`) and the root pot
-            // reconciliation (`migrate_fix_root_pot_shortfall`) run from the runtime
-            // `Migrations` tuple instead of this hook, so try-runtime validates their
-            // pre/post-upgrade invariants against real network state.
+            // The beta-baseline seed (`migrate_stamp_beta_baselines`), the root pot
+            // reconciliation (`migrate_fix_root_pot_shortfall`), and the root-weights
+            // removal (`migrate_remove_root_weights`) run from the runtime `Migrations`
+            // tuple instead of this hook, so try-runtime validates their pre/post-upgrade
+            // invariants against real network state.
             weight
         }
 
