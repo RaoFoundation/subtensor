@@ -393,24 +393,16 @@ impl<T: Config> Pallet<T> {
         weight.saturating_accrue(db_weight.reads(networks_added_reads.max(1)));
         weight.saturating_accrue(db_weight.writes(1));
 
-        // Keep the locked TAO in the pool instead of recycling the excess.
-        // Size the pool alpha reserve from the total TAO reserve at that same price.
-        let pool_initial_tao: TaoBalance = Self::get_network_min_lock();
+        // The pool begins with exactly 1 TAO and 1 alpha regardless of the lock paid.
+        // The remainder of the lock is recycled below, which makes registration a
+        // real (non-recoverable) cost rather than a self-deposit into the founder's own pool.
+        let _ = median_subnet_alpha_price;
+        let one_unit: u64 = 1_000_000_000; // 1 TAO / 1 alpha (9 decimals)
+        let total_pool_tao: TaoBalance = one_unit.into();
+        let total_pool_alpha: AlphaBalance = one_unit.into();
         weight.saturating_accrue(db_weight.reads(1));
 
-        let total_pool_tao: TaoBalance = if actual_tao_lock_amount >= pool_initial_tao {
-            actual_tao_lock_amount
-        } else {
-            pool_initial_tao
-        };
-
-        let total_pool_alpha: AlphaBalance = U64F64::saturating_from_num(total_pool_tao.to_u64())
-            .safe_div(median_subnet_alpha_price)
-            .saturating_floor()
-            .saturating_to_num::<u64>()
-            .into();
-
-        // // With the full lock retained in the reserve, this will normally be zero.
+        // Everything above the 1-TAO seed is recycled (removed from circulation).
         let tao_recycled_for_registration = actual_tao_lock_amount.saturating_sub(total_pool_tao);
 
         // Core pool + ownership
@@ -418,7 +410,7 @@ impl<T: Config> Pallet<T> {
         SubnetAlphaIn::<T>::insert(netuid_to_register, total_pool_alpha);
         SubnetOwner::<T>::insert(netuid_to_register, coldkey.clone());
         Self::set_subnet_owner_hotkey(netuid_to_register, hotkey)?;
-        SubnetLocked::<T>::insert(netuid_to_register, actual_tao_lock_amount);
+        SubnetLocked::<T>::insert(netuid_to_register, total_pool_tao);
         SubnetAlphaOut::<T>::insert(netuid_to_register, AlphaBalance::ZERO);
         SubnetVolume::<T>::insert(netuid_to_register, 0u128);
         RAORecycledForRegistration::<T>::insert(netuid_to_register, tao_recycled_for_registration);
