@@ -80,6 +80,12 @@ pub trait WeightInfo {
 	fn set_subnet_identity() -> Weight;
 	fn swap_hotkey() -> Weight;
 	fn try_associate_hotkey() -> Weight;
+	/// Reference-weight fallback until CI measures the dedicated benchmark.
+	/// The existing Vec indexes require full storage reads, including on failure.
+	fn disassociate_hotkey(k: u32) -> Weight {
+		Self::try_associate_hotkey()
+			.saturating_mul(32u64.saturating_add(u64::from(k).saturating_mul(4)))
+	}
 	fn unstake_all() -> Weight;
 	fn unstake_all_alpha() -> Weight;
 	fn remove_stake_full_limit() -> Weight;

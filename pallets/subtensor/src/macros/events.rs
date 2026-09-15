@@ -816,5 +816,12 @@ mod events {
             /// Alpha removed from basket custody and recorded as burned.
             alpha: AlphaBalance,
         },
+        /// An idle hotkey was released by its owning coldkey.
+        HotkeyDisassociated {
+            /// The coldkey that released ownership.
+            coldkey: T::AccountId,
+            /// The hotkey that is now available for association.
+            hotkey: T::AccountId,
+        },
     }
 }

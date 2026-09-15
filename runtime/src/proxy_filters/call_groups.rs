@@ -383,6 +383,8 @@ call_filter_group!(
     [
         RuntimeCall::SubtensorModule(SubtensorCall::schedule_swap_coldkey),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_coldkey),
+        // Releasing ownership allows another coldkey to acquire the hotkey.
+        RuntimeCall::SubtensorModule(SubtensorCall::disassociate_hotkey),
         RuntimeCall::SubtensorModule(SubtensorCall::announce_coldkey_swap),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_coldkey_announced),
         RuntimeCall::SubtensorModule(SubtensorCall::clear_coldkey_swap_announcement),
