@@ -8,6 +8,7 @@ use sp_core::{Get, U256};
 use sp_runtime::PerU16;
 use sp_runtime::traits::{DispatchTransaction, Dispatchable};
 use sp_runtime::transaction_validity::InvalidTransaction;
+use std::collections::BTreeSet;
 use substrate_fixed::types::{U64F64, U96F32};
 use subtensor_runtime_common::TaoBalance;
 use subtensor_swap_interface::SwapHandler;
@@ -2655,5 +2656,113 @@ fn test_cross_subnet_transfer_stake_keeps_signer_account_and_nonce() {
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &signer, netuid_a),
             signer_alpha_before.saturating_sub(chunk)
         );
+    });
+}
+
+/// A third party plants one distinct hotkey on `victim`'s `StakingHotkeys` with a dust
+/// same-subnet transfer. Returns the hotkey used.
+fn third_party_transfer_new_hotkey(
+    attacker: &U256,
+    victim: &U256,
+    netuid: NetUid,
+    idx: u64,
+) -> Result<U256, sp_runtime::DispatchError> {
+    let hotkey = U256::from(1_000_000 + idx);
+    let min_transfer = DefaultMinTransfer::<Test>::get().to_u64();
+    let _ = SubtensorModule::create_account_if_non_existent(attacker, &hotkey);
+    add_balance_to_coldkey_account(attacker, TaoBalance::from(min_transfer * 4));
+    SubtensorModule::stake_into_subnet(
+        &hotkey,
+        attacker,
+        netuid,
+        TaoBalance::from(min_transfer * 2),
+        <Test as Config>::SwapInterface::max_price(),
+        false,
+    )
+    .unwrap();
+    let alpha =
+        SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, attacker, netuid);
+    let amount = AlphaBalance::from((min_transfer + 1).min(alpha.to_u64()));
+    SubtensorModule::do_transfer_stake(
+        RuntimeOrigin::signed(*attacker),
+        *victim,
+        hotkey,
+        netuid,
+        netuid,
+        amount,
+    )
+    .map(|_| hotkey)
+}
+
+// Third parties can grow a coldkey's `StakingHotkeys` only up to a fixed bound; the coldkey
+// itself is not limited, and its coldkey-wide root claim stays admissible.
+#[test]
+fn test_third_party_transfers_cannot_grow_staking_hotkeys_without_bound() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(9002), &U256::from(9001));
+        setup_reserves(
+            netuid,
+            TaoBalance::from(1_000_000_000_000_000_u64),
+            AlphaBalance::from(1_000_000_000_000_000_u64),
+        );
+        let attacker = U256::from(1);
+        let victim = U256::from(2);
+        let cap = MAX_THIRD_PARTY_STAKING_HOTKEYS as u64;
+        assert!(StakingHotkeys::<Test>::get(victim).is_empty());
+
+        let mut planted = Vec::new();
+        for i in 0..cap {
+            planted.push(third_party_transfer_new_hotkey(&attacker, &victim, netuid, i).unwrap());
+        }
+        assert_eq!(StakingHotkeys::<Test>::get(victim).len() as u64, cap);
+
+        // One more distinct hotkey is refused...
+        assert_eq!(
+            third_party_transfer_new_hotkey(&attacker, &victim, netuid, cap).unwrap_err(),
+            Error::<Test>::TooManyStakingHotkeys.into()
+        );
+        assert_eq!(StakingHotkeys::<Test>::get(victim).len() as u64, cap);
+
+        // ...but a transfer to a hotkey the victim already stakes through is fine.
+        let existing = planted[0];
+        let min_transfer = DefaultMinTransfer::<Test>::get().to_u64();
+        add_balance_to_coldkey_account(&attacker, TaoBalance::from(min_transfer * 4));
+        SubtensorModule::stake_into_subnet(
+            &existing,
+            &attacker,
+            netuid,
+            TaoBalance::from(min_transfer * 4),
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+        assert_ok!(SubtensorModule::do_transfer_stake(
+            RuntimeOrigin::signed(attacker),
+            victim,
+            existing,
+            netuid,
+            netuid,
+            AlphaBalance::from(min_transfer * 2),
+        ));
+        assert_eq!(StakingHotkeys::<Test>::get(victim).len() as u64, cap);
+
+        // The victim's own staking is not bounded by the third-party cap.
+        let own_hotkey = U256::from(5_000_000);
+        let _ = SubtensorModule::create_account_if_non_existent(&victim, &own_hotkey);
+        add_balance_to_coldkey_account(&victim, TaoBalance::from(10_000_000_000_u64));
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(victim),
+            own_hotkey,
+            netuid,
+            TaoBalance::from(1_000_000_000_u64),
+        ));
+        assert_eq!(StakingHotkeys::<Test>::get(victim).len() as u64, cap + 1);
+
+        // The coldkey-wide root claim is still within its admission budget.
+        assert!(cap + 1 <= MAX_ROOT_CLAIM_WORK as u64);
+        assert_ok!(SubtensorModule::claim_root(
+            RuntimeOrigin::signed(victim),
+            BTreeSet::new()
+        ));
     });
 }
