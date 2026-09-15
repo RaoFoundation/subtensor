@@ -1605,14 +1605,23 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Exact inverse of [`Self::credit_root_slot`]: take `tao` out of the fund's root cash
-    /// slot, moving the escrow's root stake row and the root reserves together.
-    pub(super) fn debit_root_slot(hotkey: &T::AccountId, escrow: &T::AccountId, tao: TaoBalance) {
-        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+    /// slot, moving the escrow's root stake row and the root reserves together. Returns the
+    /// TAO that really left the slot; the reserves move by that amount, never by `tao`, so a
+    /// short debit of the stake row cannot leave the reserves understated.
+    pub(super) fn debit_root_slot(
+        hotkey: &T::AccountId,
+        escrow: &T::AccountId,
+        tao: TaoBalance,
+    ) -> TaoBalance {
+        let removed: TaoBalance = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
             hotkey,
             escrow,
             NetUid::ROOT,
             tao.to_u64().into(),
-        );
-        Self::debit_root_reserves(tao);
+        )
+        .to_u64()
+        .into();
+        Self::debit_root_reserves(removed);
+        removed
     }
 }

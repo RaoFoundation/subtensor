@@ -233,11 +233,20 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<u64, DispatchError> {
+        // Only alpha that really left the holding may be sold (or, on root, moved on): a
+        // short debit would otherwise still be swapped for TAO in full, letting the fund sell
+        // alpha it never held.
         if netuid.is_root() {
-            Self::debit_root_slot(hotkey, escrow, alpha.to_u64().into());
+            let removed = Self::debit_root_slot(hotkey, escrow, alpha.to_u64().into());
+            ensure!(
+                removed.to_u64() == alpha.to_u64(),
+                Error::<T>::NotEnoughStakeToWithdraw
+            );
             return Ok(alpha.to_u64());
         }
-        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid, alpha);
+        let alpha_removed =
+            Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid, alpha);
+        ensure!(alpha_removed == alpha, Error::<T>::NotEnoughStakeToWithdraw);
         let floor = Self::basket_trade_price_limit(netuid, Leg::Sell)?;
         let out = Self::swap_alpha_for_tao(netuid, alpha, floor, false)?;
         let consumed = out.amount_paid_in.saturating_add(out.fee_paid);
