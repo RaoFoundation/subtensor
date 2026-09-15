@@ -433,10 +433,29 @@ call_filter_group!(
     [RuntimeCall::SubtensorModule(SubtensorCall::start_call),]
 );
 
+// pallet-subtensor calls that spend, lock or destroy the signer's TAO or alpha
+// without being a transfer or a stake-position change: burning stake in,
+// locking alpha, recycling/burning alpha, and paying a network lock cost.
+// Granted to the broad value-capable proxies, never to `NonFungible`.
+call_filter_group!(
+    SubtensorValueCalls,
+    [
+        RuntimeCall::SubtensorModule(SubtensorCall::add_stake_burn),
+        RuntimeCall::SubtensorModule(SubtensorCall::lock_stake),
+        RuntimeCall::SubtensorModule(SubtensorCall::move_lock),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_perpetual_lock),
+        RuntimeCall::SubtensorModule(SubtensorCall::recycle_alpha),
+        RuntimeCall::SubtensorModule(SubtensorCall::burn_alpha),
+        RuntimeCall::SubtensorModule(SubtensorCall::register_network),
+        RuntimeCall::SubtensorModule(SubtensorCall::register_network_with_identity),
+        RuntimeCall::SubtensorModule(SubtensorCall::register_leased_network),
+    ]
+);
+
 // Residual pallet-subtensor calls that no proxy needs to grant on their own:
-// weights, serving, delegate-take, alpha lock/burn/preferences, network
-// registration, childkey admin, account association, tempo control, voting
-// power, root-claim admin, and lease teardown.
+// weights, serving, delegate-take, alpha preferences, childkey admin, account
+// association, tempo control, voting power, root-claim admin, and lease
+// teardown. Nothing here moves, locks or destroys value.
 call_filter_group!(
     SubtensorCommonCalls,
     [
@@ -453,16 +472,7 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::reveal_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::reveal_mechanism_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::batch_reveal_weights),
-        RuntimeCall::SubtensorModule(SubtensorCall::add_stake_burn),
-        RuntimeCall::SubtensorModule(SubtensorCall::lock_stake),
-        RuntimeCall::SubtensorModule(SubtensorCall::move_lock),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_perpetual_lock),
         RuntimeCall::SubtensorModule(SubtensorCall::set_reject_locked_alpha),
-        RuntimeCall::SubtensorModule(SubtensorCall::recycle_alpha),
-        RuntimeCall::SubtensorModule(SubtensorCall::burn_alpha),
-        RuntimeCall::SubtensorModule(SubtensorCall::register_network),
-        RuntimeCall::SubtensorModule(SubtensorCall::register_network_with_identity),
-        RuntimeCall::SubtensorModule(SubtensorCall::register_leased_network),
         RuntimeCall::SubtensorModule(SubtensorCall::decrease_take),
         RuntimeCall::SubtensorModule(SubtensorCall::increase_take),
         RuntimeCall::SubtensorModule(SubtensorCall::serve_axon),
@@ -696,6 +706,7 @@ type SubtensorSplitCalls = (
     RootClaimCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    SubtensorValueCalls,
     SubtensorCommonCalls,
 );
 
