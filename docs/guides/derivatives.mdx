@@ -78,6 +78,8 @@ being closed; they only stop positions from being opened or grown. See
 | **Equity** | What a close right now would pay you: cushion + proceeds − debt at the pool's quote − interest owed. An estimate; only you can act on it. |
 | **Underwater** | Equity at or below zero: the pool's own quote says your pot cannot repay the debt plus the interest. An underwater close trades nothing. Everything the pallet holds for you goes to the pool as it is, and you are paid nothing. Being underwater does not close the position: you may keep holding it while the cushion pays the weekly interest. |
 | **Parked** | Liquidity a settlement handed back while the spot price was more than 5% away from the subnet's moving price. It waits in the pallet, outside the pool, and rejoins the pool once the spot is back within 5%. |
+| **Held** | The pool's share of the parts of your position you have already settled: the alpha a reduction bought back (or the TAO it repaid) and anything an underwater reduction forfeited. It stays with the pallet, outside the pool, until you close, and goes back with the escrow in one return. See [Closing part of a position](#closing-part-of-a-position). |
+| **Floor** | The least TAO a settlement must pay you, after interest: `min_amount_out` on `close` and `add`. Below it the call fails and nothing moves. `btcli` derives it from a quote and `--max-slippage`. See [Your floor on the payout](#your-floor-on-the-payout). |
 
 One position per coldkey per subnet. Its side is simply the sign of what you
 hold: a short that you add a bigger long to becomes a long (once longs are
@@ -152,16 +154,20 @@ exposure, and interest per year. That is what makes one call enough
 |----------|---------|--------------|
 | nothing | 100 τ short | A short opens with a 100 τ cushion. |
 | 100 τ short | 50 τ short | A second slice is lifted and sold at today's price. Cushion 150 τ, every leg is the sum of two lifts, the interest is the sum of both. |
-| 150 τ short | 50 τ long | One third of the short is settled at today's price: a third of the debt is bought back, a third of the escrow returned, and a third of the cushion, less interest and less or plus the price move, comes back to you. Nothing is deposited. Works with longs off: the result is still a short. |
+| 150 τ short | 50 τ long | One third of the short is settled at today's price: a third of the debt is bought back and held for the pool, and a third of the cushion, less interest and less or plus the price move, comes back to you. The escrow stays put; the pool gets everything back when you close. Nothing is deposited. Works with longs off: the result is still a short. |
 | 100 τ short | 250 τ long at 1x | The whole short is settled and paid out. The 150 τ that remain open a long with a 150 τ cushion; only that 150 τ is taken from you. **Not enabled at launch:** with longs off this add is refused whole with `LongsDisabled`, and the short is left exactly as it was. |
 | 100 τ short | 100 τ long at 1x | The short is settled; you are flat. Anything left over that is below the minimum deposit (0.1 τ) is dropped rather than opened. Works with longs off: nothing long is left open. |
 
-A reduction is a fraction of the position, and it is the same fraction of
-every leg ([`do_settle`](/code/pallets/derivatives/src/settle.rs)). Because
-a position has one blended entry price, a fraction of it is underwater
+A reduction is a fraction of the position: the same fraction of the
+proceeds and the debt, and of the cushion
+([`do_settle`](/code/pallets/derivatives/src/settle.rs)). The escrow does
+not move, and nothing goes back to the pool until you close; see
+[Closing part of a position](#closing-part-of-a-position). Because a
+position has one blended entry price, a fraction of it is underwater
 exactly when the whole is: an underwater reduction trades nothing, pays you
-nothing for that share, and hands everything the pallet held for it to the
-pool as it is, same as a full close. The rest stays open.
+nothing for that share, and books everything the pallet held for it as the
+pool's, to go back at the close, same as a full close hands it back. The
+rest stays open.
 
 ## What you get back
 
@@ -404,6 +410,12 @@ The call fails if:
 | `LeverageOutOfRange` | `--leverage` is zero or above the side's ceiling. |
 | `ZeroExposure` | The slice rounds to nothing against the pool, or the pool would swap it for nothing. |
 | `PoolCapExceeded` | All open positions of that side already borrow `pool_share` (25%) of the lent reserve, or your slice alone would take the whole pool. A `pool_share` of zero means root has paused new positions. Try a smaller cushion or wait for others to close. |
+| `SettlementBelowMinimum` | The add reduces or closes your position and would pay less than your floor (`min_amount_out`; `--max-slippage` in `btcli`), or it only opens or grows and was given a floor above zero. Nothing moved. Re-quote and retry, or widen the floor. See [Your floor on the payout](#your-floor-on-the-payout). |
+
+`btcli deriv short` and `long` set the floor for you when the add takes
+exposure off a position: they quote that share's payout and pass the quote
+less `--max-slippage` (default 1%). An add that opens or grows has no payout
+and passes no floor.
 
 ## Watch and close
 
@@ -412,21 +424,58 @@ The call fails if:
 btcli deriv list -w my_coldkey
 btcli deriv list --coldkey <ss58> --netuid 7 --json
 
-# Close your position on subnet 7
+# Close your position on subnet 7. btcli quotes the payout and sets a floor
+# 1% under it; pass --max-slippage to tighten or loosen the floor.
 btcli deriv close --netuid 7 -w my_coldkey
+btcli deriv close --netuid 7 --max-slippage 0.25 -w my_coldkey
 ```
 
 ```python
 positions = await client.prices.derivative_positions(coldkey_ss58="5C...")
 one = await client.prices.derivative_position(coldkey_ss58="5C...", netuid=7)
 everyone = await client.prices.derivative_positions_on_subnet(netuid=7)
-await client.execute(bt.ClosePosition(netuid=7), wallet)
+# min_amount_out is TAO; 0 (the default) is no floor.
+await client.execute(bt.ClosePosition(netuid=7, min_amount_out=98.5), wallet)
 ```
 
 Settling is atomic: [`do_settle`](/code/pallets/derivatives/src/settle.rs)
 reverses the open trade, repays the pool, collects the interest, pays you, and
 returns the slice — or the whole call reverts. You may close, or reduce, at
 any block.
+
+### Your floor on the payout
+
+A settlement trades at the pool's live price, in the block your call lands
+in. Anyone who sees the call coming can trade ahead of it in the same block:
+buy alpha before a short closes, so the buyback costs more and you are paid
+less, then sell back after. With a big enough push the pool's quote says
+your position is underwater, and a close with no floor forfeits the whole
+cushion to the pool while the pusher pays only swap fees.
+
+So `close` and `add` take a **floor**: `min_amount_out`, the least TAO the
+call must pay you after interest. The pallet checks it after the closing
+trade and the interest, before anything is paid or returned. If the payout
+is under the floor, the call fails with `SettlementBelowMinimum` and
+**nothing has happened**: the trade is rolled back, your position is exactly
+as it was, and you can try again when the price is back. An underwater close
+pays nothing, so any floor above zero also means a pushed price cannot
+forfeit your position; only you, closing with no floor, can.
+
+- `0` is no floor. That is the SDK default and what an `add` that only opens
+  or grows a position must pass, since such an add pays nothing out (a floor
+  above zero there fails with the same error).
+- On a reduction, the floor is on that share's payout. On a flip, it is on
+  the payout of the position being closed; the new side opens only if the
+  floor is met.
+- `btcli deriv close`, `short`, and `long` quote the payout first and set
+  the floor to the quote less `--max-slippage`, 1% by default. `100`
+  disables it. The quote uses the pool's own swap simulation; the chain's
+  settlement is the last word, and the margin is there for the difference.
+
+The floor protects your payout, not the pool. The pool's own protections
+are that an underwater settlement never trades, that a return into a pushed
+price is parked, and that a partial settlement returns nothing until the
+close. Between the four, nobody can profit by trading against your close.
 
 ## How a position closes
 
@@ -441,7 +490,7 @@ one in `closed_by`:
 | Closer | What happened |
 |--------|---------------|
 | `Owner` | You called `close`, or you added the other side for at least your whole position, and the pot covered the debt. |
-| `Underwater` | You called `close`, but the pool's quote said the pot could not repay the debt plus the interest. Nothing was traded; everything the pallet held went to the pool as it was. |
+| `Underwater` | You called `close` with no floor, but the pool's quote said the pot could not repay the debt plus the interest. Nothing was traded; everything the pallet held went to the pool as it was. With a floor above zero such a close fails with `SettlementBelowMinimum` instead, and the position stays open. |
 | `Starved` | A weekly interest collection found a cushion that could not pay. The chain forfeited the position to the pool. |
 | `Dissolution` | The subnet was dissolved. The position was cash-settled at fixed prices. |
 
@@ -468,6 +517,11 @@ your close, let your close buy back the debt at the pushed price, and sell
 back after it, with the pool as the counterparty. A close that does not trade
 gives them nothing to trade against.
 
+That protects the pool. What protects you from the same push is the floor:
+a close with `min_amount_out` above zero fails rather than forfeit, because
+the forfeit pays you nothing and nothing is under your floor. See
+[Your floor on the payout](#your-floor-on-the-payout).
+
 ### Closing a short
 
 A short owes the pool alpha (its **debt**). It holds the TAO that alpha was
@@ -488,10 +542,14 @@ runs these steps in one call. Either all of them land or none does.
 5. Take the interest owed out of what is left in the pot.
 6. The interest TAO buys alpha from the pool, and that alpha is recycled (see
    [Weekly interest](#weekly-interest)).
-7. Whatever is left in the pot is paid to you, in TAO.
-8. The pool gets back the alpha that was bought, the escrow TAO, and anything
-   forfeited. This return does not move the price. If the spot price is more
-   than 5% from the moving price, the return is parked instead (see
+7. If what is left in the pot is under your floor (`min_amount_out`), stop:
+   the whole call fails with `SettlementBelowMinimum`, every step above is
+   rolled back, and the position is as it was.
+8. Whatever is left in the pot is paid to you, in TAO.
+9. The pool gets back the alpha that was bought, the escrow TAO, anything
+   forfeited, and anything earlier reductions held for it. This return does
+   not move the price. If the spot price is more than 5% from the moving
+   price, the return is parked instead (see
    [Parked liquidity](#parked-liquidity)).
 
 ### Closing a long (not enabled at launch)
@@ -516,10 +574,12 @@ slice (its **escrow**). The steps mirror the short:
    pool.
 6. Take the interest owed out of what is left in the pot.
 7. The interest TAO buys alpha from the pool, and that alpha is recycled.
-8. Whatever is left in the pot is paid to you, in TAO.
-9. The pool gets back the TAO that was repaid, the escrow alpha, and anything
-   forfeited. This return does not move the price, or is parked, as for a
-   short.
+8. If what is left in the pot is under your floor, stop: the call fails with
+   `SettlementBelowMinimum` and everything is rolled back.
+9. Whatever is left in the pot is paid to you, in TAO.
+10. The pool gets back the TAO that was repaid, the escrow alpha, anything
+    forfeited, and anything earlier reductions held for it. This return does
+    not move the price, or is parked, as for a short.
 
 ### Parked liquidity
 
@@ -559,17 +619,38 @@ Adding on the other side closes part of your position instead of all of it.
 `add` compares the exposure you ask for (deposit times leverage) with the
 exposure you hold:
 
-- **Less than you hold.** That fraction of the position runs the steps above,
-  with the same fraction of the cushion as its pot. The interest owed by the
-  whole position is paid first from that pot, then from the cushion that
-  stays. The rest of the position stays open, and `PositionReduced` is
-  emitted. Nothing is deposited.
+- **Less than you hold.** That fraction of the proceeds and the debt runs the
+  steps above, with the same fraction of the cushion as its pot. The interest
+  owed by the whole position is paid first from that pot, then from the
+  cushion that stays. The rest of the position stays open, and
+  `PositionReduced` is emitted. Nothing is deposited. **Nothing goes back to
+  the pool yet**: see below.
 - **Your whole position, or more.** The whole position runs the steps above.
   If the part of your deposit past the flip point is at least 0.1 τ, it opens
   a new position on the other side. Only that part is taken from you. While
   longs are off, a long-side add that would open a long this way is refused
   whole with `LongsDisabled` before anything is settled; one that lands at
   or before zero, or leaves only dust past it, goes through as a close.
+
+**A reduction hands nothing back to the pool.** The escrow stays in your
+position, whole. The alpha the reduction bought back (or, for a long, the
+TAO it repaid), and everything an underwater reduction forfeits, is booked
+on the position as **held**: the pool's, kept by the pallet outside the
+pool's price, alongside the escrow. Your full close returns all of it in one
+go, after its own buyback ([`Position::held`](/code/pallets/derivatives/src/position.rs)).
+A forfeit and a dissolution return it too. Because the escrow is still out
+of the pool, it still counts in the position's footprint against the 25%
+cap; only the settled share of the proceeds comes off.
+
+Why not return each share's slice at once? Returning liquidity is
+price-neutral: the pool takes the pair and re-weights so the price does not
+move. A reduction's slice would go back at the price your own opening trade
+had pushed, and the pool would deepen there. Every later buyback would then
+climb a flatter curve and cost less than it should, so a short unwound in
+steps was paid more than one close would pay, out of the pool, with no
+interest owed and no fee paid, as often as you liked. Held back, the
+buybacks run on one curve, and unwinding in a hundred steps pays what
+unwinding in one pays, within a rao. The same is true of a long.
 
 ## What never happens
 
@@ -602,9 +683,16 @@ weekly collection, or the subnet's dissolution. Either way the pool is
 whole, and the most you lose is the cushion.
 
 **No trade the pool pays for.** A close never swaps on the pool's behalf. An
-underwater close hands everything back as it is, and a return made into a
-pushed price is parked until the price has settled. Whoever pushes a price
-to trade against a close finds only their own round trip to unwind.
+underwater close hands everything back as it is, a return made into a
+pushed price is parked until the price has settled, and a reduction returns
+nothing until the close, so a position cannot deepen the pool between its
+own buybacks. Whoever pushes a price to trade against a close finds only
+their own round trip to unwind.
+
+**No fill under your floor.** A settlement that would pay you less than the
+`min_amount_out` you set fails whole, and your position is untouched. What a
+same-block push can cost you is bounded by the floor you chose; with no
+floor it is not, which is why `btcli` sets one by default.
 
 ## Longs do not earn emission (not enabled at launch)
 
@@ -816,7 +904,7 @@ book without reading storage:
 | Event | When |
 |-------|------|
 | `PositionAdded` | A tranche was added (or a position opened): owner, subnet, side, the deposit, leverage, legs, exposure added, and the position's exposure after it. |
-| `PositionReduced` | Part of a position was settled: owner, subnet, side, the fraction unwound, the payout, interest paid, any shortfall, and the exposure left. |
+| `PositionReduced` | Part of a position was settled: owner, subnet, side, the fraction unwound, the payout, interest paid, any shortfall, and the exposure left. Nothing went back to the pool; the settled share's slice is held until the close. |
 | `PositionClosed` | A position settled in full: why (`Owner`, `Underwater`, `Starved`, or `Dissolution`), the payout to the owner, interest paid, and any shortfall the pool carried. A starved position pays what was left of its cushion as interest and has no shortfall: nothing was swapped. An underwater one reports the whole debt as the shortfall: nothing was bought back, the pool was paid in the other token instead. |
 | `ParamsSet` | Root set the three parameters. |
 | `DerivativesToggled` | Root turned the network-wide switch on or off. Off refuses every `add`; `close`, interest collection, and dissolution settlement go on. |
@@ -825,8 +913,9 @@ book without reading storage:
 | `LiquidityParked` | A settlement handed liquidity back while the spot was off the moving price; the pair waits in the pallet. |
 | `LiquidityReleased` | A parked pair rejoined the pool, or went to a dissolving subnet's reserves. |
 
-The storage behind them is public too: `Positions`, `Footprint` (borrowed per
-side per subnet), `OpenByNetuid` (who holds a position on a subnet),
+The storage behind them is public too: `Positions` (each with its `held`
+pair, the pool's share that reductions took back and the close returns),
+`Footprint` (borrowed per side per subnet), `OpenByNetuid` (who holds a position on a subnet),
 `Due` (the interest queue, positions by the block they are next collected)
 and `NextDue` (the first slot not yet collected), `Params`,
 `DerivativesEnabled` and `LongsEnabled` (the switches), `PalletHotkey`, `Parked` (liquidity
@@ -837,8 +926,8 @@ subnet's positions are being settled.
 
 | Item | Where |
 |------|-------|
-| Extrinsics | `add` (with a `side` argument) and `close`, plus root-only `sudo_set_params`, `sudo_set_derivatives_enabled`, and `sudo_set_longs_enabled`. SDK intents: [`add-derivative`](/docs/tx/add-derivative), [`close-derivative`](/docs/tx/close-derivative) |
-| Errors | [`DerivativesDisabled`](/docs/errors/chain/DerivativesDisabled), [`LongsDisabled`](/docs/errors/chain/LongsDisabled), and the add-time errors listed under [Add to a position](#add-to-a-position) |
+| Extrinsics | `add` (with a `side` argument and a `min_amount_out` floor) and `close` (with the same floor), plus root-only `sudo_set_params`, `sudo_set_derivatives_enabled`, and `sudo_set_longs_enabled`. SDK intents: [`add-derivative`](/docs/tx/add-derivative), [`close-derivative`](/docs/tx/close-derivative) |
+| Errors | [`DerivativesDisabled`](/docs/errors/chain/DerivativesDisabled), [`LongsDisabled`](/docs/errors/chain/LongsDisabled), [`SettlementBelowMinimum`](/docs/errors/chain/SettlementBelowMinimum), and the add-time errors listed under [Add to a position](#add-to-a-position) |
 | Queries | [`derivative-position`](/docs/query/derivative-position), [`derivative-positions`](/docs/query/derivative-positions), [`derivative-positions-on-subnet`](/docs/query/derivative-positions-on-subnet), [`derivatives-params`](/docs/query/derivatives-params) |
 | Add path | [`do_add`](/code/pallets/derivatives/src/settle.rs) |
 | Pool operations | [`derivatives_pool.rs`](/code/pallets/subtensor/src/staking/derivatives_pool.rs) |
@@ -877,8 +966,13 @@ subnet's positions are being settled.
   position's leverage is the blend.
 - An underwater close trades nothing: everything goes to the pool as it is.
   Liquidity returned into a pushed price is parked until the price settles.
-  Nobody can profit by trading against your close, and the pool never pays
-  for a trade.
+  A reduction returns nothing until you close, so closing in steps pays what
+  closing in one pays. Nobody can profit by trading against your close, and
+  the pool never pays for a trade.
+- Set a floor. `close` and `add` take `min_amount_out`, the least TAO you
+  will accept after interest; under it the call fails and your position is
+  untouched, and an underwater position cannot be forfeited by a pushed
+  price. `btcli` sets it from a quote less `--max-slippage` (1% by default).
 - A long moves the spot price but not the price emission is weighted by. A
   short moves both.
 - If the subnet is deregistered, your position is cash-settled for you, with

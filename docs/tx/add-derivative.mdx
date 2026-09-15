@@ -14,6 +14,15 @@ price and its share of the cushion, less interest and loss, is paid back;
 nothing is deposited. Asking for more than the position holds closes it
 and opens the rest on the new side, taking only that rest's cushion.
 
+`min_amount_out` is your floor on the TAO the call pays you, after
+interest. It binds when the add reduces or closes a position: the
+settlement runs at the live pool price, which anyone can move in the same
+block ahead of it, and a payout below the floor fails the whole call with
+`SettlementBelowMinimum` instead of filling worse. An add that only opens
+or grows pays nothing out and must leave it at `0`, which is also no
+floor. `btcli deriv short` / `long` derive it from a quote and
+`--max-slippage`.
+
 Refused with `DerivativesDisabled` while the network-wide switch is off
 (`enabled` in `btcli deriv params`); `ClosePosition` still works then.
 Refused with `LongsDisabled` while the long side is off (`longs_enabled`,
@@ -23,7 +32,7 @@ through, and so does every `Short` add.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.add`](/code/pallets/derivatives/src/lib.rs#L387-L398) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.add`](/code/pallets/derivatives/src/lib.rs#L406-L425) |
 
 ## Parameters
 
@@ -33,6 +42,7 @@ through, and so does every `Short` add.
 | `side` | string | yes | Direction to add: `Short` or `Long`. |
 | `amount` | number \| `"all"` | yes | TAO the tranche is sized by. Exposure is `leverage` times it, measured against the pool's TAO reserve. Deposited as cushion when it adds to your position; only sizes the reduction when it goes against it. |
 | `leverage` | number | no | Exposure as a multiple of `amount`: 1, 1.2, 1.5. At most the side's maximum: 1x for shorts, 1.5x for longs (`max_short_leverage` / `max_long_leverage` in `btcli deriv params`). |
+| `min_amount_out` | number \| `"all"` | no | Least TAO this call must pay you, after interest, when it reduces or closes a position; below it the call fails with `SettlementBelowMinimum` and nothing moves. Must be 0 for an add that only opens or grows. 0 (default) is no floor. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -79,7 +89,7 @@ result = sub.execute_tool("add_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.add` — [`pallets/derivatives/src/lib.rs#L389`](/code/pallets/derivatives/src/lib.rs#L387-L398):
+`Derivatives.add` — [`pallets/derivatives/src/lib.rs#L408`](/code/pallets/derivatives/src/lib.rs#L406-L425):
 
 ```rust
 #[pallet::call_index(0)]
@@ -90,12 +100,20 @@ pub fn add(
     side: Side,
     deposit: TaoBalance,
     leverage_percent: u16,
+    min_amount_out: TaoBalance,
 ) -> DispatchResult {
     let owner = ensure_signed(origin)?;
-    Self::do_add(owner, netuid, side, deposit, leverage_percent)
+    Self::do_add(
+        owner,
+        netuid,
+        side,
+        deposit,
+        leverage_percent,
+        min_amount_out,
+    )
 }
 ```
 
-Delegates to [`do_add`](/code/pallets/derivatives/src/settle.rs#L67).
+Delegates to [`do_add`](/code/pallets/derivatives/src/settle.rs#L72).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

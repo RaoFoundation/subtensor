@@ -304,6 +304,7 @@
     "SenderInSignatories",
     "ServingRateLimitExceeded",
     "SettingWeightsTooFast",
+    "SettlementBelowMinimum",
     "SignatoriesOutOfOrder",
     "SlippageTooHigh",
     "SpaceLimitExceeded",

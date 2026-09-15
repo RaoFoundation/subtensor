@@ -11,15 +11,25 @@ position is underwater the pool absorbs the shortfall and you get nothing
 back. Works whether or not the network-wide switch is on: the switch
 gates adds, never exits.
 
+`min_amount_out` is your floor on the payout, after interest. The close
+runs at the live pool price, which anyone can move in the same block
+ahead of it; a payout below the floor fails the call with
+`SettlementBelowMinimum` and leaves the position as it was. Since an
+underwater close pays nothing, any floor above `0` also stops a price
+pushed against you from forfeiting the position. `0` (the default) is
+no floor. `btcli deriv close` derives it from a quote and
+`--max-slippage`.
+
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.close`](/code/pallets/derivatives/src/lib.rs#L407-L412) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.close`](/code/pallets/derivatives/src/lib.rs#L440-L449) |
 
 ## Parameters
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet the position is on. |
+| `min_amount_out` | number \| `"all"` | no | Least TAO the close must pay you, after interest; below it the call fails with `SettlementBelowMinimum` and the position stays open. 0 (default) is no floor. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -62,17 +72,21 @@ result = sub.execute_tool("close_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.close` — [`pallets/derivatives/src/lib.rs#L409`](/code/pallets/derivatives/src/lib.rs#L407-L412):
+`Derivatives.close` — [`pallets/derivatives/src/lib.rs#L442`](/code/pallets/derivatives/src/lib.rs#L440-L449):
 
 ```rust
 #[pallet::call_index(1)]
 #[pallet::weight(T::WeightInfo::close())]
-pub fn close(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
+pub fn close(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    min_amount_out: TaoBalance,
+) -> DispatchResult {
     let owner = ensure_signed(origin)?;
-    Self::do_settle(&owner, netuid, Perquintill::one())
+    Self::do_settle(&owner, netuid, Perquintill::one(), min_amount_out)
 }
 ```
 
-Delegates to [`do_settle`](/code/pallets/derivatives/src/settle.rs#L313).
+Delegates to [`do_settle`](/code/pallets/derivatives/src/settle.rs#L349).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

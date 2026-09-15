@@ -403,9 +403,13 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
               <DocLink href='/docs/tx/close-derivative'>
                 <code>close</code>
               </DocLink>
-              ). Only you can close your position. To keep it open longer, add cushion.
+              ). Only you can close your position. To keep it open longer, add cushion. btcli
+              quotes the payout first and sets a floor on it, the quote less{' '}
+              <code>--max-slippage</code> (default 1%); a close that would pay less rolls back
+              with <code>SettlementBelowMinimum</code> instead of filling worse.
             </p>
-            <pre className={styles.step_code}>{`btcli deriv close --netuid 7 -w my_coldkey`}</pre>
+            <pre className={styles.step_code}>{`btcli deriv close --netuid 7 -w my_coldkey
+btcli deriv close --netuid 7 --max-slippage 0.5 -w my_coldkey   # tighter floor`}</pre>
           </div>
         </section>
 
@@ -445,6 +449,35 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
             re-adds it once the spot is back within 5%. An honest close on a quiet pool parks
             nothing. Parked alpha counts as outstanding for the emission price, and a
             dissolution returns any parked pair to the reserves before settling anything.
+          </p>
+          <p>
+            <strong>Closing in steps is the same trade as closing in one.</strong> Taking
+            exposure off a position with an add on the other side settles that share, but it
+            hands nothing back to the pool: the escrow stays where it is, and the alpha the
+            share bought back (or the TAO it repaid) is held on the position, in{' '}
+            <code>held</code>, until the full close returns everything in one go after the
+            last buyback. Had each share&apos;s slice gone back at once, it would have deepened
+            the pool at the price the position&apos;s own opening trade had pushed, and every
+            later buyback would have climbed a flatter curve: a short unwound in steps was paid
+            more than one close would pay, out of the pool, at zero interest, and could be run
+            again every block. Held back, five steps, twenty-five, or a hundred pay the same
+            as one, within a rao, and the held escrow still counts against the 25% cap because
+            it is still out of the pool.
+          </p>
+          <p>
+            <strong>You set the floor on your payout.</strong> <code>close</code> and{' '}
+            <code>add</code> take a <code>min_amount_out</code>: the least TAO the settlement
+            must pay you after interest. A settlement runs at the live pool price, which anyone
+            can move in the same block ahead of it; without a floor, a front-runner who bought
+            alpha just before a short&apos;s close could take most of the cushion, and enough of
+            a push made the quote say underwater, so the whole cushion was forfeited in kind
+            while the pusher paid only swap fees. Now a payout under the floor fails the call
+            with <code>SettlementBelowMinimum</code> and the position is exactly as it was; an
+            underwater close pays nothing, so any floor above zero also keeps a pushed price
+            from forfeiting the position. Zero is no floor, which is what an add that only opens
+            or grows must pass, since it pays nothing out. <code>btcli deriv close</code>,{' '}
+            <code>short</code>, and <code>long</code> quote the payout and derive the floor from{' '}
+            <code>--max-slippage</code> (default 1%; 100 disables it).
           </p>
           <p>
             <strong>25% pool share.</strong> All open positions of one side on one subnet may
@@ -638,9 +671,10 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
           <h2 className={styles.subtitle}>What changed on chain</h2>
           <p>
             <code>pallet-derivatives</code> is added at index 33 with two user calls —{' '}
-            <code>add</code>, which takes a <code>side</code> of short or long, a TAO deposit
-            and a <code>leverage_percent</code>, and <code>close</code> — plus three root-only
-            calls. <code>sudo_set_params</code> sets the three parameters:{' '}
+            <code>add</code>, which takes a <code>side</code> of short or long, a TAO deposit, a{' '}
+            <code>leverage_percent</code>, and a <code>min_amount_out</code> floor on the TAO it
+            pays out, and <code>close</code>, which takes the same floor — plus three root-only
+            calls. A settlement under its floor fails with <code>SettlementBelowMinimum</code>. <code>sudo_set_params</code> sets the three parameters:{' '}
             <code>pool_share</code> (25%), <code>short_interest_rate</code> (52%), and{' '}
             <code>long_interest_rate</code> (26%). All three are dials root can turn later; a
             position keeps the rate it has, and its next add is checked against the new share.
@@ -659,8 +693,9 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
             <code>MaxShortLeverage</code> 100, <code>MaxLongLeverage</code> 150,{' '}
             <code>MinDeposit</code> 0.1 τ. A position is one record per coldkey and subnet,
             every field a sum over its adds: the TAO cushion, the legs, the exposure, the yearly
-            interest, the interest carried since it was last touched, and the block it is next
-            collected. A <code>Due</code> queue lists positions by that block; the pallet&apos;s{' '}
+            interest, the interest carried since it was last touched, the block it is next
+            collected, and <code>held</code>, the pool&apos;s share that partial settlements have
+            taken back and the close returns. A <code>Due</code> queue lists positions by that block; the pallet&apos;s{' '}
             <code>on_initialize</code> collects the ones due, up to twenty a block, walking the
             queue from <code>NextDue</code> so nothing is skipped after a crowded slot or a
             stall, and forfeits any whose cushion cannot pay. Its <code>on_idle</code> re-adds

@@ -1409,8 +1409,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 313,
-          "url": "/code/pallets/derivatives/src/lib.rs#L313",
+          "line": 321,
+          "url": "/code/pallets/derivatives/src/lib.rs#L321",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -1461,8 +1461,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 329,
-          "url": "/code/pallets/derivatives/src/lib.rs#L329",
+          "line": 337,
+          "url": "/code/pallets/derivatives/src/lib.rs#L337",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -2865,8 +2865,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 316,
-          "url": "/code/pallets/derivatives/src/lib.rs#L316",
+          "line": 324,
+          "url": "/code/pallets/derivatives/src/lib.rs#L324",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -3054,8 +3054,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 333,
-          "url": "/code/pallets/derivatives/src/lib.rs#L333",
+          "line": 341,
+          "url": "/code/pallets/derivatives/src/lib.rs#L341",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -3647,8 +3647,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 311,
-          "url": "/code/pallets/derivatives/src/lib.rs#L311",
+          "line": 319,
+          "url": "/code/pallets/derivatives/src/lib.rs#L319",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4251,8 +4251,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 323,
-          "url": "/code/pallets/derivatives/src/lib.rs#L323",
+          "line": 331,
+          "url": "/code/pallets/derivatives/src/lib.rs#L331",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4341,8 +4341,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 321,
-          "url": "/code/pallets/derivatives/src/lib.rs#L321",
+          "line": 329,
+          "url": "/code/pallets/derivatives/src/lib.rs#L329",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4842,6 +4842,13 @@
         }
       ]
     },
+    "SettlementBelowMinimum": {
+      "code": "insufficient_liquidity",
+      "description": "The settlement would pay you less TAO than the `min_amount_out` floor you set, after interest, so nothing moved and the position is as it was. Either the pool price moved against you since the quote (someone may have pushed it in the same block), or the position is underwater and a close would pay nothing. Re-quote and retry; widen `--max-slippage` (btcli) or lower `min_amount_out` (SDK) to accept less; a floor of 0 disables the check. Also raised when an add that only opens or grows a position is given a floor above zero: such an add pays nothing out, so leave the floor at 0.",
+      "docs_url": "/docs/errors/chain/SettlementBelowMinimum",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SettlementBelowMinimum/content.md",
+      "pallets": []
+    },
     "SignatoriesOutOfOrder": {
       "code": "invalid_argument",
       "description": "The `other_signatories` list is not sorted in strictly ascending account order, which the multisig pallet requires for a canonical account derivation. Sort the list and remove duplicates before resubmitting.",
@@ -5097,8 +5104,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 309,
-          "url": "/code/pallets/derivatives/src/lib.rs#L309",
+          "line": 317,
+          "url": "/code/pallets/derivatives/src/lib.rs#L317",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -6052,8 +6059,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 318,
-          "url": "/code/pallets/derivatives/src/lib.rs#L318",
+          "line": 326,
+          "url": "/code/pallets/derivatives/src/lib.rs#L326",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -6070,8 +6077,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 326,
-          "url": "/code/pallets/derivatives/src/lib.rs#L326",
+          "line": 334,
+          "url": "/code/pallets/derivatives/src/lib.rs#L334",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
