@@ -1,5 +1,6 @@
 use super::*;
 use crate::epoch::math::*;
+use crate::weights::WeightInfo;
 use crate::{Error, MAX_COMMIT_REVEAL_PEROIDS, MIN_COMMIT_REVEAL_PEROIDS};
 use codec::Compact;
 use frame_support::dispatch::DispatchResult;
@@ -13,6 +14,45 @@ use sp_std::{collections::btree_set::BTreeSet, collections::vec_deque::VecDeque,
 use subtensor_runtime_common::{MechId, NetUid, NetUidStorageIndex};
 
 impl<T: Config> Pallet<T> {
+    /// Pre-dispatch weight of `batch_set_weights`: the batch overhead plus one full
+    /// weight-setting unit per item, sized by that item's uid count. Every item runs a
+    /// complete `do_set_weights`, so a constant per-batch weight would let one call book a
+    /// fraction of the work it performs.
+    pub fn batch_set_weights_weight(weights: &[Vec<(Compact<u16>, Compact<u16>)>]) -> Weight {
+        weights.iter().fold(
+            <T as Config>::WeightInfo::batch_set_weights(),
+            |acc, item| {
+                acc.saturating_add(<T as Config>::WeightInfo::set_mechanism_weights(
+                    item.len() as u32,
+                ))
+            },
+        )
+    }
+
+    /// Pre-dispatch weight of `batch_commit_weights`: the batch overhead plus one commit
+    /// unit per item.
+    pub fn batch_commit_weights_weight(items: u32) -> Weight {
+        <T as Config>::WeightInfo::batch_commit_weights().saturating_add(
+            <T as Config>::WeightInfo::commit_weights().saturating_mul(u64::from(items)),
+        )
+    }
+
+    /// Pre-dispatch weight of `reveal_weights`, sized by the number of revealed uids (the
+    /// same work as `reveal_mechanism_weights` on the main mechanism).
+    pub fn reveal_weights_weight(uids: u32) -> Weight {
+        <T as Config>::WeightInfo::reveal_weights()
+            .max(<T as Config>::WeightInfo::reveal_mechanism_weights(uids))
+    }
+
+    /// Pre-dispatch weight of `batch_reveal_weights`: the batch overhead plus one reveal unit
+    /// per item, sized by that item's uid count.
+    pub fn batch_reveal_weights_weight(uids_list: &[Vec<u16>]) -> Weight {
+        uids_list.iter().fold(
+            <T as Config>::WeightInfo::batch_reveal_weights(),
+            |acc, uids| acc.saturating_add(Self::reveal_weights_weight(uids.len() as u32)),
+        )
+    }
+
     /// The implementation for committing weight hashes.
     ///
     /// # Arguments

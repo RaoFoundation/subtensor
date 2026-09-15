@@ -208,6 +208,7 @@ mod tests {
         traits::{DispatchInfoOf, Hash, TransactionExtension, TxBaseImplication},
         transaction_validity::{TransactionSource, TransactionValidityError, ValidTransaction},
     };
+    use crate::weights::WeightInfo as _;
     use subtensor_runtime_common::{CustomTransactionError, MechId, NetUid};
 
     fn dispatch_info()
@@ -317,6 +318,127 @@ mod tests {
             let err = validate_signed(hotkey, &call).unwrap_err();
             assert_eq!(err, CustomTransactionError::RateLimitExceeded.into());
         });
+    }
+
+    // Free (`Pays::No`) weight calls that can only fail at dispatch must be refused at
+    // validation, otherwise any key can fill blocks with them at no cost.
+    #[test]
+    #[allow(deprecated)]
+    fn pays_no_weight_calls_that_would_fail_are_rejected_at_validate() {
+        new_test_ext(0).execute_with(|| {
+            let netuid = NetUid::from(1);
+            let stranger = U256::from(777_777);
+            add_network_disable_commit_reveal(netuid, 1, 0);
+            setup_reserves(
+                netuid,
+                1_000_000_000_000_u64.into(),
+                1_000_000_000_000_u64.into(),
+            );
+            SubtensorModule::set_stake_threshold(0);
+            assert_eq!(Balances::free_balance(stranger), 0.into());
+
+            // Empty per-subnet batches do nothing but are admitted for free without a bound.
+            for call in [
+                RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights {
+                    netuids: vec![],
+                    weights: vec![],
+                    version_keys: vec![],
+                }),
+                RuntimeCall::SubtensorModule(SubtensorCall::batch_commit_weights {
+                    netuids: vec![],
+                    commit_hashes: vec![],
+                }),
+                RuntimeCall::SubtensorModule(SubtensorCall::batch_reveal_weights {
+                    netuid,
+                    uids_list: vec![],
+                    values_list: vec![],
+                    salts_list: vec![],
+                    version_keys: vec![],
+                }),
+            ] {
+                assert_eq!(call.get_dispatch_info().pays_fee, Pays::No);
+                assert_eq!(
+                    validate_signed(stranger, &call).unwrap_err(),
+                    CustomTransactionError::BadRequest.into()
+                );
+            }
+            let oversized_batch = RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights {
+                netuids: vec![codec::Compact(netuid); 1_000],
+                weights: vec![vec![]; 1_000],
+                version_keys: vec![codec::Compact(0_u64); 1_000],
+            });
+            assert_eq!(
+                validate_signed(stranger, &oversized_batch).unwrap_err(),
+                CustomTransactionError::BadRequest.into()
+            );
+
+            // set_weights from a hotkey without a uid is a guaranteed dispatch failure.
+            let set_weights = RuntimeCall::SubtensorModule(SubtensorCall::set_weights {
+                netuid,
+                dests: vec![0],
+                weights: vec![1],
+                version_key: 0,
+            });
+            assert_eq!(
+                validate_signed(stranger, &set_weights).unwrap_err(),
+                CustomTransactionError::UidNotFound.into()
+            );
+
+            // set_weights on a commit-reveal subnet always fails at dispatch.
+            let hotkey = U256::from(1);
+            let coldkey = U256::from(2);
+            register_ok_neuron(netuid, hotkey, coldkey, 0);
+            assert_ok!(validate_signed(hotkey, &set_weights));
+            SubtensorModule::set_commit_reveal_weights_enabled(netuid, true);
+            assert_eq!(
+                validate_signed(hotkey, &set_weights).unwrap_err(),
+                CustomTransactionError::BadRequest.into()
+            );
+        });
+    }
+
+    // Batched weight calls declare one full per-item unit so the block scheduler books the
+    // work they run instead of a constant.
+    #[test]
+    fn batched_weight_calls_declare_per_item_weight() {
+        let netuid = NetUid::from(1);
+        let one_item = |items: usize| {
+            RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights {
+                netuids: vec![codec::Compact(netuid); items],
+                weights: vec![vec![(codec::Compact(0_u16), codec::Compact(1_u16))]; items],
+                version_keys: vec![codec::Compact(0_u64); items],
+            })
+            .get_dispatch_info()
+            .call_weight
+        };
+        let per_item = <Test as crate::Config>::WeightInfo::set_mechanism_weights(1);
+        assert!(one_item(1).all_gte(per_item));
+        assert!(one_item(8).all_gte(one_item(1).saturating_add(per_item.saturating_mul(7))));
+
+        let commit_batch = |items: usize| {
+            RuntimeCall::SubtensorModule(SubtensorCall::batch_commit_weights {
+                netuids: vec![codec::Compact(netuid); items],
+                commit_hashes: vec![sp_core::H256::zero(); items],
+            })
+            .get_dispatch_info()
+            .call_weight
+        };
+        let per_commit = <Test as crate::Config>::WeightInfo::commit_weights();
+        assert!(commit_batch(8).all_gte(commit_batch(1).saturating_add(per_commit.saturating_mul(7))));
+
+        let reveal = |uids: usize| {
+            RuntimeCall::SubtensorModule(SubtensorCall::reveal_weights {
+                netuid,
+                uids: vec![0; uids],
+                values: vec![1; uids],
+                salt: vec![1],
+                version_key: 0,
+            })
+            .get_dispatch_info()
+            .call_weight
+        };
+        assert!(reveal(4096).all_gte(<Test as crate::Config>::WeightInfo::reveal_mechanism_weights(4096)));
+        assert!(reveal(4096).all_gt(reveal(1)));
     }
 
     #[test]

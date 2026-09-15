@@ -2,7 +2,7 @@ extern crate alloc;
 
 use alloc::format;
 
-use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, Pays, PostDispatchInfo};
+use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
 use frame_system::RawOrigin;
 use pallet_admin_utils::{PrecompileEnable, PrecompileEnum};
 use pallet_evm::{
@@ -127,24 +127,25 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
     where
         R: frame_system::Config + pallet_evm::Config,
     {
-        if post_info.pays_fee(info) == Pays::Yes {
-            let actual_weight = post_info.calc_actual_weight(info);
-            let cost = <R as pallet_evm::Config>::GasWeightMapping::weight_to_gas(actual_weight);
-            self.record_cost(cost)?;
+        // `Pays` decides whether the native fee is charged; gas is the EVM's weight meter
+        // and must always cover the weight the dispatch consumed, or a `Pays::No` call
+        // runs at zero gas and the block accounts none of its execution time.
+        let actual_weight = post_info.calc_actual_weight(info);
+        let cost = <R as pallet_evm::Config>::GasWeightMapping::weight_to_gas(actual_weight);
+        self.record_cost(cost)?;
 
-            self.refund_external_cost(
-                Some(
-                    info.total_weight()
-                        .ref_time()
-                        .saturating_sub(actual_weight.ref_time()),
-                ),
-                Some(
-                    info.total_weight()
-                        .proof_size()
-                        .saturating_sub(actual_weight.proof_size()),
-                ),
-            );
-        }
+        self.refund_external_cost(
+            Some(
+                info.total_weight()
+                    .ref_time()
+                    .saturating_sub(actual_weight.ref_time()),
+            ),
+            Some(
+                info.total_weight()
+                    .proof_size()
+                    .saturating_sub(actual_weight.proof_size()),
+            ),
+        );
 
         Ok(())
     }
