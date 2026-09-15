@@ -226,7 +226,7 @@ mod tests {
     use frame_support::traits::tokens::Preservation;
     use frame_system::RawOrigin;
     use sp_runtime::traits::{DispatchTransaction, Zero};
-    use subtensor_runtime_common::{AccountId, TaoBalance};
+    use subtensor_runtime_common::{AccountId, TaoBalance, Token};
 
     fn new_test_ext() -> sp_io::TestExternalities {
         let mut ext: sp_io::TestExternalities = RuntimeGenesisConfig::default()
