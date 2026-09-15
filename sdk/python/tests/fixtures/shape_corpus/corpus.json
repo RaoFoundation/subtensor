@@ -27,7 +27,7 @@
    "reason": "uninhabited variant type"
   }
  ],
- "spec_version": 456,
+ "spec_version": 459,
  "types": [
   {
    "id": 0,
