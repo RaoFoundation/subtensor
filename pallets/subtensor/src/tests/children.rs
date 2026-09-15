@@ -5016,16 +5016,11 @@ fn test_pending_children_do_not_mature_after_parent_moves_stake_away() {
             TaoBalance::ZERO
         );
         assert!(
-            !PendingChildKeys::<Test>::contains_key(f.netuid, f.parent),
-            "moving the stake away drops the pending relation"
+            PendingChildKeys::<Test>::contains_key(f.netuid, f.parent),
+            "the pending entry is re-checked at maturation"
         );
 
-        // Defense in depth: a pending entry that somehow survives is refused at maturation.
-        PendingChildKeys::<Test>::insert(
-            f.netuid,
-            f.parent,
-            (vec![(u64::MAX, f.child)], System::block_number()),
-        );
+        // Maturation refuses the relation: the parent no longer meets the threshold.
         wait_and_set_pending_children(f.netuid);
         assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
         assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
@@ -5063,10 +5058,10 @@ fn test_unstake_all_drops_pending_children() {
             SubtensorModule::get_total_stake_for_hotkey(&f.parent),
             TaoBalance::ZERO
         );
-        assert!(!PendingChildKeys::<Test>::contains_key(f.netuid, f.parent));
         wait_and_set_pending_children(f.netuid);
         assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
         assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
+        assert!(!PendingChildKeys::<Test>::contains_key(f.netuid, f.parent));
     });
 }
 

@@ -78,7 +78,13 @@ impl<T: Config> Pallet<T> {
         // 5. If the stake is below the minimum, we clear the nomination from storage.
         Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
 
-        // 6. Check if stake lowered below the childkey threshold and drop child relations if it did
+        // 6. Check if stake lowered below MinStake and remove Pending children if it did
+        if Self::get_total_stake_for_hotkey(&hotkey) < StakeThreshold::<T>::get().into() {
+            Self::get_all_subnet_netuids().iter().for_each(|netuid| {
+                PendingChildKeys::<T>::remove(netuid, &hotkey);
+            })
+        }
+        // 7. Drop live child relations the hotkey no longer qualifies for.
         Self::prune_childkeys_below_threshold(&hotkey);
 
         // Done and ok.
@@ -349,7 +355,13 @@ impl<T: Config> Pallet<T> {
         // 5. If the stake is below the minimum, we clear the nomination from storage.
         Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
 
-        // 6. Check if stake lowered below the childkey threshold and drop child relations if it did
+        // 6. Check if stake lowered below MinStake and remove Pending children if it did
+        if Self::get_total_stake_for_hotkey(&hotkey) < StakeThreshold::<T>::get().into() {
+            Self::get_all_subnet_netuids().iter().for_each(|netuid| {
+                PendingChildKeys::<T>::remove(netuid, &hotkey);
+            })
+        }
+        // 7. Drop live child relations the hotkey no longer qualifies for.
         Self::prune_childkeys_below_threshold(&hotkey);
 
         // Done and ok.

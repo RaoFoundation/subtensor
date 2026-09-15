@@ -641,23 +641,27 @@ impl<T: Config> Pallet<T> {
             || SubnetOwnerHotkey::<T>::try_get(netuid).is_ok_and(|owner| owner.eq(hotkey))
     }
 
-    /// Once stake has left `hotkey`, drop its pending and live child relations on every
-    /// subnet where it no longer meets the childkey stake threshold. Subnet owner hotkeys
-    /// keep theirs. A parent that falls below the threshold therefore cannot keep routing
-    /// stake to its children; it must re-qualify and schedule them again.
+    /// Once stake has left `hotkey`, drop its live child relations (and any pending ones on
+    /// the same subnets) wherever it no longer meets the childkey stake threshold. Subnet
+    /// owner hotkeys keep theirs. A parent that falls below the threshold therefore cannot
+    /// keep routing stake to its children; it must re-qualify and schedule them again.
+    ///
+    /// Bounded by the hotkey's own relations: a hotkey with no live children pays one prefix
+    /// read and nothing else. Pending entries elsewhere are re-checked when they mature.
     pub fn prune_childkeys_below_threshold(hotkey: &T::AccountId) {
+        let live_netuids: Vec<NetUid> = ChildKeys::<T>::iter_key_prefix(hotkey).collect();
+        if live_netuids.is_empty() {
+            return;
+        }
         if Self::get_total_stake_for_hotkey(hotkey) >= StakeThreshold::<T>::get().into() {
             return;
         }
-        let live_netuids: Vec<NetUid> = ChildKeys::<T>::iter_key_prefix(hotkey).collect();
-        for netuid in Self::get_all_subnet_netuids() {
+        for netuid in live_netuids {
             if SubnetOwnerHotkey::<T>::try_get(netuid).is_ok_and(|owner| owner.eq(hotkey)) {
                 continue;
             }
             PendingChildKeys::<T>::remove(netuid, hotkey);
-            if live_netuids.contains(&netuid) {
-                Self::persist_pending_chidren_ok(netuid, hotkey, &Vec::new());
-            }
+            Self::persist_pending_chidren_ok(netuid, hotkey, &Vec::new());
         }
     }
 
