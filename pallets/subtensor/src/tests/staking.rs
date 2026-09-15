@@ -765,12 +765,28 @@ fn test_later_depositor_recovers_stake_after_pool_drained_through_cap() {
         );
         assert!(!TotalHotkeySharesV2::<Test>::contains_key(hotkey, netuid));
         assert_eq!(
+            AlphaSharePoolEpoch::<Test>::get(hotkey, netuid),
+            epoch_before + 1,
+            "closing the pool moves it to a new epoch"
+        );
+        assert_eq!(
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
                 &hotkey, &coldkey_b, netuid
             ),
             AlphaBalance::ZERO,
-            "a closed pool quotes nothing"
+            "stale share is retired"
         );
+        // A dividend landing on the closed pool must not revive the leftover row.
+        SubtensorModule::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, 1_000.into());
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &coldkey_b, netuid
+            ),
+            AlphaBalance::ZERO
+        );
+        assert!(SubtensorModule::alpha_share_is_retired(
+            &hotkey, &coldkey_b, netuid
+        ));
 
         // Innocent C stakes fresh TAO into the same hotkey.
         let c_tao_in = DefaultMinStake::<Test>::get() * 50.into();
@@ -785,8 +801,8 @@ fn test_later_depositor_recovers_stake_after_pool_drained_through_cap() {
         let c_paid = c_balance_before - SubtensorModule::get_coldkey_balance(&coldkey_c);
         assert_eq!(
             AlphaSharePoolEpoch::<Test>::get(hotkey, netuid),
-            epoch_before + 1,
-            "re-opening the pool moves it to a new epoch"
+            epoch_before + 2,
+            "re-opening the pool moves it to a new epoch again"
         );
         let pool_after_c = TotalHotkeyAlpha::<Test>::get(hotkey, netuid);
         let quote_c = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
@@ -895,10 +911,11 @@ fn test_deposit_into_valueless_pool_with_dormant_shares() {
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &dormant, netuid),
             AlphaBalance::ZERO
         );
-        assert_eq!(AlphaSharePoolEpoch::<Test>::get(hotkey, netuid), 1);
+        // Closed (shares without value) and re-opened: two transitions.
+        assert_eq!(AlphaSharePoolEpoch::<Test>::get(hotkey, netuid), 2);
         assert_eq!(
             AlphaShareEpoch::<Test>::get((hotkey, depositor, netuid)),
-            1,
+            2,
             "the live row is stamped with the new epoch"
         );
 

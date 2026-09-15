@@ -137,8 +137,11 @@ fn test_settle_stakes_skips_shares_retired_by_pool_close() {
             !AlphaV2::<Test>::get((hotkey, retired, netuid)).is_zero(),
             "leftover raw row still exists"
         );
+        assert!(SubtensorModule::alpha_share_is_retired(
+            &hotkey, &retired, netuid
+        ));
 
-        // A new depositor re-opens the pool, which starts a new epoch and retires the row.
+        // A new depositor re-opens the pool (another epoch); the row stays retired.
         add_balance_to_coldkey_account(&depositor, stake * 2.into());
         assert_ok!(SubtensorModule::stake_into_subnet(
             &hotkey,
