@@ -73,7 +73,8 @@ impl<T: Config> Pallet<T> {
                 }
 
                 if let Some(alpha_share_pool) = alpha_share_pools.get(u16::from(netuid) as usize) {
-                    let coldkey_stake = alpha_share_pool.get_value_from_shares(alpha_stake);
+                    // Value through the pool so rows retired by a pool close read as zero.
+                    let coldkey_stake = alpha_share_pool.try_get_value(&nominator).unwrap_or(0);
 
                     nominator_map
                         .entry(nominator.clone())

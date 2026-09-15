@@ -1841,6 +1841,35 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// DMAP ( hot, netuid ) --> epoch | Generation of the hotkey's alpha share pool on a subnet.
+    /// Incremented each time the pool is closed (its share denominator is written to zero
+    /// because the pool holds no value). Share rows stamped with an older epoch belong to a
+    /// closed pool and are read as absent, so they can never claim value deposited later.
+    #[pallet::storage]
+    pub type AlphaSharePoolEpoch<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId, // hot
+        Identity,
+        NetUid, // subnet
+        u64,
+        ValueQuery,
+    >;
+
+    /// NMAP ( hot, cold, netuid ) --> epoch | Pool epoch in which an `AlphaV2` (or legacy
+    /// `Alpha`) share row was last written. Absent means epoch 0.
+    #[pallet::storage]
+    pub type AlphaShareEpoch<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Blake2_128Concat, T::AccountId>, // hot
+            NMapKey<Blake2_128Concat, T::AccountId>, // cold
+            NMapKey<Identity, NetUid>,               // subnet
+        ),
+        u64,
+        ValueQuery,
+    >;
+
     /// DMAP ( coldkey, netuid, hotkey ) --> LockState | Exponential lock per coldkey per subnet.
     #[pallet::storage]
     pub type Lock<T: Config> = StorageNMap<

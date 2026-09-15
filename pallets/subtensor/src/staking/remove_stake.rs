@@ -892,6 +892,7 @@ impl<T: Config> Pallet<T> {
             for cold in coldkeys {
                 Alpha::<T>::remove((&hot, &cold, netuid));
                 AlphaV2::<T>::remove((&hot, &cold, netuid));
+                AlphaShareEpoch::<T>::remove((&hot, &cold, netuid));
             }
 
             if exhausted {
@@ -910,8 +911,9 @@ impl<T: Config> Pallet<T> {
     ) -> (bool, Option<Vec<u8>>) {
         let iter_read = T::DbWeight::get().reads(1);
         // Updating TotalAlphaStaked reads and writes the aggregate; clearing a
-        // hotkey also removes TotalHotkeyAlpha and both share-denominator maps.
-        let removal_weight = T::DbWeight::get().reads_writes(1, 4);
+        // hotkey also removes TotalHotkeyAlpha, both share-denominator maps and
+        // the share-pool epoch.
+        let removal_weight = T::DbWeight::get().reads_writes(1, 5);
         let iter = match last_key {
             Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
             None => TotalHotkeyAlpha::<T>::iter(),
@@ -949,6 +951,7 @@ impl<T: Config> Pallet<T> {
             TotalHotkeyAlpha::<T>::remove(&hotkey, netuid);
             TotalHotkeyShares::<T>::remove(&hotkey, netuid);
             TotalHotkeySharesV2::<T>::remove(&hotkey, netuid);
+            AlphaSharePoolEpoch::<T>::remove(&hotkey, netuid);
         }
 
         (
