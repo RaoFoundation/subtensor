@@ -531,10 +531,7 @@ impl<T: Config> Pallet<T> {
         // (checking with check_weights_min_stake wouldn't work because it considers
         // grandparent stake in this case)
         ensure!(
-            children.is_empty()
-                || Self::get_total_stake_for_hotkey(&hotkey) >= StakeThreshold::<T>::get().into()
-                || SubnetOwnerHotkey::<T>::try_get(netuid)
-                    .is_ok_and(|owner_hotkey| owner_hotkey.eq(&hotkey)),
+            children.is_empty() || Self::hotkey_meets_childkey_threshold(&hotkey, netuid),
             Error::<T>::NotEnoughStakeToSetChildkeys
         );
 
@@ -616,7 +613,17 @@ impl<T: Config> Pallet<T> {
         PendingChildKeys::<T>::iter_prefix(netuid).for_each(
             |(hotkey, (children, cool_down_block))| {
                 if (cool_down_block < current_block) || !start_call_occured {
-                    Self::persist_pending_chidren_ok(netuid, &hotkey, &children);
+                    // The stake gate checked at scheduling must still hold when the relation
+                    // goes live; stake moved off the parent during the cooldown voids it.
+                    if children.is_empty()
+                        || Self::hotkey_meets_childkey_threshold(&hotkey, netuid)
+                    {
+                        Self::persist_pending_chidren_ok(netuid, &hotkey, &children);
+                    } else {
+                        log::debug!(
+                            "Dropping pending children of {hotkey:?} on {netuid:?}: parent stake fell below the threshold"
+                        );
+                    }
                     to_remove.push(hotkey);
                 }
             },
@@ -624,6 +631,33 @@ impl<T: Config> Pallet<T> {
 
         for hotkey in to_remove {
             PendingChildKeys::<T>::remove(netuid, hotkey);
+        }
+    }
+
+    /// True when `hotkey` may hold child relations on `netuid`: it holds at least
+    /// `StakeThreshold` in total stake, or it is the subnet's owner hotkey.
+    pub fn hotkey_meets_childkey_threshold(hotkey: &T::AccountId, netuid: NetUid) -> bool {
+        Self::get_total_stake_for_hotkey(hotkey) >= StakeThreshold::<T>::get().into()
+            || SubnetOwnerHotkey::<T>::try_get(netuid).is_ok_and(|owner| owner.eq(hotkey))
+    }
+
+    /// Once stake has left `hotkey`, drop its pending and live child relations on every
+    /// subnet where it no longer meets the childkey stake threshold. Subnet owner hotkeys
+    /// keep theirs. A parent that falls below the threshold therefore cannot keep routing
+    /// stake to its children; it must re-qualify and schedule them again.
+    pub fn prune_childkeys_below_threshold(hotkey: &T::AccountId) {
+        if Self::get_total_stake_for_hotkey(hotkey) >= StakeThreshold::<T>::get().into() {
+            return;
+        }
+        let live_netuids: Vec<NetUid> = ChildKeys::<T>::iter_key_prefix(hotkey).collect();
+        for netuid in Self::get_all_subnet_netuids() {
+            if SubnetOwnerHotkey::<T>::try_get(netuid).is_ok_and(|owner| owner.eq(hotkey)) {
+                continue;
+            }
+            PendingChildKeys::<T>::remove(netuid, hotkey);
+            if live_netuids.contains(&netuid) {
+                Self::persist_pending_chidren_ok(netuid, hotkey, &Vec::new());
+            }
         }
     }
 

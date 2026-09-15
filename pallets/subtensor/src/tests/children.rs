@@ -4932,3 +4932,257 @@ fn test_root_register_does_not_overwrite_existing_children() {
         );
     });
 }
+
+/// Childkey threshold lifecycle fixture: a dynamic subnet with deep reserves, a parent that
+/// stakes above `StakeThreshold` through `add_stake`, and a child registered on the subnet.
+struct ChildkeyThresholdFixture {
+    netuid: NetUid,
+    coldkey: U256,
+    parent: U256,
+    child: U256,
+}
+
+fn childkey_threshold_fixture() -> ChildkeyThresholdFixture {
+    const TAO: u64 = 1_000_000_000;
+    let owner_coldkey = U256::from(9_000);
+    let owner_hotkey = U256::from(9_001);
+    let coldkey = U256::from(1_000);
+    let parent = U256::from(2_000);
+    let child = U256::from(2_002);
+
+    let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+    register_ok_neuron(netuid, parent, coldkey, 0);
+    register_ok_neuron(netuid, child, coldkey, 1);
+    let reserve: u64 = 1_000_000 * TAO;
+    mock::setup_reserves(netuid, reserve.into(), reserve.into());
+    // Back the reserve counter with real TAO so unstakes can be paid out.
+    let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+    add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(reserve));
+
+    StakeThreshold::<Test>::put(1_000 * TAO);
+    add_balance_to_coldkey_account(&coldkey, TaoBalance::from(1_300 * TAO));
+    assert_ok!(SubtensorModule::add_stake(
+        RuntimeOrigin::signed(coldkey),
+        parent,
+        netuid,
+        TaoBalance::from(1_200 * TAO),
+    ));
+    assert!(
+        SubtensorModule::get_total_stake_for_hotkey(&parent).to_u64() >= 1_000 * TAO,
+        "parent must qualify at scheduling"
+    );
+    ChildkeyThresholdFixture {
+        netuid,
+        coldkey,
+        parent,
+        child,
+    }
+}
+
+// The parent qualifies at scheduling, then moves its whole stake to another hotkey during
+// the cooldown (the P -> Q move-and-cash-out). The pending relation is dropped when the
+// stake leaves, and even a pending entry that survives is refused at maturation.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_pending_children_do_not_mature_after_parent_moves_stake_away --exact
+#[test]
+fn test_pending_children_do_not_mature_after_parent_moves_stake_away() {
+    new_test_ext(1).execute_with(|| {
+        let f = childkey_threshold_fixture();
+        let other_hotkey = U256::from(2_004);
+        register_ok_neuron(f.netuid, other_hotkey, f.coldkey, 2);
+
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent,
+            f.netuid,
+            vec![(u64::MAX, f.child)],
+        ));
+        assert!(PendingChildKeys::<Test>::contains_key(f.netuid, f.parent));
+        step_block(1);
+
+        // P -> Q: move every alpha to another hotkey the coldkey owns.
+        let alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &f.parent, &f.coldkey, f.netuid,
+        );
+        assert_ok!(SubtensorModule::move_stake(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent,
+            other_hotkey,
+            f.netuid,
+            f.netuid,
+            alpha,
+        ));
+        assert_eq!(
+            SubtensorModule::get_total_stake_for_hotkey(&f.parent),
+            TaoBalance::ZERO
+        );
+        assert!(
+            !PendingChildKeys::<Test>::contains_key(f.netuid, f.parent),
+            "moving the stake away drops the pending relation"
+        );
+
+        // Defense in depth: a pending entry that somehow survives is refused at maturation.
+        PendingChildKeys::<Test>::insert(
+            f.netuid,
+            f.parent,
+            (vec![(u64::MAX, f.child)], System::block_number()),
+        );
+        wait_and_set_pending_children(f.netuid);
+        assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
+        assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
+        assert!(!PendingChildKeys::<Test>::contains_key(f.netuid, f.parent));
+
+        // Re-staking below the threshold does not arm the child either.
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent,
+            f.netuid,
+            TaoBalance::from(10_000_000_000_u64),
+        ));
+        assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
+    });
+}
+
+// `unstake_all` during the cooldown drops the pending relation, so nothing matures.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_unstake_all_drops_pending_children --exact
+#[test]
+fn test_unstake_all_drops_pending_children() {
+    new_test_ext(1).execute_with(|| {
+        let f = childkey_threshold_fixture();
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent,
+            f.netuid,
+            vec![(u64::MAX, f.child)],
+        ));
+        step_block(1);
+        assert_ok!(SubtensorModule::unstake_all(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent
+        ));
+        assert_eq!(
+            SubtensorModule::get_total_stake_for_hotkey(&f.parent),
+            TaoBalance::ZERO
+        );
+        assert!(!PendingChildKeys::<Test>::contains_key(f.netuid, f.parent));
+        wait_and_set_pending_children(f.netuid);
+        assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
+        assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
+    });
+}
+
+// A live relation is pruned when the parent unstakes below the threshold; the subnet owner
+// hotkey keeps its children regardless of stake.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_live_children_pruned_when_parent_falls_below_threshold --exact
+#[test]
+fn test_live_children_pruned_when_parent_falls_below_threshold() {
+    new_test_ext(1).execute_with(|| {
+        let f = childkey_threshold_fixture();
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent,
+            f.netuid,
+            vec![(u64::MAX, f.child)],
+        ));
+        wait_and_set_pending_children(f.netuid);
+        assert_eq!(
+            SubtensorModule::get_children(&f.parent, f.netuid),
+            vec![(u64::MAX, f.child)]
+        );
+
+        // A partial unstake that keeps the parent above the threshold changes nothing.
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent,
+            f.netuid,
+            AlphaBalance::from(10_000_000_000_u64),
+        ));
+        assert_eq!(
+            SubtensorModule::get_children(&f.parent, f.netuid),
+            vec![(u64::MAX, f.child)]
+        );
+
+        // Unstaking the rest drops the parent below the threshold and prunes the edge.
+        let remaining = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &f.parent, &f.coldkey, f.netuid,
+        );
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent,
+            f.netuid,
+            remaining,
+        ));
+        assert!(
+            SubtensorModule::get_total_stake_for_hotkey(&f.parent).to_u64()
+                < StakeThreshold::<Test>::get()
+        );
+        assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
+        assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
+
+        // The subnet owner hotkey is exempt from the threshold.
+        let owner_hotkey = SubnetOwnerHotkey::<Test>::get(f.netuid);
+        let owner_coldkey = SubnetOwner::<Test>::get(f.netuid);
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(owner_coldkey),
+            owner_hotkey,
+            f.netuid,
+            vec![(u64::MAX, f.child)],
+        ));
+        wait_and_set_pending_children(f.netuid);
+        assert_eq!(
+            SubtensorModule::get_children(&owner_hotkey, f.netuid),
+            vec![(u64::MAX, f.child)]
+        );
+        SubtensorModule::prune_childkeys_below_threshold(&owner_hotkey);
+        assert_eq!(
+            SubtensorModule::get_children(&owner_hotkey, f.netuid),
+            vec![(u64::MAX, f.child)]
+        );
+    });
+}
+
+// `swap_hotkey_v2(keep_stake = true)` re-keys the relations onto a hotkey that holds no
+// stake; those relations are pruned (live) or refused at maturation (pending).
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_keep_stake_hotkey_swap_does_not_carry_children_to_unstaked_hotkey --exact
+#[test]
+fn test_keep_stake_hotkey_swap_does_not_carry_children_to_unstaked_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        let f = childkey_threshold_fixture();
+        let new_hotkey = U256::from(2_010);
+        add_balance_to_coldkey_account(&f.coldkey, TaoBalance::from(10_000_000_000_u64));
+
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent,
+            f.netuid,
+            vec![(u64::MAX, f.child)],
+        ));
+        wait_and_set_pending_children(f.netuid);
+        assert_eq!(
+            SubtensorModule::get_children(&f.parent, f.netuid),
+            vec![(u64::MAX, f.child)]
+        );
+
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(f.coldkey),
+            &f.parent,
+            &new_hotkey,
+            Some(f.netuid),
+            true,
+        ));
+        assert!(
+            SubtensorModule::get_total_stake_for_hotkey(&f.parent).to_u64()
+                >= StakeThreshold::<Test>::get(),
+            "keep_stake leaves the stake on the old hotkey"
+        );
+        assert_eq!(
+            SubtensorModule::get_total_stake_for_hotkey(&new_hotkey),
+            TaoBalance::ZERO
+        );
+        assert_eq!(SubtensorModule::get_children(&new_hotkey, f.netuid), vec![]);
+        assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
+        assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
+        assert!(!PendingChildKeys::<Test>::contains_key(
+            f.netuid, new_hotkey
+        ));
+    });
+}

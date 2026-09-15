@@ -486,7 +486,7 @@ impl<T: Config> Pallet<T> {
             max_amount
         };
 
-        if origin_netuid != destination_netuid {
+        let moved = if origin_netuid != destination_netuid {
             // Any way to charge fees that works
             let drop_fee_origin = origin_netuid == NetUid::ROOT;
             let drop_fee_destination = !drop_fee_origin;
@@ -542,7 +542,14 @@ impl<T: Config> Pallet<T> {
                 origin_netuid,
                 move_amount,
             )
+        }?;
+
+        // Stake left the origin hotkey: drop child relations it no longer qualifies for.
+        if origin_hotkey != destination_hotkey {
+            Self::prune_childkeys_below_threshold(origin_hotkey);
         }
+
+        Ok(moved)
     }
 
     /// Returns the maximum amount of origin netuid Alpha that can be executed before we cross
