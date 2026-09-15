@@ -119,11 +119,25 @@ class Collateral(_ReadNamespace):
 class Delegation(_ReadNamespace):
     """Delegate info, delegated stake, and child/parent hotkey relations."""
 
+    async def childkey_threshold_suspended(self, hotkey_ss58: str, *, block: Optional[int] = None) -> bool:
+        """Whether a parent hotkey's child relations are currently inert.
+
+        The chain re-checks a parent's total stake against the childkey stake
+        threshold (`StakeThreshold`) whenever that stake changes. A parent that
+        has dropped below it is flagged here: its `children` and `parents` rows
+        stay stored, but stake inheritance and dividend routing ignore them on
+        every subnet the parent does not own. The flag clears on its own once the
+        parent's stake meets the threshold again.
+        """
+
     async def children(self, hotkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> list[tuple[int, str]]:
         """Child hotkeys of a parent on a subnet, as (proportion, child_ss58) pairs.
 
         Proportions are u64-normalized fractions of the parent's stake, where
-        u64::MAX means 100%.
+        u64::MAX means 100%. This is the stored relation set; while the parent is
+        below the childkey stake threshold (see `childkey_threshold_suspended`)
+        the chain treats these edges as inert on every subnet the parent does
+        not own.
         """
 
     async def delegate(self, hotkey_ss58: str, *, block: Optional[int] = None) -> Optional[DelegateInfo]:
@@ -153,7 +167,10 @@ class Delegation(_ReadNamespace):
         """Parent hotkeys of a child on a subnet, as (proportion, parent_ss58) pairs.
 
         Proportions are u64-normalized fractions of the parent's stake, where
-        u64::MAX means 100%.
+        u64::MAX means 100%. This is the stored relation set; a parent that is
+        below the childkey stake threshold (see `childkey_threshold_suspended`)
+        contributes nothing to the child until it qualifies again, unless it
+        owns the subnet.
         """
 
     async def pending_children(self, hotkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> dict:
@@ -468,8 +485,11 @@ class Staking(_ReadNamespace):
         """Basket summaries for every validator with an active basket.
 
         The network-wide leaderboard: one `validator_basket_summary` record per
-        validator with an active fund, sorted by NAV descending. Compare
-        `lifetime_return` across validators to rank basket performance.
+        validator with an active fund, sorted by NAV descending, each including
+        its `basket_rate` (the cumulative entitlement accumulator: β raw units
+        minted per rao of root stake, migration-seeded history included).
+        Compare `lifetime_return` across validators to rank basket performance;
+        for staker returns use `chain_pricing` (`staker_twr` / `stake_price`).
         """
 
     async def root_claim_threshold(self, *, block: Optional[int] = None) -> Balance:
@@ -555,9 +575,12 @@ class Staking(_ReadNamespace):
 
         Valuation (realizable NAV and spot NAV), lifetime deposited/redeemed TAO
         and the lifetime return multiple `(nav + redeemed) / deposited`, the
-        validator's root weight vector, and the per-subnet alpha holdings each
-        valued at spot and at realizable depth. All figures are TAO (or alpha
-        for the holdings themselves).
+        validator's root weight vector, the per-subnet alpha holdings each
+        valued at spot and at realizable depth, and `basket_rate` — the
+        cumulative β raw units minted per rao of root stake (a lifetime
+        accumulator that includes migration-seeded history). For staker returns
+        use `chain_pricing` (`staker_twr` / `stake_price` ratios), not rate
+        deltas. All figures are TAO (or alpha for the holdings themselves).
         """
 
     async def validator_root_weights(self, hotkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
