@@ -737,14 +737,17 @@ impl<T: Config> Pallet<T> {
             *total = total.saturating_add(swap_result.amount_paid_out.into());
         });
 
-        // Increase the protocol TAO reserve
+        // Increase the protocol TAO reserve and the network-wide total by the same amount:
+        // only the TAO that entered the reserve is stake. The swap fee leaves the subnet
+        // account for the block author and must not be counted (issue #3156).
+        let reserve_delta: TaoBalance = swap_result
+            .paid_in_reserve_delta_i64()
+            .unsigned_abs()
+            .into();
         SubnetTAO::<T>::mutate(netuid, |total| {
-            let delta = swap_result.paid_in_reserve_delta_i64().unsigned_abs();
-            *total = total.saturating_add(delta.into());
+            *total = total.saturating_add(reserve_delta);
         });
-
-        // Increase Total Tao reserves.
-        TotalStake::<T>::mutate(|total| *total = total.saturating_add(tao));
+        TotalStake::<T>::mutate(|total| *total = total.saturating_add(reserve_delta));
 
         // Increase total subnet TAO volume.
         SubnetVolume::<T>::mutate(netuid, |total| {
@@ -1073,9 +1076,6 @@ impl<T: Config> Pallet<T> {
         let refund_tao = tao_staked.saturating_sub(consumed_tao);
         if !refund_tao.is_zero() {
             Self::transfer_tao_from_subnet(netuid, coldkey, refund_tao)?;
-            // `swap_tao_for_alpha` bumped `TotalStake` by the full `tao_staked`;
-            // only `consumed_tao` actually became stake, so back out the refund.
-            TotalStake::<T>::mutate(|total| *total = total.saturating_sub(refund_tao));
         }
 
         // Record TAO inflow
