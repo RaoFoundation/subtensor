@@ -1148,8 +1148,7 @@ fn test_leased_owner_cut_auto_lock_keeps_contributor_share_unlocked() {
         );
 
         // The lease coldkey's lock grew by the retained part only.
-        let lock = Lock::<Test>::get((lease.coldkey, lease.netuid, lease.hotkey))
-            .expect("retained cut is locked");
+        let lock = Lock::<Test>::get((lease.coldkey, lease.netuid, lease.hotkey)).unwrap();
         assert_eq!(lock.locked_mass, retained);
 
         // The next interval pays out again: the contributors' share was never locked.

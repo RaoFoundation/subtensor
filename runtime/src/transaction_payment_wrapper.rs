@@ -952,8 +952,8 @@ mod tests {
                 ..call.get_dispatch_info()
             };
 
-            let real_before = pallet_balances::Pallet::<Runtime>::free_balance(&real_a());
-            let signer_before = pallet_balances::Pallet::<Runtime>::free_balance(&signer());
+            let real_before = pallet_balances::Pallet::<Runtime>::free_balance(real_a());
+            let signer_before = pallet_balances::Pallet::<Runtime>::free_balance(signer());
 
             // A tip almost as large as the real's whole balance.
             let tip = real_before.saturating_sub(TaoBalance::new(1_000_000_000));
@@ -972,7 +972,7 @@ mod tests {
                 &info,
                 TaoBalance::new(0),
             );
-            let real_after = pallet_balances::Pallet::<Runtime>::free_balance(&real_a());
+            let real_after = pallet_balances::Pallet::<Runtime>::free_balance(real_a());
 
             assert_eq!(
                 real_before.saturating_sub(real_after),
@@ -980,7 +980,7 @@ mod tests {
                 "the real pays the tipless fee only"
             );
             assert_eq!(
-                pallet_balances::Pallet::<Runtime>::free_balance(&signer()),
+                pallet_balances::Pallet::<Runtime>::free_balance(signer()),
                 signer_before,
                 "the delegate is not charged when the real opted in"
             );

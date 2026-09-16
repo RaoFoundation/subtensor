@@ -5339,7 +5339,7 @@ fn test_unstake_all_weight_covers_every_subnet() {
             );
             netuids.push(netuid);
         }
-        register_ok_neuron(netuids[0], hotkey, coldkey, 192213123);
+        register_ok_neuron(*netuids.first().unwrap(), hotkey, coldkey, 192213123);
         add_balance_to_coldkey_account(
             &coldkey,
             stake_amount * u64::from(staked_subnets).into() + ExistentialDeposit::get(),
@@ -5367,9 +5367,9 @@ fn test_unstake_all_weight_covers_every_subnet() {
         );
 
         // Actual: the legs really run, never more than declared, never less than their work.
-        let post_info = SubtensorModule::unstake_all(RuntimeOrigin::signed(coldkey), hotkey)
-            .expect("unstake_all succeeds");
-        let actual = post_info.actual_weight.expect("actual weight reported");
+        let post_info =
+            SubtensorModule::unstake_all(RuntimeOrigin::signed(coldkey), hotkey).unwrap();
+        let actual = post_info.actual_weight.unwrap();
         let legs_run = remove_stake_unit.saturating_mul(u64::from(staked_subnets));
         assert!(
             actual.all_gte(legs_run),
@@ -5474,8 +5474,8 @@ fn test_staking_hotkeys_cap_and_remove_stake_weight() {
             netuid,
             100_000_000_u64.into(),
         )
-        .expect("remove_stake succeeds");
-        let actual_full = post_info.actual_weight.expect("actual weight reported");
+        .unwrap();
+        let actual_full = post_info.actual_weight.unwrap();
         assert!(declared.all_gte(actual_full));
         assert!(
             actual_full.all_gte(
@@ -5491,8 +5491,8 @@ fn test_staking_hotkeys_cap_and_remove_stake_weight() {
             netuid,
             100_000_000_u64.into(),
         )
-        .expect("remove_stake succeeds");
-        let actual_short = post_info.actual_weight.expect("actual weight reported");
+        .unwrap();
+        let actual_short = post_info.actual_weight.unwrap();
         assert!(
             actual_full.ref_time() > actual_short.ref_time(),
             "weight must scale with the list length: {actual_full:?} vs {actual_short:?}"
