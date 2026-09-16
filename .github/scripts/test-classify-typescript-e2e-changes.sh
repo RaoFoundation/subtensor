@@ -261,11 +261,17 @@ fi
 
 # Routing policy and matrix topology must be separate: trusted base code picks
 # suites, while a trusted generic builder expands the proposed data manifest.
+# If those helpers are missing on the trusted base, fail closed. Do not run a
+# PR-controlled splitter or planner from the trusted routing job.
 grep -Fq 'ref: ${{ github.event_name == '\''pull_request'\'' && github.event.pull_request.base.sha || github.sha }}' "$workflow"
 grep -Fq '.trusted-e2e-filter/ts-tests/scripts/e2e-shard-plan.mjs' "$workflow"
 grep -Fq '.proposed-e2e-plan/ts-tests/e2e-shards.json' "$workflow"
 grep -Fq '.trusted-e2e-filter/.github/scripts/split-typescript-e2e-plan.sh' "$workflow"
-grep -Fq '.proposed-e2e-plan/.github/scripts/split-typescript-e2e-plan.sh' "$workflow"
+grep -Fq 'refusing to run PR-controlled bootstrap' "$workflow"
+if grep -Fq '.proposed-e2e-plan/.github/scripts/split-typescript-e2e-plan.sh' "$workflow"; then
+  echo "trusted routing job must not execute a PR-controlled plan splitter" >&2
+  exit 1
+fi
 grep -Fq 'matrix: ${{ fromJSON(needs.changes.outputs.shield_matrix) }}' "$workflow"
 grep -Fq 'matrix: ${{ fromJSON(needs.changes.outputs.fast_state_matrix) }}' "$workflow"
 grep -Fq 'matrix: ${{ fromJSON(needs.changes.outputs.release_state_matrix) }}' "$workflow"
