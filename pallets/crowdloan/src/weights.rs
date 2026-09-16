@@ -102,22 +102,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	}
 	/// Storage: `Crowdloan::Crowdloans` (r:1 w:1)
 	/// Proof: `Crowdloan::Crowdloans` (`max_values`: None, `max_size`: Some(282), added: 2757, mode: `MaxEncodedLen`)
-	/// Storage: `Crowdloan::CurrentCrowdloanId` (r:1 w:1)
+	/// Storage: `Crowdloan::CurrentCrowdloanId` (r:1 w:0)
 	/// Proof: `Crowdloan::CurrentCrowdloanId` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Preimage::PreimageFor` (r:1 w:0)
-	/// Proof: `Preimage::PreimageFor` (`max_values`: None, `max_size`: Some(4194344), added: 4196819, mode: `MaxEncodedLen`)
-	/// Storage: `SafeMode::EnteredUntil` (r:1 w:0)
-	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
-	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Account` (r:2 w:2)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	fn finalize() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1181`
-		//  Estimated: `4197809`
-		// Minimum execution time: 32_548_000 picoseconds.
-		Weight::from_parts(34_110_000, 4197809)
-			.saturating_add(T::DbWeight::get().reads(5_u64))
-			.saturating_add(T::DbWeight::get().writes(2_u64))
+		//  Measured:  `333`
+		//  Estimated: `6148`
+		// Minimum execution time: 47_087_000 picoseconds.
+		Weight::from_parts(50_529_000, 6148)
+			.saturating_add(T::DbWeight::get().reads(4_u64))
+			.saturating_add(T::DbWeight::get().writes(3_u64))
 	}
 	/// Storage: `Crowdloan::Crowdloans` (r:1 w:1)
 	/// Proof: `Crowdloan::Crowdloans` (`max_values`: None, `max_size`: Some(282), added: 2757, mode: `MaxEncodedLen`)
@@ -261,22 +257,18 @@ impl WeightInfo for () {
 	}
 	/// Storage: `Crowdloan::Crowdloans` (r:1 w:1)
 	/// Proof: `Crowdloan::Crowdloans` (`max_values`: None, `max_size`: Some(282), added: 2757, mode: `MaxEncodedLen`)
-	/// Storage: `Crowdloan::CurrentCrowdloanId` (r:1 w:1)
+	/// Storage: `Crowdloan::CurrentCrowdloanId` (r:1 w:0)
 	/// Proof: `Crowdloan::CurrentCrowdloanId` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Preimage::PreimageFor` (r:1 w:0)
-	/// Proof: `Preimage::PreimageFor` (`max_values`: None, `max_size`: Some(4194344), added: 4196819, mode: `MaxEncodedLen`)
-	/// Storage: `SafeMode::EnteredUntil` (r:1 w:0)
-	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
-	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Account` (r:2 w:2)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	fn finalize() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1181`
-		//  Estimated: `4197809`
-		// Minimum execution time: 32_548_000 picoseconds.
-		Weight::from_parts(34_110_000, 4197809)
-			.saturating_add(RocksDbWeight::get().reads(5_u64))
-			.saturating_add(RocksDbWeight::get().writes(2_u64))
+		//  Measured:  `333`
+		//  Estimated: `6148`
+		// Minimum execution time: 47_087_000 picoseconds.
+		Weight::from_parts(50_529_000, 6148)
+			.saturating_add(RocksDbWeight::get().reads(4_u64))
+			.saturating_add(RocksDbWeight::get().writes(3_u64))
 	}
 	/// Storage: `Crowdloan::Crowdloans` (r:1 w:1)
 	/// Proof: `Crowdloan::Crowdloans` (`max_values`: None, `max_size`: Some(282), added: 2757, mode: `MaxEncodedLen`)

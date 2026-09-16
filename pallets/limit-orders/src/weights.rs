@@ -58,9 +58,16 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `LimitOrders::LinkedOutputs` (r:1 w:1)
+	/// Proof: `LimitOrders::LinkedOutputs` (`max_values`: None, `max_size`: Some(131), added: 2606, mode: `MaxEncodedLen`)
+	/// Storage: `Timestamp::Now` (r:1 w:0)
+	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	fn prune_linked_output() -> Weight {
-		Weight::from_parts(16_030_000, 3522)
-			.saturating_add(T::DbWeight::get().reads(1_u64))
+		// Proof Size summary in bytes:
+		//  Measured:  `229`
+		//  Estimated: `3596`
+		// Minimum execution time: 13_345_000 picoseconds.
+		Weight::from_parts(14_026_000, 3596)
+			.saturating_add(T::DbWeight::get().reads(2_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `LimitOrders::LimitOrdersEnabled` (r:0 w:1)
@@ -85,6 +92,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Swap::SwapBalancer` (r:1 w:1)
 	/// Proof: `Swap::SwapBalancer` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
+	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:100 w:0)
+	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::ColdkeySwapDisputes` (r:100 w:0)
+	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `EVMChainId::ChainId` (r:1 w:0)
 	/// Proof: `EVMChainId::ChainId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `LimitOrders::Orders` (r:100 w:100)
@@ -115,29 +126,37 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::TotalHotkeySharesV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::StakingHotkeys` (r:100 w:0)
 	/// Proof: `SubtensorModule::StakingHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaSharePoolEpoch` (r:100 w:100)
+	/// Proof: `SubtensorModule::AlphaSharePoolEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Alpha` (r:100 w:0)
 	/// Proof: `SubtensorModule::Alpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AlphaV2` (r:100 w:100)
-	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: UNKNOWN KEY `0x658faa385070e074c85bf6b568cf05555d7c12a3d71359f242a5e404830b1aee` (r:1 w:0)
+	/// Proof: UNKNOWN KEY `0x658faa385070e074c85bf6b568cf05555d7c12a3d71359f242a5e404830b1aee` (r:1 w:0)
+	/// Storage: `SubtensorModule::TotalAlphaStaked` (r:1 w:1)
+	/// Proof: `SubtensorModule::TotalAlphaStaked` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTaoFlow` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetTaoFlow` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Lock` (r:100 w:0)
 	/// Proof: `SubtensorModule::Lock` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (r:0 w:100)
-	/// Proof: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::ChildkeyThresholdSuspended` (r:100 w:0)
+	/// Proof: `SubtensorModule::ChildkeyThresholdSuspended` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaV2` (r:0 w:100)
+	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaShareEpoch` (r:0 w:100)
+	/// Proof: `SubtensorModule::AlphaShareEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `n` is `[1, 100]`.
 	fn execute_orders(n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1110 + n * (452 ±0)`
+		//  Measured:  `1190 + n * (452 ±0)`
 		//  Estimated: `6148 + n * (5158 ±0)`
-		// Minimum execution time: 575_279_000 picoseconds.
-		Weight::from_parts(578_195_000, 6148)
-			// Standard Error: 272_661
-			.saturating_add(Weight::from_parts(497_085_105, 0).saturating_mul(n.into()))
-			.saturating_add(T::DbWeight::get().reads(17_u64))
-			.saturating_add(T::DbWeight::get().reads((11_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes(10_u64))
-			.saturating_add(T::DbWeight::get().writes((7_u64).saturating_mul(n.into())))
+		// Minimum execution time: 473_801_000 picoseconds.
+		Weight::from_parts(482_028_000, 6148)
+			// Standard Error: 337_630
+			.saturating_add(Weight::from_parts(404_280_476, 0).saturating_mul(n.into()))
+			.saturating_add(T::DbWeight::get().reads(19_u64))
+			.saturating_add(T::DbWeight::get().reads((14_u64).saturating_mul(n.into())))
+			.saturating_add(T::DbWeight::get().writes(11_u64))
+			.saturating_add(T::DbWeight::get().writes((8_u64).saturating_mul(n.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(n.into()))
 	}
 	/// Storage: `LimitOrders::LimitOrdersEnabled` (r:1 w:0)
@@ -152,6 +171,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Swap::SwapBalancer` (r:1 w:1)
 	/// Proof: `Swap::SwapBalancer` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
+	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:100 w:0)
+	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::ColdkeySwapDisputes` (r:100 w:0)
+	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `EVMChainId::ChainId` (r:1 w:0)
 	/// Proof: `EVMChainId::ChainId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `LimitOrders::Orders` (r:100 w:100)
@@ -180,31 +203,39 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::TotalHotkeySharesV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::StakingHotkeys` (r:101 w:0)
 	/// Proof: `SubtensorModule::StakingHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaSharePoolEpoch` (r:101 w:101)
+	/// Proof: `SubtensorModule::AlphaSharePoolEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Alpha` (r:101 w:0)
 	/// Proof: `SubtensorModule::Alpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AlphaV2` (r:101 w:101)
-	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: UNKNOWN KEY `0x658faa385070e074c85bf6b568cf05555d7c12a3d71359f242a5e404830b1aee` (r:1 w:0)
+	/// Proof: UNKNOWN KEY `0x658faa385070e074c85bf6b568cf05555d7c12a3d71359f242a5e404830b1aee` (r:1 w:0)
+	/// Storage: `SubtensorModule::TotalAlphaStaked` (r:1 w:1)
+	/// Proof: `SubtensorModule::TotalAlphaStaked` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTaoFlow` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetTaoFlow` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Lock` (r:1 w:0)
 	/// Proof: `SubtensorModule::Lock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::ChildkeyThresholdSuspended` (r:1 w:0)
+	/// Proof: `SubtensorModule::ChildkeyThresholdSuspended` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Owner` (r:100 w:0)
 	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (r:0 w:101)
-	/// Proof: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaV2` (r:0 w:101)
+	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaShareEpoch` (r:0 w:101)
+	/// Proof: `SubtensorModule::AlphaShareEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `n` is `[1, 100]`.
 	fn execute_batched_orders(n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1263 + n * (283 ±0)`
+		//  Measured:  `1328 + n * (453 ±0)`
 		//  Estimated: `8727 + n * (5158 ±0)`
-		// Minimum execution time: 1_033_784_000 picoseconds.
-		Weight::from_parts(663_963_130, 8727)
-			// Standard Error: 122_392
-			.saturating_add(Weight::from_parts(363_899_902, 0).saturating_mul(n.into()))
-			.saturating_add(T::DbWeight::get().reads(25_u64))
-			.saturating_add(T::DbWeight::get().reads((10_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes(15_u64))
-			.saturating_add(T::DbWeight::get().writes((7_u64).saturating_mul(n.into())))
+		// Minimum execution time: 621_709_000 picoseconds.
+		Weight::from_parts(322_953_741, 8727)
+			// Standard Error: 177_108
+			.saturating_add(Weight::from_parts(313_332_236, 0).saturating_mul(n.into()))
+			.saturating_add(T::DbWeight::get().reads(28_u64))
+			.saturating_add(T::DbWeight::get().reads((12_u64).saturating_mul(n.into())))
+			.saturating_add(T::DbWeight::get().writes(17_u64))
+			.saturating_add(T::DbWeight::get().writes((8_u64).saturating_mul(n.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(n.into()))
 	}
 }
@@ -223,9 +254,16 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `LimitOrders::LinkedOutputs` (r:1 w:1)
+	/// Proof: `LimitOrders::LinkedOutputs` (`max_values`: None, `max_size`: Some(131), added: 2606, mode: `MaxEncodedLen`)
+	/// Storage: `Timestamp::Now` (r:1 w:0)
+	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	fn prune_linked_output() -> Weight {
-		Weight::from_parts(16_030_000, 3522)
-			.saturating_add(RocksDbWeight::get().reads(1_u64))
+		// Proof Size summary in bytes:
+		//  Measured:  `229`
+		//  Estimated: `3596`
+		// Minimum execution time: 13_345_000 picoseconds.
+		Weight::from_parts(14_026_000, 3596)
+			.saturating_add(RocksDbWeight::get().reads(2_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `LimitOrders::LimitOrdersEnabled` (r:0 w:1)
@@ -250,6 +288,10 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Swap::SwapBalancer` (r:1 w:1)
 	/// Proof: `Swap::SwapBalancer` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
+	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:100 w:0)
+	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::ColdkeySwapDisputes` (r:100 w:0)
+	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `EVMChainId::ChainId` (r:1 w:0)
 	/// Proof: `EVMChainId::ChainId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `LimitOrders::Orders` (r:100 w:100)
@@ -280,29 +322,37 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::TotalHotkeySharesV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::StakingHotkeys` (r:100 w:0)
 	/// Proof: `SubtensorModule::StakingHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaSharePoolEpoch` (r:100 w:100)
+	/// Proof: `SubtensorModule::AlphaSharePoolEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Alpha` (r:100 w:0)
 	/// Proof: `SubtensorModule::Alpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AlphaV2` (r:100 w:100)
-	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: UNKNOWN KEY `0x658faa385070e074c85bf6b568cf05555d7c12a3d71359f242a5e404830b1aee` (r:1 w:0)
+	/// Proof: UNKNOWN KEY `0x658faa385070e074c85bf6b568cf05555d7c12a3d71359f242a5e404830b1aee` (r:1 w:0)
+	/// Storage: `SubtensorModule::TotalAlphaStaked` (r:1 w:1)
+	/// Proof: `SubtensorModule::TotalAlphaStaked` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTaoFlow` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetTaoFlow` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Lock` (r:100 w:0)
 	/// Proof: `SubtensorModule::Lock` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (r:0 w:100)
-	/// Proof: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::ChildkeyThresholdSuspended` (r:100 w:0)
+	/// Proof: `SubtensorModule::ChildkeyThresholdSuspended` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaV2` (r:0 w:100)
+	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaShareEpoch` (r:0 w:100)
+	/// Proof: `SubtensorModule::AlphaShareEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `n` is `[1, 100]`.
 	fn execute_orders(n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1110 + n * (452 ±0)`
+		//  Measured:  `1190 + n * (452 ±0)`
 		//  Estimated: `6148 + n * (5158 ±0)`
-		// Minimum execution time: 575_279_000 picoseconds.
-		Weight::from_parts(578_195_000, 6148)
-			// Standard Error: 272_661
-			.saturating_add(Weight::from_parts(497_085_105, 0).saturating_mul(n.into()))
-			.saturating_add(RocksDbWeight::get().reads(17_u64))
-			.saturating_add(RocksDbWeight::get().reads((11_u64).saturating_mul(n.into())))
-			.saturating_add(RocksDbWeight::get().writes(10_u64))
-			.saturating_add(RocksDbWeight::get().writes((7_u64).saturating_mul(n.into())))
+		// Minimum execution time: 473_801_000 picoseconds.
+		Weight::from_parts(482_028_000, 6148)
+			// Standard Error: 337_630
+			.saturating_add(Weight::from_parts(404_280_476, 0).saturating_mul(n.into()))
+			.saturating_add(RocksDbWeight::get().reads(19_u64))
+			.saturating_add(RocksDbWeight::get().reads((14_u64).saturating_mul(n.into())))
+			.saturating_add(RocksDbWeight::get().writes(11_u64))
+			.saturating_add(RocksDbWeight::get().writes((8_u64).saturating_mul(n.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(n.into()))
 	}
 	/// Storage: `LimitOrders::LimitOrdersEnabled` (r:1 w:0)
@@ -317,6 +367,10 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Swap::SwapBalancer` (r:1 w:1)
 	/// Proof: `Swap::SwapBalancer` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
+	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:100 w:0)
+	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::ColdkeySwapDisputes` (r:100 w:0)
+	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `EVMChainId::ChainId` (r:1 w:0)
 	/// Proof: `EVMChainId::ChainId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `LimitOrders::Orders` (r:100 w:100)
@@ -345,31 +399,39 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::TotalHotkeySharesV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::StakingHotkeys` (r:101 w:0)
 	/// Proof: `SubtensorModule::StakingHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaSharePoolEpoch` (r:101 w:101)
+	/// Proof: `SubtensorModule::AlphaSharePoolEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Alpha` (r:101 w:0)
 	/// Proof: `SubtensorModule::Alpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AlphaV2` (r:101 w:101)
-	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: UNKNOWN KEY `0x658faa385070e074c85bf6b568cf05555d7c12a3d71359f242a5e404830b1aee` (r:1 w:0)
+	/// Proof: UNKNOWN KEY `0x658faa385070e074c85bf6b568cf05555d7c12a3d71359f242a5e404830b1aee` (r:1 w:0)
+	/// Storage: `SubtensorModule::TotalAlphaStaked` (r:1 w:1)
+	/// Proof: `SubtensorModule::TotalAlphaStaked` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTaoFlow` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetTaoFlow` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Lock` (r:1 w:0)
 	/// Proof: `SubtensorModule::Lock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::ChildkeyThresholdSuspended` (r:1 w:0)
+	/// Proof: `SubtensorModule::ChildkeyThresholdSuspended` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Owner` (r:100 w:0)
 	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (r:0 w:101)
-	/// Proof: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaV2` (r:0 w:101)
+	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaShareEpoch` (r:0 w:101)
+	/// Proof: `SubtensorModule::AlphaShareEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `n` is `[1, 100]`.
 	fn execute_batched_orders(n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1263 + n * (283 ±0)`
+		//  Measured:  `1328 + n * (453 ±0)`
 		//  Estimated: `8727 + n * (5158 ±0)`
-		// Minimum execution time: 1_033_784_000 picoseconds.
-		Weight::from_parts(663_963_130, 8727)
-			// Standard Error: 122_392
-			.saturating_add(Weight::from_parts(363_899_902, 0).saturating_mul(n.into()))
-			.saturating_add(RocksDbWeight::get().reads(25_u64))
-			.saturating_add(RocksDbWeight::get().reads((10_u64).saturating_mul(n.into())))
-			.saturating_add(RocksDbWeight::get().writes(15_u64))
-			.saturating_add(RocksDbWeight::get().writes((7_u64).saturating_mul(n.into())))
+		// Minimum execution time: 621_709_000 picoseconds.
+		Weight::from_parts(322_953_741, 8727)
+			// Standard Error: 177_108
+			.saturating_add(Weight::from_parts(313_332_236, 0).saturating_mul(n.into()))
+			.saturating_add(RocksDbWeight::get().reads(28_u64))
+			.saturating_add(RocksDbWeight::get().reads((12_u64).saturating_mul(n.into())))
+			.saturating_add(RocksDbWeight::get().writes(17_u64))
+			.saturating_add(RocksDbWeight::get().writes((8_u64).saturating_mul(n.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(n.into()))
 	}
 }
