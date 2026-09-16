@@ -26,7 +26,9 @@ use node_subtensor_runtime::{
     Balances, BuildStorage, Runtime, RuntimeCall, RuntimeGenesisConfig, RuntimeOrigin,
     SubtensorModule, check_nonce, transaction_payment_wrapper::ChargeTransactionPaymentWrapper,
 };
-use sp_runtime::traits::{DispatchTransaction, Dispatchable, TransactionExtension, TxBaseImplication};
+use sp_runtime::traits::{
+    DispatchTransaction, Dispatchable, TransactionExtension, TxBaseImplication,
+};
 use sp_runtime::transaction_validity::{
     InvalidTransaction, TransactionSource, TransactionValidityError,
 };
@@ -207,7 +209,12 @@ fn destination_coldkey() -> AccountId {
 fn account_state(who: &AccountId) -> (bool, u32, u32, u32) {
     let exists = frame_system::Account::<Runtime>::contains_key(who);
     let account = frame_system::Account::<Runtime>::get(who);
-    (exists, account.nonce, account.providers, account.sufficients)
+    (
+        exists,
+        account.nonce,
+        account.providers,
+        account.sufficients,
+    )
 }
 
 fn validate_and_prepare_nonce(
@@ -246,7 +253,10 @@ fn alpha_only_coldkey_cross_subnet_transfer_is_not_replayable() {
 
         assert_ok!(validate_and_prepare_nonce(&alpha_only_coldkey(), 0, &call));
         assert_eq!(account_state(&alpha_only_coldkey()), (true, 1, 0, 1));
-        assert_ok!(call.clone().dispatch(RuntimeOrigin::signed(alpha_only_coldkey())));
+        assert_ok!(
+            call.clone()
+                .dispatch(RuntimeOrigin::signed(alpha_only_coldkey()))
+        );
 
         assert_eq!(account_state(&alpha_only_coldkey()), (true, 1, 0, 1));
         assert_eq!(

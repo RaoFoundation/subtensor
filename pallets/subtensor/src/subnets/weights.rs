@@ -23,7 +23,7 @@ impl<T: Config> Pallet<T> {
             <T as Config>::WeightInfo::batch_set_weights(),
             |acc, item| {
                 acc.saturating_add(<T as Config>::WeightInfo::set_mechanism_weights(
-                    item.len() as u32,
+                    item.len() as u32
                 ))
             },
         )

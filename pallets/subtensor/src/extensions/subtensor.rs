@@ -193,6 +193,7 @@ where
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::SubtensorTransactionExtension;
+    use crate::weights::WeightInfo as _;
     use crate::{
         CheckColdkeySwap, CheckDelegateTake, CheckEvmKeyAssociation, CheckRateLimits,
         CheckServingEndpoints, CheckWeights, ColdkeySwapAnnouncements, ColdkeySwapDisputes,
@@ -208,7 +209,6 @@ mod tests {
         traits::{DispatchInfoOf, Hash, TransactionExtension, TxBaseImplication},
         transaction_validity::{TransactionSource, TransactionValidityError, ValidTransaction},
     };
-    use crate::weights::WeightInfo as _;
     use subtensor_runtime_common::{CustomTransactionError, MechId, NetUid};
 
     fn dispatch_info()
@@ -424,7 +424,9 @@ mod tests {
             .call_weight
         };
         let per_commit = <Test as crate::Config>::WeightInfo::commit_weights();
-        assert!(commit_batch(8).all_gte(commit_batch(1).saturating_add(per_commit.saturating_mul(7))));
+        assert!(
+            commit_batch(8).all_gte(commit_batch(1).saturating_add(per_commit.saturating_mul(7)))
+        );
 
         let reveal = |uids: usize| {
             RuntimeCall::SubtensorModule(SubtensorCall::reveal_weights {
@@ -437,7 +439,10 @@ mod tests {
             .get_dispatch_info()
             .call_weight
         };
-        assert!(reveal(4096).all_gte(<Test as crate::Config>::WeightInfo::reveal_mechanism_weights(4096)));
+        assert!(
+            reveal(4096)
+                .all_gte(<Test as crate::Config>::WeightInfo::reveal_mechanism_weights(4096))
+        );
         assert!(reveal(4096).all_gt(reveal(1)));
     }
 
