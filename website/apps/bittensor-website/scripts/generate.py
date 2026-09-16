@@ -218,6 +218,7 @@ PALLET_DIRS = {
     "AdminUtils": "pallets/admin-utils",
     "Commitments": "pallets/commitments",
     "Crowdloan": "pallets/crowdloan",
+    "Derivatives": "pallets/derivatives",
     "Drand": "pallets/drand",
     "LimitOrders": "pallets/limit-orders",
     "MevShield": "pallets/shield",

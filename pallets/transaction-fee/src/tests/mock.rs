@@ -22,7 +22,7 @@ use sp_runtime::{
 use sp_std::cmp::Ordering;
 use sp_weights::Weight;
 pub use subtensor_runtime_common::{
-    AlphaBalance, AuthorshipInfo, ConstTao, NetUid, TaoBalance, Token,
+    AlphaBalance, AuthorshipInfo, ConstTao, NetUid, SubnetDissolveHook, TaoBalance, Token,
 };
 use subtensor_swap_interface::{Order, SwapHandler};
 
@@ -317,6 +317,7 @@ impl pallet_subtensor::Config for Test {
     type Yuma3On = InitialYuma3On;
     type Preimages = ();
     type AlphaAssets = AlphaAssets;
+    type Derivatives = ();
     type InitialColdkeySwapAnnouncementDelay = InitialColdkeySwapAnnouncementDelay;
     type InitialColdkeySwapReannouncementDelay = InitialColdkeySwapReannouncementDelay;
     type InitialDissolveNetworkScheduleDuration = InitialDissolveNetworkScheduleDuration;
@@ -466,14 +467,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
-    fn purge_netuid(
+impl SubnetDissolveHook for CommitmentsI {
+    fn on_subnet_dissolve(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
-
+}
+impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 

@@ -7,6 +7,8 @@ import {EvmMoneyFlows} from './docs/evm-money-flows';
 import {ConvictionLockChart} from './docs/conviction-lock-chart';
 import {ConvictionModeComparison} from './docs/conviction-mode-comparison';
 import {ConvictionSubnetScenario} from './docs/conviction-subnet-scenario';
+import {DerivativesLifecycle} from './docs/derivatives-lifecycle';
+import {DerivativesPayoff} from './docs/derivatives-payoff';
 import {EmissionFlowDiagram} from './docs/emission-flow-diagram';
 import {EmissionNetworkSnapshot} from './docs/emission-network-snapshot';
 import {HyperparamActivityCutoffChart} from './docs/hyperparam-activity-cutoff-chart';
@@ -147,6 +149,8 @@ export function getMDXComponents(components?: MDXComponents) {
     ConvictionLockChart,
     ConvictionSubnetScenario,
     ConvictionModeComparison,
+    DerivativesLifecycle,
+    DerivativesPayoff,
     EvmAddressDomains,
     EvmMoneyFlows,
     HyperparamActivityCutoffChart,

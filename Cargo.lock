@@ -8807,6 +8807,7 @@ dependencies = [
  "pallet-commitments",
  "pallet-contracts",
  "pallet-crowdloan",
+ "pallet-derivatives",
  "pallet-drand",
  "pallet-election-provider-multi-phase",
  "pallet-ethereum",
@@ -10011,6 +10012,40 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
+]
+
+[[package]]
+name = "pallet-derivatives"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-alpha-assets",
+ "pallet-balances",
+ "pallet-crowdloan",
+ "pallet-drand",
+ "pallet-evm-chain-id",
+ "pallet-grandpa",
+ "pallet-preimage",
+ "pallet-scheduler",
+ "pallet-subtensor",
+ "pallet-subtensor-swap",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-consensus-aura",
+ "sp-consensus-grandpa",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+ "sp-tracing",
+ "sp-weights",
+ "substrate-fixed",
+ "subtensor-macros",
+ "subtensor-runtime-common",
+ "subtensor-swap-interface",
 ]
 
 [[package]]
@@ -19040,6 +19075,7 @@ dependencies = [
  "frame-support",
  "parity-scale-codec",
  "scale-info",
+ "sp-arithmetic",
  "substrate-fixed",
  "subtensor-macros",
  "subtensor-runtime-common",

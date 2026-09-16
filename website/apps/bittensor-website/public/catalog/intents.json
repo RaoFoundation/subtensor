@@ -70,6 +70,84 @@
     ]
   },
   {
+    "name": "add_derivative",
+    "summary": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.",
+    "description": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.\n\nOne call for open, add, reduce, and flip. With no position, or one on the\nsame side, `amount` TAO is taken from the coldkey as cushion, the pool\nlends the matching slice (alpha sold for TAO on a short, TAO spent on\nalpha on a long), and the result is folded into the position. With a\nposition on the other side, that much exposure is settled at the current\nprice and its share of the cushion, less interest and loss, is paid back;\nnothing is deposited. Asking for more than the position holds closes it\nand opens the rest on the new side, taking only that rest's cushion.\n\n`min_amount_out` is your floor on the TAO the call pays you, after\ninterest. It binds when the add reduces or closes a position: the\nsettlement runs at the live pool price, which anyone can move in the same\nblock ahead of it, and a payout below the floor fails the whole call with\n`SettlementBelowMinimum` instead of filling worse. An add that only opens\nor grows pays nothing out and must leave it at `0`, which is also no\nfloor. `btcli deriv short` / `long` derive it from a quote and\n`--max-slippage`.\n\nRefused with `DerivativesDisabled` while the network-wide switch is off\n(`enabled` in `btcli deriv params`); `ClosePosition` still works then.\nRefused with `LongsDisabled` while the long side is off (`longs_enabled`,\noff at launch) if the result would be a long: `Long` opens, grows, or\nflips into one. A `Long` add that only reduces or closes a short goes\nthrough, and so does every `Short` add.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Derivatives",
+        "add"
+      ]
+    ],
+    "docs_url": "/docs/tx/add-derivative",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose alpha the position is on."
+        },
+        "side": {
+          "type": "string",
+          "description": "Direction to add: `Short` or `Long`."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "TAO the tranche is sized by. Exposure is `leverage` times it, measured against the pool's TAO reserve. Deposited as cushion when it adds to your position; only sizes the reduction when it goes against it."
+        },
+        "leverage": {
+          "type": "number",
+          "description": "Exposure as a multiple of `amount`: 1, 1.2, 1.5. At most the side's maximum: 1x for shorts, 1.5x for longs (`max_short_leverage` / `max_long_leverage` in `btcli deriv params`)."
+        },
+        "min_amount_out": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Least TAO this call must pay you, after interest, when it reduces or closes a position; below it the call fails with `SettlementBelowMinimum` and nothing moves. Must be 0 for an add that only opens or grows. 0 (default) is no floor."
+        }
+      },
+      "required": [
+        "netuid",
+        "side",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx add-derivative --netuid <int> --side <value> --amount <amount|all>",
+    "python_class": "AddPosition",
+    "markdown_url": "/llms.mdx/docs/tx/add-derivative/content.md",
+    "sources": [
+      {
+        "pallet": "Derivatives",
+        "call": "add",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 408,
+        "end_line": 425,
+        "url": "/code/pallets/derivatives/src/lib.rs#L406-L425",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "add_proxy",
     "summary": "Authorize a delegate key to sign calls on this account's behalf.",
     "description": "Authorize a delegate key to sign calls on this account's behalf.\n\nThe foundation of the keep-the-coldkey-offline setup: sign this once from\nthe coldkey, then let the delegate submit day-to-day calls with\n`proxy_for=<this account>`. The chain reserves a small deposit from the\nsigner per delegation (returned on removal). The delegate can act within\n`proxy_type` immediately (or after announcing, if `delay` > 0) \u2014 grant\nonly to keys you control or fully trust.",
@@ -627,6 +705,61 @@
         "end_line": 2340,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2323-L2340",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "close_derivative",
+    "summary": "Close your derivatives position on a subnet and settle it against the pool.",
+    "description": "Close your derivatives position on a subnet and settle it against the pool.\n\nOnly the owner can close. Settlement reverses the opening trade, repays\nthe pool plus the interest owed, and pays you what remains. If the\nposition is underwater the pool absorbs the shortfall and you get nothing\nback. Works whether or not the network-wide switch is on: the switch\ngates adds, never exits.\n\n`min_amount_out` is your floor on the payout, after interest. The close\nruns at the live pool price, which anyone can move in the same block\nahead of it; a payout below the floor fails the call with\n`SettlementBelowMinimum` and leaves the position as it was. Since an\nunderwater close pays nothing, any floor above `0` also stops a price\npushed against you from forfeiting the position. `0` (the default) is\nno floor. `btcli deriv close` derives it from a quote and\n`--max-slippage`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Derivatives",
+        "close"
+      ]
+    ],
+    "docs_url": "/docs/tx/close-derivative",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet the position is on."
+        },
+        "min_amount_out": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Least TAO the close must pay you, after interest; below it the call fails with `SettlementBelowMinimum` and the position stays open. 0 (default) is no floor."
+        }
+      },
+      "required": [
+        "netuid"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx close-derivative --netuid <int>",
+    "python_class": "ClosePosition",
+    "markdown_url": "/llms.mdx/docs/tx/close-derivative/content.md",
+    "sources": [
+      {
+        "pallet": "Derivatives",
+        "call": "close",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 442,
+        "end_line": 449,
+        "url": "/code/pallets/derivatives/src/lib.rs#L440-L449",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
   },
