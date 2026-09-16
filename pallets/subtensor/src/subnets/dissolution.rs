@@ -273,6 +273,11 @@ impl<T: Config> Pallet<T> {
             }) {
                 return false;
             }
+            if !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+                SubnetLeaseUnpaidDividends::<T>::clear_prefix(lease_id, limit, None)
+            }) {
+                return false;
+            }
             let lease_weight = T::DbWeight::get().writes(3);
             if !weight_meter.can_consume(lease_weight) {
                 return false;

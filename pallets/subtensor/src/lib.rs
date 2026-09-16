@@ -75,6 +75,30 @@ pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 /// `claim_root_scan` (`Linear<1, N>`). Both claim paths reserve this many units
 /// and refund unused weight after dispatch.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
+/// Longest `StakingHotkeys` list a third party may leave behind on a coldkey through
+/// stake transfers. Half the root-claim admission budget, so a coldkey with up to as many
+/// hotkeys of its own still passes the coldkey-wide `claim_root` gate.
+pub const MAX_THIRD_PARTY_STAKING_HOTKEYS: u32 = MAX_ROOT_CLAIM_WORK / 2;
+/// Longest `StakingHotkeys` list a coldkey may hold in total. Every stake exit walks this
+/// list (lock and collateral availability), so its length is a weight dimension of every
+/// unstake-side call; bounding it keeps [`Pallet::staking_hotkeys_walk_bound`] finite. Equal
+/// to the root-claim admission budget, so any coldkey that can stake can also claim
+/// coldkey-wide. A coldkey at the cap keeps operating its existing hotkeys and may only add
+/// a new one after consolidating.
+pub const MAX_STAKING_HOTKEYS: u32 = MAX_ROOT_CLAIM_WORK;
+/// Storage reads one `StakingHotkeys` entry costs on an unstake-side call: the position quote
+/// (legacy and current share rows, pool value, both denominator maps, epoch) taken twice
+/// (validation and the debit path).
+pub const STAKING_HOTKEYS_WALK_READS_PER_ENTRY: u64 = 14;
+/// Most `StakingHotkeys` entries a coldkey swap moves in one call. Sized from the production
+/// distribution: the 99.9th percentile list is under 100 entries and four coldkeys exceed
+/// this value; they consolidate before swapping.
+pub const MAX_COLDKEY_SWAP_HOTKEYS: u32 = MAX_STAKING_HOTKEYS;
+/// Most stake positions `(hotkey, netuid)` a coldkey swap moves in one call. Each position is
+/// one `transfer_stake` worth of work; the declared weight reserves this many (about three
+/// quarters of the normal block budget) and refunds the rest post-dispatch. Four production
+/// coldkeys exceed it today.
+pub const MAX_COLDKEY_SWAP_POSITIONS: u32 = 1024;
 
 /// Minimum number of positive destination weights required by `set_root_weights`. Softened
 /// to the number of available destinations when fewer networks exist than this floor.
@@ -3215,6 +3239,21 @@ pub mod pallet {
     #[pallet::storage]
     pub type AccumulatedLeaseDividends<T: Config> =
         StorageMap<_, Twox64Concat, LeaseId, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
+
+    /// DMAP ( lease_id, contributor ) --> alpha | A contributor's dividend slices that could not
+    /// be transferred yet. The alpha stays in the lease position and is retried, for that
+    /// contributor only, at the next distribution.
+    #[pallet::storage]
+    pub type SubnetLeaseUnpaidDividends<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        LeaseId,
+        Identity,
+        T::AccountId,
+        AlphaBalance,
+        ValueQuery,
+        DefaultZeroAlpha<T>,
+    >;
 
     /// ITEM ( CommitRevealWeightsVersion )
     #[pallet::storage]

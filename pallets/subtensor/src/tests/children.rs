@@ -2336,15 +2336,12 @@ fn test_do_remove_stake_clears_pending_childkeys() {
             alpha,
         ));
 
-        // Assert that pending child is removed
-        let pending_after = PendingChildKeys::<Test>::get(netuid, hotkey);
-        close(
-            pending_after.0.len() as u64,
-            0,
-            0,
-            "Pending children vector should be empty",
-        );
-        close(pending_after.1, 0, 0, "Cooldown block should be zero");
+        // The schedule is re-checked against the threshold when it matures: a parent that
+        // unstaked below the threshold gets no live relation and the pending row is dropped.
+        wait_and_set_pending_children(netuid);
+        assert!(!PendingChildKeys::<Test>::contains_key(netuid, hotkey));
+        assert_eq!(SubtensorModule::get_children(&hotkey, netuid), vec![]);
+        assert_eq!(SubtensorModule::get_parents(&child, netuid), vec![]);
     });
 }
 

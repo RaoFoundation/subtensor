@@ -1,6 +1,8 @@
 use super::*;
+use frame_support::weights::Weight;
 use safe_math::*;
 use share_pool::{SafeFloat, SharePool, SharePoolDataOperations};
+use sp_core::Get;
 use sp_std::{collections::btree_map::BTreeMap, ops::Neg};
 use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, NetUid, TaoBalance, Token};
@@ -567,6 +569,12 @@ impl<T: Config> Pallet<T> {
         alpha_share_pool.update_value_for_all((amount as i64).neg());
     }
 
+    /// True when the hotkey's share pool on `netuid` has a non-zero denominator, i.e. at
+    /// least one coldkey holds shares that a pool-wide credit would be distributed to.
+    pub fn hotkey_share_pool_has_members(hotkey: &T::AccountId, netuid: NetUid) -> bool {
+        Self::get_alpha_share_pool(hotkey.clone(), netuid).has_members()
+    }
+
     /// Buys shares in the hotkey on a given subnet
     ///
     /// The function updates share totals given current prices.
@@ -704,14 +712,17 @@ impl<T: Config> Pallet<T> {
             *total = total.saturating_add(swap_result.amount_paid_out.into());
         });
 
-        // Increase the protocol TAO reserve
+        // Increase the protocol TAO reserve and the network-wide total by the same amount:
+        // only the TAO that entered the reserve is stake. The swap fee leaves the subnet
+        // account for the block author and must not be counted (issue #3156).
+        let reserve_delta: TaoBalance = swap_result
+            .paid_in_reserve_delta_i64()
+            .unsigned_abs()
+            .into();
         SubnetTAO::<T>::mutate(netuid, |total| {
-            let delta = swap_result.paid_in_reserve_delta_i64().unsigned_abs();
-            *total = total.saturating_add(delta.into());
+            *total = total.saturating_add(reserve_delta);
         });
-
-        // Increase Total Tao reserves.
-        TotalStake::<T>::mutate(|total| *total = total.saturating_add(tao));
+        TotalStake::<T>::mutate(|total| *total = total.saturating_add(reserve_delta));
 
         // Increase total subnet TAO volume.
         SubnetVolume::<T>::mutate(netuid, |total| {
@@ -1028,9 +1039,6 @@ impl<T: Config> Pallet<T> {
         let refund_tao = tao_staked.saturating_sub(consumed_tao);
         if !refund_tao.is_zero() {
             Self::transfer_tao_from_subnet(netuid, coldkey, refund_tao)?;
-            // `swap_tao_for_alpha` bumped `TotalStake` by the full `tao_staked`;
-            // only `consumed_tao` actually became stake, so back out the refund.
-            TotalStake::<T>::mutate(|total| *total = total.saturating_sub(refund_tao));
         }
 
         // Record TAO inflow
@@ -1190,6 +1198,45 @@ impl<T: Config> Pallet<T> {
         Ok(tao_equivalent)
     }
 
+    /// Refuse to add `hotkey` to `coldkey`'s `StakingHotkeys` when the list is already at
+    /// [`crate::MAX_STAKING_HOTKEYS`]. Staking to a hotkey already on the list is always
+    /// allowed. Protocol credits (dividends, collateral capture) never call this: they only
+    /// touch hotkeys the coldkey already stakes to.
+    pub fn ensure_staking_hotkeys_can_grow(
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+    ) -> Result<(), Error<T>> {
+        let staking_hotkeys = StakingHotkeys::<T>::get(coldkey);
+        ensure!(
+            staking_hotkeys.contains(hotkey)
+                || staking_hotkeys.len() < crate::MAX_STAKING_HOTKEYS as usize,
+            Error::<T>::TooManyStakingHotkeys
+        );
+        Ok(())
+    }
+
+    /// Weight of walking a `StakingHotkeys` list of `entries` on an unstake-side call.
+    fn staking_hotkeys_walk_weight(entries: u64) -> Weight {
+        T::DbWeight::get().reads(
+            entries
+                .saturating_mul(crate::STAKING_HOTKEYS_WALK_READS_PER_ENTRY)
+                .saturating_add(1),
+        )
+    }
+
+    /// Pre-dispatch allowance for the `StakingHotkeys` walk every unstake-side call performs
+    /// (lock and collateral availability): the longest list the cap admits. Refunded to
+    /// [`Self::staking_hotkeys_walk_actual`] post-dispatch.
+    pub fn staking_hotkeys_walk_bound() -> Weight {
+        Self::staking_hotkeys_walk_weight(u64::from(crate::MAX_STAKING_HOTKEYS))
+    }
+
+    /// Post-dispatch weight of the `StakingHotkeys` walk for `coldkey`'s actual list.
+    pub fn staking_hotkeys_walk_actual(coldkey: &T::AccountId) -> Weight {
+        let entries = StakingHotkeys::<T>::decode_len(coldkey).unwrap_or(0) as u64;
+        Self::staking_hotkeys_walk_weight(entries)
+    }
+
     pub fn get_alpha_share_pool(
         hotkey: <T as frame_system::Config>::AccountId,
         netuid: NetUid,
@@ -1267,6 +1314,10 @@ impl<T: Config> Pallet<T> {
             Self::hotkey_account_exists(hotkey),
             Error::<T>::HotKeyAccountNotExists
         );
+
+        // Staking to a new hotkey appends it to the coldkey's `StakingHotkeys`; keep that
+        // list within the bound every unstake-side call is weighted for.
+        Self::ensure_staking_hotkeys_can_grow(coldkey, hotkey)?;
 
         let order = GetAlphaForTao::<T>::with_amount(stake_to_be_added);
         let swap_result = T::SwapInterface::sim_swap(netuid.into(), order)
@@ -1527,6 +1578,22 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        // A transfer to another coldkey appends `destination_hotkey` to that coldkey's
+        // `StakingHotkeys` without its consent. Every stake exit of the destination walks
+        // that list, and the coldkey-wide root claim refuses lists above its admission
+        // budget, so third parties may only grow it up to a fixed bound. The coldkey's own
+        // moves are bounded by the larger overall cap.
+        if origin_coldkey != destination_coldkey {
+            let staking_hotkeys = StakingHotkeys::<T>::get(destination_coldkey);
+            ensure!(
+                staking_hotkeys.contains(destination_hotkey)
+                    || staking_hotkeys.len() < crate::MAX_THIRD_PARTY_STAKING_HOTKEYS as usize,
+                Error::<T>::TooManyStakingHotkeys
+            );
+        } else {
+            Self::ensure_staking_hotkeys_can_grow(destination_coldkey, destination_hotkey)?;
+        }
+
         // Enforce lock invariant: if the is cross-subnet move, the remaining amount must
         // cover the lock.
         if origin_netuid != destination_netuid {
@@ -1604,7 +1671,7 @@ pub struct HotkeyAlphaSharePoolDataOperations<T: frame_system::Config> {
 }
 
 impl<T: Config> HotkeyAlphaSharePoolDataOperations<T> {
-    fn new(hotkey: <T as frame_system::Config>::AccountId, netuid: NetUid) -> Self {
+    pub(crate) fn new(hotkey: <T as frame_system::Config>::AccountId, netuid: NetUid) -> Self {
         HotkeyAlphaSharePoolDataOperations {
             netuid,
             hotkey,

@@ -375,5 +375,15 @@ mod errors {
         /// A queued root-dividend deposit could not be settled. Operations which change
         /// the hotkey's root claimant base must retry after the deposit becomes executable.
         BasketDepositPending,
+        /// A per-subnet weight batch is empty or has more items than there are networks.
+        InvalidBatchLength,
+        /// The destination coldkey already stakes through the maximum number of hotkeys
+        /// that third-party transfers may add, or the signer's own `StakingHotkeys` list is
+        /// at its cap. Staking to a hotkey the coldkey already stakes through is still
+        /// accepted.
+        TooManyStakingHotkeys,
+        /// The coldkey stakes through more hotkeys, or holds more stake positions, than a
+        /// coldkey swap can move in one call. Consolidate (unstake or move stake) first.
+        ColdkeySwapTooHeavy,
     }
 }

@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 459
+Spec version: 463
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -320,6 +320,7 @@ class SubtensorModule:
     SubnetUidToLeaseId = Item('SubtensorModule', 'SubnetUidToLeaseId', 'u32')
     NextSubnetLeaseId = Item('SubtensorModule', 'NextSubnetLeaseId', 'u32')
     AccumulatedLeaseDividends = Item('SubtensorModule', 'AccumulatedLeaseDividends', 'AlphaBalance')
+    SubnetLeaseUnpaidDividends = Item('SubtensorModule', 'SubnetLeaseUnpaidDividends', 'AlphaBalance')
     CommitRevealWeightsVersion = Item('SubtensorModule', 'CommitRevealWeightsVersion', 'u16')
     NetworkRegistrationStartBlock = Item('SubtensorModule', 'NetworkRegistrationStartBlock', 'u64')
     TaoInRefundDeploymentBlock = Item('SubtensorModule', 'TaoInRefundDeploymentBlock', 'u64')
@@ -363,6 +364,7 @@ class Proxy:
 
 class Commitments:
     TimelockedIndex = Item('Commitments', 'TimelockedIndex', 'BTreeSet')
+    TimelockRevealCursor = Item('Commitments', 'TimelockRevealCursor', '(NetUid, AccountId32)')
     CommitmentOf = Item('Commitments', 'CommitmentOf', 'Registration')
     LastCommitment = Item('Commitments', 'LastCommitment', 'u32')
     LastBondsReset = Item('Commitments', 'LastBondsReset', 'u32')

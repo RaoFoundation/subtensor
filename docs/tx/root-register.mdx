@@ -24,7 +24,7 @@ delegation. Use `burned_register` for ordinary subnets.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L843-L847) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L857-L861) |
 
 ## Parameters
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("root_register", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L845`](/code/pallets/subtensor/src/macros/dispatches.rs#L843-L847):
+`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L859`](/code/pallets/subtensor/src/macros/dispatches.rs#L857-L861):
 
 ```rust
 #[pallet::call_index(62)]

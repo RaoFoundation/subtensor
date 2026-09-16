@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 459,
+    spec_version: 463,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1674,6 +1674,17 @@ type Migrations = (
     // SubnetTAO[0] / TotalStake to match root holdings, so every root staker can exit.
     // One-shot, guarded by HasMigrationRun; try-runtime checks the reconciliation invariants.
     pallet_subtensor::migrations::migrate_fix_root_pot_shortfall::fix_root_pot_shortfall::Migration<
+        Runtime,
+    >,
+    // Set TotalStake to the sum of SubnetTAO over live subnets (issue #3156). One-shot,
+    // guarded by HasMigrationRun; try-runtime checks the sum and that issuance is untouched.
+    pallet_subtensor::migrations::migrate_resync_total_stake::resync_total_stake::Migration<
+        Runtime,
+    >,
+    // Rewrite the denominator of the share pools identified by the production scan to the
+    // sum of their live shares, so every member is quoted exactly its fraction. One-shot,
+    // guarded by HasMigrationRun; try-runtime checks each target pool before and after.
+    pallet_subtensor::migrations::migrate_reconcile_share_pools::reconcile_share_pools::Migration<
         Runtime,
     >,
 );

@@ -81,7 +81,7 @@ result = sub.execute_tool("reveal_weights", {...}, wallet)
 
 ```rust
 #[pallet::call_index(97)]
-#[pallet::weight((<T as crate::pallet::Config>::WeightInfo::reveal_weights(), DispatchClass::Normal, Pays::No))]
+#[pallet::weight((Pallet::<T>::reveal_weights_weight(uids.len() as u32), DispatchClass::Normal, Pays::No))]
 pub fn reveal_weights(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -94,6 +94,6 @@ pub fn reveal_weights(
 }
 ```
 
-Delegates to [`do_reveal_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L393).
+Delegates to [`do_reveal_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L433).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

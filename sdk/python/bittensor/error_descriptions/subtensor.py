@@ -861,4 +861,19 @@ DESCRIPTIONS: dict[str, str] = {
         "operation that changes the hotkey's root claimant base was refused. Wait until the "
         "deposit is settled or expires, then retry."
     ),
+    "InvalidBatchLength": (
+        "A per-subnet weight batch (`batch_set_weights`, `batch_commit_weights`, "
+        "`batch_reveal_weights`) was empty or had more items than there are networks. Send "
+        "at least one item and at most one per subnet."
+    ),
+    "TooManyStakingHotkeys": (
+        "The coldkey already stakes through the maximum number of hotkeys, either its own "
+        "cap or the smaller cap that third-party stake transfers may fill. Stake to a hotkey "
+        "the coldkey already stakes through, or unstake from unused hotkeys first."
+    ),
+    "ColdkeySwapTooHeavy": (
+        "The coldkey stakes through more hotkeys, or holds more stake positions, than one "
+        "coldkey swap can move. Unstake from or move stake off unused hotkeys and subnets "
+        "to consolidate, then retry the swap."
+    ),
 }

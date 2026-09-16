@@ -17,6 +17,7 @@ use subtensor_swap_interface::{Order, SwapHandler};
 
 use super::mock;
 use super::mock::*;
+use crate::weights::WeightInfo;
 use crate::*;
 
 /***********************************************************
@@ -126,10 +127,11 @@ fn test_add_stake_ok_no_emission() {
             1.into()
         );
 
-        // Check if total stake has increased accordingly.
+        // Check if total stake has increased accordingly (the swap fee goes to the block
+        // author and is not stake).
         assert_eq!(
             SubtensorModule::get_total_stake(),
-            SubtensorModule::get_network_min_lock() + amount.into()
+            SubtensorModule::get_network_min_lock() + amount.into() - fee.into()
         );
     });
 }
@@ -3338,7 +3340,7 @@ fn test_stake_overflow() {
         let total_stake_before = SubtensorModule::get_total_stake();
 
         // Stake and check if the result is ok
-        let (expected_alpha, _) = mock::swap_tao_to_alpha(netuid, amount.into());
+        let (expected_alpha, fee) = mock::swap_tao_to_alpha(netuid, amount.into());
         assert_ok!(SubtensorModule::add_stake(
             RuntimeOrigin::signed(coldkey_account_id),
             hotkey_account_id,
@@ -3353,10 +3355,10 @@ fn test_stake_overflow() {
             epsilon = 1.into()
         );
 
-        // Check if total stake has increased accordingly.
+        // Check if total stake has increased accordingly (net of the swap fee).
         assert_abs_diff_eq!(
             SubtensorModule::get_total_stake(),
-            total_stake_before + amount.into(),
+            total_stake_before + amount.into() - fee.into(),
             epsilon = 1.into()
         );
     });
@@ -5307,6 +5309,194 @@ fn test_unstake_all_works() {
         assert_abs_diff_eq!(new_alpha, AlphaBalance::ZERO, epsilon = 1_000.into());
         let new_balance = SubtensorModule::get_coldkey_balance(&coldkey);
         assert!(new_balance > 100_000.into());
+    });
+}
+
+// `unstake_all` runs one `remove_stake` worth of work per subnet the coldkey has a position
+// on, plus a quote on every other subnet. Its declared weight must cover a position on every
+// existing subnet, and the post-dispatch weight must scale with the legs it really ran.
+// Before the fix the call declared the benchmarked empty-loop constant (no subnets, no
+// stake), so a block builder admitted it at a fraction of its real cost.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_unstake_all_weight_covers_every_subnet --exact
+#[test]
+fn test_unstake_all_weight_covers_every_subnet() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let stake_amount = TaoBalance::from(10_000_000_000_u64); // 10 TAO per subnet
+        let staked_subnets: u32 = 3;
+        let unstaked_subnets: u32 = 2;
+
+        let mut netuids = Vec::new();
+        for _ in 0..(staked_subnets + unstaked_subnets) {
+            let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+            mock::setup_reserves(
+                netuid,
+                stake_amount * 100.into(),
+                u64::from(stake_amount * 1000.into()).into(),
+            );
+            netuids.push(netuid);
+        }
+        register_ok_neuron(*netuids.first().unwrap(), hotkey, coldkey, 192213123);
+        add_balance_to_coldkey_account(
+            &coldkey,
+            stake_amount * u64::from(staked_subnets).into() + ExistentialDeposit::get(),
+        );
+        for netuid in netuids.iter().take(staked_subnets as usize) {
+            assert_ok!(SubtensorModule::add_stake(
+                RuntimeOrigin::signed(coldkey),
+                hotkey,
+                *netuid,
+                stake_amount
+            ));
+        }
+
+        let remove_stake_unit = <Test as crate::Config>::WeightInfo::remove_stake();
+        let total_subnets = u64::from(TotalNetworks::<Test>::get());
+        assert!(total_subnets >= u64::from(staked_subnets + unstaked_subnets));
+
+        // Declared: one full leg for every existing subnet, on top of the fixed part.
+        let call = RuntimeCall::SubtensorModule(crate::Call::unstake_all { hotkey });
+        let declared = call.get_dispatch_info().call_weight;
+        let worst_case_legs = remove_stake_unit.saturating_mul(total_subnets);
+        assert!(
+            declared.all_gte(worst_case_legs),
+            "declared {declared:?} must cover {total_subnets} legs of {remove_stake_unit:?}"
+        );
+
+        // Actual: the legs really run, never more than declared, never less than their work.
+        let post_info =
+            SubtensorModule::unstake_all(RuntimeOrigin::signed(coldkey), hotkey).unwrap();
+        let actual = post_info.actual_weight.unwrap();
+        let legs_run = remove_stake_unit.saturating_mul(u64::from(staked_subnets));
+        assert!(
+            actual.all_gte(legs_run),
+            "actual {actual:?} must cover the {staked_subnets} legs run ({legs_run:?})"
+        );
+        assert!(
+            declared.all_gte(actual),
+            "actual {actual:?} must not exceed declared {declared:?}"
+        );
+        // Subnets without a position are charged their quote reads, not a full leg.
+        let one_more_leg = legs_run.saturating_add(remove_stake_unit);
+        assert!(
+            !actual.all_gte(one_more_leg),
+            "actual {actual:?} must not charge a full leg for a subnet without stake"
+        );
+        for netuid in netuids.iter().take(staked_subnets as usize) {
+            assert_abs_diff_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey, &coldkey, *netuid
+                ),
+                AlphaBalance::ZERO,
+                epsilon = 1_000.into()
+            );
+        }
+    });
+}
+
+// Every unstake-side call walks the signer's `StakingHotkeys` (lock and collateral
+// availability). The list is capped, the declared weight covers a list at the cap, and the
+// post-dispatch weight is refunded to the signer's real list length.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_staking_hotkeys_cap_and_remove_stake_weight --exact
+#[test]
+fn test_staking_hotkeys_cap_and_remove_stake_weight() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let stake_amount = TaoBalance::from(10_000_000_000_u64);
+
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+        mock::setup_reserves(
+            netuid,
+            stake_amount * 100.into(),
+            u64::from(stake_amount * 1000.into()).into(),
+        );
+        register_ok_neuron(netuid, hotkey, coldkey, 192213123);
+        add_balance_to_coldkey_account(&coldkey, stake_amount * 4.into());
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            netuid,
+            stake_amount
+        ));
+
+        // Fill the list to the cap with phantom entries; staking to a listed hotkey still
+        // works, staking to a new one is refused before any transfer.
+        let mut filled = StakingHotkeys::<Test>::get(coldkey);
+        let mut next = 10_000_u64;
+        while filled.len() < MAX_STAKING_HOTKEYS as usize {
+            filled.push(U256::from(next));
+            next += 1;
+        }
+        StakingHotkeys::<Test>::insert(coldkey, filled.clone());
+        // Nominating another coldkey's hotkey would append a new entry: refused at the cap.
+        let balance_before = SubtensorModule::get_coldkey_balance(&coldkey);
+        assert_err!(
+            SubtensorModule::add_stake(
+                RuntimeOrigin::signed(coldkey),
+                subnet_owner_hotkey,
+                netuid,
+                stake_amount
+            ),
+            Error::<Test>::TooManyStakingHotkeys
+        );
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&coldkey),
+            balance_before
+        );
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            netuid,
+            stake_amount
+        ));
+
+        // Declared weight covers a list at the cap; actual is refunded to the real length.
+        let unit = <Test as crate::Config>::WeightInfo::remove_stake();
+        let call = RuntimeCall::SubtensorModule(crate::Call::remove_stake {
+            hotkey,
+            netuid,
+            amount_unstaked: 100_000_000_u64.into(),
+        });
+        let declared = call.get_dispatch_info().call_weight;
+        assert!(
+            declared.all_gte(unit.saturating_add(SubtensorModule::staking_hotkeys_walk_bound()))
+        );
+
+        let post_info = SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            netuid,
+            100_000_000_u64.into(),
+        )
+        .unwrap();
+        let actual_full = post_info.actual_weight.unwrap();
+        assert!(declared.all_gte(actual_full));
+        assert!(
+            actual_full.all_gte(
+                unit.saturating_add(SubtensorModule::staking_hotkeys_walk_actual(&coldkey))
+            )
+        );
+
+        // A shorter list refunds more.
+        StakingHotkeys::<Test>::insert(coldkey, vec![hotkey]);
+        let post_info = SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            netuid,
+            100_000_000_u64.into(),
+        )
+        .unwrap();
+        let actual_short = post_info.actual_weight.unwrap();
+        assert!(
+            actual_full.ref_time() > actual_short.ref_time(),
+            "weight must scale with the list length: {actual_full:?} vs {actual_short:?}"
+        );
     });
 }
 

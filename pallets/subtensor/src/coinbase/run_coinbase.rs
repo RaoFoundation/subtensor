@@ -710,13 +710,18 @@ impl<T: Config> Pallet<T> {
                 netuid,
                 owner_cut,
             );
-            // If the subnet is leased, notify the lease logic that owner cut has been distributed.
-            if let Some(lease_id) = SubnetUidToLeaseId::<T>::get(netuid) {
+            // If the subnet is leased, notify the lease logic that owner cut has been
+            // distributed, and lock only the part of the cut the lease keeps: the
+            // contributors' share is paid out from this position and must stay unlocked.
+            let retained_cut = if let Some(lease_id) = SubnetUidToLeaseId::<T>::get(netuid) {
                 Self::distribute_leased_network_dividends(lease_id, owner_cut);
-            }
+                Self::leased_owner_cut_retained(lease_id, owner_cut)
+            } else {
+                owner_cut
+            };
 
             // Auto-lock owner's cut
-            Self::auto_lock_owner_cut(netuid, owner_cut);
+            Self::auto_lock_owner_cut(netuid, retained_cut);
         }
 
         // Distribute mining incentives.
@@ -827,7 +832,19 @@ impl<T: Config> Pallet<T> {
             let nominator_alpha: AlphaBalance = tou64!(nominator_divs).into();
             if !nominator_alpha.is_zero() {
                 log::debug!("hotkey: {hotkey:?} alpha_divs: {nominator_divs:?}");
-                Self::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, nominator_alpha);
+                if Self::hotkey_share_pool_has_members(&hotkey, netuid) {
+                    Self::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, nominator_alpha);
+                } else {
+                    // Nobody holds shares in this pool, so a pool-wide credit would sit
+                    // unowned in `TotalHotkeyAlpha` until the first later depositor is
+                    // quoted all of it. Credit the owner instead, which opens the pool.
+                    Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                        &hotkey,
+                        &owner,
+                        netuid,
+                        nominator_alpha,
+                    );
+                }
                 AlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
                     *divs = divs.saturating_add(nominator_alpha);
                 });

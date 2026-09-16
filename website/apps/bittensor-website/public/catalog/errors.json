@@ -1083,6 +1083,24 @@
         }
       ]
     },
+    "ColdkeySwapTooHeavy": {
+      "code": "limit_exceeded",
+      "description": "The coldkey stakes through more hotkeys, or holds more stake positions, than one coldkey swap can move. Unstake from or move stake off unused hotkeys and subnets to consolidate, then retry the swap.",
+      "docs_url": "/docs/errors/chain/ColdkeySwapTooHeavy",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ColdkeySwapTooHeavy/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 387,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L387",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "CollateralDrainRatioOutOfBounds": {
       "code": "invalid_argument",
       "description": "`sudo_set_collateral_drain_ratio` was given a value that is zero, negative, or above `MaxCollateralDrainRatio` (10). The drain ratio must be strictly positive \u2014 with no other exit path for miner collateral, a ratio of zero would make locked collateral permanently unrecoverable. Pass a `drain_ratio` in the range (0, 10].",
@@ -2201,6 +2219,24 @@
           "path": "pallets/subtensor/src/macros/errors.rs",
           "line": 224,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L224",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "InvalidBatchLength": {
+      "code": "invalid_argument",
+      "description": "A per-subnet weight batch (`batch_set_weights`, `batch_commit_weights`, `batch_reveal_weights`) was empty or had more items than there are networks. Send at least one item and at most one per subnet.",
+      "docs_url": "/docs/errors/chain/InvalidBatchLength",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidBatchLength/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 379,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L379",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5372,6 +5408,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/TooManySignatories/content.md",
       "pallets": [
         "Multisig"
+      ]
+    },
+    "TooManyStakingHotkeys": {
+      "code": "limit_exceeded",
+      "description": "The coldkey already stakes through the maximum number of hotkeys, either its own cap or the smaller cap that third-party stake transfers may fill. Stake to a hotkey the coldkey already stakes through, or unstake from unused hotkeys first.",
+      "docs_url": "/docs/errors/chain/TooManyStakingHotkeys",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyStakingHotkeys/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 384,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L384",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
       ]
     },
     "TooManyTopics": {

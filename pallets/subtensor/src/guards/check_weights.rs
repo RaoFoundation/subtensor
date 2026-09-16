@@ -1,6 +1,6 @@
 use super::{CallOf, DispatchableOriginOf, applicable_call};
 use crate::weights::WeightInfo;
-use crate::{Call, Config, Error, Pallet, WeightCommits};
+use crate::{Call, Config, Error, Pallet, TotalNetworks, WeightCommits};
 use frame_support::{
     dispatch::{DispatchErrorWithPostInfo, DispatchExtension, DispatchInfo, PostDispatchInfo},
     pallet_prelude::*,
@@ -40,6 +40,7 @@ impl<T: Config> CheckWeights<T> {
 
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
         Self::check_input_lengths(call)?;
+        Self::check_batch_size(call)?;
         Self::check_min_stake(who, call)?;
         Self::check_commit_reveal(who, call)
     }
@@ -74,6 +75,23 @@ impl<T: Config> CheckWeights<T> {
         } else {
             Err(Error::<T>::InputLengthsUnequal)
         }
+    }
+
+    /// A per-subnet batch must carry at least one item and no more items than there are
+    /// networks. These calls are `Pays::No`, so an empty or oversized batch that is admitted
+    /// to a block is free block space for the sender.
+    fn check_batch_size(call: &Call<T>) -> Result<(), Error<T>> {
+        let items = match call {
+            Call::batch_commit_weights { netuids, .. }
+            | Call::batch_set_weights { netuids, .. } => netuids.len(),
+            Call::batch_reveal_weights { uids_list, .. } => uids_list.len(),
+            _ => return Ok(()),
+        };
+
+        if items == 0 || items > usize::from(TotalNetworks::<T>::get()) {
+            return Err(Error::<T>::InvalidBatchLength);
+        }
+        Ok(())
     }
 
     fn ensure_min_stake(who: &T::AccountId, netuid: NetUid) -> Result<(), Error<T>> {
@@ -230,6 +248,13 @@ impl<T: Config> CheckWeights<T> {
                 if *reveal_round < pallet_drand::LastStoredRound::<T>::get() =>
             {
                 Err(Error::<T>::InvalidRevealRound)
+            }
+            // Plain weight setting always fails at dispatch on a commit-reveal subnet and
+            // the call is `Pays::No`; refuse it before it takes block space.
+            Call::set_weights { netuid, .. } | Call::set_mechanism_weights { netuid, .. }
+                if Pallet::<T>::get_commit_reveal_weights_enabled(*netuid) =>
+            {
+                Err(Error::<T>::CommitRevealEnabled)
             }
             _ => Ok(()),
         }
