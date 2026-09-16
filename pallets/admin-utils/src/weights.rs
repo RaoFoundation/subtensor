@@ -123,7 +123,11 @@ pub trait WeightInfo {
 	fn sudo_set_owner_cut_auto_lock_enabled() -> Weight;
 	fn sudo_set_collateral_lock_share() -> Weight;
 	fn sudo_set_collateral_drain_ratio() -> Weight;
-	fn sudo_set_root_weights_cap() -> Weight;
+	fn sudo_set_basket_concentration_cap() -> Weight;
+	fn sudo_set_basket_trading_enabled() -> Weight;
+	fn sudo_set_basket_trading_frozen() -> Weight;
+	fn sudo_set_basket_daily_turnover_cap() -> Weight;
+	fn sudo_set_basket_liquidity_cap() -> Weight;
 }
 
 /// Weights for `pallet_admin_utils` using the Substrate node and recommended hardware.
@@ -1466,12 +1470,44 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(8_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
-	/// Storage: `SubtensorModule::RootWeightsCap` (r:0 w:1)
-	/// Proof: `SubtensorModule::RootWeightsCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn sudo_set_root_weights_cap() -> Weight {
+	/// Storage: `SubtensorModule::BasketConcentrationCap` (r:0 w:1)
+	/// Proof: `SubtensorModule::BasketConcentrationCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_basket_concentration_cap() -> Weight {
 		// Measured on the reference Benchmarking runner (validate-benchmarks,
 		// steps 50 / repeat 20): weight 4_916_000, io r 0 w 1.
 		Weight::from_parts(4_916_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::BasketTradingEnabled` (r:0 w:1)
+	/// Proof: `SubtensorModule::BasketTradingEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_basket_trading_enabled() -> Weight {
+		// Measured on the reference Benchmarking runner (validate-benchmarks run
+		// 34758967315, steps 50 / repeat 20): weight 3_890_000, io r 0 w 1.
+		Weight::from_parts(3_890_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::BasketTradingFrozen` (r:0 w:1)
+	/// Proof: `SubtensorModule::BasketTradingFrozen` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_basket_trading_frozen() -> Weight {
+		// Measured on the reference Benchmarking runner (validate-benchmarks run
+		// 34758967315, steps 50 / repeat 20): weight 4_922_000, io r 0 w 1.
+		Weight::from_parts(4_922_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::BasketDailyTurnoverCap` (r:0 w:1)
+	/// Proof: `SubtensorModule::BasketDailyTurnoverCap` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_basket_daily_turnover_cap() -> Weight {
+		// Measured on the reference Benchmarking runner (validate-benchmarks run
+		// 34758967315, steps 50 / repeat 20): weight 3_841_000, io r 0 w 1.
+		Weight::from_parts(3_841_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::BasketLiquidityCap` (r:0 w:1)
+	/// Proof: `SubtensorModule::BasketLiquidityCap` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_basket_liquidity_cap() -> Weight {
+		// Measured on the reference Benchmarking runner (validate-benchmarks run
+		// 34758967315, steps 50 / repeat 20): weight 3_893_000, io r 0 w 1.
+		Weight::from_parts(3_893_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
@@ -2861,12 +2897,44 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(8_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
-	/// Storage: `SubtensorModule::RootWeightsCap` (r:0 w:1)
-	/// Proof: `SubtensorModule::RootWeightsCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn sudo_set_root_weights_cap() -> Weight {
+	/// Storage: `SubtensorModule::BasketConcentrationCap` (r:0 w:1)
+	/// Proof: `SubtensorModule::BasketConcentrationCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_basket_concentration_cap() -> Weight {
 		// Measured on the reference Benchmarking runner (validate-benchmarks,
 		// steps 50 / repeat 20): weight 4_916_000, io r 0 w 1.
 		Weight::from_parts(4_916_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::BasketTradingEnabled` (r:0 w:1)
+	/// Proof: `SubtensorModule::BasketTradingEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_basket_trading_enabled() -> Weight {
+		// Measured on the reference Benchmarking runner (validate-benchmarks run
+		// 34758967315, steps 50 / repeat 20): weight 3_890_000, io r 0 w 1.
+		Weight::from_parts(3_890_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::BasketTradingFrozen` (r:0 w:1)
+	/// Proof: `SubtensorModule::BasketTradingFrozen` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_basket_trading_frozen() -> Weight {
+		// Measured on the reference Benchmarking runner (validate-benchmarks run
+		// 34758967315, steps 50 / repeat 20): weight 4_922_000, io r 0 w 1.
+		Weight::from_parts(4_922_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::BasketDailyTurnoverCap` (r:0 w:1)
+	/// Proof: `SubtensorModule::BasketDailyTurnoverCap` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_basket_daily_turnover_cap() -> Weight {
+		// Measured on the reference Benchmarking runner (validate-benchmarks run
+		// 34758967315, steps 50 / repeat 20): weight 3_841_000, io r 0 w 1.
+		Weight::from_parts(3_841_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::BasketLiquidityCap` (r:0 w:1)
+	/// Proof: `SubtensorModule::BasketLiquidityCap` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_basket_liquidity_cap() -> Weight {
+		// Measured on the reference Benchmarking runner (validate-benchmarks run
+		// 34758967315, steps 50 / repeat 20): weight 3_893_000, io r 0 w 1.
+		Weight::from_parts(3_893_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)

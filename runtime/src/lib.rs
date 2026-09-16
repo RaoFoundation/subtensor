@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 460,
+    spec_version: 461,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1676,6 +1676,15 @@ type Migrations = (
     pallet_subtensor::migrations::migrate_fix_root_pot_shortfall::fix_root_pot_shortfall::Migration<
         Runtime,
     >,
+    // Remove the root weight vector design: clear Weights[ROOT], kill the
+    // set_root_weights gate, and carry the 1/16 concentration cap over to
+    // BasketConcentrationCap (now a swap_basket guardrail only). Funds have no target
+    // composition: dividends accumulate in place and deposits mirror the holdings; only
+    // swap_basket changes composition. Lives here so try-runtime checks the cleanup and
+    // the cap carry-over against real network state.
+    pallet_subtensor::migrations::migrate_remove_root_weights::remove_root_weights::Migration<
+        Runtime,
+    >,
 );
 
 // Unchecked extrinsic type as expected by this runtime.
@@ -2533,7 +2542,7 @@ impl_runtime_apis! {
         }
     }
 
-    #[api_version(3)]
+    #[api_version(4)]
     impl subtensor_custom_rpc_runtime_api::BetaBasketRuntimeApi<Block> for Runtime {
         fn get_root_basket_owed(coldkey: AccountId32) -> TaoBalance {
             SubtensorModule::get_root_basket_owed_tao(&coldkey)
@@ -2549,9 +2558,6 @@ impl_runtime_apis! {
         }
         fn get_root_basket_total_nav() -> TaoBalance {
             SubtensorModule::get_root_basket_total_nav_tao()
-        }
-        fn get_validator_weights(hotkey: AccountId32) -> Vec<(NetUid, u16)> {
-            SubtensorModule::get_validator_root_weights(&hotkey)
         }
         fn get_validator_basket_summary(hotkey: AccountId32) -> pallet_subtensor::rpc_info::basket_info::BasketSummary<AccountId32> {
             SubtensorModule::get_validator_basket_summary(&hotkey)
@@ -2582,6 +2588,9 @@ impl_runtime_apis! {
         }
         fn get_beta_portfolio(coldkey: AccountId32) -> Vec<pallet_subtensor::rpc_info::basket_info::BetaPosition<AccountId32>> {
             SubtensorModule::get_beta_portfolio(&coldkey)
+        }
+        fn get_basket_trading_status(hotkey: AccountId32) -> pallet_subtensor::rpc_info::basket_info::BasketTradingStatus {
+            SubtensorModule::get_basket_trading_status(&hotkey)
         }
     }
 

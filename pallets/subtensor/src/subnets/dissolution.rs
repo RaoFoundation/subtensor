@@ -1,7 +1,7 @@
 use super::*;
 use frame_support::weights::WeightMeter;
 use pallet_alpha_assets::AlphaAssetsInterface;
-use subtensor_runtime_common::{NetUid, NetUidStorageIndex, clear_prefix_with_meter};
+use subtensor_runtime_common::{NetUid, clear_prefix_with_meter};
 use subtensor_swap_interface::SwapHandler;
 /// Enum for the dissolve cleanup phase.
 #[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug, DecodeWithMemTracking)]
@@ -34,7 +34,9 @@ pub enum DissolveCleanupPhase {
     NetworkParameters,
     /// Phase 5.3: Remove map-backed subnet storage (keys, axons, per-mechanism weights, etc.).
     NetworkMapParameters,
-    /// Phase 5.4: Clear root-network weight entries referencing this netuid.
+    /// Phase 5.4: Retired no-op (root basket weight vectors were removed with
+    /// `set_root_weights`; `Weights[ROOT]` is empty). Kept so in-flight cleanup
+    /// discriminants stay stable; the hook advances straight to childkey takes.
     NetworkUpdateWeightsOnRoot,
     /// Phase 5.5: Remove childkey take entries for this netuid.
     NetworkChildkeyTake,
@@ -417,51 +419,6 @@ impl<T: Config> Pallet<T> {
         (
             read_all,
             last_item.map(|(nu, uid, _)| Keys::<T>::hashed_key_for(nu, uid)),
-        )
-    }
-
-    pub fn remove_network_update_weights_on_root(
-        netuid: NetUid,
-        weight_meter: &mut WeightMeter,
-        last_key: Option<Vec<u8>>,
-    ) -> (bool, Option<Vec<u8>>) {
-        let netuid_u16 = u16::from(netuid);
-
-        let root = NetUidStorageIndex::ROOT;
-        let iter = match last_key {
-            Some(raw_key) => Weights::<T>::iter_prefix_from(root, raw_key),
-            None => Weights::<T>::iter_prefix(root),
-        };
-
-        fn filter_weights(netuid_u16: u16, weights: &[(u16, u16)]) -> (bool, Vec<(u16, u16)>) {
-            let mut need_update = false;
-            let mut filtered_weights = weights.to_vec();
-            for (subnet_id, weight) in filtered_weights.iter_mut() {
-                if *subnet_id == netuid_u16 && *weight != 0 {
-                    need_update = true;
-                    *weight = 0;
-                }
-            }
-            (need_update, filtered_weights)
-        }
-
-        let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
-            weight_meter,
-            iter,
-            |_| true,
-            |(uid, weights)| (uid, weights),
-            |(uid, weights)| {
-                let (update, filtered_weights) = filter_weights(netuid_u16, weights);
-                if update {
-                    Weights::<T>::insert(root, *uid, filtered_weights);
-                }
-            },
-            1,
-        );
-
-        (
-            read_all,
-            last_item.map(|key| Weights::<T>::hashed_key_for(root, key.0)),
         )
     }
 
@@ -917,19 +874,10 @@ impl<T: Config> Pallet<T> {
                     done
                 }
                 DissolveCleanupPhase::NetworkUpdateWeightsOnRoot => {
-                    let (done, new_key) = Self::remove_network_update_weights_on_root(
-                        netuid,
-                        weight_meter,
-                        status.last_key.clone(),
-                    );
-
-                    if done {
-                        status.set_phase(DissolveCleanupPhase::NetworkChildkeyTake);
-                        status.last_key = None;
-                    } else {
-                        status.last_key = new_key;
-                    }
-                    done
+                    // Retired phase: root basket weight vectors no longer exist.
+                    status.set_phase(DissolveCleanupPhase::NetworkChildkeyTake);
+                    status.last_key = None;
+                    true
                 }
                 DissolveCleanupPhase::NetworkChildkeyTake => {
                     let (done, new_key) = Self::remove_network_childkey_take(

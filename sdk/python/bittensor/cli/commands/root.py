@@ -7,8 +7,8 @@ Claiming sells that β and folds the TAO into root stake (assets out).
 whole root position (principal + that yield) onto a destination validator.
 ``list`` is the fund leaderboard (one fund in detail with a validator
 argument, your own positions with ``--mine``), ``register`` joins the root
-network, and the ``weights`` sub-group curates a validator's dividend
-basket.
+network, and ``swap`` rebalances a validator's basket between subnets —
+the only way a basket's composition changes; dividends accumulate in place.
 """
 
 from __future__ import annotations
@@ -48,11 +48,11 @@ from ..root_helpers import (
     resolve_validator_selector,
 )
 from ..tx import resolve_all_amount
-from . import root_move, root_weights
+from . import root_move, root_swap
 
 app = typer.Typer(
     no_args_is_help=True,
-    help="Root network: validator baskets, dividend weights, and your TAO positions."
+    help="Root network: validator baskets, basket swaps, and your TAO positions."
     f"\n\nGuide: {guide_docs_url('root-reborn')}",
 )
 
@@ -386,8 +386,8 @@ def root_list(
     index-spliced β price stays in the detail view, the allocate picker,
     and JSON output (`display_price_tao` / `vs_index`).
 
-    With a validator (hotkey ss58, root UID, or name): that fund's weights,
-    holdings, and performance — plus your position on it, if any.
+    With a validator (hotkey ss58, root UID, or name): that fund's holdings
+    and performance — plus your position on it, if any.
 
     With ``--mine``: your root positions per validator — staked τ (principal
     on netuid 0), accrued τ (unclaimed fund yield), and the return since your
@@ -681,6 +681,8 @@ def root_allocate(
 
 app.command("move")(root_move.root_move)
 
+app.command("swap")(root_swap.root_swap)
+
 
 @app.command("register")
 @with_tx_globals
@@ -697,12 +699,10 @@ def root_register(
     and a full root network prunes its lowest-staked non-immune member.
     A new seat is immune for the current root immunity period so it can
     attract stake before the next registration can evict it. Registration
-    is what lets the hotkey receive root stake and curate its dividend
-    basket (`btcli root weights`).
+    is what lets the hotkey receive root stake; its dividends accumulate as
+    alpha on the subnets they are earned on, and it reshapes that basket
+    with `btcli root swap`.
     """
     app_ctx: AppContext = ctx_of(ctx)
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     app_ctx.submit(RootRegister(hotkey_ss58=hotkey))
-
-
-app.add_typer(root_weights.app, name="weights")

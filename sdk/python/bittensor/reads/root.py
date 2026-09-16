@@ -1,10 +1,10 @@
 """Root dividend / basket reads.
 
 Root dividends accrue inside each validator's basket — an escrowed
-per-validator index fund of subnet alpha, built each epoch from the
-validator's root dividends per its root weights (``set_root_weights``) and
-redeemed by stakers with ``claim_root_with_hotkey`` (or coldkey-wide
-``claim_root``). Most figures these reads return are TAO-denominated (or the
+per-validator index fund of subnet alpha. Each epoch's root dividend lands
+as alpha on the subnet it was earned on; the validator reshapes the basket
+only with ``swap_basket``; stakers redeem with ``claim_root_with_hotkey`` (or
+coldkey-wide ``claim_root``). Most figures these reads return are TAO-denominated (or the
 actual per-subnet alpha holdings); the beta-denominated position reads
 (``basket_position`` / ``root_basket_portfolio``) additionally expose the
 fund's beta tokens: your beta balance is the stable product-facing number
@@ -38,6 +38,10 @@ _GET_ROOT_BASKET_PORTFOLIO = Method("BetaBasketRuntimeApi", "get_root_basket_por
 # registry is regenerated against a spec that includes these v3 methods.
 _GET_BETA_PRICING = Method("BetaBasketRuntimeApi", "get_beta_pricing")
 _GET_ALL_BETA_PRICING = Method("BetaBasketRuntimeApi", "get_all_beta_pricing")
+
+# TODO(codegen): switch to `api.BetaBasketRuntimeApi.get_basket_trading_status` once
+# the runtime-API registry is regenerated against a spec that includes this v4 method.
+_GET_BASKET_TRADING_STATUS = Method("BetaBasketRuntimeApi", "get_basket_trading_status")
 
 _ROOT_NETUID = 0
 
@@ -136,8 +140,6 @@ def _summary_record(view, summary: Any) -> dict:
     deposited = int(summary.get("deposited_tao") or 0)
     redeemed = int(summary.get("redeemed_tao") or 0)
     beta_raw = int(summary.get("shares") or 0)  # chain field name predates the beta branding
-    weights = [(int(netuid), int(weight)) for netuid, weight in summary.get("weights") or []]
-    weight_total = sum(weight for _, weight in weights)
     return {
         "hotkey": str(summary.get("hotkey")),
         "beta_total_raw": beta_raw,
@@ -149,14 +151,6 @@ def _summary_record(view, summary: Any) -> dict:
         "redeemed_tao": view.balance(redeemed, _ROOT_NETUID),
         # Lifetime multiple on deposits: (current value + everything paid out) / paid in.
         "lifetime_return": (nav + redeemed) / deposited if deposited else None,
-        "weights": [
-            {
-                "netuid": netuid,
-                "weight": weight,
-                "share": weight / weight_total if weight_total else 0.0,
-            }
-            for netuid, weight in weights
-        ],
         "holdings": [
             {
                 "netuid": int(holding["netuid"]),
@@ -393,6 +387,40 @@ async def validator_basket_nav(view, hotkey_ss58: str) -> Balance:
 
 
 @read(
+    "basket_trading_status",
+    {"hotkey_ss58": "string"},
+    category="Staking",
+    param_docs={"hotkey_ss58": "Validator hotkey whose basket trading status to read."},
+)
+async def basket_trading_status(view, hotkey_ss58: str) -> dict:
+    """A validator's `swap_basket` trading status: gates and the turnover bucket.
+
+    `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.
+    The turnover budget is a token bucket: `budget_tao` is its capacity
+    (`BasketDailyTurnoverCap` share of the fund's guarded NAV — each holding at
+    the lower of its realizable value and its slow-moving-price value, so a
+    pumped pool cannot enlarge it), `remaining_tao` what a trade right
+    now could push through the fund, `used_tao` the difference, and the bucket
+    refills by `refill_per_block_tao` every block (`budget_tao / refill_blocks`,
+    a full refill over `refill_blocks` = 7200 blocks).
+    """
+    row = await view.runtime(_GET_BASKET_TRADING_STATUS, [hotkey_ss58]) or {}
+    available_rao = int(row.get("tao_available") or 0)
+    budget_rao = int(row.get("budget_tao") or 0)
+    refill_blocks = int(row.get("refill_blocks") or 0)
+    per_block_rao = budget_rao // refill_blocks if refill_blocks else 0
+    return {
+        "enabled": bool(row.get("enabled", False)),
+        "frozen": bool(row.get("frozen", False)),
+        "refill_blocks": refill_blocks,
+        "refill_per_block_tao": view.balance(per_block_rao, _ROOT_NETUID),
+        "used_tao": view.balance(max(budget_rao - available_rao, 0), _ROOT_NETUID),
+        "budget_tao": view.balance(budget_rao, _ROOT_NETUID),
+        "remaining_tao": view.balance(min(available_rao, budget_rao), _ROOT_NETUID),
+    }
+
+
+@read(
     "root_basket_total_nav",
     {},
     category="Staking",
@@ -404,35 +432,6 @@ async def root_basket_total_nav(view) -> Balance:
     """
     value = await view.runtime(api.BetaBasketRuntimeApi.get_root_basket_total_nav, [])
     return view.balance(int(value or 0), _ROOT_NETUID)
-
-
-@read(
-    "validator_root_weights",
-    {"hotkey_ss58": "string"},
-    category="Staking",
-    param_docs={"hotkey_ss58": "Validator hotkey whose root weights to read."},
-)
-async def validator_root_weights(view, hotkey_ss58: str) -> list[dict]:
-    """A validator's root dividend distribution vector (basket weights).
-
-    The `(netuid, weight)` pairs its root dividends are deployed into each
-    epoch, exactly as stored (u16, max-upscaled), plus each destination's
-    normalized `share` of the total.     Netuid 0 means "hold as TAO / root
-    stake". An empty list means no custom weights are set; the fund is
-    uncurated and each subnet's dividend accumulates in place on that
-    subnet, trade-free (no sell, no redeploy).
-    """
-    rows = await view.runtime(api.BetaBasketRuntimeApi.get_validator_weights, [hotkey_ss58])
-    pairs = [(int(netuid), int(weight)) for netuid, weight in rows or []]
-    total = sum(weight for _, weight in pairs)
-    return [
-        {
-            "netuid": netuid,
-            "weight": weight,
-            "share": weight / total if total else 0.0,
-        }
-        for netuid, weight in pairs
-    ]
 
 
 @read(

@@ -877,7 +877,7 @@ const page = () => {
           <ul className={styles.list}>
             <li>
               <strong>Validators publish a vector — once curation opens.</strong>{' '}
-              <DocLink href='/docs/tx/set-root-weights'>
+              <DocLink href='/docs/guides/root-reborn'>
                 <code>set_root_weights</code>
               </DocLink>{' '}
               (call index 146) takes relative weights over netuid 0 and existing subnets — at
@@ -962,7 +962,7 @@ btcli root show --hotkey 5F...         # your fund: weights, holdings, NAV`}
           </pre>
           <p>
             Weights are relative and normalized before submission (
-            <DocLink href='/docs/tx/set-root-weights'>
+            <DocLink href='/docs/guides/root-reborn'>
               <code>set-root-weights</code>
             </DocLink>
             , call index 146); every destination must be netuid 0 or an existing subnet, and

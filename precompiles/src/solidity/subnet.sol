@@ -213,7 +213,7 @@ interface ISubnet {
      * 9 finish stake cleanup; 10 clear protocol liquidity;
      * 11 purge subnet commitments; 12 clear network membership;
      * 13 clear network parameters; 14 clear network maps;
-     * 15 update root weights; 16 clear childkey takes;
+     * 15 retired (root weights; passes straight through); 16 clear childkey takes;
      * 17 clear childkeys; 18 clear parentkeys;
      * 19 clear last hotkey emissions; 20 clear last-epoch hotkey alpha;
      * 21 clear transaction rate-limit records; 22 clear network locks;

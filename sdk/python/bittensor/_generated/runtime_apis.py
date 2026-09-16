@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 460
+Spec version: 461
 
 Runtime API method descriptors: unpack into substrate.runtime_call.
 """
@@ -36,7 +36,6 @@ class BetaBasketRuntimeApi:
     get_validator_basket_nav = Method('BetaBasketRuntimeApi', 'get_validator_basket_nav')
     get_validator_basket = Method('BetaBasketRuntimeApi', 'get_validator_basket')
     get_root_basket_total_nav = Method('BetaBasketRuntimeApi', 'get_root_basket_total_nav')
-    get_validator_weights = Method('BetaBasketRuntimeApi', 'get_validator_weights')
     get_validator_basket_summary = Method('BetaBasketRuntimeApi', 'get_validator_basket_summary')
     get_all_validator_baskets = Method('BetaBasketRuntimeApi', 'get_all_validator_baskets')
     get_root_basket_positions = Method('BetaBasketRuntimeApi', 'get_root_basket_positions')
@@ -47,6 +46,7 @@ class BetaBasketRuntimeApi:
     get_beta_index = Method('BetaBasketRuntimeApi', 'get_beta_index')
     get_beta_position = Method('BetaBasketRuntimeApi', 'get_beta_position')
     get_beta_portfolio = Method('BetaBasketRuntimeApi', 'get_beta_portfolio')
+    get_basket_trading_status = Method('BetaBasketRuntimeApi', 'get_basket_trading_status')
 
 class BlockBuilder:
     apply_extrinsic = Method('BlockBuilder', 'apply_extrinsic')

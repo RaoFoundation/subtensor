@@ -365,8 +365,9 @@ class ClaimRoot(_RootClaimIntent):
     """Redeem accrued root dividends across every validator for the coldkey.
 
     Root dividends accrue as shares of each validator's basket — an
-    escrowed index fund of subnet alpha the chain builds from the validator's
-    root dividends per its root weights (see ``set_root_weights``). This call
+    escrowed index fund of subnet alpha built from the validator's root
+    dividends, each held on the subnet it was earned on (the validator
+    reshapes it only with ``swap_basket``). This call
     redeems the signing coldkey's owed shares on every validator it
     root-stakes to. The ``subnets`` argument is retained for call-data
     compatibility with pre-basket clients and is ignored — baskets have no
@@ -422,8 +423,10 @@ class ClaimRootWithHotkey(_RootClaimIntent):
     per-holding claim fee shrinks over time; curated positions are left to
     compound. The transaction fee is charged by work actually done:
     holdings redeemed pay full weight, holdings merely scanned pay a small
-    per-row cost. The chain reserves a fixed 256-unit declared-work envelope,
-    counts only root-relevant hotkeys and their basket rows for admission, and
+    per-row cost. The chain reserves a fixed 256-unit declared-work envelope
+    plus a flat allowance for settling the validator's queued dividend credits
+    first (the same allowance every basket call that flushes declares), counts
+    only root-relevant hotkeys and their basket rows for admission, and
     separately caps classification of the staking-hotkey vector at 256. It
     refunds the unused part after.
     ``plan`` and ``btcli root claim --dry-run`` show reserved versus spent,

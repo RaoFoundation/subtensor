@@ -1,7 +1,4 @@
-"""`btcli misc weights`: commit-reveal weight commands for subnet validators.
-
-Root dividend weights (basket curation) live under `btcli root weights`.
-"""
+"""`btcli misc weights`: commit-reveal weight commands for subnet validators."""
 
 from __future__ import annotations
 
