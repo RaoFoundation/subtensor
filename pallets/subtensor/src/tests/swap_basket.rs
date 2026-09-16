@@ -241,11 +241,11 @@ fn test_swap_basket_alpha_to_alpha_is_composition_only() {
         assert_eq!(entitlements(&fund), before);
         assert_nav_within_fees(nav_before, nav(&fund.hotkey));
 
-        // The block author is paid on both legs. Only the sell leg's fee (alpha sold
-        // fee-free for TAO that leaves the pool) reduces `TotalStake`; the buy leg's fee is
-        // TAO already counted in by `swap_tao_for_alpha` and merely moves pot -> author,
-        // exactly as in `stake_into_subnet`. The sell-leg fee is what the origin pool
-        // booked as protocol outflow beyond `tao_mid`.
+        // The block author is paid on both legs and neither fee is stake: the sell leg's
+        // fee is alpha sold fee-free for TAO that leaves the pool, and the buy leg's fee is
+        // TAO that never enters the destination reserve. `TotalStake` tracks the reserves,
+        // so it drops by exactly what the author received. The sell-leg fee is what the
+        // origin pool booked as protocol outflow beyond `tao_mid`.
         let author_fee = author_balance() - author_before;
         assert!(
             author_fee > 0,
@@ -255,7 +255,7 @@ fn test_swap_basket_alpha_to_alpha_is_composition_only() {
         assert!(sell_fee_outflow > 0 && sell_fee_outflow < author_fee);
         assert_eq!(
             TotalStake::<Test>::get().to_u64(),
-            ts_before - sell_fee_outflow
+            ts_before - author_fee
         );
     });
 }
@@ -333,13 +333,11 @@ fn test_swap_basket_root_to_alpha_debits_reserves_in_lockstep() {
             SubnetAlphaOut::<Test>::get(NetUid::ROOT).to_u64(),
             root_alpha_out_start
         );
-        // Root leg is fee-free and the buy leg's fee stays inside `TotalStake` accounting
-        // (it is TAO moved from the pot to the author, already counted as staked).
-        assert_eq!(TotalStake::<Test>::get().to_u64(), ts_before);
-        assert!(
-            author_balance() > author_before,
-            "buy-leg fee goes to the author"
-        );
+        // Root leg is fee-free; the buy leg's fee goes to the author and never enters the
+        // destination reserve, so `TotalStake` drops by exactly that fee.
+        let buy_fee = author_balance() - author_before;
+        assert!(buy_fee > 0, "buy-leg fee goes to the author");
+        assert_eq!(TotalStake::<Test>::get().to_u64(), ts_before - buy_fee);
         assert_eq!(entitlements(&fund), before);
         assert_nav_within_fees(nav_before, nav(&fund.hotkey));
     });
