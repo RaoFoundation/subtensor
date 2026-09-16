@@ -2230,6 +2230,7 @@ mod pallet_benchmarks {
             SubtokenEnabled::<T>::insert(netuid, true);
             set_reserves::<T>(netuid, reserve_tao, reserve_alpha);
             SubnetMovingPrice::<T>::insert(netuid, I96F32::from_num(1));
+            SubnetFastMovingPrice::<T>::insert(netuid, U64F64::from_num(1));
             if i < h {
                 Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
                     &hotkey, &escrow, netuid, holding,
