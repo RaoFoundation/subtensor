@@ -24,6 +24,8 @@ on:
       - ".github/scripts/test-download-artifact.sh"
       - ".github/scripts/select-shared-release-artifact.sh"
       - ".github/scripts/test-select-shared-release-artifact.sh"
+      - ".github/scripts/split-typescript-e2e-plan.sh"
+      - ".github/scripts/test-split-typescript-e2e-plan.sh"
       - ".github/scripts/prewarm-exact-runtime.sh"
       - ".github/scripts/test-prewarm-exact-runtime.sh"
       - ".github/scripts/benchmark-sccache-paired.sh"
@@ -80,6 +82,7 @@ jobs:
           .github/scripts/test-snapshot-artifact.sh
           .github/scripts/test-download-artifact.sh
           .github/scripts/test-select-shared-release-artifact.sh
+          .github/scripts/test-split-typescript-e2e-plan.sh
           .github/scripts/test-r2-artifact-mirror.py
           .github/scripts/test-r2-sccache-warmset.py
           .github/scripts/test-classify-bittensor-e2e-changes.sh
