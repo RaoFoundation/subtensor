@@ -2554,7 +2554,7 @@ fn test_transfer_stake_doesnt_limit_destination_coldkey() {
 /// held TAO (no `System::Account` row).
 fn endow_alpha_only(funder: U256, receiver: U256, hotkey: U256, netuid: NetUid, tao: u64) {
     let _ = SubtensorModule::create_account_if_non_existent(&funder, &hotkey);
-    add_balance_to_coldkey_account(&funder, (tao + 1_000_000_000).into());
+    add_balance_to_coldkey_account(&funder, tao.saturating_add(1_000_000_000).into());
     SubtensorModule::stake_into_subnet(
         &hotkey,
         &funder,
@@ -2667,22 +2667,22 @@ fn third_party_transfer_new_hotkey(
     netuid: NetUid,
     idx: u64,
 ) -> Result<U256, sp_runtime::DispatchError> {
-    let hotkey = U256::from(1_000_000 + idx);
+    let hotkey = U256::from(1_000_000_u64.saturating_add(idx));
     let min_transfer = DefaultMinTransfer::<Test>::get().to_u64();
     let _ = SubtensorModule::create_account_if_non_existent(attacker, &hotkey);
-    add_balance_to_coldkey_account(attacker, TaoBalance::from(min_transfer * 4));
+    add_balance_to_coldkey_account(attacker, TaoBalance::from(min_transfer.saturating_mul(4)));
     SubtensorModule::stake_into_subnet(
         &hotkey,
         attacker,
         netuid,
-        TaoBalance::from(min_transfer * 2),
+        TaoBalance::from(min_transfer.saturating_mul(2)),
         <Test as Config>::SwapInterface::max_price(),
         false,
     )
     .unwrap();
     let alpha =
         SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, attacker, netuid);
-    let amount = AlphaBalance::from((min_transfer + 1).min(alpha.to_u64()));
+    let amount = AlphaBalance::from(min_transfer.saturating_add(1).min(alpha.to_u64()));
     SubtensorModule::do_transfer_stake(
         RuntimeOrigin::signed(*attacker),
         *victim,
@@ -2724,14 +2724,14 @@ fn test_third_party_transfers_cannot_grow_staking_hotkeys_without_bound() {
         assert_eq!(StakingHotkeys::<Test>::get(victim).len() as u64, cap);
 
         // ...but a transfer to a hotkey the victim already stakes through is fine.
-        let existing = planted[0];
+        let existing = *planted.first().unwrap();
         let min_transfer = DefaultMinTransfer::<Test>::get().to_u64();
-        add_balance_to_coldkey_account(&attacker, TaoBalance::from(min_transfer * 4));
+        add_balance_to_coldkey_account(&attacker, TaoBalance::from(min_transfer.saturating_mul(4)));
         SubtensorModule::stake_into_subnet(
             &existing,
             &attacker,
             netuid,
-            TaoBalance::from(min_transfer * 4),
+            TaoBalance::from(min_transfer.saturating_mul(4)),
             <Test as Config>::SwapInterface::max_price(),
             false,
         )
@@ -2742,7 +2742,7 @@ fn test_third_party_transfers_cannot_grow_staking_hotkeys_without_bound() {
             existing,
             netuid,
             netuid,
-            AlphaBalance::from(min_transfer * 2),
+            AlphaBalance::from(min_transfer.saturating_mul(2)),
         ));
         assert_eq!(StakingHotkeys::<Test>::get(victim).len() as u64, cap);
 
@@ -2756,10 +2756,13 @@ fn test_third_party_transfers_cannot_grow_staking_hotkeys_without_bound() {
             netuid,
             TaoBalance::from(1_000_000_000_u64),
         ));
-        assert_eq!(StakingHotkeys::<Test>::get(victim).len() as u64, cap + 1);
+        assert_eq!(
+            StakingHotkeys::<Test>::get(victim).len() as u64,
+            cap.saturating_add(1)
+        );
 
         // The coldkey-wide root claim is still within its admission budget.
-        assert!(cap + 1 <= MAX_ROOT_CLAIM_WORK as u64);
+        assert!(cap < MAX_ROOT_CLAIM_WORK as u64);
         assert_ok!(SubtensorModule::claim_root(
             RuntimeOrigin::signed(victim),
             BTreeSet::new()
