@@ -138,6 +138,7 @@ jobs:
       - run: .github/scripts/test-snapshot-artifact.sh
       - run: .github/scripts/test-download-artifact.sh
       - run: .github/scripts/test-select-shared-release-artifact.sh
+      - run: .github/scripts/test-cancel-superseded-release-watchers.sh
       - run: .github/scripts/test-runtime-change-filter.sh
       - run: .github/scripts/test-clone-regression-phase.sh
 
