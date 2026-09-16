@@ -154,15 +154,18 @@ untouched; only the composition of the escrow holdings changes.
 which is live on testnet and not on mainnet yet. Install
 `pip install "bittensor==11.3.0rc47"` and add `-n test`; the stable
 release on PyPI does not have the command, and `11.3.0rc46` shipped a
-broken `btcli`. See
+broken `btcli`. On testnet also pass `--no-mev-shield`: the MEV shield's
+validator-side reveal runs on mainnet only, so a shielded swap on testnet
+is accepted but never executes. On mainnet leave that flag off; swaps
+shield by default. See
 [Before you start](/docs/guides/basket-trading#before-you-start-install-the-matching-sdk)
 in the Basket trading guide.
 
 ```bash
 btcli root list 5F... -n test                                 # holdings, NAV, lifetime return
-btcli root swap --hotkey 5F... --from 4 --to 8 --amount 100 -n test   # sell 100 α of subnet 4, buy subnet 8
-btcli root swap --hotkey 5F... --from 0 --to 8 --amount 50 -n test    # deploy 50 τ of cash into subnet 8
-btcli root swap --hotkey 5F... --from 8 --to 0 --amount all -n test   # take profit into cash
+btcli root swap --hotkey 5F... --from 4 --to 8 --amount 100 -n test --no-mev-shield   # sell 100 α of subnet 4, buy subnet 8
+btcli root swap --hotkey 5F... --from 0 --to 8 --amount 50 -n test --no-mev-shield    # deploy 50 τ of cash into subnet 8
+btcli root swap --hotkey 5F... --from 8 --to 0 --amount all -n test --no-mev-shield   # take profit into cash
 ```
 
 ```python

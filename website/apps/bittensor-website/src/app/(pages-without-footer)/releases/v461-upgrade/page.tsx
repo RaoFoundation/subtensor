@@ -430,8 +430,12 @@ async with bt.Subtensor("finney") as client:
             <code>root swap</code> command and a crash at exit); <code>11.3.0rc47</code>{' '}
             fixes both. For the testnet trial install{' '}
             <code>pip install &quot;bittensor==11.3.0rc47&quot;</code> and pass{' '}
-            <code>-n test</code>. Once the runtime reaches mainnet, upgrade to the stable
-            release that ships with it (<code>11.3.0</code> or later). Reference pages:{' '}
+            <code>-n test</code>. On testnet also pass <code>--no-mev-shield</code> to{' '}
+            <code>btcli root swap</code>: the shield&apos;s validator-side reveal runs on
+            mainnet only, so a shielded swap on testnet is accepted but never executes. On
+            mainnet leave that flag off; swaps shield by default. Once the runtime reaches
+            mainnet, upgrade to the stable release that ships with it (<code>11.3.0</code>{' '}
+            or later). Reference pages:{' '}
             <DocLink href='/docs/tx/swap-basket'>
               <code>swap-basket</code>
             </DocLink>
