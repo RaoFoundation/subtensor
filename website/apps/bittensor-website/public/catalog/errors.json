@@ -2331,6 +2331,24 @@
         }
       ]
     },
+    "InvalidBatchLength": {
+      "code": "invalid_argument",
+      "description": "A per-subnet weight batch (`batch_set_weights`, `batch_commit_weights`, `batch_reveal_weights`) was empty or had more items than there are networks. Send at least one item and at most one per subnet.",
+      "docs_url": "/docs/errors/chain/InvalidBatchLength",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidBatchLength/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 379,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L379",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "InvalidCallFlags": {
       "code": "invalid_argument",
       "description": "The flags bitmask given to `seal_call` or `seal_delegate_call` contains an unknown or disallowed combination; delegate calls accept only a restricted flag set. Check the flags argument against the supported `CallFlags` bit values.",
@@ -5480,6 +5498,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/TooManySignatories/content.md",
       "pallets": [
         "Multisig"
+      ]
+    },
+    "TooManyStakingHotkeys": {
+      "code": "limit_exceeded",
+      "description": "The destination coldkey already stakes through the maximum number of hotkeys that third-party stake transfers may add to it. Transfer to a hotkey the destination already stakes through, or let the destination stake to the new hotkey itself.",
+      "docs_url": "/docs/errors/chain/TooManyStakingHotkeys",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyStakingHotkeys/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 383,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L383",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
       ]
     },
     "TooManyTopics": {
