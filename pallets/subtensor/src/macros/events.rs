@@ -577,14 +577,14 @@ mod events {
             netuid: NetUid,
         },
 
-        /// A contributor's lease dividend slice could not be transferred this interval and
-        /// stays in the lease's accumulated dividends.
+        /// A contributor's lease dividends could not be transferred this interval. The amount
+        /// is recorded against that contributor and retried at the next distribution.
         SubnetLeaseDividendSkipped {
             /// The lease ID
             lease_id: LeaseId,
             /// The contributor
             contributor: T::AccountId,
-            /// The slice that stayed in the pot
+            /// The total now owed to the contributor
             alpha: AlphaBalance,
         },
 

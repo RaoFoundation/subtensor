@@ -212,6 +212,11 @@ impl<T: Config> Pallet<T> {
         // Remove the lease, its contributors and accumulated dividends from storage
         let clear_result =
             SubnetLeaseShares::<T>::clear_prefix(lease_id, T::MaxContributors::get(), None);
+        let _ = SubnetLeaseUnpaidDividends::<T>::clear_prefix(
+            lease_id,
+            T::MaxContributors::get(),
+            None,
+        );
         AccumulatedLeaseDividends::<T>::remove(lease_id);
         SubnetLeases::<T>::remove(lease_id);
         SubnetUidToLeaseId::<T>::remove(lease.netuid);
@@ -281,21 +286,26 @@ impl<T: Config> Pallet<T> {
         }
 
         // Contributor slices are floored (the beneficiary takes the remainder, so nothing
-        // is lost) and each is transferred in its own storage layer: one slice that cannot
-        // be paid — too small for the minimum transfer, or blocked by a lock on either side —
-        // stays in the pot for the next interval instead of freezing every other payment.
-        // Only the beneficiary's remainder is fatal for the whole distribution.
+        // is lost) and each is transferred in its own storage layer. A slice that cannot be
+        // paid — too small for the minimum transfer, or blocked by a lock on either side —
+        // is recorded against that contributor alone and retried with their next slice; it
+        // never re-enters the shared pot, so no other contributor or the beneficiary can be
+        // paid from it. Only the beneficiary's remainder is fatal for the whole distribution.
         if let Err(err) = frame_support::storage::with_storage_layer(|| {
             let mut alpha_distributed = AlphaBalance::ZERO;
-            let mut alpha_skipped = AlphaBalance::ZERO;
 
             for (contributor, share) in SubnetLeaseShares::<T>::iter_prefix(lease_id) {
-                let alpha_for_contributor: AlphaBalance = share
+                let slice: AlphaBalance = share
                     .saturating_mul(U64F64::from(total_contributors_cut_alpha.to_u64()))
                     .floor()
                     .saturating_to_num::<u64>()
                     .into();
-                if alpha_for_contributor.is_zero() {
+                // This interval's slice is allocated to the contributor whether or not the
+                // transfer succeeds: it is either paid now or recorded as unpaid.
+                alpha_distributed = alpha_distributed.saturating_add(slice);
+                let owed = slice
+                    .saturating_add(SubnetLeaseUnpaidDividends::<T>::get(lease_id, &contributor));
+                if owed.is_zero() {
                     continue;
                 }
 
@@ -306,7 +316,7 @@ impl<T: Config> Pallet<T> {
                             &lease.hotkey,
                             &lease.coldkey,
                             lease.netuid,
-                        ) >= alpha_for_contributor,
+                        ) >= owed,
                         Error::<T>::NotEnoughStakeToWithdraw
                     );
                     Self::transfer_stake_within_subnet(
@@ -315,39 +325,37 @@ impl<T: Config> Pallet<T> {
                         &contributor,
                         &lease.hotkey,
                         lease.netuid,
-                        alpha_for_contributor,
+                        owed,
                     )
                     .map(|_| ())
                 });
 
                 match paid {
                     Ok(()) => {
-                        alpha_distributed = alpha_distributed.saturating_add(alpha_for_contributor);
+                        SubnetLeaseUnpaidDividends::<T>::remove(lease_id, &contributor);
                         Self::deposit_event(Event::SubnetLeaseDividendsDistributed {
                             lease_id,
                             contributor,
-                            alpha: alpha_for_contributor,
+                            alpha: owed,
                         });
                     }
                     Err(err) => {
                         log::debug!(
-                            "Skipping lease {lease_id} dividend for a contributor this interval: {err:?}"
+                            "Deferring lease {lease_id} dividend for a contributor this interval: {err:?}"
                         );
-                        alpha_skipped = alpha_skipped.saturating_add(alpha_for_contributor);
+                        SubnetLeaseUnpaidDividends::<T>::insert(lease_id, &contributor, owed);
                         Self::deposit_event(Event::SubnetLeaseDividendSkipped {
                             lease_id,
                             contributor,
-                            alpha: alpha_for_contributor,
+                            alpha: owed,
                         });
                     }
                 }
             }
 
-            // The beneficiary takes what no contributor slice claims; skipped slices stay
-            // in the pot and are re-split at the next interval.
-            let beneficiary_cut_alpha = total_contributors_cut_alpha
-                .saturating_sub(alpha_distributed)
-                .saturating_sub(alpha_skipped);
+            // The beneficiary takes what no contributor slice claims.
+            let beneficiary_cut_alpha =
+                total_contributors_cut_alpha.saturating_sub(alpha_distributed);
             if !beneficiary_cut_alpha.is_zero() {
                 ensure!(
                     Self::get_stake_for_hotkey_and_coldkey_on_subnet(
@@ -372,8 +380,9 @@ impl<T: Config> Pallet<T> {
                 });
             }
 
-            // Only the skipped slices carry over.
-            AccumulatedLeaseDividends::<T>::insert(lease_id, alpha_skipped);
+            // Every unit of the pot is now paid, owed to the beneficiary, or recorded
+            // against the contributor it belongs to.
+            AccumulatedLeaseDividends::<T>::insert(lease_id, AlphaBalance::ZERO);
 
             Ok::<(), DispatchError>(())
         }) {

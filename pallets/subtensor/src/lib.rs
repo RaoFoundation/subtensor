@@ -3240,6 +3240,21 @@ pub mod pallet {
     pub type AccumulatedLeaseDividends<T: Config> =
         StorageMap<_, Twox64Concat, LeaseId, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
 
+    /// DMAP ( lease_id, contributor ) --> alpha | A contributor's dividend slices that could not
+    /// be transferred yet. The alpha stays in the lease position and is retried, for that
+    /// contributor only, at the next distribution.
+    #[pallet::storage]
+    pub type SubnetLeaseUnpaidDividends<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        LeaseId,
+        Identity,
+        T::AccountId,
+        AlphaBalance,
+        ValueQuery,
+        DefaultZeroAlpha<T>,
+    >;
+
     /// ITEM ( CommitRevealWeightsVersion )
     #[pallet::storage]
     pub type CommitRevealWeightsVersion<T> =

@@ -178,6 +178,12 @@ impl<T: Config> Pallet<T> {
                 Ok::<(), DispatchError>(())
             })?;
         }
+        if SubnetLeaseUnpaidDividends::<T>::contains_key(lease_id, old_coldkey) {
+            let unpaid = SubnetLeaseUnpaidDividends::<T>::take(lease_id, old_coldkey);
+            SubnetLeaseUnpaidDividends::<T>::mutate(lease_id, new_coldkey, |destination| {
+                *destination = destination.saturating_add(unpaid);
+            });
+        }
 
         let mut lease = SubnetLeases::<T>::get(lease_id).ok_or(Error::<T>::LeaseDoesNotExist)?;
         if lease.beneficiary != *old_coldkey || old_coldkey == new_coldkey {

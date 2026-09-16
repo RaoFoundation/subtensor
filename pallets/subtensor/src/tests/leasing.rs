@@ -1016,7 +1016,9 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
 }
 
 // One contributor whose slice cannot be transferred (too small for the minimum transfer)
-// must not block the other contributors or the beneficiary. Its slice stays in the pot.
+// must not block the other contributors or the beneficiary. The slice is recorded against
+// that contributor only: at the next interval nobody else receives it, and it is paid to the
+// contributor as soon as the owed total clears the minimum.
 #[test]
 fn test_distribute_lease_network_dividends_isolates_unpayable_contributor() {
     new_test_ext(1).execute_with(|| {
@@ -1041,23 +1043,8 @@ fn test_distribute_lease_network_dividends_isolates_unpayable_contributor() {
             Some(end_block),
             Some(tao_to_stake),
         );
-        run_to_block(<Test as Config>::LeaseDividendsDistributionInterval::get() as u64);
-
-        let accumulated_dividends = AlphaBalance::from(10_000_000_000_u64);
-        AccumulatedLeaseDividends::<Test>::insert(lease_id, accumulated_dividends);
-        let owner_cut_alpha = AlphaBalance::from(5_000_000_000_u64);
-        let pot: AlphaBalance =
-            accumulated_dividends + emissions_share.mul_ceil(owner_cut_alpha.to_u64()).into();
-        let dust_slice: u64 = SubnetLeaseShares::<Test>::get(lease_id, dust_contributor)
-            .saturating_mul(U64F64::from(pot.to_u64()))
-            .floor()
-            .to_num::<u64>();
-        assert!(
-            dust_slice > 0,
-            "the dust share still rounds to a non-zero slice"
-        );
-
-        SubtensorModule::distribute_leased_network_dividends(lease_id, owner_cut_alpha);
+        let interval = <Test as Config>::LeaseDividendsDistributionInterval::get() as u64;
+        run_to_block(interval);
 
         let stake = |who: &U256| {
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
@@ -1066,28 +1053,89 @@ fn test_distribute_lease_network_dividends_isolates_unpayable_contributor() {
                 lease.netuid,
             )
         };
-        assert!(stake(&contributions[0].0) > AlphaBalance::ZERO);
-        assert!(stake(&contributions[1].0) > AlphaBalance::ZERO);
-        assert!(stake(&beneficiary) > AlphaBalance::ZERO);
-        assert_eq!(stake(&dust_contributor), AlphaBalance::ZERO);
+        let slice_of = |who: &U256, pot: AlphaBalance| -> AlphaBalance {
+            SubnetLeaseShares::<Test>::get(lease_id, who)
+                .saturating_mul(U64F64::from(pot.to_u64()))
+                .floor()
+                .to_num::<u64>()
+                .into()
+        };
 
-        // Everything but the unpayable slice was paid out; the slice waits in the pot.
+        // Interval 1: the dust slice cannot be transferred; everyone else is paid in full.
+        let accumulated_dividends = AlphaBalance::from(10_000_000_000_u64);
+        AccumulatedLeaseDividends::<Test>::insert(lease_id, accumulated_dividends);
+        let owner_cut_alpha = AlphaBalance::from(5_000_000_000_u64);
+        let pot1: AlphaBalance =
+            accumulated_dividends + emissions_share.mul_ceil(owner_cut_alpha.to_u64()).into();
+        let dust_slice1 = slice_of(&dust_contributor, pot1);
+        assert!(dust_slice1 > AlphaBalance::ZERO);
+        let (c1_slice1, c2_slice1) = (
+            slice_of(&contributions[0].0, pot1),
+            slice_of(&contributions[1].0, pot1),
+        );
+
+        SubtensorModule::distribute_leased_network_dividends(lease_id, owner_cut_alpha);
+
+        assert_eq!(stake(&contributions[0].0), c1_slice1);
+        assert_eq!(stake(&contributions[1].0), c2_slice1);
         assert_eq!(
-            stake(&contributions[0].0) + stake(&contributions[1].0) + stake(&beneficiary),
-            pot - dust_slice.into()
+            stake(&beneficiary),
+            pot1 - c1_slice1 - c2_slice1 - dust_slice1
+        );
+        assert_eq!(stake(&dust_contributor), AlphaBalance::ZERO);
+        assert_eq!(
+            SubnetLeaseUnpaidDividends::<Test>::get(lease_id, dust_contributor),
+            dust_slice1
         );
         assert_eq!(
             AccumulatedLeaseDividends::<Test>::get(lease_id),
-            AlphaBalance::from(dust_slice)
+            AlphaBalance::ZERO
         );
         assert!(System::events().iter().any(|record| {
             record.event
                 == RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendSkipped {
                     lease_id,
                     contributor: dust_contributor,
-                    alpha: dust_slice.into(),
+                    alpha: dust_slice1,
                 })
         }));
+
+        // Interval 2: the pot is large enough that the dust contributor's owed total clears
+        // the minimum transfer. Others receive exactly their slice of this pot — none of the
+        // skipped amount — and the dust contributor is paid both slices.
+        run_to_block(2 * interval);
+        let big_cut = AlphaBalance::from(2_000_000_000_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &lease.hotkey,
+            &lease.coldkey,
+            lease.netuid,
+            big_cut,
+        );
+        let pot2: AlphaBalance = emissions_share.mul_ceil(big_cut.to_u64()).into();
+        let (c1_slice2, c2_slice2, dust_slice2) = (
+            slice_of(&contributions[0].0, pot2),
+            slice_of(&contributions[1].0, pot2),
+            slice_of(&dust_contributor, pot2),
+        );
+        let beneficiary_before = stake(&beneficiary);
+
+        SubtensorModule::distribute_leased_network_dividends(lease_id, big_cut);
+
+        assert_eq!(stake(&contributions[0].0), c1_slice1 + c1_slice2);
+        assert_eq!(stake(&contributions[1].0), c2_slice1 + c2_slice2);
+        assert_eq!(
+            stake(&beneficiary) - beneficiary_before,
+            pot2 - c1_slice2 - c2_slice2 - dust_slice2
+        );
+        assert_eq!(stake(&dust_contributor), dust_slice1 + dust_slice2);
+        assert!(!SubnetLeaseUnpaidDividends::<Test>::contains_key(
+            lease_id,
+            dust_contributor
+        ));
+        assert_eq!(
+            AccumulatedLeaseDividends::<Test>::get(lease_id),
+            AlphaBalance::ZERO
+        );
     });
 }
 
