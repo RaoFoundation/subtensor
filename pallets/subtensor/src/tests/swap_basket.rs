@@ -253,10 +253,7 @@ fn test_swap_basket_alpha_to_alpha_is_composition_only() {
         );
         let sell_fee_outflow = (-SubnetProtocolFlow::<Test>::get(fund.netuid_a)) as u64 - tao_mid;
         assert!(sell_fee_outflow > 0 && sell_fee_outflow < author_fee);
-        assert_eq!(
-            TotalStake::<Test>::get().to_u64(),
-            ts_before - author_fee
-        );
+        assert_eq!(TotalStake::<Test>::get().to_u64(), ts_before - author_fee);
     });
 }
 
