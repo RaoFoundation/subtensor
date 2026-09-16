@@ -193,6 +193,63 @@ fn sandwiching_your_own_short_close_never_pays() {
 }
 
 #[test]
+fn shorting_before_selling_owned_alpha_never_beats_selling_alpha_directly() {
+    // Compare two ways of liquidating the same alpha from the same initial pool and wallet:
+    //
+    //   A. sell the alpha directly;
+    //   B. open a short, sell the alpha into the thinner pool, then close the short.
+    //
+    // In B the ordinary sale gets a better execution price because the short temporarily
+    // removed liquidity. Closing the short must pay that advantage back when it buys the
+    // borrowed alpha. Test owned-sale sizes from one quarter to four times the short's alpha
+    // debt so both sides of the proposed size ratio are covered.
+    const DEPOSIT: u64 = 100 * TAO;
+    const SHORT_ALPHA: u64 = (POOL_ALPHA as u128 * DEPOSIT as u128 / POOL_TAO as u128) as u64;
+
+    for (owned_numerator, owned_denominator) in [(1u64, 4u64), (1, 2), (1, 1), (2, 1), (4, 1)] {
+        let owned_alpha = SHORT_ALPHA * owned_numerator / owned_denominator;
+
+        let (direct_tao, direct_alpha) = new_test_ext().execute_with(|| {
+            setup_pinned();
+            add_balance(&w1(), DEPOSIT);
+            give_stake(&w1(), &alice_hotkey(), netuid(), owned_alpha);
+
+            sell(w1(), owned_alpha);
+            (balance(&w1()), stake(&w1(), &alice_hotkey(), netuid()))
+        });
+
+        let (short_then_sell_tao, short_then_sell_alpha) = new_test_ext().execute_with(|| {
+            setup_pinned();
+            add_balance(&w1(), DEPOSIT);
+            give_stake(&w1(), &alice_hotkey(), netuid(), owned_alpha);
+
+            assert_ok!(add_at(w1(), Side::Short, DEPOSIT, 100));
+            let (_, short_alpha, _) = legs(&position(&w1(), netuid()).unwrap());
+            assert_eq!(short_alpha, SHORT_ALPHA);
+
+            sell(w1(), owned_alpha);
+            assert_ok!(close(w1()));
+            assert_eq!(last_closer(), Closer::Owner);
+
+            (balance(&w1()), stake(&w1(), &alice_hotkey(), netuid()))
+        });
+
+        assert_eq!(
+            direct_alpha, 0,
+            "direct sale must liquidate all owned alpha"
+        );
+        assert_eq!(
+            short_then_sell_alpha, direct_alpha,
+            "short:sale ratio {owned_denominator}:{owned_numerator}: strategies ended with different alpha"
+        );
+        assert!(
+            short_then_sell_tao <= direct_tao,
+            "short:sale ratio {owned_denominator}:{owned_numerator}: shorting first paid {short_then_sell_tao}, direct sale paid {direct_tao}"
+        );
+    }
+}
+
+#[test]
 fn sandwiching_your_own_long_close_never_pays() {
     // The mirror on the long side, at 1x and at the 1.5x ceiling: the leak was in the slice
     // size the cap sets, not in the leverage, and it is gone at both.
