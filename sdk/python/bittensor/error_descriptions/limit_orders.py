@@ -128,4 +128,8 @@ DESCRIPTIONS: dict[str, str] = {
         "`prune_linked_output` was called by someone other than the record's signer before "
         "`expires_at`. The signer may prune at any time; anyone may prune only after expiry."
     ),
+    "OrderSignerFrozen": (
+        "The order owner is temporarily prohibited from moving funds, so the order cannot be "
+        "executed. Retry once the owner's freeze has lifted."
+    ),
 }

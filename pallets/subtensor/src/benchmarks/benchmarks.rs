@@ -283,6 +283,14 @@ mod pallet_benchmarks {
         // Root admission is burn-based: fund the coldkey for the burn charge
         // so the recycle path (the worst case) is exercised.
         fund_for_registration::<T>(NetUid::ROOT, &coldkey);
+        // Evicting a seat requires at least the seat's root stake; the seeded
+        // seats hold 1 rao each, so give the registrant enough to displace one.
+        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            AlphaBalance::from(2_u64),
+        );
 
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
@@ -499,6 +507,8 @@ mod pallet_benchmarks {
             seed_miner_collateral_position::<T>(netuid, &extra_hot, &old_coldkey, locked);
         }
 
+        helpers::seed_coldkey_swap_leases::<T>(netuid, &old_coldkey, &new_coldkey);
+
         #[extrinsic_call]
         _(RawOrigin::Signed(old_coldkey), new_coldkey);
     }
@@ -550,6 +560,8 @@ mod pallet_benchmarks {
             Owner::<T>::insert(&extra_hot, &old_coldkey);
             seed_miner_collateral_position::<T>(netuid, &extra_hot, &old_coldkey, locked);
         }
+
+        helpers::seed_coldkey_swap_leases::<T>(netuid, &old_coldkey, &new_coldkey);
 
         #[extrinsic_call]
         _(

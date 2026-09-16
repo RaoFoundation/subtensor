@@ -126,6 +126,83 @@ fn test_swap_total_hotkey_stake() {
     });
 }
 
+#[test]
+fn test_all_subnets_keep_stake_preserves_ownership_and_withdrawal() {
+    for destination_exists in [false, true] {
+        new_test_ext(1).execute_with(|| {
+            let old_hotkey = U256::from(1);
+            let new_hotkey = U256::from(2);
+            let coldkey = U256::from(3);
+            let amount = DefaultMinStake::<Test>::get() * 10.into();
+            let netuid = add_dynamic_network(&old_hotkey, &coldkey);
+            remove_owner_registration_stake(netuid);
+            let reserve = u64::from(amount) * 100;
+            mock::setup_reserves(netuid, reserve.into(), reserve.into());
+            add_balance_to_coldkey_account(&coldkey, amount);
+            assert_ok!(SubtensorModule::add_stake(
+                RuntimeOrigin::signed(coldkey),
+                old_hotkey,
+                netuid,
+                amount
+            ));
+            if destination_exists {
+                assert_ok!(SubtensorModule::create_account_if_non_existent(
+                    &coldkey,
+                    &new_hotkey
+                ));
+            }
+            let stake_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &old_hotkey,
+                &coldkey,
+                netuid,
+            );
+            assert!(!stake_before.is_zero());
+            let staking_hotkeys_before = StakingHotkeys::<Test>::get(coldkey);
+            add_balance_to_coldkey_account(&coldkey, SubtensorModule::get_key_swap_cost().into());
+
+            assert_ok!(SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(coldkey),
+                &old_hotkey,
+                &new_hotkey,
+                None,
+                true
+            ));
+
+            assert!(SubtensorModule::coldkey_owns_hotkey(&coldkey, &old_hotkey));
+            assert!(SubtensorModule::coldkey_owns_hotkey(&coldkey, &new_hotkey));
+            assert_eq!(
+                OwnedHotkeys::<Test>::get(coldkey),
+                vec![old_hotkey, new_hotkey]
+            );
+            assert_eq!(StakingHotkeys::<Test>::get(coldkey), staking_hotkeys_before);
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &old_hotkey,
+                    &coldkey,
+                    netuid,
+                ),
+                stake_before
+            );
+            assert!(TotalHotkeyAlpha::<Test>::get(new_hotkey, netuid).is_zero());
+
+            let balance_before = SubtensorModule::get_coldkey_balance(&coldkey);
+            assert_ok!(SubtensorModule::do_unstake_all(
+                RuntimeOrigin::signed(coldkey),
+                old_hotkey
+            ));
+            assert!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &old_hotkey,
+                    &coldkey,
+                    netuid,
+                )
+                .is_zero()
+            );
+            assert!(SubtensorModule::get_coldkey_balance(&coldkey) > balance_before);
+        });
+    }
+}
+
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --test swap_hotkey -- test_swap_delegates --exact --nocapture
 #[test]
 fn test_swap_delegates() {

@@ -37,6 +37,7 @@ from ..helpers import (
     combine_root_yields,
     dust_note,
     filter_stakes,
+    format_balance,
     format_root_yield_value,
     has_root_yield_context,
     human_balance_fields,
@@ -1081,16 +1082,16 @@ def wallet_balance(
         shown = rows_data if show_empty else [r for r in rows_data if r["total_value_tao"] > 0]
         hidden = len(rows_data) - len(shown)
 
-        def _amount(display: object, tao: float) -> str:
-            return "—" if tao == 0 else str(display)
+        def _amount(display: Balance) -> str:
+            return "—" if display.rao == 0 else format_balance(display)
 
         table_rows = [
             [
                 r["wallet"] + (" (multisig)" if r["kind"] == "multisig" else ""),
-                _amount(r["free"], r["free_tao"]),
-                _amount(r["stake_value"], r["stake_value_tao"]),
-                _amount(r["beta_value"], r["beta_value_tao"]),
-                _amount(r["total_value"], r["total_value_tao"]),
+                _amount(r["free"]),
+                _amount(r["stake_value"]),
+                _amount(r["beta_value"]),
+                _amount(r["total_value"]),
                 r["coldkey"],
             ]
             for r in shown
@@ -1100,7 +1101,10 @@ def wallet_balance(
         by_coldkey = {r["coldkey"]: r for r in rows_data}
         grand_total = Balance(sum(int(r["total_value"].rao) for r in by_coldkey.values()))
         duplicates = len(rows_data) - len(by_coldkey)
-        footer = f"[bold]total[/bold] {grand_total}  [dim](alpha at spot; beta realizable"
+        footer = (
+            f"[bold]total[/bold] {format_balance(grand_total)}  "
+            "[dim](alpha at spot; beta realizable"
+        )
         if duplicates:
             footer += f"; {duplicates} duplicate-coldkey wallets counted once"
         footer += ")[/dim]"

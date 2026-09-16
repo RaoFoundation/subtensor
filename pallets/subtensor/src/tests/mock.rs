@@ -559,7 +559,7 @@ impl ProxyInterface<U256> for FakeProxier {
         lease: &AccountId,
     ) -> DispatchResult {
         PROXIES.with_borrow_mut(|proxies| {
-            proxies.0.retain(|(b, l)| b != beneficiary && l != lease);
+            proxies.0.retain(|(b, l)| b != beneficiary || l != lease);
         });
         Ok(())
     }
@@ -1262,6 +1262,21 @@ pub fn add_balance_to_coldkey_account(coldkey: &U256, tao: TaoBalance) {
         let credit = SubtensorModule::mint_tao(tao);
         let _ = SubtensorModule::spend_tao(coldkey, credit, tao).unwrap();
     }
+}
+
+/// Drives a coldkey's stored share `S` above the pool denominator `D` (S/D = `factor`).
+/// This is the divergent state that accumulated rounding drift can produce. It lets tests
+/// prove that the value cap and the real-debit accounting hold even when the raw quote
+/// `V * S / D` would exceed the whole pool value `V`.
+#[allow(dead_code)]
+pub fn inflate_alpha_share(hotkey: &U256, coldkey: &U256, netuid: NetUid, factor: u32) {
+    let denominator = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
+    assert!(!denominator.is_zero(), "share pool must be initialized");
+    let mut share = denominator.clone();
+    for _ in 1..factor {
+        share = share.add(&denominator).expect("share fits in SafeFloat");
+    }
+    AlphaV2::<Test>::insert((hotkey, coldkey, netuid), share);
 }
 
 #[allow(dead_code)]

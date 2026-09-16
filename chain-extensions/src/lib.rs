@@ -705,121 +705,77 @@ where
                 Self::dispatch_add_stake_v1(env, origin)
             }
 
-            FunctionId::CallerAddStakeV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_add_stake_v1(env, origin)
-            }
+            // Calling a contract does not authorize it to act as its caller.
+            FunctionId::CallerAddStakeV1
+            | FunctionId::CallerRemoveStakeV1
+            | FunctionId::CallerUnstakeAllV1
+            | FunctionId::CallerUnstakeAllAlphaV1
+            | FunctionId::CallerMoveStakeV1
+            | FunctionId::CallerMoveStakeLimitV1
+            | FunctionId::CallerTransferStakeV1
+            | FunctionId::CallerSwapStakeV1
+            | FunctionId::CallerAddStakeLimitV1
+            | FunctionId::CallerRemoveStakeLimitV1
+            | FunctionId::CallerSwapStakeLimitV1
+            | FunctionId::CallerRemoveStakeFullLimitV1
+            | FunctionId::CallerSetColdkeyAutoStakeHotkeyV1
+            | FunctionId::CallerAddProxyV1
+            | FunctionId::CallerRemoveProxyV1 => Err(DispatchError::BadOrigin),
 
             FunctionId::RemoveStakeV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_remove_stake_v1(env, origin)
-            }
-            FunctionId::CallerRemoveStakeV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_remove_stake_v1(env, origin)
             }
             FunctionId::UnstakeAllV1 => {
                 let origin = RawOrigin::Signed(env.caller());
                 Self::dispatch_unstake_all_v1(env, origin)
             }
-            FunctionId::CallerUnstakeAllV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_unstake_all_v1(env, origin)
-            }
             FunctionId::UnstakeAllAlphaV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_unstake_all_alpha_v1(env, origin)
-            }
-            FunctionId::CallerUnstakeAllAlphaV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_unstake_all_alpha_v1(env, origin)
             }
             FunctionId::MoveStakeV1 => {
                 let origin = RawOrigin::Signed(env.caller());
                 Self::dispatch_move_stake_v1(env, origin)
             }
-            FunctionId::CallerMoveStakeV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_move_stake_v1(env, origin)
-            }
             FunctionId::MoveStakeLimitV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_move_stake_limit_v1(env, origin)
-            }
-            FunctionId::CallerMoveStakeLimitV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_move_stake_limit_v1(env, origin)
             }
             FunctionId::TransferStakeV1 => {
                 let origin = RawOrigin::Signed(env.caller());
                 Self::dispatch_transfer_stake_v1(env, origin)
             }
-            FunctionId::CallerTransferStakeV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_transfer_stake_v1(env, origin)
-            }
             FunctionId::SwapStakeV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_swap_stake_v1(env, origin)
-            }
-            FunctionId::CallerSwapStakeV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_swap_stake_v1(env, origin)
             }
             FunctionId::AddStakeLimitV1 => {
                 let origin = RawOrigin::Signed(env.caller());
                 Self::dispatch_add_stake_limit_v1(env, origin)
             }
-            FunctionId::CallerAddStakeLimitV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_add_stake_limit_v1(env, origin)
-            }
             FunctionId::RemoveStakeLimitV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_remove_stake_limit_v1(env, origin)
-            }
-            FunctionId::CallerRemoveStakeLimitV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_remove_stake_limit_v1(env, origin)
             }
             FunctionId::SwapStakeLimitV1 => {
                 let origin = RawOrigin::Signed(env.caller());
                 Self::dispatch_swap_stake_limit_v1(env, origin)
             }
-            FunctionId::CallerSwapStakeLimitV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_swap_stake_limit_v1(env, origin)
-            }
             FunctionId::RemoveStakeFullLimitV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_remove_stake_full_limit_v1(env, origin)
-            }
-            FunctionId::CallerRemoveStakeFullLimitV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_remove_stake_full_limit_v1(env, origin)
             }
             FunctionId::SetColdkeyAutoStakeHotkeyV1 => {
                 let origin = RawOrigin::Signed(env.caller());
                 Self::dispatch_set_coldkey_auto_stake_hotkey_v1(env, origin)
             }
-            FunctionId::CallerSetColdkeyAutoStakeHotkeyV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_set_coldkey_auto_stake_hotkey_v1(env, origin)
-            }
             FunctionId::AddProxyV1 => {
                 let origin = RawOrigin::Signed(env.caller());
                 Self::dispatch_add_proxy_v1(env, origin)
             }
-            FunctionId::CallerAddProxyV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_add_proxy_v1(env, origin)
-            }
             FunctionId::RemoveProxyV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_remove_proxy_v1(env, origin)
-            }
-            FunctionId::CallerRemoveProxyV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_remove_proxy_v1(env, origin)
             }
             FunctionId::GetAlphaPriceV1 => {
@@ -968,17 +924,6 @@ where
     }
 }
 
-// Convert from the contract origin to the raw origin
-fn convert_origin<T>(origin: pallet_contracts::Origin<T>) -> RawOrigin<T::AccountId>
-where
-    T: pallet_contracts::Config,
-{
-    match origin {
-        pallet_contracts::Origin::Signed(caller) => RawOrigin::Signed(caller),
-        pallet_contracts::Origin::Root => RawOrigin::Root,
-    }
-}
-
 trait SubtensorExtensionEnv<T>
 where
     T: pallet_contracts::Config,
@@ -987,9 +932,8 @@ where
     fn charge_weight(&mut self, weight: Weight) -> Result<(), DispatchError>;
     fn read_as<U: Decode + MaxEncodedLen>(&mut self) -> Result<U, DispatchError>;
     fn write_output(&mut self, data: &[u8]) -> Result<(), DispatchError>;
+    /// The executing contract's account, never its caller or transaction origin.
     fn caller(&mut self) -> T::AccountId;
-    #[allow(dead_code)]
-    fn origin(&mut self) -> pallet_contracts::Origin<T>;
 }
 
 struct ContractsEnvAdapter<'a, 'b, T, E>
@@ -1039,9 +983,5 @@ where
 
     fn caller(&mut self) -> T::AccountId {
         self.env.ext().address().clone()
-    }
-
-    fn origin(&mut self) -> pallet_contracts::Origin<T> {
-        self.env.ext().caller()
     }
 }

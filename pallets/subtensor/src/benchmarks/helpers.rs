@@ -1,4 +1,58 @@
 use super::*;
+use crate::subnets::leasing::LeaseId;
+
+/// Exercise both beneficiary/proxy replacement and a destination share merge.
+pub(super) fn seed_coldkey_lease<T: Config>(
+    netuid: NetUid,
+    lease_id: LeaseId,
+    old_coldkey: &T::AccountId,
+    new_coldkey: &T::AccountId,
+) {
+    let lease_coldkey: T::AccountId = account("lease_coldkey", lease_id, 0);
+    let lease_hotkey: T::AccountId = account("lease_hotkey", lease_id, 0);
+    add_balance_to_coldkey_account::<T>(&lease_coldkey, TaoBalance::from(1_000_000_000_000_u64));
+    assert_ok!(T::ProxyInterface::add_lease_beneficiary_proxy(
+        &lease_coldkey,
+        old_coldkey
+    ));
+    SubnetUidToLeaseId::<T>::insert(netuid, lease_id);
+    SubnetLeases::<T>::insert(
+        lease_id,
+        crate::subnets::leasing::SubnetLease {
+            beneficiary: old_coldkey.clone(),
+            coldkey: lease_coldkey,
+            hotkey: lease_hotkey,
+            emissions_share: Percent::from_percent(30),
+            end_block: None,
+            netuid,
+            cost: TaoBalance::ZERO,
+        },
+    );
+    let share = U64F64::from_num(0.25);
+    SubnetLeaseShares::<T>::insert(lease_id, old_coldkey, share);
+    SubnetLeaseShares::<T>::insert(lease_id, new_coldkey, share);
+}
+
+/// Seed the default maximum number of leased subnets so coldkey-swap weights
+/// include every lease entitlement and beneficiary/proxy migration.
+pub(super) fn seed_coldkey_swap_leases<T: Config>(
+    first_netuid: NetUid,
+    old_coldkey: &T::AccountId,
+    new_coldkey: &T::AccountId,
+) {
+    let lease_count = DefaultSubnetLimit::<T>::get();
+    assert!(lease_count > 0, "coldkey swap benchmark requires a subnet");
+
+    for lease_index in 0..lease_count {
+        let netuid = if lease_index == 0 {
+            first_netuid
+        } else {
+            NetUid::from(lease_index.saturating_add(1))
+        };
+        NetworksAdded::<T>::insert(netuid, true);
+        seed_coldkey_lease::<T>(netuid, LeaseId::from(lease_index), old_coldkey, new_coldkey);
+    }
+}
 
 pub(super) fn seed_swap_reserves<T: Config>(netuid: NetUid) {
     let tao_reserve = TaoBalance::from(150_000_000_000_u64);

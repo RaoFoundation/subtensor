@@ -6,6 +6,7 @@ use subtensor_runtime_common::{AlphaBalance, NetUid};
 
 #[repr(u16)]
 #[derive(TryFromPrimitive, IntoPrimitive, Decode, Encode)]
+/// Caller* IDs 20–33 and 38 are disabled and reserved.
 pub enum FunctionId {
     GetStakeInfoForHotkeyColdkeyNetuidV1 = 0,
     AddStakeV1 = 1,

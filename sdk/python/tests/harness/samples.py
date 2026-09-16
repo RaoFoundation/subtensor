@@ -210,6 +210,7 @@ READ_SAMPLES: dict[str, dict] = {
     "bonds": {"netuid": 1},
     "burn": {"netuid": 1},
     "children": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
+    "childkey_threshold_suspended": {"hotkey_ss58": ALICE_HOT},
     "coldkey_lock": {"coldkey_ss58": ALICE, "netuid": 1},
     "collateral_policy": {"netuid": 1},
     "miner_collateral": {"netuid": 1, "hotkey_ss58": ALICE_HOT},

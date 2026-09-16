@@ -34,6 +34,64 @@ fn assert_event(event: Event<Test>) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
+fn frozen_signer_orders_cannot_be_executed_by_an_unfrozen_relayer() {
+    for batched in [false, true] {
+        for order_type in [OrderType::LimitBuy, OrderType::TakeProfit] {
+            new_test_ext().execute_with(|| {
+                MockTime::set(1_000_000);
+                MockSwap::set_price(1.0);
+                MockSwap::set_buy_alpha_return(500);
+                MockSwap::set_sell_tao_return(500);
+                MockSwap::set_tao_balance(alice(), 1_000);
+                MockSwap::set_alpha_balance(alice(), bob(), netuid(), 1_000);
+                let signed = make_signed_order(
+                    AccountKeyring::Alice,
+                    bob(),
+                    netuid(),
+                    order_type,
+                    500,
+                    1_000_000_000,
+                    FAR_FUTURE,
+                    Perbill::zero(),
+                    fee_recipient(),
+                    None,
+                );
+                let id = order_id(&signed.order);
+                let execute = |signed| {
+                    if batched {
+                        LimitOrders::execute_batched_orders(
+                            RuntimeOrigin::signed(charlie()),
+                            netuid(),
+                            bounded(vec![signed]),
+                        )
+                    } else {
+                        LimitOrders::execute_orders(
+                            RuntimeOrigin::signed(charlie()),
+                            bounded(vec![signed]),
+                            true,
+                        )
+                    }
+                };
+                FrozenOrderSigner::set(Some(alice()));
+                let calls = MockSwap::log();
+                let events = System::events();
+                assert_noop!(execute(signed.clone()), Error::<Test>::OrderSignerFrozen);
+                assert_eq!(Orders::<Test>::get(id), None);
+                assert_eq!(MockSwap::log(), calls);
+                assert_eq!(MockSwap::tao_balance(&alice()), 1_000);
+                assert_eq!(MockSwap::alpha_balance(&alice(), &bob(), netuid()), 1_000);
+                assert_eq!(System::events(), events);
+
+                // The same signed order remains executable once recovery is cleared.
+                FrozenOrderSigner::set(None);
+                assert_ok!(execute(signed));
+                assert_eq!(Orders::<Test>::get(id), Some(OrderStatus::Fulfilled));
+            });
+        }
+    }
+}
+
+#[test]
 fn cancel_order_signer_can_cancel() {
     new_test_ext().execute_with(|| {
         let order = VersionedOrder::V1(Order {

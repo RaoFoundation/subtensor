@@ -259,7 +259,7 @@ pub mod pallet {
     use frame_support::{
         PalletId,
         pallet_prelude::*,
-        traits::{Get, UnixTime},
+        traits::{Contains, Get, UnixTime},
         transactional,
     };
     use frame_system::pallet_prelude::*;
@@ -275,6 +275,10 @@ pub mod pallet {
     pub trait Config: frame_system::Config<AccountId = AccountId32> {
         /// Full swap + balance execution interface (see [`OrderSwapInterface`]).
         type SwapInterface: OrderSwapInterface<Self::AccountId>;
+
+        /// Account policy checked for the signed order's owner at execution time.
+        /// The extrinsic signer may be an unrelated relayer.
+        type OrderSignerFilter: Contains<Self::AccountId>;
 
         /// Time provider for expiry checks.
         type TimeProvider: UnixTime;
@@ -462,6 +466,8 @@ pub mod pallet {
         PartialFillNotSupportedForProvider,
         /// `prune_linked_output` called by a non-signer on an unexpired record.
         LinkedOutputNotPrunable,
+        /// The order owner is temporarily prohibited from moving funds.
+        OrderSignerFrozen,
     }
 
     // ── Hooks ─────────────────────────────────────────────────────────────────
@@ -895,6 +901,13 @@ partial fills {partial}, signer {signer}{tail}",
         ) -> Result<(u64, Option<H256>), DispatchError> {
             let order = signed_order.order.view();
             ensure!(!order.netuid.is_root(), Error::<T>::RootNetUidNotAllowed);
+            // Recheck the asset owner, not the relayer, before resolving linked amounts,
+            // withdrawing assets, charging fees, or writing fill status. Both execution paths
+            // and all supported signature/order versions share this validation.
+            ensure!(
+                T::OrderSignerFilter::contains(&order.signer),
+                Error::<T>::OrderSignerFrozen
+            );
             ensure!(
                 order.chain_id == T::ChainId::get(),
                 Error::<T>::ChainIdMismatch

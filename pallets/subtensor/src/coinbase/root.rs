@@ -141,6 +141,10 @@ impl<T: Config> Pallet<T> {
 
         // --- 6. Create a network account for the user if it doesn't exist.
         Self::create_account_if_non_existent(&coldkey, &hotkey)?;
+        ensure!(
+            Self::coldkey_owns_hotkey(&coldkey, &hotkey),
+            Error::<T>::NonAssociatedColdKey
+        );
 
         // --- 7. Fetch the current size of the subnetwork.
         let current_num_root_validators: u16 = Self::get_num_root_validators();
@@ -148,9 +152,11 @@ impl<T: Config> Pallet<T> {
         // --- 8. Resolve the slot: append while below capacity (max allowed is
         // senate size), otherwise prune the lowest-staked *non-immune* member.
         // A just-registered seat is immune (`ImmunityPeriod`) so it can attract
-        // stake before the next registration can evict it. Resolution only
-        // reads state, so the burn charged below can never be taken for a
-        // registration that fails.
+        // stake before the next registration can evict it. Evicting a seat
+        // requires the registrant to hold at least as much root stake as the
+        // seat it displaces, so an unstaked key can never unseat a staked
+        // validator. Resolution only reads state, so the burn charged below
+        // can never be taken for a registration that fails.
         let maybe_replacement: Option<(u16, T::AccountId)> =
             if current_num_root_validators < Self::get_max_root_validators() {
                 None
@@ -159,6 +165,11 @@ impl<T: Config> Pallet<T> {
                     Self::get_root_neuron_to_prune().ok_or(Error::<T>::NoNeuronIdAvailable)?;
                 let replaced_hotkey: T::AccountId =
                     Self::get_hotkey_for_net_and_uid(NetUid::ROOT, lowest_uid)?;
+                ensure!(
+                    Self::get_stake_for_hotkey_on_subnet(&hotkey, NetUid::ROOT)
+                        >= Self::get_stake_for_hotkey_on_subnet(&replaced_hotkey, NetUid::ROOT),
+                    Error::<T>::StakeTooLowForRoot
+                );
                 Some((lowest_uid, replaced_hotkey))
             };
 

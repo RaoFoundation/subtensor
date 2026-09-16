@@ -1,6 +1,7 @@
 use frame_support::storage::{TransactionOutcome, with_transaction};
 
 use super::*;
+use crate::subnets::leasing::LeaseId;
 
 impl<T: Config> Pallet<T> {
     /// Transfer all assets, stakes, subnet ownerships, and hotkey associations from `old_coldkey` to
@@ -35,6 +36,12 @@ impl<T: Config> Pallet<T> {
                 // locked; swap_coldkey_locks will copy the source AccountFlags over afterward.
                 Self::set_accept_locked_alpha(new_coldkey, true);
 
+                // Lease rows outlive `NetworksAdded` while a dissolved subnet awaits cleanup,
+                // so discover them through the lease index rather than the active-subnet list.
+                for (_, lease_id) in SubnetUidToLeaseId::<T>::iter() {
+                    Self::transfer_coldkey_lease(lease_id, old_coldkey, new_coldkey)?;
+                }
+
                 for netuid in Self::get_all_subnet_netuids() {
                     Self::transfer_subnet_ownership(netuid, old_coldkey, new_coldkey);
                     Self::transfer_auto_stake_destination(netuid, old_coldkey, new_coldkey);
@@ -66,6 +73,35 @@ impl<T: Config> Pallet<T> {
                 Err(e) => TransactionOutcome::Rollback(Err(e)),
             }
         })
+    }
+
+    /// Move lease entitlements alongside the subnet's other coldkey-owned state.
+    /// Called inside the swap transaction so proxy failures roll back the swap.
+    fn transfer_coldkey_lease(
+        lease_id: LeaseId,
+        old_coldkey: &T::AccountId,
+        new_coldkey: &T::AccountId,
+    ) -> DispatchResult {
+        if SubnetLeaseShares::<T>::contains_key(lease_id, old_coldkey) {
+            let share = SubnetLeaseShares::<T>::take(lease_id, old_coldkey);
+            SubnetLeaseShares::<T>::try_mutate(lease_id, new_coldkey, |destination| {
+                *destination = destination
+                    .checked_add(share)
+                    .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+                Ok::<(), DispatchError>(())
+            })?;
+        }
+
+        let mut lease = SubnetLeases::<T>::get(lease_id).ok_or(Error::<T>::LeaseDoesNotExist)?;
+        if lease.beneficiary != *old_coldkey || old_coldkey == new_coldkey {
+            return Ok(());
+        }
+
+        T::ProxyInterface::remove_lease_beneficiary_proxy(&lease.coldkey, old_coldkey)?;
+        T::ProxyInterface::add_lease_beneficiary_proxy(&lease.coldkey, new_coldkey)?;
+        lease.beneficiary = new_coldkey.clone();
+        SubnetLeases::<T>::insert(lease_id, lease);
+        Ok(())
     }
 
     /// Charges the swap cost from the coldkey's account and recycles the tokens.
@@ -114,7 +150,8 @@ impl<T: Config> Pallet<T> {
             // Swap
             let alpha_old =
                 Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, old_coldkey, netuid);
-            Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            // Credit the new coldkey with exactly what left the old one.
+            let alpha_moved = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
                 &hotkey,
                 old_coldkey,
                 netuid,
@@ -124,7 +161,7 @@ impl<T: Config> Pallet<T> {
                 &hotkey,
                 new_coldkey,
                 netuid,
-                alpha_old,
+                alpha_moved,
             );
             let new_dest_alpha =
                 Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, new_coldkey, netuid);

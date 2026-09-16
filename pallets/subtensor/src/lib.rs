@@ -1491,6 +1491,20 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// MAP ( parent ) --> () | Parents with live child relations whose stake just changed.
+    /// Drained in `on_idle`, where each parent's total stake is re-checked against
+    /// `StakeThreshold` and `ChildkeyThresholdSuspended` is set or cleared.
+    #[pallet::storage]
+    pub type ChildkeyThresholdChecks<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
+
+    /// MAP ( parent ) --> () | Parents whose total stake is below `StakeThreshold`. Their child
+    /// relations stay stored but are inert (hidden from `get_children` / `get_parents`)
+    /// except on subnets they own, until they qualify again.
+    #[pallet::storage]
+    pub type ChildkeyThresholdSuspended<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
+
     /// DMAP ( netuid, parent ) --> (Vec<(proportion,child)>, cool_down_block)
     #[pallet::storage]
     pub type PendingChildKeys<T: Config> = StorageDoubleMap<
@@ -1838,6 +1852,35 @@ pub mod pallet {
             NMapKey<Identity, NetUid>,               // subnet
         ),
         SafeFloat, // Shares in unlimited precision
+        ValueQuery,
+    >;
+
+    /// DMAP ( hot, netuid ) --> epoch | Generation of the hotkey's alpha share pool on a subnet.
+    /// Incremented each time the pool is closed (its share denominator is written to zero
+    /// because the pool holds no value). Share rows stamped with an older epoch belong to a
+    /// closed pool and are read as absent, so they can never claim value deposited later.
+    #[pallet::storage]
+    pub type AlphaSharePoolEpoch<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId, // hot
+        Identity,
+        NetUid, // subnet
+        u64,
+        ValueQuery,
+    >;
+
+    /// NMAP ( hot, cold, netuid ) --> epoch | Pool epoch in which an `AlphaV2` (or legacy
+    /// `Alpha`) share row was last written. Absent means epoch 0.
+    #[pallet::storage]
+    pub type AlphaShareEpoch<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Blake2_128Concat, T::AccountId>, // hot
+            NMapKey<Blake2_128Concat, T::AccountId>, // cold
+            NMapKey<Identity, NetUid>,               // subnet
+        ),
+        u64,
         ValueQuery,
     >;
 
@@ -2993,13 +3036,14 @@ pub mod pallet {
     /// `(hotkey, escrow, netuid)` across subnets (the root slot is the fund's TAO/cash position),
     /// and its net asset value `N` is the realizable (slippage-aware) TAO value of those
     /// holdings. Stakers' entitlements are denominated in *fund shares*, never in any particular
-    /// subnet's alpha: deposits mint `value_added * P / N` shares, where `value_added` is the
-    /// realizable NAV the deposit actually added (so existing holders are neither diluted nor
-    /// taxed with the deposit's buy slippage), and redemption pays the staker's owed share
-    /// fraction `owed / P` of every holding, sold pro-rata. Direct deposits
-    /// (`stake_into_basket`) mint the same way, credited via the signed [`BasketClaimed`]
-    /// watermark. Because entitlement is decoupled from composition, holdings can be rebalanced
-    /// (validator-directed trading, dissolution conversions) without touching any staker's claim.
+    /// subnet's alpha: dividend deposits mint `value_added * P / N` shares, where `value_added`
+    /// is the realizable NAV the deposit actually added, and redemption pays the staker's owed
+    /// share fraction `owed / P` of every holding, sold pro-rata. Direct `stake_into_basket`
+    /// deposits additionally cap that NAV-priced mint by the fraction of every existing holding
+    /// actually acquired, so their proportional redemption cannot sell more units than they
+    /// bought. Their shares are credited through the signed [`BasketClaimed`] watermark. Because
+    /// entitlement is decoupled from composition, holdings can be rebalanced (validator-directed
+    /// trading, dissolution conversions) without touching any staker's claim.
     #[pallet::storage]
     pub type BasketShares<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery, DefaultZeroU64<T>>;

@@ -84,6 +84,8 @@ impl<T: Config> Pallet<T> {
                 PendingChildKeys::<T>::remove(netuid, &hotkey);
             })
         }
+        // 7. Queue the live child relations for the threshold re-check in on_idle.
+        Self::queue_childkey_threshold_check(&hotkey);
 
         // Done and ok.
         Ok(())
@@ -164,7 +166,10 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // 5. Done and ok.
+        // 5. Queue the live child relations for the threshold re-check in on_idle.
+        Self::queue_childkey_threshold_check(&hotkey);
+
+        // 6. Done and ok.
         Ok(())
     }
 
@@ -264,7 +269,10 @@ impl<T: Config> Pallet<T> {
             false,
         )?;
 
-        // 5. Done and ok.
+        // 5. Queue the live child relations for the threshold re-check in on_idle.
+        Self::queue_childkey_threshold_check(&hotkey);
+
+        // 6. Done and ok.
         Ok(())
     }
 
@@ -353,6 +361,8 @@ impl<T: Config> Pallet<T> {
                 PendingChildKeys::<T>::remove(netuid, &hotkey);
             })
         }
+        // 7. Queue the live child relations for the threshold re-check in on_idle.
+        Self::queue_childkey_threshold_check(&hotkey);
 
         // Done and ok.
         Ok(())
@@ -613,13 +623,21 @@ impl<T: Config> Pallet<T> {
             }
 
             for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(&hot) {
-                if weight_meter.can_consume(r) {
-                    weight_meter.consume(r);
+                // Row read plus the pool/row epoch reads of the retirement check.
+                let inner_reads = r.saturating_mul(3_u64);
+                if weight_meter.can_consume(inner_reads) {
+                    weight_meter.consume(inner_reads);
                 } else {
                     exhausted = true;
                 }
 
                 if this_netuid != netuid {
+                    continue;
+                }
+
+                // Rows left behind by a closed pool are worth nothing; never let the raw
+                // share fallback below revive them.
+                if Self::alpha_share_is_retired(&hot, &cold, netuid) {
                     continue;
                 }
 
@@ -702,13 +720,21 @@ impl<T: Config> Pallet<T> {
             // Drain the whole hotkey prefix once started. Weight is accounted when it
             // still fits; overshoot is allowed so the cursor can advance past this hotkey.
             for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(&hot) {
-                let inner_reads = r.saturating_mul(2_u64);
+                // Row read, pool valuation read, and the pool/row epoch reads of the
+                // retirement check.
+                let inner_reads = r.saturating_mul(4_u64);
                 if weight_meter.can_consume(inner_reads) {
                     weight_meter.consume(inner_reads);
                 } else {
                     exhausted = true;
                 }
                 if this_netuid != netuid {
+                    continue;
+                }
+
+                // Rows left behind by a closed pool are worth nothing; never let the raw
+                // share fallback below revive them.
+                if Self::alpha_share_is_retired(&hot, &cold, netuid) {
                     continue;
                 }
 
@@ -880,7 +906,10 @@ impl<T: Config> Pallet<T> {
                 coldkeys.push(cold.clone());
             }
 
-            let weight_for_all_remove = w.saturating_mul(coldkeys.len() as u64);
+            // Alpha, AlphaV2 and AlphaShareEpoch removals per coldkey.
+            let weight_for_all_remove = w
+                .saturating_mul(3_u64)
+                .saturating_mul(coldkeys.len() as u64);
             if weight_meter.can_consume(weight_for_all_remove) {
                 weight_meter.consume(weight_for_all_remove);
             } else {
@@ -892,6 +921,7 @@ impl<T: Config> Pallet<T> {
             for cold in coldkeys {
                 Alpha::<T>::remove((&hot, &cold, netuid));
                 AlphaV2::<T>::remove((&hot, &cold, netuid));
+                AlphaShareEpoch::<T>::remove((&hot, &cold, netuid));
             }
 
             if exhausted {
@@ -910,8 +940,9 @@ impl<T: Config> Pallet<T> {
     ) -> (bool, Option<Vec<u8>>) {
         let iter_read = T::DbWeight::get().reads(1);
         // Updating TotalAlphaStaked reads and writes the aggregate; clearing a
-        // hotkey also removes TotalHotkeyAlpha and both share-denominator maps.
-        let removal_weight = T::DbWeight::get().reads_writes(1, 4);
+        // hotkey also removes TotalHotkeyAlpha, both share-denominator maps and
+        // the share-pool epoch.
+        let removal_weight = T::DbWeight::get().reads_writes(1, 5);
         let iter = match last_key {
             Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
             None => TotalHotkeyAlpha::<T>::iter(),
@@ -949,6 +980,7 @@ impl<T: Config> Pallet<T> {
             TotalHotkeyAlpha::<T>::remove(&hotkey, netuid);
             TotalHotkeyShares::<T>::remove(&hotkey, netuid);
             TotalHotkeySharesV2::<T>::remove(&hotkey, netuid);
+            AlphaSharePoolEpoch::<T>::remove(&hotkey, netuid);
         }
 
         (
