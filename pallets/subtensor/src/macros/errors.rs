@@ -385,8 +385,5 @@ mod errors {
         /// The coldkey stakes through more hotkeys, or holds more stake positions, than a
         /// coldkey swap can move in one call. Consolidate (unstake or move stake) first.
         ColdkeySwapTooHeavy,
-        /// The hotkey holds more stake positions than a hotkey swap can move in one call.
-        /// Swap one subnet at a time with `swap_hotkey_v2(netuid = Some(..))`.
-        HotkeySwapTooHeavy,
     }
 }
