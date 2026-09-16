@@ -28,6 +28,24 @@ every `swap_basket` fails with `BasketTradingDisabled`. Everything else in
 this guide (the proxy type, the reads, btcli) works from the upgrade block.
 </Callout>
 
+## Before you start: install the matching SDK
+
+Basket trading is live on **testnet** (runtime v461). It is not on mainnet
+yet. The stable `bittensor` release on PyPI predates it and has no
+`btcli root swap` command. The first testnet release candidate,
+`11.3.0rc46`, shipped a broken `btcli`: no `root swap` command, and a
+crash at exit. `11.3.0rc47` fixes both. Pin it for the testnet trial:
+
+```bash
+pip install "bittensor==11.3.0rc47"
+btcli root swap --help     # prints the options; no traceback
+```
+
+While trading is testnet-only, add `-n test` to every `btcli` command in
+this guide (SDK: `bt.Subtensor("test")` instead of `"finney"`). Once the
+runtime reaches mainnet, install the stable release that ships with it
+(`11.3.0` or later) and drop the `-n test` flag.
+
 ## What a beta basket is
 
 Every root validator runs one fund. Its root dividends arrive as subnet
@@ -128,9 +146,9 @@ and buy netuid 64 with the proceeds.
 ### 1. Look at the fund and the budget
 
 ```bash
-btcli root list 5F...val                                 # holdings, NAV, lifetime return
-btcli query validator-basket --hotkey 5F...val           # (netuid, alpha, TAO value) rows
-btcli query basket-trading-status --hotkey 5F...val      # gates and the turnover bucket
+btcli root list 5F...val -n test                                 # holdings, NAV, lifetime return
+btcli query validator-basket --hotkey 5F...val -n test           # (netuid, alpha, TAO value) rows
+btcli query basket-trading-status --hotkey 5F...val -n test      # gates and the turnover bucket
 ```
 
 A status read looks like this:
@@ -154,16 +172,16 @@ for what the other fields mean.
 
 ```bash
 btcli root swap --from 8 --to 64 --amount 250 --hotkey 5F...val \
-  --max-slippage 1 -w desk --proxy-for 5F...validator_coldkey
+  --max-slippage 1 -w desk --proxy-for 5F...validator_coldkey -n test --dry-run
 ```
 
-btcli quotes the fund and the trade first, then shows a review card before
+`--dry-run` shows the review card and the fee without submitting; drop it
+to sign and send. btcli quotes the fund and the trade first, then shows a review card before
 you sign: the origin holding being sold, the destination holding, the
 **expected out** (what the buy leg would credit at current pool prices,
 after fees), the **minimum out** it will insist on, and how much of the
 bucket is left (with a red warning if trading is disabled or the fund is
-frozen). Confirm, and the call is proxied, shielded, and submitted. Pass
-`--dry-run` to see the card and the fee without submitting.
+frozen). Confirm, and the call is proxied, shielded, and submitted.
 
 `--max-slippage` is a percentage (default `1.0`). btcli sets
 `min_amount_out = expected out × (1 − max_slippage / 100)`. If the quote
@@ -174,9 +192,9 @@ chain's own band. See [Your floor and the protocol band](#your-floor-and-the-pro
 Other shapes of the same command:
 
 ```bash
-btcli root swap --from 3 --to 0 --amount all --hotkey 5F...val ...   # exit netuid 3 to cash
-btcli root swap --from 0 --to 21 --amount 500 --hotkey 5F...val ...  # spend 500 τ of cash on netuid 21
-btcli root swap --from 8 --to 64 --amount 250 --max-slippage 0.5 ...  # tighter floor: fill within 0.5% of the quote
+btcli root swap --from 3 --to 0 --amount all --hotkey 5F...val -n test ...   # exit netuid 3 to cash
+btcli root swap --from 0 --to 21 --amount 500 --hotkey 5F...val -n test ...  # spend 500 τ of cash on netuid 21
+btcli root swap --from 8 --to 64 --amount 250 --max-slippage 0.5 -n test ...  # tighter floor: fill within 0.5% of the quote
 ```
 
 ### 3. Swap with the Python SDK
@@ -189,7 +207,7 @@ HOTKEY = "5F...val"
 VALIDATOR_COLDKEY = "5F...validator_coldkey"
 desk = Wallet(name="desk")
 
-async with bt.Subtensor("finney") as client:
+async with bt.Subtensor("test") as client:   # "finney" once the runtime is on mainnet
     status = await client.read("basket_trading_status", hotkey_ss58=HOTKEY)
     if not status["enabled"] or status["frozen"]:
         raise SystemExit("trading is off for this fund")

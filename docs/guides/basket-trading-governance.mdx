@@ -15,6 +15,17 @@ All four calls are root-only. Submit them as the sudo key with
 (see "Any call, including sudo" in [Multisig](/docs/guides/multisig)).
 The `--dry-run` tx-global shows the composed call and fee without submitting.
 
+The `basket-trading-status` read and the basket error descriptions need
+the SDK release that ships with runtime v461. Trading is live on
+**testnet** and not on mainnet yet: install the pinned release candidate
+and add `-n test` to the commands below (`11.3.0rc46` shipped a broken
+`btcli`; `rc47` fixes it). Once the runtime reaches mainnet, install the
+stable release that ships with it (`11.3.0` or later).
+
+```bash
+pip install "bittensor==11.3.0rc47"
+```
+
 ## The knobs
 
 | Call | Storage it writes | Default | Bounds |
@@ -130,7 +141,7 @@ and the bucket for one validator, as a trade at the current block would see
 them:
 
 ```bash
-btcli query basket-trading-status --hotkey 5F...validator
+btcli query basket-trading-status --hotkey 5F...validator -n test
 ```
 
 | Field | Meaning |

@@ -423,7 +423,15 @@ async with bt.Subtensor("finney") as client:
         print(result.error.code, result.error.remediation)`}
           </pre>
           <p>
-            Upgrade with <code>pip install -U bittensor</code>. Reference pages:{' '}
+            This runtime is live on testnet and not yet on mainnet, so the stable{' '}
+            <code>bittensor</code> release on PyPI does not have{' '}
+            <code>btcli root swap</code>. The first testnet release candidate,{' '}
+            <code>11.3.0rc46</code>, shipped a broken <code>btcli</code> (no{' '}
+            <code>root swap</code> command and a crash at exit); <code>11.3.0rc47</code>{' '}
+            fixes both. For the testnet trial install{' '}
+            <code>pip install &quot;bittensor==11.3.0rc47&quot;</code> and pass{' '}
+            <code>-n test</code>. Once the runtime reaches mainnet, upgrade to the stable
+            release that ships with it (<code>11.3.0</code> or later). Reference pages:{' '}
             <DocLink href='/docs/tx/swap-basket'>
               <code>swap-basket</code>
             </DocLink>

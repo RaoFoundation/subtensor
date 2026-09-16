@@ -150,11 +150,19 @@ one holding — or TAO from the fund's cash slot, netuid 0 — and buy another
 with the proceeds. Fund shares, rates, and every staker's entitlement are
 untouched; only the composition of the escrow holdings changes.
 
+`btcli root swap` needs the SDK release that ships with runtime v461,
+which is live on testnet and not on mainnet yet. Install
+`pip install "bittensor==11.3.0rc47"` and add `-n test`; the stable
+release on PyPI does not have the command, and `11.3.0rc46` shipped a
+broken `btcli`. See
+[Before you start](/docs/guides/basket-trading#before-you-start-install-the-matching-sdk)
+in the Basket trading guide.
+
 ```bash
-btcli root list 5F...                                 # holdings, NAV, lifetime return
-btcli root swap --hotkey 5F... --from 4 --to 8 --amount 100   # sell 100 α of subnet 4, buy subnet 8
-btcli root swap --hotkey 5F... --from 0 --to 8 --amount 50    # deploy 50 τ of cash into subnet 8
-btcli root swap --hotkey 5F... --from 8 --to 0 --amount all   # take profit into cash
+btcli root list 5F... -n test                                 # holdings, NAV, lifetime return
+btcli root swap --hotkey 5F... --from 4 --to 8 --amount 100 -n test   # sell 100 α of subnet 4, buy subnet 8
+btcli root swap --hotkey 5F... --from 0 --to 8 --amount 50 -n test    # deploy 50 τ of cash into subnet 8
+btcli root swap --hotkey 5F... --from 8 --to 0 --amount all -n test   # take profit into cash
 ```
 
 ```python
