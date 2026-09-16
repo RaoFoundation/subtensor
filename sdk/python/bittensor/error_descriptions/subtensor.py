@@ -901,4 +901,14 @@ DESCRIPTIONS: dict[str, str] = {
         "would leave the account at zero, below what keeps it alive. Check the coldkey's free "
         "balance and leave at least the existential deposit after the amount withdrawn."
     ),
+    "InvalidBatchLength": (
+        "A per-subnet weight batch (`batch_set_weights`, `batch_commit_weights`, "
+        "`batch_reveal_weights`) was empty or had more items than there are networks. Send "
+        "at least one item and at most one per subnet."
+    ),
+    "TooManyStakingHotkeys": (
+        "The destination coldkey already stakes through the maximum number of hotkeys that "
+        "third-party stake transfers may add to it. Transfer to a hotkey the destination "
+        "already stakes through, or let the destination stake to the new hotkey itself."
+    ),
 }
