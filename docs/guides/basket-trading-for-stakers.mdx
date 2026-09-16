@@ -30,14 +30,26 @@ can trade.
 
 ## See what your validator holds and trades
 
+The reads below need the SDK release that ships with runtime v461. Trading
+is live on **testnet** and not on mainnet yet, so install the pinned
+release candidate and add `-n test` (`11.3.0rc46` shipped a broken `btcli`;
+`rc47` fixes it):
+
 ```bash
-btcli root list                                  # every fund: NAV, price vs the index
-btcli root list 5F...validator                   # one fund: holdings, NAV, your position
-btcli root list --mine                           # your positions: staked and accrued τ per validator
-btcli query validator-basket --hotkey 5F...validator          # holdings: (netuid, alpha, TAO value)
-btcli query validator-basket-summary --hotkey 5F...validator  # NAV, shares, holdings, lifetime return
-btcli query basket-trading-status --hotkey 5F...validator     # is the fund trading, and how much budget is left
+pip install "bittensor==11.3.0rc47"
 ```
+
+```bash
+btcli root list -n test                                  # every fund: NAV, price vs the index
+btcli root list 5F...validator -n test                   # one fund: holdings, NAV, your position
+btcli root list --mine -n test                           # your positions: staked and accrued τ per validator
+btcli query validator-basket --hotkey 5F...validator -n test          # holdings: (netuid, alpha, TAO value)
+btcli query validator-basket-summary --hotkey 5F...validator -n test  # NAV, shares, holdings, lifetime return
+btcli query basket-trading-status --hotkey 5F...validator -n test     # is the fund trading, and how much budget is left
+```
+
+Once the runtime reaches mainnet, install the stable release that ships
+with it (`11.3.0` or later) and drop `-n test`.
 
 `validator-basket` is the fund's composition right now. Netuid 0 in that
 list is the fund's TAO cash slot. Two reads a day apart show you whether the

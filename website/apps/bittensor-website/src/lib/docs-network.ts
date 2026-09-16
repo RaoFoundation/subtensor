@@ -22,8 +22,9 @@ const NETWORKS: Record<DocsNetwork, DocsNetworkInfo> = {
     network: 'testnet',
     label: 'testnet',
     chainNetwork: 'test',
-    installCommand: 'pip install --pre bittensor',
-    installHint: 'Install the matching SDK rc from PyPI with --pre.',
+    installCommand: 'pip install "bittensor==11.3.0rc47"',
+    installHint:
+      'Install the pinned SDK release candidate from PyPI (11.3.0rc46 shipped a broken btcli; rc47 fixes it).',
   },
 };
 
