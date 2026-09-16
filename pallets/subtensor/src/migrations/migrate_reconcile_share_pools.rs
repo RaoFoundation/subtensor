@@ -1,12 +1,11 @@
 use crate::staking::stake_utils::HotkeyAlphaSharePoolDataOperations;
-use crate::{Config, Event, HasMigrationRun, Pallet, TotalHotkeyAlpha};
+use crate::{Config, Event, HasMigrationRun, Pallet};
 use codec::Decode;
 use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 use share_pool::{SafeFloat, SharePoolDataOperations};
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
-use sp_std::vec::Vec;
 use subtensor_runtime_common::NetUid;
 
 pub(crate) const MIGRATION_NAME: &[u8] = b"migrate_reconcile_share_pools_v1";
@@ -130,11 +129,15 @@ pub mod reconcile_share_pools {
     use sp_std::marker::PhantomData;
 
     #[cfg(feature = "try-runtime")]
+    use crate::TotalHotkeyAlpha;
+    #[cfg(feature = "try-runtime")]
     use codec::Encode;
     #[cfg(feature = "try-runtime")]
     use frame_support::ensure;
     #[cfg(feature = "try-runtime")]
     use sp_runtime::TryRuntimeError;
+    #[cfg(feature = "try-runtime")]
+    use sp_std::vec::Vec;
     #[cfg(feature = "try-runtime")]
     use subtensor_runtime_common::Token;
 
