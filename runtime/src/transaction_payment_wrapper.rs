@@ -257,15 +257,13 @@ where
         };
 
         // Resolve the fee payer. A proxy `RealPaysFee` opt-in takes precedence; otherwise an
-        // owned hotkey's coldkey pays for allow-listed calls. In that case the coldkey covers
-        // the protocol fee only — the signer-chosen tip is dropped, since a tip does not buy
-        // priority in this wrapper (priority is overridden above) and billing it to the coldkey
-        // would let a hotkey drain coldkey funds. Other payers keep the original tip.
+        // owned hotkey's coldkey pays for allow-listed calls. Whenever the payer is not the
+        // signer, only the protocol fee is redirected — the signer-chosen tip is dropped. A tip
+        // does not buy priority in this wrapper (priority is overridden above), and billing it
+        // to another account would let the signer spend that account's funds without limit,
+        // regardless of what the proxy type allows. Only a self-paying signer keeps its tip.
         let (fee_origin, tip) = if let Some(real) = Self::extract_real_fee_payer(call, &origin) {
-            (
-                frame_system::RawOrigin::Signed(real).into(),
-                self.inner.tip(),
-            )
+            (frame_system::RawOrigin::Signed(real).into(), Zero::zero())
         } else if let Some(coldkey) = Self::extract_coldkey_fee_payer(call, &origin) {
             (
                 frame_system::RawOrigin::Signed(coldkey).into(),
@@ -934,6 +932,57 @@ mod tests {
                 coldkey_before.saturating_sub(coldkey_after),
                 tipless_fee,
                 "coldkey pays the tipless fee, not the tip"
+            );
+        });
+    }
+
+    // Full lifecycle for the proxy opt-in path: the real pays the protocol fee for its
+    // delegate, and the delegate's tip is never billed to the real. The tip is a free field
+    // in the signed extrinsic, so without this bound a delegate could spend the real's whole
+    // balance through the fee extension no matter how narrow its proxy type is.
+    #[test]
+    fn full_lifecycle_real_pays_fee_excluding_tip() {
+        new_test_ext().execute_with(|| {
+            add_proxy(&real_a(), &signer());
+            enable_real_pays_fee(&real_a(), &signer());
+
+            let call = proxy_call(real_a(), call_remark());
+            let info = DispatchInfo {
+                pays_fee: Pays::Yes,
+                ..call.get_dispatch_info()
+            };
+
+            let real_before = pallet_balances::Pallet::<Runtime>::free_balance(&real_a());
+            let signer_before = pallet_balances::Pallet::<Runtime>::free_balance(&signer());
+
+            // A tip almost as large as the real's whole balance.
+            let tip = real_before.saturating_sub(TaoBalance::new(1_000_000_000));
+            let ext = ChargeTransactionPaymentWrapper::<Runtime>::new(tip);
+            assert_ok!(ext.test_run(
+                RuntimeOrigin::signed(signer()),
+                &call,
+                &info,
+                0,
+                0,
+                |_origin| Ok(Default::default()),
+            ));
+
+            let tipless_fee = pallet_transaction_payment::Pallet::<Runtime>::compute_fee(
+                0,
+                &info,
+                TaoBalance::new(0),
+            );
+            let real_after = pallet_balances::Pallet::<Runtime>::free_balance(&real_a());
+
+            assert_eq!(
+                real_before.saturating_sub(real_after),
+                tipless_fee,
+                "the real pays the tipless fee only"
+            );
+            assert_eq!(
+                pallet_balances::Pallet::<Runtime>::free_balance(&signer()),
+                signer_before,
+                "the delegate is not charged when the real opted in"
             );
         });
     }
