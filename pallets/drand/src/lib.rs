@@ -298,20 +298,11 @@ pub mod pallet {
         /// here we make sure that some particular calls (the ones produced by offchain worker)
         /// are being whitelisted and marked as valid.
         fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+            // Only `write_pulse` is produced by the offchain worker. `set_beacon_config`
+            // is root-only, so an unsigned copy can never dispatch; admitting it here
+            // would let anyone fill the pool and blocks with fee-less, high-priority
+            // transactions that always fail.
             match call {
-                Call::set_beacon_config {
-                    config_payload: payload,
-                    signature,
-                } => {
-                    let signature = signature.as_ref().ok_or(InvalidTransaction::BadSigner)?;
-                    Self::validate_signature_and_parameters(
-                        payload,
-                        signature,
-                        &payload.block_number,
-                        &payload.public,
-                        None,
-                    )
-                }
                 Call::write_pulse {
                     pulses_payload: payload,
                     signature,

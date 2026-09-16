@@ -38,8 +38,11 @@ impl<T: Config> CheckRateLimits<T> {
         netuid_index: NetUidStorageIndex,
         error: Error<T>,
     ) -> Result<(), Error<T>> {
+        // Every rate-limited weight call requires the hotkey to hold a uid on the subnet
+        // at dispatch, so an unregistered signer is refused here rather than admitted as a
+        // free (`Pays::No`) failing extrinsic.
         let Ok(neuron_uid) = Pallet::<T>::get_uid_for_net_and_hotkey(netuid, who) else {
-            return Ok(());
+            return Err(Error::<T>::HotKeyNotRegisteredInSubNet);
         };
 
         let current_block = Pallet::<T>::get_current_block_as_u64();

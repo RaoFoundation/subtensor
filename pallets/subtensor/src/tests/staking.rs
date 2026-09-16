@@ -126,10 +126,11 @@ fn test_add_stake_ok_no_emission() {
             1.into()
         );
 
-        // Check if total stake has increased accordingly.
+        // Check if total stake has increased accordingly (the swap fee goes to the block
+        // author and is not stake).
         assert_eq!(
             SubtensorModule::get_total_stake(),
-            SubtensorModule::get_network_min_lock() + amount.into()
+            SubtensorModule::get_network_min_lock() + amount.into() - fee.into()
         );
     });
 }
@@ -3424,7 +3425,7 @@ fn test_stake_overflow() {
         let total_stake_before = SubtensorModule::get_total_stake();
 
         // Stake and check if the result is ok
-        let (expected_alpha, _) = mock::swap_tao_to_alpha(netuid, amount.into());
+        let (expected_alpha, fee) = mock::swap_tao_to_alpha(netuid, amount.into());
         assert_ok!(SubtensorModule::add_stake(
             RuntimeOrigin::signed(coldkey_account_id),
             hotkey_account_id,
@@ -3439,10 +3440,10 @@ fn test_stake_overflow() {
             epsilon = 1.into()
         );
 
-        // Check if total stake has increased accordingly.
+        // Check if total stake has increased accordingly (net of the swap fee).
         assert_abs_diff_eq!(
             SubtensorModule::get_total_stake(),
-            total_stake_before + amount.into(),
+            total_stake_before + amount.into() - fee.into(),
             epsilon = 1.into()
         );
     });

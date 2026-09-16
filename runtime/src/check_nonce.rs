@@ -186,7 +186,18 @@ where
             return Err(InvalidTransaction::Future.into());
         }
         nonce += <T as Config>::Nonce::one();
-        frame_system::Account::<T>::mutate(who, |account| account.nonce = nonce);
+        frame_system::Account::<T>::mutate(&who, |account| {
+            if account.providers.is_zero() && account.sufficients.is_zero() {
+                // A signer admitted without a provider reference (`Pays::No` call or
+                // alpha-paid fee) would otherwise hold its nonce in an account that any
+                // balance write can remove, resetting the nonce and making its earlier
+                // signed extrinsics valid again. Hold a self-sufficient reference so the
+                // account, and with it the nonce, survives every balance change.
+                account.sufficients = One::one();
+                frame_system::Pallet::<T>::on_created_account(who.clone(), account);
+            }
+            account.nonce = nonce;
+        });
         Ok(Pre::NonceChecked)
     }
 
@@ -205,10 +216,106 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::{Runtime, RuntimeCall};
-    use sp_runtime::traits::Zero;
+    use crate::{Balances, BuildStorage, Runtime, RuntimeCall, RuntimeGenesisConfig};
+    use frame_support::assert_ok;
+    use frame_support::dispatch::GetDispatchInfo;
+    use frame_support::traits::fungible::Mutate;
+    use frame_support::traits::tokens::Preservation;
+    use frame_system::RawOrigin;
+    use sp_runtime::traits::{DispatchTransaction, Zero};
+    use subtensor_runtime_common::{AccountId, TaoBalance, Token};
+
+    fn new_test_ext() -> sp_io::TestExternalities {
+        let mut ext: sp_io::TestExternalities = RuntimeGenesisConfig::default()
+            .build_storage()
+            .unwrap()
+            .into();
+        ext.execute_with(|| frame_system::Pallet::<Runtime>::set_block_number(1));
+        ext
+    }
+
+    fn account_state(who: &AccountId) -> (bool, u32, u32, u32) {
+        let exists = frame_system::Account::<Runtime>::contains_key(who);
+        let account = frame_system::Account::<Runtime>::get(who);
+        (
+            exists,
+            account.nonce,
+            account.providers,
+            account.sufficients,
+        )
+    }
+
+    fn validate_and_prepare(
+        who: &AccountId,
+        nonce: u32,
+        call: &RuntimeCall,
+        info: &DispatchInfo,
+    ) -> Result<(), TransactionValidityError> {
+        CheckNonce::<Runtime>::from(nonce)
+            .validate_and_prepare(RawOrigin::Signed(who.clone()).into(), call, info, 0, 0)
+            .map(|_| ())
+    }
+
+    #[test]
+    fn reference_less_signer_keeps_its_nonce_through_a_full_balance_drain() {
+        new_test_ext().execute_with(|| {
+            let signer = AccountId::from([7_u8; 32]);
+            let sink = AccountId::from([8_u8; 32]);
+            let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+            let mut info = call.get_dispatch_info();
+            info.pays_fee = Pays::No;
+            assert_eq!(account_state(&signer), (false, 0, 0, 0));
+
+            // A `Pays::No` call from a key with no references is admitted; the nonce
+            // write must leave the account with a reference of its own.
+            assert_ok!(validate_and_prepare(&signer, 0, &call, &info));
+            assert_eq!(account_state(&signer), (true, 1, 0, 1));
+
+            // Receiving TAO and then moving all of it out (the shape of a dispatch that
+            // credits and drains the signer) no longer removes the account.
+            let ed = <Runtime as pallet_balances::Config>::ExistentialDeposit::get();
+            let amount = TaoBalance::from(ed.to_u64() * 10);
+            assert_ok!(Balances::mint_into(&signer, amount));
+            assert_eq!(account_state(&signer), (true, 1, 1, 1));
+            assert_ok!(Balances::transfer(
+                &signer,
+                &sink,
+                amount,
+                Preservation::Expendable
+            ));
+            assert_eq!(Balances::free_balance(&signer), TaoBalance::ZERO);
+            assert_eq!(account_state(&signer), (true, 1, 0, 1));
+
+            // The identical signed extrinsic is stale.
+            assert_eq!(
+                validate_and_prepare(&signer, 0, &call, &info),
+                Err(InvalidTransaction::Stale.into())
+            );
+            assert_ok!(validate_and_prepare(&signer, 1, &call, &info));
+            assert_eq!(account_state(&signer), (true, 2, 0, 1));
+        });
+    }
+
+    #[test]
+    fn funded_signer_does_not_gain_an_extra_reference() {
+        new_test_ext().execute_with(|| {
+            let signer = AccountId::from([9_u8; 32]);
+            let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+            let info = call.get_dispatch_info();
+            let ed = <Runtime as pallet_balances::Config>::ExistentialDeposit::get();
+            assert_ok!(Balances::mint_into(
+                &signer,
+                TaoBalance::from(ed.to_u64() * 10)
+            ));
+            assert_eq!(account_state(&signer), (true, 0, 1, 0));
+
+            assert_ok!(validate_and_prepare(&signer, 0, &call, &info));
+            assert_eq!(account_state(&signer), (true, 1, 1, 0));
+        });
+    }
 
     #[test]
     fn check_nonce_weight_accounts_for_account_storage_ops() {

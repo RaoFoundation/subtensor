@@ -218,7 +218,10 @@ mod hooks {
                 .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>())
                 // Schedule stale StakingHotkeys relationship cleanup. It runs after storage GC
                 // and uses only otherwise-unused on_idle weight; normal operations stay enabled.
-                .saturating_add(migrations::migrate_cleanup_staking_hotkeys::kickoff_staking_hotkeys_cleanup::<T>());
+                .saturating_add(migrations::migrate_cleanup_staking_hotkeys::kickoff_staking_hotkeys_cleanup::<T>())
+                // Resync TotalStake to the sum of live SubnetTAO after the buy-side fee
+                // was excluded from the counter (issue #3156).
+                .saturating_add(migrations::migrate_resync_total_stake::migrate_resync_total_stake::<T>());
             // The beta-baseline seed (`migrate_stamp_beta_baselines`), the root pot
             // reconciliation (`migrate_fix_root_pot_shortfall`), and the root-weights
             // removal (`migrate_remove_root_weights`) run from the runtime `Migrations`

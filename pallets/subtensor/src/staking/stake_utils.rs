@@ -594,6 +594,12 @@ impl<T: Config> Pallet<T> {
         alpha_share_pool.update_value_for_all((amount as i64).neg());
     }
 
+    /// True when the hotkey's share pool on `netuid` has a non-zero denominator, i.e. at
+    /// least one coldkey holds shares that a pool-wide credit would be distributed to.
+    pub fn hotkey_share_pool_has_members(hotkey: &T::AccountId, netuid: NetUid) -> bool {
+        Self::get_alpha_share_pool(hotkey.clone(), netuid).has_members()
+    }
+
     /// Buys shares in the hotkey on a given subnet
     ///
     /// The function updates share totals given current prices.
@@ -731,14 +737,17 @@ impl<T: Config> Pallet<T> {
             *total = total.saturating_add(swap_result.amount_paid_out.into());
         });
 
-        // Increase the protocol TAO reserve
+        // Increase the protocol TAO reserve and the network-wide total by the same amount:
+        // only the TAO that entered the reserve is stake. The swap fee leaves the subnet
+        // account for the block author and must not be counted (issue #3156).
+        let reserve_delta: TaoBalance = swap_result
+            .paid_in_reserve_delta_i64()
+            .unsigned_abs()
+            .into();
         SubnetTAO::<T>::mutate(netuid, |total| {
-            let delta = swap_result.paid_in_reserve_delta_i64().unsigned_abs();
-            *total = total.saturating_add(delta.into());
+            *total = total.saturating_add(reserve_delta);
         });
-
-        // Increase Total Tao reserves.
-        TotalStake::<T>::mutate(|total| *total = total.saturating_add(tao));
+        TotalStake::<T>::mutate(|total| *total = total.saturating_add(reserve_delta));
 
         // Increase total subnet TAO volume.
         SubnetVolume::<T>::mutate(netuid, |total| {
@@ -1067,9 +1076,6 @@ impl<T: Config> Pallet<T> {
         let refund_tao = tao_staked.saturating_sub(consumed_tao);
         if !refund_tao.is_zero() {
             Self::transfer_tao_from_subnet(netuid, coldkey, refund_tao)?;
-            // `swap_tao_for_alpha` bumped `TotalStake` by the full `tao_staked`;
-            // only `consumed_tao` actually became stake, so back out the refund.
-            TotalStake::<T>::mutate(|total| *total = total.saturating_sub(refund_tao));
         }
 
         // Record TAO inflow
@@ -1564,6 +1570,20 @@ impl<T: Config> Pallet<T> {
                     Error::<T>::TransferDisallowed
                 );
             }
+        }
+
+        // A transfer to another coldkey appends `destination_hotkey` to that coldkey's
+        // `StakingHotkeys` without its consent. Every stake exit of the destination walks
+        // that list, and the coldkey-wide root claim refuses lists above its admission
+        // budget, so third parties may only grow it up to a fixed bound. The coldkey's own
+        // staking is not limited.
+        if origin_coldkey != destination_coldkey {
+            let staking_hotkeys = StakingHotkeys::<T>::get(destination_coldkey);
+            ensure!(
+                staking_hotkeys.contains(destination_hotkey)
+                    || staking_hotkeys.len() < crate::MAX_THIRD_PARTY_STAKING_HOTKEYS as usize,
+                Error::<T>::TooManyStakingHotkeys
+            );
         }
 
         // Enforce lock invariant: if the is cross-subnet move, the remaining amount must

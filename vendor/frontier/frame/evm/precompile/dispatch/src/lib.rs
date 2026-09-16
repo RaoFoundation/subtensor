@@ -93,24 +93,24 @@ where
 
 		match call.dispatch(Some(origin).into()) {
 			Ok(post_info) => {
-				if post_info.pays_fee(&info) == Pays::Yes {
-					let actual_weight = post_info.actual_weight.unwrap_or(info.total_weight());
-					let cost = T::GasWeightMapping::weight_to_gas(actual_weight);
-					handle.record_cost(cost)?;
+				// Gas meters weight regardless of `Pays`: a dispatch whose post-dispatch
+				// info flips to `Pays::No` still consumed its weight.
+				let actual_weight = post_info.actual_weight.unwrap_or(info.total_weight());
+				let cost = T::GasWeightMapping::weight_to_gas(actual_weight);
+				handle.record_cost(cost)?;
 
-					handle.refund_external_cost(
-						Some(
-							info.total_weight()
-								.ref_time()
-								.saturating_sub(actual_weight.ref_time()),
-						),
-						Some(
-							info.total_weight()
-								.proof_size()
-								.saturating_sub(actual_weight.proof_size()),
-						),
-					);
-				}
+				handle.refund_external_cost(
+					Some(
+						info.total_weight()
+							.ref_time()
+							.saturating_sub(actual_weight.ref_time()),
+					),
+					Some(
+						info.total_weight()
+							.proof_size()
+							.saturating_sub(actual_weight.proof_size()),
+					),
+				);
 
 				Ok(PrecompileOutput {
 					exit_status: ExitSucceed::Stopped,

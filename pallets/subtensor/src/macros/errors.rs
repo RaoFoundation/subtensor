@@ -393,5 +393,11 @@ mod errors {
         /// (destination alpha, or TAO when the destination is root). The trade rolled
         /// back. Re-quote and retry, or lower the floor.
         BasketMinOutNotMet,
+        /// A per-subnet weight batch is empty or has more items than there are networks.
+        InvalidBatchLength,
+        /// The destination coldkey already stakes through the maximum number of hotkeys
+        /// that third-party transfers may add. Transfers to a hotkey it already stakes
+        /// through are still accepted.
+        TooManyStakingHotkeys,
     }
 }

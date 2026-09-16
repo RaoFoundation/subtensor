@@ -8,8 +8,9 @@ use subtensor_runtime_common::{NetUid, TaoBalance};
 #[cfg(test)]
 use crate::{
     BalanceOf, CommitmentInfo, CommitmentOf, Config, Data, Error, Event, LastBondsReset,
-    LastCommitment, MaxSpace, Pallet, Registration, RevealFailure, RevealedCommitments,
-    TimelockedIndex, UsageTracker, UsedSpaceOf, WeightInfo,
+    LastCommitment, MAX_TIMELOCK_REVEALS_PER_BLOCK, MaxSpace, Pallet, Registration, RevealFailure,
+    RevealedCommitments, TimelockRevealCursor, TimelockedIndex, UsageTracker, UsedSpaceOf,
+    WeightInfo,
     mock::{
         Balances, DRAND_QUICKNET_SIG_2000_HEX, DRAND_QUICKNET_SIG_HEX, RuntimeEvent, RuntimeOrigin,
         Test, TestMaxFields, insert_drand_pulse, new_test_ext, produce_ciphertext,
@@ -1490,8 +1491,11 @@ fn on_initialize_reveals_matured_timelocks() {
 
         System::<Test>::set_block_number(2);
         let weight = <Pallet<Test> as Hooks<u64>>::on_initialize(2);
+        // Hook base unit plus one unit per decryption, the index/oldest-round/cursor
+        // reads, and the per-entry reads and writes.
         let expected_weight = <Test as Config>::WeightInfo::reveal_timelocked_commitments()
-            .saturating_add(RocksDbWeight::get().reads(6))
+            .saturating_mul(2)
+            .saturating_add(RocksDbWeight::get().reads(7))
             .saturating_add(RocksDbWeight::get().writes(3));
         assert_eq!(weight, expected_weight);
 
@@ -2767,5 +2771,103 @@ fn purge_netuid_under_budget_may_skip_timelock_update_while_clearing_maps() {
         assert!(done);
         assert!(CommitmentOf::<Test>::get(net_a, who_a).is_none());
         assert!(!TimelockedIndex::<Test>::get().contains(&(net_a, who_a)));
+    });
+}
+
+/// Commits `fields_per_account` timelocked fields for each of `accounts` at `reveal_round`.
+fn commit_timelocked_fields(accounts: &[u64], netuid: NetUid, reveal_round: u64, fields: usize) {
+    for who in accounts {
+        let data: Vec<Data> = (0..fields)
+            .map(|i| {
+                let inner = CommitmentInfo::<<Test as Config>::MaxFields> {
+                    fields: BoundedVec::try_from(vec![Data::Raw(
+                        format!("field {i} of {who}")
+                            .into_bytes()
+                            .try_into()
+                            .expect("<= 128 bytes"),
+                    )])
+                    .expect("one field"),
+                };
+                Data::TimelockEncrypted {
+                    encrypted: produce_ciphertext(&inner.encode(), reveal_round),
+                    reveal_round,
+                }
+            })
+            .collect();
+        let info = CommitmentInfo {
+            fields: BoundedVec::try_from(data).expect("within MaxFields"),
+        };
+        assert_ok!(Pallet::<Test>::set_commitment(
+            RuntimeOrigin::signed(*who),
+            netuid,
+            Box::new(info)
+        ));
+    }
+}
+
+fn revealed_field_count(accounts: &[u64], netuid: NetUid) -> usize {
+    accounts
+        .iter()
+        .map(|who| {
+            RevealedCommitments::<Test>::get(netuid, who)
+                .map(|r| r.len())
+                .unwrap_or(0)
+        })
+        .sum()
+}
+
+// One block decrypts at most `MAX_TIMELOCK_REVEALS_PER_BLOCK` fields, charges one benchmarked
+// unit per decryption, resumes after the last visited entry, and drains the whole backlog
+// over the following blocks.
+#[test]
+fn reveal_timelocked_commitments_is_bounded_and_metered_per_block() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(42);
+        let reveal_round = 1000;
+        let fields_per_account = 3usize;
+        let accounts: Vec<u64> = (100..130).collect(); // 30 accounts x 3 = 90 fields
+        let total_fields = accounts.len() * fields_per_account;
+        assert!(total_fields > 2 * MAX_TIMELOCK_REVEALS_PER_BLOCK as usize);
+        MaxSpace::<Test>::set(u32::MAX);
+        System::<Test>::set_block_number(1);
+        commit_timelocked_fields(&accounts, netuid, reveal_round, fields_per_account);
+        assert_eq!(TimelockedIndex::<Test>::get().len(), accounts.len());
+
+        let signature = hex::decode(DRAND_QUICKNET_SIG_HEX).expect("valid signature hex");
+        insert_drand_pulse(reveal_round, &signature);
+        let unit = <Test as Config>::WeightInfo::reveal_timelocked_commitments();
+
+        System::<Test>::set_block_number(2);
+        let weight = Pallet::<Test>::reveal_timelocked_commitments().expect("reveal pass");
+        let revealed_after_first = revealed_field_count(&accounts, netuid);
+        assert_eq!(
+            revealed_after_first, MAX_TIMELOCK_REVEALS_PER_BLOCK as usize,
+            "one pass decrypts exactly the per-block budget"
+        );
+        assert!(
+            weight.all_gte(unit.saturating_mul(MAX_TIMELOCK_REVEALS_PER_BLOCK as u64)),
+            "each decryption is charged: {weight:?} < {} units",
+            MAX_TIMELOCK_REVEALS_PER_BLOCK
+        );
+        let cursor = TimelockRevealCursor::<Test>::get().expect("cursor set when budget hit");
+        assert!(TimelockedIndex::<Test>::get().contains(&cursor));
+
+        // Later blocks continue after the cursor until the backlog is gone.
+        let mut passes: usize = 1;
+        while revealed_field_count(&accounts, netuid) < total_fields {
+            passes += 1;
+            assert!(
+                passes <= 8,
+                "backlog must drain in a bounded number of passes"
+            );
+            System::<Test>::set_block_number(1 + passes as u64);
+            assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
+        }
+        assert_eq!(
+            passes,
+            total_fields.div_ceil(MAX_TIMELOCK_REVEALS_PER_BLOCK as usize)
+        );
+        assert!(TimelockedIndex::<Test>::get().is_empty());
+        assert!(TimelockRevealCursor::<Test>::get().is_none());
     });
 }

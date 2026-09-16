@@ -827,7 +827,19 @@ impl<T: Config> Pallet<T> {
             let nominator_alpha: AlphaBalance = tou64!(nominator_divs).into();
             if !nominator_alpha.is_zero() {
                 log::debug!("hotkey: {hotkey:?} alpha_divs: {nominator_divs:?}");
-                Self::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, nominator_alpha);
+                if Self::hotkey_share_pool_has_members(&hotkey, netuid) {
+                    Self::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, nominator_alpha);
+                } else {
+                    // Nobody holds shares in this pool, so a pool-wide credit would sit
+                    // unowned in `TotalHotkeyAlpha` until the first later depositor is
+                    // quoted all of it. Credit the owner instead, which opens the pool.
+                    Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                        &hotkey,
+                        &owner,
+                        netuid,
+                        nominator_alpha,
+                    );
+                }
                 AlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
                     *divs = divs.saturating_add(nominator_alpha);
                 });

@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 461
+Spec version: 462
 """
 from dataclasses import dataclass
 
@@ -209,6 +209,8 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 165): ErrorInfo('SubtensorModule', 'BasketSameSubnet', '`swap_basket` origin and destination are the same subnet.'),
     (7, 166): ErrorInfo('SubtensorModule', 'BasketLiquidityCapExceeded', "The trade would leave the fund holding more of the destination subnet than [`crate::BasketLiquidityCap`] allows as a share of that subnet's alpha reserve. Trade a smaller amount or pick a deeper pool."),
     (7, 167): ErrorInfo('SubtensorModule', 'BasketMinOutNotMet', "The `swap_basket` buy leg credited less than the caller's `min_amount_out` (destination alpha, or TAO when the destination is root). The trade rolled back. Re-quote and retry, or lower the floor."),
+    (7, 168): ErrorInfo('SubtensorModule', 'InvalidBatchLength', 'A per-subnet weight batch is empty or has more items than there are networks.'),
+    (7, 169): ErrorInfo('SubtensorModule', 'TooManyStakingHotkeys', 'The destination coldkey already stakes through the maximum number of hotkeys that third-party transfers may add. Transfers to a hotkey it already stakes through are still accepted.'),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),
