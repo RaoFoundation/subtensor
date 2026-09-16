@@ -967,7 +967,7 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
         let expected_contributor1_alpha =
             SubnetLeaseShares::<Test>::get(lease_id, contributions[0].0)
                 .saturating_mul(U64F64::from(distributed_alpha.to_u64()))
-                .ceil()
+                .floor()
                 .to_num::<u64>();
         assert_eq!(contributor1_alpha_delta, expected_contributor1_alpha.into());
         assert_eq!(
@@ -982,7 +982,7 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
         let expected_contributor2_alpha =
             SubnetLeaseShares::<Test>::get(lease_id, contributions[1].0)
                 .saturating_mul(U64F64::from(distributed_alpha.to_u64()))
-                .ceil()
+                .floor()
                 .to_num::<u64>();
         assert_eq!(contributor2_alpha_delta, expected_contributor2_alpha.into());
         assert_eq!(
@@ -1011,6 +1011,176 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
         assert_eq!(
             AccumulatedLeaseDividends::<Test>::get(lease_id),
             AlphaBalance::ZERO
+        );
+    });
+}
+
+// One contributor whose slice cannot be transferred (too small for the minimum transfer)
+// must not block the other contributors or the beneficiary. Its slice stays in the pot.
+#[test]
+fn test_distribute_lease_network_dividends_isolates_unpayable_contributor() {
+    new_test_ext(1).execute_with(|| {
+        let crowdloan_id = 0;
+        let beneficiary = U256::from(1);
+        let deposit = 10_000_000_000; // 10 TAO
+        let cap = 1_000_000_000_000; // 1000 TAO
+        let dust_contributor = U256::from(4);
+        let contributions = vec![
+            (U256::from(2), 600_000_000_000), // 600 TAO
+            (U256::from(3), 389_999_990_000), // ~390 TAO
+            (dust_contributor, 10_000),       // a dust share
+        ];
+        setup_crowdloan(crowdloan_id, deposit, cap, beneficiary, &contributions);
+
+        let end_block = 500;
+        let emissions_share = Percent::from_percent(30);
+        let tao_to_stake = 100_000_000_000; // 100 TAO
+        let (lease_id, lease) = setup_leased_network(
+            beneficiary,
+            emissions_share,
+            Some(end_block),
+            Some(tao_to_stake),
+        );
+        run_to_block(<Test as Config>::LeaseDividendsDistributionInterval::get() as u64);
+
+        let accumulated_dividends = AlphaBalance::from(10_000_000_000_u64);
+        AccumulatedLeaseDividends::<Test>::insert(lease_id, accumulated_dividends);
+        let owner_cut_alpha = AlphaBalance::from(5_000_000_000_u64);
+        let pot: AlphaBalance =
+            accumulated_dividends + emissions_share.mul_ceil(owner_cut_alpha.to_u64()).into();
+        let dust_slice: u64 = SubnetLeaseShares::<Test>::get(lease_id, dust_contributor)
+            .saturating_mul(U64F64::from(pot.to_u64()))
+            .floor()
+            .to_num::<u64>();
+        assert!(
+            dust_slice > 0,
+            "the dust share still rounds to a non-zero slice"
+        );
+
+        SubtensorModule::distribute_leased_network_dividends(lease_id, owner_cut_alpha);
+
+        let stake = |who: &U256| {
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &lease.hotkey,
+                who,
+                lease.netuid,
+            )
+        };
+        assert!(stake(&contributions[0].0) > AlphaBalance::ZERO);
+        assert!(stake(&contributions[1].0) > AlphaBalance::ZERO);
+        assert!(stake(&beneficiary) > AlphaBalance::ZERO);
+        assert_eq!(stake(&dust_contributor), AlphaBalance::ZERO);
+
+        // Everything but the unpayable slice was paid out; the slice waits in the pot.
+        assert_eq!(
+            stake(&contributions[0].0) + stake(&contributions[1].0) + stake(&beneficiary),
+            pot - dust_slice.into()
+        );
+        assert_eq!(
+            AccumulatedLeaseDividends::<Test>::get(lease_id),
+            AlphaBalance::from(dust_slice)
+        );
+        assert!(System::events().iter().any(|record| {
+            record.event
+                == RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendSkipped {
+                    lease_id,
+                    contributor: dust_contributor,
+                    alpha: dust_slice.into(),
+                })
+        }));
+    });
+}
+
+// With the owner-cut auto-lock on, only the part of the cut the lease keeps is locked. The
+// contributors' share stays transferable, so the next distribution still pays everyone.
+#[test]
+fn test_leased_owner_cut_auto_lock_keeps_contributor_share_unlocked() {
+    new_test_ext(1).execute_with(|| {
+        let crowdloan_id = 0;
+        let beneficiary = U256::from(1);
+        let deposit = 10_000_000_000; // 10 TAO
+        let cap = 1_000_000_000_000; // 1000 TAO
+        let contributions = vec![
+            (U256::from(2), 600_000_000_000), // 600 TAO
+            (U256::from(3), 390_000_000_000), // 390 TAO
+        ];
+        setup_crowdloan(crowdloan_id, deposit, cap, beneficiary, &contributions);
+
+        let emissions_share = Percent::from_percent(30);
+        let (lease_id, lease) = setup_leased_network(
+            beneficiary,
+            emissions_share,
+            Some(500),
+            Some(100_000_000_000),
+        );
+        OwnerCutAutoLockEnabled::<Test>::insert(lease.netuid, true);
+        run_to_block(<Test as Config>::LeaseDividendsDistributionInterval::get() as u64);
+
+        // Mirror the coinbase owner-cut step: credit the cut, distribute, lock the retained part.
+        let owner_cut = AlphaBalance::from(5_000_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &lease.hotkey,
+            &lease.coldkey,
+            lease.netuid,
+            owner_cut,
+        );
+        SubtensorModule::distribute_leased_network_dividends(lease_id, owner_cut);
+        let retained = SubtensorModule::leased_owner_cut_retained(lease_id, owner_cut);
+        assert_eq!(
+            retained,
+            owner_cut - emissions_share.mul_ceil(owner_cut.to_u64()).into()
+        );
+        SubtensorModule::auto_lock_owner_cut(lease.netuid, retained);
+
+        let stake = |who: &U256| {
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &lease.hotkey,
+                who,
+                lease.netuid,
+            )
+        };
+        assert!(stake(&contributions[0].0) > AlphaBalance::ZERO);
+        assert!(stake(&contributions[1].0) > AlphaBalance::ZERO);
+        assert!(stake(&beneficiary) > AlphaBalance::ZERO);
+        assert_eq!(
+            AccumulatedLeaseDividends::<Test>::get(lease_id),
+            AlphaBalance::ZERO
+        );
+
+        // The lease coldkey's lock grew by the retained part only.
+        let lock = Lock::<Test>::get((lease.coldkey, lease.netuid, lease.hotkey))
+            .expect("retained cut is locked");
+        assert_eq!(lock.locked_mass, retained);
+
+        // The next interval pays out again: the contributors' share was never locked.
+        let before = stake(&contributions[0].0);
+        run_to_block(2 * <Test as Config>::LeaseDividendsDistributionInterval::get() as u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &lease.hotkey,
+            &lease.coldkey,
+            lease.netuid,
+            owner_cut,
+        );
+        SubtensorModule::distribute_leased_network_dividends(lease_id, owner_cut);
+        SubtensorModule::auto_lock_owner_cut(
+            lease.netuid,
+            SubtensorModule::leased_owner_cut_retained(lease_id, owner_cut),
+        );
+        assert!(stake(&contributions[0].0) > before);
+        assert_eq!(
+            AccumulatedLeaseDividends::<Test>::get(lease_id),
+            AlphaBalance::ZERO
+        );
+
+        // An ended lease keeps the whole cut.
+        SubnetLeases::<Test>::mutate(lease_id, |maybe| {
+            if let Some(l) = maybe {
+                l.end_block = Some(1);
+            }
+        });
+        assert_eq!(
+            SubtensorModule::leased_owner_cut_retained(lease_id, owner_cut),
+            owner_cut
         );
     });
 }

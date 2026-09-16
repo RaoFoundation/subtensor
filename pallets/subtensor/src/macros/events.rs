@@ -568,6 +568,17 @@ mod events {
             alpha: AlphaBalance,
         },
 
+        /// A contributor's lease dividend slice could not be transferred this interval and
+        /// stays in the lease's accumulated dividends.
+        SubnetLeaseDividendSkipped {
+            /// The lease ID
+            lease_id: LeaseId,
+            /// The contributor
+            contributor: T::AccountId,
+            /// The slice that stayed in the pot
+            alpha: AlphaBalance,
+        },
+
         /// "Add stake and burn" event: alpha token was purchased and burned.
         AddStakeBurn {
             /// The subnet ID
