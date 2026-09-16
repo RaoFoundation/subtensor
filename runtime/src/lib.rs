@@ -1676,6 +1676,11 @@ type Migrations = (
     pallet_subtensor::migrations::migrate_fix_root_pot_shortfall::fix_root_pot_shortfall::Migration<
         Runtime,
     >,
+    // Set TotalStake to the sum of SubnetTAO over live subnets (issue #3156). One-shot,
+    // guarded by HasMigrationRun; try-runtime checks the sum and that issuance is untouched.
+    pallet_subtensor::migrations::migrate_resync_total_stake::resync_total_stake::Migration<
+        Runtime,
+    >,
     // Rewrite the denominator of the share pools identified by the production scan to the
     // sum of their live shares, so every member is quoted exactly its fraction. One-shot,
     // guarded by HasMigrationRun; try-runtime checks each target pool before and after.
