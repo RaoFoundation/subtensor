@@ -164,9 +164,8 @@ jobs:
           set -euo pipefail
           builder=.trusted-e2e-filter/ts-tests/scripts/e2e-shard-plan.mjs
           if [[ ! -x "$builder" ]]; then
-            # One-time bootstrap only. Future PRs always execute the trusted
-            # base builder over proposed data, matching the Rust SDK pattern.
-            builder=.proposed-e2e-plan/ts-tests/scripts/e2e-shard-plan.mjs
+            echo "trusted E2E shard planner missing on the base revision; refusing to run PR-controlled bootstrap" >&2
+            exit 1
           fi
           node "$builder" plan \
             .proposed-e2e-plan/ts-tests/e2e-shards.json \
@@ -174,8 +173,8 @@ jobs:
             "$EVM" "$STAKING" "$COLDKEY_SWAP" "$DEV" "$SUBNETS" "$SHIELD"
 
       # Keep the trusted planner's stable output contract while separating the
-      # fast and release dependency lanes. This rollout therefore works on the
-      # PR that introduces it, before the updated workflow reaches main.
+      # fast and release dependency lanes. If the helper is not on the trusted
+      # base yet, fail closed instead of executing PR-controlled bootstrap.
       - name: Split planned jobs by binary
         id: lanes
         env:
@@ -185,8 +184,8 @@ jobs:
           set -euo pipefail
           splitter=.trusted-e2e-filter/.github/scripts/split-typescript-e2e-plan.sh
           if [[ ! -x "$splitter" ]]; then
-            # One-time bootstrap. Future PRs execute the trusted base helper.
-            splitter=.proposed-e2e-plan/.github/scripts/split-typescript-e2e-plan.sh
+            echo "trusted E2E plan splitter missing on the base revision; refusing to run PR-controlled bootstrap" >&2
+            exit 1
           fi
           "$splitter" "$GITHUB_OUTPUT"
 
