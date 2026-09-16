@@ -8,9 +8,9 @@ use subtensor_runtime_common::{NetUid, TaoBalance};
 #[cfg(test)]
 use crate::{
     BalanceOf, CommitmentInfo, CommitmentOf, Config, Data, Error, Event, LastBondsReset,
-    LastCommitment, MAX_TIMELOCK_REVEALS_PER_BLOCK, MaxSpace, Pallet, Registration,
-    RevealFailure, RevealedCommitments, TimelockRevealCursor, TimelockedIndex, UsageTracker,
-    UsedSpaceOf, WeightInfo,
+    LastCommitment, MAX_TIMELOCK_REVEALS_PER_BLOCK, MAX_TIMELOCK_VISITS_PER_BLOCK, MaxSpace,
+    Pallet, Registration, RevealFailure, RevealedCommitments, TimelockRevealCursor,
+    TimelockedIndex, UsageTracker, UsedSpaceOf, WeightInfo,
     mock::{
         Balances, DRAND_QUICKNET_SIG_2000_HEX, DRAND_QUICKNET_SIG_HEX, RuntimeEvent, RuntimeOrigin,
         Test, TestMaxFields, insert_drand_pulse, new_test_ext, produce_ciphertext,
@@ -2819,6 +2819,54 @@ fn revealed_field_count(accounts: &[u64], netuid: NetUid) -> usize {
 // One block decrypts at most `MAX_TIMELOCK_REVEALS_PER_BLOCK` fields, charges one benchmarked
 // unit per decryption, resumes after the last visited entry, and drains the whole backlog
 // over the following blocks.
+// Pending entries whose round has no pulse yet decrypt nothing, so the decryption budget
+// alone never stops the pass. The visit cap must, or the hook's per-block reads grow with the
+// number of pending commitments. Every entry must still be reached across passes.
+#[test]
+fn reveal_pass_visits_are_bounded_when_nothing_decrypts() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(42);
+        let far_future_round = 1_000_000_000;
+        let accounts: Vec<u64> =
+            (1_000..(1_000 + MAX_TIMELOCK_VISITS_PER_BLOCK as u64 + 40)).collect();
+        MaxSpace::<Test>::set(u32::MAX);
+        System::<Test>::set_block_number(1);
+        commit_timelocked_fields(&accounts, netuid, far_future_round, 1);
+        assert_eq!(TimelockedIndex::<Test>::get().len(), accounts.len());
+        assert!(TimelockedIndex::<Test>::get().len() > MAX_TIMELOCK_VISITS_PER_BLOCK as usize);
+
+        let db = <Test as frame_system::Config>::DbWeight::get();
+
+        System::<Test>::set_block_number(2);
+        let weight = Pallet::<Test>::reveal_timelocked_commitments().expect("reveal pass");
+        // Three fixed reads plus, per visited entry, the commitment read and one pulse read,
+        // plus the cursor write. Nothing is decrypted, so no decryption unit is charged.
+        let bound = db
+            .reads(3 + 2 * u64::from(MAX_TIMELOCK_VISITS_PER_BLOCK))
+            .saturating_add(db.writes(1));
+        assert!(
+            weight.all_lte(bound),
+            "a pass over pending entries must stop at the visit cap: {weight:?} > {bound:?}"
+        );
+        let cursor = TimelockRevealCursor::<Test>::get().expect("cursor set at the visit cap");
+        assert!(TimelockedIndex::<Test>::get().contains(&cursor));
+
+        // The next pass resumes after the cursor (round-robin), so the entries the first
+        // pass skipped are visited first; with more pending entries than the cap the cursor
+        // keeps rotating instead of pinning at the head.
+        System::<Test>::set_block_number(3);
+        let second = Pallet::<Test>::reveal_timelocked_commitments().expect("reveal pass");
+        assert!(second.all_lte(bound));
+        let next_cursor = TimelockRevealCursor::<Test>::get().expect("still more than the cap");
+        assert_ne!(next_cursor, cursor, "the cursor advances every pass");
+        assert_eq!(
+            TimelockedIndex::<Test>::get().len(),
+            accounts.len(),
+            "pending entries stay indexed until their round arrives"
+        );
+    });
+}
+
 #[test]
 fn reveal_timelocked_commitments_is_bounded_and_metered_per_block() {
     new_test_ext().execute_with(|| {
@@ -2841,8 +2889,7 @@ fn reveal_timelocked_commitments_is_bounded_and_metered_per_block() {
         let weight = Pallet::<Test>::reveal_timelocked_commitments().expect("reveal pass");
         let revealed_after_first = revealed_field_count(&accounts, netuid);
         assert_eq!(
-            revealed_after_first,
-            MAX_TIMELOCK_REVEALS_PER_BLOCK as usize,
+            revealed_after_first, MAX_TIMELOCK_REVEALS_PER_BLOCK as usize,
             "one pass decrypts exactly the per-block budget"
         );
         assert!(
@@ -2857,7 +2904,10 @@ fn reveal_timelocked_commitments_is_bounded_and_metered_per_block() {
         let mut passes: usize = 1;
         while revealed_field_count(&accounts, netuid) < total_fields {
             passes += 1;
-            assert!(passes <= 8, "backlog must drain in a bounded number of passes");
+            assert!(
+                passes <= 8,
+                "backlog must drain in a bounded number of passes"
+            );
             System::<Test>::set_block_number(1 + passes as u64);
             assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
         }

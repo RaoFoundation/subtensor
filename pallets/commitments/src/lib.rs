@@ -149,8 +149,7 @@ pub mod pallet {
     /// commitments at the front of the index cannot starve the rest. Absent when the
     /// previous pass covered the whole index.
     #[pallet::storage]
-    pub type TimelockRevealCursor<T: Config> =
-        StorageValue<_, (NetUid, T::AccountId), OptionQuery>;
+    pub type TimelockRevealCursor<T: Config> = StorageValue<_, (NetUid, T::AccountId), OptionQuery>;
 
     /// Identity data by account
     #[pallet::storage]
@@ -494,6 +493,14 @@ fn decrypt_timelock_ciphertext(
 /// fields left over are revealed by later blocks in index order.
 pub const MAX_TIMELOCK_REVEALS_PER_BLOCK: u32 = 32;
 
+/// Maximum `TimelockedIndex` entries one reveal pass visits, whether or not they decrypt
+/// anything. An entry whose round has no pulse yet still costs a commitment read and one
+/// pulse read per field, so without this bound the per-block cost of the hook would grow
+/// with the number of pending commitments instead of with the work actually done. The
+/// cursor makes the pass round-robin, so every entry is still reached within
+/// `ceil(N / MAX_TIMELOCK_VISITS_PER_BLOCK)` blocks.
+pub const MAX_TIMELOCK_VISITS_PER_BLOCK: u32 = 256;
+
 impl<T: Config> Pallet<T> {
     /// Index entries in visiting order: those after the cursor first, then the rest.
     fn timelock_reveal_order(
@@ -521,14 +528,18 @@ impl<T: Config> Pallet<T> {
         total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
 
         let mut decryptions: u32 = 0;
+        let mut visits: u32 = 0;
         let mut last_visited: Option<(NetUid, T::AccountId)> = None;
         let mut budget_exhausted = false;
 
         for (netuid, who) in Self::timelock_reveal_order(&index, cursor.as_ref()) {
-            if decryptions >= MAX_TIMELOCK_REVEALS_PER_BLOCK {
+            if decryptions >= MAX_TIMELOCK_REVEALS_PER_BLOCK
+                || visits >= MAX_TIMELOCK_VISITS_PER_BLOCK
+            {
                 budget_exhausted = true;
                 break;
             }
+            visits = visits.saturating_add(1);
             last_visited = Some((netuid, who.clone()));
             let maybe_registration = <CommitmentOf<T>>::get(netuid, &who);
             total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
