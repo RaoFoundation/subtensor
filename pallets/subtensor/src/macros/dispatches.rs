@@ -1266,8 +1266,13 @@ mod dispatches {
             origin: OriginFor<T>,
             hotkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
             let work = Self::do_unstake_all(origin, hotkey)?;
-            Ok((Some(Self::unstake_all_actual_weight(work)), Pays::Yes).into())
+            Ok((
+                Some(Self::unstake_all_actual_weight(&coldkey, work)),
+                Pays::Yes,
+            )
+                .into())
         }
 
         /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
@@ -1297,8 +1302,13 @@ mod dispatches {
             origin: OriginFor<T>,
             hotkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
             let work = Self::do_unstake_all_alpha(origin, hotkey)?;
-            Ok((Some(Self::unstake_all_alpha_actual_weight(work)), Pays::Yes).into())
+            Ok((
+                Some(Self::unstake_all_alpha_actual_weight(&coldkey, work)),
+                Pays::Yes,
+            )
+                .into())
         }
 
         /// The implementation for the extrinsic move_stake: Moves specified amount of stake from a hotkey to another across subnets.
@@ -1889,7 +1899,7 @@ mod dispatches {
         ///
         /// * `hotkey`: The hotkey of the beneficiary to mark as subnet owner hotkey.
         #[pallet::call_index(111)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::terminate_lease(T::MaxContributors::get()))]
+        #[pallet::weight(Pallet::<T>::terminate_lease_declared_weight())]
         pub fn terminate_lease(
             origin: OriginFor<T>,
             lease_id: LeaseId,

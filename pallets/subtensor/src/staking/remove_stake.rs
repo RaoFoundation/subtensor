@@ -198,10 +198,13 @@ impl<T: Config> Pallet<T> {
     /// the call) plus the per-subnet loop: every subnet where a position was unstaked costs
     /// a full `remove_stake` (the same validation, swap, transfer and event work), and every
     /// other visited subnet costs the reads that decided to skip it.
-    fn unstake_all_weight(base: Weight, work: UnstakeAllWork) -> Weight {
+    /// `walk` is the `StakingHotkeys` walk every unstaked leg performs (validation and
+    /// debit), which the `remove_stake` benchmark does not include.
+    fn unstake_all_weight(base: Weight, work: UnstakeAllWork, walk: Weight) -> Weight {
         let skipped = u64::from(work.scanned.saturating_sub(work.legs));
         base.saturating_add(
             <T as crate::pallet::Config>::WeightInfo::remove_stake()
+                .saturating_add(walk)
                 .saturating_mul(u64::from(work.legs)),
         )
         .saturating_add(
@@ -218,20 +221,23 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Pre-dispatch weight of `unstake_all`: the benchmarked fixed part plus one
-    /// `remove_stake` per existing subnet. Refunded to the actual work post-dispatch.
+    /// Pre-dispatch weight of `unstake_all`: the benchmarked fixed part plus, per existing
+    /// subnet, one `remove_stake` and a `StakingHotkeys` walk at the cap. Refunded to the
+    /// actual work post-dispatch.
     pub fn unstake_all_declared_weight() -> Weight {
         Self::unstake_all_weight(
             <T as crate::pallet::Config>::WeightInfo::unstake_all(),
             Self::unstake_all_worst_case_work(),
+            Self::staking_hotkeys_walk_bound(),
         )
     }
 
     /// Post-dispatch weight of `unstake_all` for the work it really did.
-    pub fn unstake_all_actual_weight(work: UnstakeAllWork) -> Weight {
+    pub fn unstake_all_actual_weight(coldkey: &T::AccountId, work: UnstakeAllWork) -> Weight {
         Self::unstake_all_weight(
             <T as crate::pallet::Config>::WeightInfo::unstake_all(),
             work,
+            Self::staking_hotkeys_walk_actual(coldkey),
         )
     }
 
@@ -241,14 +247,16 @@ impl<T: Config> Pallet<T> {
         Self::unstake_all_weight(
             <T as crate::pallet::Config>::WeightInfo::unstake_all_alpha(),
             Self::unstake_all_worst_case_work(),
+            Self::staking_hotkeys_walk_bound(),
         )
     }
 
     /// Post-dispatch weight of `unstake_all_alpha` for the work it really did.
-    pub fn unstake_all_alpha_actual_weight(work: UnstakeAllWork) -> Weight {
+    pub fn unstake_all_alpha_actual_weight(coldkey: &T::AccountId, work: UnstakeAllWork) -> Weight {
         Self::unstake_all_weight(
             <T as crate::pallet::Config>::WeightInfo::unstake_all_alpha(),
             work,
+            Self::staking_hotkeys_walk_actual(coldkey),
         )
     }
 

@@ -693,6 +693,79 @@ fn test_terminate_lease_works() {
     });
 }
 
+// A contributor dividend deferred during the lease is paid at termination when it can be
+// transferred, and a debt that still cannot be transferred keeps its row instead of being
+// dropped with the lease.
+#[test]
+fn test_terminate_lease_settles_deferred_dividends() {
+    new_test_ext(1).execute_with(|| {
+        let crowdloan_id = 0;
+        let beneficiary = U256::from(1);
+        let deposit = 10_000_000_000; // 10 TAO
+        let cap = 1_000_000_000_000; // 1000 TAO
+        let contributor = U256::from(2);
+        let dust_contributor = U256::from(4);
+        let contributions = vec![
+            (contributor, 989_999_990_000), // ~990 TAO
+            (dust_contributor, 10_000),     // a dust share
+        ];
+        setup_crowdloan(crowdloan_id, deposit, cap, beneficiary, &contributions);
+        let end_block = 500;
+        let emissions_share = Percent::from_percent(30);
+        let (lease_id, lease) = setup_leased_network(
+            beneficiary,
+            emissions_share,
+            Some(end_block),
+            Some(100_000_000_000),
+        );
+        let stake = |who: &U256| {
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &lease.hotkey,
+                who,
+                lease.netuid,
+            )
+        };
+
+        // Defer a payable amount for `contributor` and a dust amount for `dust_contributor`
+        // by recording them directly, funded by the lease position.
+        let deferred = AlphaBalance::from(1_000_000_000_u64);
+        let dust = AlphaBalance::from(100_u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &lease.hotkey,
+            &lease.coldkey,
+            lease.netuid,
+            deferred + dust,
+        );
+        SubnetLeaseUnpaidDividends::<Test>::insert(lease_id, contributor, deferred);
+        SubnetLeaseUnpaidDividends::<Test>::insert(lease_id, dust_contributor, dust);
+        let contributor_before = stake(&contributor);
+
+        run_to_block(end_block);
+        let hotkey = U256::from(3);
+        let _ = SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
+        assert_ok!(SubtensorModule::terminate_lease(
+            RuntimeOrigin::signed(beneficiary),
+            lease_id,
+            hotkey,
+        ));
+
+        // The payable debt was settled to its contributor; nobody else received it.
+        assert_eq!(stake(&contributor) - contributor_before, deferred);
+        assert!(!SubnetLeaseUnpaidDividends::<Test>::contains_key(
+            lease_id,
+            contributor
+        ));
+        assert_eq!(stake(&beneficiary), AlphaBalance::ZERO);
+        // The dust debt is still recorded against its contributor, not dropped.
+        assert_eq!(
+            SubnetLeaseUnpaidDividends::<Test>::get(lease_id, dust_contributor),
+            dust
+        );
+        assert_eq!(stake(&dust_contributor), AlphaBalance::ZERO);
+        assert_eq!(SubnetLeases::<Test>::get(lease_id), None);
+    });
+}
+
 #[test]
 fn test_terminate_lease_fails_if_bad_origin() {
     new_test_ext(1).execute_with(|| {
