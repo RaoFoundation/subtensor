@@ -568,26 +568,6 @@ mod events {
             alpha: AlphaBalance,
         },
 
-        /// A share pool's denominator was rewritten to the sum of its live shares, so every
-        /// member is quoted exactly its fraction of the pool value.
-        SharePoolDenominatorReconciled {
-            /// The hotkey whose pool was reconciled.
-            hotkey: T::AccountId,
-            /// The subnet of the pool.
-            netuid: NetUid,
-        },
-
-        /// A contributor's lease dividends could not be transferred this interval. The amount
-        /// is recorded against that contributor and retried at the next distribution.
-        SubnetLeaseDividendSkipped {
-            /// The lease ID
-            lease_id: LeaseId,
-            /// The contributor
-            contributor: T::AccountId,
-            /// The total now owed to the contributor
-            alpha: AlphaBalance,
-        },
-
         /// "Add stake and burn" event: alpha token was purchased and burned.
         AddStakeBurn {
             /// The subnet ID
@@ -835,6 +815,27 @@ mod events {
             netuid: NetUid,
             /// Alpha removed from basket custody and recorded as burned.
             alpha: AlphaBalance,
+        },
+
+        // New events are appended so existing SCALE event indices are preserved.
+        /// A contributor's lease dividends could not be transferred this interval. The amount
+        /// is recorded against that contributor and retried at the next distribution.
+        SubnetLeaseDividendSkipped {
+            /// The lease ID
+            lease_id: LeaseId,
+            /// The contributor
+            contributor: T::AccountId,
+            /// The total now owed to the contributor
+            alpha: AlphaBalance,
+        },
+
+        /// A share pool's denominator was rewritten to the sum of its live shares, so every
+        /// member is quoted exactly its fraction of the pool value.
+        SharePoolDenominatorReconciled {
+            /// The hotkey whose pool was reconciled.
+            hotkey: T::AccountId,
+            /// The subnet of the pool.
+            netuid: NetUid,
         },
     }
 }
