@@ -646,7 +646,10 @@ impl<T: Config> Pallet<T> {
     /// True when `hotkey` may hold child relations on `netuid`: it holds at least
     /// `StakeThreshold` in total stake, or it is the subnet's owner hotkey.
     pub fn hotkey_meets_childkey_threshold(hotkey: &T::AccountId, netuid: NetUid) -> bool {
-        Self::get_total_stake_for_hotkey(hotkey) >= StakeThreshold::<T>::get().into()
+        let threshold = StakeThreshold::<T>::get();
+        // A zero threshold admits everyone; skip the all-subnet valuation.
+        threshold == 0
+            || Self::get_total_stake_for_hotkey(hotkey) >= threshold.into()
             || SubnetOwnerHotkey::<T>::try_get(netuid).is_ok_and(|owner| owner.eq(hotkey))
     }
 
@@ -709,7 +712,8 @@ impl<T: Config> Pallet<T> {
     /// themselves are untouched, so nothing here is proportional to how many hotkeys share a
     /// child.
     pub fn recheck_childkey_threshold(hotkey: &T::AccountId) {
-        if Self::get_total_stake_for_hotkey(hotkey) >= StakeThreshold::<T>::get().into() {
+        let threshold = StakeThreshold::<T>::get();
+        if threshold == 0 || Self::get_total_stake_for_hotkey(hotkey) >= threshold.into() {
             ChildkeyThresholdSuspended::<T>::remove(hotkey);
         } else {
             ChildkeyThresholdSuspended::<T>::insert(hotkey, ());

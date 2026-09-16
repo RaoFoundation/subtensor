@@ -610,14 +610,28 @@ mod dispatches {
         /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdwraw this amount.
         ///
         #[pallet::call_index(3)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::remove_stake())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::remove_stake()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn remove_stake(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
             netuid: NetUid,
             amount_unstaked: AlphaBalance,
-        ) -> DispatchResult {
-            Self::do_remove_stake(origin, hotkey, netuid, amount_unstaked)
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
+            Self::do_remove_stake(origin, hotkey, netuid, amount_unstaked)?;
+            Ok((
+                Some(
+                    <T as crate::pallet::Config>::WeightInfo::remove_stake()
+                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
+                ),
+                Pays::Yes,
+            )
+                .into())
         }
 
         /// Serves or updates axon /prometheus information for the neuron associated with the caller. If the caller is
@@ -1305,7 +1319,12 @@ mod dispatches {
         ///   `claim_root_with_hotkey` in the same batch is included).
         ///
         #[pallet::call_index(85)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_stake())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::move_stake()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn move_stake(
             origin: OriginFor<T>,
             origin_hotkey: T::AccountId,
@@ -1313,7 +1332,8 @@ mod dispatches {
             origin_netuid: NetUid,
             destination_netuid: NetUid,
             alpha_amount: AlphaBalance,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
             Self::do_move_stake(
                 origin,
                 origin_hotkey,
@@ -1321,7 +1341,15 @@ mod dispatches {
                 origin_netuid,
                 destination_netuid,
                 alpha_amount,
+            )?;
+            Ok((
+                Some(
+                    <T as crate::pallet::Config>::WeightInfo::move_stake()
+                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
+                ),
+                Pays::Yes,
             )
+                .into())
         }
 
         /// Transfers a specified amount of stake from one coldkey to another, optionally across subnets,
@@ -1350,7 +1378,12 @@ mod dispatches {
         /// # Events
         /// May emit a `StakeTransferred` event on success.
         #[pallet::call_index(86)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::transfer_stake())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::transfer_stake()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn transfer_stake(
             origin: OriginFor<T>,
             destination_coldkey: T::AccountId,
@@ -1358,7 +1391,8 @@ mod dispatches {
             origin_netuid: NetUid,
             destination_netuid: NetUid,
             alpha_amount: AlphaBalance,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
             Self::do_transfer_stake(
                 origin,
                 destination_coldkey,
@@ -1366,7 +1400,15 @@ mod dispatches {
                 origin_netuid,
                 destination_netuid,
                 alpha_amount,
+            )?;
+            Ok((
+                Some(
+                    <T as crate::pallet::Config>::WeightInfo::transfer_stake()
+                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
+                ),
+                Pays::Yes,
             )
+                .into())
         }
 
         /// Swaps a specified amount of stake from one subnet to another, while keeping the same coldkey and hotkey.
@@ -1392,21 +1434,35 @@ mod dispatches {
         /// # Events
         /// May emit a `StakeSwapped` event on success.
         #[pallet::call_index(87)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_stake())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::swap_stake()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn swap_stake(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
             origin_netuid: NetUid,
             destination_netuid: NetUid,
             alpha_amount: AlphaBalance,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
             Self::do_swap_stake(
                 origin,
                 hotkey,
                 origin_netuid,
                 destination_netuid,
                 alpha_amount,
+            )?;
+            Ok((
+                Some(
+                    <T as crate::pallet::Config>::WeightInfo::swap_stake()
+                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
+                ),
+                Pays::Yes,
             )
+                .into())
         }
 
         /// Adds stake to a hotkey on a subnet with a price limit.
@@ -1495,7 +1551,12 @@ mod dispatches {
         /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdwraw this amount.
         ///
         #[pallet::call_index(89)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::remove_stake_limit())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::remove_stake_limit()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn remove_stake_limit(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -1503,7 +1564,8 @@ mod dispatches {
             amount_unstaked: AlphaBalance,
             limit_price: TaoBalance,
             allow_partial: bool,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
             Self::do_remove_stake_limit(
                 origin,
                 hotkey,
@@ -1511,7 +1573,15 @@ mod dispatches {
                 amount_unstaked,
                 limit_price,
                 allow_partial,
+            )?;
+            Ok((
+                Some(
+                    <T as crate::pallet::Config>::WeightInfo::remove_stake_limit()
+                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
+                ),
+                Pays::Yes,
             )
+                .into())
         }
 
         /// Swaps a specified amount of stake from one subnet to another, while keeping the same coldkey and hotkey.
@@ -1540,7 +1610,12 @@ mod dispatches {
         /// # Events
         /// May emit a `StakeSwapped` event on success.
         #[pallet::call_index(90)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_stake_limit())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn swap_stake_limit(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -1549,7 +1624,8 @@ mod dispatches {
             alpha_amount: AlphaBalance,
             limit_price: TaoBalance,
             allow_partial: bool,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
             Self::do_swap_stake_limit(
                 origin,
                 hotkey,
@@ -1558,7 +1634,15 @@ mod dispatches {
                 alpha_amount,
                 limit_price,
                 allow_partial,
+            )?;
+            Ok((
+                Some(
+                    <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
+                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
+                ),
+                Pays::Yes,
             )
+                .into())
         }
 
         /// Moves stake from one hotkey to another and, when the subnets differ,
@@ -1570,7 +1654,12 @@ mod dispatches {
         /// before the limit is crossed. `alpha_amount` of `AlphaBalance::MAX`
         /// means the live origin position at execution.
         #[pallet::call_index(149)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_stake_limit())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::move_stake_limit()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn move_stake_limit(
             origin: OriginFor<T>,
             origin_hotkey: T::AccountId,
@@ -1580,7 +1669,8 @@ mod dispatches {
             alpha_amount: AlphaBalance,
             limit_price: TaoBalance,
             allow_partial: bool,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
             Self::do_move_stake_limit(
                 origin,
                 origin_hotkey,
@@ -1590,7 +1680,15 @@ mod dispatches {
                 alpha_amount,
                 limit_price,
                 allow_partial,
+            )?;
+            Ok((
+                Some(
+                    <T as crate::pallet::Config>::WeightInfo::move_stake_limit()
+                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
+                ),
+                Pays::Yes,
             )
+                .into())
         }
 
         /// Attempts to associate a hotkey with a coldkey.
@@ -1730,14 +1828,28 @@ mod dispatches {
         /// at which or better (higher) the staking should execute.
         /// Without limit_price it remove all the stake similar to `remove_stake` extrinsic
         #[pallet::call_index(103)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::remove_stake_full_limit())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::remove_stake_full_limit()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn remove_stake_full_limit(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
             netuid: NetUid,
             limit_price: Option<TaoBalance>,
-        ) -> DispatchResult {
-            Self::do_remove_stake_full_limit(origin, hotkey, netuid, limit_price)
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
+            Self::do_remove_stake_full_limit(origin, hotkey, netuid, limit_price)?;
+            Ok((
+                Some(
+                    <T as crate::pallet::Config>::WeightInfo::remove_stake_full_limit()
+                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
+                ),
+                Pays::Yes,
+            )
+                .into())
         }
 
         /// Register a new leased network.
@@ -2542,7 +2654,12 @@ mod dispatches {
         /// # Events
         /// May emit a `StakeAndHotkeyTransferred` event on success.
         #[pallet::call_index(143)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn transfer_stake_and_hotkey(
             origin: OriginFor<T>,
             destination_coldkey: T::AccountId,
@@ -2551,7 +2668,8 @@ mod dispatches {
             origin_netuid: NetUid,
             destination_netuid: NetUid,
             alpha_amount: AlphaBalance,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
             Self::do_transfer_stake_and_hotkey(
                 origin,
                 destination_coldkey,
@@ -2560,7 +2678,15 @@ mod dispatches {
                 origin_netuid,
                 destination_netuid,
                 alpha_amount,
+            )?;
+            Ok((
+                Some(
+                    <T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey()
+                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
+                ),
+                Pays::Yes,
             )
+                .into())
         }
 
         /// Locks additional miner collateral (in alpha) on the signer's own

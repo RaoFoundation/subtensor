@@ -400,6 +400,8 @@ impl<T: Config> Pallet<T> {
             Self::is_hotkey_registered_on_network(NetUid::ROOT, &hotkey),
             Error::<T>::HotKeyNotRegisteredInSubNet
         );
+        // A deposit registers the validator in the caller's `StakingHotkeys` (claims walk it).
+        Self::ensure_staking_hotkeys_can_grow(&coldkey, &hotkey)?;
         // Deposit queued dividend credits first so the share mint below prices against
         // the fund's full, current NAV.
         Self::flush_basket_deposits_for_hotkey(&hotkey);

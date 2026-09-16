@@ -96,13 +96,9 @@ impl<T: Config> Pallet<T> {
         // 5. If the stake is below the minimum, we clear the nomination from storage.
         Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
 
-        // 6. Check if stake lowered below MinStake and remove Pending children if it did
-        if Self::get_total_stake_for_hotkey(&hotkey) < StakeThreshold::<T>::get().into() {
-            Self::get_all_subnet_netuids().iter().for_each(|netuid| {
-                PendingChildKeys::<T>::remove(netuid, &hotkey);
-            })
-        }
-        // 7. Queue the live child relations for the threshold re-check in on_idle.
+        // 6. Queue the live child relations for the threshold re-check in on_idle. Pending
+        // (not yet matured) schedules are re-checked against the threshold when they mature
+        // (`do_set_pending_children`), so no all-subnet valuation runs inside this call.
         Self::queue_childkey_threshold_check(&hotkey);
 
         // Done and ok.
@@ -441,13 +437,9 @@ impl<T: Config> Pallet<T> {
         // 5. If the stake is below the minimum, we clear the nomination from storage.
         Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
 
-        // 6. Check if stake lowered below MinStake and remove Pending children if it did
-        if Self::get_total_stake_for_hotkey(&hotkey) < StakeThreshold::<T>::get().into() {
-            Self::get_all_subnet_netuids().iter().for_each(|netuid| {
-                PendingChildKeys::<T>::remove(netuid, &hotkey);
-            })
-        }
-        // 7. Queue the live child relations for the threshold re-check in on_idle.
+        // 6. Queue the live child relations for the threshold re-check in on_idle. Pending
+        // (not yet matured) schedules are re-checked against the threshold when they mature
+        // (`do_set_pending_children`), so no all-subnet valuation runs inside this call.
         Self::queue_childkey_threshold_check(&hotkey);
 
         // Done and ok.
