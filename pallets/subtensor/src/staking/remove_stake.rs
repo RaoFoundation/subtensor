@@ -1,12 +1,30 @@
 use super::*;
 use crate::subnets::dissolution::DissolveCleanupStatus;
-use frame_support::weights::WeightMeter;
+use crate::weights::WeightInfo;
+use frame_support::weights::{Weight, WeightMeter};
 use num_traits::ToPrimitive;
+use sp_core::Get;
+use sp_runtime::DispatchError;
 use sp_std::collections::btree_map::BTreeMap;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::U96F32;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::{Order, SwapHandler};
+
+/// Storage reads spent on a subnet that `unstake_all` visits but does not unstake from: the
+/// subtoken flag, the position quote (legacy and current share rows, pool value, both
+/// denominator maps) and the subnet-existence check in `validate_remove_stake`.
+const UNSTAKE_ALL_SKIPPED_SUBNET_READS: u64 = 8;
+
+/// Work done by one `unstake_all` / `unstake_all_alpha` dispatch, reported so the call can
+/// refund its declared worst-case weight down to what it really did.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct UnstakeAllWork {
+    /// Subnets the loop visited.
+    pub scanned: u32,
+    /// Subnets where a position was unstaked (each is a full `remove_stake` worth of work).
+    pub legs: u32,
+}
 
 impl<T: Config> Pallet<T> {
     /// The implementation for the extrinsic remove_stake: Removes stake from a hotkey account and adds it onto a coldkey.
@@ -110,7 +128,11 @@ impl<T: Config> Pallet<T> {
     ///
     /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
     ///
-    pub fn do_unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> dispatch::DispatchResult {
+    /// Returns the work performed so the dispatch can report its actual weight.
+    pub fn do_unstake_all(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+    ) -> Result<UnstakeAllWork, DispatchError> {
         // 1. We check the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
         let coldkey = ensure_signed(origin)?;
         log::debug!("do_unstake_all( origin:{coldkey:?} hotkey:{hotkey:?} )");
@@ -126,7 +148,9 @@ impl<T: Config> Pallet<T> {
         log::debug!("All subnet netuids: {netuids:?}");
 
         // 4. Iterate through all subnets and remove stake.
+        let mut work = UnstakeAllWork::default();
         for netuid in netuids.into_iter() {
+            work.scanned = work.scanned.saturating_add(1);
             if !SubtokenEnabled::<T>::get(netuid) {
                 continue;
             }
@@ -149,6 +173,7 @@ impl<T: Config> Pallet<T> {
             }
 
             if !alpha_unstaked.is_zero() {
+                work.legs = work.legs.saturating_add(1);
                 // Swap the alpha to tao and update counters for this subnet.
                 Self::unstake_from_subnet(
                     &hotkey,
@@ -170,7 +195,65 @@ impl<T: Config> Pallet<T> {
         Self::queue_childkey_threshold_check(&hotkey);
 
         // 6. Done and ok.
-        Ok(())
+        Ok(work)
+    }
+
+    /// Weight of an `unstake_all`-style dispatch over `base` (the benchmarked fixed part of
+    /// the call) plus the per-subnet loop: every subnet where a position was unstaked costs
+    /// a full `remove_stake` (the same validation, swap, transfer and event work), and every
+    /// other visited subnet costs the reads that decided to skip it.
+    fn unstake_all_weight(base: Weight, work: UnstakeAllWork) -> Weight {
+        let skipped = u64::from(work.scanned.saturating_sub(work.legs));
+        base.saturating_add(
+            <T as crate::pallet::Config>::WeightInfo::remove_stake()
+                .saturating_mul(u64::from(work.legs)),
+        )
+        .saturating_add(
+            T::DbWeight::get().reads(UNSTAKE_ALL_SKIPPED_SUBNET_READS.saturating_mul(skipped)),
+        )
+    }
+
+    /// Worst case the loop can do in one call: a position on every existing subnet.
+    fn unstake_all_worst_case_work() -> UnstakeAllWork {
+        let subnets = u32::from(TotalNetworks::<T>::get());
+        UnstakeAllWork {
+            scanned: subnets,
+            legs: subnets,
+        }
+    }
+
+    /// Pre-dispatch weight of `unstake_all`: the benchmarked fixed part plus one
+    /// `remove_stake` per existing subnet. Refunded to the actual work post-dispatch.
+    pub fn unstake_all_declared_weight() -> Weight {
+        Self::unstake_all_weight(
+            <T as crate::pallet::Config>::WeightInfo::unstake_all(),
+            Self::unstake_all_worst_case_work(),
+        )
+    }
+
+    /// Post-dispatch weight of `unstake_all` for the work it really did.
+    pub fn unstake_all_actual_weight(work: UnstakeAllWork) -> Weight {
+        Self::unstake_all_weight(
+            <T as crate::pallet::Config>::WeightInfo::unstake_all(),
+            work,
+        )
+    }
+
+    /// Pre-dispatch weight of `unstake_all_alpha`: the benchmarked fixed part (which already
+    /// includes the final root restake) plus one `remove_stake` per existing subnet.
+    pub fn unstake_all_alpha_declared_weight() -> Weight {
+        Self::unstake_all_weight(
+            <T as crate::pallet::Config>::WeightInfo::unstake_all_alpha(),
+            Self::unstake_all_worst_case_work(),
+        )
+    }
+
+    /// Post-dispatch weight of `unstake_all_alpha` for the work it really did.
+    pub fn unstake_all_alpha_actual_weight(work: UnstakeAllWork) -> Weight {
+        Self::unstake_all_weight(
+            <T as crate::pallet::Config>::WeightInfo::unstake_all_alpha(),
+            work,
+        )
     }
 
     /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
@@ -195,7 +278,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_unstake_all_alpha(
         origin: OriginFor<T>,
         hotkey: T::AccountId,
-    ) -> dispatch::DispatchResult {
+    ) -> Result<UnstakeAllWork, DispatchError> {
         // 1. We check the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
         let coldkey = ensure_signed(origin)?;
         Self::ensure_beta_basket_seed_idle()?;
@@ -212,8 +295,10 @@ impl<T: Config> Pallet<T> {
         log::debug!("All subnet netuids: {netuids:?}");
 
         // 4. Iterate through all subnets and remove stake.
+        let mut work = UnstakeAllWork::default();
         let mut total_tao_unstaked = TaoBalance::ZERO;
         for netuid in netuids.into_iter() {
+            work.scanned = work.scanned.saturating_add(1);
             if !SubtokenEnabled::<T>::get(netuid) {
                 continue;
             }
@@ -238,6 +323,7 @@ impl<T: Config> Pallet<T> {
                 }
 
                 if !alpha_unstaked.is_zero() {
+                    work.legs = work.legs.saturating_add(1);
                     // Swap the alpha to tao and update counters for this subnet.
                     let tao_unstaked = Self::unstake_from_subnet(
                         &hotkey,
@@ -273,7 +359,7 @@ impl<T: Config> Pallet<T> {
         Self::queue_childkey_threshold_check(&hotkey);
 
         // 6. Done and ok.
-        Ok(())
+        Ok(work)
     }
 
     /// The implementation for the extrinsic remove_stake_limit: Removes stake from

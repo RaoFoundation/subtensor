@@ -137,8 +137,9 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight =
-            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all();
+        // The contract environment cannot refund, so charge the declared worst case (a
+        // position on every subnet), never the benchmarked empty-loop constant.
+        let weight = pallet_subtensor::Pallet::<T>::unstake_all_declared_weight();
 
         env.charge_weight(weight)?;
 
@@ -147,7 +148,7 @@ where
         match call_result {
             Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
             Err(e) => {
-                let error_code = Output::from(e) as u32;
+                let error_code = Output::from(e.error) as u32;
                 Ok(RetVal::Converging(error_code))
             }
         }
@@ -165,9 +166,8 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight =
-            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all_alpha(
-            );
+        // See `dispatch_unstake_all_v1`: charge the declared worst case.
+        let weight = pallet_subtensor::Pallet::<T>::unstake_all_alpha_declared_weight();
 
         env.charge_weight(weight)?;
 
@@ -176,7 +176,7 @@ where
         match call_result {
             Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
             Err(e) => {
-                let error_code = Output::from(e) as u32;
+                let error_code = Output::from(e.error) as u32;
                 Ok(RetVal::Converging(error_code))
             }
         }

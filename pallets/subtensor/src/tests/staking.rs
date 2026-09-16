@@ -17,6 +17,7 @@ use subtensor_swap_interface::{Order, SwapHandler};
 
 use super::mock;
 use super::mock::*;
+use crate::weights::WeightInfo;
 use crate::*;
 
 /***********************************************************
@@ -5308,6 +5309,91 @@ fn test_unstake_all_works() {
         assert_abs_diff_eq!(new_alpha, AlphaBalance::ZERO, epsilon = 1_000.into());
         let new_balance = SubtensorModule::get_coldkey_balance(&coldkey);
         assert!(new_balance > 100_000.into());
+    });
+}
+
+// `unstake_all` runs one `remove_stake` worth of work per subnet the coldkey has a position
+// on, plus a quote on every other subnet. Its declared weight must cover a position on every
+// existing subnet, and the post-dispatch weight must scale with the legs it really ran.
+// Before the fix the call declared the benchmarked empty-loop constant (no subnets, no
+// stake), so a block builder admitted it at a fraction of its real cost.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_unstake_all_weight_covers_every_subnet --exact
+#[test]
+fn test_unstake_all_weight_covers_every_subnet() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let stake_amount = TaoBalance::from(10_000_000_000_u64); // 10 TAO per subnet
+        let staked_subnets: u32 = 3;
+        let unstaked_subnets: u32 = 2;
+
+        let mut netuids = Vec::new();
+        for _ in 0..(staked_subnets + unstaked_subnets) {
+            let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+            mock::setup_reserves(
+                netuid,
+                stake_amount * 100.into(),
+                u64::from(stake_amount * 1000.into()).into(),
+            );
+            netuids.push(netuid);
+        }
+        register_ok_neuron(netuids[0], hotkey, coldkey, 192213123);
+        add_balance_to_coldkey_account(
+            &coldkey,
+            stake_amount * u64::from(staked_subnets).into() + ExistentialDeposit::get(),
+        );
+        for netuid in netuids.iter().take(staked_subnets as usize) {
+            assert_ok!(SubtensorModule::add_stake(
+                RuntimeOrigin::signed(coldkey),
+                hotkey,
+                *netuid,
+                stake_amount
+            ));
+        }
+
+        let remove_stake_unit = <Test as crate::Config>::WeightInfo::remove_stake();
+        let total_subnets = u64::from(TotalNetworks::<Test>::get());
+        assert!(total_subnets >= u64::from(staked_subnets + unstaked_subnets));
+
+        // Declared: one full leg for every existing subnet, on top of the fixed part.
+        let call = RuntimeCall::SubtensorModule(crate::Call::unstake_all { hotkey });
+        let declared = call.get_dispatch_info().call_weight;
+        let worst_case_legs = remove_stake_unit.saturating_mul(total_subnets);
+        assert!(
+            declared.all_gte(worst_case_legs),
+            "declared {declared:?} must cover {total_subnets} legs of {remove_stake_unit:?}"
+        );
+
+        // Actual: the legs really run, never more than declared, never less than their work.
+        let post_info = SubtensorModule::unstake_all(RuntimeOrigin::signed(coldkey), hotkey)
+            .expect("unstake_all succeeds");
+        let actual = post_info.actual_weight.expect("actual weight reported");
+        let legs_run = remove_stake_unit.saturating_mul(u64::from(staked_subnets));
+        assert!(
+            actual.all_gte(legs_run),
+            "actual {actual:?} must cover the {staked_subnets} legs run ({legs_run:?})"
+        );
+        assert!(
+            declared.all_gte(actual),
+            "actual {actual:?} must not exceed declared {declared:?}"
+        );
+        // Subnets without a position are charged their quote reads, not a full leg.
+        let one_more_leg = legs_run.saturating_add(remove_stake_unit);
+        assert!(
+            !actual.all_gte(one_more_leg),
+            "actual {actual:?} must not charge a full leg for a subnet without stake"
+        );
+        for netuid in netuids.iter().take(staked_subnets as usize) {
+            assert_abs_diff_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey, &coldkey, *netuid
+                ),
+                AlphaBalance::ZERO,
+                epsilon = 1_000.into()
+            );
+        }
     });
 }
 

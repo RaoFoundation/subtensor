@@ -1243,10 +1243,17 @@ mod dispatches {
         /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.
         ///
         /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
+        ///
+        /// The declared weight covers a position on every existing subnet (one `remove_stake`
+        /// each) and is refunded to the subnets actually visited and unstaked.
         #[pallet::call_index(83)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all())]
-        pub fn unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
-            Self::do_unstake_all(origin, hotkey)
+        #[pallet::weight(Pallet::<T>::unstake_all_declared_weight())]
+        pub fn unstake_all(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            let work = Self::do_unstake_all(origin, hotkey)?;
+            Ok((Some(Self::unstake_all_actual_weight(work)), Pays::Yes).into())
         }
 
         /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
@@ -1267,10 +1274,17 @@ mod dispatches {
         /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.
         ///
         /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
+        ///
+        /// The declared weight covers a position on every existing subnet (one `remove_stake`
+        /// each) and is refunded to the subnets actually visited and unstaked.
         #[pallet::call_index(84)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all_alpha())]
-        pub fn unstake_all_alpha(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
-            Self::do_unstake_all_alpha(origin, hotkey)
+        #[pallet::weight(Pallet::<T>::unstake_all_alpha_declared_weight())]
+        pub fn unstake_all_alpha(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            let work = Self::do_unstake_all_alpha(origin, hotkey)?;
+            Ok((Some(Self::unstake_all_alpha_actual_weight(work)), Pays::Yes).into())
         }
 
         /// The implementation for the extrinsic move_stake: Moves specified amount of stake from a hotkey to another across subnets.
