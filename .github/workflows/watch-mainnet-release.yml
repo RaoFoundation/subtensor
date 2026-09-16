@@ -26,10 +26,6 @@ on:
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
-concurrency:
-  group: watch-mainnet-release
-  cancel-in-progress: false
-
 env:
   MAINNET_HTTP: https://entrypoint-finney.opentensor.ai:443
 
@@ -42,9 +38,10 @@ jobs:
     runs-on: [self-hosted, fireactions-turbo-8]
     permissions:
       contents: read
-      actions: read # list/download the release-train artifact
+      actions: write # download artifacts and cancel superseded watcher runs
     outputs:
       release_needed: ${{ steps.compare.outputs.release_needed }}
+      release_slot_available: ${{ steps.queue.outputs.release_slot_available }}
       python_needed: ${{ steps.compare.outputs.python_needed }}
       spec_version: ${{ steps.compare.outputs.spec_version }}
       release_tag: ${{ steps.compare.outputs.release_tag }}
@@ -214,11 +211,29 @@ jobs:
           echo "release_needed=$release_needed" >> "$GITHUB_OUTPUT"
           echo "python_needed=$python_needed" >> "$GITHUB_OUTPUT"
 
+      # A protected-environment approval can wait indefinitely. Once the chain
+      # has moved to a newer runtime, older approval jobs are no longer safe or
+      # useful, so retire them without disturbing another watcher for this spec.
+      - name: Cancel superseded release watchers
+        id: queue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_SPEC: ${{ steps.compare.outputs.spec_version }}
+        run: .github/scripts/cancel-superseded-release-watchers.sh "$CURRENT_SPEC"
+
   release:
-    name: Cut GitHub release
+    name: Cut GitHub release v${{ needs.check.outputs.spec_version }}
     needs: check
-    if: needs.check.outputs.release_needed == 'true'
+    if: >-
+      needs.check.outputs.release_needed == 'true' &&
+      needs.check.outputs.release_slot_available == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
+    # Serialize retries for one runtime without allowing an abandoned approval
+    # for an older runtime to block finalization of the runtime now on chain.
+    concurrency:
+      group: watch-mainnet-release-${{ needs.check.outputs.release_tag }}
+      cancel-in-progress: false
     # MIRROR_DEPLOY_KEY lives in the mainnet environment secrets; one
     # approval of the run covers this and the publish jobs below.
     environment: mainnet
@@ -233,6 +248,37 @@ jobs:
         with:
           ref: ${{ needs.check.outputs.sha }}
           ssh-key: ${{ secrets.MIRROR_DEPLOY_KEY }}
+
+      # Approval can arrive long after the check job captured chain state. Fail
+      # closed before touching the mirror or release if a newer runtime won in
+      # the meantime.
+      - name: Revalidate finalized runtime after approval
+        env:
+          EXPECTED_SPEC: ${{ needs.check.outputs.spec_version }}
+          EXPECTED_CODE_HASH: ${{ needs.check.outputs.code_hash }}
+        # Keep this check inline: the released commit checked out above may
+        # predate this workflow and cannot be expected to contain a new helper.
+        run: |
+          set -euo pipefail
+          finalized_head=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"chain_getFinalizedHead","params":[]}' \
+            "$MAINNET_HTTP" | jq -er \
+              '.result | strings | select(test("^0x[0-9a-f]{64}$"))')
+          runtime_request=$(jq -cn --arg block "$finalized_head" \
+            '{id: 1, jsonrpc: "2.0", method: "state_getRuntimeVersion", params: [$block]}')
+          current_spec=$(curl -sf -H "Content-Type: application/json" \
+            -d "$runtime_request" "$MAINNET_HTTP" | jq -er '.result.specVersion')
+          code_hash_request=$(jq -cn --arg block "$finalized_head" \
+            '{id: 1, jsonrpc: "2.0", method: "state_getStorageHash",
+              params: ["0x3a636f6465", $block]}')
+          current_code_hash=$(curl -sf -H "Content-Type: application/json" \
+            -d "$code_hash_request" "$MAINNET_HTTP" | jq -er \
+              '.result | strings | select(test("^0x[0-9a-f]{64}$"))')
+
+          [ "$current_spec" = "$EXPECTED_SPEC" ] \
+            || { echo "mainnet advanced to spec $current_spec; expected $EXPECTED_SPEC"; exit 1; }
+          [ "$current_code_hash" = "$EXPECTED_CODE_HASH" ] \
+            || { echo "mainnet code hash changed to $current_code_hash; expected $EXPECTED_CODE_HASH"; exit 1; }
 
       # The release train uploaded the deterministic srtool build and the
       # multisig call data as the mainnet-upgrade-<spec> workflow artifact
@@ -353,7 +399,9 @@ jobs:
   build-core:
     name: Build bittensor-core wheels
     needs: check
-    if: needs.check.outputs.python_needed == 'true'
+    if: >-
+      needs.check.outputs.release_slot_available == 'true' &&
+      needs.check.outputs.python_needed == 'true'
     uses: ./.github/workflows/build-core-wheels.yml
     with:
       ref: ${{ needs.check.outputs.sha }}
