@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 459
+Spec version: 463
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -363,6 +363,7 @@ class Proxy:
 
 class Commitments:
     TimelockedIndex = Item('Commitments', 'TimelockedIndex', 'BTreeSet')
+    TimelockRevealCursor = Item('Commitments', 'TimelockRevealCursor', '(NetUid, AccountId32)')
     CommitmentOf = Item('Commitments', 'CommitmentOf', 'Registration')
     LastCommitment = Item('Commitments', 'LastCommitment', 'u32')
     LastBondsReset = Item('Commitments', 'LastBondsReset', 'u32')

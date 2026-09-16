@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 459
+Spec version: 463
 """
 from dataclasses import dataclass
 
@@ -203,6 +203,9 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 159): ErrorInfo('SubtensorModule', 'RootClaimTooHeavy', 'A root claim would process more root hotkeys and basket rows than the fixed admission envelope. Use `claim_root_with_hotkey` per validator so admission weight matches the holdings actually walked.'),
     (7, 160): ErrorInfo('SubtensorModule', 'RootWeightCapExceeded', 'A single destination in a `set_root_weights` vector takes a larger share of the basket than [`crate::RootWeightsCap`] allows (share = value / sum of values). With the cap at 1/16 a validator must spread its basket across at least 16 destinations. Not enforced while the chain has fewer destinations than the cap demands.'),
     (7, 161): ErrorInfo('SubtensorModule', 'BasketDepositPending', "A queued root-dividend deposit could not be settled. Operations which change the hotkey's root claimant base must retry after the deposit becomes executable."),
+    (7, 162): ErrorInfo('SubtensorModule', 'InvalidBatchLength', 'A per-subnet weight batch is empty or has more items than there are networks.'),
+    (7, 163): ErrorInfo('SubtensorModule', 'TooManyStakingHotkeys', "The destination coldkey already stakes through the maximum number of hotkeys that third-party transfers may add, or the signer's own `StakingHotkeys` list is at its cap. Staking to a hotkey the coldkey already stakes through is still accepted."),
+    (7, 164): ErrorInfo('SubtensorModule', 'ColdkeySwapTooHeavy', 'The coldkey stakes through more hotkeys, or holds more stake positions, than a coldkey swap can move in one call. Consolidate (unstake or move stake) first.'),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),
