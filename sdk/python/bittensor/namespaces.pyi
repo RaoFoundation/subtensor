@@ -119,11 +119,25 @@ class Collateral(_ReadNamespace):
 class Delegation(_ReadNamespace):
     """Delegate info, delegated stake, and child/parent hotkey relations."""
 
+    async def childkey_threshold_suspended(self, hotkey_ss58: str, *, block: Optional[int] = None) -> bool:
+        """Whether a parent hotkey's child relations are currently inert.
+
+        The chain re-checks a parent's total stake against the childkey stake
+        threshold (`StakeThreshold`) whenever that stake changes. A parent that
+        has dropped below it is flagged here: its `children` and `parents` rows
+        stay stored, but stake inheritance and dividend routing ignore them on
+        every subnet the parent does not own. The flag clears on its own once the
+        parent's stake meets the threshold again.
+        """
+
     async def children(self, hotkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> list[tuple[int, str]]:
         """Child hotkeys of a parent on a subnet, as (proportion, child_ss58) pairs.
 
         Proportions are u64-normalized fractions of the parent's stake, where
-        u64::MAX means 100%.
+        u64::MAX means 100%. This is the stored relation set; while the parent is
+        below the childkey stake threshold (see `childkey_threshold_suspended`)
+        the chain treats these edges as inert on every subnet the parent does
+        not own.
         """
 
     async def delegate(self, hotkey_ss58: str, *, block: Optional[int] = None) -> Optional[DelegateInfo]:
@@ -153,7 +167,10 @@ class Delegation(_ReadNamespace):
         """Parent hotkeys of a child on a subnet, as (proportion, parent_ss58) pairs.
 
         Proportions are u64-normalized fractions of the parent's stake, where
-        u64::MAX means 100%.
+        u64::MAX means 100%. This is the stored relation set; a parent that is
+        below the childkey stake threshold (see `childkey_threshold_suspended`)
+        contributes nothing to the child until it qualifies again, unless it
+        owns the subnet.
         """
 
     async def pending_children(self, hotkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> dict:

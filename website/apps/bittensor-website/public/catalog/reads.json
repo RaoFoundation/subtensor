@@ -380,9 +380,35 @@
     ]
   },
   {
+    "name": "childkey_threshold_suspended",
+    "summary": "Whether a parent hotkey's child relations are currently inert.",
+    "description": "Whether a parent hotkey's child relations are currently inert.\n\nThe chain re-checks a parent's total stake against the childkey stake\nthreshold (`StakeThreshold`) whenever that stake changes. A parent that\nhas dropped below it is flagged here: its `children` and `parents` rows\nstay stored, but stake inheritance and dividend routing ignore them on\nevery subnet the parent does not own. The flag clears on its own once the\nparent's stake meets the threshold again.",
+    "params": {
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Parent hotkey to check."
+    },
+    "category": "Delegation",
+    "docs_url": "/docs/query/childkey-threshold-suspended",
+    "markdown_url": "/llms.mdx/docs/query/childkey-threshold-suspended/content.md",
+    "python": "sub.delegation.childkey_threshold_suspended(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "ChildkeyThresholdSuspended",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1507,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1507",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "children",
     "summary": "Child hotkeys of a parent on a subnet, as (proportion, child_ss58) pairs.",
-    "description": "Child hotkeys of a parent on a subnet, as (proportion, child_ss58) pairs.\n\nProportions are u64-normalized fractions of the parent's stake, where\nu64::MAX means 100%.",
+    "description": "Child hotkeys of a parent on a subnet, as (proportion, child_ss58) pairs.\n\nProportions are u64-normalized fractions of the parent's stake, where\nu64::MAX means 100%. This is the stored relation set; while the parent is\nbelow the childkey stake threshold (see `childkey_threshold_suspended`)\nthe chain treats these edges as inert on every subnet the parent does\nnot own.",
     "params": {
       "hotkey_ss58": "string",
       "netuid": "integer"
@@ -1649,7 +1675,7 @@
   {
     "name": "parents",
     "summary": "Parent hotkeys of a child on a subnet, as (proportion, parent_ss58) pairs.",
-    "description": "Parent hotkeys of a child on a subnet, as (proportion, parent_ss58) pairs.\n\nProportions are u64-normalized fractions of the parent's stake, where\nu64::MAX means 100%.",
+    "description": "Parent hotkeys of a child on a subnet, as (proportion, parent_ss58) pairs.\n\nProportions are u64-normalized fractions of the parent's stake, where\nu64::MAX means 100%. This is the stored relation set; a parent that is\nbelow the childkey stake threshold (see `childkey_threshold_suspended`)\ncontributes nothing to the child until it qualifies again, unless it\nowns the subnet.",
     "params": {
       "hotkey_ss58": "string",
       "netuid": "integer"
