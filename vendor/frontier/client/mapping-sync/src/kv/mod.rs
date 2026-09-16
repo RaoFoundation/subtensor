@@ -290,6 +290,11 @@ where
 			Ok(Some(checking_header))
 		}
 		Ok(Some(_)) => Ok(None),
-		Ok(None) | Err(_) => Err("Header not found".to_string()),
+		// A missing header means the backward walk reached history this node never
+		// imported (warp sync with the gap backfill skipped). Stop here, exactly as
+		// for `sync_from`: returning an error would retry the same tip forever and
+		// the worker would never map new leaves.
+		Ok(None) => Ok(None),
+		Err(e) => Err(format!("Header lookup failed: {e:?}")),
 	}
 }
