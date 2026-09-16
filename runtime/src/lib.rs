@@ -1676,9 +1676,9 @@ type Migrations = (
     pallet_subtensor::migrations::migrate_fix_root_pot_shortfall::fix_root_pot_shortfall::Migration<
         Runtime,
     >,
-    // Rewrite every share pool's denominator to the sum of its live shares and assign pool
-    // value that no live row owns to the hotkey owner. The upgrade block only schedules the
-    // paged on_idle work; try-runtime drives it to completion and checks every pool.
+    // Rewrite the denominator of the share pools identified by the production scan to the
+    // sum of their live shares, so every member is quoted exactly its fraction. One-shot,
+    // guarded by HasMigrationRun; try-runtime checks each target pool before and after.
     pallet_subtensor::migrations::migrate_reconcile_share_pools::reconcile_share_pools::Migration<
         Runtime,
     >,

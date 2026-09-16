@@ -576,17 +576,6 @@ mod events {
             /// The subnet of the pool.
             netuid: NetUid,
         },
-        /// Pool value that no live share row owned was assigned to the hotkey owner.
-        SharePoolAdopted {
-            /// The hotkey whose pool held the value.
-            hotkey: T::AccountId,
-            /// The subnet of the pool.
-            netuid: NetUid,
-            /// The owner coldkey now holding the position.
-            coldkey: T::AccountId,
-            /// The alpha value assigned.
-            alpha: AlphaBalance,
-        },
 
         /// A contributor's lease dividend slice could not be transferred this interval and
         /// stays in the lease's accumulated dividends.
