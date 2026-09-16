@@ -108,6 +108,8 @@ function assertMetadataAvailable() {
     ["SubtensorModule.SubnetAlphaIn", api.query.subtensorModule?.subnetAlphaIn],
     ["SubtensorModule.SubnetExcessTao", api.query.subtensorModule?.subnetExcessTao],
     ["SubtensorModule.SubnetTaoInEmission", api.query.subtensorModule?.subnetTaoInEmission],
+    ["SubtensorModule.SubnetTaoFlow", api.query.subtensorModule?.subnetTaoFlow],
+    ["SubtensorModule.SubnetProtocolFlow", api.query.subtensorModule?.subnetProtocolFlow],
     ["SubtensorModule.SubnetEmissionEnabled", api.query.subtensorModule?.subnetEmissionEnabled],
     ["SubtensorModule.Tempo", api.query.subtensorModule?.tempo],
     ["Swap.SwapBalancer", api.query.swap?.swapBalancer],
@@ -203,6 +205,19 @@ async function runEdgeWeightScenario(netuid, quoteWeight, label) {
     const sumDelta = after.taoPlusReservoir - before.taoPlusReservoir;
 
     if (sumDelta > 0n) {
+      const reservoirDelta = after.taoReservoir - before.taoReservoir;
+      const emissionInjection = after.taoInEmission + after.subnetExcessTao;
+      // Coinbase is not the only thing that can move TAO into this pool in the
+      // sampled window. The pending-basket-deposit drain runs right after
+      // coinbase (one hotkey per block, round-robin) and any protocol-side
+      // basket trade it executes on this subnet books into SubnetProtocolFlow,
+      // alongside the coinbase inflows already counted by SubnetTaoInEmission /
+      // SubnetExcessTao. User stakes book into SubnetTaoFlow. Both counters are
+      // cumulative, so their window deltas are exactly the extra TAO to allow
+      // for. Only inflows are credited (outflows already shrink sumDelta), so
+      // this never adds slack beyond what the chain itself recorded.
+      const basketFlushInflow = maxZero(after.protocolFlow - before.protocolFlow - emissionInjection);
+      const userInflow = maxZero(after.userFlow - before.userFlow);
       console.log(
         `${label} after:`,
         `block=${after.block}`,
@@ -211,18 +226,21 @@ async function runEdgeWeightScenario(netuid, quoteWeight, label) {
         `alphaReservoir=${after.alphaReservoir}`,
         `taoInEmission=${after.taoInEmission}`,
         `subnetExcessTao=${after.subnetExcessTao}`,
+        `basketFlushInflow=${basketFlushInflow}`,
+        `userInflow=${userInflow}`,
         `sum=${after.taoPlusReservoir}`,
         `sumDelta=${sumDelta}`
       );
-      const reservoirDelta = after.taoReservoir - before.taoReservoir;
       // Last-block SubnetTaoInEmission / SubnetExcessTao are informative but not
       // an exact closed form for Δ(SubnetTAO+reservoir) once fees / multi-step
       // coinbase paths are involved — only require a positive injection and that
-      // the observed emission counters cover it from above.
-      const observedInjection = after.taoInEmission + after.subnetExcessTao + reservoirDelta;
+      // the observed emission counters, plus the non-emission TAO the chain
+      // recorded flowing into this pool over the same window, cover it from above.
+      const observedInjection = emissionInjection + reservoirDelta + basketFlushInflow + userInflow;
       assert.ok(
         observedInjection >= sumDelta,
-        `${label}: SubnetTAO + BalancerTaoReservoir grew by ${sumDelta} but observed injection counters only sum to ${observedInjection}`
+        `${label}: SubnetTAO + BalancerTaoReservoir grew by ${sumDelta} but observed injection counters only sum to ${observedInjection} ` +
+          `(emission=${emissionInjection}, reservoirDelta=${reservoirDelta}, basketFlushInflow=${basketFlushInflow}, userInflow=${userInflow})`
       );
       return { before, after };
     }
@@ -237,14 +255,17 @@ async function runEdgeWeightScenario(netuid, quoteWeight, label) {
 
 async function emissionSnapshot(netuid, blockHash = null) {
   const at = (query, ...args) => blockHash ? query.at(blockHash, ...args) : query(...args);
-  const [header, tao, taoReservoir, alphaReservoir, taoInEmission, subnetExcessTao] = await Promise.all([
-    blockHash ? api.rpc.chain.getHeader(blockHash) : api.rpc.chain.getHeader(),
-    at(api.query.subtensorModule.subnetTAO, netuid),
-    at(api.query.swap.balancerTaoReservoir, netuid),
-    at(api.query.swap.balancerAlphaReservoir, netuid),
-    at(api.query.subtensorModule.subnetTaoInEmission, netuid),
-    at(api.query.subtensorModule.subnetExcessTao, netuid),
-  ]);
+  const [header, tao, taoReservoir, alphaReservoir, taoInEmission, subnetExcessTao, userFlow, protocolFlow] =
+    await Promise.all([
+      blockHash ? api.rpc.chain.getHeader(blockHash) : api.rpc.chain.getHeader(),
+      at(api.query.subtensorModule.subnetTAO, netuid),
+      at(api.query.swap.balancerTaoReservoir, netuid),
+      at(api.query.swap.balancerAlphaReservoir, netuid),
+      at(api.query.subtensorModule.subnetTaoInEmission, netuid),
+      at(api.query.subtensorModule.subnetExcessTao, netuid),
+      at(api.query.subtensorModule.subnetTaoFlow, netuid),
+      at(api.query.subtensorModule.subnetProtocolFlow, netuid),
+    ]);
   const taoBig = tao.toBigInt();
   const taoReservoirBig = taoReservoir.toBigInt();
 
@@ -255,8 +276,14 @@ async function emissionSnapshot(netuid, blockHash = null) {
     alphaReservoir: alphaReservoir.toBigInt(),
     taoInEmission: taoInEmission.toBigInt(),
     subnetExcessTao: subnetExcessTao.toBigInt(),
+    userFlow: userFlow.toBigInt(),
+    protocolFlow: protocolFlow.toBigInt(),
     taoPlusReservoir: taoBig + taoReservoirBig,
   };
+}
+
+function maxZero(value) {
+  return value > 0n ? value : 0n;
 }
 
 async function captureOriginals(netuid) {
