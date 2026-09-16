@@ -568,6 +568,26 @@ mod events {
             alpha: AlphaBalance,
         },
 
+        /// A share pool's denominator was rewritten to the sum of its live shares, so every
+        /// member is quoted exactly its fraction of the pool value.
+        SharePoolDenominatorReconciled {
+            /// The hotkey whose pool was reconciled.
+            hotkey: T::AccountId,
+            /// The subnet of the pool.
+            netuid: NetUid,
+        },
+        /// Pool value that no live share row owned was assigned to the hotkey owner.
+        SharePoolAdopted {
+            /// The hotkey whose pool held the value.
+            hotkey: T::AccountId,
+            /// The subnet of the pool.
+            netuid: NetUid,
+            /// The owner coldkey now holding the position.
+            coldkey: T::AccountId,
+            /// The alpha value assigned.
+            alpha: AlphaBalance,
+        },
+
         /// A contributor's lease dividend slice could not be transferred this interval and
         /// stays in the lease's accumulated dividends.
         SubnetLeaseDividendSkipped {

@@ -293,6 +293,17 @@ mod hooks {
                 );
             }
 
+            // Share-pool reconciliation is scheduled by the runtime `Migrations` tuple and
+            // paged here; it only rewrites denominators and assigns unowned value, so it
+            // runs alongside the other idle work.
+            if weight.all_lt(limit) {
+                weight.saturating_accrue(
+                    migrations::migrate_reconcile_share_pools::continue_reconcile_share_pools::<T>(
+                        limit.saturating_sub(weight),
+                    ),
+                );
+            }
+
             if !seed_in_progress && weight.all_lt(limit) {
                 weight.saturating_accrue(
                     migrations::migrate_storage_bloat_v2::continue_storage_bloat_cleanup::<T>(

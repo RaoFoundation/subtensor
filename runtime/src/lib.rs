@@ -1676,6 +1676,12 @@ type Migrations = (
     pallet_subtensor::migrations::migrate_fix_root_pot_shortfall::fix_root_pot_shortfall::Migration<
         Runtime,
     >,
+    // Rewrite every share pool's denominator to the sum of its live shares and assign pool
+    // value that no live row owns to the hotkey owner. The upgrade block only schedules the
+    // paged on_idle work; try-runtime drives it to completion and checks every pool.
+    pallet_subtensor::migrations::migrate_reconcile_share_pools::reconcile_share_pools::Migration<
+        Runtime,
+    >,
 );
 
 // Unchecked extrinsic type as expected by this runtime.

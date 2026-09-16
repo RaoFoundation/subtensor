@@ -1671,7 +1671,7 @@ pub struct HotkeyAlphaSharePoolDataOperations<T: frame_system::Config> {
 }
 
 impl<T: Config> HotkeyAlphaSharePoolDataOperations<T> {
-    fn new(hotkey: <T as frame_system::Config>::AccountId, netuid: NetUid) -> Self {
+    pub(crate) fn new(hotkey: <T as frame_system::Config>::AccountId, netuid: NetUid) -> Self {
         HotkeyAlphaSharePoolDataOperations {
             netuid,
             hotkey,
