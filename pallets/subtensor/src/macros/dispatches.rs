@@ -928,25 +928,25 @@ mod dispatches {
         ///
         /// Only callable by root as it doesn't require an announcement and can be used to swap any coldkey.
         #[pallet::call_index(71)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_coldkey())]
+        #[pallet::weight((Pallet::<T>::swap_coldkey_declared_weight(), DispatchClass::Normal, Pays::Yes))]
         pub fn swap_coldkey(
             origin: OriginFor<T>,
             old_coldkey: T::AccountId,
             new_coldkey: T::AccountId,
             swap_cost: TaoBalance,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             ensure_root(origin)?;
 
             if !swap_cost.is_zero() {
                 Self::charge_swap_cost(&old_coldkey, swap_cost)?;
             }
-            Self::do_swap_coldkey(&old_coldkey, &new_coldkey)?;
+            let work = Self::do_swap_coldkey(&old_coldkey, &new_coldkey)?;
 
             // We also clear any announcement or dispute for security reasons
             ColdkeySwapAnnouncements::<T>::remove(&old_coldkey);
             ColdkeySwapDisputes::<T>::remove(old_coldkey);
 
-            Ok(())
+            Ok((Some(Self::swap_coldkey_actual_weight(work)), Pays::Yes).into())
         }
 
         /// Sets the childkey take for a given hotkey.
@@ -2286,11 +2286,11 @@ mod dispatches {
         ///
         /// The `ColdkeySwapped` event is emitted on successful swap.
         #[pallet::call_index(126)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced())]
+        #[pallet::weight((Pallet::<T>::swap_coldkey_announced_declared_weight(), DispatchClass::Normal, Pays::Yes))]
         pub fn swap_coldkey_announced(
             origin: OriginFor<T>,
             new_coldkey: T::AccountId,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             let who = ensure_signed(origin)?;
 
             let (when, new_coldkey_hash) = ColdkeySwapAnnouncements::<T>::take(who.clone())
@@ -2304,9 +2304,13 @@ mod dispatches {
             let now = <frame_system::Pallet<T>>::block_number();
             ensure!(now >= when, Error::<T>::ColdkeySwapTooEarly);
 
-            Self::do_swap_coldkey(&who, &new_coldkey)?;
+            let work = Self::do_swap_coldkey(&who, &new_coldkey)?;
 
-            Ok(())
+            Ok((
+                Some(Self::swap_coldkey_announced_actual_weight(work)),
+                Pays::Yes,
+            )
+                .into())
         }
 
         /// Dispute a coldkey swap.

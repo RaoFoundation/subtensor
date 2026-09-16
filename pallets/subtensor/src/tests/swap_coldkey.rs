@@ -32,6 +32,7 @@ use super::mock;
 use super::mock::*;
 use crate::extensions::SubtensorTransactionExtension;
 use crate::staking::lock::LockState;
+use crate::weights::WeightInfo;
 use crate::*;
 use crate::{Call, Error};
 
@@ -274,6 +275,94 @@ fn test_swap_coldkey_announced_works() {
             total_ck_stake,
             total_stake_before,
             0.into() // Charged on announcement
+        );
+    });
+}
+
+// A coldkey swap moves one position per `(hotkey, netuid)` row and is priced for a bounded
+// number of them: an oversized list is refused before any write, the declared weight covers
+// the bound, and the actual weight is refunded to the positions really moved.
+#[test]
+fn test_swap_coldkey_bounded_and_priced_per_position() {
+    new_test_ext(1).execute_with(|| {
+        let who = U256::from(1);
+        let new_coldkey = U256::from(2);
+        let hotkey = U256::from(1001);
+        let netuid = add_dynamic_network(&hotkey, &who);
+        let min_stake = DefaultMinStake::<Test>::get();
+        add_balance_to_coldkey_account(&who, min_stake * 100.into());
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(who),
+            hotkey,
+            netuid,
+            min_stake * 10.into()
+        ));
+
+        // Too many staking hotkeys: refused, nothing moved.
+        let mut oversized = StakingHotkeys::<Test>::get(who);
+        let mut next = 50_000_u64;
+        while oversized.len() <= MAX_COLDKEY_SWAP_HOTKEYS as usize {
+            oversized.push(U256::from(next));
+            next += 1;
+        }
+        let real_list = StakingHotkeys::<Test>::get(who);
+        StakingHotkeys::<Test>::insert(who, oversized);
+        assert_noop!(
+            SubtensorModule::swap_coldkey(
+                RuntimeOrigin::root(),
+                who,
+                new_coldkey,
+                TaoBalance::ZERO
+            ),
+            Error::<Test>::ColdkeySwapTooHeavy
+        );
+        StakingHotkeys::<Test>::insert(who, real_list);
+
+        // Declared weight covers the admitted bound.
+        let call = RuntimeCall::SubtensorModule(crate::Call::swap_coldkey {
+            old_coldkey: who,
+            new_coldkey,
+            swap_cost: TaoBalance::ZERO,
+        });
+        let declared = call.get_dispatch_info().call_weight;
+        let per_position = <Test as crate::Config>::WeightInfo::transfer_stake();
+        assert!(
+            declared.all_gte(per_position.saturating_mul(u64::from(MAX_COLDKEY_SWAP_POSITIONS)))
+        );
+
+        let alpha_before =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &who, netuid);
+        let post_info = SubtensorModule::swap_coldkey(
+            RuntimeOrigin::root(),
+            who,
+            new_coldkey,
+            TaoBalance::ZERO,
+        )
+        .expect("swap succeeds");
+        let actual = post_info.actual_weight.expect("actual weight reported");
+        assert!(declared.all_gte(actual));
+        // One hotkey, one position: priced as exactly that, far below the envelope.
+        assert_eq!(
+            actual,
+            SubtensorModule::swap_coldkey_actual_weight(
+                crate::swap::swap_coldkey::ColdkeySwapWork {
+                    hotkeys: 1,
+                    positions: 1,
+                }
+            )
+        );
+        assert!(actual.all_lt(declared));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &new_coldkey,
+                netuid
+            ),
+            alpha_before
+        );
+        assert!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &who, netuid)
+                .is_zero()
         );
     });
 }

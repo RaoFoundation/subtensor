@@ -206,7 +206,25 @@ impl<T: Config> Pallet<T> {
         let prepared_stake = if keep_stake {
             None
         } else {
-            Some(Self::prepare_hotkey_stake(old_hotkey))
+            let prepared = Self::prepare_hotkey_stake(old_hotkey);
+            // Admission: every position moved is a share-pool debit and credit, and the
+            // declared weight is measured for a fixed number of them. Refuse (before any
+            // write or fee) a hotkey with more positions than one call is priced for; the
+            // per-subnet swap moves only that subnet's rows and is the way to rotate a
+            // larger hotkey.
+            let positions = match netuid {
+                Some(netuid) => prepared
+                    .coldkeys_by_netuid
+                    .get(&netuid)
+                    .map(|coldkeys| coldkeys.len())
+                    .unwrap_or(0),
+                None => prepared.positions.len(),
+            };
+            ensure!(
+                positions <= crate::MAX_HOTKEY_SWAP_POSITIONS as usize,
+                Error::<T>::HotkeySwapTooHeavy
+            );
+            Some(prepared)
         };
 
         // Preflight collateral-index capacity before charging or writing so a
