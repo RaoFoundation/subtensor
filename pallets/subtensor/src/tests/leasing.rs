@@ -3,6 +3,7 @@
     clippy::unwrap_used,
     clippy::indexing_slicing
 )]
+use super::mock;
 use super::mock::*;
 use crate::{subnets::leasing::SubnetLeaseOf, *};
 use frame_support::{StorageDoubleMap, assert_err, assert_ok};
@@ -10,7 +11,8 @@ use pallet_subtensor_utility as pallet_utility;
 use sp_core::U256;
 use sp_runtime::Percent;
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::AlphaBalance;
+use subtensor_runtime_common::{AlphaBalance, TaoBalance};
+use subtensor_swap_interface::SwapHandler;
 
 #[test]
 fn test_coldkey_swap_migrates_lease_shares_beneficiary_and_proxy() {
@@ -694,8 +696,9 @@ fn test_terminate_lease_works() {
 }
 
 // A contributor dividend deferred during the lease is paid at termination when it can be
-// transferred, and a debt that still cannot be transferred keeps its row instead of being
-// dropped with the lease.
+// transferred. A debt that still cannot be transferred keeps its row, the lease record and
+// the subnet mapping, and is paid by the owner-cut hook once the obstruction clears; only
+// then is the record removed.
 #[test]
 fn test_terminate_lease_settles_deferred_dividends() {
     new_test_ext(1).execute_with(|| {
@@ -726,10 +729,24 @@ fn test_terminate_lease_settles_deferred_dividends() {
             )
         };
 
-        // Defer a payable amount for `contributor` and a dust amount for `dust_contributor`
-        // by recording them directly, funded by the lease position.
+        // Defer a payable amount for `contributor` and an amount below the minimum transfer
+        // for `dust_contributor`, funded by the lease position.
         let deferred = AlphaBalance::from(1_000_000_000_u64);
-        let dust = AlphaBalance::from(100_u64);
+        let dust = AlphaBalance::from(1_000_000_u64);
+        // Price alpha at 0.1 TAO so the dust debt is below the minimum transfer.
+        mock::setup_reserves(
+            lease.netuid,
+            TaoBalance::from(100_000_000_000_u64),
+            AlphaBalance::from(1_000_000_000_000_u64),
+        );
+        let price = <Test as Config>::SwapInterface::current_alpha_price(lease.netuid.into());
+        assert!(
+            price
+                .saturating_mul(U64F64::from_num(dust.to_u64()))
+                .to_num::<u64>()
+                < DefaultMinTransfer::<Test>::get().to_u64(),
+            "the dust debt must be below the minimum transfer at the current price"
+        );
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &lease.hotkey,
             &lease.coldkey,
@@ -756,13 +773,38 @@ fn test_terminate_lease_settles_deferred_dividends() {
             contributor
         ));
         assert_eq!(stake(&beneficiary), AlphaBalance::ZERO);
-        // The dust debt is still recorded against its contributor, not dropped.
+        // Ownership moved, but the dust debt keeps its row, the lease record and the mapping.
+        assert_eq!(SubnetOwner::<Test>::get(lease.netuid), beneficiary);
         assert_eq!(
             SubnetLeaseUnpaidDividends::<Test>::get(lease_id, dust_contributor),
             dust
         );
+        assert!(SubnetLeases::<Test>::get(lease_id).is_some());
+        assert_eq!(
+            SubnetUidToLeaseId::<Test>::get(lease.netuid),
+            Some(lease_id)
+        );
+        assert!(!SubnetLeaseShares::<Test>::contains_prefix(lease_id));
+
+        // The owner-cut hook retries but the debt is still below the minimum transfer.
+        SubtensorModule::distribute_leased_network_dividends(lease_id, AlphaBalance::ZERO);
         assert_eq!(stake(&dust_contributor), AlphaBalance::ZERO);
+        assert!(SubnetLeases::<Test>::get(lease_id).is_some());
+
+        // The obstruction clears (alpha is worth more), the next hook pays the debt and the
+        // record is removed.
+        mock::setup_reserves(
+            lease.netuid,
+            TaoBalance::from(4_000_000_000_000_u64),
+            AlphaBalance::from(1_000_000_000_000_u64),
+        );
+        SubtensorModule::distribute_leased_network_dividends(lease_id, AlphaBalance::ZERO);
+        assert_eq!(stake(&dust_contributor), dust);
+        assert!(!SubnetLeaseUnpaidDividends::<Test>::contains_prefix(
+            lease_id
+        ));
         assert_eq!(SubnetLeases::<Test>::get(lease_id), None);
+        assert!(!SubnetUidToLeaseId::<Test>::contains_key(lease.netuid));
     });
 }
 

@@ -202,6 +202,10 @@ impl<T: Config> Pallet<T> {
             Self::coldkey_owns_hotkey(&lease.beneficiary, &hotkey),
             Error::<T>::BeneficiaryDoesNotOwnHotkey
         );
+        // A lease whose deferred dividends could not all be paid keeps its record (see
+        // below) and may be terminated again to retry; the one-time hand-over steps run
+        // only the first time, which is when the subnet is not yet owned by the beneficiary.
+        let first_termination = SubnetOwner::<T>::get(lease.netuid) != lease.beneficiary;
         SubnetOwner::<T>::insert(lease.netuid, lease.beneficiary.clone());
         Self::set_subnet_owner_hotkey(lease.netuid, &hotkey)?;
 
@@ -211,19 +215,25 @@ impl<T: Config> Pallet<T> {
         // never silently dropped. The alpha stays in the lease position.
         let settled = Self::settle_unpaid_lease_dividends(lease_id, &lease);
 
-        // Stop tracking the lease coldkey and hotkey
-        let _ = frame_system::Pallet::<T>::dec_providers(&lease.coldkey).defensive();
-        let _ = frame_system::Pallet::<T>::dec_providers(&lease.hotkey).defensive();
-
-        // Remove the lease, its contributors and accumulated dividends from storage
+        // Remove the contributors and accumulated dividends from storage
         let clear_result =
             SubnetLeaseShares::<T>::clear_prefix(lease_id, T::MaxContributors::get(), None);
         AccumulatedLeaseDividends::<T>::remove(lease_id);
-        SubnetLeases::<T>::remove(lease_id);
-        SubnetUidToLeaseId::<T>::remove(lease.netuid);
 
-        // Remove the beneficiary proxy
-        T::ProxyInterface::remove_lease_beneficiary_proxy(&lease.coldkey, &lease.beneficiary)?;
+        if first_termination {
+            // Stop tracking the lease coldkey and hotkey
+            let _ = frame_system::Pallet::<T>::dec_providers(&lease.coldkey).defensive();
+            let _ = frame_system::Pallet::<T>::dec_providers(&lease.hotkey).defensive();
+
+            // Remove the beneficiary proxy
+            T::ProxyInterface::remove_lease_beneficiary_proxy(&lease.coldkey, &lease.beneficiary)?;
+        }
+
+        // The lease record and the subnet mapping stay while any deferred dividend is
+        // still owed, so the debt remains claimable: the owner-cut hook retries it every
+        // epoch and removes the record once everything is paid. An ended lease no longer
+        // distributes anything, so keeping the record has no other effect.
+        Self::finish_lease_cleanup_if_settled(lease_id, lease.netuid);
 
         Self::deposit_event(Event::SubnetLeaseTerminated {
             beneficiary: lease.beneficiary,
@@ -252,6 +262,18 @@ impl<T: Config> Pallet<T> {
             <T as Config>::WeightInfo::transfer_stake()
                 .saturating_mul(u64::from(T::MaxContributors::get())),
         )
+    }
+
+    /// Remove the lease record and subnet mapping once no deferred dividend is owed.
+    fn finish_lease_cleanup_if_settled(lease_id: LeaseId, netuid: NetUid) {
+        if SubnetLeaseUnpaidDividends::<T>::iter_prefix(lease_id)
+            .next()
+            .is_some()
+        {
+            return;
+        }
+        SubnetLeases::<T>::remove(lease_id);
+        SubnetUidToLeaseId::<T>::remove(netuid);
     }
 
     /// Pay every deferred contributor dividend of `lease_id` that can be transferred now.
@@ -320,9 +342,15 @@ impl<T: Config> Pallet<T> {
             return;
         };
 
-        // Ensure the lease has not ended
+        // An ended lease distributes nothing more. If it has been terminated with
+        // deferred dividends still owed, retry those payments here (the record only
+        // survives termination for this purpose) and drop the record once all are paid.
         let now = frame_system::Pallet::<T>::block_number();
         if lease.end_block.is_some_and(|end_block| end_block <= now) {
+            if SubnetOwner::<T>::get(lease.netuid) == lease.beneficiary {
+                Self::settle_unpaid_lease_dividends(lease_id, &lease);
+                Self::finish_lease_cleanup_if_settled(lease_id, lease.netuid);
+            }
             return;
         }
 
