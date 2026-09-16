@@ -1,0 +1,358 @@
+name: Reconcile Mainnet Release
+
+# Reconciles GitHub release metadata with finalized mainnet chain state
+# without the `mainnet` environment approval the watcher requires:
+#   1. Poll the finalized chain (same ten-minute cadence as
+#      watch-mainnet-release.yml) and detect a runtime whose immutable tag,
+#      provenance-verified release-train artifact, and commit ancestry agree.
+#   2. Point the protected mainnet mirror at the release commit through the
+#      GitHub Git refs API, using a short-lived token minted for the
+#      dedicated `subtensor-release-metadata` GitHub App.
+#   3. Attach the five verifier-required runtime assets and promote the
+#      pre-release to the final GitHub release.
+#
+# Disabled by default: every job requires BOTH `github.ref == 'refs/heads/main'`
+# and the repository variable `RELEASE_METADATA_AUTOMATION_ENABLED == 'true'`,
+# so a scheduled run before enablement, or a manual dispatch from any other
+# branch, is skipped before checkout, environment access, or token minting.
+# This is an independent reconciler: the gated publishers (PyPI, crates.io,
+# website) remain in watch-mainnet-release.yml and waiting approvals there
+# cannot hold this workflow's concurrency lock.
+#
+# Deliberately absent: any fallback to the shared mirror deploy key, a PAT,
+# or a less-protected environment. Enabling this workflow requires the
+# separately authorized `release-metadata` environment, the
+# `subtensor-release-metadata` GitHub App (Contents read/write, Metadata
+# read, no webhooks), and a mainnet-only mirror ruleset that grants this App
+# a bypass before mainnet is removed from `network-branch-mirrors (CI only)`.
+# Merging this workflow without that provisioning cutover would interrupt
+# GitHub release finalization; see the release publication PR.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: reconcile-mainnet-release
+  cancel-in-progress: false
+
+env:
+  MAINNET_HTTP: https://entrypoint-finney.opentensor.ai:443
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect finalized mainnet release state
+    # Evaluated before any step runs: no checkout, environment access, or
+    # token minting happens unless the run is on main with automation
+    # explicitly enabled.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      vars.RELEASE_METADATA_AUTOMATION_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read # list/download the release-train artifact
+    outputs:
+      eligible: ${{ steps.state.outputs.eligible }}
+      release_needed: ${{ steps.state.outputs.release_needed }}
+      spec_version: ${{ steps.state.outputs.spec_version }}
+      release_tag: ${{ steps.state.outputs.release_tag }}
+      sha: ${{ steps.state.outputs.sha }}
+      code_hash: ${{ steps.state.outputs.code_hash }}
+      finalized_head: ${{ steps.state.outputs.finalized_head }}
+      artifact_id: ${{ steps.state.outputs.artifact_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Control-plane scripts run from the trusted workflow revision on
+          # main; the checkout credential is never needed.
+          persist-credentials: false
+
+      - name: Resolve mainnet release state
+        id: state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          python3 .github/scripts/mainnet-release-state.py \
+            --mode metadata --output state.json
+
+          if ! jq -e '.eligible == true' state.json > /dev/null; then
+            echo "Mainnet is not eligible for publication; nothing to do."
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
+          for key in release_needed spec_version release_tag sha code_hash finalized_head; do
+            echo "$key=$(jq -er --arg k "$key" '.[$k]' state.json)" >> "$GITHUB_OUTPUT"
+          done
+          echo "artifact_id=$(jq -r '.artifact_id // ""' state.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Log detected identity
+        if: steps.state.outputs.eligible == 'true'
+        env:
+          SPEC_VERSION: ${{ steps.state.outputs.spec_version }}
+          RELEASE_TAG: ${{ steps.state.outputs.release_tag }}
+          RELEASE_SHA: ${{ steps.state.outputs.sha }}
+          CODE_HASH: ${{ steps.state.outputs.code_hash }}
+          FINALIZED_HEAD: ${{ steps.state.outputs.finalized_head }}
+        run: |
+          echo "release tag:       $RELEASE_TAG"
+          echo "source sha:        $RELEASE_SHA"
+          echo "spec_version:      $SPEC_VERSION"
+          echo "runtime code hash: $CODE_HASH"
+          echo "finalized block:   $FINALIZED_HEAD"
+
+  publish:
+    name: Mirror mainnet and finalize the release
+    needs: detect
+    # Repeat the entry gate so no path reaches the release-metadata
+    # environment except an enabled run on main, and only for an eligible
+    # identity that still needs its release.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      vars.RELEASE_METADATA_AUTOMATION_ENABLED == 'true' &&
+      needs.detect.outputs.eligible == 'true' &&
+      needs.detect.outputs.release_needed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # No reviewers and no wait timer by design: this environment exists to
+    # scope the dedicated App credentials, not to re-ask a human what the
+    # finalized chain state already answered.
+    environment: release-metadata
+    permissions:
+      contents: write # create/upload/promote the release
+      actions: read # download the release-train artifact
+    steps:
+      # Checked out at the workflow revision on main: every control-plane
+      # script below executes from trusted main, never from the release
+      # checkout. No source build happens in this job.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Require release-metadata credentials
+        id: preflight
+        env:
+          APP_ID: ${{ vars.RELEASE_METADATA_APP_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$APP_ID" ]]; then
+            echo "::error::vars.RELEASE_METADATA_APP_ID is not configured for the release-metadata environment; refusing to fall back to a less-protected credential."
+            exit 1
+          fi
+          echo "repo_name=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_OUTPUT"
+
+      # Mint a short-lived token for the dedicated App, scoped to exactly
+      # this repository. It is used ONLY for the protected mainnet ref
+      # update below; release writes use the ordinary GITHUB_TOKEN. There is
+      # deliberately no fallback to the shared mirror deploy key.
+      - name: Mint release-metadata App token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.RELEASE_METADATA_APP_ID }}
+          private-key: ${{ secrets.RELEASE_METADATA_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.preflight.outputs.repo_name }}
+
+      - name: Download and verify the release-train artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPEC_VERSION: ${{ needs.detect.outputs.spec_version }}
+          RELEASE_SHA: ${{ needs.detect.outputs.sha }}
+          CODE_HASH: ${{ needs.detect.outputs.code_hash }}
+          ARTIFACT_ID: ${{ needs.detect.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          : "${ARTIFACT_ID:?detect job did not resolve a release artifact}"
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/${ARTIFACT_ID}/zip" > artifact.zip
+          python3 .github/scripts/verify-release-artifact.py artifact.zip \
+            --spec "$SPEC_VERSION" \
+            --commit "$RELEASE_SHA" \
+            --code-hash "$CODE_HASH"
+          mkdir -p wasm
+          unzip -o artifact.zip -d wasm
+
+      - name: Recheck finalized identity before mirror mutation
+        id: recheck-before
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_SPEC: ${{ needs.detect.outputs.spec_version }}
+          EXPECTED_SHA: ${{ needs.detect.outputs.sha }}
+          EXPECTED_CODE_HASH: ${{ needs.detect.outputs.code_hash }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/mainnet-release-state.py \
+            --mode metadata --output recheck-before.json
+          spec=$(jq -er '.spec_version' recheck-before.json)
+          sha=$(jq -er '.sha' recheck-before.json)
+          code_hash=$(jq -er '.code_hash' recheck-before.json)
+          if [[ "$spec" != "$EXPECTED_SPEC" || "$sha" != "$EXPECTED_SHA" || "$code_hash" != "$EXPECTED_CODE_HASH" ]]; then
+            echo "::error::Mainnet finalized identity moved since detection (spec=$spec sha=$sha); stopping without mutations. The next poll selects the newer release."
+            exit 1
+          fi
+          echo "release_needed=$(jq -r '.release_needed' recheck-before.json)" >> "$GITHUB_OUTPUT"
+
+      # Mirror first: if this protected ref update fails, the release stays a
+      # pre-release and the next scheduled run can retry safely. The App
+      # token lives only in this step's environment; it is never written to
+      # the checkout, a Git remote, or persisted credentials.
+      - name: Point the mainnet mirror at the release commit
+        if: steps.recheck-before.outputs.release_needed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_SHA: ${{ needs.detect.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          ref_api="repos/$GITHUB_REPOSITORY/git/refs/heads/mainnet"
+          gh api -X PATCH "$ref_api" \
+            -f sha="$RELEASE_SHA" -F force=true > /dev/null
+
+          mirrored_sha=$(gh api --jq '.object.sha' "$ref_api")
+          if [[ "$mirrored_sha" != "$RELEASE_SHA" ]]; then
+            echo "::error::mainnet mirror is $mirrored_sha, expected $RELEASE_SHA"
+            exit 1
+          fi
+          echo "mainnet mirror verified at $mirrored_sha"
+
+      - name: Recheck finalized identity after mirror update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_SPEC: ${{ needs.detect.outputs.spec_version }}
+          EXPECTED_SHA: ${{ needs.detect.outputs.sha }}
+          EXPECTED_CODE_HASH: ${{ needs.detect.outputs.code_hash }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/mainnet-release-state.py \
+            --mode metadata --output recheck-after.json
+          spec=$(jq -er '.spec_version' recheck-after.json)
+          sha=$(jq -er '.sha' recheck-after.json)
+          code_hash=$(jq -er '.code_hash' recheck-after.json)
+          if [[ "$spec" != "$EXPECTED_SPEC" || "$sha" != "$EXPECTED_SHA" || "$code_hash" != "$EXPECTED_CODE_HASH" ]]; then
+            echo "::error::Mainnet finalized identity moved while this job ran (spec=$spec sha=$sha); stopping before final promotion. The next poll selects the newer release."
+            exit 1
+          fi
+
+      - name: Create or promote the release with runtime assets
+        id: finalize
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPEC_VERSION: ${{ needs.detect.outputs.spec_version }}
+          RELEASE_SHA: ${{ needs.detect.outputs.sha }}
+          CODE_HASH: ${{ needs.detect.outputs.code_hash }}
+        run: |
+          set -euo pipefail
+          tag="v${SPEC_VERSION}"
+          # All five verifier-required assets, including upgrade-manifest.json,
+          # must be attached before promotion; none is optional at upload.
+          assets=(
+            wasm/subtensor.wasm
+            wasm/subtensor-digest.json
+            wasm/proxy_proxy_blob.hex
+            wasm/pending-release.json
+            wasm/upgrade-manifest.json
+          )
+
+          # The release train reserves this exact lightweight tag before
+          # submitting the multisig. Never accept an ambiguously named ref.
+          tag_json=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag")
+          tag_type=$(jq -er '.object.type' <<<"$tag_json")
+          [[ "$tag_type" = commit ]] \
+            || { echo "release tag $tag must be a lightweight Git tag, found $tag_type"; exit 1; }
+          tag_sha=$(jq -er '.object.sha' <<<"$tag_json")
+          [[ "$tag_sha" = "$RELEASE_SHA" ]] \
+            || { echo "tag $tag points at $tag_sha, expected $RELEASE_SHA"; exit 1; }
+
+          release_status=0
+          response=$(gh api --include \
+            "repos/$GITHUB_REPOSITORY/releases/tags/$tag" 2>release-error.txt) || release_status=$?
+          http_status=$(printf '%s\n' "$response" | sed -n '1s|HTTP/[^ ]* \([0-9]*\).*|\1|p')
+          release_json=$(printf '%s\n' "$response" | sed '1,/^[[:space:]]*$/d')
+          if [[ "$release_status" = 0 && "$http_status" = 200 ]]; then
+            is_prerelease=$(jq -er \
+              '.prerelease | if type == "boolean" then tostring else error("prerelease must be boolean") end' \
+              <<<"$release_json")
+            target_sha=$(jq -er \
+              '.target_commitish | strings | select(test("^[0-9a-f]{40}$"))' \
+              <<<"$release_json")
+            [[ "$target_sha" = "$RELEASE_SHA" ]] \
+              || { echo "release target $target_sha does not match $RELEASE_SHA"; exit 1; }
+
+            if [[ "$is_prerelease" = "false" ]]; then
+              # Another actor finalized the exact release while this job ran.
+              # Verify the final release against the finalized runtime
+              # (published mode also re-validates the mirror and the five
+              # attached assets) and return success without rewriting it.
+              python3 .github/scripts/mainnet-release-state.py \
+                --mode published --output already-final.json
+              jq -e '.eligible == true' already-final.json > /dev/null \
+                || { echo "::error::final release $tag does not match the finalized runtime; refusing to touch it"; exit 1; }
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          elif [[ "$http_status" != 404 ]]; then
+            cat release-error.txt >&2
+            echo "::error::release lookup failed with HTTP $http_status"
+            exit 1
+          else
+            # Create only a pre-release here. If a later asset upload fails,
+            # the next run can safely resume instead of finding an
+            # incomplete final release.
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$RELEASE_SHA" \
+              --prerelease \
+              --title "Runtime ${SPEC_VERSION} (finalizing)" \
+              --notes "Runtime finalized on chain; release assets are being attached."
+          fi
+
+          notes=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$tag" -f target_commitish="$RELEASE_SHA" --jq '.body' || true)
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
+          gh release edit "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Runtime ${SPEC_VERSION}" \
+            ${notes:+--notes "$notes"} \
+            --prerelease=false \
+            --latest
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Write run summary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPEC_VERSION: ${{ needs.detect.outputs.spec_version }}
+          RELEASE_TAG: ${{ needs.detect.outputs.release_tag }}
+          RELEASE_SHA: ${{ needs.detect.outputs.sha }}
+          CODE_HASH: ${{ needs.detect.outputs.code_hash }}
+          FINALIZED_HEAD: ${{ needs.detect.outputs.finalized_head }}
+          CHANGED: ${{ steps.finalize.outputs.changed }}
+        run: |
+          set -euo pipefail
+          release_url=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/${RELEASE_TAG}" --jq '.html_url')
+          if [[ "$CHANGED" = "true" ]]; then
+            outcome="changed state (mainnet mirror updated, release finalized)"
+          else
+            outcome="verified existing state (no writes)"
+          fi
+          {
+            echo "## Reconcile Mainnet Release"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Release tag | \`${RELEASE_TAG}\` |"
+            echo "| Source SHA | \`${RELEASE_SHA}\` |"
+            echo "| Finalized block | \`${FINALIZED_HEAD}\` |"
+            echo "| Runtime code hash | \`${CODE_HASH}\` |"
+            echo "| Release URL | ${release_url} |"
+            echo "| Outcome | ${outcome} |"
+          } >> "$GITHUB_STEP_SUMMARY"
