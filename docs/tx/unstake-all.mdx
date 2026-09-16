@@ -21,7 +21,7 @@ payout: the claim pays 100% of the basket.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1263-L1271), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2138-L2157), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1263-L1276), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2148-L2167), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("unstake_all", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1265`](/code/pallets/subtensor/src/macros/dispatches.rs#L1263-L1271):
+`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1265`](/code/pallets/subtensor/src/macros/dispatches.rs#L1263-L1276):
 
 ```rust
 #[pallet::call_index(83)]
@@ -80,14 +80,19 @@ pub fn unstake_all(
     origin: OriginFor<T>,
     hotkey: T::AccountId,
 ) -> DispatchResultWithPostInfo {
+    let coldkey = ensure_signed(origin.clone())?;
     let work = Self::do_unstake_all(origin, hotkey)?;
-    Ok((Some(Self::unstake_all_actual_weight(work)), Pays::Yes).into())
+    Ok((
+        Some(Self::unstake_all_actual_weight(&coldkey, work)),
+        Pays::Yes,
+    )
+        .into())
 }
 ```
 
-Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L128), [`unstake_all_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L231).
+Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L128), [`unstake_all_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L236).
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2142`](/code/pallets/subtensor/src/macros/dispatches.rs#L2138-L2157):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2152`](/code/pallets/subtensor/src/macros/dispatches.rs#L2148-L2167):
 
 ```rust
 #[pallet::call_index(148)]

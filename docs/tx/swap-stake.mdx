@@ -19,7 +19,7 @@ leg separately. Pass `all` to swap the entire origin position.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1436-L1466), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1612-L1646) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1446-L1476), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1622-L1656) |
 
 ## Parameters
 
@@ -79,7 +79,7 @@ result = sub.execute_tool("swap_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1443`](/code/pallets/subtensor/src/macros/dispatches.rs#L1436-L1466):
+`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1453`](/code/pallets/subtensor/src/macros/dispatches.rs#L1446-L1476):
 
 ```rust
 #[pallet::call_index(87)]
@@ -117,7 +117,7 @@ pub fn swap_stake(
 
 Delegates to [`do_swap_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L336), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1235).
 
-`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1619`](/code/pallets/subtensor/src/macros/dispatches.rs#L1612-L1646):
+`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1629`](/code/pallets/subtensor/src/macros/dispatches.rs#L1622-L1656):
 
 ```rust
 #[pallet::call_index(90)]

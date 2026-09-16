@@ -32,7 +32,7 @@ owners. Pass `all` to hand over the entire origin position.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1380-L1412), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2660-L2694) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1390-L1422), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2670-L2704) |
 
 ## Parameters
 
@@ -94,7 +94,7 @@ result = sub.execute_tool("transfer_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.transfer_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1387`](/code/pallets/subtensor/src/macros/dispatches.rs#L1380-L1412):
+`SubtensorModule.transfer_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1397`](/code/pallets/subtensor/src/macros/dispatches.rs#L1390-L1422):
 
 ```rust
 #[pallet::call_index(86)]
@@ -134,7 +134,7 @@ pub fn transfer_stake(
 
 Delegates to [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L196), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1235).
 
-`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2667`](/code/pallets/subtensor/src/macros/dispatches.rs#L2660-L2694):
+`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2677`](/code/pallets/subtensor/src/macros/dispatches.rs#L2670-L2704):
 
 ```rust
 #[pallet::call_index(143)]

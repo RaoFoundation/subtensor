@@ -1197,8 +1197,8 @@
         "container": "SubtensorModule",
         "name": "MechanismCountCurrent",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3295,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3295",
+        "line": 3310,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3310",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1223,8 +1223,8 @@
         "container": "SubtensorModule",
         "name": "MechanismEmissionSplit",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3300,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3300",
+        "line": 3315,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3315",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]

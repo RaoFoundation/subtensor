@@ -320,6 +320,7 @@ class SubtensorModule:
     SubnetUidToLeaseId = Item('SubtensorModule', 'SubnetUidToLeaseId', 'u32')
     NextSubnetLeaseId = Item('SubtensorModule', 'NextSubnetLeaseId', 'u32')
     AccumulatedLeaseDividends = Item('SubtensorModule', 'AccumulatedLeaseDividends', 'AlphaBalance')
+    SubnetLeaseUnpaidDividends = Item('SubtensorModule', 'SubnetLeaseUnpaidDividends', 'AlphaBalance')
     CommitRevealWeightsVersion = Item('SubtensorModule', 'CommitRevealWeightsVersion', 'u16')
     NetworkRegistrationStartBlock = Item('SubtensorModule', 'NetworkRegistrationStartBlock', 'u64')
     TaoInRefundDeploymentBlock = Item('SubtensorModule', 'TaoInRefundDeploymentBlock', 'u64')
