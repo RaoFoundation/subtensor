@@ -402,6 +402,71 @@ class Prices(_ReadNamespace):
     async def alpha_prices(self, *, block: Optional[int] = None) -> dict[int, float]:
         """Spot alpha price for every subnet, as TAO per alpha keyed by netuid."""
 
+    async def derivative_position(self, coldkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
+        """A coldkey's open position on a subnet, or None. There is at most one.
+
+        `side` is the direction of its net exposure. `cushion` is the TAO the owner
+        has put up and `leverage` is `exposure_tao` over it, the blend of every
+        tranche added. `proceeds`, `debt`, and `escrow` are the position's `legs`,
+        each already in its own token: a short holds TAO proceeds and TAO escrow
+        and owes alpha; a long holds alpha proceeds and alpha escrow and owes TAO.
+        `interest_per_year_tao` is the summed interest of its tranches;
+        `interest_due_tao` is what has accrued since the chain last collected, at
+        block `since`; `due` is the block it collects next, one week after the last
+        time. `runway_days` is how long the cushion keeps paying at this rate; at a
+        collection it cannot pay, the chain forfeits the position to the pool and
+        the owner gets nothing. Add cushion to extend it. There is no expiry, and
+        only the owner can close.
+
+        `equity_tao` is an estimate of what a close now would pay the owner:
+        cushion plus proceeds, less debt priced on a constant-product curve, less
+        the interest due. The chain's own quote decides; this is a preview.
+        """
+
+    async def derivative_positions(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """Every open position a coldkey holds, one per subnet. Same fields as
+        `derivative_position`.
+        """
+
+    async def derivative_positions_on_subnet(self, netuid: int, *, block: Optional[int] = None) -> list[dict]:
+        """Every open position on a subnet, whoever owns it, largest exposure first.
+        Same fields as `derivative_position`.
+        """
+
+    async def derivatives_params(self, *, block: Optional[int] = None) -> dict:
+        """The derivatives pallet's two switches and three root-set parameters, plus its constants.
+
+        `enabled` is the network-wide switch, off at launch until governance turns
+        it on with `Derivatives.sudo_set_derivatives_enabled`. While it is off
+        every add (open, grow, reduce, flip) fails with `DerivativesDisabled`;
+        closing a position, the weekly interest collection, and dissolution
+        settlement keep working, so nobody is ever locked into a position.
+
+        `longs_enabled` is the long-side switch, also off at launch: shorts are
+        the launch product, and longs wait on a decision about their collateral
+        and leverage. Governance turns it on with
+        `Derivatives.sudo_set_longs_enabled`. While it is off any add that would
+        leave a long open (opening one, growing one, or flipping a short through
+        zero into one) fails with `LongsDisabled`; shorts, reducing or closing a
+        short with a long-side add, and closing an already open long all work.
+
+        `pool_share` is the largest share of a pool's reserve that all open
+        positions of one side may borrow together; zero means root has paused new
+        positions. `short_interest_rate` and `long_interest_rate` are the interest
+        a short or a long tranche pays, as a fraction of its TAO exposure per year,
+        flat, fixed when the tranche is added and accrued per block; once a week,
+        on the position's own block, the chain takes it from the cushion, buys
+        alpha with it, and recycles the alpha. Shorts pay more than longs: the pool
+        carries open-ended exposure to a short that is never closed, while a long
+        is the buy pressure the design wants. All three are fractions (`0.52` =
+        52%). `long_interest_rate` is inert until `longs_enabled` is true: no
+        tranche can be booked at it before then.
+
+        The rest are fixed by the runtime: `max_short_leverage` and
+        `max_long_leverage` bound the leverage an owner may choose per side (`1.0`
+        = 1x), and `min_deposit_tao` is the smallest deposit one add may put up.
+        """
+
     async def quote_stake(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> SwapQuote:
         """Simulate staking `amount_tao` TAO into a subnet: alpha out, fee, and slippage.
 

@@ -56,12 +56,24 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "SubnetEmissionEnabled"): True,
     ("System", "Account"): {"data": {"free": 0, "reserved": 0, "frozen": 0}},
     ("Timestamp", "Now"): 1_700_000_000_000,
+    # Launch state: the switch is off until governance flips it.
+    ("Derivatives", "DerivativesEnabled"): False,
+    ("Derivatives", "LongsEnabled"): False,
+    # `DerivativesParams::defaults()`: percent points, as the chain stores them.
+    ("Derivatives", "Params"): {
+        "pool_share": 25,
+        "short_interest_rate": 52,
+        "long_interest_rate": 26,
+    },
 }
 
 DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {
     ("Aura", "SlotDuration"): 12_000,
     ("Balances", "ExistentialDeposit"): 500,
     ("SubtensorModule", "InitialStartCallDelay"): 100,
+    ("Derivatives", "MaxShortLeverage"): 100,
+    ("Derivatives", "MaxLongLeverage"): 150,
+    ("Derivatives", "MinDeposit"): 100_000_000,
 }
 
 # Runtime-API results answered when the test seeds nothing. Chosen so intent

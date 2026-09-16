@@ -18,6 +18,7 @@ from . import (  # noqa: F401  (imported for registration side effects)
     chain,
     collateral,
     delegation,
+    derivatives,
     epochs,
     hyperparameters,
     identity,

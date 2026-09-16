@@ -135,8 +135,18 @@ impl Balancer {
     /// Here we use SafeInt from bigmath crate for high-precision exponentiation,
     /// which exposes the function pow_ratio_scaled.
     ///
-    /// Note: ∆x may be negative
+    /// Note: ∆x may be negative. For ∆x < 0 the ratio exceeds 1 and can grow without bound as
+    /// ∆x approaches −x; when it no longer fits the fixed-point result the function saturates
+    /// to `u64::MAX` rather than returning 0, so callers computing "how much input for this
+    /// output" see an impossibly large quote instead of a free one.
     fn exp_scaled(&self, x: u64, dx: i128, base_quote: bool) -> U64F64 {
+        // Any failure to represent the result: 0 for a shrinking ratio, saturated for a growing one.
+        let unrepresentable = if dx >= 0 {
+            U64F64::saturating_from_num(0)
+        } else {
+            U64F64::saturating_from_num(u64::MAX)
+        };
+
         let x_plus_dx = if dx >= 0 {
             x.saturating_add(dx as u64)
         } else {
@@ -144,7 +154,7 @@ impl Balancer {
         };
 
         if x_plus_dx == 0 {
-            return U64F64::saturating_from_num(0);
+            return unrepresentable;
         }
         let w1: u128 = self.get_base_weight().deconstruct() as u128;
         let w2: u128 = self.get_quote_weight().deconstruct() as u128;
@@ -195,7 +205,7 @@ impl Balancer {
                 result
             };
         }
-        U64F64::saturating_from_num(0)
+        unrepresentable
     }
 
     /// Calculates exponent of (x / (x + ∆x)) ^ (w_base/w_quote)
@@ -396,6 +406,28 @@ impl Balancer {
         let alpha_reserve_fixed = U64F64::from_num(alpha_reserve);
         // e > 1 in this case
         alpha_reserve_fixed
+            .saturating_mul(e.saturating_sub(one))
+            .saturating_to_num::<u64>()
+    }
+
+    /// Calculates amount of TAO that needs to be paid to get a given amount of Alpha.
+    ///
+    /// Mirror of [`Self::get_base_needed_for_quote`]:
+    ///   ∆y = y * ((x / (x - ∆x))^(w1/w2) - 1)
+    pub fn get_quote_needed_for_base(
+        &self,
+        tao_reserve: u64,
+        alpha_reserve: u64,
+        delta_alpha: u64,
+    ) -> u64 {
+        if delta_alpha >= alpha_reserve {
+            return u64::MAX;
+        }
+        let e = self.exp_scaled(alpha_reserve, (delta_alpha as i128).neg(), true);
+        let one = U64F64::from_num(1);
+        let tao_reserve_fixed = U64F64::from_num(tao_reserve);
+        // e > 1 in this case
+        tao_reserve_fixed
             .saturating_mul(e.saturating_sub(one))
             .saturating_to_num::<u64>()
     }

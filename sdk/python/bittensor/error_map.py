@@ -355,7 +355,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidRoundNumber": _C.INVALID_ARGUMENT,
     "PulseVerificationError": _C.INVALID_ARGUMENT,
     # ── Crowdloan ───────────────────────────────────────────────────────
-    "DepositTooLow": _C.INVALID_ARGUMENT,
+    "DepositTooLow": _C.INVALID_ARGUMENT,  # also Derivatives
     "CapTooLow": _C.INVALID_ARGUMENT,
     "MinimumContributionTooLow": _C.INVALID_ARGUMENT,
     "CannotEndInPast": _C.INVALID_ARGUMENT,
@@ -460,6 +460,17 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "PartialFillNotSupportedForProvider": _C.INVALID_ARGUMENT,
     "LinkedOutputNotPrunable": _C.INVALID_ARGUMENT,
     "OrderSignerFrozen": _C.NOT_AUTHORIZED,
+    # ── Derivatives ─────────────────────────────────────────────────────
+    "SubnetNotDynamic": _C.SUBTOKEN_DISABLED,
+    "NoPosition": _C.NOT_FOUND,
+    "LeverageOutOfRange": _C.INVALID_ARGUMENT,
+    "ZeroExposure": _C.INVALID_ARGUMENT,
+    "PoolCapExceeded": _C.LIMIT_EXCEEDED,
+    "PalletHotkeyUnset": _C.TOO_EARLY,
+    "ZeroInterestRate": _C.INVALID_ARGUMENT,
+    "DerivativesDisabled": _C.DISABLED,
+    "LongsDisabled": _C.DISABLED,
+    "SettlementBelowMinimum": _C.INSUFFICIENT_LIQUIDITY,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

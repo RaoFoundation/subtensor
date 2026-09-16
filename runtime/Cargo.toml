@@ -152,6 +152,9 @@ pallet-crowdloan.workspace = true
 # Limit Orders
 pallet-limit-orders.workspace = true
 
+# Derivatives
+pallet-derivatives.workspace = true
+
 # Mev Shield
 pallet-shield.workspace = true
 stp-shield.workspace = true
@@ -229,6 +232,7 @@ std = [
 	"subtensor-precompiles/std",
 	"subtensor-runtime-common/std",
 	"pallet-limit-orders/std",
+	"pallet-derivatives/std",
 	"pallet-crowdloan/std",
 	"pallet-babe/std",
 	"pallet-session/std",
@@ -333,6 +337,7 @@ runtime-benchmarks = [
 	"subtensor-runtime-common/runtime-benchmarks",
 	"subtensor-chain-extensions/runtime-benchmarks",
 	"pallet-limit-orders/runtime-benchmarks",
+	"pallet-derivatives/runtime-benchmarks",
 	"subtensor-swap-interface/runtime-benchmarks",
 ]
 try-runtime = [
@@ -381,5 +386,6 @@ try-runtime = [
 	"runtime-common/try-runtime",
 	"pallet-aura/try-runtime",
 	"pallet-shield/try-runtime",
+	"pallet-derivatives/try-runtime",
 ]
 metadata-hash = ["substrate-wasm-builder/metadata-hash"]
