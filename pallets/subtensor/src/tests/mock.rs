@@ -239,8 +239,11 @@ impl AuthorshipInfo<U256> for MockAuthorshipProvider {
 parameter_types! {
     pub const InitialMinAllowedWeights: u16 = 0;
     pub const InitialEmissionValue: u16 = 0;
+    // Same block budget as the runtime (`MAXIMUM_BLOCK_WEIGHT`, 4 s of ref time), so
+    // tests that compare declared extrinsic weights against `max_extrinsic` see the
+    // real limit.
     pub BlockWeights: limits::BlockWeights = limits::BlockWeights::with_sensible_defaults(
-        Weight::from_parts(2_000_000_000_000, u64::MAX),
+        Weight::from_parts(4_000_000_000_000, u64::MAX),
         Perbill::from_percent(75),
     );
     pub const ExistentialDeposit: Balance = TaoBalance::new(1);
