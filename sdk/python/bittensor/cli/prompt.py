@@ -40,6 +40,11 @@ except ImportError:  # older typer uses the external click package
         exceptions as click_exceptions,
     )
 
+if not hasattr(click_exceptions, "Exit"):
+    click_exceptions.Exit = typer.Exit  # type: ignore[attr-defined]
+if not hasattr(click_exceptions, "Abort"):
+    click_exceptions.Abort = typer.Abort  # type: ignore[attr-defined]
+
 from .. import config as cfg
 from .. import wallets
 from .context import AppContext
