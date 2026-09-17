@@ -2267,6 +2267,9 @@ mod pallet_benchmarks {
             Subtensor::<T>::get_coldkey_balance(&author) > author_balance_before,
             "block author must receive the fees from both legs"
         );
+        // Dest-flow counter must be written so the next CI measurement includes
+        // `BasketLiquidityUsed` in `WeightInfo::swap_basket`.
+        assert!(BasketLiquidityUsed::<T>::get(&hotkey, destination_netuid).is_some());
     }
 
     #[benchmark]

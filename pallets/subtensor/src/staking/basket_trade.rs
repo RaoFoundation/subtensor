@@ -517,10 +517,15 @@ impl<T: Config> Pallet<T> {
     /// Weight of one basket trade over `num_holdings` escrow rows: two AMM legs with fee
     /// settlement plus the pre-trade realizable-NAV sweep and the two post-trade re-quotes
     /// (origin and destination), as benchmarked.
+    ///
+    /// Plus one `BasketLiquidityUsed` get/insert on a non-root destination. Do not invent
+    /// CPU time here — CI's reference `bench-patch` updates
+    /// [`WeightInfo::swap_basket`](crate::weights::WeightInfo::swap_basket).
     pub(crate) fn swap_basket_weight(num_holdings: u64) -> Weight {
         <T as crate::pallet::Config>::WeightInfo::swap_basket(
             u32::try_from(num_holdings).unwrap_or(u32::MAX),
         )
+        .saturating_add(T::DbWeight::get().reads_writes(1, 1))
     }
 
     /// Pre-dispatch weight of `swap_basket`: the trade over the row cap plus the flat

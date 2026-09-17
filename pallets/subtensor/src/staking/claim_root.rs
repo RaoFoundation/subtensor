@@ -117,6 +117,14 @@ impl<T: Config> Pallet<T> {
         Self::mul_div_u64(value, shares_outstanding, nav_before)
     }
 
+    /// Flush recycles iff this is false. Keep when real stakers exist, or when
+    /// escrow cash earned a dividend for an existing fund (shares > 0). A
+    /// shareless escrow-only credit cannot mint (`value / 0` → 0) and must not
+    /// sit in the queue forever.
+    pub(crate) fn can_keep_basket_dividend(total_root: u64, escrow_root: u64, shares: u64) -> bool {
+        total_root > 0 || (escrow_root > 0 && shares > 0)
+    }
+
     /// Shared tail of both dividend deposit flows: attribute the value added between real
     /// stakers and the fund's own escrow slot, mint fund shares at the pre-deposit NAV, and
     /// advance the per-validator claimable rate. Errors on a dust deposit so the caller rolls
@@ -129,6 +137,10 @@ impl<T: Config> Pallet<T> {
         escrow_root: u64,
     ) -> DispatchResult {
         let shares_outstanding: u64 = BasketShares::<T>::get(hotkey);
+        ensure!(
+            Self::can_keep_basket_dividend(total_root, escrow_root, shares_outstanding),
+            DispatchError::Other("basket deposit unapportionable")
+        );
 
         // Attribution: the dividend was earned by the whole root stake, escrow slot
         // included. Only the real stakers' fraction mints shares; the escrow slot's
@@ -151,10 +163,9 @@ impl<T: Config> Pallet<T> {
             .checked_div(I96F32::saturating_from_num(total_root))
             .unwrap_or(I96F32::saturating_from_num(0));
 
-        // Escrow-only fund: the whole dividend is the fund's own cash yield. The
-        // credit already raised the holding (and NAV); minting nothing is correct.
-        // Recycle is reserved for a hotkey with no claimant stake and no escrow cash.
-        let escrow_only = total_root == 0 && escrow_root > 0 && shares_outstanding > 0;
+        // Escrow-only keep: same predicate as flush recycle. The credit already
+        // raised the holding (and NAV); minting nothing is correct.
+        let escrow_only = total_root == 0;
         ensure!(
             escrow_only || (shares > 0 && increment != I96F32::saturating_from_num(0)),
             DispatchError::Other("basket deposit too small")

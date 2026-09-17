@@ -819,3 +819,53 @@ fn test_escrow_only_fund_keeps_its_own_dividend() {
         assert_eq!(BasketShares::<Test>::get(hotkey), 10_000_000_000u64);
     });
 }
+
+/// Shareless escrow-only credit cannot mint. Recycle it; do not re-queue forever.
+#[test]
+fn test_shareless_escrow_only_credit_is_recycled() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let coldkey = U256::from(2001);
+        let hotkey = U256::from(3001);
+        let netuid = setup_root_validator(hotkey, coldkey, 1);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+
+        let real = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        );
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            real,
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            NetUid::ROOT,
+            10_000_000_000u64.into(),
+        );
+        assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+
+        let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
+        let credit = 500_000_000u64;
+        queue_credit(&hotkey, netuid, credit);
+
+        let _ = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+
+        assert!(
+            !PendingBasketDeposits::<Test>::contains_key(hotkey, netuid),
+            "shareless escrow-only credit must not re-queue"
+        );
+        assert_eq!(
+            SubnetAlphaOut::<Test>::get(netuid),
+            alpha_out_before,
+            "credit must recycle back into issuance"
+        );
+        assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+    });
+}

@@ -371,12 +371,11 @@ impl<T: Config> Pallet<T> {
             Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, NetUid::ROOT);
         let total_root =
             Self::get_stake_for_hotkey_on_subnet(hotkey, NetUid::ROOT).saturating_sub(escrow_root);
+        let shares = BasketShares::<T>::get(hotkey);
 
-        // No claimant root *and* no escrow cash: nothing earned this dividend, recycle.
-        // An escrow-only fund still earned the credit (the escrow row *is* the
-        // validator's root stake). That slice enters the fund unminted so NAV rises
-        // for existing share holders — do not recycle it.
-        if total_root.is_zero() && escrow_root.is_zero() {
+        // Same predicate as mint. Recycle when the credit cannot be kept:
+        // no claimant root and (no escrow cash, or a shareless escrow slot).
+        if !Self::can_keep_basket_dividend(total_root.to_u64(), escrow_root.to_u64(), shares) {
             Self::recycle_basket_deposit_batch(batch);
             return BasketFlushWork::default();
         }

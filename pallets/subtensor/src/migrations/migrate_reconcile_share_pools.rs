@@ -2,6 +2,8 @@ use crate::staking::stake_utils::HotkeyAlphaSharePoolDataOperations;
 use crate::{Alpha, AlphaV2, Config, Event, HasMigrationRun, Pallet};
 use alloc::collections::BTreeSet;
 use codec::Decode;
+#[cfg(feature = "try-runtime")]
+use codec::Encode;
 use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 use share_pool::{SafeFloat, SharePoolDataOperations};
@@ -151,6 +153,8 @@ pub enum ReconcileOutcome {
     Unchanged,
     /// Prefix or row cap hit, or a share add did not fit. Do not stamp.
     Oversized,
+    /// Target SS58 did not decode. Do not stamp.
+    Undecodable,
 }
 
 /// Set the pool's denominator to the sum of its live shares when they differ. Pool value is
@@ -195,24 +199,32 @@ pub fn reconcile_pool<T: Config>(
 
 /// Stamp only when every target decoded and was in-bound. An oversized or
 /// undecodable target must stay retryable on a later spec.
-fn should_stamp_reconcile(outcomes: &[Result<ReconcileOutcome, ()>]) -> bool {
+fn should_stamp_reconcile(outcomes: &[ReconcileOutcome]) -> bool {
     !outcomes.is_empty()
         && outcomes.iter().all(|outcome| {
             matches!(
                 outcome,
-                Ok(ReconcileOutcome::Written) | Ok(ReconcileOutcome::Unchanged)
+                ReconcileOutcome::Written | ReconcileOutcome::Unchanged
             )
         })
-}
-
-/// One-shot: reconcile every target pool. Guarded by `HasMigrationRun`.
-pub fn migrate_reconcile_share_pools<T: Config>() -> Weight {
-    migrate_reconcile_share_pools_named::<T>(MIGRATION_NAME)
 }
 
 /// Retry after spec 464: same targets, same stamp rule. Needed because 464
 /// stamped `migrate_reconcile_share_pools_v1` even when a target was skipped.
 pub const MIGRATION_NAME_V2: &[u8] = b"migrate_reconcile_share_pools_v2";
+
+/// One-shot for the 464 key. If v2 has not run, skip the prefix walk: v2 is
+/// the 465 walker, so a 459→465 jump must not pay twice. Already-stamped v1
+/// (464) stays a single read.
+pub fn migrate_reconcile_share_pools<T: Config>() -> Weight {
+    if HasMigrationRun::<T>::get(MIGRATION_NAME) {
+        return T::DbWeight::get().reads(1);
+    }
+    if !HasMigrationRun::<T>::get(MIGRATION_NAME_V2) {
+        return T::DbWeight::get().reads(2);
+    }
+    migrate_reconcile_share_pools_named::<T>(MIGRATION_NAME)
+}
 
 pub fn migrate_reconcile_share_pools_v2<T: Config>() -> Weight {
     migrate_reconcile_share_pools_named::<T>(MIGRATION_NAME_V2)
@@ -224,14 +236,14 @@ fn migrate_reconcile_share_pools_named<T: Config>(migration_name: &[u8]) -> Weig
         return weight;
     }
     let mut reconciled: u32 = 0;
-    let mut outcomes: sp_std::vec::Vec<Result<ReconcileOutcome, ()>> = sp_std::vec::Vec::new();
+    let mut outcomes: sp_std::vec::Vec<ReconcileOutcome> = sp_std::vec::Vec::new();
     for (ss58, netuid) in RECONCILE_TARGETS {
         let Some(hotkey) = decode_account_id32::<T>(ss58) else {
             log::warn!(
                 "Migration '{}' skipped an undecodable target",
                 String::from_utf8_lossy(migration_name)
             );
-            outcomes.push(Err(()));
+            outcomes.push(ReconcileOutcome::Undecodable);
             continue;
         };
         let (spent, outcome) = reconcile_pool::<T>(&hotkey, NetUid::from(*netuid));
@@ -239,7 +251,7 @@ fn migrate_reconcile_share_pools_named<T: Config>(migration_name: &[u8]) -> Weig
         if outcome == ReconcileOutcome::Written {
             reconciled = reconciled.saturating_add(1);
         }
-        outcomes.push(Ok(outcome));
+        outcomes.push(outcome);
     }
     if should_stamp_reconcile(&outcomes) {
         HasMigrationRun::<T>::insert(migration_name, true);
@@ -285,6 +297,120 @@ pub fn pool_is_consistent<T: Config>(hotkey: &T::AccountId, netuid: NetUid) -> b
     !sum.gt(&upper) && !lower.gt(&sum)
 }
 
+/// Shared try-runtime state for v1 and v2. Stamp rule matches production:
+/// skip (oversized / undecodable) → no stamp.
+#[cfg(feature = "try-runtime")]
+#[derive(Encode, Decode)]
+struct ReconcileTargetSnap {
+    value: u64,
+    rows: u64,
+    oversized: bool,
+    decodable: bool,
+}
+
+#[cfg(feature = "try-runtime")]
+#[derive(Encode, Decode)]
+struct ReconcilePreUpgradeState {
+    already_run: bool,
+    /// v1 skipped the walk because v2 will run in this upgrade.
+    deferred_to_v2: bool,
+    targets: sp_std::vec::Vec<ReconcileTargetSnap>,
+}
+
+#[cfg(feature = "try-runtime")]
+fn reconcile_pre_upgrade<T: Config>(
+    migration_name: &[u8],
+) -> Result<sp_std::vec::Vec<u8>, sp_runtime::TryRuntimeError> {
+    use crate::TotalHotkeyAlpha;
+    use codec::Encode;
+    use subtensor_runtime_common::Token;
+
+    let already_run = HasMigrationRun::<T>::get(migration_name.to_vec());
+    let deferred_to_v2 = migration_name == MIGRATION_NAME
+        && !already_run
+        && !HasMigrationRun::<T>::get(MIGRATION_NAME_V2.to_vec());
+
+    let mut targets = sp_std::vec::Vec::new();
+    for (ss58, netuid) in RECONCILE_TARGETS {
+        match decode_account_id32::<T>(ss58) {
+            None => targets.push(ReconcileTargetSnap {
+                value: 0,
+                rows: 0,
+                oversized: false,
+                decodable: false,
+            }),
+            Some(hotkey) => {
+                let netuid = NetUid::from(*netuid);
+                let scan = live_share_sum::<T>(&hotkey, netuid);
+                targets.push(ReconcileTargetSnap {
+                    value: TotalHotkeyAlpha::<T>::get(&hotkey, netuid).to_u64(),
+                    rows: scan.rows,
+                    oversized: scan.oversized,
+                    decodable: true,
+                });
+            }
+        }
+    }
+    Ok(ReconcilePreUpgradeState {
+        already_run,
+        deferred_to_v2,
+        targets,
+    }
+    .encode())
+}
+
+#[cfg(feature = "try-runtime")]
+fn reconcile_post_upgrade<T: Config>(
+    migration_name: &[u8],
+    state: sp_std::vec::Vec<u8>,
+) -> Result<(), sp_runtime::TryRuntimeError> {
+    use crate::TotalHotkeyAlpha;
+    use frame_support::ensure;
+    use subtensor_runtime_common::Token;
+
+    let before: ReconcilePreUpgradeState =
+        Decode::decode(&mut &state[..]).map_err(|_| "pre_upgrade state must decode")?;
+    let stamped = HasMigrationRun::<T>::get(migration_name.to_vec());
+    let skip = before
+        .targets
+        .iter()
+        .any(|snap| !snap.decodable || snap.oversized);
+
+    if before.deferred_to_v2 {
+        ensure!(!stamped, "v1 must not stamp when v2 is the walker");
+    } else if before.already_run {
+        ensure!(stamped, "already-run marker must stay set");
+    } else if skip {
+        ensure!(!stamped, "skip must not stamp");
+    } else {
+        ensure!(stamped, "in-bound reconcile must stamp");
+    }
+
+    for ((ss58, netuid), snap) in RECONCILE_TARGETS.iter().zip(before.targets.iter()) {
+        if !snap.decodable {
+            continue;
+        }
+        let hotkey = decode_account_id32::<T>(ss58).ok_or("target hotkey must decode")?;
+        let netuid = NetUid::from(*netuid);
+        let scan = live_share_sum::<T>(&hotkey, netuid);
+        ensure!(
+            TotalHotkeyAlpha::<T>::get(&hotkey, netuid).to_u64() == snap.value,
+            "reconciliation must not change pool value"
+        );
+        ensure!(
+            scan.rows == snap.rows,
+            "reconciliation must not add or remove rows"
+        );
+        if !before.already_run && !before.deferred_to_v2 && !skip {
+            ensure!(
+                pool_is_consistent::<T>(&hotkey, netuid),
+                "target pool shares must sum to its denominator"
+            );
+        }
+    }
+    Ok(())
+}
+
 /// [`OnRuntimeUpgrade`](frame_support::traits::OnRuntimeUpgrade) wrapper with try-runtime
 /// validation: every target pool ends with `Σ shares == D` (within rounding), its value and
 /// row set are unchanged, and the marker is set.
@@ -292,27 +418,6 @@ pub mod reconcile_share_pools {
     use super::*;
     use frame_support::traits::OnRuntimeUpgrade;
     use sp_std::marker::PhantomData;
-
-    #[cfg(feature = "try-runtime")]
-    use crate::TotalHotkeyAlpha;
-    #[cfg(feature = "try-runtime")]
-    use codec::Encode;
-    #[cfg(feature = "try-runtime")]
-    use frame_support::ensure;
-    #[cfg(feature = "try-runtime")]
-    use sp_runtime::TryRuntimeError;
-    #[cfg(feature = "try-runtime")]
-    use sp_std::vec::Vec;
-    #[cfg(feature = "try-runtime")]
-    use subtensor_runtime_common::Token;
-
-    #[cfg(feature = "try-runtime")]
-    #[derive(Encode, Decode)]
-    struct PreUpgradeState {
-        already_run: bool,
-        /// `(value, rows)` per target, in `RECONCILE_TARGETS` order.
-        targets: Vec<(u64, u64)>,
-    }
 
     pub struct Migration<T: Config>(PhantomData<T>);
 
@@ -322,80 +427,19 @@ pub mod reconcile_share_pools {
         }
 
         #[cfg(feature = "try-runtime")]
-        fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
-            let mut targets = Vec::new();
-            for (ss58, netuid) in RECONCILE_TARGETS {
-                let hotkey = decode_account_id32::<T>(ss58).ok_or("target hotkey must decode")?;
-                let netuid = NetUid::from(*netuid);
-                let scan = live_share_sum::<T>(&hotkey, netuid);
-                if scan.oversized {
-                    log::error!(
-                        "Migration '{}' target exceeds bound (visits={}, rows={}, max_visits={}, max_rows={})",
-                        String::from_utf8_lossy(MIGRATION_NAME),
-                        scan.visits,
-                        scan.rows,
-                        MAX_RECONCILE_PREFIX_VISITS,
-                        MAX_RECONCILE_POOL_ROWS
-                    );
-                    return Err("target pool exceeds the reconcile visit/row bound".into());
-                }
-                targets.push((
-                    TotalHotkeyAlpha::<T>::get(&hotkey, netuid).to_u64(),
-                    scan.rows,
-                ));
-            }
-            Ok(PreUpgradeState {
-                already_run: HasMigrationRun::<T>::get(MIGRATION_NAME.to_vec()),
-                targets,
-            }
-            .encode())
+        fn pre_upgrade() -> Result<sp_std::vec::Vec<u8>, sp_runtime::TryRuntimeError> {
+            reconcile_pre_upgrade::<T>(MIGRATION_NAME)
         }
 
         #[cfg(feature = "try-runtime")]
-        fn post_upgrade(state: Vec<u8>) -> Result<(), TryRuntimeError> {
-            let before: PreUpgradeState =
-                Decode::decode(&mut &state[..]).map_err(|_| "pre_upgrade state must decode")?;
-            ensure!(
-                HasMigrationRun::<T>::get(MIGRATION_NAME.to_vec()),
-                "reconciliation marker must be set"
-            );
-            for ((ss58, netuid), (value_before, rows_before)) in
-                RECONCILE_TARGETS.iter().zip(before.targets)
-            {
-                let hotkey = decode_account_id32::<T>(ss58).ok_or("target hotkey must decode")?;
-                let netuid = NetUid::from(*netuid);
-                let scan = live_share_sum::<T>(&hotkey, netuid);
-                if scan.oversized {
-                    log::error!(
-                        "Migration '{}' target exceeds bound (visits={}, rows={}, max_visits={}, max_rows={})",
-                        String::from_utf8_lossy(MIGRATION_NAME),
-                        scan.visits,
-                        scan.rows,
-                        MAX_RECONCILE_PREFIX_VISITS,
-                        MAX_RECONCILE_POOL_ROWS
-                    );
-                    return Err("target pool exceeds the reconcile visit/row bound".into());
-                }
-                ensure!(
-                    TotalHotkeyAlpha::<T>::get(&hotkey, netuid).to_u64() == value_before,
-                    "reconciliation must not change pool value"
-                );
-                ensure!(
-                    scan.rows == rows_before,
-                    "reconciliation must not add or remove rows"
-                );
-                ensure!(
-                    pool_is_consistent::<T>(&hotkey, netuid),
-                    "target pool shares must sum to its denominator"
-                );
-            }
-            let _ = before.already_run;
-            Ok(())
+        fn post_upgrade(state: sp_std::vec::Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
+            reconcile_post_upgrade::<T>(MIGRATION_NAME, state)
         }
     }
 }
 
 /// Retry after spec 464: same targets and stamp rule, new `HasMigrationRun` key.
+/// try-runtime hooks are the v1 checks against this marker.
 pub mod reconcile_share_pools_v2 {
     use super::*;
     use frame_support::traits::OnRuntimeUpgrade;
@@ -406,6 +450,16 @@ pub mod reconcile_share_pools_v2 {
     impl<T: Config> OnRuntimeUpgrade for Migration<T> {
         fn on_runtime_upgrade() -> Weight {
             migrate_reconcile_share_pools_v2::<T>()
+        }
+
+        #[cfg(feature = "try-runtime")]
+        fn pre_upgrade() -> Result<sp_std::vec::Vec<u8>, sp_runtime::TryRuntimeError> {
+            reconcile_pre_upgrade::<T>(MIGRATION_NAME_V2)
+        }
+
+        #[cfg(feature = "try-runtime")]
+        fn post_upgrade(state: sp_std::vec::Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
+            reconcile_post_upgrade::<T>(MIGRATION_NAME_V2, state)
         }
     }
 }
@@ -514,9 +568,16 @@ mod tests {
             );
 
             assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
-            migrate_reconcile_share_pools::<Test>();
-            assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
-            let second = migrate_reconcile_share_pools::<Test>();
+            assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME_V2.to_vec()));
+            let deferred = migrate_reconcile_share_pools::<Test>();
+            assert_eq!(
+                deferred,
+                <Test as frame_system::Config>::DbWeight::get().reads(2)
+            );
+            assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+            migrate_reconcile_share_pools_v2::<Test>();
+            assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME_V2.to_vec()));
+            let second = migrate_reconcile_share_pools_v2::<Test>();
             assert_eq!(
                 second,
                 <Test as frame_system::Config>::DbWeight::get().reads(1)
@@ -526,18 +587,124 @@ mod tests {
 
     #[test]
     fn skip_outcomes_do_not_stamp() {
-        assert!(should_stamp_reconcile(&[Ok(ReconcileOutcome::Written)]));
-        assert!(should_stamp_reconcile(&[Ok(ReconcileOutcome::Unchanged)]));
+        assert!(should_stamp_reconcile(&[ReconcileOutcome::Written]));
+        assert!(should_stamp_reconcile(&[ReconcileOutcome::Unchanged]));
         assert!(should_stamp_reconcile(&[
-            Ok(ReconcileOutcome::Written),
-            Ok(ReconcileOutcome::Unchanged)
+            ReconcileOutcome::Written,
+            ReconcileOutcome::Unchanged
         ]));
-        assert!(!should_stamp_reconcile(&[Ok(ReconcileOutcome::Oversized)]));
-        assert!(!should_stamp_reconcile(&[Err(())]));
+        assert!(!should_stamp_reconcile(&[ReconcileOutcome::Oversized]));
+        assert!(!should_stamp_reconcile(&[ReconcileOutcome::Undecodable]));
         assert!(!should_stamp_reconcile(&[
-            Ok(ReconcileOutcome::Written),
-            Err(())
+            ReconcileOutcome::Written,
+            ReconcileOutcome::Undecodable
         ]));
         assert!(!should_stamp_reconcile(&[]));
+    }
+
+    fn target_hotkey_and_netuid() -> (U256, NetUid) {
+        let (ss58, netuid) = RECONCILE_TARGETS[0];
+        (
+            decode_account_id32::<Test>(ss58).expect("pinned target decodes in tests"),
+            NetUid::from(netuid),
+        )
+    }
+
+    /// v1 already stamped must not block v2: a still-divergent target is repaired,
+    /// v2 stamps, and a second run is a one-read no-op.
+    #[test]
+    fn v2_repairs_after_v1_stamp_and_is_idempotent() {
+        new_test_ext(1).execute_with(|| {
+            let (hotkey, netuid) = target_hotkey_and_netuid();
+            let (alice, bob) = (U256::from(11), U256::from(12));
+            add_network(netuid, 1, 0);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &alice,
+                netuid,
+                1_000_000u64.into(),
+            );
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &bob,
+                netuid,
+                1_000_000u64.into(),
+            );
+            AlphaV2::<Test>::insert(
+                (hotkey, alice, netuid),
+                SafeFloat::new(1_500_000, 0).unwrap(),
+            );
+            assert!(!pool_is_consistent::<Test>(&hotkey, netuid));
+            let value_before = TotalHotkeyAlpha::<Test>::get(hotkey, netuid);
+
+            HasMigrationRun::<Test>::insert(MIGRATION_NAME.to_vec(), true);
+            assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME_V2.to_vec()));
+
+            migrate_reconcile_share_pools_v2::<Test>();
+
+            assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+            assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME_V2.to_vec()));
+            assert!(pool_is_consistent::<Test>(&hotkey, netuid));
+            assert_eq!(TotalHotkeyAlpha::<Test>::get(hotkey, netuid), value_before);
+
+            let second = migrate_reconcile_share_pools_v2::<Test>();
+            assert_eq!(
+                second,
+                <Test as frame_system::Config>::DbWeight::get().reads(1)
+            );
+            assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME_V2.to_vec()));
+        });
+    }
+
+    /// 459→465: v1 must not walk; v2 is the only walker.
+    #[test]
+    fn v1_defers_walk_when_v2_will_run() {
+        new_test_ext(1).execute_with(|| {
+            let (hotkey, netuid) = target_hotkey_and_netuid();
+            let (alice, bob) = (U256::from(11), U256::from(12));
+            add_network(netuid, 1, 0);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &alice,
+                netuid,
+                1_000_000u64.into(),
+            );
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &bob,
+                netuid,
+                1_000_000u64.into(),
+            );
+            AlphaV2::<Test>::insert(
+                (hotkey, alice, netuid),
+                SafeFloat::new(1_500_000, 0).unwrap(),
+            );
+            assert!(!pool_is_consistent::<Test>(&hotkey, netuid));
+
+            migrate_reconcile_share_pools::<Test>();
+            assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+            assert!(!pool_is_consistent::<Test>(&hotkey, netuid));
+
+            migrate_reconcile_share_pools_v2::<Test>();
+            assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME_V2.to_vec()));
+            assert!(pool_is_consistent::<Test>(&hotkey, netuid));
+        });
+    }
+
+    /// An oversized target must not stamp v2, so a later spec can retry.
+    #[test]
+    fn v2_skip_leaves_marker_clear() {
+        new_test_ext(1).execute_with(|| {
+            let (hotkey, netuid) = target_hotkey_and_netuid();
+            add_network(netuid, 1, 0);
+            for i in 0..=MAX_RECONCILE_POOL_ROWS {
+                AlphaV2::<Test>::insert(
+                    (hotkey, U256::from(10_000 + i), netuid),
+                    SafeFloat::new(1, 0).unwrap(),
+                );
+            }
+            migrate_reconcile_share_pools_v2::<Test>();
+            assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME_V2.to_vec()));
+        });
     }
 }
