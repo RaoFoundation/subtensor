@@ -224,6 +224,83 @@ fn test_rejects_multi_subnet_alpha_fee_deduction() {
         assert_eq!(alpha_before_1, alpha_after_1);
     });
 }
+
+/// A leftover raw share from a closed pool epoch must not become a second fee
+/// subnet. `can_withdraw_in_alpha` requires exactly one entry; one live + one
+/// retired used to refuse alpha payment and strand payers with only ED TAO.
+///
+/// cargo test --package subtensor-transaction-fee --lib -- tests::test_live_plus_retired_row_still_pays_alpha_fee --exact --show-output
+#[test]
+fn test_live_plus_retired_row_still_pays_alpha_fee() {
+    new_test_ext().execute_with(|| {
+        let stake_amount = TAO;
+        let sn = setup_subnets(2, 1);
+        let live = sn.subnets[0].netuid;
+        let retired = sn.subnets[1].netuid;
+        let hotkey = sn.hotkeys[0];
+        setup_stake(live, &sn.coldkey, &hotkey, stake_amount);
+
+        Alpha::<Test>::insert(
+            (hotkey, sn.coldkey, retired),
+            U64F64::from_num(1_000_000u64),
+        );
+        AlphaSharePoolEpoch::<Test>::insert(hotkey, retired, 1u64);
+        assert!(pallet_subtensor::SubtokenEnabled::<Test>::get(retired));
+        assert!(SubtensorModule::alpha_share_is_retired(
+            &hotkey,
+            &sn.coldkey,
+            retired
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &sn.coldkey,
+                retired
+            ),
+            0.into()
+        );
+        assert_eq!(
+            SubtensorModule::alpha_iter_prefix((&hotkey, &sn.coldkey)).count(),
+            2,
+            "raw prefix still sees the retired leftover"
+        );
+
+        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::unstake_all { hotkey });
+        let alpha_vec =
+            SubtensorTxFeeHandler::<Balances, TransactionFeeHandler<Test>>::fees_in_alpha::<Test>(
+                &sn.coldkey,
+                &call,
+            );
+        assert_eq!(alpha_vec, vec![(hotkey, live)]);
+        let tao_fee = TaoBalance::from(1_000_000u64);
+        let alpha_fee =
+            pallet_subtensor_swap::Pallet::<Test>::get_alpha_amount_for_tao(live, tao_fee);
+        assert!(!alpha_fee.is_zero());
+        assert!(
+            <TransactionFeeHandler<Test> as AlphaFeeHandler<Test>>::can_withdraw_in_alpha(
+                &sn.coldkey,
+                &alpha_vec,
+                tao_fee,
+            )
+        );
+
+        drain_coldkey_to_ed(&sn.coldkey);
+        let info = call.get_dispatch_info();
+        let ext = pallet_transaction_payment::ChargeTransactionPayment::<Test>::from(0.into());
+        assert_ok!(ext.dispatch_transaction(
+            RuntimeOrigin::signed(sn.coldkey).into(),
+            call,
+            &info,
+            0,
+            0,
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &sn.coldkey, live),
+            0.into(),
+            "live position paid the fee and unstaked"
+        );
+    });
+}
 // cargo test --package subtensor-transaction-fee --lib -- tests::test_swap_hotkey_fees_alpha --exact --show-output
 #[test]
 fn test_swap_hotkey_fees_alpha() {
