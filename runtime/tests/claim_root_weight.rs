@@ -91,7 +91,7 @@ fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
             RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root_with_hotkey { hotkey });
         assert_eq!(
             call.get_dispatch_info().call_weight,
-            expected_root_claim_weight(pallet_subtensor::MAX_ROOT_CLAIM_WORK)
+            expected_root_claim_weight(pallet_subtensor::MAX_ROOT_CLAIM_HOTKEY_WORK)
         );
         assert_call_fits_normal_limit(call);
     });
