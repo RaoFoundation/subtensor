@@ -11,12 +11,18 @@ use subtensor_runtime_common::NetUid;
 
 pub(crate) const MIGRATION_NAME: &[u8] = b"migrate_reconcile_share_pools_v1";
 
-/// Most `Alpha` + `AlphaV2` keys this one-shot may visit on one hotkey prefix. The production
-/// target has ~60 members on one subnet. A larger prefix is left alone so the upgrade block
-/// cannot grow with nominators added after the scan. Not a paged rewrite: oversized pools
-/// are skipped.
-pub(crate) const MAX_RECONCILE_PREFIX_VISITS: u64 = 2_048;
-/// Most rows of the target `(hotkey, netuid)` pool this one-shot will sum.
+/// Most `Alpha` + `AlphaV2` keys this one-shot may visit on one hotkey prefix.
+///
+/// The walk is `(hotkey,)` across every subnet, not just the target netuid. Live mainnet
+/// for the pinned target (`5DXdHix…L1S1`) is 2,376 `Alpha` + 10,273 `AlphaV2` = 12,649
+/// prefix keys, and only ~58 rows on netuid 73. The old 2,048 visit cap aborted
+/// `try-runtime` / skipped the write on that prefix. 65,536 is ~5× today's live
+/// prefix (headroom for more nominators before the 459→464 upgrade) and still
+/// bounded: RocksDbWeight at the cap is 65,536 × 25e6 ≈ 1.64e12, under the 4e12
+/// block. A larger prefix is skipped, not scanned without a cap.
+pub(crate) const MAX_RECONCILE_PREFIX_VISITS: u64 = 65_536;
+/// Most rows of the target `(hotkey, netuid)` pool this one-shot will sum. Live
+/// target has ~58 members; 1,024 is ~17× that. Not the failing cap on mainnet.
 pub(crate) const MAX_RECONCILE_POOL_ROWS: u64 = 1_024;
 
 /// Pools whose live shares no longer sum to their denominator, so a member is quoted more
@@ -269,10 +275,17 @@ pub mod reconcile_share_pools {
                 let hotkey = decode_account_id32::<T>(ss58).ok_or("target hotkey must decode")?;
                 let netuid = NetUid::from(*netuid);
                 let scan = live_share_sum::<T>(&hotkey, netuid);
-                ensure!(
-                    !scan.oversized,
-                    "target pool exceeds the reconcile visit/row bound"
-                );
+                if scan.oversized {
+                    log::error!(
+                        "Migration '{}' target exceeds bound (visits={}, rows={}, max_visits={}, max_rows={})",
+                        String::from_utf8_lossy(MIGRATION_NAME),
+                        scan.visits,
+                        scan.rows,
+                        MAX_RECONCILE_PREFIX_VISITS,
+                        MAX_RECONCILE_POOL_ROWS
+                    );
+                    return Err("target pool exceeds the reconcile visit/row bound".into());
+                }
                 targets.push((
                     TotalHotkeyAlpha::<T>::get(&hotkey, netuid).to_u64(),
                     scan.rows,
@@ -299,10 +312,17 @@ pub mod reconcile_share_pools {
                 let hotkey = decode_account_id32::<T>(ss58).ok_or("target hotkey must decode")?;
                 let netuid = NetUid::from(*netuid);
                 let scan = live_share_sum::<T>(&hotkey, netuid);
-                ensure!(
-                    !scan.oversized,
-                    "target pool exceeds the reconcile visit/row bound"
-                );
+                if scan.oversized {
+                    log::error!(
+                        "Migration '{}' target exceeds bound (visits={}, rows={}, max_visits={}, max_rows={})",
+                        String::from_utf8_lossy(MIGRATION_NAME),
+                        scan.visits,
+                        scan.rows,
+                        MAX_RECONCILE_PREFIX_VISITS,
+                        MAX_RECONCILE_POOL_ROWS
+                    );
+                    return Err("target pool exceeds the reconcile visit/row bound".into());
+                }
                 ensure!(
                     TotalHotkeyAlpha::<T>::get(&hotkey, netuid).to_u64() == value_before,
                     "reconciliation must not change pool value"

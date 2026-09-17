@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 462
+Spec version: 464
 """
 from dataclasses import dataclass
 
@@ -201,7 +201,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 157): ErrorInfo('SubtensorModule', 'BetaBasketSeedInProgress', 'The `migrate_seed_beta_basket_v2` seed has not completed. Basket deposits, claims, coldkey / root-touching hotkey swaps, and root stake add/remove/transfer/swap are paused until it finishes so snapshotted conversion cannot desync from live stake (`Σ owed == BasketShares`).'),
     (7, 158): ErrorInfo('SubtensorModule', 'RootWeightSettingDisabled', 'Retired (kept for SCALE index stability): the `set_root_weights` extrinsic and its network-wide gate were removed. Funds have no target vector; dividends accumulate in place and composition changes only through `swap_basket`.'),
     (7, 159): ErrorInfo('SubtensorModule', 'RootClaimTooHeavy', 'A root claim would process more root hotkeys and basket rows than the fixed admission envelope. Use `claim_root_with_hotkey` per validator so admission weight matches the holdings actually walked.'),
-    (7, 160): ErrorInfo('SubtensorModule', 'RootWeightCapExceeded', 'Retired (kept for SCALE index stability on the 463 testnet/devnet runtime): `set_root_weights` concentration cap. The live guard is `BasketConcentrationCapExceeded`.'),
+    (7, 160): ErrorInfo('SubtensorModule', 'RootWeightCapExceeded', 'Retired (kept for SCALE index stability on the 463 testnet/devnet runtime): `set_root_weights` concentration cap. The live guard is [`Error::BasketConcentrationCapExceeded`].'),
     (7, 161): ErrorInfo('SubtensorModule', 'BasketDepositPending', "A queued root-dividend deposit could not be settled. Operations which change the hotkey's root claimant base must retry after the deposit becomes executable."),
     (7, 162): ErrorInfo('SubtensorModule', 'InvalidBatchLength', 'A per-subnet weight batch is empty or has more items than there are networks.'),
     (7, 163): ErrorInfo('SubtensorModule', 'TooManyStakingHotkeys', "The destination coldkey already stakes through the maximum number of hotkeys that third-party transfers may add, or the signer's own `StakingHotkeys` list is at its cap. Staking to a hotkey the coldkey already stakes through is still accepted."),
