@@ -3,7 +3,7 @@
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo};
 use node_subtensor_runtime::{
     BlockWeights, BuildStorage, Runtime, RuntimeCall, RuntimeGenesisConfig, System, TxExtension,
-    check_mortality, check_nonce, sudo_wrapper,
+    check_mortality, check_nonce, check_nonzero_sender, sudo_wrapper,
     transaction_payment_wrapper::ChargeTransactionPaymentWrapper,
 };
 use sp_runtime::{generic::Era, traits::TransactionExtension};
@@ -35,7 +35,7 @@ fn expected_root_claim_weight(limit: u32) -> frame_support::weights::Weight {
 fn assert_call_fits_normal_limit(call: RuntimeCall) {
     let extensions: TxExtension = (
         (
-            frame_system::CheckNonZeroSender::<Runtime>::new(),
+            check_nonzero_sender::CheckNonZeroSender::<Runtime>::new(),
             frame_system::CheckSpecVersion::<Runtime>::new(),
             frame_system::CheckTxVersion::<Runtime>::new(),
             frame_system::CheckGenesis::<Runtime>::new(),
