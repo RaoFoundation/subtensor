@@ -231,6 +231,11 @@ where
         pallet_subtensor::Pallet::<T>::alpha_iter_prefix((hotkey, coldkey))
             .map(|(netuid, _)| netuid)
             .filter(|netuid| pallet_subtensor::SubtokenEnabled::<T>::get(netuid))
+            .filter(|netuid| {
+                pallet_subtensor::Pallet::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    hotkey, coldkey, *netuid,
+                ) != 0.into()
+            })
             .collect()
     }
 }
