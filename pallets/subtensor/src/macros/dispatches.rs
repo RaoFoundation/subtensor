@@ -2129,7 +2129,7 @@ mod dispatches {
         /// * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey.
         #[pallet::call_index(148)]
         #[pallet::weight(
-            Pallet::<T>::root_claim_declared_weight()
+            Pallet::<T>::root_claim_hotkey_declared_weight()
         )]
         pub fn claim_root_with_hotkey(
             origin: OriginFor<T>,
@@ -2137,7 +2137,7 @@ mod dispatches {
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
             ensure!(
-                Self::root_claim_fits_declared_budget(core::slice::from_ref(&hotkey)),
+                Self::root_claim_hotkey_fits_declared_budget(&hotkey),
                 Error::<T>::RootClaimTooHeavy
             );
 

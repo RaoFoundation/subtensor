@@ -862,21 +862,35 @@ impl<T: Config> Pallet<T> {
         swept
     }
 
-    /// Fixed admission budget for both claim paths.
+    /// Fixed admission budget for a coldkey-wide claim.
     pub(crate) fn root_claim_declared_work() -> u32 {
         crate::MAX_ROOT_CLAIM_WORK
+    }
+
+    /// Fixed admission budget for [`Pallet::claim_root_with_hotkey`].
+    pub(crate) fn root_claim_hotkey_declared_work() -> u32 {
+        crate::MAX_ROOT_CLAIM_HOTKEY_WORK
     }
 
     /// Pre-dispatch weight for every independently bounded dimension: full claim work,
     /// scan-only work, and the flat pending-deposit flush allowance
     /// ([`Self::basket_flush_weight_bound`]) shared by every extrinsic that flushes.
-    pub(crate) fn root_claim_declared_weight() -> Weight {
-        let limit = Self::root_claim_declared_work();
+    pub(crate) fn root_claim_declared_weight_for(limit: u32) -> Weight {
         <T as crate::pallet::Config>::WeightInfo::claim_root(limit)
             .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
                 limit,
             ))
             .saturating_add(Self::basket_flush_weight_bound())
+    }
+
+    /// Coldkey-wide declared weight: the 256-unit envelope plus the flush allowance.
+    pub(crate) fn root_claim_declared_weight() -> Weight {
+        Self::root_claim_declared_weight_for(Self::root_claim_declared_work())
+    }
+
+    /// Single-hotkey declared weight: the 129-unit envelope plus the same flush allowance.
+    pub(crate) fn root_claim_hotkey_declared_weight() -> Weight {
+        Self::root_claim_declared_weight_for(Self::root_claim_hotkey_declared_work())
     }
 
     /// Hotkeys relevant to a coldkey-wide root claim. Ordinary subnet-only staking hotkeys
@@ -901,8 +915,7 @@ impl<T: Config> Pallet<T> {
     /// flush allowance ([`Self::basket_flush_fits_declared_budget`]). Count raw Alpha/AlphaV2
     /// rows so legacy duplicates and malformed zero rows are charged conservatively, and stop
     /// as soon as a bound is exceeded.
-    pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
-        let budget = Self::root_claim_declared_work();
+    pub(crate) fn root_claim_fits_budget(hotkeys: &[T::AccountId], budget: u32) -> bool {
         let mut work = u32::try_from(hotkeys.len()).unwrap_or(u32::MAX);
         if work > budget {
             return false;
@@ -924,6 +937,17 @@ impl<T: Config> Pallet<T> {
             }
         }
         Self::basket_flush_fits_declared_budget(hotkeys)
+    }
+
+    pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
+        Self::root_claim_fits_budget(hotkeys, Self::root_claim_declared_work())
+    }
+
+    pub(crate) fn root_claim_hotkey_fits_declared_budget(hotkey: &T::AccountId) -> bool {
+        Self::root_claim_fits_budget(
+            core::slice::from_ref(hotkey),
+            Self::root_claim_hotkey_declared_work(),
+        )
     }
 
     /// Actual post-dispatch weight of a root claim: full benchmark units for relationships

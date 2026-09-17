@@ -249,8 +249,9 @@ root-stakes to.
   the entitlement keeps accruing and pays out once it clears. There is no
   deadline and nothing expires.
 - **Claim fee.** The inclusion fee scales with how many ALPHA types the
-  basket holds. Both root-claim calls reserve a conservative 256-unit work
-  envelope on every chain and refund the unused part after the claim. Admission
+  basket holds. The chain reserves a 129-unit envelope for a single-validator
+  claim and the full 256-unit envelope for a coldkey-wide claim, then refunds
+  the unused part after. Admission
   counts only root-relevant validator hotkeys plus their stored basket rows;
   unrelated subnet stakes are filtered instead of being multiplied by the total
   network count. Classifying the staking-hotkey vector is separately capped at

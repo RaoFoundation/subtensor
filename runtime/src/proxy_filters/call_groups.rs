@@ -160,12 +160,19 @@ call_filter_group!(
     [
         RuntimeCall::MevShield(MevShieldCall::announce_next_key),
         RuntimeCall::MevShield(MevShieldCall::submit_encrypted),
-        RuntimeCall::MevShield(MevShieldCall::store_encrypted),
         RuntimeCall::MevShield(MevShieldCall::set_max_pending_extrinsics_number),
         RuntimeCall::MevShield(MevShieldCall::set_on_initialize_weight),
         RuntimeCall::MevShield(MevShieldCall::set_stored_extrinsic_lifetime),
         RuntimeCall::MevShield(MevShieldCall::set_max_extrinsic_weight),
     ]
+);
+
+// Re-dispatches the decrypted inner call on a freshly built Signed origin
+// once a decryptor is wired. Keep it off every restricted proxy grant
+// (inventory-only, `Any` still reaches it).
+call_filter_group!(
+    MevShieldStoreEncryptedCalls,
+    [RuntimeCall::MevShield(MevShieldCall::store_encrypted)]
 );
 
 call_filter_group!(
@@ -660,9 +667,10 @@ call_filter_group!(SudoSetCodeCalls, [
 // Infrastructure pallets granted wholesale to the broad proxies, excluding
 // sudo, pallets that can move value indirectly, and wrapper pallets that
 // re-dispatch a caller-supplied inner call on a freshly built origin
-// (`MultisigCalls`: `as_multi_threshold_1` drops the proxy filter). Shared by
-// the proxy policy in `mod.rs` and by the `WholesalePalletCalls` inventory
-// below so the list lives in one place.
+// (`MultisigCalls`: `as_multi_threshold_1` drops the proxy filter;
+// `MevShieldStoreEncryptedCalls`: decrypt-and-dispatch drops the filter).
+// Shared by the proxy policy in `mod.rs` and by the `WholesalePalletCalls`
+// inventory below so the list lives in one place.
 pub(super) type InfraCommonCalls = (
     SystemCalls,
     TimestampCalls,
@@ -694,6 +702,7 @@ type WholesalePalletCalls = (
     InfraCommonCalls,
     SudoCalls,
     MultisigCalls,
+    MevShieldStoreEncryptedCalls,
     EvmCalls,
     CrowdloanCalls,
     ContractsCalls,

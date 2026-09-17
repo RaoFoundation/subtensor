@@ -312,7 +312,8 @@ struct ReconcileTargetSnap {
 #[derive(Encode, Decode)]
 struct ReconcilePreUpgradeState {
     already_run: bool,
-    /// v1 skipped the walk because v2 will run in this upgrade.
+    /// Live v1 is a no-op (one marker read). Treat any unstamped v1 as
+    /// deferred so try-runtime does not require a stamp after v2.
     deferred_to_v2: bool,
     targets: sp_std::vec::Vec<ReconcileTargetSnap>,
 }
@@ -326,9 +327,7 @@ fn reconcile_pre_upgrade<T: Config>(
     use subtensor_runtime_common::Token;
 
     let already_run = HasMigrationRun::<T>::get(migration_name.to_vec());
-    let deferred_to_v2 = migration_name == MIGRATION_NAME
-        && !already_run
-        && !HasMigrationRun::<T>::get(MIGRATION_NAME_V2.to_vec());
+    let deferred_to_v2 = migration_name == MIGRATION_NAME && !already_run;
 
     let mut targets = sp_std::vec::Vec::new();
     for (ss58, netuid) in RECONCILE_TARGETS {

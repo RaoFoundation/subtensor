@@ -71,10 +71,16 @@ pub const MIN_ALPHA_LOW: u16 = 1_639;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
-/// Benchmark upper bound and admission envelope for `claim_root` /
-/// `claim_root_scan` (`Linear<1, N>`). Both claim paths reserve this many units
-/// and refund unused weight after dispatch.
+/// Benchmark and admission ceiling for coldkey-wide root claims and scans
+/// (`Linear<1, N>`). Weight calculation cannot inspect the signer, so this path
+/// reserves the full envelope and refunds unused weight after dispatch.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
+/// Single-hotkey quote: one validator plus the current maximum 128 subnet slots.
+/// Raise this in the same runtime upgrade that raises the subnet limit. The
+/// single-hotkey gate and declared weight must use this bound, not
+/// [`MAX_ROOT_CLAIM_WORK`], so a 130-row basket cannot be admitted under a
+/// 129-unit declaration.
+pub const MAX_ROOT_CLAIM_HOTKEY_WORK: u32 = 129;
 /// Longest `StakingHotkeys` list a third party may leave behind on a coldkey through
 /// stake transfers. Half the root-claim admission budget, so a coldkey with up to as many
 /// hotkeys of its own still passes the coldkey-wide `claim_root` gate.

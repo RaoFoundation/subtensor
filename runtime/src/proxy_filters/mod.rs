@@ -21,11 +21,11 @@ use crate::RuntimeCall;
 // read as "allow if the call is in any of these groups".
 // ============================================================================
 
-/// All admin-utils configuration. Every broad proxy historically allowed every
-/// admin call; the root-only (`RootConfigCalls`) and owner-key (`OwnerKeyCalls`)
-/// calls are gated by the dispatch's own origin check, so granting them to a
-/// signed proxy is inert.
-type AdminAll = (SubnetManagementCalls, RootConfigCalls, OwnerKeyCalls);
+/// Admin-utils configuration granted to broad proxies. Root-only
+/// (`RootConfigCalls`) calls are still inert (they need `ensure_root`).
+/// Owner-key rotation is **not** inert: `sudo_set_sn_owner_hotkey` is
+/// owner-or-root, so `OwnerKeyCalls` stays inventory-only.
+type AdminAll = (SubnetManagementCalls, RootConfigCalls);
 
 /// `Transfer`: liquid value movement.
 type TransferAllowed = (BalanceTransferCalls, StakeTransferCalls);
@@ -51,11 +51,12 @@ type SubnetLeaseAllowed = (
 
 /// `NonTransfer`: excludes liquid value movement, coldkey swaps, sudo, EVM,
 /// Contracts, and Crowdloan calls that can move value indirectly, Multisig
-/// wrappers (they re-dispatch on a fresh origin that drops this filter), and
-/// basket trading (which needs the explicit `BasketTrading` grant). Sudo is
-/// excluded because a sudo-key principal would otherwise hand the delegate
-/// root, including forced transfers. `SudoCalls` is inventory-only: no
-/// restricted proxy grants it.
+/// wrappers (they re-dispatch on a fresh origin that drops this filter),
+/// `MevShield::store_encrypted` (decrypt-and-dispatch drops the filter),
+/// owner-key rotation, and basket trading (which needs the explicit
+/// `BasketTrading` grant). Sudo is excluded because a sudo-key principal
+/// would otherwise hand the delegate root, including forced transfers.
+/// `SudoCalls` is inventory-only: no restricted proxy grants it.
 type NonTransferAllowed = (
     InfraCommonCalls,
     AdminAll,
@@ -75,7 +76,8 @@ type NonTransferAllowed = (
 );
 
 /// `NonFungible`: nothing that moves, locks, burns or spends TAO/alpha, no key
-/// swaps, no sudo, and no Multisig wrappers (fresh-origin re-dispatch).
+/// swaps, no sudo, no Multisig wrappers (fresh-origin re-dispatch), no
+/// `store_encrypted`, and no owner-key rotation.
 type NonFungibleAllowed = (
     InfraCommonCalls,
     AdminAll,
@@ -92,8 +94,8 @@ type NonFungibleAllowed = (
 /// `NonCritical`: day-to-day operations including value movement, but no sudo,
 /// network dissolution, root/burned registration, coldkey swaps, Crowdloan
 /// wrappers (they re-dispatch a caller-supplied call as the real coldkey),
-/// Multisig wrappers, or basket trading (which needs the explicit
-/// `BasketTrading` grant).
+/// Multisig wrappers, `store_encrypted`, owner-key rotation, or basket
+/// trading (which needs the explicit `BasketTrading` grant).
 type NonCriticalAllowed = (
     InfraCommonCalls,
     EvmCalls,
@@ -323,6 +325,7 @@ mod tests {
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SudoCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -341,6 +344,7 @@ mod tests {
         let denied = &denied | &group_calls::<(SubtensorValueCalls, SudoCalls)>();
         let denied = &denied | &group_calls::<MultisigCalls>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
@@ -533,6 +537,7 @@ mod tests {
             | &group_calls::<ColdkeySwapCalls>();
         let denied = &denied | &group_calls::<(CrowdloanCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied
@@ -827,6 +832,8 @@ mod tests {
             assert!(!allowed.contains("Multisig::as_multi"));
             assert!(!allowed.contains("Crowdloan::finalize"));
             assert!(!allowed.contains("Sudo::sudo"));
+            assert!(!allowed.contains("MevShield::store_encrypted"));
+            assert!(!allowed.contains("AdminUtils::sudo_set_sn_owner_hotkey"));
         }
         // `root_dissolve_network` leaked into NonCritical specifically.
         assert!(

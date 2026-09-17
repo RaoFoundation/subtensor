@@ -13,6 +13,7 @@ from ._money import UNBOUNDED, Spend
 from ._root_claim_fee import (
     quote_root_claim_fee,
     root_claim_admission,
+    root_claim_declared_work,
     root_claim_reserve,
 )
 from .base import Intent, IntentPreflight
@@ -266,6 +267,7 @@ class _RootClaimIntent(Intent):
         call: Any = None,
     ) -> IntentPreflight:
         hotkeys = self._claim_hotkeys()
+        declared_work = root_claim_declared_work(hotkeys)
         try:
             admission = await root_claim_admission(
                 substrate,
@@ -299,6 +301,7 @@ class _RootClaimIntent(Intent):
                 fee_payer,
                 compose=compose,
                 call=call,
+                declared_work=declared_work,
             )
         except Exception as error:
             return IntentPreflight(
