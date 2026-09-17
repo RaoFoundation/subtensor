@@ -99,6 +99,13 @@ pub const MAX_COLDKEY_SWAP_HOTKEYS: u32 = MAX_STAKING_HOTKEYS;
 /// quarters of the normal block budget) and refunds the rest post-dispatch. Four production
 /// coldkeys exceed it today.
 pub const MAX_COLDKEY_SWAP_POSITIONS: u32 = 1024;
+/// Most subnet legs one `unstake_all` / `unstake_all_alpha` call will validate or
+/// unstake. Each successful leg is one `remove_stake` plus a [`MAX_STAKING_HOTKEYS`]
+/// walk (~9.3e10 ref-time at RocksDbWeight). The normal-class `max_extrinsic` is
+/// 75% of the 4e12 block = 3e12; ~33 uncapped legs already exceed that, so a live
+/// walk of ~568 subnets cannot be submitted. 16 legs is ~1.5e12 — half the
+/// normal class — and remaining positions stay for a later call.
+pub const MAX_UNSTAKE_ALL_LEGS: u32 = 16;
 
 /// Default [`BasketConcentrationCap`]: the largest u16-normalized share of a fund's NAV a
 /// single holding may reach through a `swap_basket` buy. `u16::MAX / 16 + 1` (= 4096) is

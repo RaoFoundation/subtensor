@@ -1236,8 +1236,10 @@ mod dispatches {
         ///
         /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
         ///
-        /// The declared weight covers a position on every existing subnet (one `remove_stake`
-        /// each) and is refunded to the subnets actually visited and unstaked.
+        /// The declared weight covers up to [`crate::MAX_UNSTAKE_ALL_LEGS`] positions
+        /// (one `remove_stake` plus a `StakingHotkeys` walk each) and is refunded to
+        /// the subnets actually visited and unstaked. Remaining positions stay for a
+        /// later call so the envelope fits the normal-class block.
         #[pallet::call_index(83)]
         #[pallet::weight(Pallet::<T>::unstake_all_declared_weight())]
         pub fn unstake_all(
@@ -1272,8 +1274,10 @@ mod dispatches {
         ///
         /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
         ///
-        /// The declared weight covers a position on every existing subnet (one `remove_stake`
-        /// each) and is refunded to the subnets actually visited and unstaked.
+        /// The declared weight covers up to [`crate::MAX_UNSTAKE_ALL_LEGS`] positions
+        /// (one `remove_stake` plus a `StakingHotkeys` walk each) and is refunded to
+        /// the subnets actually visited and unstaked. Remaining positions stay for a
+        /// later call so the envelope fits the normal-class block.
         #[pallet::call_index(84)]
         #[pallet::weight(Pallet::<T>::unstake_all_alpha_declared_weight())]
         pub fn unstake_all_alpha(

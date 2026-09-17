@@ -5398,11 +5398,10 @@ fn test_unstake_all_works() {
     });
 }
 
-// `unstake_all` runs one `remove_stake` worth of work per subnet the coldkey has a position
-// on, plus a quote on every other subnet. Its declared weight must cover a position on every
-// existing subnet, and the post-dispatch weight must scale with the legs it really ran.
-// Before the fix the call declared the benchmarked empty-loop constant (no subnets, no
-// stake), so a block builder admitted it at a fraction of its real cost.
+// `unstake_all` runs one `remove_stake` worth of work per subnet the coldkey has a
+// position on, plus a quote on every other subnet, up to `MAX_UNSTAKE_ALL_LEGS`.
+// Declared weight must cover that envelope and stay under the normal-class
+// `max_extrinsic`. Post-dispatch weight scales with the legs it really ran.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_unstake_all_weight_covers_every_subnet --exact
 #[test]
 fn test_unstake_all_weight_covers_every_subnet() {
@@ -5443,13 +5442,30 @@ fn test_unstake_all_weight_covers_every_subnet() {
         let total_subnets = u64::from(TotalNetworks::<Test>::get());
         assert!(total_subnets >= u64::from(staked_subnets + unstaked_subnets));
 
-        // Declared: one full leg for every existing subnet, on top of the fixed part.
+        // Declared: one full leg per envelope slot (capped so it fits the block).
         let call = RuntimeCall::SubtensorModule(crate::Call::unstake_all { hotkey });
         let declared = call.get_dispatch_info().call_weight;
-        let worst_case_legs = remove_stake_unit.saturating_mul(total_subnets);
+        let envelope_legs = total_subnets.min(u64::from(MAX_UNSTAKE_ALL_LEGS));
+        let worst_case_legs = remove_stake_unit.saturating_mul(envelope_legs);
         assert!(
             declared.all_gte(worst_case_legs),
-            "declared {declared:?} must cover {total_subnets} legs of {remove_stake_unit:?}"
+            "declared {declared:?} must cover {envelope_legs} legs of {remove_stake_unit:?}"
+        );
+        let max_extrinsic = BlockWeights::get()
+            .get(DispatchClass::Normal)
+            .max_extrinsic
+            .expect("normal extrinsics have a configured maximum");
+        assert!(
+            declared.all_lte(max_extrinsic),
+            "declared {declared:?} exceeds max extrinsic {max_extrinsic:?}"
+        );
+        let alpha_declared =
+            RuntimeCall::SubtensorModule(crate::Call::unstake_all_alpha { hotkey })
+                .get_dispatch_info()
+                .call_weight;
+        assert!(
+            alpha_declared.all_lte(max_extrinsic),
+            "unstake_all_alpha declared {alpha_declared:?} exceeds max extrinsic {max_extrinsic:?}"
         );
 
         // Actual: the legs really run, never more than declared, never less than their work.
