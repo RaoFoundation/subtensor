@@ -1173,9 +1173,14 @@ impl<T: Config> Pallet<T> {
         }
 
         // Destination-flow counters follow the fund so a hotkey swap cannot
-        // reset wash headroom. Carry the higher used amount and the later block.
+        // reset wash headroom. Carry the higher used amount and the later block,
+        // including zero-holding dests (post-unwind). Identity<NetUid> bounds
+        // this prefix to 2^16 rows; each row is charged like claimed/pending so
+        // the walk is not free. Do not drop leftovers: skipping a dest would
+        // reset that dest's wash headroom.
         let used_rows: sp_std::vec::Vec<_> =
             BasketLiquidityUsed::<T>::iter_prefix(old_hotkey).collect();
+        moved_rows = moved_rows.saturating_add(used_rows.len() as u32);
         for (netuid, (old_used, old_block)) in used_rows {
             BasketLiquidityUsed::<T>::remove(old_hotkey, netuid);
             let carried = match BasketLiquidityUsed::<T>::get(new_hotkey, netuid) {
