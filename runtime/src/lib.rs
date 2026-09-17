@@ -246,8 +246,9 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     system_version: 1,
 };
 
+/// Block capacity in reference-machine weight units, not wall-clock execution time.
 pub const MAXIMUM_BLOCK_WEIGHT: Weight =
-    Weight::from_parts(4u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX);
+    Weight::from_parts(12u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX);
 
 // The version information used to identify this runtime when compiled natively.
 #[cfg(feature = "std")]
@@ -263,7 +264,8 @@ const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 parameter_types! {
     pub const BlockHashCount: BlockNumber = 2400;
     pub const Version: RuntimeVersion = VERSION;
-    // We allow for 2 seconds of compute with a 6 second average block time.
+    // Reserve 25% for operational work and 10% for initialization when deriving
+    // the maximum normal extrinsic. Fee conversion is independent of this budget.
     pub BlockWeights: frame_system::limits::BlockWeights =
         frame_system::limits::BlockWeights::with_sensible_defaults(
             MAXIMUM_BLOCK_WEIGHT,
@@ -745,8 +747,9 @@ impl CommitmentsInterface<AccountId> for CommitmentsI {
 }
 
 parameter_types! {
+    // Keep the scheduler's existing allowance independent of signed-transaction capacity.
     pub MaximumSchedulerWeight: Weight = Perbill::from_percent(80) *
-        BlockWeights::get().max_block;
+        Weight::from_parts(4u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX);
     pub const MaxScheduledPerBlock: u32 = 50;
     pub const NoPreimagePostponement: Option<u32> = Some(10);
 }
@@ -1188,7 +1191,10 @@ pub const OPERATIONAL_DISPATCH_PRIORITY: TransactionPriority = 10_000_000_000;
 /// `WeightPerGas` is an approximate ratio of the amount of Weight per Gas.
 ///
 fn weight_per_gas() -> Weight {
-    (NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT)
+    // Preserve the existing conversion and EVM capacity when increasing the
+    // native block budget. Otherwise native dispatches would become cheaper in gas.
+    let reference_budget = Weight::from_parts(4u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX);
+    (NORMAL_DISPATCH_RATIO * reference_budget)
         .checked_div(BLOCK_GAS_LIMIT)
         .unwrap_or_default()
 }

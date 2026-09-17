@@ -166,7 +166,9 @@ mod tests {
     }
 
     fn remove_base() -> Weight {
-        <Runtime as pallet_subtensor::Config>::WeightInfo::remove_stake()
+        <Runtime as pallet_subtensor::Config>::WeightInfo::remove_stake().saturating_add(
+            <Runtime as pallet_subtensor::Config>::WeightInfo::check_coldkey_swap_extension(),
+        )
     }
 
     fn scan(keys: u64) -> Weight {
@@ -338,7 +340,9 @@ mod tests {
                 );
                 assert_eq!(
                     call.get_dispatch_info().call_weight,
-                    SubtensorModule::unstake_all_declared_weight()
+                    SubtensorModule::unstake_all_declared_weight().saturating_add(
+                        <Runtime as pallet_subtensor::Config>::WeightInfo::check_coldkey_swap_extension(),
+                    )
                 );
             }
         });
