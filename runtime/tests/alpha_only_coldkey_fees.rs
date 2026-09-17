@@ -183,6 +183,59 @@ fn alpha_only_coldkey_can_submit_remove_stake() {
 }
 
 #[test]
+fn alpha_paid_scan_fee_is_discounted_before_withdrawal() {
+    new_test_ext().execute_with(|| {
+        let received = setup_alpha_only_coldkey();
+        let call = remove_stake_call(received);
+        let info = call.get_dispatch_info();
+        let expected_fee =
+            node_subtensor_runtime::staking_fee::query_info(&call, &info, 100, false).partial_fee;
+        let full_fee = pallet_transaction_payment::Pallet::<Runtime>::compute_fee(
+            100,
+            &info,
+            TaoBalance::ZERO,
+        );
+        assert!(expected_fee < full_fee);
+        let expected_alpha = pallet_subtensor_swap::Pallet::<Runtime>::get_alpha_amount_for_tao(
+            netuid(),
+            expected_fee.into(),
+        );
+
+        // Exercise charging and settlement without a stake withdrawal in the call
+        // body, so the stake delta measures only the non-refundable alpha fee.
+        let payment = ChargeTransactionPaymentWrapper::<Runtime>::new(TaoBalance::ZERO);
+        assert_ok!(payment.test_run(
+            RuntimeOrigin::signed(alpha_only_coldkey()),
+            &call,
+            &info,
+            100,
+            0,
+            |_| Ok(Default::default()),
+        ));
+        let remaining = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey(),
+            &alpha_only_coldkey(),
+            netuid(),
+        );
+        assert_eq!(received.saturating_sub(remaining), expected_alpha);
+        assert_eq!(
+            Balances::free_balance(alpha_only_coldkey()),
+            TaoBalance::ZERO
+        );
+        assert!(
+            frame_system::Pallet::<Runtime>::events()
+                .iter()
+                .any(|record| matches!(
+                    &record.event,
+                    node_subtensor_runtime::RuntimeEvent::SubtensorModule(
+                        pallet_subtensor::Event::TransactionFeePaidWithAlpha { who, alpha_fee, .. }
+                    ) if who == &alpha_only_coldkey() && alpha_fee == &expected_alpha
+                ))
+        );
+    });
+}
+
+#[test]
 fn coldkey_without_tao_or_alpha_is_still_rejected() {
     new_test_ext().execute_with(|| {
         setup_alpha_only_coldkey();
