@@ -17,6 +17,7 @@ pub mod evm_origin;
 mod fee_filters;
 mod proxy_filters;
 pub mod small_order;
+pub mod staking_fee;
 pub mod sudo_wrapper;
 pub mod transaction_payment_wrapper;
 
@@ -1959,13 +1960,17 @@ impl_runtime_apis! {
             uxt: <Block as BlockT>::Extrinsic,
             len: u32,
         ) -> pallet_transaction_payment_rpc_runtime_api::RuntimeDispatchInfo<Balance> {
-            TransactionPayment::query_info(uxt, len)
+            use frame_support::dispatch::GetDispatchInfo;
+            use sp_runtime::traits::ExtrinsicLike;
+            staking_fee::query_info(&uxt.0.function, &uxt.get_dispatch_info(), len, uxt.is_bare())
         }
         fn query_fee_details(
             uxt: <Block as BlockT>::Extrinsic,
             len: u32,
         ) -> pallet_transaction_payment::FeeDetails<Balance> {
-            TransactionPayment::query_fee_details(uxt, len)
+            use frame_support::dispatch::GetDispatchInfo;
+            use sp_runtime::traits::ExtrinsicLike;
+            staking_fee::query_fee_details(&uxt.0.function, &uxt.get_dispatch_info(), len, uxt.is_bare())
         }
         fn query_weight_to_fee(weight: Weight) -> Balance {
             TransactionPayment::weight_to_fee(weight)
@@ -1982,13 +1987,15 @@ impl_runtime_apis! {
             call: RuntimeCall,
             len: u32,
         ) -> pallet_transaction_payment::RuntimeDispatchInfo<Balance> {
-            TransactionPayment::query_call_info(call, len)
+            use frame_support::dispatch::GetDispatchInfo;
+            staking_fee::query_info(&call, &call.get_dispatch_info(), len, false)
         }
         fn query_call_fee_details(
             call: RuntimeCall,
             len: u32,
         ) -> pallet_transaction_payment::FeeDetails<Balance> {
-            TransactionPayment::query_call_fee_details(call, len)
+            use frame_support::dispatch::GetDispatchInfo;
+            staking_fee::query_fee_details(&call, &call.get_dispatch_info(), len, false)
         }
         fn query_weight_to_fee(weight: Weight) -> Balance {
             TransactionPayment::weight_to_fee(weight)
