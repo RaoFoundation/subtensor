@@ -117,6 +117,14 @@ impl<T: Config> Pallet<T> {
         Self::mul_div_u64(value, shares_outstanding, nav_before)
     }
 
+    /// Flush recycles iff this is false. Keep when real stakers exist, or when
+    /// escrow cash earned a dividend for an existing fund (shares > 0). A
+    /// shareless escrow-only credit cannot mint (`value / 0` → 0) and must not
+    /// sit in the queue forever.
+    pub(crate) fn can_keep_basket_dividend(total_root: u64, escrow_root: u64, shares: u64) -> bool {
+        total_root > 0 || (escrow_root > 0 && shares > 0)
+    }
+
     /// Shared tail of both dividend deposit flows: attribute the value added between real
     /// stakers and the fund's own escrow slot, mint fund shares at the pre-deposit NAV, and
     /// advance the per-validator claimable rate. Errors on a dust deposit so the caller rolls
@@ -129,6 +137,10 @@ impl<T: Config> Pallet<T> {
         escrow_root: u64,
     ) -> DispatchResult {
         let shares_outstanding: u64 = BasketShares::<T>::get(hotkey);
+        ensure!(
+            Self::can_keep_basket_dividend(total_root, escrow_root, shares_outstanding),
+            DispatchError::Other("basket deposit unapportionable")
+        );
 
         // Attribution: the dividend was earned by the whole root stake, escrow slot
         // included. Only the real stakers' fraction mints shares; the escrow slot's
@@ -151,13 +163,25 @@ impl<T: Config> Pallet<T> {
             .checked_div(I96F32::saturating_from_num(total_root))
             .unwrap_or(I96F32::saturating_from_num(0));
 
-        // Dust deposit (shares or rate round to zero): roll everything back so
-        // `Σ owed == BasketShares` is never broken by uncredited value. The caller
-        // re-queues the credit for a later attempt.
+        // Escrow-only keep: same predicate as flush recycle. The credit already
+        // raised the holding (and NAV); minting nothing is correct.
+        let escrow_only = total_root == 0;
         ensure!(
-            shares > 0 && increment != I96F32::saturating_from_num(0),
+            escrow_only || (shares > 0 && increment != I96F32::saturating_from_num(0)),
             DispatchError::Other("basket deposit too small")
         );
+
+        if escrow_only {
+            BasketDepositedTao::<T>::mutate(hotkey, |total| {
+                *total = total.saturating_add(value_added.into())
+            });
+            Self::deposit_event(Event::BasketDeposited {
+                hotkey: hotkey.clone(),
+                tao: value_added.into(),
+                shares: 0,
+            });
+            return Ok(());
+        }
 
         // `nav_before == 0` with outstanding shares means `basket_shares_for_value`
         // took its dust-revival branch: this par mint starts a new fund life, so the
@@ -838,21 +862,35 @@ impl<T: Config> Pallet<T> {
         swept
     }
 
-    /// Fixed admission budget for both claim paths.
+    /// Fixed admission budget for a coldkey-wide claim.
     pub(crate) fn root_claim_declared_work() -> u32 {
         crate::MAX_ROOT_CLAIM_WORK
+    }
+
+    /// Fixed admission budget for [`Pallet::claim_root_with_hotkey`].
+    pub(crate) fn root_claim_hotkey_declared_work() -> u32 {
+        crate::MAX_ROOT_CLAIM_HOTKEY_WORK
     }
 
     /// Pre-dispatch weight for every independently bounded dimension: full claim work,
     /// scan-only work, and the flat pending-deposit flush allowance
     /// ([`Self::basket_flush_weight_bound`]) shared by every extrinsic that flushes.
-    pub(crate) fn root_claim_declared_weight() -> Weight {
-        let limit = Self::root_claim_declared_work();
+    pub(crate) fn root_claim_declared_weight_for(limit: u32) -> Weight {
         <T as crate::pallet::Config>::WeightInfo::claim_root(limit)
             .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
                 limit,
             ))
             .saturating_add(Self::basket_flush_weight_bound())
+    }
+
+    /// Coldkey-wide declared weight: the 256-unit envelope plus the flush allowance.
+    pub(crate) fn root_claim_declared_weight() -> Weight {
+        Self::root_claim_declared_weight_for(Self::root_claim_declared_work())
+    }
+
+    /// Single-hotkey declared weight: the 129-unit envelope plus the same flush allowance.
+    pub(crate) fn root_claim_hotkey_declared_weight() -> Weight {
+        Self::root_claim_declared_weight_for(Self::root_claim_hotkey_declared_work())
     }
 
     /// Hotkeys relevant to a coldkey-wide root claim. Ordinary subnet-only staking hotkeys
@@ -877,8 +915,7 @@ impl<T: Config> Pallet<T> {
     /// flush allowance ([`Self::basket_flush_fits_declared_budget`]). Count raw Alpha/AlphaV2
     /// rows so legacy duplicates and malformed zero rows are charged conservatively, and stop
     /// as soon as a bound is exceeded.
-    pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
-        let budget = Self::root_claim_declared_work();
+    pub(crate) fn root_claim_fits_budget(hotkeys: &[T::AccountId], budget: u32) -> bool {
         let mut work = u32::try_from(hotkeys.len()).unwrap_or(u32::MAX);
         if work > budget {
             return false;
@@ -900,6 +937,17 @@ impl<T: Config> Pallet<T> {
             }
         }
         Self::basket_flush_fits_declared_budget(hotkeys)
+    }
+
+    pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
+        Self::root_claim_fits_budget(hotkeys, Self::root_claim_declared_work())
+    }
+
+    pub(crate) fn root_claim_hotkey_fits_declared_budget(hotkey: &T::AccountId) -> bool {
+        Self::root_claim_fits_budget(
+            core::slice::from_ref(hotkey),
+            Self::root_claim_hotkey_declared_work(),
+        )
     }
 
     /// Actual post-dispatch weight of a root claim: full benchmark units for relationships
@@ -1157,6 +1205,24 @@ impl<T: Config> Pallet<T> {
                 None => (old_level, old_block),
             };
             BasketTradeBucket::<T>::insert(new_hotkey, carried);
+        }
+
+        // Destination-flow counters follow the fund so a hotkey swap cannot
+        // reset wash headroom. Carry the higher used amount and the later block,
+        // including zero-holding dests (post-unwind). Identity<NetUid> bounds
+        // this prefix to 2^16 rows; each row is charged like claimed/pending so
+        // the walk is not free. Do not drop leftovers: skipping a dest would
+        // reset that dest's wash headroom.
+        let used_rows: sp_std::vec::Vec<_> =
+            BasketLiquidityUsed::<T>::iter_prefix(old_hotkey).collect();
+        moved_rows = moved_rows.saturating_add(used_rows.len() as u32);
+        for (netuid, (old_used, old_block)) in used_rows {
+            BasketLiquidityUsed::<T>::remove(old_hotkey, netuid);
+            let carried = match BasketLiquidityUsed::<T>::get(new_hotkey, netuid) {
+                Some((new_used, new_block)) => (old_used.max(new_used), old_block.max(new_block)),
+                None => (old_used, old_block),
+            };
+            BasketLiquidityUsed::<T>::insert(new_hotkey, netuid, carried);
         }
 
         moved_rows

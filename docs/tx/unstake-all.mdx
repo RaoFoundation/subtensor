@@ -90,14 +90,14 @@ pub fn unstake_all(
 }
 ```
 
-Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L132), [`unstake_all_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L251).
+Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L132), [`unstake_all_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L256).
 
 `SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2134`](/code/pallets/subtensor/src/macros/dispatches.rs#L2130-L2149):
 
 ```rust
 #[pallet::call_index(148)]
 #[pallet::weight(
-    Pallet::<T>::root_claim_declared_weight()
+    Pallet::<T>::root_claim_hotkey_declared_weight()
 )]
 pub fn claim_root_with_hotkey(
     origin: OriginFor<T>,
@@ -105,7 +105,7 @@ pub fn claim_root_with_hotkey(
 ) -> DispatchResultWithPostInfo {
     let coldkey: T::AccountId = ensure_signed(origin)?;
     ensure!(
-        Self::root_claim_fits_declared_budget(core::slice::from_ref(&hotkey)),
+        Self::root_claim_hotkey_fits_declared_budget(&hotkey),
         Error::<T>::RootClaimTooHeavy
     );
 
@@ -117,7 +117,7 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L880), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L931), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L960).
+Delegates to [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L946), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L979), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L1008).
 
 `Utility.batch_all` — [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362):
 

@@ -15,7 +15,8 @@ impl<T: Config> Pallet<T> {
     /// Use the generated all-subnet stake-moving benchmark for every v2 path
     /// that scans and moves stake. Preserve the previous lightweight weight for
     /// the single-subnet `keep_stake` path, which does not scan stake prefixes.
-    /// Root-touching swaps also reserve weight for migrating `BasketClaimed` rows.
+    /// Root-touching swaps also reserve weight for migrating `BasketClaimed`,
+    /// pending-deposit, and liquidity-flow rows.
     pub fn swap_hotkey_v2_dispatch_weight(
         old_hotkey: &T::AccountId,
         netuid: &Option<NetUid>,
@@ -33,9 +34,10 @@ impl<T: Config> Pallet<T> {
         base.saturating_add(Self::basket_claimed_swap_weight(old_hotkey, netuid))
     }
 
-    /// Pre-dispatch weight for moving `BasketClaimed` on a root-touching hotkey swap.
-    /// Counts the prefix and charges per row so the block scheduler reserves the work up
-    /// front (post-dispatch accrual alone does not expand the inclusion reservation).
+    /// Pre-dispatch weight for moving basket rows on a root-touching hotkey swap.
+    /// Counts each prefix and charges per row so the block scheduler reserves the
+    /// work up front (post-dispatch accrual alone does not expand the inclusion
+    /// reservation). `BasketLiquidityUsed` is Identity-keyed by `NetUid` (≤ 2^16).
     pub fn basket_claimed_swap_weight(
         old_hotkey: &T::AccountId,
         netuid: &Option<NetUid>,
@@ -48,10 +50,17 @@ impl<T: Config> Pallet<T> {
             return Weight::zero();
         }
         let claimed_rows = BasketClaimed::<T>::iter_prefix(old_hotkey).count() as u64;
-        // One read per scanned row + remove/insert pair per row.
+        let pending_rows = PendingBasketDeposits::<T>::iter_prefix(old_hotkey).count() as u64;
+        let used_rows = BasketLiquidityUsed::<T>::iter_prefix(old_hotkey).count() as u64;
+        let rows = claimed_rows
+            .saturating_add(pending_rows)
+            .saturating_add(used_rows);
+        // One read per scanned row + remove/insert pair per row. Three prefix
+        // heads are covered by the +1 / +2 slack on the first map plus the
+        // extra reads here being cheaper than an under-reservation.
         T::DbWeight::get().reads_writes(
-            claimed_rows.saturating_mul(2).saturating_add(1),
-            claimed_rows.saturating_mul(2),
+            rows.saturating_mul(2).saturating_add(3),
+            rows.saturating_mul(2),
         )
     }
 
@@ -910,9 +919,10 @@ impl<T: Config> Pallet<T> {
 
             if netuid == NetUid::ROOT {
                 // 9. Migrate the validator's whole basket fund only for the root subnet: shares,
-                // rate, per-coldkey claimed watermarks, and every escrow holding move by value.
-                // The clean-hotkey guard above makes this a move, not a merge. Claimant rows are
-                // unbounded (like stake coldkeys); charge weight for each watermark moved.
+                // rate, per-coldkey claimed watermarks, pending credits, liquidity-flow
+                // counters, and every escrow holding move by value. The clean-hotkey guard
+                // above makes this a move, not a merge. Claimant and flow rows are
+                // unbounded (like stake coldkeys); charge weight for each row moved.
                 let num_holdings = Self::get_basket_holdings(old_hotkey).len() as u64;
                 let claimed_count =
                     Self::transfer_basket_for_new_hotkey(old_hotkey, new_hotkey) as u64;

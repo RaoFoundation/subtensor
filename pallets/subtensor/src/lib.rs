@@ -71,10 +71,16 @@ pub const MIN_ALPHA_LOW: u16 = 1_639;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
-/// Benchmark upper bound and admission envelope for `claim_root` /
-/// `claim_root_scan` (`Linear<1, N>`). Both claim paths reserve this many units
-/// and refund unused weight after dispatch.
+/// Benchmark and admission ceiling for coldkey-wide root claims and scans
+/// (`Linear<1, N>`). Weight calculation cannot inspect the signer, so this path
+/// reserves the full envelope and refunds unused weight after dispatch.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
+/// Single-hotkey quote: one validator plus the current maximum 128 subnet slots.
+/// Raise this in the same runtime upgrade that raises the subnet limit. The
+/// single-hotkey gate and declared weight must use this bound, not
+/// [`MAX_ROOT_CLAIM_WORK`], so a 130-row basket cannot be admitted under a
+/// 129-unit declaration.
+pub const MAX_ROOT_CLAIM_HOTKEY_WORK: u32 = 129;
 /// Longest `StakingHotkeys` list a third party may leave behind on a coldkey through
 /// stake transfers. Half the root-claim admission budget, so a coldkey with up to as many
 /// hotkeys of its own still passes the coldkey-wide `claim_root` gate.
@@ -3097,6 +3103,25 @@ pub mod pallet {
     #[pallet::storage]
     pub type BasketTradeBucket<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u64), OptionQuery>;
+
+    /// --- MAP ( validator_hotkey, netuid ) --> `(alpha_bought, last_block)` of
+    /// destination-pool flow used by `swap_basket` in the current refill window.
+    ///
+    /// The standing-position liquidity cap resets when the fund sells the holding
+    /// back to zero. This map does not: it accumulates alpha bought into `netuid`
+    /// and decays to zero over [`crate::BASKET_TRADE_REFILL_BLOCKS`], so
+    /// accumulate/unwind cycles cannot spend the turnover budget as band slack.
+    /// Follows the fund on hotkey swap (higher used, later block).
+    #[pallet::storage]
+    pub type BasketLiquidityUsed<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        NetUid,
+        (u64, u64),
+        OptionQuery,
+    >;
 
     #[pallet::type_value]
     /// Default concentration cap for a single basket holding: 1/16 of fund NAV

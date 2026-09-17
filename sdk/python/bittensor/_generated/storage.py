@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 464
+Spec version: 465
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -301,6 +301,7 @@ class SubtensorModule:
     BasketDailyTurnoverCap = Item('SubtensorModule', 'BasketDailyTurnoverCap', 'u16')
     BasketLiquidityCap = Item('SubtensorModule', 'BasketLiquidityCap', 'u16')
     BasketTradeBucket = Item('SubtensorModule', 'BasketTradeBucket', '(u64, u64)')
+    BasketLiquidityUsed = Item('SubtensorModule', 'BasketLiquidityUsed', '(u64, u64)')
     BasketConcentrationCap = Item('SubtensorModule', 'BasketConcentrationCap', 'u16')
     RootClaimableThreshold = Item('SubtensorModule', 'RootClaimableThreshold', 'FixedI128')
     RootClaimable = Item('SubtensorModule', 'RootClaimable', 'BTreeMap')

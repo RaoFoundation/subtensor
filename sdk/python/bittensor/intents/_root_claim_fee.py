@@ -1,8 +1,9 @@
 """Claim-fee preview for ``claim_root`` / ``claim_root_with_hotkey``.
 
-Both runtime calls reserve a fixed declared-work envelope at inclusion, then
-refund down to the work actually done. The reserve is what people see leave
-their free balance, and it is larger than the fee that finally settles.
+Coldkey-wide claims reserve ``MAX_ROOT_CLAIM_WORK`` (256) weight units.
+Single-hotkey claims reserve one basket's 129-unit envelope. Both refund down
+to the work actually done. The reserve is what people see leave their free
+balance, and it is larger than the fee that finally settles.
 
 This module estimates both numbers, compares the spent fee to accrued yield,
 and tells the caller when a claim loses money or cannot even be included.
@@ -25,11 +26,19 @@ _SCAN_REF_TIME = 6
 _REDEEM_REF_TIME = 70
 
 # One full ``claim_root`` weight unit under LinearWeightToFee (~τ0.0004475).
-# Both claim paths reserve 256 redeem and scan units,
-# plus any non-weight base/length fee returned by ``payment_info``.
+# Coldkey-wide claims reserve 256 redeem and scan units; single-hotkey claims
+# reserve 129. Plus any non-weight base/length fee returned by ``payment_info``.
 _APPROX_REDEEM_FEE_RAO = 447_500
 _APPROX_SCAN_FEE_RAO = _APPROX_REDEEM_FEE_RAO * _SCAN_REF_TIME // _REDEEM_REF_TIME
 _MAX_ROOT_CLAIM_WORK = 256
+_MAX_ROOT_CLAIM_HOTKEY_WORK = 129
+
+
+def root_claim_declared_work(hotkeys: Optional[list[str]]) -> int:
+    """Admission and reserved-fee envelope for this claim path."""
+    if hotkeys is not None:
+        return _MAX_ROOT_CLAIM_HOTKEY_WORK
+    return _MAX_ROOT_CLAIM_WORK
 
 
 def _approx_declared_fee_rao(limit: int) -> int:
@@ -319,7 +328,7 @@ async def root_claim_admission(
         hotkeys=selected,
         holding_counts=tuple(holding_counts),
         networks=networks,
-        limit=_MAX_ROOT_CLAIM_WORK,
+        limit=root_claim_declared_work(hotkeys),
         selection_scans=selection_scans,
     )
 
@@ -386,6 +395,7 @@ async def _quote(
             fee_payer_address,
             compose=compose,
             call=call,
+            declared_work=admission.limit,
         )
 
     if coldkey_wide:
@@ -478,8 +488,17 @@ async def _reserved_fee(
     compose: Callable[[], Awaitable[Any]],
     *,
     call: Any = None,
+    declared_work: int = _MAX_ROOT_CLAIM_WORK,
 ) -> Balance:
-    return (await _reserved_fee_with_status(substrate, signer_address, compose, call=call))[0]
+    return (
+        await _reserved_fee_with_status(
+            substrate,
+            signer_address,
+            compose,
+            call=call,
+            declared_work=declared_work,
+        )
+    )[0]
 
 
 async def _reserved_fee_with_status(
@@ -488,13 +507,14 @@ async def _reserved_fee_with_status(
     compose: Callable[[], Awaitable[Any]],
     *,
     call: Any = None,
+    declared_work: int = _MAX_ROOT_CLAIM_WORK,
 ) -> tuple[Balance, bool]:
     try:
         if call is None:
             call = await compose()
         return await substrate.estimate_fee(call, _FeeView(signer_address)), True
     except Exception:
-        return Balance.from_rao(_approx_declared_fee_rao(_MAX_ROOT_CLAIM_WORK)), False
+        return Balance.from_rao(_approx_declared_fee_rao(max(declared_work, 1))), False
 
 
 async def root_claim_reserve(
@@ -503,6 +523,7 @@ async def root_claim_reserve(
     *,
     compose: Callable[[], Awaitable[Any]],
     call: Any = None,
+    declared_work: int = _MAX_ROOT_CLAIM_WORK,
 ) -> RootClaimReserve:
     """Read mandatory reserve/free state even when yield preview is unavailable."""
     free_rao = await _free_rao(substrate, fee_payer_address)
@@ -511,6 +532,7 @@ async def root_claim_reserve(
         fee_payer_address,
         compose,
         call=call,
+        declared_work=declared_work,
     )
     return RootClaimReserve(
         reserved=reserved,

@@ -1010,7 +1010,7 @@ class TestRootClaimOnUnstake:
         plan = await client.plan(intent, wallet)
         assert any("257 basket holdings" in block for block in plan.violations)
 
-        with pytest.raises(PolicyError, match="256-unit admission limit"):
+        with pytest.raises(PolicyError, match="129-unit admission limit"):
             await client.submit_shielded(intent, wallet)
         assert not substrate.submissions
 

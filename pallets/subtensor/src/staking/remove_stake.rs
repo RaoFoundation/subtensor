@@ -226,19 +226,24 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    /// Worst case one call will admit: a full unstake on every envelope slot.
+    /// Worst case one call will admit: a full unstake on every envelope slot,
+    /// after cheap-skipping every other live subnet. The loop walks
+    /// `get_all_subnet_netuids()` and only stops once `validated` hits the
+    /// 16-leg envelope, so `scanned` can be `TotalNetworks`, not `min(16, TotalNetworks)`.
     fn unstake_all_worst_case_work() -> UnstakeAllWork {
-        let cap = u32::from(TotalNetworks::<T>::get()).min(crate::MAX_UNSTAKE_ALL_LEGS);
+        let networks = u32::from(TotalNetworks::<T>::get());
+        let cap = networks.min(crate::MAX_UNSTAKE_ALL_LEGS);
         UnstakeAllWork {
-            scanned: cap,
+            scanned: networks,
             legs: cap,
             validated: cap,
         }
     }
 
     /// Pre-dispatch weight of `unstake_all`: the benchmarked fixed part plus, per
-    /// envelope slot, one `remove_stake` and a `StakingHotkeys` walk at the cap.
-    /// Refunded to the actual work post-dispatch.
+    /// envelope slot, one `remove_stake` and a `StakingHotkeys` walk at the cap,
+    /// plus cheap-skip reads for every live subnet the loop can visit
+    /// (`scanned = TotalNetworks`). Refunded to the actual work post-dispatch.
     pub fn unstake_all_declared_weight() -> Weight {
         Self::unstake_all_weight(
             <T as crate::pallet::Config>::WeightInfo::unstake_all(),

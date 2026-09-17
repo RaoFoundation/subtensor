@@ -6,7 +6,11 @@
 //! counterparty sells alpha back to the EMA between slices; every slice passes the slippage,
 //! turnover, and concentration rules, yet the fund's realizable NAV collapses by roughly the
 //! turnover it spent. The liquidity cap stops that accumulation.
-#![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::expect_used,
+    clippy::unwrap_used
+)]
 
 use crate::staking::BasketFlushWork;
 use crate::tests::claim_root::{
@@ -15,9 +19,10 @@ use crate::tests::claim_root::{
 use crate::tests::mock::*;
 use crate::{
     BASKET_TRADE_REFILL_BLOCKS, BasketConcentrationCap, BasketDailyTurnoverCap, BasketLiquidityCap,
-    BasketTradeBucket, BasketTradingEnabled, Error, Owner, PendingBasketDeposits,
-    RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut, SubnetFastMovingPrice, SubnetMechanism,
-    SubnetMovingPrice, SubnetTAO, SubtokenEnabled, TotalStake,
+    BasketLiquidityUsed, BasketTradeBucket, BasketTradingEnabled, Error, Owner,
+    PendingBasketDeposits, RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut,
+    SubnetFastMovingPrice, SubnetMechanism, SubnetMovingPrice, SubnetTAO, SubtokenEnabled,
+    TotalStake,
 };
 use frame_support::dispatch::GetDispatchInfo;
 use frame_support::pallet_prelude::Weight;
@@ -906,5 +911,103 @@ fn test_turnover_bucket_clamps_to_current_budget_and_carries_conservatively() {
         // A full (unstored) source leaves the destination's bucket as it is.
         SubtensorModule::transfer_basket_for_new_hotkey(&hotkey, &other);
         assert_eq!(BasketTradeBucket::<Test>::get(other), Some((40, now + 50)));
+    });
+}
+
+/// Destination flow survives unwind, decays over the refill window, rolls back
+/// with a failed trade, and follows a hotkey swap after the holding is zero.
+#[test]
+fn test_destination_flow_survives_unwind_and_follows_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        BasketTradingEnabled::<Test>::put(true);
+        BasketDailyTurnoverCap::<Test>::put(u16::MAX);
+        SubtensorModule::set_tao_weight(u64::MAX);
+        let sn = make_pool(
+            &U256::from(4),
+            &U256::from(3),
+            1_000_000 * TAO,
+            1_000_000 * TAO,
+        );
+        make_fund_with_cash(coldkey, hotkey, 1_000_000 * TAO);
+        let slice = 9 * TAO;
+        pin_ema_to_spot(sn);
+
+        assert_ok!(SubtensorModule::do_swap_basket(
+            coldkey,
+            hotkey,
+            NetUid::ROOT,
+            sn,
+            slice,
+            0
+        ));
+        let used_after_buy = BasketLiquidityUsed::<Test>::get(hotkey, sn).expect("flow is stored");
+        assert!(used_after_buy.0 > 0);
+
+        let held = escrow_alpha(&hotkey, sn);
+        pin_ema_to_spot(sn);
+        assert_ok!(SubtensorModule::do_swap_basket(
+            coldkey,
+            hotkey,
+            sn,
+            NetUid::ROOT,
+            held,
+            0
+        ));
+        assert_eq!(escrow_alpha(&hotkey, sn), 0);
+        assert_eq!(
+            BasketLiquidityUsed::<Test>::get(hotkey, sn),
+            Some(used_after_buy),
+            "unwind must not reset dest flow"
+        );
+
+        let reserve = SubnetAlphaIn::<Test>::get(sn).to_u64();
+        let cap = BasketLiquidityCap::<Test>::get() as u64;
+        let used_at_cap = (u128::from(cap) * u128::from(reserve) / u128::from(u16::MAX)) as u64;
+        let now = System::block_number();
+        BasketLiquidityUsed::<Test>::insert(hotkey, sn, (used_at_cap, now));
+        pin_ema_to_spot(sn);
+        assert_noop!(
+            SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, sn, slice, 0),
+            Error::<Test>::BasketLiquidityCapExceeded
+        );
+        assert_eq!(
+            BasketLiquidityUsed::<Test>::get(hotkey, sn),
+            Some((used_at_cap, now)),
+            "refused trade must not move the flow counter"
+        );
+
+        System::set_block_number(now + BASKET_TRADE_REFILL_BLOCKS);
+        pin_ema_to_spot(sn);
+        assert_ok!(SubtensorModule::do_swap_basket(
+            coldkey,
+            hotkey,
+            NetUid::ROOT,
+            sn,
+            slice,
+            0
+        ));
+        let after_refill = BasketLiquidityUsed::<Test>::get(hotkey, sn).expect("rebuy stores flow");
+        assert!(after_refill.0 > 0);
+        assert!(after_refill.0 < used_at_cap);
+
+        let held_now = escrow_alpha(&hotkey, sn);
+        pin_ema_to_spot(sn);
+        assert_ok!(SubtensorModule::do_swap_basket(
+            coldkey,
+            hotkey,
+            sn,
+            NetUid::ROOT,
+            held_now,
+            0
+        ));
+        let new_hotkey = U256::from(9);
+        SubtensorModule::transfer_basket_for_new_hotkey(&hotkey, &new_hotkey);
+        assert_eq!(BasketLiquidityUsed::<Test>::get(hotkey, sn), None);
+        assert_eq!(
+            BasketLiquidityUsed::<Test>::get(new_hotkey, sn),
+            Some(after_refill)
+        );
     });
 }

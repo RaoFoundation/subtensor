@@ -53,9 +53,12 @@ impl<T: Config> Pallet<T> {
     /// * the TAO through the middle is taken from the fund's turnover bucket, sized from
     ///   the fund's guarded NAV ([`Self::guarded_basket_holding_value`]);
     /// * the destination holding may not end above [`crate::BasketLiquidityCap`] of the
-    ///   destination pool's alpha reserve;
-    /// * the destination holding may not end above [`crate::BasketConcentrationCap`] of the
-    ///   fund's guarded NAV.
+    ///   destination pool's alpha reserve, and destination *flow* in one refill
+    ///   window is capped the same way (selling the holding does not restore
+    ///   headroom);
+    /// * the destination holding may not end above [`crate::BasketConcentrationCap`] of
+    ///   the fund's guarded NAV;
+    /// * both origin and destination (when not root) must have `SubtokenEnabled`.
     ///
     /// AMM fees are charged like any user swap; the block-author fee is settled through the
     /// same helpers `stake_into_subnet` / `unstake_from_subnet` use.
@@ -100,6 +103,9 @@ impl<T: Config> Pallet<T> {
             destination_netuid.is_root() || Self::if_subnet_exist(destination_netuid),
             Error::<T>::SubnetNotExists
         );
+        if !origin_netuid.is_root() {
+            Self::ensure_subtoken_enabled(origin_netuid)?;
+        }
         if !destination_netuid.is_root() {
             Self::ensure_subtoken_enabled(destination_netuid)?;
         }
@@ -206,8 +212,11 @@ impl<T: Config> Pallet<T> {
         );
 
         // --- 4b. Liquidity rule: the fund may not hold more of the destination than
-        // `BasketLiquidityCap` of the pool's alpha reserve.
+        // `BasketLiquidityCap` of the pool's alpha reserve, and may not *buy*
+        // more than that share in one refill window (the standing holding resets
+        // on unwind; the flow counter does not).
         Self::ensure_within_liquidity_cap(hotkey, escrow, destination_netuid)?;
+        Self::consume_basket_liquidity_flow(hotkey, destination_netuid, alpha_bought.to_u64())?;
 
         // --- 5. Shape rule on the post-trade fund. The trade moved only the origin and
         // destination pools (root is 1:1), so every other row's mark is unchanged and the
@@ -409,6 +418,48 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Cumulative destination flow in the current refill window. Decays linearly
+    /// to zero over [`crate::BASKET_TRADE_REFILL_BLOCKS`]. Missing row is zero.
+    fn basket_liquidity_used_at(hotkey: &T::AccountId, netuid: NetUid, now: u64) -> u64 {
+        match BasketLiquidityUsed::<T>::get(hotkey, netuid) {
+            None => 0,
+            Some((used, last_block)) => {
+                let elapsed = now.saturating_sub(last_block);
+                if elapsed >= crate::BASKET_TRADE_REFILL_BLOCKS {
+                    0
+                } else {
+                    let remaining = crate::BASKET_TRADE_REFILL_BLOCKS.saturating_sub(elapsed);
+                    Self::mul_div_u64(used, remaining, crate::BASKET_TRADE_REFILL_BLOCKS)
+                }
+            }
+        }
+    }
+
+    /// Charge `alpha_bought` against the destination's refill-window flow cap
+    /// (same share of `SubnetAlphaIn` as the standing liquidity cap). Root is
+    /// exempt. This is what stops accumulate/unwind wash: selling the holding
+    /// does not restore flow headroom.
+    fn consume_basket_liquidity_flow(
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+        alpha_bought: u64,
+    ) -> DispatchResult {
+        if netuid.is_root() {
+            return Ok(());
+        }
+        let now = Self::get_current_block_as_u64();
+        let used = Self::basket_liquidity_used_at(hotkey, netuid, now);
+        let new_used = used.saturating_add(alpha_bought);
+        let reserve = SubnetAlphaIn::<T>::get(netuid).to_u64();
+        let cap = BasketLiquidityCap::<T>::get() as u64;
+        ensure!(
+            Self::share_within_cap(new_used, reserve, cap),
+            Error::<T>::BasketLiquidityCapExceeded
+        );
+        BasketLiquidityUsed::<T>::insert(hotkey, netuid, (new_used, now));
+        Ok(())
+    }
+
     /// Post-buy liquidity check: the fund's holding on `netuid` may not exceed
     /// [`crate::BasketLiquidityCap`] of the pool's alpha reserve. Root is the fund's cash
     /// slot with no pool and is exempt. Realizable value (the concentration cap's measure)
@@ -466,10 +517,15 @@ impl<T: Config> Pallet<T> {
     /// Weight of one basket trade over `num_holdings` escrow rows: two AMM legs with fee
     /// settlement plus the pre-trade realizable-NAV sweep and the two post-trade re-quotes
     /// (origin and destination), as benchmarked.
+    ///
+    /// Plus one `BasketLiquidityUsed` get/insert on a non-root destination. Do not invent
+    /// CPU time here — CI's reference `bench-patch` updates
+    /// [`WeightInfo::swap_basket`](crate::weights::WeightInfo::swap_basket).
     pub(crate) fn swap_basket_weight(num_holdings: u64) -> Weight {
         <T as crate::pallet::Config>::WeightInfo::swap_basket(
             u32::try_from(num_holdings).unwrap_or(u32::MAX),
         )
+        .saturating_add(T::DbWeight::get().reads_writes(1, 1))
     }
 
     /// Pre-dispatch weight of `swap_basket`: the trade over the row cap plus the flat

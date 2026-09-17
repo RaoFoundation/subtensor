@@ -1241,7 +1241,31 @@ fn regression_basket_swapped_event_index_is_appended() {
     }
     .encode();
     assert_eq!(prior_tail[0], 148);
+    let lease_skipped = Event::<Test>::SubnetLeaseDividendSkipped {
+        lease_id: 0,
+        contributor: U256::from(1),
+        alpha: AlphaBalance::from(1),
+    }
+    .encode();
+    let reconciled = Event::<Test>::SharePoolDenominatorReconciled {
+        hotkey: U256::from(1),
+        netuid: NetUid::from(1),
+    }
+    .encode();
+    assert_eq!(lease_skipped[0], 149);
+    assert_eq!(reconciled[0], 150);
     assert_eq!(swapped[0], 151);
+
+    // 463 error tail. A merge that reorders these is the 462-vs-463 collision.
+    assert_eq!(Error::<Test>::RootWeightCapExceeded.encode()[0], 160);
+    assert_eq!(Error::<Test>::BasketDepositPending.encode()[0], 161);
+    assert_eq!(Error::<Test>::InvalidBatchLength.encode()[0], 162);
+    assert_eq!(Error::<Test>::TooManyStakingHotkeys.encode()[0], 163);
+    assert_eq!(Error::<Test>::ColdkeySwapTooHeavy.encode()[0], 164);
+    assert_eq!(
+        Error::<Test>::BasketConcentrationCapExceeded.encode()[0],
+        165
+    );
 }
 
 // =============================================================================
