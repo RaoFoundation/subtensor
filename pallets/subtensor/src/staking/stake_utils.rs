@@ -1,6 +1,8 @@
 use super::*;
+use frame_support::weights::Weight;
 use safe_math::*;
 use share_pool::{SafeFloat, SharePool, SharePoolDataOperations};
+use sp_core::Get;
 use sp_std::{collections::btree_map::BTreeMap, ops::Neg};
 use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, NetUid, TaoBalance, Token};
@@ -1235,6 +1237,45 @@ impl<T: Config> Pallet<T> {
         Ok(tao_equivalent)
     }
 
+    /// Refuse to add `hotkey` to `coldkey`'s `StakingHotkeys` when the list is already at
+    /// [`crate::MAX_STAKING_HOTKEYS`]. Staking to a hotkey already on the list is always
+    /// allowed. Protocol credits (dividends, collateral capture) never call this: they only
+    /// touch hotkeys the coldkey already stakes to.
+    pub fn ensure_staking_hotkeys_can_grow(
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+    ) -> Result<(), Error<T>> {
+        let staking_hotkeys = StakingHotkeys::<T>::get(coldkey);
+        ensure!(
+            staking_hotkeys.contains(hotkey)
+                || staking_hotkeys.len() < crate::MAX_STAKING_HOTKEYS as usize,
+            Error::<T>::TooManyStakingHotkeys
+        );
+        Ok(())
+    }
+
+    /// Weight of walking a `StakingHotkeys` list of `entries` on an unstake-side call.
+    fn staking_hotkeys_walk_weight(entries: u64) -> Weight {
+        T::DbWeight::get().reads(
+            entries
+                .saturating_mul(crate::STAKING_HOTKEYS_WALK_READS_PER_ENTRY)
+                .saturating_add(1),
+        )
+    }
+
+    /// Pre-dispatch allowance for the `StakingHotkeys` walk every unstake-side call performs
+    /// (lock and collateral availability): the longest list the cap admits. Refunded to
+    /// [`Self::staking_hotkeys_walk_actual`] post-dispatch.
+    pub fn staking_hotkeys_walk_bound() -> Weight {
+        Self::staking_hotkeys_walk_weight(u64::from(crate::MAX_STAKING_HOTKEYS))
+    }
+
+    /// Post-dispatch weight of the `StakingHotkeys` walk for `coldkey`'s actual list.
+    pub fn staking_hotkeys_walk_actual(coldkey: &T::AccountId) -> Weight {
+        let entries = StakingHotkeys::<T>::decode_len(coldkey).unwrap_or(0) as u64;
+        Self::staking_hotkeys_walk_weight(entries)
+    }
+
     pub fn get_alpha_share_pool(
         hotkey: <T as frame_system::Config>::AccountId,
         netuid: NetUid,
@@ -1312,6 +1353,10 @@ impl<T: Config> Pallet<T> {
             Self::hotkey_account_exists(hotkey),
             Error::<T>::HotKeyAccountNotExists
         );
+
+        // Staking to a new hotkey appends it to the coldkey's `StakingHotkeys`; keep that
+        // list within the bound every unstake-side call is weighted for.
+        Self::ensure_staking_hotkeys_can_grow(coldkey, hotkey)?;
 
         let order = GetAlphaForTao::<T>::with_amount(stake_to_be_added);
         let swap_result = T::SwapInterface::sim_swap(netuid.into(), order)
@@ -1576,7 +1621,7 @@ impl<T: Config> Pallet<T> {
         // `StakingHotkeys` without its consent. Every stake exit of the destination walks
         // that list, and the coldkey-wide root claim refuses lists above its admission
         // budget, so third parties may only grow it up to a fixed bound. The coldkey's own
-        // staking is not limited.
+        // moves are bounded by the larger overall cap.
         if origin_coldkey != destination_coldkey {
             let staking_hotkeys = StakingHotkeys::<T>::get(destination_coldkey);
             ensure!(
@@ -1584,6 +1629,8 @@ impl<T: Config> Pallet<T> {
                     || staking_hotkeys.len() < crate::MAX_THIRD_PARTY_STAKING_HOTKEYS as usize,
                 Error::<T>::TooManyStakingHotkeys
             );
+        } else {
+            Self::ensure_staking_hotkeys_can_grow(destination_coldkey, destination_hotkey)?;
         }
 
         // Enforce lock invariant: if the is cross-subnet move, the remaining amount must
@@ -1663,7 +1710,7 @@ pub struct HotkeyAlphaSharePoolDataOperations<T: frame_system::Config> {
 }
 
 impl<T: Config> HotkeyAlphaSharePoolDataOperations<T> {
-    fn new(hotkey: <T as frame_system::Config>::AccountId, netuid: NetUid) -> Self {
+    pub(crate) fn new(hotkey: <T as frame_system::Config>::AccountId, netuid: NetUid) -> Self {
         HotkeyAlphaSharePoolDataOperations {
             netuid,
             hotkey,

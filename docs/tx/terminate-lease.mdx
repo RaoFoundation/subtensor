@@ -14,7 +14,7 @@ block with the `lease` read before calling.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.terminate_lease`](/code/pallets/subtensor/src/macros/dispatches.rs#L1743-L1751) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.terminate_lease`](/code/pallets/subtensor/src/macros/dispatches.rs#L1883-L1891) |
 
 ## Parameters
 
@@ -64,11 +64,11 @@ result = sub.execute_tool("terminate_lease", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.terminate_lease` — [`pallets/subtensor/src/macros/dispatches.rs#L1745`](/code/pallets/subtensor/src/macros/dispatches.rs#L1743-L1751):
+`SubtensorModule.terminate_lease` — [`pallets/subtensor/src/macros/dispatches.rs#L1885`](/code/pallets/subtensor/src/macros/dispatches.rs#L1883-L1891):
 
 ```rust
 #[pallet::call_index(111)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::terminate_lease(T::MaxContributors::get()))]
+#[pallet::weight(Pallet::<T>::terminate_lease_declared_weight())]
 pub fn terminate_lease(
     origin: OriginFor<T>,
     lease_id: LeaseId,

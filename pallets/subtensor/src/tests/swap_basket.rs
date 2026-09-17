@@ -1219,8 +1219,10 @@ fn test_swap_basket_freeze_and_bucket_follow_hotkey_swap() {
 // Event index stability
 // =============================================================================
 
-/// `BasketSwapped` must be appended after the last pre-existing event so historical
-/// event indices stay stable for decoders.
+/// `BasketSwapped` is appended after the 463 security-base events so live
+/// testnet/devnet indices stay stable. `BasketAlphaWrittenOff` remains 148;
+/// `SubnetLeaseDividendSkipped` and `SharePoolDenominatorReconciled` occupy
+/// 149 and 150; `BasketSwapped` is 151.
 #[test]
 fn regression_basket_swapped_event_index_is_appended() {
     let prior_tail = Event::<Test>::BasketAlphaWrittenOff {
@@ -1239,7 +1241,7 @@ fn regression_basket_swapped_event_index_is_appended() {
     }
     .encode();
     assert_eq!(prior_tail[0], 148);
-    assert_eq!(swapped[0], 149);
+    assert_eq!(swapped[0], 151);
 }
 
 // =============================================================================

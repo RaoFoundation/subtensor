@@ -1,15 +1,91 @@
 use frame_support::storage::{TransactionOutcome, with_transaction};
+use frame_support::weights::Weight;
 
 use super::*;
 use crate::subnets::leasing::LeaseId;
+use crate::weights::WeightInfo;
+use sp_core::Get;
+use sp_std::collections::btree_set::BTreeSet;
+
+/// Stake work a coldkey swap moves: `StakingHotkeys` entries visited and positions moved.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ColdkeySwapWork {
+    pub hotkeys: u32,
+    pub positions: u32,
+}
 
 impl<T: Config> Pallet<T> {
+    /// Weight of a coldkey swap over `base` (the benchmarked fixed part): one `transfer_stake`
+    /// per position moved plus the per-hotkey bookkeeping reads (watermark, unlock age,
+    /// root stake) for every `StakingHotkeys` entry.
+    fn coldkey_swap_weight(base: Weight, work: ColdkeySwapWork) -> Weight {
+        base.saturating_add(
+            <T as crate::pallet::Config>::WeightInfo::transfer_stake()
+                .saturating_mul(u64::from(work.positions)),
+        )
+        .saturating_add(T::DbWeight::get().reads(u64::from(work.hotkeys).saturating_mul(3)))
+    }
+
+    /// The largest swap one call admits, used as the pre-dispatch envelope.
+    fn coldkey_swap_max_work() -> ColdkeySwapWork {
+        ColdkeySwapWork {
+            hotkeys: crate::MAX_COLDKEY_SWAP_HOTKEYS,
+            positions: crate::MAX_COLDKEY_SWAP_POSITIONS,
+        }
+    }
+
+    /// Pre-dispatch weight of `swap_coldkey`, refunded to the actual work post-dispatch.
+    pub fn swap_coldkey_declared_weight() -> Weight {
+        Self::coldkey_swap_weight(
+            <T as crate::pallet::Config>::WeightInfo::swap_coldkey(),
+            Self::coldkey_swap_max_work(),
+        )
+    }
+
+    /// Post-dispatch weight of `swap_coldkey`.
+    pub fn swap_coldkey_actual_weight(work: ColdkeySwapWork) -> Weight {
+        Self::coldkey_swap_weight(
+            <T as crate::pallet::Config>::WeightInfo::swap_coldkey(),
+            work,
+        )
+    }
+
+    /// Pre-dispatch weight of `swap_coldkey_announced`, refunded post-dispatch.
+    pub fn swap_coldkey_announced_declared_weight() -> Weight {
+        Self::coldkey_swap_weight(
+            <T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced(),
+            Self::coldkey_swap_max_work(),
+        )
+    }
+
+    /// Post-dispatch weight of `swap_coldkey_announced`.
+    pub fn swap_coldkey_announced_actual_weight(work: ColdkeySwapWork) -> Weight {
+        Self::coldkey_swap_weight(
+            <T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced(),
+            work,
+        )
+    }
+
+    /// Stake positions the swap has to move, read before any mutation so the caller can
+    /// refuse an oversized swap and price the work it admits.
+    pub fn coldkey_swap_work(old_coldkey: &T::AccountId) -> ColdkeySwapWork {
+        let mut work = ColdkeySwapWork::default();
+        for hotkey in StakingHotkeys::<T>::get(old_coldkey) {
+            work.hotkeys = work.hotkeys.saturating_add(1);
+            let netuids: BTreeSet<NetUid> = Self::alpha_iter_prefix((&hotkey, old_coldkey))
+                .map(|(netuid, _)| netuid)
+                .collect();
+            work.positions = work.positions.saturating_add(netuids.len() as u32);
+        }
+        work
+    }
+
     /// Transfer all assets, stakes, subnet ownerships, and hotkey associations from `old_coldkey` to
-    /// to `new_coldkey`.
+    /// to `new_coldkey`. Returns the stake work moved so the dispatch can report its weight.
     pub fn do_swap_coldkey(
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
-    ) -> DispatchResult {
+    ) -> Result<ColdkeySwapWork, DispatchError> {
         // The multi-block seed may still hold `RootClaimed[(netuid, hotkey, old_coldkey)]`
         // rows and mid-hotkey `BasketClaimed` writes. Moving root stake + only the new
         // watermark would leave legacy claims on the dead coldkey.
@@ -21,6 +97,15 @@ impl<T: Config> Pallet<T> {
         ensure!(
             !Self::hotkey_account_exists(new_coldkey),
             Error::<T>::NewColdKeyIsHotkey
+        );
+        // Admission: the stake move is one `transfer_stake` per position and the declared
+        // weight reserves a fixed number of them, so refuse (before any write) a coldkey
+        // whose list or position count exceeds what one call is priced for.
+        let work = Self::coldkey_swap_work(old_coldkey);
+        ensure!(
+            work.hotkeys <= crate::MAX_COLDKEY_SWAP_HOTKEYS
+                && work.positions <= crate::MAX_COLDKEY_SWAP_POSITIONS,
+            Error::<T>::ColdkeySwapTooHeavy
         );
 
         with_transaction(|| {
@@ -42,10 +127,12 @@ impl<T: Config> Pallet<T> {
                     Self::transfer_coldkey_lease(lease_id, old_coldkey, new_coldkey)?;
                 }
 
+                // Move stake by the coldkey's actual positions (not every subnet × every
+                // hotkey), then the per-subnet ownership, auto-stake and collateral state.
+                Self::transfer_coldkey_positions(old_coldkey, new_coldkey);
                 for netuid in Self::get_all_subnet_netuids() {
                     Self::transfer_subnet_ownership(netuid, old_coldkey, new_coldkey);
                     Self::transfer_auto_stake_destination(netuid, old_coldkey, new_coldkey);
-                    Self::transfer_coldkey_stake(netuid, old_coldkey, new_coldkey);
                     // Stake has moved; migrate the bond so unstake guards stay attached.
                     Self::transfer_coldkey_miner_collateral(netuid, old_coldkey, new_coldkey)?;
                 }
@@ -69,7 +156,7 @@ impl<T: Config> Pallet<T> {
             })();
 
             match result {
-                Ok(()) => TransactionOutcome::Commit(Ok(())),
+                Ok(()) => TransactionOutcome::Commit(Ok(work)),
                 Err(e) => TransactionOutcome::Rollback(Err(e)),
             }
         })
@@ -91,14 +178,25 @@ impl<T: Config> Pallet<T> {
                 Ok::<(), DispatchError>(())
             })?;
         }
+        if SubnetLeaseUnpaidDividends::<T>::contains_key(lease_id, old_coldkey) {
+            let unpaid = SubnetLeaseUnpaidDividends::<T>::take(lease_id, old_coldkey);
+            SubnetLeaseUnpaidDividends::<T>::mutate(lease_id, new_coldkey, |destination| {
+                *destination = destination.saturating_add(unpaid);
+            });
+        }
 
         let mut lease = SubnetLeases::<T>::get(lease_id).ok_or(Error::<T>::LeaseDoesNotExist)?;
         if lease.beneficiary != *old_coldkey || old_coldkey == new_coldkey {
             return Ok(());
         }
 
-        T::ProxyInterface::remove_lease_beneficiary_proxy(&lease.coldkey, old_coldkey)?;
-        T::ProxyInterface::add_lease_beneficiary_proxy(&lease.coldkey, new_coldkey)?;
+        // A lease already handed over (terminated with deferred dividends still owed) has
+        // no beneficiary proxy any more; only the record's beneficiary follows the coldkey.
+        let handed_over = SubnetOwner::<T>::get(lease.netuid) == lease.beneficiary;
+        if !handed_over {
+            T::ProxyInterface::remove_lease_beneficiary_proxy(&lease.coldkey, old_coldkey)?;
+            T::ProxyInterface::add_lease_beneficiary_proxy(&lease.coldkey, new_coldkey)?;
+        }
         lease.beneficiary = new_coldkey.clone();
         SubnetLeases::<T>::insert(lease_id, lease);
         Ok(())
@@ -140,56 +238,49 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Transfer the stake of all staking hotkeys linked to the old coldkey to the new coldkey.
-    fn transfer_coldkey_stake(
-        netuid: NetUid,
-        old_coldkey: &T::AccountId,
-        new_coldkey: &T::AccountId,
-    ) {
+    /// Move every stake position of `old_coldkey` to `new_coldkey`, one `(hotkey, netuid)`
+    /// row at a time. Walking the coldkey's own rows (instead of every subnet for every
+    /// hotkey) keeps the work proportional to what actually moves. Root bookkeeping —
+    /// basket watermark and unlock age — is moved for every staking hotkey, stake or not:
+    /// the signed watermark can be negative with zero stake (claim-then-unstake) and must
+    /// follow the coldkey rather than be orphaned on the dead key.
+    fn transfer_coldkey_positions(old_coldkey: &T::AccountId, new_coldkey: &T::AccountId) {
         for hotkey in StakingHotkeys::<T>::get(old_coldkey) {
-            // Swap
-            let alpha_old =
-                Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, old_coldkey, netuid);
-            // Credit the new coldkey with exactly what left the old one.
-            let alpha_moved = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
-                &hotkey,
-                old_coldkey,
-                netuid,
-                alpha_old,
-            );
-            Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                &hotkey,
-                new_coldkey,
-                netuid,
-                alpha_moved,
-            );
-            let new_dest_alpha =
-                Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, new_coldkey, netuid);
-
-            if netuid == NetUid::ROOT {
-                // Move the basket claimed watermark once, with the root-subnet iteration —
-                // unconditionally, NOT gated on current root stake: the signed watermark can be
-                // negative with zero stake (claim-then-unstake), which represents accrued owed
-                // shares that must follow the coldkey or be orphaned on the dead key.
-                Self::transfer_basket_claimed_for_new_coldkey(&hotkey, old_coldkey, new_coldkey);
-
-                // Preserve root unlock age under the new coldkey (same hotkey).
-                Self::migrate_root_stake_age(old_coldkey, &hotkey, new_coldkey, &hotkey);
-
-                if !new_dest_alpha.is_zero() {
-                    // Register new coldkey with root stake
-                    Self::maybe_add_coldkey_index(new_coldkey);
+            let netuids: BTreeSet<NetUid> = Self::alpha_iter_prefix((&hotkey, old_coldkey))
+                .map(|(netuid, _)| netuid)
+                .collect();
+            for netuid in netuids {
+                let alpha_old =
+                    Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, old_coldkey, netuid);
+                if alpha_old.is_zero() {
+                    continue;
                 }
+                // Credit the new coldkey with exactly what left the old one.
+                let alpha_moved = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey,
+                    old_coldkey,
+                    netuid,
+                    alpha_old,
+                );
+                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey,
+                    new_coldkey,
+                    netuid,
+                    alpha_moved,
+                );
+            }
+
+            Self::transfer_basket_claimed_for_new_coldkey(&hotkey, old_coldkey, new_coldkey);
+            Self::migrate_root_stake_age(old_coldkey, &hotkey, new_coldkey, &hotkey);
+            if !Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, new_coldkey, NetUid::ROOT)
+                .is_zero()
+            {
+                Self::maybe_add_coldkey_index(new_coldkey);
             }
         }
 
-        // All of the old coldkey's root stake for this subnet has been moved to the new
-        // coldkey, so the old coldkey no longer holds any root stake. Remove its stale
-        // entry from the auto-claim staking-coldkey index (it is added for new_coldkey
-        // above) so swaps do not orphan dead entries.
-        if netuid == NetUid::ROOT {
-            Self::maybe_remove_coldkey_index(old_coldkey);
-        }
+        // All root stake has left the old coldkey; drop its auto-claim index entry.
+        Self::maybe_remove_coldkey_index(old_coldkey);
     }
 
     /// Transfer staking hotkeys from the old coldkey to the new coldkey.

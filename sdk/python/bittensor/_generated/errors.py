@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 462
+Spec version: 464
 """
 from dataclasses import dataclass
 
@@ -201,16 +201,18 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 157): ErrorInfo('SubtensorModule', 'BetaBasketSeedInProgress', 'The `migrate_seed_beta_basket_v2` seed has not completed. Basket deposits, claims, coldkey / root-touching hotkey swaps, and root stake add/remove/transfer/swap are paused until it finishes so snapshotted conversion cannot desync from live stake (`Σ owed == BasketShares`).'),
     (7, 158): ErrorInfo('SubtensorModule', 'RootWeightSettingDisabled', 'Retired (kept for SCALE index stability): the `set_root_weights` extrinsic and its network-wide gate were removed. Funds have no target vector; dividends accumulate in place and composition changes only through `swap_basket`.'),
     (7, 159): ErrorInfo('SubtensorModule', 'RootClaimTooHeavy', 'A root claim would process more root hotkeys and basket rows than the fixed admission envelope. Use `claim_root_with_hotkey` per validator so admission weight matches the holdings actually walked.'),
-    (7, 160): ErrorInfo('SubtensorModule', 'BasketConcentrationCapExceeded', 'A `swap_basket` buy would leave the destination holding above [`crate::BasketConcentrationCap`] of fund NAV (holdings marked at realizable value). With the cap at 1/16 a traded fund must spread across at least 16 holdings. Not enforced while the chain has fewer subnets than the cap demands.'),
+    (7, 160): ErrorInfo('SubtensorModule', 'RootWeightCapExceeded', 'Retired (kept for SCALE index stability on the 463 testnet/devnet runtime): `set_root_weights` concentration cap. The live guard is [`Error::BasketConcentrationCapExceeded`].'),
     (7, 161): ErrorInfo('SubtensorModule', 'BasketDepositPending', "A queued root-dividend deposit could not be settled. Operations which change the hotkey's root claimant base must retry after the deposit becomes executable."),
-    (7, 162): ErrorInfo('SubtensorModule', 'BasketTradingDisabled', '`swap_basket` is disabled network-wide ([`crate::BasketTradingEnabled`] is false).'),
-    (7, 163): ErrorInfo('SubtensorModule', 'BasketTradingFrozen', 'Basket trading is frozen for this validator hotkey by governance ([`crate::BasketTradingFrozen`]).'),
-    (7, 164): ErrorInfo('SubtensorModule', 'BasketTurnoverBudgetExceeded', 'The trade would push more TAO through the fund than its turnover bucket holds ([`crate::BasketDailyTurnoverCap`] of fund NAV, refilling over [`crate::BASKET_TRADE_REFILL_BLOCKS`]). Wait for the bucket to refill or trade a smaller amount.'),
-    (7, 165): ErrorInfo('SubtensorModule', 'BasketSameSubnet', '`swap_basket` origin and destination are the same subnet.'),
-    (7, 166): ErrorInfo('SubtensorModule', 'BasketLiquidityCapExceeded', "The trade would leave the fund holding more of the destination subnet than [`crate::BasketLiquidityCap`] allows as a share of that subnet's alpha reserve. Trade a smaller amount or pick a deeper pool."),
-    (7, 167): ErrorInfo('SubtensorModule', 'BasketMinOutNotMet', "The `swap_basket` buy leg credited less than the caller's `min_amount_out` (destination alpha, or TAO when the destination is root). The trade rolled back. Re-quote and retry, or lower the floor."),
-    (7, 168): ErrorInfo('SubtensorModule', 'InvalidBatchLength', 'A per-subnet weight batch is empty or has more items than there are networks.'),
-    (7, 169): ErrorInfo('SubtensorModule', 'TooManyStakingHotkeys', 'The destination coldkey already stakes through the maximum number of hotkeys that third-party transfers may add. Transfers to a hotkey it already stakes through are still accepted.'),
+    (7, 162): ErrorInfo('SubtensorModule', 'InvalidBatchLength', 'A per-subnet weight batch is empty or has more items than there are networks.'),
+    (7, 163): ErrorInfo('SubtensorModule', 'TooManyStakingHotkeys', "The destination coldkey already stakes through the maximum number of hotkeys that third-party transfers may add, or the signer's own `StakingHotkeys` list is at its cap. Staking to a hotkey the coldkey already stakes through is still accepted."),
+    (7, 164): ErrorInfo('SubtensorModule', 'ColdkeySwapTooHeavy', 'The coldkey stakes through more hotkeys, or holds more stake positions, than a coldkey swap can move in one call. Consolidate (unstake or move stake) first.'),
+    (7, 165): ErrorInfo('SubtensorModule', 'BasketConcentrationCapExceeded', 'A `swap_basket` buy would leave the destination holding above [`crate::BasketConcentrationCap`] of fund NAV (holdings marked at realizable value). With the cap at 1/16 a traded fund must spread across at least 16 holdings. Not enforced while the chain has fewer subnets than the cap demands.'),
+    (7, 166): ErrorInfo('SubtensorModule', 'BasketTradingDisabled', '`swap_basket` is disabled network-wide ([`crate::BasketTradingEnabled`] is false).'),
+    (7, 167): ErrorInfo('SubtensorModule', 'BasketTradingFrozen', 'Basket trading is frozen for this validator hotkey by governance ([`crate::BasketTradingFrozen`]).'),
+    (7, 168): ErrorInfo('SubtensorModule', 'BasketTurnoverBudgetExceeded', 'The trade would push more TAO through the fund than its turnover bucket holds ([`crate::BasketDailyTurnoverCap`] of fund NAV, refilling over [`crate::BASKET_TRADE_REFILL_BLOCKS`]). Wait for the bucket to refill or trade a smaller amount.'),
+    (7, 169): ErrorInfo('SubtensorModule', 'BasketSameSubnet', '`swap_basket` origin and destination are the same subnet.'),
+    (7, 170): ErrorInfo('SubtensorModule', 'BasketLiquidityCapExceeded', "The trade would leave the fund holding more of the destination subnet than [`crate::BasketLiquidityCap`] allows as a share of that subnet's alpha reserve. Trade a smaller amount or pick a deeper pool."),
+    (7, 171): ErrorInfo('SubtensorModule', 'BasketMinOutNotMet', "The `swap_basket` buy leg credited less than the caller's `min_amount_out` (destination alpha, or TAO when the destination is root). The trade rolled back. Re-quote and retry, or lower the floor."),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),

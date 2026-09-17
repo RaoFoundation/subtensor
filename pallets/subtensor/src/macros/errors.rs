@@ -365,14 +365,28 @@ mod errors {
         /// `claim_root_with_hotkey` per validator so admission weight matches
         /// the holdings actually walked.
         RootClaimTooHeavy,
+        /// Retired (kept for SCALE index stability on the 463 testnet/devnet runtime):
+        /// `set_root_weights` concentration cap. The live guard is
+        /// [`Error::BasketConcentrationCapExceeded`].
+        RootWeightCapExceeded,
+        /// A queued root-dividend deposit could not be settled. Operations which change
+        /// the hotkey's root claimant base must retry after the deposit becomes executable.
+        BasketDepositPending,
+        /// A per-subnet weight batch is empty or has more items than there are networks.
+        InvalidBatchLength,
+        /// The destination coldkey already stakes through the maximum number of hotkeys
+        /// that third-party transfers may add, or the signer's own `StakingHotkeys` list is
+        /// at its cap. Staking to a hotkey the coldkey already stakes through is still
+        /// accepted.
+        TooManyStakingHotkeys,
+        /// The coldkey stakes through more hotkeys, or holds more stake positions, than a
+        /// coldkey swap can move in one call. Consolidate (unstake or move stake) first.
+        ColdkeySwapTooHeavy,
         /// A `swap_basket` buy would leave the destination holding above
         /// [`crate::BasketConcentrationCap`] of fund NAV (holdings marked at realizable
         /// value). With the cap at 1/16 a traded fund must spread across at least 16
         /// holdings. Not enforced while the chain has fewer subnets than the cap demands.
         BasketConcentrationCapExceeded,
-        /// A queued root-dividend deposit could not be settled. Operations which change
-        /// the hotkey's root claimant base must retry after the deposit becomes executable.
-        BasketDepositPending,
         /// `swap_basket` is disabled network-wide ([`crate::BasketTradingEnabled`] is false).
         BasketTradingDisabled,
         /// Basket trading is frozen for this validator hotkey by governance
@@ -393,11 +407,5 @@ mod errors {
         /// (destination alpha, or TAO when the destination is root). The trade rolled
         /// back. Re-quote and retry, or lower the floor.
         BasketMinOutNotMet,
-        /// A per-subnet weight batch is empty or has more items than there are networks.
-        InvalidBatchLength,
-        /// The destination coldkey already stakes through the maximum number of hotkeys
-        /// that third-party transfers may add. Transfers to a hotkey it already stakes
-        /// through are still accepted.
-        TooManyStakingHotkeys,
     }
 }

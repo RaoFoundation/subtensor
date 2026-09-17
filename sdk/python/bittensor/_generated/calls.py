@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 462
+Spec version: 464
 """
 from typing import Any, NamedTuple
 
@@ -602,12 +602,12 @@ class SubtensorModule:
 
     @staticmethod
     def unstake_all(hotkey: 'AccountId32') -> Call:
-        "The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The associated hotkey account.  # Events * `StakeRemoved`: On the successfully removing stake from the hotkey account.  # Errors * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.  * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.  * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.  * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit."
+        "The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The associated hotkey account.  # Events * `StakeRemoved`: On the successfully removing stake from the hotkey account.  # Errors * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.  * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.  * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.  * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.  The declared weight covers up to [`crate::MAX_UNSTAKE_ALL_LEGS`] positions (one `remove_stake` plus a `StakingHotkeys` walk each) and is refunded to the subnets actually visited and unstaked. Remaining positions stay for a later call so the envelope fits the normal-class block."
         return Call('SubtensorModule', 'unstake_all', {'hotkey': hotkey})
 
     @staticmethod
     def unstake_all_alpha(hotkey: 'AccountId32') -> Call:
-        "The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The associated hotkey account.  # Events * `StakeRemoved`: On the successfully removing stake from the hotkey account.  # Errors * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.  * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.  * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.  * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit."
+        "The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The associated hotkey account.  # Events * `StakeRemoved`: On the successfully removing stake from the hotkey account.  # Errors * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.  * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.  * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.  * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.  The declared weight covers up to [`crate::MAX_UNSTAKE_ALL_LEGS`] positions (one `remove_stake` plus a `StakingHotkeys` walk each) and is refunded to the subnets actually visited and unstaked. Remaining positions stay for a later call so the envelope fits the normal-class block."
         return Call('SubtensorModule', 'unstake_all_alpha', {'hotkey': hotkey})
 
     @staticmethod
