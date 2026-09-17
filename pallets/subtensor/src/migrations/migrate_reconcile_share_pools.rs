@@ -213,17 +213,17 @@ fn should_stamp_reconcile(outcomes: &[ReconcileOutcome]) -> bool {
 /// stamped `migrate_reconcile_share_pools_v1` even when a target was skipped.
 pub const MIGRATION_NAME_V2: &[u8] = b"migrate_reconcile_share_pools_v2";
 
-/// One-shot for the 464 key. If v2 has not run, skip the prefix walk: v2 is
-/// the 465 walker, so a 459→465 jump must not pay twice. Already-stamped v1
-/// (464) stays a single read.
+/// One-shot for the 464 key. v2 is the only walker on this spec.
+///
+/// Do not catch up after v2 stamps. try-runtime-cli re-runs
+/// `on_runtime_upgrade` and compares storage; a late v1 walk/stamp
+/// changes `HasMigrationRun` on that second pass and fails
+/// idempotency. Live 459→465 already paid one prefix walk in v2.
+/// Already-stamped v1 (464→465) stays a single read. A later spec
+/// that drops v2 can walk v1 to stamp it.
 pub fn migrate_reconcile_share_pools<T: Config>() -> Weight {
-    if HasMigrationRun::<T>::get(MIGRATION_NAME) {
-        return T::DbWeight::get().reads(1);
-    }
-    if !HasMigrationRun::<T>::get(MIGRATION_NAME_V2) {
-        return T::DbWeight::get().reads(2);
-    }
-    migrate_reconcile_share_pools_named::<T>(MIGRATION_NAME)
+    let _ = HasMigrationRun::<T>::get(MIGRATION_NAME);
+    T::DbWeight::get().reads(1)
 }
 
 pub fn migrate_reconcile_share_pools_v2<T: Config>() -> Weight {
@@ -572,7 +572,7 @@ mod tests {
             let deferred = migrate_reconcile_share_pools::<Test>();
             assert_eq!(
                 deferred,
-                <Test as frame_system::Config>::DbWeight::get().reads(2)
+                <Test as frame_system::Config>::DbWeight::get().reads(1)
             );
             assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
             migrate_reconcile_share_pools_v2::<Test>();
@@ -688,6 +688,14 @@ mod tests {
             migrate_reconcile_share_pools_v2::<Test>();
             assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME_V2.to_vec()));
             assert!(pool_is_consistent::<Test>(&hotkey, netuid));
+
+            // Second hook (try-runtime idempotency) must not stamp or walk.
+            let again = migrate_reconcile_share_pools::<Test>();
+            assert_eq!(
+                again,
+                <Test as frame_system::Config>::DbWeight::get().reads(1)
+            );
+            assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
         });
     }
 
