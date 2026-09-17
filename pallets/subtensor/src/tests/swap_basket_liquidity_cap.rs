@@ -6,7 +6,11 @@
 //! counterparty sells alpha back to the EMA between slices; every slice passes the slippage,
 //! turnover, and concentration rules, yet the fund's realizable NAV collapses by roughly the
 //! turnover it spent. The liquidity cap stops that accumulation.
-#![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::expect_used,
+    clippy::unwrap_used
+)]
 
 use crate::staking::BasketFlushWork;
 use crate::tests::claim_root::{

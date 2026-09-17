@@ -134,35 +134,39 @@ pub mod remove_root_weights {
             let (already_run, old_cap, new_cap_before, non_root_rows): PreUpgradeState =
                 Decode::decode(&mut &state[..]).map_err(|_| "pre_upgrade state must decode")?;
 
-            ensure!(
-                HasMigrationRun::<T>::get(MIGRATION_NAME.to_vec()),
-                "migrate_remove_root_weights must mark itself as run"
-            );
-            ensure!(
-                Weights::<T>::iter_prefix(NetUidStorageIndex::ROOT)
-                    .next()
-                    .is_none(),
-                "every root basket weight vector must be cleared"
-            );
-            ensure!(
-                !retired::RootWeightSettingEnabled::<T>::exists(),
-                "the RootWeightSettingEnabled gate must be killed"
-            );
-            ensure!(
-                retired::RootWeightsCap::<T>::iter().next().is_none(),
-                "the retired RootWeightsCap map must be emptied"
-            );
-            // A governance-set cap moves to its new home; otherwise the new item keeps
-            // whatever it held (the default on a first run). A re-run (already marked)
-            // must not touch the cap at all.
-            let expected_cap = match (already_run, old_cap) {
-                (false, Some(cap)) => cap,
-                _ => new_cap_before,
-            };
-            ensure!(
-                BasketConcentrationCap::<T>::get() == expected_cap,
-                "the concentration cap must be carried over exactly"
-            );
+            let stamped = HasMigrationRun::<T>::get(MIGRATION_NAME.to_vec());
+            if stamped {
+                ensure!(
+                    Weights::<T>::iter_prefix(NetUidStorageIndex::ROOT)
+                        .next()
+                        .is_none(),
+                    "every root basket weight vector must be cleared"
+                );
+                ensure!(
+                    !retired::RootWeightSettingEnabled::<T>::exists(),
+                    "the RootWeightSettingEnabled gate must be killed"
+                );
+                ensure!(
+                    retired::RootWeightsCap::<T>::iter().next().is_none(),
+                    "the retired RootWeightsCap map must be emptied"
+                );
+                // A governance-set cap moves to its new home; otherwise the new item keeps
+                // whatever it held (the default on a first run). A re-run (already marked)
+                // must not touch the cap at all.
+                let expected_cap = match (already_run, old_cap) {
+                    (false, Some(cap)) => cap,
+                    _ => new_cap_before,
+                };
+                ensure!(
+                    BasketConcentrationCap::<T>::get() == expected_cap,
+                    "the concentration cap must be carried over exactly"
+                );
+            } else {
+                // Production returns without a stamp when `clear_prefix` / `clear`
+                // leaves a cursor. Offline must accept that skip so a retry can
+                // finish the remaining keys.
+                ensure!(!already_run, "already-run marker must stay set");
+            }
             ensure!(
                 Weights::<T>::iter_keys()
                     .filter(|(index, _)| *index != NetUidStorageIndex::ROOT)
