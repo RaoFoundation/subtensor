@@ -658,15 +658,16 @@ call_filter_group!(SudoSetCodeCalls, [
 // flattened tuple stays within the `CallFilterMetadata` tuple-impl arity;
 // `call_infos()` recurses regardless.
 // Infrastructure pallets granted wholesale to the broad proxies, excluding
-// sudo and pallets that can move value indirectly. Shared by the proxy policy in
-// `mod.rs` and by the `WholesalePalletCalls` inventory below so the list lives
-// in one place.
+// sudo, pallets that can move value indirectly, and wrapper pallets that
+// re-dispatch a caller-supplied inner call on a freshly built origin
+// (`MultisigCalls`: `as_multi_threshold_1` drops the proxy filter). Shared by
+// the proxy policy in `mod.rs` and by the `WholesalePalletCalls` inventory
+// below so the list lives in one place.
 pub(super) type InfraCommonCalls = (
     SystemCalls,
     TimestampCalls,
     GrandpaCalls,
     UtilityCalls,
-    MultisigCalls,
     PreimageCalls,
     SchedulerCalls,
     ProxyCalls,
@@ -692,6 +693,7 @@ pub(super) type AllCalls = (
 type WholesalePalletCalls = (
     InfraCommonCalls,
     SudoCalls,
+    MultisigCalls,
     EvmCalls,
     CrowdloanCalls,
     ContractsCalls,

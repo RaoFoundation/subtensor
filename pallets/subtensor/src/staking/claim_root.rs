@@ -151,13 +151,26 @@ impl<T: Config> Pallet<T> {
             .checked_div(I96F32::saturating_from_num(total_root))
             .unwrap_or(I96F32::saturating_from_num(0));
 
-        // Dust deposit (shares or rate round to zero): roll everything back so
-        // `Σ owed == BasketShares` is never broken by uncredited value. The caller
-        // re-queues the credit for a later attempt.
+        // Escrow-only fund: the whole dividend is the fund's own cash yield. The
+        // credit already raised the holding (and NAV); minting nothing is correct.
+        // Recycle is reserved for a hotkey with no claimant stake and no escrow cash.
+        let escrow_only = total_root == 0 && escrow_root > 0 && shares_outstanding > 0;
         ensure!(
-            shares > 0 && increment != I96F32::saturating_from_num(0),
+            escrow_only || (shares > 0 && increment != I96F32::saturating_from_num(0)),
             DispatchError::Other("basket deposit too small")
         );
+
+        if escrow_only {
+            BasketDepositedTao::<T>::mutate(hotkey, |total| {
+                *total = total.saturating_add(value_added.into())
+            });
+            Self::deposit_event(Event::BasketDeposited {
+                hotkey: hotkey.clone(),
+                tao: value_added.into(),
+                shares: 0,
+            });
+            return Ok(());
+        }
 
         // `nav_before == 0` with outstanding shares means `basket_shares_for_value`
         // took its dust-revival branch: this par mint starts a new fund life, so the
@@ -1157,6 +1170,19 @@ impl<T: Config> Pallet<T> {
                 None => (old_level, old_block),
             };
             BasketTradeBucket::<T>::insert(new_hotkey, carried);
+        }
+
+        // Destination-flow counters follow the fund so a hotkey swap cannot
+        // reset wash headroom. Carry the higher used amount and the later block.
+        let used_rows: sp_std::vec::Vec<_> =
+            BasketLiquidityUsed::<T>::iter_prefix(old_hotkey).collect();
+        for (netuid, (old_used, old_block)) in used_rows {
+            BasketLiquidityUsed::<T>::remove(old_hotkey, netuid);
+            let carried = match BasketLiquidityUsed::<T>::get(new_hotkey, netuid) {
+                Some((new_used, new_block)) => (old_used.max(new_used), old_block.max(new_block)),
+                None => (old_used, old_block),
+            };
+            BasketLiquidityUsed::<T>::insert(new_hotkey, netuid, carried);
         }
 
         moved_rows

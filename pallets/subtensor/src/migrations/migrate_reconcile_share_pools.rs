@@ -131,16 +131,35 @@ where
         if let Ok(share) = ops.try_get_share(&coldkey)
             && !share.is_zero()
         {
-            *sum = sum.add(&share).unwrap_or_else(|| sum.clone());
+            // A failed add is not a partial sum we may write. Treat it as
+            // oversized so the caller skips the write and does not stamp.
+            match sum.add(&share) {
+                Some(next) => *sum = next,
+                None => return false,
+            }
         }
     }
     true
 }
 
+/// Result of attempting to reconcile one target pool.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ReconcileOutcome {
+    /// Denominator was rewritten to the live share sum.
+    Written,
+    /// Pool was already consistent, or had no live rows.
+    Unchanged,
+    /// Prefix or row cap hit, or a share add did not fit. Do not stamp.
+    Oversized,
+}
+
 /// Set the pool's denominator to the sum of its live shares when they differ. Pool value is
 /// untouched, so every member ends up quoted exactly its fraction of the same value. Returns
 /// the weight spent and whether a write happened.
-pub fn reconcile_pool<T: Config>(hotkey: &T::AccountId, netuid: NetUid) -> (Weight, bool) {
+pub fn reconcile_pool<T: Config>(
+    hotkey: &T::AccountId,
+    netuid: NetUid,
+) -> (Weight, ReconcileOutcome) {
     let scan = live_share_sum::<T>(hotkey, netuid);
     // One read per prefix key visited, plus share + epoch per matching row.
     let mut weight = T::DbWeight::get().reads(
@@ -150,21 +169,20 @@ pub fn reconcile_pool<T: Config>(hotkey: &T::AccountId, netuid: NetUid) -> (Weig
     );
     if scan.oversized {
         log::warn!(
-            "Migration '{}' skipped an oversized pool (visits={}, rows={})",
-            String::from_utf8_lossy(MIGRATION_NAME),
+            "Migration skipped an oversized pool (visits={}, rows={})",
             scan.visits,
             scan.rows
         );
-        return (weight, false);
+        return (weight, ReconcileOutcome::Oversized);
     }
     if scan.sum.is_zero() {
         // No live rows: nothing to reconcile against. Left for a product decision.
-        return (weight, false);
+        return (weight, ReconcileOutcome::Unchanged);
     }
     let mut ops = HotkeyAlphaSharePoolDataOperations::<T>::new(hotkey.clone(), netuid);
     let denominator = ops.get_denominator();
     if !scan.sum.gt(&denominator) && !denominator.gt(&scan.sum) {
-        return (weight, false);
+        return (weight, ReconcileOutcome::Unchanged);
     }
     ops.set_denominator(scan.sum);
     weight.saturating_accrue(T::DbWeight::get().writes(2));
@@ -172,37 +190,72 @@ pub fn reconcile_pool<T: Config>(hotkey: &T::AccountId, netuid: NetUid) -> (Weig
         hotkey: hotkey.clone(),
         netuid,
     });
-    (weight, true)
+    (weight, ReconcileOutcome::Written)
+}
+
+/// Stamp only when every target decoded and was in-bound. An oversized or
+/// undecodable target must stay retryable on a later spec.
+fn should_stamp_reconcile(outcomes: &[Result<ReconcileOutcome, ()>]) -> bool {
+    !outcomes.is_empty()
+        && outcomes.iter().all(|outcome| {
+            matches!(
+                outcome,
+                Ok(ReconcileOutcome::Written) | Ok(ReconcileOutcome::Unchanged)
+            )
+        })
 }
 
 /// One-shot: reconcile every target pool. Guarded by `HasMigrationRun`.
 pub fn migrate_reconcile_share_pools<T: Config>() -> Weight {
+    migrate_reconcile_share_pools_named::<T>(MIGRATION_NAME)
+}
+
+/// Retry after spec 464: same targets, same stamp rule. Needed because 464
+/// stamped `migrate_reconcile_share_pools_v1` even when a target was skipped.
+pub const MIGRATION_NAME_V2: &[u8] = b"migrate_reconcile_share_pools_v2";
+
+pub fn migrate_reconcile_share_pools_v2<T: Config>() -> Weight {
+    migrate_reconcile_share_pools_named::<T>(MIGRATION_NAME_V2)
+}
+
+fn migrate_reconcile_share_pools_named<T: Config>(migration_name: &[u8]) -> Weight {
     let mut weight = T::DbWeight::get().reads(1);
-    if HasMigrationRun::<T>::get(MIGRATION_NAME) {
+    if HasMigrationRun::<T>::get(migration_name) {
         return weight;
     }
     let mut reconciled: u32 = 0;
+    let mut outcomes: sp_std::vec::Vec<Result<ReconcileOutcome, ()>> = sp_std::vec::Vec::new();
     for (ss58, netuid) in RECONCILE_TARGETS {
         let Some(hotkey) = decode_account_id32::<T>(ss58) else {
             log::warn!(
                 "Migration '{}' skipped an undecodable target",
-                String::from_utf8_lossy(MIGRATION_NAME)
+                String::from_utf8_lossy(migration_name)
             );
+            outcomes.push(Err(()));
             continue;
         };
-        let (spent, changed) = reconcile_pool::<T>(&hotkey, NetUid::from(*netuid));
+        let (spent, outcome) = reconcile_pool::<T>(&hotkey, NetUid::from(*netuid));
         weight.saturating_accrue(spent);
-        if changed {
+        if outcome == ReconcileOutcome::Written {
             reconciled = reconciled.saturating_add(1);
         }
+        outcomes.push(Ok(outcome));
     }
-    HasMigrationRun::<T>::insert(MIGRATION_NAME, true);
-    weight.saturating_accrue(T::DbWeight::get().writes(1));
-    log::info!(
-        "Migration '{}' completed: {} pools reconciled",
-        String::from_utf8_lossy(MIGRATION_NAME),
-        reconciled
-    );
+    if should_stamp_reconcile(&outcomes) {
+        HasMigrationRun::<T>::insert(migration_name, true);
+        weight.saturating_accrue(T::DbWeight::get().writes(1));
+        log::info!(
+            "Migration '{}' completed: {} pools reconciled",
+            String::from_utf8_lossy(migration_name),
+            reconciled
+        );
+    } else {
+        log::warn!(
+            "Migration '{}' did not stamp HasMigrationRun ({} pools written); retry later",
+            String::from_utf8_lossy(migration_name),
+            reconciled
+        );
+    }
     weight
 }
 
@@ -342,6 +395,21 @@ pub mod reconcile_share_pools {
     }
 }
 
+/// Retry after spec 464: same targets and stamp rule, new `HasMigrationRun` key.
+pub mod reconcile_share_pools_v2 {
+    use super::*;
+    use frame_support::traits::OnRuntimeUpgrade;
+    use sp_std::marker::PhantomData;
+
+    pub struct Migration<T: Config>(PhantomData<T>);
+
+    impl<T: Config> OnRuntimeUpgrade for Migration<T> {
+        fn on_runtime_upgrade() -> Weight {
+            migrate_reconcile_share_pools_v2::<T>()
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::arithmetic_side_effects,
@@ -386,7 +454,7 @@ mod tests {
             );
 
             let (_, changed) = reconcile_pool::<Test>(&hotkey, netuid);
-            assert!(changed);
+            assert_eq!(changed, ReconcileOutcome::Written);
 
             let ops = HotkeyAlphaSharePoolDataOperations::<Test>::new(hotkey, netuid);
             let expected = inflated
@@ -407,7 +475,7 @@ mod tests {
 
             // Idempotent: a second pass finds nothing to change.
             let (_, changed_again) = reconcile_pool::<Test>(&hotkey, netuid);
-            assert!(!changed_again);
+            assert_eq!(changed_again, ReconcileOutcome::Unchanged);
         });
     }
 
@@ -426,7 +494,7 @@ mod tests {
             );
             let denominator = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
             let (_, changed) = reconcile_pool::<Test>(&hotkey, netuid);
-            assert!(!changed);
+            assert_eq!(changed, ReconcileOutcome::Unchanged);
             let now = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
             assert!(!now.gt(&denominator) && !denominator.gt(&now));
 
@@ -439,7 +507,7 @@ mod tests {
                 SafeFloat::new(5_000_000, 0).unwrap(),
             );
             let (_, changed) = reconcile_pool::<Test>(&stranded, netuid);
-            assert!(!changed);
+            assert_eq!(changed, ReconcileOutcome::Unchanged);
             assert_eq!(
                 TotalHotkeyAlpha::<Test>::get(stranded, netuid),
                 5_000_000u64.into()
@@ -454,5 +522,22 @@ mod tests {
                 <Test as frame_system::Config>::DbWeight::get().reads(1)
             );
         });
+    }
+
+    #[test]
+    fn skip_outcomes_do_not_stamp() {
+        assert!(should_stamp_reconcile(&[Ok(ReconcileOutcome::Written)]));
+        assert!(should_stamp_reconcile(&[Ok(ReconcileOutcome::Unchanged)]));
+        assert!(should_stamp_reconcile(&[
+            Ok(ReconcileOutcome::Written),
+            Ok(ReconcileOutcome::Unchanged)
+        ]));
+        assert!(!should_stamp_reconcile(&[Ok(ReconcileOutcome::Oversized)]));
+        assert!(!should_stamp_reconcile(&[Err(())]));
+        assert!(!should_stamp_reconcile(&[
+            Ok(ReconcileOutcome::Written),
+            Err(())
+        ]));
+        assert!(!should_stamp_reconcile(&[]));
     }
 }

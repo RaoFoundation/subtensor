@@ -379,6 +379,7 @@ impl<T: Config> Pallet<T> {
         AlphaValues::<T>::remove(netuid);
         LiquidAlphaConsensusMode::<T>::remove(netuid);
         SubtokenEnabled::<T>::remove(netuid);
+        SubnetFastMovingPrice::<T>::remove(netuid);
         OwnerCutAutoLockEnabled::<T>::remove(netuid);
         ImmuneOwnerUidsLimit::<T>::remove(netuid);
         StakeWeight::<T>::remove(netuid);

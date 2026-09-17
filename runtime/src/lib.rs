@@ -238,7 +238,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 464,
+    spec_version: 465,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1435,8 +1435,8 @@ impl pallet_crowdloan::Config for Runtime {
 parameter_types! {
     pub const LimitOrdersPalletId: PalletId = PalletId(*b"bt/limit");
     pub const LimitOrdersMaxOrdersPerBatch: u32 = 100;
-    /// Provider records stay drawable for 7 days.
-    pub const LimitOrdersLinkedOutputTtl: u64 = 7 * 24 * 60 * 60 * 1000;
+    /// Provider records stay drawable for 180 days.
+    pub const LimitOrdersLinkedOutputTtl: u64 = 180 * 24 * 60 * 60 * 1000;
 }
 
 pub struct LimitOrdersPalletHotkey;
@@ -1688,6 +1688,12 @@ type Migrations = (
     // sum of their live shares, so every member is quoted exactly its fraction. One-shot,
     // guarded by HasMigrationRun; try-runtime checks each target pool before and after.
     pallet_subtensor::migrations::migrate_reconcile_share_pools::reconcile_share_pools::Migration<
+        Runtime,
+    >,
+    // Retry of the 464 share-pool reconcile: same targets, but does not stamp
+    // `HasMigrationRun` when a target is oversized or undecodable, so a later
+    // spec can try again. No-op when the pool is already consistent.
+    pallet_subtensor::migrations::migrate_reconcile_share_pools::reconcile_share_pools_v2::Migration<
         Runtime,
     >,
     // Remove the root weight vector design: clear Weights[ROOT], kill the

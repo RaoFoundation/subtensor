@@ -50,10 +50,12 @@ type SubnetLeaseAllowed = (
 );
 
 /// `NonTransfer`: excludes liquid value movement, coldkey swaps, sudo, EVM,
-/// Contracts, and Crowdloan calls that can move value indirectly, and basket
-/// trading (which needs the explicit `BasketTrading` grant). Sudo is
+/// Contracts, and Crowdloan calls that can move value indirectly, Multisig
+/// wrappers (they re-dispatch on a fresh origin that drops this filter), and
+/// basket trading (which needs the explicit `BasketTrading` grant). Sudo is
 /// excluded because a sudo-key principal would otherwise hand the delegate
-/// root, including forced transfers.
+/// root, including forced transfers. `SudoCalls` is inventory-only: no
+/// restricted proxy grants it.
 type NonTransferAllowed = (
     InfraCommonCalls,
     AdminAll,
@@ -73,7 +75,7 @@ type NonTransferAllowed = (
 );
 
 /// `NonFungible`: nothing that moves, locks, burns or spends TAO/alpha, no key
-/// swaps, and no sudo.
+/// swaps, no sudo, and no Multisig wrappers (fresh-origin re-dispatch).
 type NonFungibleAllowed = (
     InfraCommonCalls,
     AdminAll,
@@ -88,12 +90,13 @@ type NonFungibleAllowed = (
 );
 
 /// `NonCritical`: day-to-day operations including value movement, but no sudo,
-/// network dissolution, root/burned registration, coldkey swaps, or basket
-/// trading (which needs the explicit `BasketTrading` grant).
+/// network dissolution, root/burned registration, coldkey swaps, Crowdloan
+/// wrappers (they re-dispatch a caller-supplied call as the real coldkey),
+/// Multisig wrappers, or basket trading (which needs the explicit
+/// `BasketTrading` grant).
 type NonCriticalAllowed = (
     InfraCommonCalls,
     EvmCalls,
-    CrowdloanCalls,
     ContractsCalls,
     AdminAll,
     BalanceTransferCalls,
@@ -318,7 +321,7 @@ mod tests {
             | &group_calls::<BalanceMaintenanceCalls>())
             | &(&group_calls::<StakeTransferCalls>() | &group_calls::<ColdkeySwapCalls>());
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
-        let denied = &denied | &group_calls::<SudoCalls>();
+        let denied = &denied | &group_calls::<(SudoCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
@@ -336,6 +339,7 @@ mod tests {
                 | &(&group_calls::<HotkeySwapCalls>() | &group_calls::<ColdkeySwapCalls>()));
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SubtensorValueCalls, SudoCalls)>();
+        let denied = &denied | &group_calls::<MultisigCalls>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
@@ -484,11 +488,50 @@ mod tests {
         }
     }
 
+    /// Multisig wrappers re-dispatch the inner call on a fresh `Signed(multisig)`
+    /// origin that does not carry the proxy filter. Restricted proxies must not
+    /// reach them; `Any` still can.
+    #[test]
+    fn restricted_proxies_cannot_reach_multisig_wrappers() {
+        use subtensor_runtime_common::AccountId;
+
+        let other = AccountId::new([3; 32]);
+        let inner = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+        let wrappers = [
+            RuntimeCall::Multisig(pallet_multisig::Call::as_multi_threshold_1 {
+                other_signatories: vec![other.clone()],
+                call: alloc::boxed::Box::new(inner.clone()),
+            }),
+            RuntimeCall::Multisig(pallet_multisig::Call::as_multi {
+                threshold: 2,
+                other_signatories: vec![other],
+                maybe_timepoint: None,
+                call: alloc::boxed::Box::new(inner),
+                max_weight: frame_support::weights::Weight::from_parts(1, 1),
+            }),
+        ];
+        for call in &wrappers {
+            let name = call.get_call_metadata().function_name;
+            for proxy_type in [
+                ProxyType::NonTransfer,
+                ProxyType::NonFungible,
+                ProxyType::NonCritical,
+            ] {
+                assert!(
+                    !proxy_type.filter(call),
+                    "{proxy_type:?} must not dispatch Multisig::{name}"
+                );
+            }
+            assert!(ProxyType::Any.filter(call));
+        }
+    }
+
     #[test]
     fn non_critical_is_everything_but_sudo_and_critical_ops() {
         let denied = &(&(&group_calls::<SudoCalls>() | &group_calls::<BurnedRegistrationCalls>())
             | &(&group_calls::<RootRegistrationCalls>() | &group_calls::<CriticalNetworkCalls>()))
             | &group_calls::<ColdkeySwapCalls>();
+        let denied = &denied | &group_calls::<(CrowdloanCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
@@ -537,11 +580,11 @@ mod tests {
             RuntimeCall::Crowdloan(pallet_crowdloan::Call::finalize { crowdloan_id: 0 }),
         ];
 
-        for (proxy_type, expected) in [
-            (ProxyType::Any, true),
-            (ProxyType::NonCritical, true),
-            (ProxyType::NonTransfer, false),
-            (ProxyType::NonFungible, false),
+        for proxy_type in [
+            ProxyType::Any,
+            ProxyType::NonCritical,
+            ProxyType::NonTransfer,
+            ProxyType::NonFungible,
         ] {
             // This is the metadata provider exposed by ProxyFilterRuntimeApi.
             let infos = get_proxy_filters(Some(vec![proxy_type as u8]));
@@ -550,6 +593,15 @@ mod tests {
             assert_eq!(info.proxy_type, proxy_type as u8);
             for call in &calls {
                 let metadata = call.get_call_metadata();
+                let is_crowdloan = metadata.pallet_name == "Crowdloan";
+                // Crowdloan wrappers re-dispatch as the real coldkey; they stay on Any
+                // only. EVM / Contracts remain on NonCritical.
+                let expected = match proxy_type {
+                    ProxyType::Any => true,
+                    ProxyType::NonCritical => !is_crowdloan,
+                    ProxyType::NonTransfer | ProxyType::NonFungible => false,
+                    _ => false,
+                };
                 let executable = proxy_type.filter(call);
                 let advertised = match &info.filter_mode {
                     FilterMode::AllowAll => true,
@@ -771,6 +823,10 @@ mod tests {
             assert!(!allowed.contains("SubtensorModule::reset_coldkey_swap"));
             assert!(!allowed.contains("SubtensorModule::swap_coldkey"));
             assert!(!allowed.contains("SubtensorModule::schedule_swap_coldkey"));
+            assert!(!allowed.contains("Multisig::as_multi_threshold_1"));
+            assert!(!allowed.contains("Multisig::as_multi"));
+            assert!(!allowed.contains("Crowdloan::finalize"));
+            assert!(!allowed.contains("Sudo::sudo"));
         }
         // `root_dissolve_network` leaked into NonCritical specifically.
         assert!(

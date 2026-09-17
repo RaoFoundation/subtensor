@@ -55,11 +55,11 @@ pub fn migrate_remove_root_weights<T: Config>() -> Weight {
     if result.maybe_cursor.is_some() {
         log::error!(
             "Migration '{mig_name_str}' did not finish clearing Weights[ROOT]; \
-             {removed} entries removed"
+             {removed} entries removed; not stamping HasMigrationRun"
         );
-    } else {
-        log::info!("Migration '{mig_name_str}' cleared {removed} root basket weight vector(s)");
+        return total_weight;
     }
+    log::info!("Migration '{mig_name_str}' cleared {removed} root basket weight vector(s)");
 
     retired::RootWeightSettingEnabled::<T>::kill();
     total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
@@ -74,6 +74,13 @@ pub fn migrate_remove_root_weights<T: Config>() -> Weight {
     let caps_removed = caps.unique as u64;
     total_weight =
         total_weight.saturating_add(T::DbWeight::get().reads_writes(caps_removed, caps_removed));
+    if caps.maybe_cursor.is_some() {
+        log::error!(
+            "Migration '{mig_name_str}' did not finish clearing RootWeightsCap; \
+             {caps_removed} entries removed; not stamping HasMigrationRun"
+        );
+        return total_weight;
+    }
 
     HasMigrationRun::<T>::insert(&mig_name, true);
     total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));

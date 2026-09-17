@@ -765,3 +765,57 @@ fn test_flush_drain_via_block_step_one_hotkey() {
         assert!(PendingBasketFlushCursor::<Test>::get().is_some());
     });
 }
+
+/// An escrow-only fund (no real-staker root, only the fund's cash slot) must
+/// keep its root dividend. Recycle would pin NAV and destroy the yield.
+#[test]
+fn test_escrow_only_fund_keeps_its_own_dividend() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let coldkey = U256::from(2001);
+        let hotkey = U256::from(3001);
+        let netuid = setup_root_validator(hotkey, coldkey, 1);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+
+        let real = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        );
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            real,
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            NetUid::ROOT,
+            10_000_000_000u64.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, 10_000_000_000u64);
+
+        let nav_before = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
+        let credit = 500_000_000u64;
+        queue_credit(&hotkey, netuid, credit);
+
+        let _ = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+
+        let nav_after = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        assert!(
+            nav_after > nav_before,
+            "escrow-only dividend must raise NAV: {nav_before} -> {nav_after}"
+        );
+        assert_eq!(
+            SubnetAlphaOut::<Test>::get(netuid),
+            alpha_out_before.saturating_add(credit.into()),
+            "credit must stay in issuance, not recycle"
+        );
+        assert!(escrow_alpha(&hotkey, netuid) > 0);
+        assert_eq!(BasketShares::<Test>::get(hotkey), 10_000_000_000u64);
+    });
+}

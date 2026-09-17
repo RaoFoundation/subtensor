@@ -337,8 +337,9 @@ impl<T: Config> Pallet<T> {
     /// merge with future dividends and become depositable). There is deliberately no
     /// per-credit retry loop — it would multiply the NAV sweeps by the credit count and break
     /// the flat allowance [`Self::basket_flush_work_bound`] every flushing extrinsic declares.
-    /// Credits are recycled when demonstrably unapportionable (no root stake), terminally
-    /// untradeable, or when the seed migration owns the basket maps.
+    /// Credits are recycled when demonstrably unapportionable (no claimant root
+    /// stake *and* no escrow cash), terminally untradeable, or when the seed
+    /// migration owns the basket maps.
     ///
     /// Returns the approximate work performed (holdings valued as quotes, in-place credits as
     /// executed rows), priced by [`Self::basket_flush_weight`] in the post-dispatch weight of
@@ -371,8 +372,11 @@ impl<T: Config> Pallet<T> {
         let total_root =
             Self::get_stake_for_hotkey_on_subnet(hotkey, NetUid::ROOT).saturating_sub(escrow_root);
 
-        // No root stake to apportion against: recycle.
-        if total_root.is_zero() {
+        // No claimant root *and* no escrow cash: nothing earned this dividend, recycle.
+        // An escrow-only fund still earned the credit (the escrow row *is* the
+        // validator's root stake). That slice enters the fund unminted so NAV rises
+        // for existing share holders — do not recycle it.
+        if total_root.is_zero() && escrow_root.is_zero() {
             Self::recycle_basket_deposit_batch(batch);
             return BasketFlushWork::default();
         }

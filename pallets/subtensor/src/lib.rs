@@ -3098,6 +3098,25 @@ pub mod pallet {
     pub type BasketTradeBucket<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u64), OptionQuery>;
 
+    /// --- MAP ( validator_hotkey, netuid ) --> `(alpha_bought, last_block)` of
+    /// destination-pool flow used by `swap_basket` in the current refill window.
+    ///
+    /// The standing-position liquidity cap resets when the fund sells the holding
+    /// back to zero. This map does not: it accumulates alpha bought into `netuid`
+    /// and decays to zero over [`crate::BASKET_TRADE_REFILL_BLOCKS`], so
+    /// accumulate/unwind cycles cannot spend the turnover budget as band slack.
+    /// Follows the fund on hotkey swap (higher used, later block).
+    #[pallet::storage]
+    pub type BasketLiquidityUsed<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        NetUid,
+        (u64, u64),
+        OptionQuery,
+    >;
+
     #[pallet::type_value]
     /// Default concentration cap for a single basket holding: 1/16 of fund NAV
     /// (u16-normalized; 4096/65535 admits exactly 16 equal holdings).
