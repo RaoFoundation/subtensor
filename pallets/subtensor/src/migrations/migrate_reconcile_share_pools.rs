@@ -1,5 +1,6 @@
 use crate::staking::stake_utils::HotkeyAlphaSharePoolDataOperations;
-use crate::{Config, Event, HasMigrationRun, Pallet};
+use crate::{Alpha, AlphaV2, Config, Event, HasMigrationRun, Pallet};
+use alloc::collections::BTreeSet;
 use codec::Decode;
 use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
@@ -9,6 +10,14 @@ use sp_runtime::AccountId32;
 use subtensor_runtime_common::NetUid;
 
 pub(crate) const MIGRATION_NAME: &[u8] = b"migrate_reconcile_share_pools_v1";
+
+/// Most `Alpha` + `AlphaV2` keys this one-shot may visit on one hotkey prefix. The production
+/// target has ~60 members on one subnet. A larger prefix is left alone so the upgrade block
+/// cannot grow with nominators added after the scan. Not a paged rewrite: oversized pools
+/// are skipped.
+pub(crate) const MAX_RECONCILE_PREFIX_VISITS: u64 = 2_048;
+/// Most rows of the target `(hotkey, netuid)` pool this one-shot will sum.
+pub(crate) const MAX_RECONCILE_POOL_ROWS: u64 = 1_024;
 
 /// Pools whose live shares no longer sum to their denominator, so a member is quoted more
 /// than its fraction of the pool value. Identified by a full scan of production state at a
@@ -22,43 +31,136 @@ fn decode_account_id32<T: Config>(ss58_string: &str) -> Option<T::AccountId> {
     T::AccountId::decode(&mut account_id32_slice).ok()
 }
 
-/// Sum of the live (current-epoch, non-zero) shares of every row of the pool, and the row
-/// count. Reads the hotkey's row prefix once.
-pub fn live_share_sum<T: Config>(hotkey: &T::AccountId, netuid: NetUid) -> (SafeFloat, u64) {
+/// Result of a bounded walk of one pool's live shares.
+pub struct LiveShareSum {
+    pub sum: SafeFloat,
+    pub rows: u64,
+    pub visits: u64,
+    pub oversized: bool,
+}
+
+/// Sum of the live (current-epoch, non-zero) shares of every row of the pool.
+///
+/// Walks `Alpha` and `AlphaV2` prefixes for `hotkey` without collecting every subnet into a
+/// map. Stops if the prefix visit cap or the per-pool row cap is exceeded; the caller then
+/// skips the write.
+pub fn live_share_sum<T: Config>(hotkey: &T::AccountId, netuid: NetUid) -> LiveShareSum {
     let ops = HotkeyAlphaSharePoolDataOperations::<T>::new(hotkey.clone(), netuid);
     let mut sum = SafeFloat::zero();
     let mut rows: u64 = 0;
-    for (coldkey, row_netuid, _) in Pallet::<T>::alpha_iter_single_prefix(hotkey) {
-        rows = rows.saturating_add(1);
-        if row_netuid != netuid {
+    let mut visits: u64 = 0;
+    let mut seen: BTreeSet<T::AccountId> = BTreeSet::new();
+
+    // Legacy first so a (coldkey, netuid) present in both maps is counted once; `try_get_share`
+    // still prefers the V1 row.
+    if !accumulate_prefix::<T, _>(
+        Alpha::<T>::iter_prefix((hotkey.clone(),))
+            .map(|((coldkey, row_netuid), _)| (coldkey, row_netuid)),
+        netuid,
+        &ops,
+        &mut seen,
+        &mut sum,
+        &mut rows,
+        &mut visits,
+    ) {
+        return LiveShareSum {
+            sum,
+            rows,
+            visits,
+            oversized: true,
+        };
+    }
+    if !accumulate_prefix::<T, _>(
+        AlphaV2::<T>::iter_prefix((hotkey,))
+            .map(|((coldkey, row_netuid), _)| (coldkey, row_netuid)),
+        netuid,
+        &ops,
+        &mut seen,
+        &mut sum,
+        &mut rows,
+        &mut visits,
+    ) {
+        return LiveShareSum {
+            sum,
+            rows,
+            visits,
+            oversized: true,
+        };
+    }
+
+    LiveShareSum {
+        sum,
+        rows,
+        visits,
+        oversized: false,
+    }
+}
+
+/// Visit one share-map prefix. Returns `false` when a cap is hit.
+fn accumulate_prefix<T, I>(
+    keys: I,
+    netuid: NetUid,
+    ops: &HotkeyAlphaSharePoolDataOperations<T>,
+    seen: &mut BTreeSet<T::AccountId>,
+    sum: &mut SafeFloat,
+    rows: &mut u64,
+    visits: &mut u64,
+) -> bool
+where
+    T: Config,
+    I: Iterator<Item = (T::AccountId, NetUid)>,
+{
+    for (coldkey, row_netuid) in keys {
+        *visits = visits.saturating_add(1);
+        if *visits > MAX_RECONCILE_PREFIX_VISITS {
+            return false;
+        }
+        if row_netuid != netuid || !seen.insert(coldkey.clone()) {
             continue;
+        }
+        *rows = rows.saturating_add(1);
+        if *rows > MAX_RECONCILE_POOL_ROWS {
+            return false;
         }
         if let Ok(share) = ops.try_get_share(&coldkey)
             && !share.is_zero()
         {
-            sum = sum.add(&share).unwrap_or_else(|| sum.clone());
+            *sum = sum.add(&share).unwrap_or_else(|| sum.clone());
         }
     }
-    (sum, rows)
+    true
 }
 
 /// Set the pool's denominator to the sum of its live shares when they differ. Pool value is
 /// untouched, so every member ends up quoted exactly its fraction of the same value. Returns
 /// the weight spent and whether a write happened.
 pub fn reconcile_pool<T: Config>(hotkey: &T::AccountId, netuid: NetUid) -> (Weight, bool) {
-    let (sum, rows) = live_share_sum::<T>(hotkey, netuid);
-    // Two maps walked for the prefix plus, per row, the share and epoch reads.
-    let mut weight = T::DbWeight::get().reads(rows.saturating_mul(4).saturating_add(3));
-    if sum.is_zero() {
+    let scan = live_share_sum::<T>(hotkey, netuid);
+    // One read per prefix key visited, plus share + epoch per matching row.
+    let mut weight = T::DbWeight::get().reads(
+        scan.visits
+            .saturating_add(scan.rows.saturating_mul(2))
+            .saturating_add(3),
+    );
+    if scan.oversized {
+        log::warn!(
+            "Migration '{}' skipped an oversized pool (visits={}, rows={})",
+            String::from_utf8_lossy(MIGRATION_NAME),
+            scan.visits,
+            scan.rows
+        );
+        return (weight, false);
+    }
+    if scan.sum.is_zero() {
         // No live rows: nothing to reconcile against. Left for a product decision.
         return (weight, false);
     }
     let mut ops = HotkeyAlphaSharePoolDataOperations::<T>::new(hotkey.clone(), netuid);
     let denominator = ops.get_denominator();
-    if !sum.gt(&denominator) && !denominator.gt(&sum) {
+    if !scan.sum.gt(&denominator) && !denominator.gt(&scan.sum) {
         return (weight, false);
     }
-    ops.set_denominator(sum);
+    ops.set_denominator(scan.sum);
     weight.saturating_accrue(T::DbWeight::get().writes(2));
     Pallet::<T>::deposit_event(Event::SharePoolDenominatorReconciled {
         hotkey: hotkey.clone(),
@@ -102,7 +204,11 @@ pub fn migrate_reconcile_share_pools<T: Config>() -> Weight {
 /// arithmetic itself allows) for a pool with live rows.
 #[cfg(any(feature = "try-runtime", test))]
 pub fn pool_is_consistent<T: Config>(hotkey: &T::AccountId, netuid: NetUid) -> bool {
-    let (sum, _) = live_share_sum::<T>(hotkey, netuid);
+    let scan = live_share_sum::<T>(hotkey, netuid);
+    if scan.oversized {
+        return false;
+    }
+    let sum = scan.sum;
     if sum.is_zero() {
         return true;
     }
@@ -162,8 +268,15 @@ pub mod reconcile_share_pools {
             for (ss58, netuid) in RECONCILE_TARGETS {
                 let hotkey = decode_account_id32::<T>(ss58).ok_or("target hotkey must decode")?;
                 let netuid = NetUid::from(*netuid);
-                let (_, rows) = live_share_sum::<T>(&hotkey, netuid);
-                targets.push((TotalHotkeyAlpha::<T>::get(&hotkey, netuid).to_u64(), rows));
+                let scan = live_share_sum::<T>(&hotkey, netuid);
+                ensure!(
+                    !scan.oversized,
+                    "target pool exceeds the reconcile visit/row bound"
+                );
+                targets.push((
+                    TotalHotkeyAlpha::<T>::get(&hotkey, netuid).to_u64(),
+                    scan.rows,
+                ));
             }
             Ok(PreUpgradeState {
                 already_run: HasMigrationRun::<T>::get(MIGRATION_NAME.to_vec()),
@@ -185,13 +298,17 @@ pub mod reconcile_share_pools {
             {
                 let hotkey = decode_account_id32::<T>(ss58).ok_or("target hotkey must decode")?;
                 let netuid = NetUid::from(*netuid);
-                let (_, rows) = live_share_sum::<T>(&hotkey, netuid);
+                let scan = live_share_sum::<T>(&hotkey, netuid);
+                ensure!(
+                    !scan.oversized,
+                    "target pool exceeds the reconcile visit/row bound"
+                );
                 ensure!(
                     TotalHotkeyAlpha::<T>::get(&hotkey, netuid).to_u64() == value_before,
                     "reconciliation must not change pool value"
                 );
                 ensure!(
-                    rows == rows_before,
+                    scan.rows == rows_before,
                     "reconciliation must not add or remove rows"
                 );
                 ensure!(
