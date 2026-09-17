@@ -12,8 +12,11 @@ use core::num::NonZeroU64;
 
 pub mod check_mortality;
 pub mod check_nonce;
+pub mod check_nonzero_sender;
+pub mod evm_origin;
 mod fee_filters;
 mod proxy_filters;
+pub mod small_order;
 pub mod sudo_wrapper;
 pub mod transaction_payment_wrapper;
 
@@ -1254,8 +1257,8 @@ impl pallet_evm::Config for Runtime {
     type GasWeightMapping = pallet_evm::FixedGasWeightMapping<Self>;
     type WeightPerGas = WeightPerGas;
     type BlockHashMapping = pallet_ethereum::EthereumBlockHashMapping<Self>;
-    type CallOrigin = pallet_evm::EnsureAddressTruncated;
-    type WithdrawOrigin = pallet_evm::EnsureAddressTruncated;
+    type CallOrigin = evm_origin::EnsureAddressTruncatedNonZero;
+    type WithdrawOrigin = evm_origin::EnsureAddressTruncatedNonZero;
     type AddressMapping = pallet_evm::HashedAddressMapping<BlakeTwo256>;
     type Currency = Balances;
     type PrecompilesType = Precompiles<Self>;
@@ -1637,7 +1640,7 @@ pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
 // The extensions to the basic transaction logic.
 pub type SystemTxExtension = (
-    frame_system::CheckNonZeroSender<Runtime>,
+    check_nonzero_sender::CheckNonZeroSender<Runtime>,
     frame_system::CheckSpecVersion<Runtime>,
     frame_system::CheckTxVersion<Runtime>,
     frame_system::CheckGenesis<Runtime>,
