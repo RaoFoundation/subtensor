@@ -5454,7 +5454,7 @@ fn test_unstake_all_weight_covers_every_subnet() {
         let max_extrinsic = BlockWeights::get()
             .get(DispatchClass::Normal)
             .max_extrinsic
-            .expect("normal extrinsics have a configured maximum");
+            .unwrap();
         assert!(
             declared.all_lte(max_extrinsic),
             "declared {declared:?} exceeds max extrinsic {max_extrinsic:?}"
