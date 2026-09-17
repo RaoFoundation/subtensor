@@ -100,6 +100,11 @@ DESCRIPTIONS: dict[str, str] = {
         "coldkey-wide claim by validator where that fits, and investigate or consolidate an "
         "individually oversized basket."
     ),
+    "RootWeightCapExceeded": (
+        "Retired (kept for SCALE index stability on the 463 testnet/devnet runtime): one "
+        "destination in a `set_root_weights` vector exceeded `RootWeightsCap`. That call is "
+        "gone; the live guard is `BasketConcentrationCapExceeded` on `swap_basket`."
+    ),
     "BasketLiquidityCapExceeded": (
         "The trade would leave the fund holding more of the destination subnet than "
         "`BasketLiquidityCap` allows as a share of that subnet's alpha reserve "
@@ -907,8 +912,13 @@ DESCRIPTIONS: dict[str, str] = {
         "at least one item and at most one per subnet."
     ),
     "TooManyStakingHotkeys": (
-        "The destination coldkey already stakes through the maximum number of hotkeys that "
-        "third-party stake transfers may add to it. Transfer to a hotkey the destination "
-        "already stakes through, or let the destination stake to the new hotkey itself."
+        "The coldkey already stakes through the maximum number of hotkeys, either its own "
+        "cap or the smaller cap that third-party stake transfers may fill. Stake to a hotkey "
+        "the coldkey already stakes through, or unstake from unused hotkeys first."
+    ),
+    "ColdkeySwapTooHeavy": (
+        "The coldkey stakes through more hotkeys, or holds more stake positions, than one "
+        "coldkey swap can move. Unstake from or move stake off unused hotkeys and subnets "
+        "to consolidate, then retry the swap."
     ),
 }

@@ -2,7 +2,7 @@ use crate::{Config, HasMigrationRun, NetworksAdded, SubnetTAO, TotalStake};
 use frame_support::{traits::Get, weights::Weight};
 use subtensor_runtime_common::{TaoBalance, Token};
 
-const MIGRATION_NAME: &[u8] = b"migrate_resync_total_stake";
+pub(crate) const MIGRATION_NAME: &[u8] = b"migrate_resync_total_stake";
 
 /// Set `TotalStake` to the sum of `SubnetTAO` over live subnets.
 ///
@@ -36,6 +36,83 @@ pub fn migrate_resync_total_stake<T: Config>() -> Weight {
 
     HasMigrationRun::<T>::insert(&migration_name, true);
     T::DbWeight::get().reads_writes(reads, 2)
+}
+
+/// [`OnRuntimeUpgrade`](frame_support::traits::OnRuntimeUpgrade) wrapper with try-runtime
+/// validation, registered in the runtime `Migrations` tuple: after the upgrade `TotalStake`
+/// equals the sum of `SubnetTAO` over live subnets, that sum is unchanged by the upgrade,
+/// `TotalIssuance` is untouched, and the marker is set.
+pub mod resync_total_stake {
+    use super::*;
+    use frame_support::traits::OnRuntimeUpgrade;
+    use sp_std::marker::PhantomData;
+
+    #[cfg(feature = "try-runtime")]
+    use crate::{NetworksAdded, SubnetTAO, TotalIssuance};
+    #[cfg(feature = "try-runtime")]
+    use codec::{Decode, Encode};
+    #[cfg(feature = "try-runtime")]
+    use frame_support::ensure;
+    #[cfg(feature = "try-runtime")]
+    use sp_runtime::TryRuntimeError;
+    #[cfg(feature = "try-runtime")]
+    use sp_std::vec::Vec;
+
+    #[cfg(feature = "try-runtime")]
+    fn live_subnet_tao<T: Config>() -> u64 {
+        NetworksAdded::<T>::iter()
+            .filter(|(_, added)| *added)
+            .map(|(netuid, _)| SubnetTAO::<T>::get(netuid).to_u64())
+            .fold(0u64, u64::saturating_add)
+    }
+
+    #[cfg(feature = "try-runtime")]
+    #[derive(Encode, Decode)]
+    struct PreUpgradeState {
+        live_subnet_tao: u64,
+        total_issuance: u64,
+    }
+
+    pub struct Migration<T: Config>(PhantomData<T>);
+
+    impl<T: Config> OnRuntimeUpgrade for Migration<T> {
+        fn on_runtime_upgrade() -> Weight {
+            migrate_resync_total_stake::<T>()
+        }
+
+        #[cfg(feature = "try-runtime")]
+        fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
+            Ok(PreUpgradeState {
+                live_subnet_tao: live_subnet_tao::<T>(),
+                total_issuance: TotalIssuance::<T>::get().to_u64(),
+            }
+            .encode())
+        }
+
+        #[cfg(feature = "try-runtime")]
+        fn post_upgrade(state: Vec<u8>) -> Result<(), TryRuntimeError> {
+            let before: PreUpgradeState =
+                Decode::decode(&mut &state[..]).map_err(|_| "pre_upgrade state must decode")?;
+            ensure!(
+                HasMigrationRun::<T>::get(MIGRATION_NAME.to_vec()),
+                "TotalStake resync marker must be set"
+            );
+            let live = live_subnet_tao::<T>();
+            ensure!(
+                live == before.live_subnet_tao,
+                "resync must not change the subnet reserves it sums"
+            );
+            ensure!(
+                TotalStake::<T>::get().to_u64() == live,
+                "TotalStake must equal the sum of live SubnetTAO"
+            );
+            ensure!(
+                TotalIssuance::<T>::get().to_u64() == before.total_issuance,
+                "resync must not touch TotalIssuance"
+            );
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]

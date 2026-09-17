@@ -94,6 +94,11 @@ impl<T: Config> Pallet<T> {
             Self::coldkey_owns_hotkey(&coldkey, &hotkey),
             Error::<T>::NonAssociatedColdKey
         );
+        // A collateral top-up stakes to the hotkey and so appends it to the coldkey's
+        // `StakingHotkeys`; refuse before charging when that list is at its cap.
+        if !collateral_topup.is_zero() {
+            Self::ensure_staking_hotkeys_can_grow(&coldkey, &hotkey)?;
+        }
 
         // 7) capacity check + prune candidate if full
         ensure!(

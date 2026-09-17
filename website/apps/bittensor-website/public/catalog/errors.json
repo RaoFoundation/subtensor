@@ -492,8 +492,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 372,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L372",
+          "line": 389,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L389",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -510,8 +510,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 375,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L375",
+          "line": 374,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L374",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -546,8 +546,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 391,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L391",
+          "line": 405,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L405",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -564,8 +564,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 395,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L395",
+          "line": 409,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L409",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -582,8 +582,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 387,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L387",
+          "line": 401,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L401",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -600,8 +600,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 377,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L377",
+          "line": 391,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L391",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -618,8 +618,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 380,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L380",
+          "line": 394,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L394",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -636,8 +636,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 385,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L385",
+          "line": 399,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L399",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1205,6 +1205,24 @@
           "path": "pallets/subtensor/src/macros/errors.rs",
           "line": 157,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L157",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "ColdkeySwapTooHeavy": {
+      "code": "limit_exceeded",
+      "description": "The coldkey stakes through more hotkeys, or holds more stake positions, than one coldkey swap can move. Unstake from or move stake off unused hotkeys and subnets to consolidate, then retry the swap.",
+      "docs_url": "/docs/errors/chain/ColdkeySwapTooHeavy",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ColdkeySwapTooHeavy/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 384,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L384",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2343,8 +2361,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 397,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L397",
+          "line": 376,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L376",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4789,6 +4807,24 @@
         }
       ]
     },
+    "RootWeightCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "Retired (kept for SCALE index stability on the 463 testnet/devnet runtime): one destination in a `set_root_weights` vector exceeded `RootWeightsCap`. That call is gone; the live guard is `BasketConcentrationCapExceeded` on `swap_basket`.",
+      "docs_url": "/docs/errors/chain/RootWeightCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RootWeightCapExceeded/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 371,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L371",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "RootWeightSettingDisabled": {
       "code": "disabled",
       "description": "Retired on current runtimes: the `set_root_weights` extrinsic and its network-wide gate were removed. Funds have no target vector \u2014 dividends accumulate in place on their origin subnet and composition changes only through `swap_basket`. Seeing this error means the chain is running an older runtime.",
@@ -5502,7 +5538,7 @@
     },
     "TooManyStakingHotkeys": {
       "code": "limit_exceeded",
-      "description": "The destination coldkey already stakes through the maximum number of hotkeys that third-party stake transfers may add to it. Transfer to a hotkey the destination already stakes through, or let the destination stake to the new hotkey itself.",
+      "description": "The coldkey already stakes through the maximum number of hotkeys, either its own cap or the smaller cap that third-party stake transfers may fill. Stake to a hotkey the coldkey already stakes through, or unstake from unused hotkeys first.",
       "docs_url": "/docs/errors/chain/TooManyStakingHotkeys",
       "markdown_url": "/llms.mdx/docs/errors/chain/TooManyStakingHotkeys/content.md",
       "pallets": [
@@ -5512,8 +5548,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 401,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L401",
+          "line": 381,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L381",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]

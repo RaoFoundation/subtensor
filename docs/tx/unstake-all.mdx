@@ -21,7 +21,7 @@ payout: the claim pays 100% of the basket.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1224-L1228), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1990-L2009), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1241-L1254), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2126-L2145), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -71,19 +71,28 @@ result = sub.execute_tool("unstake_all", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1226`](/code/pallets/subtensor/src/macros/dispatches.rs#L1224-L1228):
+`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1243`](/code/pallets/subtensor/src/macros/dispatches.rs#L1241-L1254):
 
 ```rust
 #[pallet::call_index(83)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all())]
-pub fn unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
-    Self::do_unstake_all(origin, hotkey)
+#[pallet::weight(Pallet::<T>::unstake_all_declared_weight())]
+pub fn unstake_all(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+) -> DispatchResultWithPostInfo {
+    let coldkey = ensure_signed(origin.clone())?;
+    let work = Self::do_unstake_all(origin, hotkey)?;
+    Ok((
+        Some(Self::unstake_all_actual_weight(&coldkey, work)),
+        Pays::Yes,
+    )
+        .into())
 }
 ```
 
-Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L113).
+Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L128), [`unstake_all_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L236).
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1994`](/code/pallets/subtensor/src/macros/dispatches.rs#L1990-L2009):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2130`](/code/pallets/subtensor/src/macros/dispatches.rs#L2126-L2145):
 
 ```rust
 #[pallet::call_index(148)]
@@ -108,7 +117,7 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L878), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L929), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L958).
+Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L880), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L931), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L960).
 
 `Utility.batch_all` — [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362):
 

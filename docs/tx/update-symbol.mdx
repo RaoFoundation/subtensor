@@ -15,7 +15,7 @@ stake, and emissions are untouched.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | SubtensorModule | [`SubtensorModule.update_symbol`](/code/pallets/subtensor/src/macros/dispatches.rs#L1768-L1785) |
+| `coldkey` | subnet owner | SubtensorModule | [`SubtensorModule.update_symbol`](/code/pallets/subtensor/src/macros/dispatches.rs#L1904-L1921) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("update_symbol", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.update_symbol` — [`pallets/subtensor/src/macros/dispatches.rs#L1770`](/code/pallets/subtensor/src/macros/dispatches.rs#L1768-L1785):
+`SubtensorModule.update_symbol` — [`pallets/subtensor/src/macros/dispatches.rs#L1906`](/code/pallets/subtensor/src/macros/dispatches.rs#L1904-L1921):
 
 ```rust
 #[pallet::call_index(112)]

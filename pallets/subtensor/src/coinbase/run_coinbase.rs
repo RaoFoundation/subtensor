@@ -710,13 +710,18 @@ impl<T: Config> Pallet<T> {
                 netuid,
                 owner_cut,
             );
-            // If the subnet is leased, notify the lease logic that owner cut has been distributed.
-            if let Some(lease_id) = SubnetUidToLeaseId::<T>::get(netuid) {
+            // If the subnet is leased, notify the lease logic that owner cut has been
+            // distributed, and lock only the part of the cut the lease keeps: the
+            // contributors' share is paid out from this position and must stay unlocked.
+            let retained_cut = if let Some(lease_id) = SubnetUidToLeaseId::<T>::get(netuid) {
                 Self::distribute_leased_network_dividends(lease_id, owner_cut);
-            }
+                Self::leased_owner_cut_retained(lease_id, owner_cut)
+            } else {
+                owner_cut
+            };
 
             // Auto-lock owner's cut
-            Self::auto_lock_owner_cut(netuid, owner_cut);
+            Self::auto_lock_owner_cut(netuid, retained_cut);
         }
 
         // Distribute mining incentives.
