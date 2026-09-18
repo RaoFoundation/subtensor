@@ -197,6 +197,22 @@ fn alpha_paid_scan_fee_is_discounted_before_withdrawal() {
             TaoBalance::ZERO,
         );
         assert!(expected_fee < full_fee);
+        // Alpha payers are billed on the same capped fee weight as TAO payers: never
+        // more than the call's spec 459 declaration.
+        let cap = node_subtensor_runtime::staking_fee::fee_weight_cap_459(&call)
+            .expect("remove_stake is capped at its 459 weight");
+        let capped_info = frame_support::dispatch::DispatchInfo {
+            call_weight: info.call_weight.min(cap),
+            ..info
+        };
+        assert!(
+            expected_fee
+                <= pallet_transaction_payment::Pallet::<Runtime>::compute_fee(
+                    100,
+                    &capped_info,
+                    TaoBalance::ZERO,
+                )
+        );
         let expected_alpha = pallet_subtensor_swap::Pallet::<Runtime>::get_alpha_amount_for_tao(
             netuid(),
             expected_fee.into(),

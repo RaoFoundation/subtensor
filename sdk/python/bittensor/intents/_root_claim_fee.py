@@ -1,9 +1,12 @@
 """Claim-fee preview for ``claim_root`` / ``claim_root_with_hotkey``.
 
-Coldkey-wide claims reserve ``MAX_ROOT_CLAIM_WORK`` (256) weight units.
-Single-hotkey claims reserve one basket's 129-unit envelope. Both refund down
-to the work actually done. The reserve is what people see leave their free
-balance, and it is larger than the fee that finally settles.
+Coldkey-wide claims declare ``MAX_ROOT_CLAIM_WORK`` (256) weight units for
+admission. Single-hotkey claims declare one basket's 129-unit envelope. Since
+spec 467 the fee wrapper charges either call as if only
+``ROOT_CLAIM_FEE_ALLOWANCE`` (4) units were declared; the rest of the envelope
+is a fee subsidy. Both still refund down to the work actually done when that is
+below the allowance. The reserve is what people see leave their free balance,
+and it is at least the fee that finally settles.
 
 This module estimates both numbers, compares the spent fee to accrued yield,
 and tells the caller when a claim loses money or cannot even be included.
@@ -20,29 +23,106 @@ from .._generated.runtime_apis import BetaBasketRuntimeApi, StakeInfoRuntimeApi
 from ..balance import Balance
 from ..sp_core import ss58_decode
 
-# ``claim_root_scan`` ref_time / ``claim_root`` ref_time in weights.rs.
-# A below-threshold walk only scans; a successful redeem pays the full row.
-_SCAN_REF_TIME = 6
-_REDEEM_REF_TIME = 70
-
-# One full ``claim_root`` weight unit under LinearWeightToFee (~τ0.0004475).
-# Coldkey-wide claims reserve 256 redeem and scan units; single-hotkey claims
-# reserve 129. Plus any non-weight base/length fee returned by ``payment_info``.
-_APPROX_REDEEM_FEE_RAO = 447_500
-_APPROX_SCAN_FEE_RAO = _APPROX_REDEEM_FEE_RAO * _SCAN_REF_TIME // _REDEEM_REF_TIME
+# Mirrors of the runtime's claim pricing (spec 467). Sources:
+# ``pallets/subtensor/src/weights.rs`` (``claim_root``, ``claim_root_scan``),
+# ``pallets/subtensor/src/staking/claim_root.rs`` (``basket_nav_sweep_weight``,
+# ``root_claim_weight_for_work``), ``basket_flush.rs`` (flush bound) and
+# ``runtime/src/staking_fee.rs`` (``ROOT_CLAIM_FEE_ALLOWANCE``,
+# ``root_claim_fee_weight``). Update together with a re-benchmark.
+_ROCKSDB_READ_PS = 25_000_000
+_ROCKSDB_WRITE_PS = 100_000_000
+# ``LinearWeightToFee``: 0.00025 rao per ref_time unit, rounded to nearest.
+_WEIGHT_FEE_PARTS = 250_000
+_PERBILL = 1_000_000_000
 _MAX_ROOT_CLAIM_WORK = 256
 _MAX_ROOT_CLAIM_HOTKEY_WORK = 129
+# ``MAX_BASKET_ROWS`` and the flat flush allowance every claim declares:
+# ``10 * MAX_BASKET_ROWS`` quotes and ``2 * MAX_BASKET_ROWS`` rows.
+_MAX_BASKET_ROWS = 256
+_FLUSH_BOUND_QUOTES = 10 * _MAX_BASKET_ROWS
+_FLUSH_BOUND_ROWS = 2 * _MAX_BASKET_ROWS
+# Runtime ``ROOT_CLAIM_FEE_ALLOWANCE``: claim units the fee wrapper charges for.
+_ROOT_CLAIM_FEE_ALLOWANCE = 4
+# Runtime ``fee_weight_cap_459`` for both claim calls: the call weight quoted on spec
+# 459 (includes the 60_000_000 ref_time dispatch-extension fold the model below omits).
+_ROOT_CLAIM_CAP_459_REF_TIME = 249_916_000_000
+_EXTENSION_FOLD_REF_TIME = 60_000_000
+
+
+def _claim_root_ref_time(units: int) -> int:
+    """``WeightInfo::claim_root(h)`` ref_time."""
+    return (
+        567_441_000
+        + 437_318_379 * units
+        + (23 + 22 * units) * _ROCKSDB_READ_PS
+        + (18 + 16 * units) * _ROCKSDB_WRITE_PS
+    )
+
+
+def _claim_root_scan_ref_time(units: int) -> int:
+    """``WeightInfo::claim_root_scan(h)`` ref_time."""
+    return 309_208_000 + 263_604_241 * units + (6 + 21 * units) * _ROCKSDB_READ_PS
+
+
+def _basket_flush_ref_time(quotes: int, rows: int) -> int:
+    """``Pallet::basket_flush_weight`` ref_time: NAV-sweep quotes plus redeem-priced rows."""
+    sweep = 0 if quotes == 0 else (10_000_000 + 4 * _ROCKSDB_READ_PS) * max(quotes, 1)
+    redeem = 0 if rows == 0 else _claim_root_ref_time(rows)
+    return sweep + redeem
+
+
+def _claim_ref_time(units: int, quotes: int, rows: int) -> int:
+    """``Pallet::root_claim_weight_for_work(units, flush)`` ref_time."""
+    return (
+        _claim_root_ref_time(units)
+        + _claim_root_scan_ref_time(units)
+        + _basket_flush_ref_time(quotes, rows)
+    )
+
+
+def _weight_fee_rao(ref_time: int) -> int:
+    """``LinearWeightToFee`` on a ref_time: nearest rao, ties round down."""
+    scaled = ref_time * _WEIGHT_FEE_PARTS
+    quotient, remainder = divmod(scaled, _PERBILL)
+    return quotient + (1 if remainder * 2 > _PERBILL else 0)
 
 
 def root_claim_declared_work(hotkeys: Optional[list[str]]) -> int:
-    """Admission and reserved-fee envelope for this claim path."""
+    """Admission envelope for this claim path."""
     if hotkeys is not None:
         return _MAX_ROOT_CLAIM_HOTKEY_WORK
     return _MAX_ROOT_CLAIM_WORK
 
 
+def _fee_units(limit: int) -> int:
+    """Claim units the fee wrapper charges for a call admitted under ``limit``."""
+    return min(limit, _ROOT_CLAIM_FEE_ALLOWANCE)
+
+
+def root_claim_declared_ref_time(limit: int) -> int:
+    """Declared call weight (ref_time) of a claim admitted under ``limit`` units."""
+    return _claim_ref_time(limit, _FLUSH_BOUND_QUOTES, _FLUSH_BOUND_ROWS)
+
+
+def root_claim_charged_ref_time(limit: int) -> int:
+    """Weight the fee wrapper charges: the allowance plus one hotkey's flush work for
+    that many queued credits and holdings (``4Q + 2H`` quotes, ``Q`` rows)."""
+    units = _fee_units(limit)
+    return min(
+        _claim_ref_time(units, 6 * units, units),
+        _ROOT_CLAIM_CAP_459_REF_TIME - _EXTENSION_FOLD_REF_TIME,
+    )
+
+
+def root_claim_fee_discount_ref_time(limit: int) -> int:
+    """``FeeWeightDiscount`` the runtime subtracts for one claim under ``limit``. A batch or
+    proxy of claims is discounted by the sum over its inner claims."""
+    return max(0, root_claim_declared_ref_time(limit) - root_claim_charged_ref_time(limit))
+
+
 def _approx_declared_fee_rao(limit: int) -> int:
-    return (_APPROX_REDEEM_FEE_RAO + _APPROX_SCAN_FEE_RAO) * limit
+    """Weight slice of the quoted fee for a claim under ``limit`` (no base/length part)."""
+    return _weight_fee_rao(root_claim_charged_ref_time(limit))
 
 
 # Default ``RootClaimableThreshold`` (500_000 rao) when storage is empty.
@@ -546,21 +626,23 @@ def _spent_fee(
     work: RootClaimWork,
     declared_work: int = _MAX_ROOT_CLAIM_WORK,
 ) -> Balance:
-    """Refund unused declared units; keep non-weight base/length fees intact.
+    """Refund unused charged weight; keep non-weight base/length fees intact.
 
-    Runtime active units are ``max(selected hotkeys, relationships classified,
-    realized + swept, 1)``. Classifying a relationship reads its root share-pool
-    state, so the quote prices it conservatively as a full hotkey unit.
-    ``estimate_fee`` prices the fixed declaration plus extrinsic base/length;
-    only the weight slice scales.
+    Runtime actual weight is ``claim_root(active) + claim_root_scan(scanned)`` plus the
+    flush work really done, with ``active = max(selected hotkeys, relationships
+    classified, realized + swept, 1)``. Classifying a relationship reads its root
+    share-pool state, so it is priced as a full hotkey unit. The flush work is not
+    knowable offline and is left out, so ``spent`` is a floor. ``estimate_fee`` prices
+    the charged allowance plus extrinsic base/length; the fee wrapper caps the charge
+    at that allowance, so spent never exceeds reserved.
     """
     if reserved.rao <= 0:
         return reserved
-    declared_weight = _approx_declared_fee_rao(declared_work)
-    weight_part = min(reserved.rao, declared_weight)
-    base_part = max(0, reserved.rao - declared_weight)
+    charged = _approx_declared_fee_rao(declared_work)
+    weight_part = min(reserved.rao, charged)
+    base_part = reserved.rao - weight_part
     active = max(work.redeem_holdings, work.hotkeys, work.selection_scans, 1)
-    active_weight = weight_part * active * _APPROX_REDEEM_FEE_RAO // declared_weight
-    scan_weight = weight_part * max(work.scan_holdings, 0) * _APPROX_SCAN_FEE_RAO // declared_weight
-    spent_weight = active_weight + scan_weight
-    return Balance.from_rao(min(reserved.rao, base_part + max(spent_weight, 0)))
+    actual = _weight_fee_rao(
+        _claim_root_ref_time(active) + _claim_root_scan_ref_time(max(work.scan_holdings, 0))
+    )
+    return Balance.from_rao(min(reserved.rao, base_part + actual))

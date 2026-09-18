@@ -37,7 +37,8 @@ pub trait ColdkeyFeeCallFilter<Call> {
 
 /// Weight subsidies apply only to fees, never to block admission or execution accounting.
 pub trait FeeWeightDiscount<Call> {
-    fn fee_weight_discount(call: &Call) -> Weight;
+    /// Weight to subtract from `info.call_weight` before pricing the fee.
+    fn fee_weight_discount(call: &Call, info: &DispatchInfo) -> Weight;
     fn fee_discount_overhead(call: &Call) -> Weight;
 }
 
@@ -287,7 +288,7 @@ where
             (origin.clone(), self.inner.tip())
         };
 
-        let fee_info = fee_dispatch_info(info, T::fee_weight_discount(call));
+        let fee_info = fee_dispatch_info(info, T::fee_weight_discount(call, info));
         let (mut valid_transaction, val, _fee_origin) = ChargeTransactionPayment::<T>::from(tip)
             .validate(
                 fee_origin,
@@ -314,7 +315,7 @@ where
         info: &DispatchInfoOf<RuntimeCallOf<T>>,
         len: usize,
     ) -> Result<Self::Pre, TransactionValidityError> {
-        let discount = T::fee_weight_discount(call);
+        let discount = T::fee_weight_discount(call, info);
         let fee_info = fee_dispatch_info(info, discount);
         let pre = self.inner.prepare(val, origin, call, &fee_info, len)?;
         Ok((pre, discount))

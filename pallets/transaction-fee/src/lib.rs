@@ -46,19 +46,40 @@ mod tests;
 type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
 
+/// Rao charged per unit of declared `ref_time`, as a fraction. 0.00025 rao per
+/// picosecond; spec 467 halved this from 0.0005.
+pub const WEIGHT_FEE_PER_REF_TIME: Perbill = Perbill::from_parts(250_000);
+
+/// Rao charged per encoded byte of the extrinsic, as a fraction. Half a rao per
+/// byte; spec 467 halved this from `IdentityFee` (one rao per byte).
+pub const LENGTH_FEE_PER_BYTE: Perbill = Perbill::from_parts(500_000_000);
+
+fn linear_polynomial(coeff_frac: Perbill) -> WeightToFeeCoefficients<TaoBalance> {
+    let coefficient: WeightToFeeCoefficient<TaoBalance> = WeightToFeeCoefficient {
+        coeff_integer: TaoBalance::new(0),
+        coeff_frac,
+        negative: false,
+        degree: 1,
+    };
+
+    smallvec![coefficient] as WeightToFeeCoefficients<TaoBalance>
+}
+
 pub struct LinearWeightToFee;
 impl WeightToFeePolynomial for LinearWeightToFee {
     type Balance = TaoBalance;
 
     fn polynomial() -> WeightToFeeCoefficients<Self::Balance> {
-        let coefficient: WeightToFeeCoefficient<Self::Balance> = WeightToFeeCoefficient {
-            coeff_integer: TaoBalance::new(0),
-            coeff_frac: Perbill::from_parts(500_000),
-            negative: false,
-            degree: 1,
-        };
+        linear_polynomial(WEIGHT_FEE_PER_REF_TIME)
+    }
+}
 
-        smallvec![coefficient] as WeightToFeeCoefficients<Self::Balance>
+pub struct LinearLengthToFee;
+impl WeightToFeePolynomial for LinearLengthToFee {
+    type Balance = TaoBalance;
+
+    fn polynomial() -> WeightToFeeCoefficients<Self::Balance> {
+        linear_polynomial(LENGTH_FEE_PER_BYTE)
     }
 }
 

@@ -8,7 +8,6 @@ use frame_support::pallet_prelude::Zero;
 use frame_support::{
     PalletId, assert_ok, derive_impl, parameter_types,
     traits::{Everything, Hooks, PrivilegeCmp},
-    weights::IdentityFee,
 };
 use frame_system::{self as system, EnsureRoot, RawOrigin, limits};
 pub use pallet_subtensor::*;
@@ -134,7 +133,7 @@ impl pallet_transaction_payment::Config for Test {
     // Convert dispatch weight to a chargeable fee.
     type WeightToFee = crate::LinearWeightToFee;
     type OperationalFeeMultiplier = OperationalFeeMultiplier;
-    type LengthToFee = IdentityFee<Balance>;
+    type LengthToFee = crate::LinearLengthToFee;
     type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
     type WeightInfo = pallet_transaction_payment::weights::SubstrateWeight<Test>;
 }

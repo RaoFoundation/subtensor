@@ -444,10 +444,11 @@ describeSuite({
 
         it({
             id: "T10",
-            title: "Gas price should be 10 GWei",
+            title: "Gas price should be 5 GWei",
             test: async () => {
+                // DefaultBaseFeePerGas is 10 gwei; quiet blocks settle at the 50% floor.
                 const feeData = await provider.getFeeData();
-                expect(feeData.gasPrice).toEqual(BigInt(10000000000));
+                expect(feeData.gasPrice).toEqual(BigInt(5000000000));
             },
         });
 
@@ -456,9 +457,9 @@ describeSuite({
             title: "max_fee_per_gas and max_priority_fee_per_gas affect transaction fee properly",
             test: async () => {
                 const testCases: [number, number, bigint][] = [
-                    [10, 0, BigInt(21000 * 10) * BigInt(1e9)],
-                    [10, 10, BigInt(21000 * 10) * BigInt(1e9)],
-                    [11, 0, BigInt(21000 * 10) * BigInt(1e9)],
+                    [5, 0, BigInt(21000 * 5) * BigInt(1e9)],
+                    [5, 5, BigInt(21000 * 5) * BigInt(1e9)],
+                    [6, 0, BigInt(21000 * 5) * BigInt(1e9)],
                 ];
 
                 for (const [maxFeeGwei, maxPriorityGwei, expectedFee] of testCases) {
@@ -480,7 +481,7 @@ describeSuite({
             test: async () => {
                 let rejected = false;
                 try {
-                    await transferAndGetFee(ethWallet, ethWallet2, provider, GWEI * BigInt(9), BigInt(0));
+                    await transferAndGetFee(ethWallet, ethWallet2, provider, GWEI * BigInt(4), BigInt(0));
                 } catch (error) {
                     rejected = true;
                     if (error instanceof Error) {
@@ -497,7 +498,7 @@ describeSuite({
             test: async () => {
                 let rejected = false;
                 try {
-                    await transferAndGetFee(ethWallet, ethWallet2, provider, GWEI * BigInt(10), GWEI * BigInt(11));
+                    await transferAndGetFee(ethWallet, ethWallet2, provider, GWEI * BigInt(5), GWEI * BigInt(6));
                 } catch (error) {
                     rejected = true;
                     if (error instanceof Error) {

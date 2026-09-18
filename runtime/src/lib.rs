@@ -92,8 +92,7 @@ pub use frame_support::{
         PrivilegeCmp, Randomness, StorageInfo,
     },
     weights::{
-        IdentityFee, Weight, WeightToFeeCoefficient, WeightToFeeCoefficients,
-        WeightToFeePolynomial,
+        Weight, WeightToFeeCoefficient, WeightToFeeCoefficients, WeightToFeePolynomial,
         constants::{
             BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND,
         },
@@ -239,7 +238,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 466,
+    spec_version: 467,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -541,7 +540,7 @@ impl pallet_transaction_payment::Config for Runtime {
     // Convert dispatch weight to a chargeable fee.
     type WeightToFee = subtensor_transaction_fee::LinearWeightToFee;
     type OperationalFeeMultiplier = OperationalFeeMultiplier;
-    type LengthToFee = IdentityFee<Balance>;
+    type LengthToFee = subtensor_transaction_fee::LinearLengthToFee;
     type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
     type WeightInfo = pallet_transaction_payment::weights::SubstrateWeight<Runtime>;
 }
@@ -1302,7 +1301,9 @@ parameter_types! {
 }
 
 parameter_types! {
-    pub DefaultBaseFeePerGas: U256 = U256::from(20_000_000_000_u128);
+    // 10 gwei = 10 rao per gas. Spec 467 halved this from 20 gwei. With the 50% ideal
+    // threshold below, quiet blocks settle at half of this value (5 gwei).
+    pub DefaultBaseFeePerGas: U256 = U256::from(10_000_000_000_u128);
     pub DefaultElasticity: Permill = Permill::from_parts(125_000);
 }
 pub struct BaseFeeThreshold;
