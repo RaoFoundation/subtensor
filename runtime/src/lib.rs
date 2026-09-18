@@ -1183,7 +1183,9 @@ impl<F: FindAuthor<u32>> FindAuthor<H160> for FindAuthorTruncated<F> {
     }
 }
 
-const BLOCK_GAS_LIMIT: u64 = 75_000_000;
+const BLOCK_GAS_LIMIT: u64 = 225_000_000;
+// Keep execution pricing independent of the block's gas and weight budgets.
+const EVM_REF_TIME_PER_GAS: u64 = 40_000;
 pub const NORMAL_DISPATCH_BASE_PRIORITY: TransactionPriority = 1;
 pub const OPERATIONAL_DISPATCH_PRIORITY: TransactionPriority = 10_000_000_000;
 // const EVM_TRANSACTION_BASE_PRIORITY: TransactionPriority = NORMAL_DISPATCH_BASE_PRIORITY;
@@ -1191,12 +1193,13 @@ pub const OPERATIONAL_DISPATCH_PRIORITY: TransactionPriority = 10_000_000_000;
 /// `WeightPerGas` is an approximate ratio of the amount of Weight per Gas.
 ///
 fn weight_per_gas() -> Weight {
-    // Preserve the existing conversion and EVM capacity when increasing the
-    // native block budget. Otherwise native dispatches would become cheaper in gas.
-    let reference_budget = Weight::from_parts(4u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX);
-    (NORMAL_DISPATCH_RATIO * reference_budget)
+    // Preserve execution pricing, but spread the unchanged proof-size budget
+    // across the larger gas allowance so it does not retain the old gas ceiling.
+    let proof_size_per_gas = (NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT)
+        .proof_size()
         .checked_div(BLOCK_GAS_LIMIT)
-        .unwrap_or_default()
+        .unwrap_or_default();
+    Weight::from_parts(EVM_REF_TIME_PER_GAS, proof_size_per_gas)
 }
 
 parameter_types! {
