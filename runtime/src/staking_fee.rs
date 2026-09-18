@@ -189,12 +189,12 @@ fn leaves(call: &RuntimeCall) -> Vec<&RuntimeCall> {
 impl FeeWeightDiscount<RuntimeCall> for Runtime {
     fn fee_weight_discount(call: &RuntimeCall, info: &DispatchInfo) -> Weight {
         let leaves = leaves(call);
-        if let [leaf] = leaves.as_slice() {
-            if core::ptr::eq(*leaf, call) {
-                return info
-                    .call_weight
-                    .saturating_sub(leaf_fee_weight(call, info.call_weight));
-            }
+        if let [leaf] = leaves.as_slice()
+            && core::ptr::eq(*leaf, call)
+        {
+            return info
+                .call_weight
+                .saturating_sub(leaf_fee_weight(call, info.call_weight));
         }
         // Wrapped leaves: their declared weight is re-derived here. This repeats the
         // computation FRAME already did for the wrapper's own weight, so every storage
