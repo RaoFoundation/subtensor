@@ -3,7 +3,6 @@
 #![allow(clippy::expect_used)]
 
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo};
-use frame_support::traits::Get;
 use frame_support::weights::{Weight, WeightToFee};
 use node_subtensor_runtime::{
     BlockWeights, BuildStorage, Runtime, RuntimeCall, RuntimeGenesisConfig, System,
@@ -23,7 +22,8 @@ fn nearest_rao(units: u128, ppb: u128) -> u64 {
     let scaled = units.saturating_mul(ppb);
     let quotient = scaled / PPB;
     let remainder = scaled % PPB;
-    u64::try_from(quotient + u128::from(remainder * 2 > PPB)).expect("fee fits u64")
+    let round_up = u128::from(remainder.saturating_mul(2) > PPB);
+    u64::try_from(quotient.saturating_add(round_up)).expect("fee fits u64")
 }
 
 fn new_test_ext() -> sp_io::TestExternalities {
