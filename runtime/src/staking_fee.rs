@@ -2,7 +2,7 @@
 
 use crate::transaction_payment_wrapper::{FeeWeightDiscount, fee_dispatch_info};
 use crate::{Balance, Runtime, RuntimeCall, TransactionPayment, Weight};
-use frame_support::{dispatch::DispatchInfo, traits::Get};
+use frame_support::dispatch::DispatchInfo;
 use pallet_subtensor::Call as SubtensorCall;
 use pallet_subtensor_proxy::Call as ProxyCall;
 use pallet_subtensor_utility::Call as UtilityCall;

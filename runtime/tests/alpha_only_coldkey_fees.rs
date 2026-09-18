@@ -33,6 +33,7 @@ use sp_runtime::transaction_validity::{
     InvalidTransaction, TransactionSource, TransactionValidityError,
 };
 use subtensor_runtime_common::{AccountId, AlphaBalance, NetUid, TaoBalance, Token};
+use subtensor_swap_interface::SwapHandler;
 
 fn netuid() -> NetUid {
     NetUid::from(1)
