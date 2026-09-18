@@ -863,24 +863,30 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Fixed admission budget for a coldkey-wide claim.
-    pub(crate) fn root_claim_declared_work() -> u32 {
+    pub fn root_claim_declared_work() -> u32 {
         crate::MAX_ROOT_CLAIM_WORK
     }
 
     /// Fixed admission budget for [`Pallet::claim_root_with_hotkey`].
-    pub(crate) fn root_claim_hotkey_declared_work() -> u32 {
+    pub fn root_claim_hotkey_declared_work() -> u32 {
         crate::MAX_ROOT_CLAIM_HOTKEY_WORK
+    }
+
+    /// Weight of a claim over `units` hotkeys-plus-holdings (full claim work plus scan-only
+    /// work for every unit) that flushes `flush` queued-deposit work first.
+    pub fn root_claim_weight_for_work(units: u32, flush: BasketFlushWork) -> Weight {
+        <T as crate::pallet::Config>::WeightInfo::claim_root(units)
+            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+                units,
+            ))
+            .saturating_add(Self::basket_flush_weight(flush))
     }
 
     /// Pre-dispatch weight for every independently bounded dimension: full claim work,
     /// scan-only work, and the flat pending-deposit flush allowance
     /// ([`Self::basket_flush_weight_bound`]) shared by every extrinsic that flushes.
-    pub(crate) fn root_claim_declared_weight_for(limit: u32) -> Weight {
-        <T as crate::pallet::Config>::WeightInfo::claim_root(limit)
-            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
-                limit,
-            ))
-            .saturating_add(Self::basket_flush_weight_bound())
+    pub fn root_claim_declared_weight_for(limit: u32) -> Weight {
+        Self::root_claim_weight_for_work(limit, Self::basket_flush_work_bound())
     }
 
     /// Coldkey-wide declared weight: the 256-unit envelope plus the flush allowance.

@@ -45,13 +45,22 @@ async def test_single_hotkey_reserved_fallback_uses_declared_work():
     assert reserved.rao == fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
 
 
-def test_spent_scales_against_chain_declaration_not_network_count():
+def test_reserved_fallback_charges_the_fee_allowance_not_the_envelope():
+    assert fees._fee_units(fees._MAX_ROOT_CLAIM_WORK) == fees._ROOT_CLAIM_FEE_ALLOWANCE
+    assert fees._fee_units(fees._MAX_ROOT_CLAIM_HOTKEY_WORK) == fees._ROOT_CLAIM_FEE_ALLOWANCE
+    assert fees._fee_units(2) == 2
+    assert fees._approx_declared_fee_rao(
+        fees._MAX_ROOT_CLAIM_WORK
+    ) == fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
+
+
+def test_spent_caps_at_the_fee_allowance():
     reserved = Balance.from_rao(fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK))
     spent = fees._spent_fee(
         reserved,
         fees.RootClaimWork(hotkeys=1, redeem_holdings=32, scan_holdings=0),
     )
-    assert spent.rao == fees._APPROX_REDEEM_FEE_RAO * 32
+    assert spent == reserved
 
 
 def test_spent_keeps_non_weight_base_fee():
@@ -59,9 +68,9 @@ def test_spent_keeps_non_weight_base_fee():
     reserved = Balance.from_rao(base + fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK))
     spent = fees._spent_fee(
         reserved,
-        fees.RootClaimWork(hotkeys=1, redeem_holdings=16, scan_holdings=0),
+        fees.RootClaimWork(hotkeys=1, redeem_holdings=1, scan_holdings=0),
     )
-    assert spent.rao == base + fees._APPROX_REDEEM_FEE_RAO * 16
+    assert spent.rao == base + fees._APPROX_REDEEM_FEE_RAO
 
 
 def test_scan_only_uses_scan_ref_time():
@@ -79,12 +88,12 @@ def test_coldkey_wide_empty_baskets_floor_to_hotkey_count():
     reserved = Balance.from_rao(fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK))
     spent = fees._spent_fee(
         reserved,
-        fees.RootClaimWork(hotkeys=100, redeem_holdings=0, scan_holdings=0),
+        fees.RootClaimWork(hotkeys=3, redeem_holdings=0, scan_holdings=0),
     )
-    assert spent.rao == fees._APPROX_REDEEM_FEE_RAO * 100
+    assert spent.rao == fees._APPROX_REDEEM_FEE_RAO * 3
 
 
-def test_single_hotkey_spent_scales_against_its_smaller_declaration():
+def test_single_hotkey_spent_caps_at_the_same_allowance():
     declared_work = fees._MAX_ROOT_CLAIM_HOTKEY_WORK
     reserved = Balance.from_rao(fees._approx_declared_fee_rao(declared_work))
     spent = fees._spent_fee(
@@ -92,7 +101,7 @@ def test_single_hotkey_spent_scales_against_its_smaller_declaration():
         fees.RootClaimWork(hotkeys=1, redeem_holdings=32, scan_holdings=0),
         declared_work=declared_work,
     )
-    assert spent.rao == fees._APPROX_REDEEM_FEE_RAO * 32
+    assert spent == reserved
 
 
 def _seed_claim_quote(

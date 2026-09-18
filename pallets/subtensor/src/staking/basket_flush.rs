@@ -45,7 +45,7 @@ pub struct BasketFlushWork {
 }
 
 impl BasketFlushWork {
-    pub(crate) const fn new(quotes: u64, rows: u64) -> Self {
+    pub const fn new(quotes: u64, rows: u64) -> Self {
         Self { quotes, rows }
     }
 
@@ -88,7 +88,7 @@ impl<T: Config> Pallet<T> {
     /// `sum(Q) <= MAX_BASKET_FLUSH_ROWS` ([`Self::basket_flush_fits_declared_budget`]):
     /// `4 * sum(Q) + 2 * sum(H) <= 10 * MAX_BASKET_ROWS` quotes and `sum(Q) <= 2 *
     /// MAX_BASKET_ROWS` rows. The larger figures are the single allowance used everywhere.
-    pub(crate) fn basket_flush_work_bound() -> BasketFlushWork {
+    pub fn basket_flush_work_bound() -> BasketFlushWork {
         BasketFlushWork::new(MAX_BASKET_ROWS.saturating_mul(10), MAX_BASKET_FLUSH_ROWS)
     }
 
@@ -97,7 +97,7 @@ impl<T: Config> Pallet<T> {
     /// queue writes each — are priced like redeemed `claim_root` rows, the benchmarked figure
     /// for one swap-and-write row (an upper bound: an in-place credit swaps nothing). Zero
     /// when nothing was queued.
-    pub(crate) fn basket_flush_weight(work: BasketFlushWork) -> Weight {
+    pub fn basket_flush_weight(work: BasketFlushWork) -> Weight {
         let quotes = if work.quotes == 0 {
             Weight::zero()
         } else {

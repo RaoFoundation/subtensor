@@ -1,9 +1,12 @@
 """Claim-fee preview for ``claim_root`` / ``claim_root_with_hotkey``.
 
-Coldkey-wide claims reserve ``MAX_ROOT_CLAIM_WORK`` (256) weight units.
-Single-hotkey claims reserve one basket's 129-unit envelope. Both refund down
-to the work actually done. The reserve is what people see leave their free
-balance, and it is larger than the fee that finally settles.
+Coldkey-wide claims declare ``MAX_ROOT_CLAIM_WORK`` (256) weight units for
+admission. Single-hotkey claims declare one basket's 129-unit envelope. Since
+spec 467 the fee wrapper charges either call as if only
+``ROOT_CLAIM_FEE_ALLOWANCE`` (4) units were declared; the rest of the envelope
+is a fee subsidy. Both still refund down to the work actually done when that is
+below the allowance. The reserve is what people see leave their free balance,
+and it is at least the fee that finally settles.
 
 This module estimates both numbers, compares the spent fee to accrued yield,
 and tells the caller when a claim loses money or cannot even be included.
@@ -25,24 +28,33 @@ from ..sp_core import ss58_decode
 _SCAN_REF_TIME = 6
 _REDEEM_REF_TIME = 70
 
-# One full ``claim_root`` weight unit under LinearWeightToFee (~τ0.0004475).
-# Coldkey-wide claims reserve 256 redeem and scan units; single-hotkey claims
-# reserve 129. Plus any non-weight base/length fee returned by ``payment_info``.
-_APPROX_REDEEM_FEE_RAO = 447_500
+# One full ``claim_root`` weight unit under LinearWeightToFee (~τ0.00022375;
+# spec 467 halved the coefficient). Coldkey-wide claims declare 256 redeem and
+# scan units, single-hotkey claims 129, but the fee wrapper charges at most
+# ``_ROOT_CLAIM_FEE_ALLOWANCE`` of them. Plus any non-weight base/length fee
+# returned by ``payment_info``.
+_APPROX_REDEEM_FEE_RAO = 223_750
 _APPROX_SCAN_FEE_RAO = _APPROX_REDEEM_FEE_RAO * _SCAN_REF_TIME // _REDEEM_REF_TIME
 _MAX_ROOT_CLAIM_WORK = 256
 _MAX_ROOT_CLAIM_HOTKEY_WORK = 129
+# Runtime ``ROOT_CLAIM_FEE_ALLOWANCE`` (runtime/src/staking_fee.rs).
+_ROOT_CLAIM_FEE_ALLOWANCE = 4
 
 
 def root_claim_declared_work(hotkeys: Optional[list[str]]) -> int:
-    """Admission and reserved-fee envelope for this claim path."""
+    """Admission envelope for this claim path."""
     if hotkeys is not None:
         return _MAX_ROOT_CLAIM_HOTKEY_WORK
     return _MAX_ROOT_CLAIM_WORK
 
 
+def _fee_units(limit: int) -> int:
+    """Claim units the fee wrapper charges for a call admitted under ``limit``."""
+    return min(limit, _ROOT_CLAIM_FEE_ALLOWANCE)
+
+
 def _approx_declared_fee_rao(limit: int) -> int:
-    return (_APPROX_REDEEM_FEE_RAO + _APPROX_SCAN_FEE_RAO) * limit
+    return (_APPROX_REDEEM_FEE_RAO + _APPROX_SCAN_FEE_RAO) * _fee_units(limit)
 
 
 # Default ``RootClaimableThreshold`` (500_000 rao) when storage is empty.
@@ -546,13 +558,14 @@ def _spent_fee(
     work: RootClaimWork,
     declared_work: int = _MAX_ROOT_CLAIM_WORK,
 ) -> Balance:
-    """Refund unused declared units; keep non-weight base/length fees intact.
+    """Refund unused charged units; keep non-weight base/length fees intact.
 
     Runtime active units are ``max(selected hotkeys, relationships classified,
     realized + swept, 1)``. Classifying a relationship reads its root share-pool
     state, so the quote prices it conservatively as a full hotkey unit.
-    ``estimate_fee`` prices the fixed declaration plus extrinsic base/length;
-    only the weight slice scales.
+    ``estimate_fee`` prices the charged allowance plus extrinsic base/length;
+    only the weight slice scales, and work above the allowance is the runtime's
+    subsidy, so spent never exceeds reserved.
     """
     if reserved.rao <= 0:
         return reserved

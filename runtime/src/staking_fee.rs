@@ -1,9 +1,11 @@
-//! Subsidize the staking-hotkey scan without reducing its execution weight.
+//! Subsidize the staking-hotkey scan and the root-claim envelope without reducing
+//! their execution weight.
 
 use crate::transaction_payment_wrapper::{FeeWeightDiscount, fee_dispatch_info};
 use crate::{Balance, Runtime, RuntimeCall, TransactionPayment, Weight};
 use frame_support::dispatch::DispatchInfo;
 use pallet_subtensor::Call as SubtensorCall;
+use pallet_subtensor::staking::BasketFlushWork;
 use pallet_subtensor_proxy::Call as ProxyCall;
 use pallet_subtensor_utility::Call as UtilityCall;
 use pallet_transaction_payment::{FeeDetails, RuntimeDispatchInfo};
@@ -13,11 +15,44 @@ use subtensor_runtime_common::Token;
 /// Fee allowance only. The admission cap and the execution scan remain 256 keys.
 pub const STAKING_HOTKEYS_FEE_ALLOWANCE: u32 = 4;
 
-/// Count declarations that include the scan. Only descend through wrappers that
-/// include their inner calls' weights; in particular, never discount `with_weight`.
-fn scan_counts(call: &RuntimeCall) -> (u64, u64) {
+/// Fee allowance for root claims, in claim units (hotkeys plus basket holding rows), the
+/// same count the admission envelope uses. Admission and execution keep the full 256-unit
+/// (coldkey-wide) or 129-unit (single hotkey) envelope plus the flat flush allowance.
+pub const ROOT_CLAIM_FEE_ALLOWANCE: u32 = STAKING_HOTKEYS_FEE_ALLOWANCE;
+
+/// Weight a claim is charged for: `units` claim units plus the flush work one hotkey with
+/// `units` queued credits and `units` holdings can do (`4Q + 2H` quotes, `Q` rows; see
+/// `basket_flush_work_bound`).
+pub fn root_claim_fee_weight(units: u32) -> Weight {
+    let rows = u64::from(units);
+    pallet_subtensor::Pallet::<Runtime>::root_claim_weight_for_work(
+        units,
+        BasketFlushWork::new(rows.saturating_mul(6), rows),
+    )
+}
+
+fn root_claim_discount(limit: u32) -> Weight {
+    pallet_subtensor::Pallet::<Runtime>::root_claim_declared_weight_for(limit)
+        .saturating_sub(root_claim_fee_weight(ROOT_CLAIM_FEE_ALLOWANCE))
+}
+
+#[derive(Default)]
+struct ScanCounts {
+    /// Calls that walk `StakingHotkeys` once.
+    single: u64,
+    /// Calls that walk `StakingHotkeys` once per unstaked subnet leg.
+    bulk: u64,
+    /// Coldkey-wide root claims (256-unit envelope).
+    claim_coldkey: u64,
+    /// Single-hotkey root claims (129-unit envelope).
+    claim_hotkey: u64,
+}
+
+/// Count declarations that include a subsidized envelope. Only descend through wrappers
+/// that include their inner calls' weights; in particular, never discount `with_weight`.
+fn scan_counts(call: &RuntimeCall) -> ScanCounts {
     let mut pending = vec![call];
-    let (mut single, mut bulk) = (0_u64, 0_u64);
+    let mut counts = ScanCounts::default();
     while let Some(call) = pending.pop() {
         match call {
             RuntimeCall::SubtensorModule(
@@ -30,10 +65,16 @@ fn scan_counts(call: &RuntimeCall) -> (u64, u64) {
                 | SubtensorCall::transfer_stake_and_hotkey { .. }
                 | SubtensorCall::swap_stake { .. }
                 | SubtensorCall::swap_stake_limit { .. },
-            ) => single = single.saturating_add(1),
+            ) => counts.single = counts.single.saturating_add(1),
             RuntimeCall::SubtensorModule(
                 SubtensorCall::unstake_all { .. } | SubtensorCall::unstake_all_alpha { .. },
-            ) => bulk = bulk.saturating_add(1),
+            ) => counts.bulk = counts.bulk.saturating_add(1),
+            RuntimeCall::SubtensorModule(SubtensorCall::claim_root { .. }) => {
+                counts.claim_coldkey = counts.claim_coldkey.saturating_add(1)
+            }
+            RuntimeCall::SubtensorModule(SubtensorCall::claim_root_with_hotkey { .. }) => {
+                counts.claim_hotkey = counts.claim_hotkey.saturating_add(1)
+            }
             RuntimeCall::Utility(
                 UtilityCall::batch { calls }
                 | UtilityCall::batch_all { calls }
@@ -54,33 +95,46 @@ fn scan_counts(call: &RuntimeCall) -> (u64, u64) {
             _ => {}
         }
     }
-    (single, bulk)
+    counts
 }
 
 impl FeeWeightDiscount<RuntimeCall> for Runtime {
     fn fee_weight_discount(call: &RuntimeCall) -> Weight {
-        let (single, bulk) = scan_counts(call);
-        let bulk_legs = if bulk == 0 {
+        let counts = scan_counts(call);
+        let bulk_legs = if counts.bulk == 0 {
             0
         } else {
             // Match unstake_all_worst_case_work exactly, including small networks.
             u64::from(pallet_subtensor::TotalNetworks::<Runtime>::get())
                 .min(u64::from(pallet_subtensor::MAX_UNSTAKE_ALL_LEGS))
         };
-        let walks = single.saturating_add(bulk.saturating_mul(bulk_legs));
+        let walks = counts
+            .single
+            .saturating_add(counts.bulk.saturating_mul(bulk_legs));
         let subsidized_keys =
             pallet_subtensor::MAX_STAKING_HOTKEYS.saturating_sub(STAKING_HOTKEYS_FEE_ALLOWANCE);
-        <Runtime as frame_system::Config>::DbWeight::get().reads(
+        let scan_discount = <Runtime as frame_system::Config>::DbWeight::get().reads(
             u64::from(subsidized_keys)
                 .saturating_mul(pallet_subtensor::STAKING_HOTKEYS_WALK_READS_PER_ENTRY)
                 .saturating_mul(walks),
-        )
+        );
+        let claim_discount =
+            root_claim_discount(pallet_subtensor::Pallet::<Runtime>::root_claim_declared_work())
+                .saturating_mul(counts.claim_coldkey)
+                .saturating_add(
+                    root_claim_discount(
+                        pallet_subtensor::Pallet::<Runtime>::root_claim_hotkey_declared_work(),
+                    )
+                    .saturating_mul(counts.claim_hotkey),
+                );
+        scan_discount.saturating_add(claim_discount)
     }
 
     fn fee_discount_overhead(call: &RuntimeCall) -> Weight {
         // One TotalNetworks read in validation and another in preparation. The
         // declaration already prices the scan itself at the full execution cap.
-        if scan_counts(call).1 == 0 {
+        // Claim discounts are pure arithmetic on the declared weights: no reads.
+        if scan_counts(call).bulk == 0 {
             Weight::zero()
         } else {
             <Runtime as frame_system::Config>::DbWeight::get().reads(2)
@@ -174,6 +228,164 @@ mod tests {
     fn scan(keys: u64) -> Weight {
         <Runtime as frame_system::Config>::DbWeight::get()
             .reads(keys.saturating_mul(14).saturating_add(1))
+    }
+
+    fn claim_root_with_hotkey() -> RuntimeCall {
+        RuntimeCall::SubtensorModule(SubtensorCall::claim_root_with_hotkey {
+            hotkey: AccountId::from([2_u8; 32]),
+        })
+    }
+
+    fn claim_root() -> RuntimeCall {
+        RuntimeCall::SubtensorModule(SubtensorCall::claim_root {
+            subnets: Default::default(),
+        })
+    }
+
+    fn extension() -> Weight {
+        <Runtime as pallet_subtensor::Config>::WeightInfo::check_coldkey_swap_extension()
+    }
+
+    /// Each claim call with the envelope its dispatch declares.
+    fn claim_cases() -> [(RuntimeCall, Weight); 2] {
+        [
+            (
+                claim_root_with_hotkey(),
+                SubtensorModule::root_claim_declared_weight_for(
+                    SubtensorModule::root_claim_hotkey_declared_work(),
+                ),
+            ),
+            (
+                claim_root(),
+                SubtensorModule::root_claim_declared_weight_for(
+                    SubtensorModule::root_claim_declared_work(),
+                ),
+            ),
+        ]
+    }
+
+    #[test]
+    fn claim_fee_estimate_prices_the_allowance_and_reports_full_execution_weight() {
+        new_test_ext().execute_with(|| {
+            let fee_weight = root_claim_fee_weight(ROOT_CLAIM_FEE_ALLOWANCE);
+            assert_eq!(SubtensorModule::root_claim_declared_work(), 256);
+            assert_eq!(SubtensorModule::root_claim_hotkey_declared_work(), 129);
+            for (call, declared) in claim_cases() {
+                assert!(fee_weight.all_lt(declared));
+                let info = call.get_dispatch_info();
+                assert_eq!(info.call_weight, declared.saturating_add(extension()));
+
+                let discount = Runtime::fee_weight_discount(&call);
+                assert_eq!(discount, declared.saturating_sub(fee_weight));
+                assert!(discount.all_lt(info.call_weight));
+                assert_eq!(Runtime::fee_discount_overhead(&call), Weight::zero());
+
+                let expected_info = DispatchInfo {
+                    call_weight: fee_weight.saturating_add(extension()),
+                    ..info
+                };
+                let quote = query_info(&call, &info, 100, false);
+                assert_eq!(quote.weight, info.total_weight());
+                assert_eq!(
+                    quote.partial_fee,
+                    TransactionPayment::compute_fee(100, &expected_info, Balance::ZERO)
+                );
+                assert!(
+                    quote.partial_fee < TransactionPayment::compute_fee(100, &info, Balance::ZERO)
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn claim_payment_refunds_light_work_and_caps_heavy_work() {
+        let light = <Runtime as pallet_subtensor::Config>::WeightInfo::claim_root(1)
+            .saturating_add(<Runtime as pallet_subtensor::Config>::WeightInfo::claim_root_scan(2));
+        for (call, declared) in claim_cases() {
+            for execution_weight in [light, declared] {
+                new_test_ext().execute_with(|| {
+                    let tip = Balance::new(1_000_000);
+                    let payment = ChargeTransactionPaymentWrapper::<Runtime>::new(tip);
+                    let info = DispatchInfo {
+                        extension_weight: payment.weight(&call),
+                        ..call.get_dispatch_info()
+                    };
+                    let fee_info = fee_dispatch_info(&info, Runtime::fee_weight_discount(&call));
+                    let charged_info = DispatchInfo {
+                        call_weight: execution_weight.min(fee_info.call_weight),
+                        ..info
+                    };
+                    let before = Balances::free_balance(signer());
+                    let post = payment
+                        .test_run(
+                            RuntimeOrigin::signed(signer()),
+                            &call,
+                            &info,
+                            100,
+                            0,
+                            |_| {
+                                Ok(PostDispatchInfo {
+                                    actual_weight: Some(execution_weight),
+                                    pays_fee: Pays::Yes,
+                                })
+                            },
+                        )
+                        .unwrap()
+                        .unwrap();
+                    let charged = before.saturating_sub(Balances::free_balance(signer()));
+                    assert_eq!(
+                        charged,
+                        TransactionPayment::compute_fee(100, &charged_info, tip)
+                    );
+                    let capped = TransactionPayment::compute_fee(100, &fee_info, tip);
+                    if execution_weight == light {
+                        assert!(charged < capped, "light claims refund below the allowance");
+                    } else {
+                        assert_eq!(charged, capped, "heavy claims pay the allowance only");
+                    }
+                    assert_eq!(
+                        post.actual_weight,
+                        Some(execution_weight.saturating_add(info.extension_weight)),
+                        "fee discount must not reclaim block execution capacity"
+                    );
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn batched_claims_receive_each_inner_discount() {
+        new_test_ext().execute_with(|| {
+            let hotkey_discount = Runtime::fee_weight_discount(&claim_root_with_hotkey());
+            let coldkey_discount = Runtime::fee_weight_discount(&claim_root());
+            assert!(hotkey_discount.all_lt(coldkey_discount));
+
+            let call = RuntimeCall::Proxy(ProxyCall::proxy {
+                real: signer().into(),
+                force_proxy_type: None,
+                call: Box::new(RuntimeCall::Utility(UtilityCall::batch_all {
+                    calls: vec![
+                        claim_root_with_hotkey(),
+                        claim_root_with_hotkey(),
+                        claim_root(),
+                    ],
+                })),
+            });
+            let discount = Runtime::fee_weight_discount(&call);
+            assert_eq!(
+                discount,
+                hotkey_discount
+                    .saturating_mul(2)
+                    .saturating_add(coldkey_discount)
+            );
+            let info = call.get_dispatch_info();
+            assert!(discount.all_lt(info.call_weight));
+            assert_eq!(
+                fee_dispatch_info(&info, discount).call_weight,
+                info.call_weight.saturating_sub(discount)
+            );
+            assert_eq!(Runtime::fee_discount_overhead(&call), Weight::zero());
+        });
     }
 
     #[test]
