@@ -35,6 +35,19 @@ pub trait ColdkeyFeeCallFilter<Call> {
     fn charges_coldkey(call: &Call) -> bool;
 }
 
+/// Weight subsidies apply only to fees, never to block admission or execution accounting.
+pub trait FeeWeightDiscount<Call> {
+    fn fee_weight_discount(call: &Call) -> Weight;
+    fn fee_discount_overhead(call: &Call) -> Weight;
+}
+
+pub fn fee_dispatch_info(info: &DispatchInfo, discount: Weight) -> DispatchInfo {
+    DispatchInfo {
+        call_weight: info.call_weight.saturating_sub(discount),
+        ..*info
+    }
+}
+
 #[freeze_struct("f003cde1f9da4a90")]
 #[derive(Encode, Decode, DecodeWithMemTracking, Clone, Eq, PartialEq, TypeInfo)]
 #[scale_info(skip_type_params(T))]
@@ -218,7 +231,7 @@ where
     RuntimeCallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
         + IsSubType<pallet_proxy::Call<T>>
         + IsSubType<pallet_utility::Call<T>>,
-    T: ColdkeyFeeCallFilter<RuntimeCallOf<T>>,
+    T: ColdkeyFeeCallFilter<RuntimeCallOf<T>> + FeeWeightDiscount<RuntimeCallOf<T>>,
     BalanceOf<T>: Zero + Send + Sync,
     RuntimeOriginOf<T>: AsSystemOriginSigner<AccountIdOf<T>>
         + Clone
@@ -227,7 +240,7 @@ where
     const IDENTIFIER: &'static str = "ChargeTransactionPaymentWrapper";
     type Implicit = ();
     type Val = Val<T>;
-    type Pre = Pre<T>;
+    type Pre = (Pre<T>, Weight);
 
     fn weight(&self, call: &RuntimeCallOf<T>) -> Weight {
         // Account for up to 3 storage reads in the worst-case fee payer resolution
@@ -235,6 +248,7 @@ where
         self.inner
             .weight(call)
             .saturating_add(T::DbWeight::get().reads(3))
+            .saturating_add(T::fee_discount_overhead(call))
     }
 
     fn validate(
@@ -273,11 +287,12 @@ where
             (origin.clone(), self.inner.tip())
         };
 
+        let fee_info = fee_dispatch_info(info, T::fee_weight_discount(call));
         let (mut valid_transaction, val, _fee_origin) = ChargeTransactionPayment::<T>::from(tip)
             .validate(
                 fee_origin,
                 call,
-                info,
+                &fee_info,
                 len,
                 self_implicit,
                 inherited_implication,
@@ -299,7 +314,10 @@ where
         info: &DispatchInfoOf<RuntimeCallOf<T>>,
         len: usize,
     ) -> Result<Self::Pre, TransactionValidityError> {
-        self.inner.prepare(val, origin, call, info, len)
+        let discount = T::fee_weight_discount(call);
+        let fee_info = fee_dispatch_info(info, discount);
+        let pre = self.inner.prepare(val, origin, call, &fee_info, len)?;
+        Ok((pre, discount))
     }
 
     fn metadata() -> Vec<TransactionExtensionMetadata> {
@@ -313,17 +331,26 @@ where
         len: usize,
         result: &DispatchResult,
     ) -> Result<Weight, TransactionValidityError> {
-        ChargeTransactionPayment::<T>::post_dispatch_details(pre, info, post_info, len, result)
-    }
-
-    fn post_dispatch(
-        pre: Self::Pre,
-        info: &DispatchInfoOf<RuntimeCallOf<T>>,
-        post_info: &mut PostDispatchInfoOf<RuntimeCallOf<T>>,
-        len: usize,
-        result: &DispatchResult,
-    ) -> Result<(), TransactionValidityError> {
-        ChargeTransactionPayment::<T>::post_dispatch(pre, info, post_info, len, result)
+        let (pre, discount) = pre;
+        let fee_info = fee_dispatch_info(info, discount);
+        // Cap the fee at its discounted declaration, retaining normal refunds when
+        // actual work costs less. Do not modify the execution post-info: CheckWeight
+        // must still see the full scan, including work beyond four hotkeys.
+        let fee_post_info = PostDispatchInfo {
+            actual_weight: Some(
+                post_info
+                    .calc_actual_weight(info)
+                    .min(fee_info.total_weight()),
+            ),
+            pays_fee: post_info.pays_fee,
+        };
+        ChargeTransactionPayment::<T>::post_dispatch_details(
+            pre,
+            &fee_info,
+            &fee_post_info,
+            len,
+            result,
+        )
     }
 
     fn bare_validate(
