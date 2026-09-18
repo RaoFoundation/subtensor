@@ -43,6 +43,10 @@ _FLUSH_BOUND_QUOTES = 10 * _MAX_BASKET_ROWS
 _FLUSH_BOUND_ROWS = 2 * _MAX_BASKET_ROWS
 # Runtime ``ROOT_CLAIM_FEE_ALLOWANCE``: claim units the fee wrapper charges for.
 _ROOT_CLAIM_FEE_ALLOWANCE = 4
+# Runtime ``fee_weight_cap_459`` for both claim calls: the call weight quoted on spec
+# 459 (includes the 60_000_000 ref_time dispatch-extension fold the model below omits).
+_ROOT_CLAIM_CAP_459_REF_TIME = 249_916_000_000
+_EXTENSION_FOLD_REF_TIME = 60_000_000
 
 
 def _claim_root_ref_time(units: int) -> int:
@@ -104,7 +108,10 @@ def root_claim_charged_ref_time(limit: int) -> int:
     """Weight the fee wrapper charges: the allowance plus one hotkey's flush work for
     that many queued credits and holdings (``4Q + 2H`` quotes, ``Q`` rows)."""
     units = _fee_units(limit)
-    return _claim_ref_time(units, 6 * units, units)
+    return min(
+        _claim_ref_time(units, 6 * units, units),
+        _ROOT_CLAIM_CAP_459_REF_TIME - _EXTENSION_FOLD_REF_TIME,
+    )
 
 
 def root_claim_fee_discount_ref_time(limit: int) -> int:
