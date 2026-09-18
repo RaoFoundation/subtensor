@@ -54,6 +54,45 @@ def test_reserved_fallback_charges_the_fee_allowance_not_the_envelope():
     ) == fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
 
 
+# Recorded from the spec 467 CI release node (PR #3183, commit 546d26bd9), at genesis, for
+# fake-signed //Alice extrinsics: ``TransactionPaymentApi_query_info`` ``weight.ref_time``
+# and ``payment_queryFeeDetails`` ``adjustedWeightFee`` (rao). The 60_000_000 ref_time gap
+# between the node weight and the SDK's declared model is the folded dispatch-extension
+# weight, which the fee wrapper does not discount.
+_EXTENSION_REF_TIME = 60_000_000
+_NODE_QUOTES = [
+    ("claim_root_with_hotkey", 2_048_205_118_028, 8_224_263, [fees._MAX_ROOT_CLAIM_HOTKEY_WORK]),
+    ("claim_root", 2_476_947_290_768, 8_224_263, [fees._MAX_ROOT_CLAIM_WORK]),
+    (
+        "batch_all[claim_root_with_hotkey, claim_root]",
+        4_525_285_010_166,
+        16_481_677,
+        [fees._MAX_ROOT_CLAIM_HOTKEY_WORK, fees._MAX_ROOT_CLAIM_WORK],
+    ),
+]
+
+
+@pytest.mark.parametrize(("name", "weight", "weight_fee", "limits"), _NODE_QUOTES)
+def test_discount_model_matches_the_467_release_node(name, weight, weight_fee, limits):
+    discount = sum(fees.root_claim_fee_discount_ref_time(limit) for limit in limits)
+    assert fees._weight_fee_rao(weight - discount) == weight_fee, name
+    if len(limits) == 1:
+        assert weight == fees.root_claim_declared_ref_time(limits[0]) + _EXTENSION_REF_TIME
+        assert (
+            weight - discount == fees.root_claim_charged_ref_time(limits[0]) + _EXTENSION_REF_TIME
+        )
+
+
+def test_charged_allowance_is_the_same_for_both_claim_paths():
+    charged = fees.root_claim_charged_ref_time(fees._MAX_ROOT_CLAIM_WORK)
+    assert charged == fees.root_claim_charged_ref_time(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
+    assert charged == fees._claim_ref_time(4, 24, 4)
+    assert fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK) == 8_209_263
+    assert fees.root_claim_fee_discount_ref_time(fees._MAX_ROOT_CLAIM_HOTKEY_WORK) < (
+        fees.root_claim_fee_discount_ref_time(fees._MAX_ROOT_CLAIM_WORK)
+    )
+
+
 def test_spent_caps_at_the_fee_allowance():
     reserved = Balance.from_rao(fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK))
     spent = fees._spent_fee(
@@ -70,7 +109,9 @@ def test_spent_keeps_non_weight_base_fee():
         reserved,
         fees.RootClaimWork(hotkeys=1, redeem_holdings=1, scan_holdings=0),
     )
-    assert spent.rao == base + fees._APPROX_REDEEM_FEE_RAO
+    assert spent.rao == base + fees._weight_fee_rao(
+        fees._claim_root_ref_time(1) + fees._claim_root_scan_ref_time(0)
+    )
 
 
 def test_scan_only_uses_scan_ref_time():
@@ -79,9 +120,11 @@ def test_scan_only_uses_scan_ref_time():
         reserved,
         fees.RootClaimWork(hotkeys=1, redeem_holdings=0, scan_holdings=32),
     )
-    scan = fees._APPROX_SCAN_FEE_RAO * 32
-    walk = fees._APPROX_REDEEM_FEE_RAO
-    assert spent.rao == walk + scan
+    expected = fees._weight_fee_rao(
+        fees._claim_root_ref_time(1) + fees._claim_root_scan_ref_time(32)
+    )
+    assert expected < reserved.rao
+    assert spent.rao == expected
 
 
 def test_coldkey_wide_empty_baskets_floor_to_hotkey_count():
@@ -90,7 +133,9 @@ def test_coldkey_wide_empty_baskets_floor_to_hotkey_count():
         reserved,
         fees.RootClaimWork(hotkeys=3, redeem_holdings=0, scan_holdings=0),
     )
-    assert spent.rao == fees._APPROX_REDEEM_FEE_RAO * 3
+    assert spent.rao == fees._weight_fee_rao(
+        fees._claim_root_ref_time(3) + fees._claim_root_scan_ref_time(0)
+    )
 
 
 def test_single_hotkey_spent_caps_at_the_same_allowance():
