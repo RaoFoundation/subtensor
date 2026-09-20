@@ -169,6 +169,13 @@ pub mod pallet {
             /// subnet after a `swap_basket` buy (`u16::MAX` = 100%).
             cap: u16,
         },
+
+        /// The cash-first claim budget (`BasketCashClaimCap`) was set.
+        BasketCashClaimCapSet {
+            /// Daily cash-claim bucket capacity as a u16-normalized share of a fund's
+            /// guarded NAV (`u16::MAX` = 100%; `0` turns the cash path off).
+            cap: u16,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -2573,6 +2580,22 @@ pub mod pallet {
             pallet_subtensor::BasketLiquidityCap::<T>::put(cap);
             Self::deposit_event(Event::BasketLiquidityCapSet { cap });
             log::debug!("BasketLiquidityCapSet( cap: {cap:?} )");
+            Ok(())
+        }
+
+        /// Sets the cash-first claim budget ([`pallet_subtensor::BasketCashClaimCap`]): the
+        /// TAO a fund's cash slot may pay to root claimants per refill window (7200
+        /// blocks) as a u16-normalized share of the fund's guarded NAV (`u16::MAX` = 100%).
+        /// `0` closes the cash path: every claim redeems pro-rata as before spec 468. The
+        /// weight is that of the sibling one-write basket setter; a dedicated benchmark
+        /// exists for CI to measure. Root-only.
+        #[pallet::call_index(110)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_daily_turnover_cap())]
+        pub fn sudo_set_basket_cash_claim_cap(origin: OriginFor<T>, cap: u16) -> DispatchResult {
+            ensure_root(origin)?;
+            pallet_subtensor::BasketCashClaimCap::<T>::put(cap);
+            Self::deposit_event(Event::BasketCashClaimCapSet { cap });
+            log::debug!("BasketCashClaimCapSet( cap: {cap:?} )");
             Ok(())
         }
 

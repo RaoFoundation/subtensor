@@ -3680,3 +3680,42 @@ fn test_sudo_set_basket_daily_turnover_cap() {
         ));
     });
 }
+
+#[test]
+fn test_sudo_set_basket_cash_claim_cap() {
+    new_test_ext().execute_with(|| {
+        // Launch default: 1% of guarded fund NAV per window.
+        assert_eq!(
+            pallet_subtensor::BasketCashClaimCap::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_CASH_CLAIM_CAP
+        );
+
+        // Only root may set the cap.
+        assert_noop!(
+            AdminUtils::sudo_set_basket_cash_claim_cap(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                1000
+            ),
+            DispatchError::BadOrigin
+        );
+
+        // Zero is allowed: it closes the cash path (every claim redeems pro-rata).
+        assert_ok!(AdminUtils::sudo_set_basket_cash_claim_cap(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            0
+        ));
+        assert_eq!(pallet_subtensor::BasketCashClaimCap::<Test>::get(), 0);
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketCashClaimCapSet { cap: 0 },
+        ));
+
+        assert_ok!(AdminUtils::sudo_set_basket_cash_claim_cap(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            u16::MAX
+        ));
+        assert_eq!(
+            pallet_subtensor::BasketCashClaimCap::<Test>::get(),
+            u16::MAX
+        );
+    });
+}
