@@ -199,24 +199,12 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// The fund's NAV at the cash-claim mark ([`Self::cash_mark_holding_value`]): every
-    /// holding at its anchored liquidation value, root cash 1:1, rows that realize nothing
-    /// live at zero, summed. What a cash-first claim prices the claimant's shares against.
-    /// A view.
+    /// The fund's NAV at the cash-claim mark ([`Self::basket_cash_nav_tao`]): every holding
+    /// at its anchored liquidation value, root cash 1:1, rows that realize nothing live at
+    /// zero, less the cost-basis correction. What a cash-first claim prices the claimant's
+    /// shares against. A view; valuation failures read as zero.
     pub fn get_validator_basket_cash_mark_nav_tao(hotkey: &T::AccountId) -> TaoBalance {
-        let mut nav: u64 = 0;
-        for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
-            let realizable = Self::realizable_tao_for_alpha(netuid, alpha.to_u64());
-            if realizable == 0 {
-                continue;
-            }
-            nav = nav.saturating_add(Self::cash_mark_holding_value(
-                netuid,
-                alpha.to_u64(),
-                realizable,
-            ));
-        }
-        nav.into()
+        Self::basket_cash_nav_tao(hotkey).unwrap_or(0).into()
     }
 
     /// Capacity of a fund's `swap_basket` turnover bucket at `nav`

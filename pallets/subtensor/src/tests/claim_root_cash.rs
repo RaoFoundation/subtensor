@@ -20,9 +20,9 @@ use crate::tests::claim_root::{
 use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
-    BASKET_TRADE_REFILL_BLOCKS, BasketCashClaimBucket, BasketCashClaimCap, BasketCashTouchedBlock,
-    Error, Event, RootClaimableThreshold, SubnetAlphaIn, SubnetFastMovingAlphaIn,
-    SubnetFastMovingPrice, SubnetMovingPrice, SubnetTAO,
+    BASKET_TRADE_REFILL_BLOCKS, BasketCashClaimBucket, BasketCashClaimCap, BasketCashNavAdjust,
+    BasketCashTouchedBlock, Error, Event, RootClaimableThreshold, SubnetAlphaIn,
+    SubnetFastMovingAlphaIn, SubnetFastMovingPrice, SubnetMovingPrice, SubnetTAO,
 };
 use frame_support::dispatch::GetDispatchInfo;
 use frame_support::weights::Weight;
@@ -672,8 +672,7 @@ fn material_holding_pump_or_liquidity_add_cannot_raise_the_cash_mark() {
         let realizable = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
         // ~9% slippage discount below alpha × EMA on a 10%-of-pool row.
         assert!(realizable < holding * 92 / 100 && realizable > holding * 89 / 100);
-        let honest_mark =
-            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, realizable);
+        let honest_mark = SubtensorModule::anchored_liquidation_value(fund.netuid, holding);
         assert_eq!(
             honest_mark, realizable,
             "un-manipulated: mark is the liquidation quote"
@@ -700,7 +699,7 @@ fn material_holding_pump_or_liquidity_add_cannot_raise_the_cash_mark() {
         let pumped = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
         assert!(pumped > realizable * 18 / 10);
         assert_eq!(
-            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, pumped),
+            SubtensorModule::anchored_liquidation_value(fund.netuid, holding),
             honest_mark
         );
 
@@ -711,7 +710,7 @@ fn material_holding_pump_or_liquidity_add_cannot_raise_the_cash_mark() {
         let deep = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
         assert!(deep > holding * 99 / 100);
         assert_eq!(
-            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, deep),
+            SubtensorModule::anchored_liquidation_value(fund.netuid, holding),
             honest_mark
         );
 
@@ -739,7 +738,7 @@ fn material_holding_pump_or_liquidity_add_cannot_raise_the_cash_mark() {
             "the market fell well below the anchors"
         );
         assert_eq!(
-            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, dumped),
+            SubtensorModule::anchored_liquidation_value(fund.netuid, holding),
             honest_mark,
             "anchored: the mark does not follow the live quote"
         );
@@ -782,7 +781,7 @@ fn material_holding_pump_or_liquidity_add_cannot_raise_the_cash_mark() {
         // A row on a subnet with no anchors yet contributes nothing to the cash mark.
         SubnetFastMovingAlphaIn::<Test>::remove(fund.netuid);
         assert_eq!(
-            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, lifted),
+            SubtensorModule::anchored_liquidation_value(fund.netuid, holding),
             0
         );
     });
@@ -843,7 +842,8 @@ fn deposit_then_cash_claim_cannot_exceed_the_deposit() {
             deposit.into()
         ));
         let root_before = root_stake_of(&fund.hotkey, &arb);
-        next_block();
+        // Same block: a deposit into a fund with a full bucket does not flip the predicate.
+        assert!(SubtensorModule::root_claim_cash_ready(&fund.hotkey));
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(arb),
             fund.hotkey
@@ -851,7 +851,7 @@ fn deposit_then_cash_claim_cannot_exceed_the_deposit() {
         let paid = root_stake_of(&fund.hotkey, &arb) - root_before;
         assert!(paid > 0);
         assert!(
-            paid <= deposit,
+            paid <= deposit + 2,
             "a deposit below the anchors redeems for at most what it paid: {paid} vs {deposit}"
         );
         // Mint priced at the anchored NAV (the higher one): the shares are worth, at the
@@ -915,5 +915,112 @@ fn deposit_mint_is_capped_by_its_claim_on_the_anchored_nav() {
             fund_shares(&fund.hotkey),
         );
         assert!(claim_at_mark <= deposit, "{claim_at_mark} <= {deposit}");
+    });
+}
+
+/// Skeptic finding on #3184 (mint cap alone): a depositor who already holds shares gains
+/// `f × (ΔA − D)` on those shares when the mirror buys alpha below the anchors. The
+/// cost-basis correction carries the purchase at cost, so the total cash claim after a
+/// deposit is at most the original entitlement plus the deposit.
+#[test]
+fn deposit_with_existing_shares_cannot_cash_claim_more_than_entitlement_plus_deposit() {
+    new_test_ext(1).execute_with(|| {
+        // Two-thirds alpha, one-third cash, with enough cash to cover the whole claim.
+        let fund = setup_fund(&[5, 995], CASH);
+        allow_full_cash_claims();
+        let holder = fund.stakers[0];
+        let reserve = 1_000_000_000_000u64;
+
+        // Original entitlement at the cash mark, anchors aligned.
+        let owed_before = SubtensorModule::get_basket_owed_shares(&fund.hotkey, &holder);
+        let entitlement = SubtensorModule::basket_payout_from(
+            owed_before,
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64(),
+            fund_shares(&fund.hotkey),
+        );
+        assert!(entitlement > 0);
+
+        // The market halves; the anchors still say 1.0. A deposit now buys alpha cheap.
+        SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve / 2));
+        SubnetAlphaIn::<Test>::insert(fund.netuid, AlphaBalance::from(reserve));
+        let deposit = 10_000_000u64;
+        add_balance_to_coldkey_account(&holder, TaoBalance::from(2 * deposit));
+        let anchored_before = SubtensorModule::anchored_basket_nav_tao(&fund.hotkey);
+        let cash_nav_before =
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64();
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            holder,
+            fund.hotkey,
+            deposit.into()
+        ));
+        let anchored_added =
+            SubtensorModule::anchored_basket_nav_tao(&fund.hotkey) - anchored_before;
+        assert!(
+            anchored_added > deposit + deposit / 10,
+            "the mirror bought alpha worth more at the anchors than it cost: {anchored_added}"
+        );
+        let cash_nav_after =
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64();
+        assert!(
+            cash_nav_after.abs_diff(cash_nav_before + deposit) <= 2,
+            "the cash NAV rose by the cost: {cash_nav_before} + {deposit} -> {cash_nav_after}"
+        );
+        let (adjust, _) = BasketCashNavAdjust::<Test>::get(fund.hotkey).expect("correction booked");
+        assert_eq!(adjust, i128::from(anchored_added) - i128::from(deposit));
+
+        // Immediate cash claim (same block: the deposit did not flip the predicate).
+        assert!(SubtensorModule::root_claim_cash_ready(&fund.hotkey));
+        let root_before = root_stake_of(&fund.hotkey, &holder);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(holder),
+            fund.hotkey
+        ));
+        let paid = root_stake_of(&fund.hotkey, &holder) - root_before;
+        assert_eq!(cash_claim_events().len(), 1, "paid from cash");
+        assert!(
+            paid <= entitlement + deposit + 2,
+            "no uplift: paid {paid} vs entitlement {entitlement} + deposit {deposit}"
+        );
+        assert!(paid > entitlement, "the deposit itself is redeemable");
+    });
+}
+
+/// The correction decays on the fast-EMA schedule: half is gone after one half-life, and
+/// a hotkey swap carries it with the fund.
+#[test]
+fn cost_basis_correction_decays_like_the_anchors_and_follows_hotkey_swaps() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund(&[1, 199], CASH);
+        let now = System::block_number();
+        BasketCashNavAdjust::<Test>::insert(fund.hotkey, (1_000_000i128, now));
+        assert_eq!(
+            SubtensorModule::basket_cash_nav_adjust_at(&fund.hotkey, now),
+            1_000_000
+        );
+        let half_life = crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS;
+        let after_half = SubtensorModule::basket_cash_nav_adjust_at(&fund.hotkey, now + half_life);
+        assert!(after_half > 490_000 && after_half < 510_000, "{after_half}");
+        let after_ten =
+            SubtensorModule::basket_cash_nav_adjust_at(&fund.hotkey, now + 10 * half_life);
+        assert!(after_ten < 1_100, "{after_ten}");
+        // Negative corrections (buys above the anchors) decay the same way.
+        BasketCashNavAdjust::<Test>::insert(fund.hotkey, (-1_000_000i128, now));
+        let neg_half = SubtensorModule::basket_cash_nav_adjust_at(&fund.hotkey, now + half_life);
+        assert!(neg_half < -490_000 && neg_half > -510_000, "{neg_half}");
+        // A positive correction lowers the cash NAV; the anchored figure is unchanged.
+        BasketCashNavAdjust::<Test>::insert(fund.hotkey, (1_000_000i128, now));
+        let anchored = SubtensorModule::anchored_basket_nav_tao(&fund.hotkey);
+        assert_eq!(
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64(),
+            anchored - 1_000_000
+        );
+        // Hotkey swap carries it.
+        let new_hotkey = U256::from(7_778);
+        SubtensorModule::transfer_basket_for_new_hotkey(&fund.hotkey, &new_hotkey);
+        assert!(BasketCashNavAdjust::<Test>::get(fund.hotkey).is_none());
+        assert_eq!(
+            SubtensorModule::basket_cash_nav_adjust_at(&new_hotkey, now),
+            1_000_000
+        );
     });
 }

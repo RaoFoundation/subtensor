@@ -746,7 +746,10 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
             )
         );
         let bare_actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO, 0).unwrap();
-        assert_eq!(bare_actual, SubtensorModule::swap_basket_weight(3));
+        assert_eq!(
+            bare_actual,
+            SubtensorModule::swap_basket_actual_weight(3, true)
+        );
 
         // Queued origins do not move the declared weight: the allowance is flat, and the
         // weight function reads no storage.
@@ -771,7 +774,7 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
         );
         assert_eq!(
             actual,
-            SubtensorModule::swap_basket_weight(3)
+            SubtensorModule::swap_basket_actual_weight(3, true)
                 .saturating_add(SubtensorModule::basket_flush_weight(flush_work))
         );
         assert!(actual.all_gt(bare_actual), "flush work must be charged");
@@ -843,7 +846,7 @@ fn test_swap_basket_declared_weight_covers_failing_multi_credit_flush() {
         assert!(flush_work.quotes <= bound.quotes && flush_work.rows <= bound.rows);
         assert_eq!(
             actual,
-            SubtensorModule::swap_basket_weight(holdings_before)
+            SubtensorModule::swap_basket_actual_weight(holdings_before, true)
                 .saturating_add(SubtensorModule::basket_flush_weight(flush_work))
         );
         assert!(

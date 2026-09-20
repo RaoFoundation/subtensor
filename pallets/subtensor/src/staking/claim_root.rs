@@ -408,10 +408,18 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let shares_outstanding: u64 = BasketShares::<T>::get(hotkey);
 
+        // The anchored NAV before the buys, so the cost basis of what they add is known.
+        let anchored_before: u64 = Self::anchored_basket_nav_tao(hotkey);
+
         // Deploy the staker's TAO across the basket by its current holdings. Price the
         // result by its ΔNAV, then apply the per-holding quantity bound below.
         let (nav_before, value_added) =
             Self::deploy_tao_into_basket(hotkey, coldkey, tao.to_u64())?;
+
+        // Cost basis: the cash-claimable NAV rises by the TAO deposited, not by the
+        // anchored value of the alpha the mirror bought at live prices.
+        let anchored_added = Self::anchored_basket_nav_tao(hotkey).saturating_sub(anchored_before);
+        Self::note_basket_cost_basis(hotkey, anchored_added, tao.to_u64());
 
         let live_priced_shares: u64 =
             Self::basket_shares_for_value(value_added, nav_before, shares_outstanding);
@@ -676,35 +684,29 @@ impl<T: Config> Pallet<T> {
         Self::mul_div_u64(nav, BasketCashClaimCap::<T>::get() as u64, u16::MAX as u64)
     }
 
-    /// The mark a cash claim values a holding at: what a liquidation of the whole holding
-    /// would fetch against *anchored* reserves — `alpha × price_anchor × depth_anchor /
-    /// (depth_anchor + alpha)`, the constant-product sale of `alpha` into a pool whose
-    /// price is the fast EMA ([`SubnetFastMovingPrice`]) and whose alpha reserve is the fast
-    /// EMA of `SubnetAlphaIn` ([`SubnetFastMovingAlphaIn`]). Root cash is TAO 1:1.
+    /// The mark a cash claim values a subnet holding at: what a liquidation of the whole
+    /// holding would fetch against *anchored* reserves — `alpha × price_anchor ×
+    /// depth_anchor / (depth_anchor + alpha)`, the constant-product sale of `alpha` into a
+    /// pool whose price is the fast EMA ([`SubnetFastMovingPrice`]) and whose alpha reserve
+    /// is the fast EMA of `SubnetAlphaIn` ([`SubnetFastMovingAlphaIn`]). Root cash is TAO
+    /// 1:1 and is valued by the callers.
     ///
     /// No live figure enters this mark, not even as a cap. A cash claim sells nothing, so
     /// anything an extrinsic can move inside a block (spot by a buy, depth by a liquidity
     /// add) could otherwise be moved, claimed against, and moved back for the price of a
     /// fee. Both anchors advance only between blocks, so what a cash claim pays and how
     /// many shares it burns is fixed before the block starts. The matching half of the
-    /// design is on the deposit side: a direct deposit's shares may claim no more of the
-    /// anchored NAV than the TAO it brought in ([`Self::basket_anchored_mint_cap`]), so
-    /// fresh shares can never be bought at a live price below the anchors and redeemed at
-    /// the anchors. What remains is the
+    /// design is on the buy side: every purchase of alpha at live prices for the fund (a
+    /// deposit's mirror buys, a `swap_basket` buy leg) is carried at cost in the cash NAV
+    /// through the decaying correction [`BasketCashNavAdjust`]
+    /// ([`Self::note_basket_cost_basis`]), and a direct deposit's shares may claim no more
+    /// of that NAV than the TAO it brought in ([`Self::basket_anchored_mint_cap`]). So
+    /// neither new nor existing shares gain cash-claimable value from alpha bought below the
+    /// anchors. What remains is the
     /// honest anchor drift (two-hour half-life) between dividend-earned shares and the
     /// market, bounded per fund per day by the cash budget ([`BasketCashClaimCap`]). A
     /// subnet without both anchors yet marks zero on the cash path (its value stays in the
     /// fund for the redemption path).
-    pub(crate) fn cash_mark_holding_value(netuid: NetUid, alpha: u64, realizable: u64) -> u64 {
-        if netuid.is_root() {
-            return realizable;
-        }
-        Self::anchored_liquidation_value(netuid, alpha)
-    }
-
-    /// `alpha × price_anchor × depth_anchor / (depth_anchor + alpha)`: the constant-product
-    /// sale of `alpha` into anchored reserves (see [`Self::cash_mark_holding_value`]). Zero
-    /// without both anchors. Root is not a pool; callers value it 1:1 themselves.
     pub(crate) fn anchored_liquidation_value(netuid: NetUid, alpha: u64) -> u64 {
         let (Some(price), Some(reserve)) = (
             SubnetFastMovingPrice::<T>::get(netuid),
@@ -726,8 +728,72 @@ impl<T: Config> Pallet<T> {
             .saturating_to_num::<u64>()
     }
 
+    /// The fund's cost-basis correction ([`BasketCashNavAdjust`]) decayed to block `now`.
+    pub(crate) fn basket_cash_nav_adjust_at(hotkey: &T::AccountId, now: u64) -> i128 {
+        match BasketCashNavAdjust::<T>::get(hotkey) {
+            None => 0,
+            Some(stored) => Self::basket_cash_nav_adjust_at_from(stored, now),
+        }
+    }
+
+    fn basket_cash_nav_adjust_at_from((adjust, last_block): (i128, u64), now: u64) -> i128 {
+        let elapsed = now.saturating_sub(last_block);
+        let magnitude = u64::try_from(adjust.unsigned_abs()).unwrap_or(u64::MAX);
+        let decayed = i128::from(Self::fast_ema_decay(magnitude, elapsed));
+        if adjust.is_negative() {
+            decayed.saturating_neg()
+        } else {
+            decayed
+        }
+    }
+
+    /// Record that the fund just paid `cost` TAO for holdings whose anchored value rose by
+    /// `anchored_added`: the cash-claimable NAV must move by the cost, not by the anchored
+    /// valuation of what was bought, so the difference is booked into the decaying
+    /// correction. Called for every path that buys alpha at live prices for the fund.
+    pub(crate) fn note_basket_cost_basis(hotkey: &T::AccountId, anchored_added: u64, cost: u64) {
+        let now = Self::get_current_block_as_u64();
+        let current = Self::basket_cash_nav_adjust_at(hotkey, now);
+        let delta = i128::from(anchored_added).saturating_sub(i128::from(cost));
+        let next = current.saturating_add(delta);
+        if next == 0 {
+            BasketCashNavAdjust::<T>::remove(hotkey);
+        } else {
+            BasketCashNavAdjust::<T>::insert(hotkey, (next, now));
+        }
+    }
+
+    /// The NAV a cash claim prices shares against: the anchored NAV less the cost-basis
+    /// correction ([`Self::basket_cash_nav_adjust_at`]). Terminal rows (whole alpha
+    /// realizing nothing live) are left out exactly as on the redemption path; that gate
+    /// is the only live figure consulted and it can only lower the mark.
+    pub(crate) fn basket_cash_nav_tao(hotkey: &T::AccountId) -> Result<u64, DispatchError> {
+        let mut anchored: u64 = 0;
+        for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
+            if netuid.is_root() {
+                anchored = anchored.saturating_add(alpha.to_u64());
+                continue;
+            }
+            if Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())?.unwrap_or(0) == 0 {
+                continue;
+            }
+            anchored =
+                anchored.saturating_add(Self::anchored_liquidation_value(netuid, alpha.to_u64()));
+        }
+        Ok(Self::apply_cash_nav_adjust(hotkey, anchored))
+    }
+
+    /// `anchored − adjust`, saturating at zero (a positive correction can never drive the
+    /// cash NAV below zero; a negative one adds what was paid above the anchors).
+    pub(crate) fn apply_cash_nav_adjust(hotkey: &T::AccountId, anchored: u64) -> u64 {
+        let adjust = Self::basket_cash_nav_adjust_at(hotkey, Self::get_current_block_as_u64());
+        let adjusted = i128::from(anchored).saturating_sub(adjust);
+        u64::try_from(adjusted.max(0)).unwrap_or(u64::MAX)
+    }
+
     /// The fund's NAV with every subnet row at its anchored liquidation value and root cash
-    /// 1:1 — no live quote, so no sim-swap: two anchor reads per row.
+    /// 1:1 — no live quote, so no sim-swap: two anchor reads per row. Uncorrected; see
+    /// [`Self::apply_cash_nav_adjust`] for the cash-claimable figure.
     pub(crate) fn anchored_basket_nav_tao(hotkey: &T::AccountId) -> u64 {
         Self::get_basket_holdings(hotkey)
             .into_iter()
@@ -742,20 +808,21 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Most shares a direct deposit of `tao_in` may mint so that the new shares' claim on
-    /// the fund's *anchored* NAV (read after the deploy) is at most `tao_in`:
-    /// `s / (P + s) × NAV_anchored ≤ tao_in`, i.e. `s ≤ tao_in × P / (NAV_anchored − tao_in)`.
-    /// This is the deposit half of the cash-mark design. The mirror buys alpha at live
-    /// prices; when those sit below the anchors the alpha is worth more at the cash mark
-    /// than it cost, and without this cap a depositor could cash that difference out of
-    /// the other holders straight away. With anchors at or below the market the cap is
-    /// above the live-priced mint and changes nothing. No cap without anchors (an anchored
-    /// NAV of zero) or when the deposit alone exceeds it.
+    /// the fund's cash-claimable NAV (anchored, cost-basis corrected, read after the
+    /// deploy) is at most `tao_in`: `s / (P + s) × NAV ≤ tao_in`, i.e.
+    /// `s ≤ tao_in × P / (NAV − tao_in)`. With the cost-basis correction booked the deposit
+    /// adds exactly `tao_in` to that NAV, so the live-priced mint already satisfies this
+    /// whenever the live NAV is at or above the cash NAV; the cap is belt-and-braces for
+    /// the case where the live NAV sits below it (anchors above the market), where a
+    /// live-priced mint would otherwise buy a larger fraction of the cash NAV than it paid
+    /// for. No cap without anchors (a cash NAV of zero) or when the deposit alone exceeds it.
     pub(crate) fn basket_anchored_mint_cap(
         hotkey: &T::AccountId,
         tao_in: u64,
         shares_outstanding: u64,
     ) -> u64 {
-        let anchored_nav_after = Self::anchored_basket_nav_tao(hotkey);
+        let anchored_nav_after =
+            Self::apply_cash_nav_adjust(hotkey, Self::anchored_basket_nav_tao(hotkey));
         match anchored_nav_after.checked_sub(tao_in) {
             Some(rest) if rest > 0 && shares_outstanding > 0 => {
                 Self::mul_div_u64(tao_in, shares_outstanding, rest)
@@ -809,25 +876,10 @@ impl<T: Config> Pallet<T> {
         outcome.rows = holdings.len() as u32;
         outcome.cash = true;
 
-        // One anchored quote per row; the root row is TAO 1:1. A row whose whole alpha
-        // realizes nothing live (terminal pool) marks zero here exactly as on the
-        // redemption path; the live quote is used for that gate only, never for the value.
-        let mut guarded_nav: u64 = 0;
-        for (netuid, alpha) in holdings {
-            let realizable = if netuid.is_root() {
-                alpha.to_u64()
-            } else {
-                Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())?.unwrap_or(0)
-            };
-            if realizable == 0 {
-                continue;
-            }
-            guarded_nav = guarded_nav.saturating_add(Self::cash_mark_holding_value(
-                netuid,
-                alpha.to_u64(),
-                realizable,
-            ));
-        }
+        // The cash-claimable NAV: one anchored quote per row, root 1:1, terminal rows out,
+        // less the cost-basis correction. `holdings` was read above for the row count.
+        drop(holdings);
+        let guarded_nav: u64 = Self::basket_cash_nav_tao(hotkey)?;
 
         let payout: u64 = Self::basket_payout_from(owed_shares, guarded_nav, shares_total);
         if !ignore_minimum_condition
@@ -1252,7 +1304,7 @@ impl<T: Config> Pallet<T> {
     /// Storage the cash path touches beyond a claim's benchmarked units: the cash-claim
     /// cap, bucket and touched-block reads and writes.
     pub(crate) fn root_claim_cash_extra_weight() -> Weight {
-        T::DbWeight::get().reads_writes(4, 3)
+        T::DbWeight::get().reads_writes(5, 3)
     }
 
     /// Declared weight of a single-hotkey claim that the cash path will serve: one
@@ -1644,7 +1696,17 @@ impl<T: Config> Pallet<T> {
             };
             BasketTradeBucket::<T>::insert(new_hotkey, carried);
         }
-        // The cash-claim bucket is carried the same conservative way.
+        // The cash-claim bucket is carried the same conservative way, and the cost-basis
+        // correction moves with the holdings it describes (summed at their decayed values).
+        if let Some((old_adjust, old_block)) = BasketCashNavAdjust::<T>::take(old_hotkey) {
+            let now = Self::get_current_block_as_u64();
+            let carried = Self::basket_cash_nav_adjust_at(new_hotkey, now).saturating_add(
+                Self::basket_cash_nav_adjust_at_from((old_adjust, old_block), now),
+            );
+            if carried != 0 {
+                BasketCashNavAdjust::<T>::insert(new_hotkey, (carried, now));
+            }
+        }
         if let Some((old_level, old_block)) = BasketCashClaimBucket::<T>::take(old_hotkey) {
             let carried = match BasketCashClaimBucket::<T>::get(new_hotkey) {
                 Some((new_level, new_block)) => {

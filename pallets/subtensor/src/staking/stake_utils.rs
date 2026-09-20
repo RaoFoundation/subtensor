@@ -104,15 +104,43 @@ impl<T: Config> Pallet<T> {
     /// One block of the fast EMA: `fast += (value - fast) × (1 - 2^(-1/H))`, `H` =
     /// [`crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS`] (`ln 2 / H` to fixed-point precision).
     fn fast_ema_step(fast: U64F64, value: U64F64) -> U64F64 {
-        // ln 2 / H: the per-block weight that halves the distance to `value` every H blocks.
-        let alpha: U64F64 = U64F64::saturating_from_num(core::f64::consts::LN_2).safe_div(
-            U64F64::saturating_from_num(crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS.max(1)),
-        );
+        let alpha = Self::fast_ema_alpha();
         if value >= fast {
             fast.saturating_add(value.saturating_sub(fast).saturating_mul(alpha))
         } else {
             fast.saturating_sub(fast.saturating_sub(value).saturating_mul(alpha))
         }
+    }
+
+    /// `ln 2 / H`: the per-block weight that halves the distance to the target every `H`
+    /// blocks on the fast schedule.
+    fn fast_ema_alpha() -> U64F64 {
+        U64F64::saturating_from_num(core::f64::consts::LN_2).safe_div(U64F64::saturating_from_num(
+            crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS.max(1),
+        ))
+    }
+
+    /// What is left of `value` after `elapsed` blocks of fast-EMA decay towards zero:
+    /// `value × (1 - ln 2 / H)^elapsed`, the same schedule on which the anchors close the
+    /// gap to the market. Exponentiation by squaring, so bounded work for any `elapsed`.
+    pub(crate) fn fast_ema_decay(value: u64, elapsed: u64) -> u64 {
+        if value == 0 || elapsed == 0 {
+            return value;
+        }
+        let one = U64F64::saturating_from_num(1);
+        let mut base: U64F64 = one.saturating_sub(Self::fast_ema_alpha());
+        let mut factor: U64F64 = one;
+        let mut n = elapsed;
+        while n > 0 {
+            if n & 1 == 1 {
+                factor = factor.saturating_mul(base);
+            }
+            base = base.saturating_mul(base);
+            n >>= 1;
+        }
+        U64F64::saturating_from_num(value)
+            .saturating_mul(factor)
+            .saturating_to_num::<u64>()
     }
 
     /// Gets the Median Subnet Alpha Price
