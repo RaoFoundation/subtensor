@@ -1,5 +1,7 @@
 use super::*;
-use frame_support::dispatch::DispatchErrorWithPostInfo;
+use frame_support::dispatch::{
+    DispatchErrorWithPostInfo, DispatchResultWithPostInfo, PostDispatchInfo,
+};
 use frame_support::weights::Weight;
 use safe_math::*;
 use share_pool::{SafeFloat, SharePool, SharePoolDataOperations};
@@ -1316,6 +1318,18 @@ impl<T: Config> Pallet<T> {
     pub fn staking_hotkeys_walk_actual(coldkey: &T::AccountId) -> Weight {
         let entries = StakingHotkeys::<T>::decode_len(coldkey).unwrap_or(0) as u64;
         Self::staking_hotkeys_walk_weight(entries)
+    }
+
+    /// Attach `weight` as the actual weight of `result`, on success and on failure alike.
+    /// A failed call is otherwise charged its full declared envelope (a plain
+    /// `DispatchError` carries no post-dispatch info), which for the wide stake-exit
+    /// declarations is many times the work a failing call did.
+    pub fn with_actual_weight(result: DispatchResult, weight: Weight) -> DispatchResultWithPostInfo {
+        let post_info: PostDispatchInfo = (Some(weight), Pays::Yes).into();
+        match result {
+            Ok(()) => Ok(post_info),
+            Err(error) => Err(DispatchErrorWithPostInfo { post_info, error }),
+        }
     }
 
     /// `error` as a failed dispatch charged `weight` instead of the declared envelope.

@@ -601,15 +601,11 @@ mod dispatches {
             amount_unstaked: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            Self::do_remove_stake(origin, hotkey, netuid, amount_unstaked)?;
-            Ok((
-                Some(
-                    <T as crate::pallet::Config>::WeightInfo::remove_stake()
-                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
-                ),
-                Pays::Yes,
+            Self::with_actual_weight(
+                Self::do_remove_stake(origin, hotkey, netuid, amount_unstaked),
+                <T as crate::pallet::Config>::WeightInfo::remove_stake()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
-                .into())
         }
 
         /// Serves or updates axon /prometheus information for the neuron associated with the caller. If the caller is
@@ -1247,7 +1243,9 @@ mod dispatches {
             hotkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            let work = Self::do_unstake_all(origin, hotkey)?;
+            let work = Self::do_unstake_all_tracked(origin, hotkey).map_err(|(done, error)| {
+                Self::fail_with_weight(error, Self::unstake_all_actual_weight(&coldkey, done))
+            })?;
             Ok((
                 Some(Self::unstake_all_actual_weight(&coldkey, work)),
                 Pays::Yes,
@@ -1285,7 +1283,13 @@ mod dispatches {
             hotkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            let work = Self::do_unstake_all_alpha(origin, hotkey)?;
+            let work =
+                Self::do_unstake_all_alpha_tracked(origin, hotkey).map_err(|(done, error)| {
+                    Self::fail_with_weight(
+                        error,
+                        Self::unstake_all_alpha_actual_weight(&coldkey, done),
+                    )
+                })?;
             Ok((
                 Some(Self::unstake_all_alpha_actual_weight(&coldkey, work)),
                 Pays::Yes,
@@ -1326,22 +1330,18 @@ mod dispatches {
             alpha_amount: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            Self::do_move_stake(
+            Self::with_actual_weight(
+                Self::do_move_stake(
                 origin,
                 origin_hotkey,
                 destination_hotkey,
                 origin_netuid,
                 destination_netuid,
                 alpha_amount,
-            )?;
-            Ok((
-                Some(
-                    <T as crate::pallet::Config>::WeightInfo::move_stake()
-                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
-                ),
-                Pays::Yes,
+            ),
+                <T as crate::pallet::Config>::WeightInfo::move_stake()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
-                .into())
         }
 
         /// Transfers a specified amount of stake from one coldkey to another, optionally across subnets,
@@ -1385,22 +1385,18 @@ mod dispatches {
             alpha_amount: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            Self::do_transfer_stake(
+            Self::with_actual_weight(
+                Self::do_transfer_stake(
                 origin,
                 destination_coldkey,
                 hotkey,
                 origin_netuid,
                 destination_netuid,
                 alpha_amount,
-            )?;
-            Ok((
-                Some(
-                    <T as crate::pallet::Config>::WeightInfo::transfer_stake()
-                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
-                ),
-                Pays::Yes,
+            ),
+                <T as crate::pallet::Config>::WeightInfo::transfer_stake()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
-                .into())
         }
 
         /// Swaps a specified amount of stake from one subnet to another, while keeping the same coldkey and hotkey.
@@ -1440,21 +1436,17 @@ mod dispatches {
             alpha_amount: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            Self::do_swap_stake(
+            Self::with_actual_weight(
+                Self::do_swap_stake(
                 origin,
                 hotkey,
                 origin_netuid,
                 destination_netuid,
                 alpha_amount,
-            )?;
-            Ok((
-                Some(
-                    <T as crate::pallet::Config>::WeightInfo::swap_stake()
-                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
-                ),
-                Pays::Yes,
+            ),
+                <T as crate::pallet::Config>::WeightInfo::swap_stake()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
-                .into())
         }
 
         /// Adds stake to a hotkey on a subnet with a price limit.
@@ -1558,22 +1550,18 @@ mod dispatches {
             allow_partial: bool,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            Self::do_remove_stake_limit(
+            Self::with_actual_weight(
+                Self::do_remove_stake_limit(
                 origin,
                 hotkey,
                 netuid,
                 amount_unstaked,
                 limit_price,
                 allow_partial,
-            )?;
-            Ok((
-                Some(
-                    <T as crate::pallet::Config>::WeightInfo::remove_stake_limit()
-                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
-                ),
-                Pays::Yes,
+            ),
+                <T as crate::pallet::Config>::WeightInfo::remove_stake_limit()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
-                .into())
         }
 
         /// Swaps a specified amount of stake from one subnet to another, while keeping the same coldkey and hotkey.
@@ -1618,7 +1606,8 @@ mod dispatches {
             allow_partial: bool,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            Self::do_swap_stake_limit(
+            Self::with_actual_weight(
+                Self::do_swap_stake_limit(
                 origin,
                 hotkey,
                 origin_netuid,
@@ -1626,15 +1615,10 @@ mod dispatches {
                 alpha_amount,
                 limit_price,
                 allow_partial,
-            )?;
-            Ok((
-                Some(
-                    <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
-                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
-                ),
-                Pays::Yes,
+            ),
+                <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
-                .into())
         }
 
         /// Moves stake from one hotkey to another and, when the subnets differ,
@@ -1663,7 +1647,8 @@ mod dispatches {
             allow_partial: bool,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            Self::do_move_stake_limit(
+            Self::with_actual_weight(
+                Self::do_move_stake_limit(
                 origin,
                 origin_hotkey,
                 destination_hotkey,
@@ -1672,15 +1657,10 @@ mod dispatches {
                 alpha_amount,
                 limit_price,
                 allow_partial,
-            )?;
-            Ok((
-                Some(
-                    <T as crate::pallet::Config>::WeightInfo::move_stake_limit()
-                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
-                ),
-                Pays::Yes,
+            ),
+                <T as crate::pallet::Config>::WeightInfo::move_stake_limit()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
-                .into())
         }
 
         /// Attempts to associate a hotkey with a coldkey.
@@ -1833,15 +1813,11 @@ mod dispatches {
             limit_price: Option<TaoBalance>,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            Self::do_remove_stake_full_limit(origin, hotkey, netuid, limit_price)?;
-            Ok((
-                Some(
-                    <T as crate::pallet::Config>::WeightInfo::remove_stake_full_limit()
-                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
-                ),
-                Pays::Yes,
+            Self::with_actual_weight(
+                Self::do_remove_stake_full_limit(origin, hotkey, netuid, limit_price),
+                <T as crate::pallet::Config>::WeightInfo::remove_stake_full_limit()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
-                .into())
         }
 
         /// Register a new leased network.
@@ -2152,7 +2128,7 @@ mod dispatches {
         ///
         /// # Errors
         /// * `RootClaimTooHeavy`: The fund has more rows (or queued credits) than one claim
-        ///   may walk.
+        ///   may walk; run `sweep_basket_dust` first.
         /// * `CashPathUnavailable`: The fund changed earlier in this block; resubmit.
         #[pallet::call_index(148)]
         #[pallet::weight(
@@ -2191,6 +2167,49 @@ mod dispatches {
 
             let weight = Self::root_claim_actual_weight(1, 0, &outcome);
             Ok((Some(weight), Pays::Yes).into())
+        }
+
+        /// Sweeps one page of a validator's basket dust. Permissionless: anyone may pay to
+        /// examine up to `max_rows` of the fund's subnet rows (continuing after the last
+        /// page) and consolidate every row realizably below `RootClaimableThreshold`, or
+        /// unpriceable, into the fund's TAO cash slot. Fund shares and staker entitlements
+        /// are untouched; NAV is continuous minus slippage on sub-threshold amounts. This is
+        /// how a fund with more rows than one claim may walk (`RootClaimTooHeavy`) is
+        /// brought back under the envelope, and how zero-value rows that block
+        /// `stake_into_basket` are written off.
+        ///
+        /// # Arguments
+        /// * `origin`: Any signed account.
+        /// * `hotkey`: The validator whose basket to sweep.
+        /// * `max_rows`: Rows to examine on this page, `1..=MAX_BASKET_DUST_SWEEP_ROWS`.
+        ///
+        /// # Events
+        /// * `BasketDustSwept`: rows examined and rows converted on this page.
+        /// * `BasketHoldingConverted` / `BasketAlphaWrittenOff`: per converted row.
+        ///
+        /// # Errors
+        /// * `InvalidDustSweepPage`: `max_rows` is zero or above the page cap.
+        #[pallet::call_index(151)]
+        #[pallet::weight((Pallet::<T>::sweep_basket_dust_declared_weight(*max_rows), DispatchClass::Normal, Pays::Yes))]
+        pub fn sweep_basket_dust(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            max_rows: u32,
+        ) -> DispatchResultWithPostInfo {
+            ensure_signed(origin)?;
+            let precheck = T::DbWeight::get().reads(1);
+            ensure!(
+                max_rows > 0 && max_rows <= crate::MAX_BASKET_DUST_SWEEP_ROWS,
+                Self::fail_with_weight(Error::<T>::InvalidDustSweepPage, precheck)
+            );
+            Self::ensure_beta_basket_seed_idle()
+                .map_err(|error| Self::fail_with_weight(error, precheck))?;
+            let (rows_held, examined, swept) = Self::sweep_basket_dust_page(&hotkey, max_rows);
+            Ok((
+                Some(Self::sweep_basket_dust_weight(rows_held, examined, swept)),
+                Pays::Yes,
+            )
+                .into())
         }
 
         /// Stakes TAO from the caller's balance directly into a validator's basket.
@@ -2239,7 +2258,8 @@ mod dispatches {
             amount_staked: TaoBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
-            let weight = Self::do_stake_into_basket(coldkey, hotkey, amount_staked)?;
+            let weight = Self::do_stake_into_basket_tracked(coldkey, hotkey, amount_staked)
+                .map_err(|(done, error)| Self::fail_with_weight(error, done))?;
             Ok((Some(weight), Pays::Yes).into())
         }
 
@@ -2296,14 +2316,15 @@ mod dispatches {
             min_amount_out: u64,
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
-            let weight = Self::do_swap_basket(
+            let weight = Self::do_swap_basket_tracked(
                 coldkey,
                 hotkey,
                 origin_netuid,
                 destination_netuid,
                 amount.to_u64(),
                 min_amount_out,
-            )?;
+            )
+            .map_err(|(done, error)| Self::fail_with_weight(error, done))?;
             Ok((Some(weight), Pays::Yes).into())
         }
 
@@ -2777,7 +2798,8 @@ mod dispatches {
             alpha_amount: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            Self::do_transfer_stake_and_hotkey(
+            Self::with_actual_weight(
+                Self::do_transfer_stake_and_hotkey(
                 origin,
                 destination_coldkey,
                 origin_hotkey,
@@ -2785,15 +2807,10 @@ mod dispatches {
                 origin_netuid,
                 destination_netuid,
                 alpha_amount,
-            )?;
-            Ok((
-                Some(
-                    <T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey()
-                        .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
-                ),
-                Pays::Yes,
+            ),
+                <T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
-                .into())
         }
 
         /// Locks additional miner collateral (in alpha) on the signer's own

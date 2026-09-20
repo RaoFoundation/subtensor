@@ -151,6 +151,11 @@ pub const RECOMMENDED_BASKET_CASH_CLAIM_CAP: u16 = u16::MAX / 100;
 /// hours instead of dribbling one block's refill at a time.
 pub const BASKET_CASH_READY_BUCKET_FRACTION: u64 = 4;
 
+/// Most escrow holding rows one `sweep_basket_dust` call examines. One page is the
+/// single-hotkey claim envelope minus the hotkey unit, so a page never declares more than
+/// a single-hotkey claim does.
+pub const MAX_BASKET_DUST_SWEEP_ROWS: u32 = MAX_ROOT_CLAIM_HOTKEY_WORK - 1;
+
 /// Max deviation of a `swap_basket` leg's execution price from its reference, in basis
 /// points (2%). The reference is the *strictest* of the subnet's slow moving (emission
 /// EMA) price, its fast moving price ([`SubnetFastMovingPrice`]), and its spot price: the
@@ -3211,6 +3216,13 @@ pub mod pallet {
     #[pallet::storage]
     pub type BasketCashTouchedBlock<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+
+    /// --- MAP ( validator_hotkey ) --> netuid of the last escrow row examined by
+    /// `sweep_basket_dust`, so successive pages continue where the previous one stopped.
+    /// Cleared when a page reaches the end of the fund's rows.
+    #[pallet::storage]
+    pub type BasketDustSweepCursor<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, NetUid, OptionQuery>;
 
     #[pallet::type_value]
     /// Default concentration cap for a single basket holding: 1/16 of fund NAV
