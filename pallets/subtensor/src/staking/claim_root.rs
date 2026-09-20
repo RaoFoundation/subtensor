@@ -576,6 +576,12 @@ impl<T: Config> Pallet<T> {
         ignore_minimum_condition: bool,
         outcome: &mut RootClaimOutcome,
     ) -> DispatchResult {
+        // Decide the path on the state the declaration saw: before the flush below, which
+        // is the only work this call does ahead of the decision. For a single-hotkey claim
+        // the touched-block gate has already ruled out same-block changes, so this is
+        // exactly the predicate the weight closure evaluated.
+        let cash_path = Self::root_claim_cash_ready(hotkey);
+
         // Deposit any queued dividend credits first so the claim redeems against the
         // fund's full, current state. The flush work is priced into the outcome.
         let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(hotkey);
@@ -596,9 +602,9 @@ impl<T: Config> Pallet<T> {
         let owed_shares = owed_shares.min(shares_total);
 
         // Cash first: a fund whose TAO cash slot is ready pays the claim from it and sells
-        // nothing. The same predicate sizes the single-hotkey declared weight, and the
-        // flush above can only raise it, so a claim declared cheap always lands here.
-        if Self::root_claim_cash_ready(hotkey) {
+        // nothing. The same predicate sizes the single-hotkey declared weight, so a claim
+        // declared cheap always lands here.
+        if cash_path {
             return Self::root_claim_from_cash(
                 hotkey,
                 coldkey,
@@ -687,6 +693,9 @@ impl<T: Config> Pallet<T> {
     /// [`Self::root_claim_cash_ready`] flipped from `ready_before` to false. A
     /// single-hotkey claim later in the same block may have been declared cheap on the
     /// earlier state and must not run the heavy path; see [`BasketCashTouchedBlock`].
+    /// Callers bracket every mutation of the escrow root slot or the cash bucket with
+    /// this — outflows (claims, `swap_basket` sells) and inflows (`credit_root_slot`)
+    /// alike, since the predicate is not monotone in cash once a bucket level is stored.
     pub(crate) fn note_basket_cash_touch(hotkey: &T::AccountId, ready_before: bool) {
         if ready_before && !Self::root_claim_cash_ready(hotkey) {
             Self::mark_basket_cash_touched(hotkey);
@@ -1911,6 +1920,10 @@ impl<T: Config> Pallet<T> {
     /// Place `tao` into the fund's root cash slot: the escrow's root stake row (TAO at 1:1,
     /// there is no pool to buy from) and the root reserves move together.
     pub(super) fn credit_root_slot(hotkey: &T::AccountId, escrow: &T::AccountId, tao: TaoBalance) {
+        // An inflow can also close the cash path: the quarter-budget rule in
+        // `root_claim_cash_ready` scales with the cash slot while a stored bucket level
+        // does not, so more cash can mean "not ready". Record the flip like an outflow.
+        let cash_ready_before = Self::root_claim_cash_ready(hotkey);
         Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
             hotkey,
             escrow,
@@ -1918,6 +1931,7 @@ impl<T: Config> Pallet<T> {
             tao.to_u64().into(),
         );
         Self::credit_root_reserves(tao);
+        Self::note_basket_cash_touch(hotkey, cash_ready_before);
     }
 
     /// Exact inverse of [`Self::credit_root_slot`]: take `tao` out of the fund's root cash

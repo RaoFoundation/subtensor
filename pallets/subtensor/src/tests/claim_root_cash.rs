@@ -534,3 +534,110 @@ fn cash_ready_tracks_cap_threshold_and_cash() {
         assert!(SubtensorModule::root_claim_cash_ready(&fund.hotkey));
     });
 }
+
+/// Skeptic finding on #3184: the ready predicate is not monotone in cash once a bucket
+/// level is stored (the quarter-budget bar scales with the cash slot, the stored level
+/// does not), so a cash *inflow* can close the path. `batch(stake_into_basket, claim)`
+/// would then run the heavy path under the cheap declaration computed at batch start —
+/// unless the inflow is recorded. Every root-slot credit records the flip; the claim
+/// fails cheap and sells nothing.
+#[test]
+fn cash_inflow_that_closes_the_path_marks_the_fund_touched() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund(&[1, 99], CASH);
+        let depositor = U256::from(9_001);
+        add_balance_to_coldkey_account(&depositor, TaoBalance::from(10 * CASH));
+
+        // A partially depleted bucket: just enough for the quarter rule at today's cash.
+        let budget_floor = SubtensorModule::basket_cash_claim_budget_tao(CASH);
+        BasketCashClaimBucket::<Test>::insert(
+            fund.hotkey,
+            (budget_floor / 4 + 1, System::block_number()),
+        );
+        assert!(SubtensorModule::root_claim_cash_ready(&fund.hotkey));
+        assert!(
+            declared(fund.hotkey).all_lt(full_envelope()),
+            "declared cheap at batch start"
+        );
+        assert!(!SubtensorModule::basket_cash_touched_this_block(
+            &fund.hotkey
+        ));
+
+        // Inflow: a mirrored deposit credits the root slot pro-rata (the fund is ~1/3
+        // cash), raising the cash-derived budget above four times the stored level.
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            depositor,
+            fund.hotkey,
+            (4 * CASH).into(),
+        ));
+        assert!(escrow_alpha(&fund.hotkey, NetUid::ROOT) > CASH);
+        assert!(
+            !SubtensorModule::root_claim_cash_ready(&fund.hotkey),
+            "more cash, same bucket level: the quarter rule now fails"
+        );
+        assert!(
+            SubtensorModule::basket_cash_touched_this_block(&fund.hotkey),
+            "the inflow recorded the flip"
+        );
+
+        // The claim that was declared cheap at batch start must not redeem.
+        let alpha_before = escrow_alpha(&fund.hotkey, fund.netuid);
+        let err = SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(fund.stakers[0]),
+            fund.hotkey,
+        )
+        .expect_err("touched fund refuses the same-block single-hotkey claim");
+        assert_eq!(err.error, Error::<Test>::CashPathUnavailable.into());
+        assert_eq!(
+            err.post_info.actual_weight,
+            Some(SubtensorModule::root_claim_precheck_weight(0))
+        );
+        assert_eq!(
+            escrow_alpha(&fund.hotkey, fund.netuid),
+            alpha_before,
+            "nothing sold"
+        );
+        assert!(cash_claim_events().is_empty());
+
+        // Next block the fund is declared for the path it will take (heavy, bucket
+        // below the bar) and redeems normally.
+        next_block();
+        assert_eq!(declared(fund.hotkey), full_envelope());
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(fund.stakers[0]),
+            fund.hotkey
+        ));
+        assert!(escrow_alpha(&fund.hotkey, fund.netuid) < alpha_before);
+    });
+}
+
+/// The cash-path decision is taken on the state before the claim's own flush, i.e. the
+/// state the declaration saw; a flush cannot move the claim onto the other path.
+#[test]
+fn path_is_decided_before_the_flush() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund(&[1, 199], CASH);
+        // Queue a fresh dividend credit; the claim flushes it first.
+        let credit = 1_000_000u64;
+        crate::SubnetAlphaOut::<Test>::mutate(fund.netuid, |t| {
+            *t = t.saturating_add(credit.into())
+        });
+        SubtensorModule::enqueue_basket_deposit(&fund.hotkey, fund.netuid, credit.into());
+        assert!(SubtensorModule::root_claim_cash_ready(&fund.hotkey));
+        let post = SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(fund.stakers[0]),
+            fund.hotkey,
+        )
+        .expect("cash claim");
+        assert!(
+            !crate::PendingBasketDeposits::<Test>::contains_key(fund.hotkey, fund.netuid),
+            "the claim flushed the credit"
+        );
+        assert_eq!(cash_claim_events().len(), 1);
+        assert!(
+            post.actual_weight
+                .expect("actual")
+                .all_lte(declared(fund.hotkey))
+        );
+    });
+}
