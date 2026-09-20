@@ -200,12 +200,16 @@ impl<T: Config> Pallet<T> {
     }
 
     /// The fund's NAV at the cash-claim mark ([`Self::cash_mark_holding_value`]): every
-    /// holding's realizable quote capped at its fast-EMA value, summed. What a cash-first
-    /// claim prices the claimant's shares against. A view; valuation failures mark zero.
+    /// holding liquidated against its anchored price and depth, root cash 1:1, summed;
+    /// terminal or unpriceable rows count zero as on the redemption path. What a
+    /// cash-first claim prices the claimant's shares against. A view.
     pub fn get_validator_basket_cash_mark_nav_tao(hotkey: &T::AccountId) -> TaoBalance {
         let mut nav: u64 = 0;
         for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
             let realizable = Self::realizable_tao_for_alpha(netuid, alpha.to_u64());
+            if realizable == 0 {
+                continue;
+            }
             nav = nav.saturating_add(Self::cash_mark_holding_value(
                 netuid,
                 alpha.to_u64(),

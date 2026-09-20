@@ -667,50 +667,48 @@ impl<T: Config> Pallet<T> {
         Self::mul_div_u64(nav, BasketCashClaimCap::<T>::get() as u64, u16::MAX as u64)
     }
 
-    /// The mark a cash claim values a holding at: its realizable quote, capped at what a
-    /// liquidation of the whole holding would fetch against *anchored* reserves —
-    /// `alpha × price_anchor × reserve_anchor / (reserve_anchor + alpha)`, the
-    /// constant-product sale of `alpha` into a pool whose price is the fast EMA
-    /// ([`SubnetFastMovingPrice`]) and whose alpha reserve is the fast EMA of
-    /// `SubnetAlphaIn` ([`SubnetFastMovingAlphaIn`]). Root cash is TAO 1:1.
+    /// The mark a cash claim values a holding at: what a liquidation of the whole holding
+    /// would fetch against *anchored* reserves — `alpha × price_anchor × reserve_anchor /
+    /// (reserve_anchor + alpha)`, the constant-product sale of `alpha` into a pool whose
+    /// price is the fast EMA ([`SubnetFastMovingPrice`]) and whose alpha reserve is the fast
+    /// EMA of `SubnetAlphaIn` ([`SubnetFastMovingAlphaIn`]). Root cash is TAO 1:1.
     ///
-    /// The realizable quote alone is pumpable inside a block, and so is the slippage
-    /// discount hidden in it: a same-block buy lifts spot, a same-block liquidity add
-    /// deepens the pool, and either raises the quote toward `alpha × EMA` while the price
-    /// anchor stays put. Both anchors advance only between blocks, so nothing an
-    /// extrinsic does can raise this cap; a claim paid in cash therefore never pays more
-    /// than an un-manipulated liquidation would have fetched (pinned in
-    /// `pump_does_not_inflate_cash_payout_and_budget_caps_the_window`). Holding a
-    /// manipulation across several half-lives drags the anchors, and the daily cash budget
-    /// bounds what that can extract. A subnet without anchors yet falls back to the slow
-    /// (monthly) price EMA and the current reserve.
+    /// The live quote is deliberately not consulted, not even as an upper bound: every
+    /// live figure can be moved inside a block (a buy lifts spot, a liquidity add deepens
+    /// the pool, a sale does the reverse), and a cash claim sells nothing, so a claimant
+    /// could reprice their payout against a temporary pool state and unwind for the fee.
+    /// Both anchors advance only between blocks, so nothing an extrinsic does changes what
+    /// this pays or how many shares it burns (pinned in `claim_root_cash` tests). What
+    /// remains is honest drift: the anchors trail the market by about their two-hour
+    /// half-life, so a cash claim during a decline is marked somewhat above, and during a
+    /// rise somewhat below, a live liquidation. The daily cash budget
+    /// ([`BasketCashClaimCap`]) bounds what that drift can cost the remaining holders, and a
+    /// claimant who would rather realize live prices waits for the bucket to empty and
+    /// takes the redemption path. A subnet without both anchors yet contributes nothing to
+    /// the cash mark (its value stays in the fund for the redemption path).
     pub(crate) fn cash_mark_holding_value(netuid: NetUid, alpha: u64, realizable: u64) -> u64 {
         if netuid.is_root() {
             return realizable;
         }
-        let price: U64F64 = match SubnetFastMovingPrice::<T>::get(netuid) {
-            Some(fast) if fast > U64F64::saturating_from_num(0) => fast,
-            _ => Self::get_moving_alpha_price(netuid),
+        let (Some(price), Some(reserve)) = (
+            SubnetFastMovingPrice::<T>::get(netuid),
+            SubnetFastMovingAlphaIn::<T>::get(netuid),
+        ) else {
+            return 0;
         };
-        let reserve: U64F64 = match SubnetFastMovingAlphaIn::<T>::get(netuid) {
-            Some(fast) if fast > U64F64::saturating_from_num(0) => fast,
-            _ => U64F64::saturating_from_num(SubnetAlphaIn::<T>::get(netuid).to_u64()),
-        };
+        let zero = U64F64::saturating_from_num(0);
+        if price <= zero || reserve <= zero {
+            return 0;
+        }
         let alpha_fixed = U64F64::saturating_from_num(alpha);
         // Selling `alpha` into anchored reserves: `alpha × price × reserve / (reserve + alpha)`.
         // The depth ratio is taken first (it is at most one) so the product never needs
         // more than the 64 integer bits of the fixed type.
-        let depth = reserve.saturating_add(alpha_fixed);
-        let anchored: u64 = if depth > U64F64::saturating_from_num(0) {
-            let depth_ratio: U64F64 = reserve.safe_div(depth);
-            alpha_fixed
-                .saturating_mul(price)
-                .saturating_mul(depth_ratio)
-                .saturating_to_num::<u64>()
-        } else {
-            0
-        };
-        realizable.min(anchored)
+        let depth_ratio: U64F64 = reserve.safe_div(reserve.saturating_add(alpha_fixed));
+        alpha_fixed
+            .saturating_mul(price)
+            .saturating_mul(depth_ratio)
+            .saturating_to_num::<u64>()
     }
 
     /// Record that the fund's cash-path facts changed in this block if
@@ -758,10 +756,18 @@ impl<T: Config> Pallet<T> {
         outcome.rows = holdings.len() as u32;
         outcome.cash = true;
 
+        // One anchored quote per row; the root row is TAO 1:1. Terminal or unpriceable
+        // rows mark zero here exactly as on the redemption path.
         let mut guarded_nav: u64 = 0;
         for (netuid, alpha) in holdings {
-            let realizable =
-                Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())?.unwrap_or(0);
+            let realizable = if netuid.is_root() {
+                alpha.to_u64()
+            } else {
+                Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())?.unwrap_or(0)
+            };
+            if realizable == 0 {
+                continue;
+            }
             guarded_nav = guarded_nav.saturating_add(Self::cash_mark_holding_value(
                 netuid,
                 alpha.to_u64(),

@@ -415,6 +415,17 @@ fn pump_does_not_inflate_cash_payout_and_budget_caps_the_window() {
         // The mark is a liquidation against anchored price and depth: it does not move.
         let pumped_mark = SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey);
         assert_eq!(pumped_mark, honest_mark, "the cash mark is anchored");
+        // Nor does a crash move it: the anchors trail the market by design.
+        SubnetTAO::<Test>::mutate(fund.netuid, |tao| {
+            *tao = TaoBalance::from(tao.to_u64() / 1_000)
+        });
+        assert_eq!(
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey),
+            honest_mark
+        );
+        SubnetTAO::<Test>::mutate(fund.netuid, |tao| {
+            *tao = TaoBalance::from(tao.to_u64() * 1_000)
+        });
 
         let before = root_stake_of(&fund.hotkey, &attacker);
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
@@ -728,14 +739,58 @@ fn material_holding_pump_or_liquidity_add_cannot_raise_the_cash_mark() {
         );
         assert_eq!(cash_claim_events().len(), 1);
 
-        // A dump (price below the anchor) lowers the quote; the mark follows it down.
+        // Skeptic follow-up: after a decline (live quote far below the lagging anchors),
+        // a temporary liquidity add or buy must not lift the mark either. The mark reads
+        // no live figure at all, so it is the same anchored value before and after.
         SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve / 2));
         SubnetAlphaIn::<Test>::insert(fund.netuid, AlphaBalance::from(reserve * 2));
         let dumped = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
-        assert!(dumped < honest_mark);
+        assert!(
+            dumped < honest_mark / 3,
+            "the market fell well below the anchors"
+        );
         assert_eq!(
             SubtensorModule::cash_mark_holding_value(fund.netuid, holding, dumped),
-            dumped
+            honest_mark,
+            "anchored: the mark does not follow the live quote down"
+        );
+        SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve * 50));
+        SubnetAlphaIn::<Test>::insert(fund.netuid, AlphaBalance::from(reserve * 200));
+        let deepened = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
+        assert!(deepened > dumped, "deepening removed the slippage discount");
+        assert_eq!(
+            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, deepened),
+            honest_mark,
+            "anchored: nor does a same-block liquidity add lift it"
+        );
+        let whale = fund.stakers[1];
+        allow_full_cash_claims();
+        let whale_owed = SubtensorModule::get_basket_owed_shares(&fund.hotkey, &whale);
+        let whale_payout = SubtensorModule::basket_payout_from(
+            whale_owed,
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64(),
+            fund_shares(&fund.hotkey),
+        );
+        let cash_now = escrow_alpha(&fund.hotkey, NetUid::ROOT);
+        let whale_before = root_stake_of(&fund.hotkey, &whale);
+        next_block();
+        BasketCashClaimBucket::<Test>::remove(fund.hotkey);
+        assert!(SubtensorModule::root_claim_cash_ready(&fund.hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(whale),
+            fund.hotkey
+        ));
+        assert_eq!(
+            root_stake_of(&fund.hotkey, &whale) - whale_before,
+            whale_payout.min(cash_now),
+            "paid the anchored mark, not the manipulated live quote"
+        );
+
+        // A row on a subnet with no anchors yet contributes nothing to the cash mark.
+        SubnetFastMovingAlphaIn::<Test>::remove(fund.netuid);
+        assert_eq!(
+            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, deepened),
+            0
         );
     });
 }
