@@ -238,7 +238,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 467,
+    spec_version: 468,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1705,6 +1705,12 @@ type Migrations = (
     // swap_basket changes composition. Lives here so try-runtime checks the cleanup and
     // the cap carry-over against real network state.
     pallet_subtensor::migrations::migrate_remove_root_weights::remove_root_weights::Migration<
+        Runtime,
+    >,
+    // Spec 468: turn validator-directed basket trading on (`BasketTradingEnabled = true`),
+    // one-shot and stamped in HasMigrationRun so `sudo_set_basket_trading_enabled(false)`
+    // stays a durable emergency off. Already-on chains (devnet, testnet) only get the stamp.
+    pallet_subtensor::migrations::migrate_enable_basket_trading::enable_basket_trading::Migration<
         Runtime,
     >,
 );
