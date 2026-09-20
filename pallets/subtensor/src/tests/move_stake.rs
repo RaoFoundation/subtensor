@@ -990,7 +990,7 @@ fn test_moving_too_little_unstakes() {
             (amount.to_u64() + fee * 2).into()
         ));
 
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::move_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,

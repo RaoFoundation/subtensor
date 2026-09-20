@@ -97,14 +97,8 @@ impl<T: Config> Pallet<T> {
         min_amount_out: u64,
     ) -> Result<Weight, (Weight, DispatchError)> {
         let precheck = T::DbWeight::get().reads(10);
-        Self::check_swap_basket(
-            &coldkey,
-            &hotkey,
-            origin_netuid,
-            destination_netuid,
-            amount,
-        )
-        .map_err(|err| (precheck, err.into()))?;
+        Self::check_swap_basket(&coldkey, &hotkey, origin_netuid, destination_netuid, amount)
+            .map_err(|err| (precheck, err.into()))?;
 
         // Settle queued dividend credits first so the budget and the cap are measured
         // against the fund's full, current NAV. The flush work is priced into the
@@ -123,10 +117,7 @@ impl<T: Config> Pallet<T> {
             .saturating_add(flush_weight)
             .saturating_add(precheck);
         if amount > held {
-            return Err((
-                failed_weight,
-                Error::<T>::NotEnoughStakeToWithdraw.into(),
-            ));
+            return Err((failed_weight, Error::<T>::NotEnoughStakeToWithdraw.into()));
         }
 
         let outcome = with_transaction(|| {

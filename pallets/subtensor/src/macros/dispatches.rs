@@ -1332,13 +1332,13 @@ mod dispatches {
             let coldkey = ensure_signed(origin.clone())?;
             Self::with_actual_weight(
                 Self::do_move_stake(
-                origin,
-                origin_hotkey,
-                destination_hotkey,
-                origin_netuid,
-                destination_netuid,
-                alpha_amount,
-            ),
+                    origin,
+                    origin_hotkey,
+                    destination_hotkey,
+                    origin_netuid,
+                    destination_netuid,
+                    alpha_amount,
+                ),
                 <T as crate::pallet::Config>::WeightInfo::move_stake()
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
@@ -1387,13 +1387,13 @@ mod dispatches {
             let coldkey = ensure_signed(origin.clone())?;
             Self::with_actual_weight(
                 Self::do_transfer_stake(
-                origin,
-                destination_coldkey,
-                hotkey,
-                origin_netuid,
-                destination_netuid,
-                alpha_amount,
-            ),
+                    origin,
+                    destination_coldkey,
+                    hotkey,
+                    origin_netuid,
+                    destination_netuid,
+                    alpha_amount,
+                ),
                 <T as crate::pallet::Config>::WeightInfo::transfer_stake()
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
@@ -1438,12 +1438,12 @@ mod dispatches {
             let coldkey = ensure_signed(origin.clone())?;
             Self::with_actual_weight(
                 Self::do_swap_stake(
-                origin,
-                hotkey,
-                origin_netuid,
-                destination_netuid,
-                alpha_amount,
-            ),
+                    origin,
+                    hotkey,
+                    origin_netuid,
+                    destination_netuid,
+                    alpha_amount,
+                ),
                 <T as crate::pallet::Config>::WeightInfo::swap_stake()
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
@@ -1552,13 +1552,13 @@ mod dispatches {
             let coldkey = ensure_signed(origin.clone())?;
             Self::with_actual_weight(
                 Self::do_remove_stake_limit(
-                origin,
-                hotkey,
-                netuid,
-                amount_unstaked,
-                limit_price,
-                allow_partial,
-            ),
+                    origin,
+                    hotkey,
+                    netuid,
+                    amount_unstaked,
+                    limit_price,
+                    allow_partial,
+                ),
                 <T as crate::pallet::Config>::WeightInfo::remove_stake_limit()
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
@@ -1608,14 +1608,14 @@ mod dispatches {
             let coldkey = ensure_signed(origin.clone())?;
             Self::with_actual_weight(
                 Self::do_swap_stake_limit(
-                origin,
-                hotkey,
-                origin_netuid,
-                destination_netuid,
-                alpha_amount,
-                limit_price,
-                allow_partial,
-            ),
+                    origin,
+                    hotkey,
+                    origin_netuid,
+                    destination_netuid,
+                    alpha_amount,
+                    limit_price,
+                    allow_partial,
+                ),
                 <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
@@ -1649,15 +1649,15 @@ mod dispatches {
             let coldkey = ensure_signed(origin.clone())?;
             Self::with_actual_weight(
                 Self::do_move_stake_limit(
-                origin,
-                origin_hotkey,
-                destination_hotkey,
-                origin_netuid,
-                destination_netuid,
-                alpha_amount,
-                limit_price,
-                allow_partial,
-            ),
+                    origin,
+                    origin_hotkey,
+                    destination_hotkey,
+                    origin_netuid,
+                    destination_netuid,
+                    alpha_amount,
+                    limit_price,
+                    allow_partial,
+                ),
                 <T as crate::pallet::Config>::WeightInfo::move_stake_limit()
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
@@ -2800,14 +2800,14 @@ mod dispatches {
             let coldkey = ensure_signed(origin.clone())?;
             Self::with_actual_weight(
                 Self::do_transfer_stake_and_hotkey(
-                origin,
-                destination_coldkey,
-                origin_hotkey,
-                destination_hotkey,
-                origin_netuid,
-                destination_netuid,
-                alpha_amount,
-            ),
+                    origin,
+                    destination_coldkey,
+                    origin_hotkey,
+                    destination_hotkey,
+                    origin_netuid,
+                    destination_netuid,
+                    alpha_amount,
+                ),
                 <T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey()
                     .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )

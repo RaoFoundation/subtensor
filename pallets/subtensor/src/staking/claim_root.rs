@@ -337,7 +337,11 @@ impl<T: Config> Pallet<T> {
         }
 
         let nav_after = Self::try_get_validator_basket_nav_tao(hotkey)?;
-        Ok((nav_before, nav_after.saturating_sub(nav_before), valued_holdings))
+        Ok((
+            nav_before,
+            nav_after.saturating_sub(nav_before),
+            valued_holdings,
+        ))
     }
 
     /// Stakes `tao` from `coldkey`'s free balance directly into a root-registered
@@ -427,12 +431,12 @@ impl<T: Config> Pallet<T> {
             .saturating_add(flush_weight)
             .saturating_add(precheck);
 
-        with_transaction(|| {
-            match Self::try_stake_into_basket(&coldkey, &hotkey, tao, &holdings) {
+        with_transaction(
+            || match Self::try_stake_into_basket(&coldkey, &hotkey, tao, &holdings) {
                 Ok(()) => TransactionOutcome::Commit(Ok(())),
                 Err(err) => TransactionOutcome::Rollback(Err(err)),
-            }
-        })
+            },
+        )
         .map_err(|err| (failed_weight, err))?;
 
         // A fund's very first successful mint stamps its frozen display baseline

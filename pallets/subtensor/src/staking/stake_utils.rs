@@ -1324,7 +1324,10 @@ impl<T: Config> Pallet<T> {
     /// A failed call is otherwise charged its full declared envelope (a plain
     /// `DispatchError` carries no post-dispatch info), which for the wide stake-exit
     /// declarations is many times the work a failing call did.
-    pub fn with_actual_weight(result: DispatchResult, weight: Weight) -> DispatchResultWithPostInfo {
+    pub fn with_actual_weight(
+        result: DispatchResult,
+        weight: Weight,
+    ) -> DispatchResultWithPostInfo {
         let post_info: PostDispatchInfo = (Some(weight), Pays::Yes).into();
         match result {
             Ok(()) => Ok(post_info),
