@@ -559,3 +559,57 @@ async def test_proxy_claim_reads_dispatch_state_checks_delegate_and_prices_wrapp
     assert priced_calls
     assert all((call.module, call.function) == ("Proxy", "proxy") for call in priced_calls)
     assert any("below the reserved claim fee" in violation for violation in plan.violations)
+
+
+# Spec 468 cash path: ``Pallet::root_claim_cash_declared_weight`` with 0, 35 and 124
+# queued credits (finney median queue is 35 rows, the biggest funds ~124), and the fee
+# charged under that declaration. Pinned so a re-benchmark or a model change is deliberate.
+_CASH_DECLARED = [
+    (0, 136_498_914_468),
+    (35, 245_397_498_733),
+    (124, 514_828_834_464),
+]
+
+
+@pytest.mark.parametrize(("queued", "ref_time"), _CASH_DECLARED)
+def test_cash_path_declared_weight_is_pinned(queued, ref_time):
+    assert fees.root_claim_cash_declared_ref_time(queued) == ref_time
+    full = fees.root_claim_declared_ref_time(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
+    assert ref_time * 3 < full, "the cash path declares well under a third of the envelope"
+    # The fee is the same allowance on both branches: the cheap declaration is still above
+    # the four-unit allowance, so the discount shrinks and the charge does not change.
+    charged = fees.root_claim_charged_ref_time(
+        fees._MAX_ROOT_CLAIM_HOTKEY_WORK, declared_ref_time=ref_time
+    )
+    assert charged == fees.root_claim_charged_ref_time(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
+    assert fees._weight_fee_rao(charged) == 8_209_263
+    discount = fees.root_claim_fee_discount_ref_time(
+        fees._MAX_ROOT_CLAIM_HOTKEY_WORK, declared_ref_time=ref_time
+    )
+    assert discount == ref_time - charged
+    assert discount >= 0
+
+
+def test_charged_never_exceeds_a_tiny_declaration():
+    # A declaration below the allowance (not reachable on chain, but the wrapper's rule)
+    # bills the declaration itself, never a negative or wrapped amount.
+    assert fees.root_claim_charged_ref_time(129, declared_ref_time=1_000) == 1_000
+    assert fees.root_claim_fee_discount_ref_time(129, declared_ref_time=1_000) == 0
+
+
+def test_cash_ready_mirrors_the_runtime_predicate():
+    cap = fees._DEFAULT_CASH_CLAIM_CAP
+    threshold = 500_000
+    cash = 1_000_000_000_000  # 1000 TAO in the fund's cash slot
+    budget_floor = cash * cap // 65_535
+    assert fees.root_claim_cash_ready(cash, threshold, cap, None, 10)
+    assert not fees.root_claim_cash_ready(0, threshold, cap, None, 10)
+    assert not fees.root_claim_cash_ready(threshold - 1, threshold, cap, None, 10)
+    assert not fees.root_claim_cash_ready(cash, threshold, 0, None, 10), "cap 0 closes the path"
+    # A drained bucket reopens once a quarter of the daily budget has refilled.
+    drained = (0, 100)
+    assert not fees.root_claim_cash_ready(cash, threshold, cap, drained, 101)
+    assert not fees.root_claim_cash_ready(cash, threshold, cap, drained, 100 + 7_200 // 4 - 1)
+    # Integer refill: a budget not divisible by four needs one block past the quarter.
+    assert fees.root_claim_cash_ready(cash, threshold, cap, drained, 100 + 7_200 // 4 + 1)
+    assert fees._bucket_level_at(drained, 100 + 7_200, budget_floor) == budget_floor

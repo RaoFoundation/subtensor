@@ -144,6 +144,15 @@ DESCRIPTIONS: dict[str, str] = {
         "any instant. Query `basket_trading_status` for the remaining budget, the capacity, "
         "and the refill rate; trade a smaller amount or wait for the bucket to refill."
     ),
+    "CashPathUnavailable": (
+        "A single-validator root claim (`claim_root_with_hotkey`) found that the fund's cash "
+        "slot, cash-claim bucket, holdings or queued credits changed earlier in this same "
+        "block. Since spec 468 such a claim declares only the cheap cash path when the fund's "
+        "TAO cash can pay it, and must never run the full per-holding redemption under that "
+        "cheap declaration, so it stops after its pre-checks and is charged only for those. "
+        "Nothing was paid or burned. Resubmit in a later block: the claim is then declared "
+        "for whichever path the fund's state calls for."
+    ),
     "BetaBasketSeedInProgress": (
         "The `migrate_seed_beta_basket_v2` seed has not completed (it normally finishes "
         "inside the upgrade block, so this only appears if that run was interrupted). Basket "

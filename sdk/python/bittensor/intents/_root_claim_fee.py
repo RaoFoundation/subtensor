@@ -1,10 +1,13 @@
 """Claim-fee preview for ``claim_root`` / ``claim_root_with_hotkey``.
 
 Coldkey-wide claims declare ``MAX_ROOT_CLAIM_WORK`` (256) weight units for
-admission. Single-hotkey claims declare one basket's 129-unit envelope. Since
-spec 467 the fee wrapper charges either call as if only
-``ROOT_CLAIM_FEE_ALLOWANCE`` (4) units were declared; the rest of the envelope
-is a fee subsidy. Both still refund down to the work actually done when that is
+admission. Single-hotkey claims declare one basket's 129-unit envelope — or,
+since spec 468, only the cheap cash path (a scan plus one transfer, plus the
+flush of the credits actually queued) when the fund's TAO cash slot is ready to
+pay the claim (``root_claim_cash_ready``). Since spec 467 the fee wrapper
+charges either call as if only ``ROOT_CLAIM_FEE_ALLOWANCE`` (4) units were
+declared, never more than what was declared; the rest of the declaration is a
+fee subsidy. Both still refund down to the work actually done when that is
 below the allowance. The reserve is what people see leave their free balance,
 and it is at least the fee that finally settles.
 
@@ -23,7 +26,7 @@ from .._generated.runtime_apis import BetaBasketRuntimeApi, StakeInfoRuntimeApi
 from ..balance import Balance
 from ..sp_core import ss58_decode
 
-# Mirrors of the runtime's claim pricing (spec 467). Sources:
+# Mirrors of the runtime's claim pricing (spec 468). Sources:
 # ``pallets/subtensor/src/weights.rs`` (``claim_root``, ``claim_root_scan``),
 # ``pallets/subtensor/src/staking/claim_root.rs`` (``basket_nav_sweep_weight``,
 # ``root_claim_weight_for_work``), ``basket_flush.rs`` (flush bound) and
@@ -43,6 +46,16 @@ _FLUSH_BOUND_QUOTES = 10 * _MAX_BASKET_ROWS
 _FLUSH_BOUND_ROWS = 2 * _MAX_BASKET_ROWS
 # Runtime ``ROOT_CLAIM_FEE_ALLOWANCE``: claim units the fee wrapper charges for.
 _ROOT_CLAIM_FEE_ALLOWANCE = 4
+# Cash path (spec 468): ``root_claim_cash_extra_weight`` reads and writes, and the
+# per-hotkey flush bound ``4Q + 2H`` quotes / ``Q`` rows with ``H`` at the row cap.
+_CASH_EXTRA_READS = 4
+_CASH_EXTRA_WRITES = 3
+# Default ``BasketCashClaimCap`` (1% of guarded NAV per day) and the bucket-room
+# fraction the cash path needs to open (``BASKET_CASH_READY_BUCKET_FRACTION``).
+_DEFAULT_CASH_CLAIM_CAP = 65_535 // 100
+_CASH_READY_BUCKET_FRACTION = 4
+_REFILL_BLOCKS = 7_200
+_U16_MAX = 65_535
 # Runtime ``fee_weight_cap_459`` for both claim calls: the call weight quoted on spec
 # 459 (includes the 60_000_000 ref_time dispatch-extension fold the model below omits).
 _ROOT_CLAIM_CAP_459_REF_TIME = 249_916_000_000
@@ -100,24 +113,77 @@ def _fee_units(limit: int) -> int:
 
 
 def root_claim_declared_ref_time(limit: int) -> int:
-    """Declared call weight (ref_time) of a claim admitted under ``limit`` units."""
+    """Declared call weight (ref_time) of a claim admitted under ``limit`` units on the
+    full redemption path."""
     return _claim_ref_time(limit, _FLUSH_BOUND_QUOTES, _FLUSH_BOUND_ROWS)
 
 
-def root_claim_charged_ref_time(limit: int) -> int:
-    """Weight the fee wrapper charges: the allowance plus one hotkey's flush work for
-    that many queued credits and holdings (``4Q + 2H`` quotes, ``Q`` rows)."""
-    units = _fee_units(limit)
-    return min(
-        _claim_ref_time(units, 6 * units, units),
-        _ROOT_CLAIM_CAP_459_REF_TIME - _EXTENSION_FOLD_REF_TIME,
+def root_claim_cash_declared_ref_time(queued: int) -> int:
+    """Declared call weight (ref_time) of a single-hotkey claim on the cash path
+    (``Pallet::root_claim_cash_declared_weight``): one redeemed unit, a scan over the
+    129-unit row cap, the flush of ``queued`` credits (``4Q + 2H`` quotes, ``Q`` rows)
+    and the cash bookkeeping reads and writes."""
+    queued = max(0, min(queued, _FLUSH_BOUND_ROWS))
+    rows = _MAX_ROOT_CLAIM_HOTKEY_WORK
+    return (
+        _claim_root_ref_time(1)
+        + _claim_root_scan_ref_time(rows)
+        + _basket_flush_ref_time(4 * queued + 2 * rows, queued)
+        + _CASH_EXTRA_READS * _ROCKSDB_READ_PS
+        + _CASH_EXTRA_WRITES * _ROCKSDB_WRITE_PS
     )
 
 
-def root_claim_fee_discount_ref_time(limit: int) -> int:
-    """``FeeWeightDiscount`` the runtime subtracts for one claim under ``limit``. A batch or
-    proxy of claims is discounted by the sum over its inner claims."""
-    return max(0, root_claim_declared_ref_time(limit) - root_claim_charged_ref_time(limit))
+def root_claim_charged_ref_time(limit: int, *, declared_ref_time: Optional[int] = None) -> int:
+    """Weight the fee wrapper charges: the allowance plus one hotkey's flush work for
+    that many queued credits and holdings (``4Q + 2H`` quotes, ``Q`` rows), never above
+    what the call declared (``declared_ref_time``; the full envelope when omitted)."""
+    units = _fee_units(limit)
+    allowance = min(
+        _claim_ref_time(units, 6 * units, units),
+        _ROOT_CLAIM_CAP_459_REF_TIME - _EXTENSION_FOLD_REF_TIME,
+    )
+    if declared_ref_time is None:
+        declared_ref_time = root_claim_declared_ref_time(limit)
+    return min(allowance, declared_ref_time)
+
+
+def root_claim_fee_discount_ref_time(limit: int, *, declared_ref_time: Optional[int] = None) -> int:
+    """``FeeWeightDiscount`` the runtime subtracts for one claim under ``limit`` declared
+    at ``declared_ref_time`` (the full envelope when omitted). A batch or proxy of claims
+    is discounted by the sum over its inner claims."""
+    if declared_ref_time is None:
+        declared_ref_time = root_claim_declared_ref_time(limit)
+    return max(
+        0,
+        declared_ref_time - root_claim_charged_ref_time(limit, declared_ref_time=declared_ref_time),
+    )
+
+
+def _bucket_level_at(stored: Optional[tuple[int, int]], now: int, budget: int) -> int:
+    """``Pallet::basket_bucket_level_at``: stored level plus the linear refill, clamped."""
+    if stored is None:
+        return budget
+    level, last_block = stored
+    elapsed = max(0, now - last_block)
+    return min(level + budget * elapsed // _REFILL_BLOCKS, budget)
+
+
+def root_claim_cash_ready(
+    cash_rao: int,
+    threshold_rao: int,
+    cap: int,
+    bucket: Optional[tuple[int, int]],
+    now: int,
+) -> bool:
+    """``Pallet::root_claim_cash_ready`` offline: the fund's root (cash) slot holds at
+    least the claim threshold (and one rao) and its cash-claim bucket, sized from the cash
+    slot as a lower bound of the guarded NAV, holds at least a quarter of a day's budget."""
+    if cash_rao <= 0 or cash_rao < threshold_rao:
+        return False
+    budget_floor = cash_rao * cap // _U16_MAX
+    room = _bucket_level_at(bucket, now, budget_floor)
+    return room > 0 and room * _CASH_READY_BUCKET_FRACTION >= budget_floor
 
 
 def _approx_declared_fee_rao(limit: int) -> int:
@@ -243,6 +309,9 @@ class RootClaimFeeQuote:
     redeemable: Balance
     admission_limit: int
     selection_scans: int
+    # Spec 468: a single-hotkey claim the fund's cash slot can pay declares only the
+    # cheap cash path and sells no holdings.
+    cash_path: bool = False
 
     @property
     def refund(self) -> Balance:
@@ -278,6 +347,8 @@ class RootClaimFeeQuote:
         if self.refund.rao > 0:
             rows.append(("refunded", f"~{self.refund}"))
         rows.append(("accrued", str(self.accrued)))
+        if self.cash_path:
+            rows.append(("path", "paid from the fund's TAO cash; no holdings sold"))
         return rows
 
     def effects(self) -> list[str]:
@@ -290,6 +361,11 @@ class RootClaimFeeQuote:
             fee_line,
             f"accrued {self.accrued}",
         ]
+        if self.cash_path:
+            lines.append(
+                "the fund's TAO cash covers claims: paid from cash at the guarded mark, "
+                "no holdings sold, cheap declared weight"
+            )
         if self.below_threshold:
             lines.append(
                 f"accrued is below the claim threshold ({self.threshold}); "
@@ -502,6 +578,9 @@ async def _quote(
         accrued_rao = payouts[0]
 
     threshold_rao = await _threshold_rao(substrate)
+    cash_path = False
+    if not coldkey_wide:
+        cash_path = await _cash_path_ready(substrate, selected_hotkeys[0], threshold_rao)
 
     holding_counts = list(admission.holding_counts)
     eligible = [payout is not None and payout >= threshold_rao for payout in payouts]
@@ -539,7 +618,30 @@ async def _quote(
         redeemable=Balance.from_rao(redeemable_rao),
         admission_limit=admission.limit,
         selection_scans=admission.selection_scans,
+        cash_path=cash_path,
     )
+
+
+async def _cash_path_ready(substrate: Any, hotkey: str, threshold_rao: int) -> bool:
+    """Best-effort mirror of ``root_claim_cash_ready`` for the fee preview: reads the
+    fund's cash slot, the cash-claim cap and bucket, and the current block. Storage items
+    the connected runtime does not have (pre-468) read as their defaults."""
+    rows = await substrate.runtime_call(*BetaBasketRuntimeApi.get_validator_basket, [hotkey])
+    cash_rao = sum(int(row[1]) for row in (rows or []) if int(row[0]) == 0)
+    cap_item = getattr(st.SubtensorModule, "BasketCashClaimCap", None)
+    cap = _DEFAULT_CASH_CLAIM_CAP
+    if cap_item is not None:
+        raw_cap = await substrate.query(*cap_item)
+        if raw_cap is not None:
+            cap = int(raw_cap)
+    bucket: Optional[tuple[int, int]] = None
+    bucket_item = getattr(st.SubtensorModule, "BasketCashClaimBucket", None)
+    if bucket_item is not None:
+        raw_bucket = await substrate.query(*bucket_item, [hotkey])
+        if raw_bucket is not None:
+            bucket = (int(raw_bucket[0]), int(raw_bucket[1]))
+    now = int(await substrate.query(*st.System.Number) or 0)
+    return root_claim_cash_ready(cash_rao, threshold_rao, cap, bucket, now)
 
 
 async def _existing_network_count(substrate: Any) -> int:

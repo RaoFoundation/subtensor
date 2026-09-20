@@ -418,6 +418,15 @@ class ClaimRootWithHotkey(_RootClaimIntent):
     that basket pays out pro-rata (subnet alpha holdings are sold to TAO at
     the current pool price) and the proceeds are staked back to root on the
     same validator. Other validators' accrued yield is left untouched.
+    Cash first (spec 468): when the fund holds TAO in its cash slot that can
+    pay claims, the claim is paid from that cash at the fund's guarded mark
+    (each holding at the lower of its realizable quote and its fast-moving
+    price), nothing is sold, and the call declares only a scan plus one
+    transfer instead of the 129-row envelope. The cash paid per fund per day
+    is capped (``BasketCashClaimCap``, 1% of guarded NAV); what the cash does
+    not cover stays owed and redeems pro-rata on the next claim. A claim
+    whose fund changed earlier in the same block fails with
+    ``CashPathUnavailable`` after its pre-checks only; resubmit next block.
     Claims whose estimated payout is below the chain's claim threshold
     (see ``root_claim_threshold``) are silently skipped and keep accruing.
     Orphaned dust holdings in the basket (subnets outside the validator's
@@ -426,12 +435,11 @@ class ClaimRootWithHotkey(_RootClaimIntent):
     per-holding claim fee shrinks over time; curated positions are left to
     compound. The transaction fee is charged by work actually done:
     holdings redeemed pay full weight, holdings merely scanned pay a small
-    per-row cost. The chain reserves a fixed 256-unit declared-work envelope
-    plus a flat allowance for settling the validator's queued dividend credits
-    first (the same allowance every basket call that flushes declares), counts
-    only root-relevant hotkeys and their basket rows for admission, and
-    separately caps classification of the staking-hotkey vector at 256. It
-    refunds the unused part after.
+    per-row cost. The chain reserves the declared-work envelope (129 units,
+    or the cheap cash-path weight when the fund's cash is ready) plus an
+    allowance for settling the validator's queued dividend credits first,
+    counts only root-relevant hotkeys and their basket rows for admission,
+    and refunds the unused part after — on failure too.
     ``plan`` and ``btcli root claim --dry-run`` show reserved versus spent,
     warn when the spent fee exceeds accrued yield, and refuse when free
     TAO cannot cover the reserve.

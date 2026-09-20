@@ -228,6 +228,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "BasketTradingDisabled": _C.DISABLED,
     "BasketTradingFrozen": _C.DISABLED,
     "BasketTurnoverBudgetExceeded": _C.RATE_LIMITED,
+    "CashPathUnavailable": _C.RATE_LIMITED,
     "BasketSameSubnet": _C.INVALID_ARGUMENT,
     "BasketLiquidityCapExceeded": _C.LIMIT_EXCEEDED,
     "BasketMinOutNotMet": _C.INSUFFICIENT_LIQUIDITY,  # user floor, same family as SlippageTooHigh
