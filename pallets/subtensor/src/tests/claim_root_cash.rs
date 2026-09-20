@@ -946,6 +946,7 @@ fn deposit_with_existing_shares_cannot_cash_claim_more_than_entitlement_plus_dep
         let deposit = 10_000_000u64;
         add_balance_to_coldkey_account(&holder, TaoBalance::from(2 * deposit));
         let anchored_before = SubtensorModule::anchored_basket_nav_tao(&fund.hotkey);
+        let cash_slot_before = escrow_alpha(&fund.hotkey, NetUid::ROOT);
         let cash_nav_before =
             SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64();
         assert_ok!(SubtensorModule::do_stake_into_basket(
@@ -953,11 +954,13 @@ fn deposit_with_existing_shares_cannot_cash_claim_more_than_entitlement_plus_dep
             fund.hotkey,
             deposit.into()
         ));
-        let anchored_added =
-            SubtensorModule::anchored_basket_nav_tao(&fund.hotkey) - anchored_before;
+        let anchored_added = SubtensorModule::anchored_basket_nav_tao(&fund.hotkey)
+            - anchored_before
+            - (escrow_alpha(&fund.hotkey, NetUid::ROOT) - cash_slot_before);
+        let alpha_cost = deposit - (escrow_alpha(&fund.hotkey, NetUid::ROOT) - cash_slot_before);
         assert!(
-            anchored_added > deposit + deposit / 10,
-            "the mirror bought alpha worth more at the anchors than it cost: {anchored_added}"
+            anchored_added > alpha_cost + alpha_cost / 10,
+            "the mirror bought alpha worth more at the anchors than it cost: {anchored_added} for {alpha_cost}"
         );
         let cash_nav_after =
             SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64();
@@ -965,8 +968,16 @@ fn deposit_with_existing_shares_cannot_cash_claim_more_than_entitlement_plus_dep
             cash_nav_after.abs_diff(cash_nav_before + deposit) <= 2,
             "the cash NAV rose by the cost: {cash_nav_before} + {deposit} -> {cash_nav_after}"
         );
-        let (adjust, _) = BasketCashNavAdjust::<Test>::get(fund.hotkey).expect("correction booked");
-        assert_eq!(adjust, i128::from(anchored_added) - i128::from(deposit));
+        // The correction sits on the alpha row: its anchored uplift minus the TAO the
+        // mirror spent on it (the cash slice carries none).
+        let (adjust, _) =
+            BasketCashNavAdjust::<Test>::get(fund.hotkey, fund.netuid).expect("correction booked");
+        assert!(BasketCashNavAdjust::<Test>::get(fund.hotkey, NetUid::ROOT).is_none());
+        let cash_added = escrow_alpha(&fund.hotkey, NetUid::ROOT) - cash_slot_before;
+        assert_eq!(
+            adjust,
+            i128::from(anchored_added) - i128::from(deposit - cash_added)
+        );
 
         // Immediate cash claim (same block: the deposit did not flip the predicate).
         assert!(SubtensorModule::root_claim_cash_ready(&fund.hotkey));
@@ -985,42 +996,176 @@ fn deposit_with_existing_shares_cannot_cash_claim_more_than_entitlement_plus_dep
     });
 }
 
-/// The correction decays on the fast-EMA schedule: half is gone after one half-life, and
-/// a hotkey swap carries it with the fund.
+/// The correction decays on the fast-EMA schedule (half gone after one half-life), is
+/// released pro-rata when the row is disposed of — both signs — and follows hotkey swaps.
 #[test]
-fn cost_basis_correction_decays_like_the_anchors_and_follows_hotkey_swaps() {
+fn cost_basis_correction_decays_releases_pro_rata_and_follows_hotkey_swaps() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund(&[1, 199], CASH);
         let now = System::block_number();
-        BasketCashNavAdjust::<Test>::insert(fund.hotkey, (1_000_000i128, now));
+        let row = fund.netuid;
+        BasketCashNavAdjust::<Test>::insert(fund.hotkey, row, (1_000_000i128, now));
         assert_eq!(
-            SubtensorModule::basket_cash_nav_adjust_at(&fund.hotkey, now),
+            SubtensorModule::basket_row_cost_basis_at(&fund.hotkey, row, now),
             1_000_000
         );
         let half_life = crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS;
-        let after_half = SubtensorModule::basket_cash_nav_adjust_at(&fund.hotkey, now + half_life);
+        let after_half =
+            SubtensorModule::basket_row_cost_basis_at(&fund.hotkey, row, now + half_life);
         assert!(after_half > 490_000 && after_half < 510_000, "{after_half}");
         let after_ten =
-            SubtensorModule::basket_cash_nav_adjust_at(&fund.hotkey, now + 10 * half_life);
+            SubtensorModule::basket_row_cost_basis_at(&fund.hotkey, row, now + 10 * half_life);
         assert!(after_ten < 1_100, "{after_ten}");
-        // Negative corrections (buys above the anchors) decay the same way.
-        BasketCashNavAdjust::<Test>::insert(fund.hotkey, (-1_000_000i128, now));
-        let neg_half = SubtensorModule::basket_cash_nav_adjust_at(&fund.hotkey, now + half_life);
-        assert!(neg_half < -490_000 && neg_half > -510_000, "{neg_half}");
-        // A positive correction lowers the cash NAV; the anchored figure is unchanged.
-        BasketCashNavAdjust::<Test>::insert(fund.hotkey, (1_000_000i128, now));
+
+        // A positive correction lowers the row's cash value; the anchored figure is unchanged.
         let anchored = SubtensorModule::anchored_basket_nav_tao(&fund.hotkey);
         assert_eq!(
             SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64(),
             anchored - 1_000_000
         );
-        // Hotkey swap carries it.
+
+        // Disposing a quarter of the row releases a quarter of the correction.
+        SubtensorModule::release_basket_cost_basis(&fund.hotkey, row, 250, 1_000);
+        assert_eq!(
+            SubtensorModule::basket_row_cost_basis_at(&fund.hotkey, row, now),
+            750_000
+        );
+        // Disposing the rest clears it.
+        SubtensorModule::release_basket_cost_basis(&fund.hotkey, row, 1_000, 1_000);
+        assert!(BasketCashNavAdjust::<Test>::get(fund.hotkey, row).is_none());
+
+        // Negative corrections (buys above the anchors) decay and release the same way.
+        BasketCashNavAdjust::<Test>::insert(fund.hotkey, row, (-1_000_000i128, now));
+        let neg_half =
+            SubtensorModule::basket_row_cost_basis_at(&fund.hotkey, row, now + half_life);
+        assert!(neg_half < -490_000 && neg_half > -510_000, "{neg_half}");
+        SubtensorModule::release_basket_cost_basis(&fund.hotkey, row, 500, 1_000);
+        assert_eq!(
+            SubtensorModule::basket_row_cost_basis_at(&fund.hotkey, row, now),
+            -500_000
+        );
+        assert_eq!(
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64(),
+            anchored + 500_000
+        );
+
+        // Booking on top merges with the decayed value; a fund that ends clears every row.
+        SubtensorModule::note_basket_cost_basis(&fund.hotkey, row, 700_000, 100_000);
+        assert_eq!(
+            SubtensorModule::basket_row_cost_basis_at(&fund.hotkey, row, now),
+            100_000
+        );
+        SubtensorModule::clear_basket_cost_basis(&fund.hotkey);
+        assert!(BasketCashNavAdjust::<Test>::get(fund.hotkey, row).is_none());
+
+        // Hotkey swap carries it row by row.
+        BasketCashNavAdjust::<Test>::insert(fund.hotkey, row, (1_000_000i128, now));
         let new_hotkey = U256::from(7_778);
         SubtensorModule::transfer_basket_for_new_hotkey(&fund.hotkey, &new_hotkey);
-        assert!(BasketCashNavAdjust::<Test>::get(fund.hotkey).is_none());
+        assert!(BasketCashNavAdjust::<Test>::get(fund.hotkey, row).is_none());
         assert_eq!(
-            SubtensorModule::basket_cash_nav_adjust_at(&new_hotkey, now),
+            SubtensorModule::basket_row_cost_basis_at(&new_hotkey, row, now),
             1_000_000
         );
+    });
+}
+
+/// Skeptic finding on #3184 (fid acf10d8e): a correction booked on purchase must leave with
+/// the alpha. A validator round-trips a row through `swap_basket` (buy, then sell it all
+/// back) with the market just off the anchors; the correction is booked on the buy, fully
+/// released on the sell, and a cash claim afterwards pays no more than before the trades.
+/// A partial sell releases partially.
+#[test]
+fn round_trip_trade_releases_the_cost_basis_and_cannot_lift_a_cash_claim() {
+    new_test_ext(1).execute_with(|| {
+        // 200 TAO of cash so the fund can buy; the alpha row is small next to the pool.
+        let fund = setup_fund(&[1, 199], 200_000_000_000);
+        let owner = U256::from(1001);
+        crate::BasketTradingEnabled::<Test>::put(true);
+        crate::BasketDailyTurnoverCap::<Test>::put(u16::MAX);
+        allow_full_cash_claims();
+        let claimant = fund.stakers[0];
+        let row = fund.netuid;
+        let reserve = 1_000_000_000_000u64;
+
+        // Market 1.5% below the anchors (inside the 2% trade band): alpha is cheap live.
+        SubnetTAO::<Test>::insert(row, TaoBalance::from(reserve * 985 / 1000));
+        let entitlement_before = SubtensorModule::basket_payout_from(
+            SubtensorModule::get_basket_owed_shares(&fund.hotkey, &claimant),
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64(),
+            fund_shares(&fund.hotkey),
+        );
+        let alpha_before = escrow_alpha(&fund.hotkey, row);
+
+        // Buy: 5 TAO of cash into the row (0.5% of the pool, inside the band).
+        let spend = 5_000_000_000u64;
+        assert_ok!(SubtensorModule::do_swap_basket(
+            owner,
+            fund.hotkey,
+            NetUid::ROOT,
+            row,
+            spend,
+            0
+        ));
+        let bought = escrow_alpha(&fund.hotkey, row) - alpha_before;
+        let now = System::block_number();
+        let booked = SubtensorModule::basket_row_cost_basis_at(&fund.hotkey, row, now);
+        assert!(booked > 0, "cheap alpha carries a positive correction: {booked}");
+        let cash_nav_after_buy =
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64();
+
+        // Sell half of what was bought: half the correction is released.
+        assert_ok!(SubtensorModule::do_swap_basket(
+            owner,
+            fund.hotkey,
+            row,
+            NetUid::ROOT,
+            bought / 2,
+            0
+        ));
+        let held_after_buy = alpha_before + bought;
+        let expected_half = booked - booked * (bought / 2) as i128 / held_after_buy as i128;
+        let after_half_sell = SubtensorModule::basket_row_cost_basis_at(&fund.hotkey, row, now);
+        assert!(
+            after_half_sell.abs_diff(expected_half) <= 2,
+            "pro-rata release: {after_half_sell} vs {expected_half}"
+        );
+
+        // Sell the rest of the purchase. The release is pro-rata to the row, not lot-tracked,
+        // so what stays is the pre-existing alpha's share of the correction (the row is a
+        // single position; the remaining alpha is worth the same anchored value either way).
+        assert_ok!(SubtensorModule::do_swap_basket(
+            owner,
+            fund.hotkey,
+            row,
+            NetUid::ROOT,
+            bought - bought / 2,
+            0
+        ));
+        let after_full = SubtensorModule::basket_row_cost_basis_at(&fund.hotkey, row, now);
+        let pre_existing_share = booked * alpha_before as i128 / held_after_buy as i128;
+        assert!(
+            after_full <= pre_existing_share + 2 && after_full >= 0,
+            "round trip releases the purchase's share: {after_full} of {booked} (pre-existing share {pre_existing_share})"
+        );
+
+        // The cash claim pays no more than before the round trip (fees make it less).
+        let entitlement_after = SubtensorModule::basket_payout_from(
+            SubtensorModule::get_basket_owed_shares(&fund.hotkey, &claimant),
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64(),
+            fund_shares(&fund.hotkey),
+        );
+        assert!(
+            entitlement_after <= entitlement_before,
+            "no phantom value: {entitlement_after} vs {entitlement_before} (mid-trip NAV {cash_nav_after_buy})"
+        );
+        next_block();
+        BasketCashClaimBucket::<Test>::remove(fund.hotkey);
+        let before = root_stake_of(&fund.hotkey, &claimant);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(claimant),
+            fund.hotkey
+        ));
+        assert!(root_stake_of(&fund.hotkey, &claimant) - before <= entitlement_before);
     });
 }

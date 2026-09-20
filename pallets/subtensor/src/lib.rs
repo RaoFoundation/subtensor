@@ -3172,17 +3172,27 @@ pub mod pallet {
     pub type BasketCashClaimBucket<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u64), OptionQuery>;
 
-    /// --- MAP ( validator_hotkey ) --> `(adjust, last_block)`: the fund's cost-basis
-    /// correction to its anchored NAV for the cash-claim mark. Every purchase of alpha at
-    /// live prices (a direct deposit's mirror buys, a `swap_basket` buy leg) adds
-    /// `anchored value added − TAO paid`, so the cash-claimable NAV rises by exactly what
-    /// was paid, never by a stale anchored valuation of what was bought. The correction
-    /// decays on the fast-EMA schedule ([`crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS`]), i.e.
-    /// it fades exactly as the anchors catch up with the market. Signed: buys above the
-    /// anchors leave a negative correction (the purchase is still carried at cost).
+    /// --- MAP ( validator_hotkey, netuid ) --> `(adjust, last_block)`: the cost-basis
+    /// correction of one basket row for the cash-claim mark. Every purchase of alpha on
+    /// `netuid` at live prices (a direct deposit's mirror buy, a `swap_basket` buy leg) adds
+    /// `anchored value added − TAO paid`, so the row's cash-claimable value rises by exactly
+    /// what was paid, never by a stale anchored valuation of what was bought. Any disposal
+    /// of the row (a `swap_basket` sell, a pro-rata redemption, a dust sweep or write-off)
+    /// releases the correction pro-rata to the fraction disposed; a fund that ends clears
+    /// them all. The correction decays on the fast-EMA schedule
+    /// ([`crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS`]), i.e. it fades exactly as the anchors
+    /// catch up with the market. Signed: buys above the anchors leave a negative correction
+    /// (the purchase is still carried at cost).
     #[pallet::storage]
-    pub type BasketCashNavAdjust<T: Config> =
-        StorageMap<_, Blake2_128Concat, T::AccountId, (i128, u64), OptionQuery>;
+    pub type BasketCashNavAdjust<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        NetUid,
+        (i128, u64),
+        OptionQuery,
+    >;
 
     /// --- MAP ( validator_hotkey ) --> block in which the fund's cash-path facts last
     /// changed against a cheap claim declaration: the cash slot or claim bucket dropped
