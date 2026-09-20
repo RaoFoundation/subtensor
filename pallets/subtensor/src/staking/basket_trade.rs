@@ -74,12 +74,98 @@ impl<T: Config> Pallet<T> {
         amount: u64,
         min_amount_out: u64,
     ) -> Result<Weight, DispatchError> {
+        Self::do_swap_basket_tracked(
+            coldkey,
+            hotkey,
+            origin_netuid,
+            destination_netuid,
+            amount,
+            min_amount_out,
+        )
+        .map_err(|(_, err)| err)
+    }
+
+    /// [`Self::do_swap_basket`] that also reports the weight of the work a failed trade
+    /// did (its pre-checks, or the flush and valuation sweep before the legs rolled back),
+    /// so the dispatcher charges that instead of the declared 256-row envelope.
+    pub fn do_swap_basket_tracked(
+        coldkey: T::AccountId,
+        hotkey: T::AccountId,
+        origin_netuid: NetUid,
+        destination_netuid: NetUid,
+        amount: u64,
+        min_amount_out: u64,
+    ) -> Result<Weight, (Weight, DispatchError)> {
+        let precheck = T::DbWeight::get().reads(10);
+        Self::check_swap_basket(&coldkey, &hotkey, origin_netuid, destination_netuid, amount)
+            .map_err(|err| (precheck, err.into()))?;
+
+        // Settle queued dividend credits first so the budget and the cap are measured
+        // against the fund's full, current NAV. The flush work is priced into the
+        // post-dispatch weight; the declared weight carries its flat allowance.
+        let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(&hotkey);
+        let flush_weight = Self::basket_flush_weight(flush_work);
+
+        let escrow = Self::get_beta_escrow_account_id();
+        let held =
+            Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, origin_netuid)
+                .to_u64();
+        // A failed trade still swept the fund once (the pre-trade valuation) before its
+        // legs rolled back; charge that sweep over the rows the fund has.
+        let rows = Self::get_basket_holdings(&hotkey).len() as u64;
+        let failed_weight = Self::swap_basket_weight(rows.max(1))
+            .saturating_add(flush_weight)
+            .saturating_add(precheck);
+        if amount > held {
+            return Err((failed_weight, Error::<T>::NotEnoughStakeToWithdraw.into()));
+        }
+
+        let outcome = with_transaction(|| {
+            match Self::try_swap_basket(
+                &hotkey,
+                &escrow,
+                origin_netuid,
+                destination_netuid,
+                amount,
+                min_amount_out,
+            ) {
+                Ok(outcome) => TransactionOutcome::Commit(Ok(outcome)),
+                Err(err) => TransactionOutcome::Rollback(Err(err)),
+            }
+        })
+        .map_err(|err| (failed_weight, err))?;
+
+        Self::deposit_event(Event::BasketSwapped {
+            hotkey,
+            origin_netuid,
+            destination_netuid,
+            alpha_sold: amount.into(),
+            tao_mid: outcome.tao_mid.into(),
+            alpha_bought: outcome.alpha_bought.into(),
+        });
+
+        Ok(
+            Self::swap_basket_actual_weight(outcome.holdings, !destination_netuid.is_root())
+                .saturating_add(flush_weight),
+        )
+    }
+
+    /// The read-only preconditions of `swap_basket`: gates, ownership, subnet existence
+    /// and subtoken flags. Shared by the dispatch and the pool-side pre-check so a trade
+    /// that cannot run is refused before it is included.
+    pub(crate) fn check_swap_basket(
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+        origin_netuid: NetUid,
+        destination_netuid: NetUid,
+        amount: u64,
+    ) -> Result<(), Error<T>> {
         ensure!(
             BasketTradingEnabled::<T>::get(),
             Error::<T>::BasketTradingDisabled
         );
         ensure!(
-            !BasketTradingFrozen::<T>::contains_key(&hotkey),
+            !BasketTradingFrozen::<T>::contains_key(hotkey),
             Error::<T>::BasketTradingFrozen
         );
         Self::ensure_beta_basket_seed_idle()?;
@@ -88,11 +174,11 @@ impl<T: Config> Pallet<T> {
             Error::<T>::BasketSameSubnet
         );
         ensure!(
-            Self::coldkey_owns_hotkey(&coldkey, &hotkey),
+            Self::coldkey_owns_hotkey(coldkey, hotkey),
             Error::<T>::NonAssociatedColdKey
         );
         ensure!(
-            Self::is_hotkey_registered_on_network(NetUid::ROOT, &hotkey),
+            Self::is_hotkey_registered_on_network(NetUid::ROOT, hotkey),
             Error::<T>::HotKeyNotRegisteredInSubNet
         );
         ensure!(
@@ -110,45 +196,7 @@ impl<T: Config> Pallet<T> {
             Self::ensure_subtoken_enabled(destination_netuid)?;
         }
         ensure!(amount > 0, Error::<T>::AmountTooLow);
-
-        // Settle queued dividend credits first so the budget and the cap are measured
-        // against the fund's full, current NAV. The flush work is priced into the
-        // post-dispatch weight; the declared weight carries its flat allowance.
-        let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(&hotkey);
-
-        let escrow = Self::get_beta_escrow_account_id();
-        let held =
-            Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, origin_netuid)
-                .to_u64();
-        ensure!(amount <= held, Error::<T>::NotEnoughStakeToWithdraw);
-
-        let outcome = with_transaction(|| {
-            match Self::try_swap_basket(
-                &hotkey,
-                &escrow,
-                origin_netuid,
-                destination_netuid,
-                amount,
-                min_amount_out,
-            ) {
-                Ok(outcome) => TransactionOutcome::Commit(Ok(outcome)),
-                Err(err) => TransactionOutcome::Rollback(Err(err)),
-            }
-        })?;
-
-        Self::deposit_event(Event::BasketSwapped {
-            hotkey,
-            origin_netuid,
-            destination_netuid,
-            alpha_sold: amount.into(),
-            tao_mid: outcome.tao_mid.into(),
-            alpha_bought: outcome.alpha_bought.into(),
-        });
-
-        Ok(
-            Self::swap_basket_actual_weight(outcome.holdings, !destination_netuid.is_root())
-                .saturating_add(Self::basket_flush_weight(flush_work)),
-        )
+        Ok(())
     }
 
     /// Transactional body of [`Self::do_swap_basket`]; any error rolls the whole trade back.

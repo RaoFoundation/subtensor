@@ -873,5 +873,15 @@ mod events {
             /// Fund shares burned for that TAO.
             shares: u64,
         },
+
+        /// One `sweep_basket_dust` page ran over a validator's fund.
+        BasketDustSwept {
+            /// Validator hotkey the basket belongs to.
+            hotkey: T::AccountId,
+            /// Escrow rows examined on this page.
+            examined: u32,
+            /// Rows consolidated into the root (cash) slot or written off.
+            swept: u32,
+        },
     }
 }

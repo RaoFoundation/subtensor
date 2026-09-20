@@ -413,5 +413,8 @@ mod errors {
         /// redemption may not run under a cheap declaration; the claim did only its
         /// pre-checks and is charged for those. Resubmit in a later block.
         CashPathUnavailable,
+        /// `sweep_basket_dust` was asked to examine zero rows, or more than
+        /// [`crate::MAX_BASKET_DUST_SWEEP_ROWS`] rows in one page.
+        InvalidDustSweepPage,
     }
 }
