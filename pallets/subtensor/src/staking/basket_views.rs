@@ -200,8 +200,9 @@ impl<T: Config> Pallet<T> {
     }
 
     /// The fund's NAV at the cash-claim mark ([`Self::cash_mark_holding_value`]): every
-    /// holding at the lower of its live liquidation quote and its anchored one, root cash
-    /// 1:1, summed. What a cash-first claim prices the claimant's shares against. A view.
+    /// holding at its anchored liquidation value, root cash 1:1, rows that realize nothing
+    /// live at zero, summed. What a cash-first claim prices the claimant's shares against.
+    /// A view.
     pub fn get_validator_basket_cash_mark_nav_tao(hotkey: &T::AccountId) -> TaoBalance {
         let mut nav: u64 = 0;
         for (netuid, alpha) in Self::get_basket_holdings(hotkey) {

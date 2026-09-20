@@ -413,8 +413,16 @@ impl<T: Config> Pallet<T> {
         let (nav_before, value_added) =
             Self::deploy_tao_into_basket(hotkey, coldkey, tao.to_u64())?;
 
-        let nav_priced_shares: u64 =
+        let live_priced_shares: u64 =
             Self::basket_shares_for_value(value_added, nav_before, shares_outstanding);
+        // Cash-mark consistency: the new shares' claim on the *anchored* NAV may not exceed
+        // the TAO the deposit brought in (see `basket_anchored_mint_cap`). Otherwise alpha
+        // bought at a live price below the anchors would cash out at the anchors.
+        let nav_priced_shares: u64 = live_priced_shares.min(Self::basket_anchored_mint_cap(
+            hotkey,
+            tao.to_u64(),
+            shares_outstanding,
+        ));
         // Full-liquidation NAV is nonlinear: allocating TAO by holding value does not
         // necessarily buy the same asset fraction in every pool. Redemption, however, takes
         // the same share fraction of every holding. Bound the mint by the least-covered
@@ -481,14 +489,15 @@ impl<T: Config> Pallet<T> {
     /// `num_holdings` basket holdings. Per slot: a balance transfer to the subnet
     /// account, a swap, the escrow stake write, and protocol-flow bookkeeping. Per holding:
     /// two `sim_swap` valuations (the `nav_before` / `nav_after` sweeps), plus one stake-position
-    /// lookup to verify the quantity acquired for direct-deposit share issuance.
+    /// lookup to verify the quantity acquired for direct-deposit share issuance, and the two
+    /// anchor reads of the anchored-NAV mint cap ([`Self::basket_anchored_mint_cap`]).
     pub(crate) fn stake_into_basket_weight(num_slots: u64, num_holdings: u64) -> Weight {
         Weight::from_parts(25_000_000, 4000)
             .saturating_add(T::DbWeight::get().reads(6_u64))
             .saturating_add(T::DbWeight::get().writes(5_u64))
             .saturating_mul(num_slots.max(1))
             .saturating_add(Self::basket_nav_sweep_weight(num_holdings))
-            .saturating_add(T::DbWeight::get().reads(num_holdings.saturating_mul(5_u64)))
+            .saturating_add(T::DbWeight::get().reads(num_holdings.saturating_mul(7_u64)))
             .saturating_add(T::DbWeight::get().reads_writes(8_u64, 6_u64))
     }
 
@@ -667,35 +676,36 @@ impl<T: Config> Pallet<T> {
         Self::mul_div_u64(nav, BasketCashClaimCap::<T>::get() as u64, u16::MAX as u64)
     }
 
-    /// The mark a cash claim values a holding at: the lower of its live liquidation quote
-    /// and what a liquidation of the whole holding would fetch against *anchored*
-    /// reserves — `alpha × price_anchor × depth_anchor / (depth_anchor + alpha)`, the
-    /// constant-product sale of `alpha` into a pool whose price is the fast EMA
-    /// ([`SubnetFastMovingPrice`]) and whose alpha reserve is the fast EMA of
-    /// `SubnetAlphaIn` ([`SubnetFastMovingAlphaIn`]). Root cash is TAO 1:1.
+    /// The mark a cash claim values a holding at: what a liquidation of the whole holding
+    /// would fetch against *anchored* reserves — `alpha × price_anchor × depth_anchor /
+    /// (depth_anchor + alpha)`, the constant-product sale of `alpha` into a pool whose
+    /// price is the fast EMA ([`SubnetFastMovingPrice`]) and whose alpha reserve is the fast
+    /// EMA of `SubnetAlphaIn` ([`SubnetFastMovingAlphaIn`]). Root cash is TAO 1:1.
     ///
-    /// Why both legs, and why neither alone is enough:
-    /// * The live quote alone is pumpable inside a block (a buy lifts spot, a liquidity add
-    ///   deepens the pool), and a cash claim sells nothing, so the pump would be free to
-    ///   unwind. The anchored leg caps it: both anchors advance only between blocks, so no
-    ///   manipulation can push the mark above an un-manipulated liquidation — a same-block
-    ///   liquidity add moves nothing, and a buy moves the mark at most up to the anchored
-    ///   quote, i.e. by the gap the market has already opened below the anchors, and only
-    ///   by paying for a real pump (price impact plus fees).
-    /// * The anchored quote alone would pay a stale price: after a decline anyone could
-    ///   deposit at the live (lower) NAV and immediately cash-claim at the anchored (higher)
-    ///   one, extracting the drift from the other holders for free. The live leg caps it:
-    ///   the mark never exceeds what a live liquidation would fetch, so freshly minted shares
-    ///   cannot redeem for more than they paid.
-    ///
-    /// What remains is the honest anchor drift (two-hour half-life), reachable only by paying
-    /// to lift a fallen pool back to its anchors, and bounded per fund per day by the cash
-    /// budget ([`BasketCashClaimCap`]). A subnet without both anchors yet marks zero on the
-    /// cash path (its value stays in the fund for the redemption path).
+    /// No live figure enters this mark, not even as a cap. A cash claim sells nothing, so
+    /// anything an extrinsic can move inside a block (spot by a buy, depth by a liquidity
+    /// add) could otherwise be moved, claimed against, and moved back for the price of a
+    /// fee. Both anchors advance only between blocks, so what a cash claim pays and how
+    /// many shares it burns is fixed before the block starts. The matching half of the
+    /// design is on the deposit side: a direct deposit's shares may claim no more of the
+    /// anchored NAV than the TAO it brought in ([`Self::basket_anchored_mint_cap`]), so
+    /// fresh shares can never be bought at a live price below the anchors and redeemed at
+    /// the anchors. What remains is the
+    /// honest anchor drift (two-hour half-life) between dividend-earned shares and the
+    /// market, bounded per fund per day by the cash budget ([`BasketCashClaimCap`]). A
+    /// subnet without both anchors yet marks zero on the cash path (its value stays in the
+    /// fund for the redemption path).
     pub(crate) fn cash_mark_holding_value(netuid: NetUid, alpha: u64, realizable: u64) -> u64 {
         if netuid.is_root() {
             return realizable;
         }
+        Self::anchored_liquidation_value(netuid, alpha)
+    }
+
+    /// `alpha × price_anchor × depth_anchor / (depth_anchor + alpha)`: the constant-product
+    /// sale of `alpha` into anchored reserves (see [`Self::cash_mark_holding_value`]). Zero
+    /// without both anchors. Root is not a pool; callers value it 1:1 themselves.
+    pub(crate) fn anchored_liquidation_value(netuid: NetUid, alpha: u64) -> u64 {
         let (Some(price), Some(reserve)) = (
             SubnetFastMovingPrice::<T>::get(netuid),
             SubnetFastMovingAlphaIn::<T>::get(netuid),
@@ -707,15 +717,51 @@ impl<T: Config> Pallet<T> {
             return 0;
         }
         let alpha_fixed = U64F64::saturating_from_num(alpha);
-        // Selling `alpha` into anchored reserves: `alpha × price × reserve / (reserve + alpha)`.
         // The depth ratio is taken first (it is at most one) so the product never needs
         // more than the 64 integer bits of the fixed type.
         let depth_ratio: U64F64 = reserve.safe_div(reserve.saturating_add(alpha_fixed));
-        let anchored: u64 = alpha_fixed
+        alpha_fixed
             .saturating_mul(price)
             .saturating_mul(depth_ratio)
-            .saturating_to_num::<u64>();
-        realizable.min(anchored)
+            .saturating_to_num::<u64>()
+    }
+
+    /// The fund's NAV with every subnet row at its anchored liquidation value and root cash
+    /// 1:1 — no live quote, so no sim-swap: two anchor reads per row.
+    pub(crate) fn anchored_basket_nav_tao(hotkey: &T::AccountId) -> u64 {
+        Self::get_basket_holdings(hotkey)
+            .into_iter()
+            .fold(0u64, |nav, (netuid, alpha)| {
+                let value = if netuid.is_root() {
+                    alpha.to_u64()
+                } else {
+                    Self::anchored_liquidation_value(netuid, alpha.to_u64())
+                };
+                nav.saturating_add(value)
+            })
+    }
+
+    /// Most shares a direct deposit of `tao_in` may mint so that the new shares' claim on
+    /// the fund's *anchored* NAV (read after the deploy) is at most `tao_in`:
+    /// `s / (P + s) × NAV_anchored ≤ tao_in`, i.e. `s ≤ tao_in × P / (NAV_anchored − tao_in)`.
+    /// This is the deposit half of the cash-mark design. The mirror buys alpha at live
+    /// prices; when those sit below the anchors the alpha is worth more at the cash mark
+    /// than it cost, and without this cap a depositor could cash that difference out of
+    /// the other holders straight away. With anchors at or below the market the cap is
+    /// above the live-priced mint and changes nothing. No cap without anchors (an anchored
+    /// NAV of zero) or when the deposit alone exceeds it.
+    pub(crate) fn basket_anchored_mint_cap(
+        hotkey: &T::AccountId,
+        tao_in: u64,
+        shares_outstanding: u64,
+    ) -> u64 {
+        let anchored_nav_after = Self::anchored_basket_nav_tao(hotkey);
+        match anchored_nav_after.checked_sub(tao_in) {
+            Some(rest) if rest > 0 && shares_outstanding > 0 => {
+                Self::mul_div_u64(tao_in, shares_outstanding, rest)
+            }
+            _ => u64::MAX,
+        }
     }
 
     /// Record that the fund's cash-path facts changed in this block if
@@ -763,8 +809,9 @@ impl<T: Config> Pallet<T> {
         outcome.rows = holdings.len() as u32;
         outcome.cash = true;
 
-        // One anchored quote per row; the root row is TAO 1:1. Terminal or unpriceable
-        // rows mark zero here exactly as on the redemption path.
+        // One anchored quote per row; the root row is TAO 1:1. A row whose whole alpha
+        // realizes nothing live (terminal pool) marks zero here exactly as on the
+        // redemption path; the live quote is used for that gate only, never for the value.
         let mut guarded_nav: u64 = 0;
         for (netuid, alpha) in holdings {
             let realizable = if netuid.is_root() {

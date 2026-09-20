@@ -727,8 +727,10 @@ fn material_holding_pump_or_liquidity_add_cannot_raise_the_cash_mark() {
         );
         assert_eq!(cash_claim_events().len(), 1);
 
-        // After a decline (live quote below the lagging anchors) the mark follows the live
-        // quote down: a deposit priced live cannot redeem for more than it paid.
+        // Skeptic follow-up: after a decline (live quote far below the lagging anchors) a
+        // same-block buy or liquidity add must not move the mark either; the mark reads no
+        // live figure, so a buy → cash claim → sell round trip pays exactly what an
+        // un-manipulated claim pays and nets the attacker minus fees.
         SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve / 2));
         SubnetAlphaIn::<Test>::insert(fund.netuid, AlphaBalance::from(reserve * 2));
         let dumped = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
@@ -738,25 +740,49 @@ fn material_holding_pump_or_liquidity_add_cannot_raise_the_cash_mark() {
         );
         assert_eq!(
             SubtensorModule::cash_mark_holding_value(fund.netuid, holding, dumped),
-            dumped,
-            "the mark never exceeds a live liquidation"
+            honest_mark,
+            "anchored: the mark does not follow the live quote"
         );
-        // A same-block liquidity add at that lower price removes the live quote's slippage
-        // discount but can never carry the mark past the anchored liquidation: the lift is
-        // bounded by the gap the market itself opened, and costs a real pump to realize.
+        let whale = fund.stakers[1];
+        allow_full_cash_claims();
+        let whale_owed = SubtensorModule::get_basket_owed_shares(&fund.hotkey, &whale);
+        let unmanipulated_payout = SubtensorModule::basket_payout_from(
+            whale_owed,
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64(),
+            fund_shares(&fund.hotkey),
+        );
+        // The "buy": lift spot back to the anchor and deepen the pool in the same block.
         SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve * 50));
-        SubnetAlphaIn::<Test>::insert(fund.netuid, AlphaBalance::from(reserve * 200));
-        let deepened = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
-        assert!(deepened > dumped, "deepening removed the slippage discount");
-        assert!(
-            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, deepened) <= honest_mark,
-            "never above the anchored liquidation"
+        SubnetAlphaIn::<Test>::insert(fund.netuid, AlphaBalance::from(reserve * 50));
+        let lifted = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
+        assert!(lifted > dumped * 3, "the live quote was lifted back up");
+        assert_eq!(
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64(),
+            SubtensorModule::basket_payout_from(
+                fund_shares(&fund.hotkey),
+                SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64(),
+                fund_shares(&fund.hotkey)
+            ),
+        );
+        let cash_now = escrow_alpha(&fund.hotkey, NetUid::ROOT);
+        let whale_before = root_stake_of(&fund.hotkey, &whale);
+        next_block();
+        BasketCashClaimBucket::<Test>::remove(fund.hotkey);
+        assert!(SubtensorModule::root_claim_cash_ready(&fund.hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(whale),
+            fund.hotkey
+        ));
+        assert_eq!(
+            root_stake_of(&fund.hotkey, &whale) - whale_before,
+            unmanipulated_payout.min(cash_now),
+            "the lift bought nothing: paid the anchored mark"
         );
 
         // A row on a subnet with no anchors yet contributes nothing to the cash mark.
         SubnetFastMovingAlphaIn::<Test>::remove(fund.netuid);
         assert_eq!(
-            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, deepened),
+            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, lifted),
             0
         );
     });
@@ -807,10 +833,6 @@ fn deposit_then_cash_claim_cannot_exceed_the_deposit() {
         let live_nav = SubtensorModule::get_validator_basket_nav_tao(&fund.hotkey).to_u64();
         let mark_nav =
             SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64();
-        assert!(
-            mark_nav <= live_nav,
-            "the cash mark never exceeds the live NAV"
-        );
 
         let arb = U256::from(9_100);
         let deposit = 10_000_000u64;
@@ -830,7 +852,68 @@ fn deposit_then_cash_claim_cannot_exceed_the_deposit() {
         assert!(paid > 0);
         assert!(
             paid <= deposit,
-            "a live-priced deposit redeems for at most what it paid: {paid} vs {deposit}"
+            "a deposit below the anchors redeems for at most what it paid: {paid} vs {deposit}"
         );
+        // Mint priced at the anchored NAV (the higher one): the shares are worth, at the
+        // anchored mark, exactly the live value the deposit added and no more.
+        assert!(mark_nav > live_nav, "anchors above the market");
+    });
+}
+
+/// The deposit half of the cash-mark design: a direct deposit's shares may claim no more
+/// of the anchored NAV than the TAO it brought in. Above the anchors (a rally) the
+/// live-priced mint is smaller and pricing is unchanged; below them the cap binds.
+#[test]
+fn deposit_mint_is_capped_by_its_claim_on_the_anchored_nav() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund(&[1, 199], CASH);
+        let reserve = 1_000_000_000_000u64;
+        let depositor = U256::from(9_200);
+        let deposit = 10_000_000u64;
+        add_balance_to_coldkey_account(&depositor, TaoBalance::from(10 * deposit));
+
+        // Aligned anchors: the cap sits above the live-priced mint.
+        let live = SubtensorModule::get_validator_basket_nav_tao(&fund.hotkey).to_u64();
+        let anchored = SubtensorModule::anchored_basket_nav_tao(&fund.hotkey);
+        assert!(anchored.abs_diff(live) <= live / 100_000);
+        let shares = fund_shares(&fund.hotkey);
+        assert!(
+            SubtensorModule::basket_anchored_mint_cap(&fund.hotkey, deposit, shares)
+                > SubtensorModule::mul_div_u64(deposit, shares, live)
+        );
+
+        // Rally: live above the anchors, the live-priced mint is the smaller one.
+        SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve * 2));
+        let rally_live = SubtensorModule::get_validator_basket_nav_tao(&fund.hotkey).to_u64();
+        assert!(rally_live > anchored);
+        assert!(
+            SubtensorModule::basket_anchored_mint_cap(&fund.hotkey, deposit, shares)
+                > SubtensorModule::mul_div_u64(deposit, shares, rally_live)
+        );
+
+        // Decline: alpha is cheap live but worth its anchored value at the cash mark, so
+        // the cap binds and the depositor gets fewer shares than the live NAV would give.
+        SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve / 2));
+        let fall_live = SubtensorModule::get_validator_basket_nav_tao(&fund.hotkey).to_u64();
+        assert!(fall_live < anchored);
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            depositor,
+            fund.hotkey,
+            deposit.into()
+        ));
+        let minted = fund_shares(&fund.hotkey) - shares;
+        let live_priced = SubtensorModule::mul_div_u64(deposit, shares, fall_live);
+        assert!(
+            minted < live_priced,
+            "minted {minted} < live-priced {live_priced}"
+        );
+        assert!(minted > 0);
+        // The new shares are worth at most the deposit at the cash mark.
+        let claim_at_mark = SubtensorModule::basket_payout_from(
+            minted,
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64(),
+            fund_shares(&fund.hotkey),
+        );
+        assert!(claim_at_mark <= deposit, "{claim_at_mark} <= {deposit}");
     });
 }
