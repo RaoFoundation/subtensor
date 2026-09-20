@@ -50,9 +50,11 @@ _ROOT_CLAIM_FEE_ALLOWANCE = 4
 # per-hotkey flush bound ``4Q + 2H`` quotes / ``Q`` rows with ``H`` at the row cap.
 _CASH_EXTRA_READS = 4
 _CASH_EXTRA_WRITES = 3
-# Default ``BasketCashClaimCap`` (1% of guarded NAV per day) and the bucket-room
-# fraction the cash path needs to open (``BASKET_CASH_READY_BUCKET_FRACTION``).
-_DEFAULT_CASH_CLAIM_CAP = 65_535 // 100
+# Default ``BasketCashClaimCap``: zero — the cash path ships dark until governance sets a
+# cap (``RECOMMENDED_CASH_CLAIM_CAP`` is the sized 1% of guarded NAV per day) — and the
+# bucket-room fraction the path needs to open (``BASKET_CASH_READY_BUCKET_FRACTION``).
+_DEFAULT_CASH_CLAIM_CAP = 0
+RECOMMENDED_CASH_CLAIM_CAP = 65_535 // 100
 _CASH_READY_BUCKET_FRACTION = 4
 _REFILL_BLOCKS = 7_200
 _U16_MAX = 65_535

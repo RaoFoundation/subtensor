@@ -78,6 +78,11 @@ pub(super) fn allow_full_cash_claims() {
     BasketCashClaimCap::<Test>::put(u16::MAX);
 }
 
+/// Open the cash-first path at the cap the design was sized for (it ships dark).
+pub(super) fn enable_recommended_cash_claims() {
+    BasketCashClaimCap::<Test>::put(crate::RECOMMENDED_BASKET_CASH_CLAIM_CAP);
+}
+
 pub(super) fn escrow_alpha(hotkey: &U256, netuid: NetUid) -> u64 {
     let escrow = SubtensorModule::get_beta_escrow_account_id();
     SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, netuid).to_u64()

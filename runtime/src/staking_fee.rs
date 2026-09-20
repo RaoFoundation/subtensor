@@ -414,6 +414,19 @@ mod tests {
                 NetUid::ROOT,
                 AlphaBalance::new(1_000_000_000),
             );
+            assert!(
+                !SubtensorModule::root_claim_cash_ready(&hotkey),
+                "the cash path ships dark"
+            );
+            assert_eq!(pallet_subtensor::BasketCashClaimCap::<Runtime>::get(), 0);
+            assert_eq!(
+                call.get_dispatch_info().call_weight,
+                full.call_weight,
+                "with the default cap the declaration is today's envelope"
+            );
+            pallet_subtensor::BasketCashClaimCap::<Runtime>::put(
+                pallet_subtensor::RECOMMENDED_BASKET_CASH_CLAIM_CAP,
+            );
             assert!(SubtensorModule::root_claim_cash_ready(&hotkey));
 
             let cheap = call.get_dispatch_info();

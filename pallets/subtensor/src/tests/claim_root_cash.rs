@@ -14,8 +14,8 @@
 )]
 
 use crate::tests::claim_root::{
-    allow_full_cash_claims, disable_cash_claims, escrow_alpha, flush_baskets, fund_pool,
-    fund_shares, register_on_root, root_stake_of, zero_claim_threshold,
+    allow_full_cash_claims, disable_cash_claims, enable_recommended_cash_claims, escrow_alpha,
+    flush_baskets, fund_pool, fund_shares, register_on_root, root_stake_of, zero_claim_threshold,
 };
 use crate::tests::mock::*;
 use crate::weights::WeightInfo;
@@ -59,6 +59,8 @@ fn setup_fund(stakes: &[u64], cash: u64) -> Fund {
     );
     SubtensorModule::set_tao_weight(u64::MAX);
     zero_claim_threshold();
+    // The path ships dark (default cap 0); these tests exercise it at the sized cap.
+    enable_recommended_cash_claims();
 
     let stakers: Vec<U256> = stakes
         .iter()
@@ -1167,5 +1169,35 @@ fn round_trip_trade_releases_the_cost_basis_and_cannot_lift_a_cash_claim() {
             fund.hotkey
         ));
         assert!(root_stake_of(&fund.hotkey, &claimant) - before <= entitlement_before);
+    });
+}
+
+/// Spec 468 ships the cash path dark: with the default cap (zero) a cash-rich fund is not
+/// cash-ready, `claim_root_with_hotkey` declares today's full envelope, and the claim
+/// redeems pro-rata exactly as on spec 467. Governance opens the path with
+/// `sudo_set_basket_cash_claim_cap`.
+#[test]
+fn cash_path_ships_dark_by_default() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund(&[1, 199], CASH);
+        BasketCashClaimCap::<Test>::put(crate::DEFAULT_BASKET_CASH_CLAIM_CAP);
+        assert_eq!(crate::DEFAULT_BASKET_CASH_CLAIM_CAP, 0);
+        assert!(!SubtensorModule::root_claim_cash_ready(&fund.hotkey));
+        assert_eq!(declared(fund.hotkey), full_envelope());
+        let alpha_before = escrow_alpha(&fund.hotkey, fund.netuid);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(fund.stakers[0]),
+            fund.hotkey
+        ));
+        assert!(cash_claim_events().is_empty(), "no cash claim");
+        assert!(
+            escrow_alpha(&fund.hotkey, fund.netuid) < alpha_before,
+            "pro-rata redemption"
+        );
+
+        // Governance opens it at the sized cap.
+        BasketCashClaimCap::<Test>::put(crate::RECOMMENDED_BASKET_CASH_CLAIM_CAP);
+        assert!(SubtensorModule::root_claim_cash_ready(&fund.hotkey));
+        assert!(declared(fund.hotkey).all_lt(full_envelope()));
     });
 }

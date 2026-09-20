@@ -75,7 +75,8 @@ staked back to root.
   that cash first: the staker's share is valued at the guarded mark (each
   holding at the lower of its realizable quote and its fast-moving-price value)
   and paid in TAO with no sale, up to the cash on hand and the fund's daily
-  cash-claim budget (`BasketCashClaimCap`, 1% of guarded NAV per day). What the
+  cash-claim budget (`BasketCashClaimCap`). The path ships **off** (cap `0`) and
+  governance opens it (`655` = the sized 1% of guarded NAV per day). What the
   cash does not cover stays owed and redeems pro-rata on the next claim.
 - **Inflows never change composition.** Dividends accumulate in place: each
   subnet's dividend is credited into the fund's holding on that subnet. The

@@ -598,7 +598,8 @@ def test_charged_never_exceeds_a_tiny_declaration():
 
 
 def test_cash_ready_mirrors_the_runtime_predicate():
-    cap = fees._DEFAULT_CASH_CLAIM_CAP
+    cap = fees.RECOMMENDED_CASH_CLAIM_CAP
+    assert fees._DEFAULT_CASH_CLAIM_CAP == 0, "the cash path ships dark"
     threshold = 500_000
     cash = 1_000_000_000_000  # 1000 TAO in the fund's cash slot
     budget_floor = cash * cap // 65_535
@@ -630,6 +631,8 @@ def _seed_cash_fund(substrate: FakeSubstrate, *, cash_rao: int, nav_rao: int, pa
     )
     substrate.seed_runtime("BetaBasketRuntimeApi", "get_validator_basket_nav", nav_rao)
     substrate.seed("System", "Number", [], 100)
+    # The path ships dark; these previews assume governance opened it at the sized cap.
+    substrate.seed("SubtensorModule", "BasketCashClaimCap", [], fees.RECOMMENDED_CASH_CLAIM_CAP)
 
 
 @pytest.mark.asyncio
@@ -650,7 +653,7 @@ async def test_single_hotkey_quote_reports_cash_path_and_caps_the_payout():
     assert quote is not None
     assert quote.cash_path
     assert quote.accrued.rao == 20 * 10**9, "full entitlement is still reported"
-    budget = 1000 * 10**9 * fees._DEFAULT_CASH_CLAIM_CAP // 65_535  # 655/65535 of NAV
+    budget = 1000 * 10**9 * fees.RECOMMENDED_CASH_CLAIM_CAP // 65_535  # 655/65535 of NAV
     assert quote.redeemable.rao == budget, "what this claim pays: the daily budget"
     assert quote.eligible_hotkeys == 1
     assert any("stays owed" in line for line in quote.effects())
@@ -683,6 +686,25 @@ async def test_single_hotkey_quote_without_cash_keeps_the_full_payout():
     substrate = FakeSubstrate()
     _seed_cash_fund(substrate, cash_rao=0, nav_rao=1000 * 10**9, payout=20 * 10**9)
 
+    quote = await fees.quote_root_claim_fee(
+        substrate,
+        ALICE,
+        hotkeys=[ALICE_HOT],
+        compose=lambda: substrate.compose(
+            ("SubtensorModule", "claim_root_with_hotkey", {"hotkey": ALICE_HOT})
+        ),
+    )
+    assert quote is not None
+    assert not quote.cash_path
+    assert quote.redeemable.rao == 20 * 10**9
+
+
+@pytest.mark.asyncio
+async def test_preview_reflects_the_dark_default_cap():
+    substrate = FakeSubstrate()
+    _seed_cash_fund(substrate, cash_rao=50 * 10**9, nav_rao=1000 * 10**9, payout=20 * 10**9)
+    # Chain default: cap 0, so a cash-rich fund is not cash-ready.
+    substrate.seed("SubtensorModule", "BasketCashClaimCap", [], 0)
     quote = await fees.quote_root_claim_fee(
         substrate,
         ALICE,

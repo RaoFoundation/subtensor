@@ -132,12 +132,19 @@ pub const BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
 /// subnet's alpha reserve after a `swap_basket` buy (u16-normalized).
 pub const DEFAULT_BASKET_LIQUIDITY_CAP: u16 = u16::MAX / 10;
 
-/// Default [`BasketCashClaimCap`]: the cash-first claim path may pay out at most 1% of a
-/// fund's guarded NAV per refill window ([`BASKET_TRADE_REFILL_BLOCKS`], one day) from the
-/// fund's TAO cash slot (u16-normalized; 655/65535). Sized from live finney claim flow
-/// (about 0.8% of basket NAV per day is claimed) so honest flow fits while a held pump can
-/// extract at most this fraction times the mark inflation the fast EMA allows.
-pub const DEFAULT_BASKET_CASH_CLAIM_CAP: u16 = u16::MAX / 100;
+/// Default [`BasketCashClaimCap`]: **zero — the cash-first claim path ships dark.** With a
+/// zero cap [`Pallet::root_claim_cash_ready`] is never true, so every claim declares
+/// today's envelope and redeems pro-rata exactly as on spec 467. Governance opens the path
+/// with `AdminUtils::sudo_set_basket_cash_claim_cap` (the value the design measured for is
+/// [`RECOMMENDED_BASKET_CASH_CLAIM_CAP`]) after a focused audit.
+pub const DEFAULT_BASKET_CASH_CLAIM_CAP: u16 = 0;
+
+/// The cash-first budget the design was sized for: 1% of a fund's guarded NAV per refill
+/// window ([`BASKET_TRADE_REFILL_BLOCKS`], one day) from the fund's TAO cash slot
+/// (u16-normalized; 655/65535). Sized from live finney claim flow (about 0.8% of basket NAV
+/// per day is claimed) so honest flow fits while anchor drift can move at most this
+/// fraction of NAV per day.
+pub const RECOMMENDED_BASKET_CASH_CLAIM_CAP: u16 = u16::MAX / 100;
 
 /// The cash-first claim path opens only while the fund's cash-claim bucket holds at least
 /// this fraction (1/4) of its daily budget, so a drained bucket reopens after about six
@@ -3147,8 +3154,8 @@ pub mod pallet {
     >;
 
     #[pallet::type_value]
-    /// Default cash-first claim budget: 1% of a fund's guarded NAV per refill window
-    /// (u16-normalized; 655/65535).
+    /// Default cash-first claim budget: zero, i.e. the cash path is off until governance
+    /// sets a cap ([`crate::RECOMMENDED_BASKET_CASH_CLAIM_CAP`] is the sized value).
     pub fn DefaultBasketCashClaimCap<T: Config>() -> u16 {
         crate::DEFAULT_BASKET_CASH_CLAIM_CAP
     }
