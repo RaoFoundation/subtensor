@@ -944,7 +944,18 @@
       "description": "A single-validator root claim (`claim_root_with_hotkey`) found that the fund's cash slot, cash-claim bucket, holdings or queued credits changed earlier in this same block. Since spec 468 such a claim declares only the cheap cash path when the fund's TAO cash can pay it, and must never run the full per-holding redemption under that cheap declaration, so it stops after its pre-checks and is charged only for those. Nothing was paid or burned. Resubmit in a later block: the claim is then declared for whichever path the fund's state calls for.",
       "docs_url": "/docs/errors/chain/CashPathUnavailable",
       "markdown_url": "/llms.mdx/docs/errors/chain/CashPathUnavailable/content.md",
-      "pallets": []
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 415,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L415",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
     },
     "ChainIdMismatch": {
       "code": "invalid_argument",

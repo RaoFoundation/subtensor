@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 467
+Spec version: 468
 """
 from dataclasses import dataclass
 
@@ -213,6 +213,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 169): ErrorInfo('SubtensorModule', 'BasketSameSubnet', '`swap_basket` origin and destination are the same subnet.'),
     (7, 170): ErrorInfo('SubtensorModule', 'BasketLiquidityCapExceeded', "The trade would leave the fund holding more of the destination subnet than [`crate::BasketLiquidityCap`] allows as a share of that subnet's alpha reserve. Trade a smaller amount or pick a deeper pool."),
     (7, 171): ErrorInfo('SubtensorModule', 'BasketMinOutNotMet', "The `swap_basket` buy leg credited less than the caller's `min_amount_out` (destination alpha, or TAO when the destination is root). The trade rolled back. Re-quote and retry, or lower the floor."),
+    (7, 172): ErrorInfo('SubtensorModule', 'CashPathUnavailable', "A single-hotkey root claim was declared on the cheap cash path (the fund's TAO cash slot covers claims), but the fund's cash, claim bucket, rows or queued credits changed earlier in this same block. The heavy pro-rata redemption may not run under a cheap declaration; the claim did only its pre-checks and is charged for those. Resubmit in a later block."),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),
