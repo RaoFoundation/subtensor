@@ -144,7 +144,10 @@ impl<T: Config> Pallet<T> {
             alpha_bought: outcome.alpha_bought.into(),
         });
 
-        Ok(Self::swap_basket_weight(outcome.holdings).saturating_add(flush_weight))
+        Ok(
+            Self::swap_basket_actual_weight(outcome.holdings, !destination_netuid.is_root())
+                .saturating_add(flush_weight),
+        )
     }
 
     /// The read-only preconditions of `swap_basket`: gates, ownership, subnet existence
