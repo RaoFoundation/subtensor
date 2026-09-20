@@ -305,6 +305,7 @@ class SubtensorModule:
     BasketLiquidityUsed = Item('SubtensorModule', 'BasketLiquidityUsed', '(u64, u64)')
     BasketCashClaimCap = Item('SubtensorModule', 'BasketCashClaimCap', 'u16')
     BasketCashClaimBucket = Item('SubtensorModule', 'BasketCashClaimBucket', '(u64, u64)')
+    BasketCashNavAdjust = Item('SubtensorModule', 'BasketCashNavAdjust', '(i128, u64)')
     BasketCashTouchedBlock = Item('SubtensorModule', 'BasketCashTouchedBlock', 'u64')
     BasketConcentrationCap = Item('SubtensorModule', 'BasketConcentrationCap', 'u16')
     RootClaimableThreshold = Item('SubtensorModule', 'RootClaimableThreshold', 'FixedI128')
