@@ -667,25 +667,31 @@ impl<T: Config> Pallet<T> {
         Self::mul_div_u64(nav, BasketCashClaimCap::<T>::get() as u64, u16::MAX as u64)
     }
 
-    /// The mark a cash claim values a holding at: what a liquidation of the whole holding
-    /// would fetch against *anchored* reserves — `alpha × price_anchor × reserve_anchor /
-    /// (reserve_anchor + alpha)`, the constant-product sale of `alpha` into a pool whose
-    /// price is the fast EMA ([`SubnetFastMovingPrice`]) and whose alpha reserve is the fast
-    /// EMA of `SubnetAlphaIn` ([`SubnetFastMovingAlphaIn`]). Root cash is TAO 1:1.
+    /// The mark a cash claim values a holding at: the lower of its live liquidation quote
+    /// and what a liquidation of the whole holding would fetch against *anchored*
+    /// reserves — `alpha × price_anchor × depth_anchor / (depth_anchor + alpha)`, the
+    /// constant-product sale of `alpha` into a pool whose price is the fast EMA
+    /// ([`SubnetFastMovingPrice`]) and whose alpha reserve is the fast EMA of
+    /// `SubnetAlphaIn` ([`SubnetFastMovingAlphaIn`]). Root cash is TAO 1:1.
     ///
-    /// The live quote is deliberately not consulted, not even as an upper bound: every
-    /// live figure can be moved inside a block (a buy lifts spot, a liquidity add deepens
-    /// the pool, a sale does the reverse), and a cash claim sells nothing, so a claimant
-    /// could reprice their payout against a temporary pool state and unwind for the fee.
-    /// Both anchors advance only between blocks, so nothing an extrinsic does changes what
-    /// this pays or how many shares it burns (pinned in `claim_root_cash` tests). What
-    /// remains is honest drift: the anchors trail the market by about their two-hour
-    /// half-life, so a cash claim during a decline is marked somewhat above, and during a
-    /// rise somewhat below, a live liquidation. The daily cash budget
-    /// ([`BasketCashClaimCap`]) bounds what that drift can cost the remaining holders, and a
-    /// claimant who would rather realize live prices waits for the bucket to empty and
-    /// takes the redemption path. A subnet without both anchors yet contributes nothing to
-    /// the cash mark (its value stays in the fund for the redemption path).
+    /// Why both legs, and why neither alone is enough:
+    /// * The live quote alone is pumpable inside a block (a buy lifts spot, a liquidity add
+    ///   deepens the pool), and a cash claim sells nothing, so the pump would be free to
+    ///   unwind. The anchored leg caps it: both anchors advance only between blocks, so no
+    ///   manipulation can push the mark above an un-manipulated liquidation — a same-block
+    ///   liquidity add moves nothing, and a buy moves the mark at most up to the anchored
+    ///   quote, i.e. by the gap the market has already opened below the anchors, and only
+    ///   by paying for a real pump (price impact plus fees).
+    /// * The anchored quote alone would pay a stale price: after a decline anyone could
+    ///   deposit at the live (lower) NAV and immediately cash-claim at the anchored (higher)
+    ///   one, extracting the drift from the other holders for free. The live leg caps it:
+    ///   the mark never exceeds what a live liquidation would fetch, so freshly minted shares
+    ///   cannot redeem for more than they paid.
+    ///
+    /// What remains is the honest anchor drift (two-hour half-life), reachable only by paying
+    /// to lift a fallen pool back to its anchors, and bounded per fund per day by the cash
+    /// budget ([`BasketCashClaimCap`]). A subnet without both anchors yet marks zero on the
+    /// cash path (its value stays in the fund for the redemption path).
     pub(crate) fn cash_mark_holding_value(netuid: NetUid, alpha: u64, realizable: u64) -> u64 {
         if netuid.is_root() {
             return realizable;
@@ -705,10 +711,11 @@ impl<T: Config> Pallet<T> {
         // The depth ratio is taken first (it is at most one) so the product never needs
         // more than the 64 integer bits of the fixed type.
         let depth_ratio: U64F64 = reserve.safe_div(reserve.saturating_add(alpha_fixed));
-        alpha_fixed
+        let anchored: u64 = alpha_fixed
             .saturating_mul(price)
             .saturating_mul(depth_ratio)
-            .saturating_to_num::<u64>()
+            .saturating_to_num::<u64>();
+        realizable.min(anchored)
     }
 
     /// Record that the fund's cash-path facts changed in this block if

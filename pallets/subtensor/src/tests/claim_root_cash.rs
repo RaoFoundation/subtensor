@@ -415,18 +415,6 @@ fn pump_does_not_inflate_cash_payout_and_budget_caps_the_window() {
         // The mark is a liquidation against anchored price and depth: it does not move.
         let pumped_mark = SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey);
         assert_eq!(pumped_mark, honest_mark, "the cash mark is anchored");
-        // Nor does a crash move it: the anchors trail the market by design.
-        SubnetTAO::<Test>::mutate(fund.netuid, |tao| {
-            *tao = TaoBalance::from(tao.to_u64() / 1_000)
-        });
-        assert_eq!(
-            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey),
-            honest_mark
-        );
-        SubnetTAO::<Test>::mutate(fund.netuid, |tao| {
-            *tao = TaoBalance::from(tao.to_u64() * 1_000)
-        });
-
         let before = root_stake_of(&fund.hotkey, &attacker);
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(attacker),
@@ -739,9 +727,8 @@ fn material_holding_pump_or_liquidity_add_cannot_raise_the_cash_mark() {
         );
         assert_eq!(cash_claim_events().len(), 1);
 
-        // Skeptic follow-up: after a decline (live quote far below the lagging anchors),
-        // a temporary liquidity add or buy must not lift the mark either. The mark reads
-        // no live figure at all, so it is the same anchored value before and after.
+        // After a decline (live quote below the lagging anchors) the mark follows the live
+        // quote down: a deposit priced live cannot redeem for more than it paid.
         SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve / 2));
         SubnetAlphaIn::<Test>::insert(fund.netuid, AlphaBalance::from(reserve * 2));
         let dumped = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
@@ -751,39 +738,19 @@ fn material_holding_pump_or_liquidity_add_cannot_raise_the_cash_mark() {
         );
         assert_eq!(
             SubtensorModule::cash_mark_holding_value(fund.netuid, holding, dumped),
-            honest_mark,
-            "anchored: the mark does not follow the live quote down"
+            dumped,
+            "the mark never exceeds a live liquidation"
         );
+        // A same-block liquidity add at that lower price removes the live quote's slippage
+        // discount but can never carry the mark past the anchored liquidation: the lift is
+        // bounded by the gap the market itself opened, and costs a real pump to realize.
         SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve * 50));
         SubnetAlphaIn::<Test>::insert(fund.netuid, AlphaBalance::from(reserve * 200));
         let deepened = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
         assert!(deepened > dumped, "deepening removed the slippage discount");
-        assert_eq!(
-            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, deepened),
-            honest_mark,
-            "anchored: nor does a same-block liquidity add lift it"
-        );
-        let whale = fund.stakers[1];
-        allow_full_cash_claims();
-        let whale_owed = SubtensorModule::get_basket_owed_shares(&fund.hotkey, &whale);
-        let whale_payout = SubtensorModule::basket_payout_from(
-            whale_owed,
-            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64(),
-            fund_shares(&fund.hotkey),
-        );
-        let cash_now = escrow_alpha(&fund.hotkey, NetUid::ROOT);
-        let whale_before = root_stake_of(&fund.hotkey, &whale);
-        next_block();
-        BasketCashClaimBucket::<Test>::remove(fund.hotkey);
-        assert!(SubtensorModule::root_claim_cash_ready(&fund.hotkey));
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(
-            RuntimeOrigin::signed(whale),
-            fund.hotkey
-        ));
-        assert_eq!(
-            root_stake_of(&fund.hotkey, &whale) - whale_before,
-            whale_payout.min(cash_now),
-            "paid the anchored mark, not the manipulated live quote"
+        assert!(
+            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, deepened) <= honest_mark,
+            "never above the anchored liquidation"
         );
 
         // A row on a subnet with no anchors yet contributes nothing to the cash mark.
@@ -816,6 +783,54 @@ fn fast_reserve_anchor_tracks_the_pool_between_blocks() {
         assert!(
             anchored < U64F64::from_num(reserve + reserve / 100),
             "one block moves ~0.1%"
+        );
+    });
+}
+
+/// Skeptic finding on #3184 (anchors-only variant): after a decline, a deposit priced at
+/// the live NAV must not redeem immediately through the cash path for more than it paid.
+/// The mark is capped by the live liquidation quote, so the fresh shares are worth at most
+/// what they bought (minus the deposit's own slippage).
+#[test]
+fn deposit_then_cash_claim_cannot_exceed_the_deposit() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund(&[1, 199], CASH);
+        allow_full_cash_claims();
+        // The market halves while the anchors still say 1.0.
+        let reserve = 1_000_000_000_000u64;
+        SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve / 2));
+        SubnetAlphaIn::<Test>::insert(fund.netuid, AlphaBalance::from(reserve));
+        assert_eq!(
+            SubnetFastMovingPrice::<Test>::get(fund.netuid),
+            Some(U64F64::from_num(1))
+        );
+        let live_nav = SubtensorModule::get_validator_basket_nav_tao(&fund.hotkey).to_u64();
+        let mark_nav =
+            SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64();
+        assert!(
+            mark_nav <= live_nav,
+            "the cash mark never exceeds the live NAV"
+        );
+
+        let arb = U256::from(9_100);
+        let deposit = 10_000_000u64;
+        add_balance_to_coldkey_account(&arb, TaoBalance::from(2 * deposit));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            arb,
+            fund.hotkey,
+            deposit.into()
+        ));
+        let root_before = root_stake_of(&fund.hotkey, &arb);
+        next_block();
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(arb),
+            fund.hotkey
+        ));
+        let paid = root_stake_of(&fund.hotkey, &arb) - root_before;
+        assert!(paid > 0);
+        assert!(
+            paid <= deposit,
+            "a live-priced deposit redeems for at most what it paid: {paid} vs {deposit}"
         );
     });
 }
