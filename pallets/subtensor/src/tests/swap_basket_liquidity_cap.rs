@@ -424,6 +424,7 @@ fn test_over_cap_winner_only_blocks_further_buys() {
 #[test]
 fn test_over_cap_winner_untouched_by_dividends_dust_claims_and_hotkey_swap() {
     new_test_ext(1).execute_with(|| {
+        crate::BasketCashClaimCap::<Test>::put(0); // redemption-path test: cash-first off
         let coldkey = U256::from(1);
         let hotkey = U256::from(2);
         let alice = U256::from(3);

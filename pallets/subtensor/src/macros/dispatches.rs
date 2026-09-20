@@ -2096,17 +2096,29 @@ mod dispatches {
 
             let staking_hotkeys = StakingHotkeys::<T>::get(&coldkey);
             let selection_scanned = u32::try_from(staking_hotkeys.len()).unwrap_or(u32::MAX);
+            let precheck = Self::root_claim_precheck_weight(selection_scanned);
             ensure!(
                 selection_scanned <= Self::root_claim_declared_work(),
-                Error::<T>::RootClaimTooHeavy
+                Self::fail_with_weight(Error::<T>::RootClaimTooHeavy, precheck)
             );
             let hotkeys = Self::root_claim_hotkeys(&coldkey, staking_hotkeys);
+            let precheck = precheck.saturating_add(Self::root_claim_precheck_weight(
+                Self::root_claim_declared_work(),
+            ));
             ensure!(
                 Self::root_claim_fits_declared_budget(&hotkeys),
-                Error::<T>::RootClaimTooHeavy
+                Self::fail_with_weight(Error::<T>::RootClaimTooHeavy, precheck)
             );
             let hotkey_count = hotkeys.len() as u32;
-            let outcome = Self::do_root_claim(coldkey.clone(), hotkeys)?;
+            let outcome = Self::do_root_claim_tracked(coldkey.clone(), hotkeys).map_err(
+                |(done, error)| {
+                    Self::fail_with_weight(
+                        error,
+                        Self::root_claim_actual_weight(hotkey_count, selection_scanned, &done)
+                            .saturating_add(precheck),
+                    )
+                },
+            )?;
             Self::maybe_add_coldkey_index(&coldkey);
 
             let weight = Self::root_claim_actual_weight(hotkey_count, selection_scanned, &outcome);
@@ -2121,27 +2133,60 @@ mod dispatches {
         /// NAV-priced entitlement remains in the basket as root TAO for the other holders.
         /// Other validators' accrued yield is left untouched.
         ///
+        /// Cash first: when the fund's TAO cash slot can pay claims
+        /// ([`Pallet::root_claim_cash_ready`]) the claim is paid from that cash at the
+        /// fund's guarded mark and sells nothing, and the call declares only a scan plus
+        /// one transfer instead of the 129-row redemption envelope. Otherwise it declares
+        /// the full envelope and redeems pro-rata as before. Both decisions are taken on
+        /// the same state, right before the call runs. If the fund's cash was drained (or
+        /// its rows moved) earlier in the same block, the call fails with
+        /// `CashPathUnavailable` after its pre-checks only: resubmit next block.
+        ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
         /// * `hotkey`: The validator whose basket entitlement to redeem.
         ///
         /// # Events
         /// * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey.
+        /// * `BasketCashClaimed`: When the claim was paid from the fund's cash slot.
+        ///
+        /// # Errors
+        /// * `RootClaimTooHeavy`: The fund has more rows (or queued credits) than one claim
+        ///   may walk.
+        /// * `CashPathUnavailable`: The fund changed earlier in this block; resubmit.
         #[pallet::call_index(148)]
         #[pallet::weight(
-            Pallet::<T>::root_claim_hotkey_declared_weight()
+            Pallet::<T>::root_claim_hotkey_state_declared_weight(hotkey)
         )]
         pub fn claim_root_with_hotkey(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
+            // A same-block change to the fund's cash, bucket, rows or queue means the
+            // declared weight may describe the other path. Stop before any heavy work.
+            ensure!(
+                !Self::basket_cash_touched_this_block(&hotkey),
+                Self::fail_with_weight(
+                    Error::<T>::CashPathUnavailable,
+                    Self::root_claim_precheck_weight(0)
+                )
+            );
+            let precheck =
+                Self::root_claim_precheck_weight(Self::root_claim_hotkey_declared_work());
             ensure!(
                 Self::root_claim_hotkey_fits_declared_budget(&hotkey),
-                Error::<T>::RootClaimTooHeavy
+                Self::fail_with_weight(Error::<T>::RootClaimTooHeavy, precheck)
             );
 
-            let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
+            let outcome = Self::do_root_claim_tracked(coldkey.clone(), vec![hotkey]).map_err(
+                |(done, error)| {
+                    Self::fail_with_weight(
+                        error,
+                        Self::root_claim_actual_weight(1, 0, &done).saturating_add(precheck),
+                    )
+                },
+            )?;
             Self::maybe_add_coldkey_index(&coldkey);
 
             let weight = Self::root_claim_actual_weight(1, 0, &outcome);

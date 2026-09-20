@@ -858,5 +858,20 @@ mod events {
             /// Alpha (or TAO when destination is root) added to the destination holding.
             alpha_bought: AlphaBalance,
         },
+
+        /// A staker's root claim was paid from the fund's TAO cash slot instead of selling
+        /// every holding: `tao` moved from the escrow root slot to the staker's root
+        /// position and `shares` fund shares were burned at the fund's guarded mark. Emitted
+        /// alongside `BasketClaimed`.
+        BasketCashClaimed {
+            /// Validator hotkey the basket belongs to.
+            hotkey: T::AccountId,
+            /// Staker coldkey that claimed.
+            coldkey: T::AccountId,
+            /// TAO paid from the fund's cash slot.
+            tao: TaoBalance,
+            /// Fund shares burned for that TAO.
+            shares: u64,
+        },
     }
 }

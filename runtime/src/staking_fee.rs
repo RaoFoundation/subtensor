@@ -38,9 +38,13 @@ pub fn root_claim_fee_weight(units: u32) -> Weight {
     )
 }
 
-fn root_claim_discount(limit: u32) -> Weight {
-    pallet_subtensor::Pallet::<Runtime>::root_claim_declared_weight_for(limit)
-        .saturating_sub(root_claim_fee_weight(ROOT_CLAIM_FEE_ALLOWANCE))
+/// Discount for a claim leaf whose dispatch declared `declared`: everything above the
+/// allowance. Since spec 468 a single-hotkey claim declares less than its envelope when the
+/// fund's cash slot can pay it (`root_claim_hotkey_state_declared_weight`), so the discount
+/// is taken from what was actually declared, never from the full envelope — otherwise a
+/// cheap declaration minus an envelope-sized discount would bill nothing for a real scan.
+fn root_claim_discount(declared: Weight) -> Weight {
+    declared.saturating_sub(root_claim_fee_weight(ROOT_CLAIM_FEE_ALLOWANCE).min(declared))
 }
 
 /// Declared `call_weight` (ref_time) each call quoted on spec 459: `payment_queryInfo`
@@ -131,18 +135,25 @@ fn staking_scan_discount(call: &RuntimeCall) -> Weight {
     )
 }
 
-fn claim_discount(call: &RuntimeCall) -> Weight {
+/// Declared weight of a claim leaf without the dispatch-extension fold, i.e. the
+/// pallet-declared claim weight: the state-dependent single-hotkey declaration or the
+/// coldkey-wide envelope.
+fn claim_declared(call: &RuntimeCall) -> Option<Weight> {
     match call {
         RuntimeCall::SubtensorModule(SubtensorCall::claim_root { .. }) => {
-            root_claim_discount(pallet_subtensor::Pallet::<Runtime>::root_claim_declared_work())
+            Some(pallet_subtensor::Pallet::<Runtime>::root_claim_declared_weight())
         }
-        RuntimeCall::SubtensorModule(SubtensorCall::claim_root_with_hotkey { .. }) => {
-            root_claim_discount(
-                pallet_subtensor::Pallet::<Runtime>::root_claim_hotkey_declared_work(),
-            )
-        }
-        _ => Weight::zero(),
+        RuntimeCall::SubtensorModule(SubtensorCall::claim_root_with_hotkey { hotkey }) => Some(
+            pallet_subtensor::Pallet::<Runtime>::root_claim_hotkey_state_declared_weight(hotkey),
+        ),
+        _ => None,
     }
+}
+
+fn claim_discount(call: &RuntimeCall) -> Weight {
+    claim_declared(call)
+        .map(root_claim_discount)
+        .unwrap_or(Weight::zero())
 }
 
 /// The weight one leaf call is billed for, given its declared `call_weight`.
@@ -382,6 +393,52 @@ mod tests {
                     quote.partial_fee < TransactionPayment::compute_fee(100, &info, Balance::ZERO)
                 );
             }
+        });
+    }
+
+    /// Spec 468: a single-hotkey claim on a fund whose cash slot can pay declares the cheap
+    /// cash-path weight. The fee is still the four-unit allowance (the cheap declaration is
+    /// above it), never more than today's and never below what was declared.
+    #[test]
+    fn cash_ready_claim_declares_cheap_and_bills_the_same_allowance() {
+        new_test_ext().execute_with(|| {
+            let hotkey = AccountId::from([2_u8; 32]);
+            let call = claim_root_with_hotkey();
+            let full = call.get_dispatch_info();
+            let full_fee = query_info(&call, &full, 100, false).partial_fee;
+
+            let escrow = SubtensorModule::get_beta_escrow_account_id();
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                NetUid::ROOT,
+                AlphaBalance::new(1_000_000_000),
+            );
+            assert!(SubtensorModule::root_claim_cash_ready(&hotkey));
+
+            let cheap = call.get_dispatch_info();
+            assert!(cheap.call_weight.all_lt(full.call_weight));
+            assert_eq!(
+                cheap.call_weight,
+                SubtensorModule::root_claim_cash_declared_weight(&hotkey)
+                    .saturating_add(extension())
+            );
+            // The declaration is still above the allowance, so the charge is unchanged.
+            let fee_weight = root_claim_fee_weight(ROOT_CLAIM_FEE_ALLOWANCE);
+            assert!(fee_weight.all_lt(cheap.call_weight));
+            let discount = discount(&call);
+            assert_eq!(
+                discount,
+                SubtensorModule::root_claim_cash_declared_weight(&hotkey)
+                    .saturating_sub(fee_weight)
+            );
+            let cheap_fee = query_info(&call, &cheap, 100, false).partial_fee;
+            assert_eq!(cheap_fee, full_fee, "same 0.0083 TAO on both paths");
+            assert_eq!(
+                query_info(&call, &cheap, 100, false).weight,
+                cheap.total_weight(),
+                "RPC reports the cheap reservation"
+            );
         });
     }
 

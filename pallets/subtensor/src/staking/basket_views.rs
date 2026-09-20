@@ -180,7 +180,16 @@ impl<T: Config> Pallet<T> {
     /// bucket (never traded) is full. Clamping also absorbs a NAV drop: the level can never
     /// exceed one current budget.
     pub fn basket_trade_bucket_at(hotkey: &T::AccountId, now: u64, budget: u64) -> u64 {
-        match BasketTradeBucket::<T>::get(hotkey) {
+        Self::basket_bucket_level_at(BasketTradeBucket::<T>::get(hotkey), now, budget)
+    }
+
+    /// Level of a refilling bucket stored as `(level, last_refill_block)` at block `now`
+    /// with capacity `budget`: the stored level plus `budget / BASKET_TRADE_REFILL_BLOCKS`
+    /// per elapsed block, clamped to `budget`; a missing row is a full bucket. Shared by
+    /// the `swap_basket` turnover bucket and the cash-first claim bucket. Monotone in
+    /// `budget` and in `now`.
+    pub fn basket_bucket_level_at(stored: Option<(u64, u64)>, now: u64, budget: u64) -> u64 {
+        match stored {
             None => budget,
             Some((level, last_refill_block)) => {
                 let elapsed = now.saturating_sub(last_refill_block);
@@ -188,6 +197,22 @@ impl<T: Config> Pallet<T> {
                 level.saturating_add(refill).min(budget)
             }
         }
+    }
+
+    /// The fund's NAV at the cash-claim mark ([`Self::cash_mark_holding_value`]): every
+    /// holding's realizable quote capped at its fast-EMA value, summed. What a cash-first
+    /// claim prices the claimant's shares against. A view; valuation failures mark zero.
+    pub fn get_validator_basket_cash_mark_nav_tao(hotkey: &T::AccountId) -> TaoBalance {
+        let mut nav: u64 = 0;
+        for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
+            let realizable = Self::realizable_tao_for_alpha(netuid, alpha.to_u64());
+            nav = nav.saturating_add(Self::cash_mark_holding_value(
+                netuid,
+                alpha.to_u64(),
+                realizable,
+            ));
+        }
+        nav.into()
     }
 
     /// Capacity of a fund's `swap_basket` turnover bucket at `nav`

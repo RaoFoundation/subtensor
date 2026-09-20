@@ -1,4 +1,5 @@
 use super::*;
+use frame_support::dispatch::DispatchErrorWithPostInfo;
 use frame_support::weights::Weight;
 use safe_math::*;
 use share_pool::{SafeFloat, SharePool, SharePoolDataOperations};
@@ -1274,6 +1275,17 @@ impl<T: Config> Pallet<T> {
     pub fn staking_hotkeys_walk_actual(coldkey: &T::AccountId) -> Weight {
         let entries = StakingHotkeys::<T>::decode_len(coldkey).unwrap_or(0) as u64;
         Self::staking_hotkeys_walk_weight(entries)
+    }
+
+    /// `error` as a failed dispatch charged `weight` instead of the declared envelope.
+    pub fn fail_with_weight(
+        error: impl Into<DispatchError>,
+        weight: Weight,
+    ) -> DispatchErrorWithPostInfo {
+        DispatchErrorWithPostInfo {
+            post_info: (Some(weight), Pays::Yes).into(),
+            error: error.into(),
+        }
     }
 
     pub fn get_alpha_share_pool(

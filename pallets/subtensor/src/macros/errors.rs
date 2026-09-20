@@ -407,5 +407,11 @@ mod errors {
         /// (destination alpha, or TAO when the destination is root). The trade rolled
         /// back. Re-quote and retry, or lower the floor.
         BasketMinOutNotMet,
+        /// A single-hotkey root claim was declared on the cheap cash path (the fund's
+        /// TAO cash slot covers claims), but the fund's cash, claim bucket, rows or
+        /// queued credits changed earlier in this same block. The heavy pro-rata
+        /// redemption may not run under a cheap declaration; the claim did only its
+        /// pre-checks and is charged for those. Resubmit in a later block.
+        CashPathUnavailable,
     }
 }

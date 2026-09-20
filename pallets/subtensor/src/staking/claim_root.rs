@@ -7,7 +7,7 @@ use sp_core::Get;
 use sp_runtime::DispatchError;
 use sp_runtime::traits::{AccountIdConversion, Zero};
 use sp_std::collections::btree_map::BTreeMap;
-use substrate_fixed::types::I96F32;
+use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::clear_prefix_with_meter;
 use subtensor_swap_interface::{SwapFailureKind, SwapHandler};
 
@@ -31,15 +31,18 @@ pub struct RootClaimOutcome {
     /// Work spent flushing the hotkey's pending dividend credits before redeeming (priced
     /// by `basket_flush_weight`, the model every flushing extrinsic shares).
     pub flush: BasketFlushWork,
+    /// Whether the cash path ran (its bucket and touched-block bookkeeping is extra work).
+    pub cash: bool,
 }
 
 impl RootClaimOutcome {
-    fn accumulate(&mut self, other: Self) {
+    pub(crate) fn accumulate(&mut self, other: Self) {
         self.tao = self.tao.saturating_add(other.tao);
         self.rows = self.rows.saturating_add(other.rows);
         self.realized = self.realized.saturating_add(other.realized);
         self.swept = self.swept.saturating_add(other.swept);
         self.flush = self.flush.saturating_add(other.flush);
+        self.cash |= other.cash;
     }
 }
 
@@ -560,26 +563,276 @@ impl<T: Config> Pallet<T> {
         ignore_minimum_condition: bool,
     ) -> Result<RootClaimOutcome, DispatchError> {
         let mut outcome = RootClaimOutcome::default();
+        Self::root_claim_for_hotkey_into(hotkey, coldkey, ignore_minimum_condition, &mut outcome)?;
+        Ok(outcome)
+    }
 
+    /// [`Self::root_claim_for_hotkey`] filling `outcome` progressively, so a caller that
+    /// fails part-way still knows the work done (flush, rows scanned, rows redeemed) and
+    /// can charge it instead of the declared envelope.
+    pub(crate) fn root_claim_for_hotkey_into(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        ignore_minimum_condition: bool,
+        outcome: &mut RootClaimOutcome,
+    ) -> DispatchResult {
         // Deposit any queued dividend credits first so the claim redeems against the
         // fund's full, current state. The flush work is priced into the outcome.
         let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(hotkey);
-        outcome.flush = flush_work;
+        outcome.flush = outcome.flush.saturating_add(flush_work);
 
         let owed_shares: u64 = Self::get_basket_owed_shares(hotkey, coldkey);
         if owed_shares == 0 {
-            return Ok(outcome); // no-op
+            return Ok(()); // no-op
         }
 
         let shares_total: u64 = BasketShares::<T>::get(hotkey);
         // Nothing realizable yet (fund drained); leave the watermark untouched so the claim can
         // pay out once the fund has value again.
         if shares_total == 0 {
-            return Ok(outcome);
+            return Ok(());
         }
         // A claim can never redeem more than the outstanding fund.
         let owed_shares = owed_shares.min(shares_total);
 
+        // Cash first: a fund whose TAO cash slot is ready pays the claim from it and sells
+        // nothing. The same predicate sizes the single-hotkey declared weight, and the
+        // flush above can only raise it, so a claim declared cheap always lands here.
+        if Self::root_claim_cash_ready(hotkey) {
+            return Self::root_claim_from_cash(
+                hotkey,
+                coldkey,
+                owed_shares,
+                shares_total,
+                ignore_minimum_condition,
+                outcome,
+            );
+        }
+
+        Self::root_claim_by_redemption(
+            hotkey,
+            coldkey,
+            owed_shares,
+            shares_total,
+            ignore_minimum_condition,
+            outcome,
+        )
+    }
+
+    /// True when a claim on `hotkey`'s fund can be paid from the fund's TAO cash slot right
+    /// now: the slot holds at least the claim threshold (and at least one rao), and the
+    /// fund's cash-claim bucket holds at least `1 / BASKET_CASH_READY_BUCKET_FRACTION` of
+    /// its daily budget. The bucket room is bounded from below with the
+    /// cash slot standing in for the guarded NAV (the NAV is never smaller than the cash
+    /// it contains), so this needs no row scan: a few storage reads, cheap enough for the
+    /// `claim_root_with_hotkey` weight closure. Within a block nothing but a cash outflow
+    /// can turn this from true to false (the bucket only refills, deposits and flushes only
+    /// add value), and every such outflow is recorded in [`BasketCashTouchedBlock`].
+    pub fn root_claim_cash_ready(hotkey: &T::AccountId) -> bool {
+        let escrow = Self::get_beta_escrow_account_id();
+        let cash = Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, NetUid::ROOT)
+            .to_u64();
+        if cash == 0 {
+            return false;
+        }
+        let threshold: u64 =
+            RootClaimableThreshold::<T>::get(NetUid::ROOT).saturating_to_num::<u64>();
+        if cash < threshold {
+            return false;
+        }
+        let now = Self::get_current_block_as_u64();
+        let budget_floor = Self::basket_cash_claim_budget_tao(cash);
+        let room = Self::basket_bucket_level_at(
+            BasketCashClaimBucket::<T>::get(hotkey),
+            now,
+            budget_floor,
+        );
+        // The bucket refills continuously, so "any room" would reopen the path one block
+        // after it was drained with a dribble of budget, and a large claimant could never
+        // reach the full path while the fund holds cash. Require a meaningful share of the
+        // daily budget instead: a drained bucket reopens after a quarter of a day.
+        room > 0 && room.saturating_mul(crate::BASKET_CASH_READY_BUCKET_FRACTION) >= budget_floor
+    }
+
+    /// Capacity of a fund's cash-first claim bucket at guarded NAV `nav`
+    /// (`nav × BasketCashClaimCap / u16::MAX`).
+    pub fn basket_cash_claim_budget_tao(nav: u64) -> u64 {
+        Self::mul_div_u64(nav, BasketCashClaimCap::<T>::get() as u64, u16::MAX as u64)
+    }
+
+    /// The mark a cash claim values a holding at: its realizable quote capped at the value
+    /// of the alpha at the subnet's fast moving price ([`SubnetFastMovingPrice`], two-hour
+    /// half-life, advanced only between blocks). Root cash is TAO 1:1. The realizable
+    /// quote alone is pumpable inside a block (the pool's TAO reserve grows by whatever the
+    /// pumper deposits); the fast anchor cannot be moved inside a block, so a claim paid
+    /// in cash against this mark cannot be inflated by a same-block pump. Holding the
+    /// pump for several half-lives drags the anchor, and the daily cash-claim budget
+    /// bounds what that can extract. A subnet without a fast anchor yet falls back to
+    /// the slow (monthly) emission EMA, which only under-marks.
+    pub(crate) fn cash_mark_holding_value(netuid: NetUid, alpha: u64, realizable: u64) -> u64 {
+        if netuid.is_root() {
+            return realizable;
+        }
+        let anchor: U64F64 = match SubnetFastMovingPrice::<T>::get(netuid) {
+            Some(fast) if fast > U64F64::saturating_from_num(0) => fast,
+            _ => Self::get_moving_alpha_price(netuid),
+        };
+        let anchored: u64 = anchor
+            .saturating_mul(U64F64::saturating_from_num(alpha))
+            .saturating_to_num::<u64>();
+        realizable.min(anchored)
+    }
+
+    /// Record that the fund's cash-path facts changed in this block if
+    /// [`Self::root_claim_cash_ready`] flipped from `ready_before` to false. A
+    /// single-hotkey claim later in the same block may have been declared cheap on the
+    /// earlier state and must not run the heavy path; see [`BasketCashTouchedBlock`].
+    pub(crate) fn note_basket_cash_touch(hotkey: &T::AccountId, ready_before: bool) {
+        if ready_before && !Self::root_claim_cash_ready(hotkey) {
+            Self::mark_basket_cash_touched(hotkey);
+        }
+    }
+
+    /// Unconditionally stamp [`BasketCashTouchedBlock`] for `hotkey` with the current block.
+    pub(crate) fn mark_basket_cash_touched(hotkey: &T::AccountId) {
+        BasketCashTouchedBlock::<T>::insert(hotkey, Self::get_current_block_as_u64());
+    }
+
+    /// True when the fund's cash-path facts changed earlier in this block, so a
+    /// single-hotkey claim cannot trust that its declared weight still matches the path
+    /// it would take.
+    pub(crate) fn basket_cash_touched_this_block(hotkey: &T::AccountId) -> bool {
+        BasketCashTouchedBlock::<T>::get(hotkey) == Self::get_current_block_as_u64()
+    }
+
+    /// Cash-first redemption. Values every holding at the cash mark
+    /// ([`Self::cash_mark_holding_value`]) — one quote per row, no sale — and pays the
+    /// claimant's share of that guarded NAV from the fund's root (TAO) slot, up to the
+    /// cash on hand and the cash-claim bucket. Shares are burned in proportion to the
+    /// TAO paid; when the cash covers only part of the payout the rest stays owed and the
+    /// next claim, finding the cash gone, takes the ordinary redemption path under its own
+    /// full declaration. Composition is untouched except that the fund holds less cash.
+    fn root_claim_from_cash(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        owed_shares: u64,
+        shares_total: u64,
+        ignore_minimum_condition: bool,
+        outcome: &mut RootClaimOutcome,
+    ) -> DispatchResult {
+        let escrow = Self::get_beta_escrow_account_id();
+        let holdings = Self::get_basket_holdings(hotkey);
+        outcome.rows = holdings.len() as u32;
+        outcome.cash = true;
+
+        let mut guarded_nav: u64 = 0;
+        for (netuid, alpha) in holdings {
+            let realizable =
+                Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())?.unwrap_or(0);
+            guarded_nav = guarded_nav.saturating_add(Self::cash_mark_holding_value(
+                netuid,
+                alpha.to_u64(),
+                realizable,
+            ));
+        }
+
+        let payout: u64 = Self::basket_payout_from(owed_shares, guarded_nav, shares_total);
+        if !ignore_minimum_condition
+            && I96F32::saturating_from_num(payout) < RootClaimableThreshold::<T>::get(NetUid::ROOT)
+        {
+            return Ok(()); // no-op, as on the redemption path
+        }
+        if payout == 0 {
+            return Ok(());
+        }
+
+        let cash = Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, NetUid::ROOT)
+            .to_u64();
+        let now = Self::get_current_block_as_u64();
+        let budget = Self::basket_cash_claim_budget_tao(guarded_nav);
+        let room =
+            Self::basket_bucket_level_at(BasketCashClaimBucket::<T>::get(hotkey), now, budget);
+        let available = cash.min(room);
+        // `root_claim_cash_ready` guarantees both are positive on the same state; this is
+        // the backstop for a declaration computed on a state that has since changed.
+        ensure!(available > 0, Error::<T>::CashPathUnavailable);
+
+        let pay = payout.min(available);
+        // Burn shares for exactly the TAO paid, rounding the burn up so the fund is never
+        // short a rao, and never more than the claimant owes.
+        let burn = if pay == payout {
+            owed_shares
+        } else {
+            u128::from(pay)
+                .saturating_mul(u128::from(shares_total))
+                .div_ceil(u128::from(guarded_nav.max(1)))
+                .min(u128::from(owed_shares)) as u64
+        };
+        if burn == 0 {
+            return Ok(());
+        }
+
+        let ready_before = true;
+        // Root slot: already TAO (1:1), reassign custody escrow -> staker. No reserve moves.
+        let paid: u64 = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            hotkey,
+            &escrow,
+            NetUid::ROOT,
+            pay.into(),
+        )
+        .to_u64();
+        ensure!(paid > 0, Error::<T>::CashPathUnavailable);
+        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            hotkey,
+            coldkey,
+            NetUid::ROOT,
+            paid.into(),
+        );
+        BasketCashClaimBucket::<T>::insert(hotkey, (room.saturating_sub(paid), now));
+        Self::note_basket_cash_touch(hotkey, ready_before);
+
+        // Same settlement as the redemption path: unlock hold, watermark rebase for the
+        // grown root stake, shares burned, watermark advanced.
+        Self::touch_root_stake_age(coldkey, hotkey);
+        Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, paid);
+        let remaining = BasketShares::<T>::mutate(hotkey, |p| {
+            *p = p.saturating_sub(burn);
+            *p
+        });
+        if remaining == 0 {
+            Self::retire_beta_display_state(hotkey);
+        }
+        BasketClaimed::<T>::mutate(hotkey, coldkey, |claimed| {
+            *claimed = claimed.saturating_add(i128::from(burn));
+        });
+        BasketRedeemedTao::<T>::mutate(hotkey, |total| *total = total.saturating_add(paid.into()));
+
+        outcome.tao = paid;
+        outcome.realized = 1;
+        Self::deposit_event(Event::BasketCashClaimed {
+            hotkey: hotkey.clone(),
+            coldkey: coldkey.clone(),
+            tao: paid.into(),
+            shares: burn,
+        });
+        Self::deposit_event(Event::BasketClaimed {
+            hotkey: hotkey.clone(),
+            coldkey: coldkey.clone(),
+            tao: paid.into(),
+        });
+        Ok(())
+    }
+
+    /// Today's pro-rata redemption: consolidate dust, value every row, sell the claimant's
+    /// fraction of each and stake the TAO on root. See [`Self::root_claim_for_hotkey`].
+    fn root_claim_by_redemption(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        owed_shares: u64,
+        shares_total: u64,
+        ignore_minimum_condition: bool,
+        outcome: &mut RootClaimOutcome,
+    ) -> DispatchResult {
         // Consolidate dust holdings first, outside the redemption transaction, so the
         // cleanup sticks regardless of how the claim itself resolves.
         outcome.swept = Self::consolidate_dust_basket_holdings(hotkey);
@@ -612,13 +865,14 @@ impl<T: Config> Pallet<T> {
             log::debug!(
                 "root claim skipped (below threshold): payout={estimated_payout:?} h={hotkey:?} c={coldkey:?}"
             );
-            return Ok(outcome); // no-op
+            return Ok(()); // no-op
         }
         if estimated_payout == 0 && !has_terminal_garbage {
-            return Ok(outcome);
+            return Ok(());
         }
 
         let escrow = Self::get_beta_escrow_account_id();
+        let cash_ready_before = Self::root_claim_cash_ready(hotkey);
 
         // Redeemed slots are counted outside the transaction: a rolled-back redemption
         // still executed its swaps, so the work is charged either way.
@@ -799,8 +1053,11 @@ impl<T: Config> Pallet<T> {
 
             TransactionOutcome::Commit(Ok::<u64, DispatchError>(total_tao))
         })?;
+        // The root-slot take above may have emptied the fund's cash below what the cheap
+        // claim declaration requires; record it for claims later in this block.
+        Self::note_basket_cash_touch(hotkey, cash_ready_before);
 
-        Ok(outcome)
+        Ok(())
     }
 
     /// Consolidates a fund's dust holdings into its root (TAO cash) slot: every subnet
@@ -890,13 +1147,68 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Coldkey-wide declared weight: the 256-unit envelope plus the flush allowance.
-    pub(crate) fn root_claim_declared_weight() -> Weight {
+    pub fn root_claim_declared_weight() -> Weight {
         Self::root_claim_declared_weight_for(Self::root_claim_declared_work())
     }
 
     /// Single-hotkey declared weight: the 129-unit envelope plus the same flush allowance.
-    pub(crate) fn root_claim_hotkey_declared_weight() -> Weight {
+    pub fn root_claim_hotkey_declared_weight() -> Weight {
         Self::root_claim_declared_weight_for(Self::root_claim_hotkey_declared_work())
+    }
+
+    /// Storage the cash path touches beyond a claim's benchmarked units: the cash-claim
+    /// cap, bucket and touched-block reads and writes.
+    pub(crate) fn root_claim_cash_extra_weight() -> Weight {
+        T::DbWeight::get().reads_writes(4, 3)
+    }
+
+    /// Declared weight of a single-hotkey claim that the cash path will serve: one
+    /// redeemed unit (the cash transfer), a scan over the row cap (every row is quoted
+    /// once for the guarded mark), the flush of the credits actually queued for this
+    /// hotkey (`4Q + 2H` quotes and `Q` rows, the per-hotkey flush bound with `Q` read
+    /// from the queue and `H` at the row cap), and the cash bookkeeping. No sale is
+    /// declared because none can run: `root_claim_cash_ready` decided the path on the
+    /// same state this closure sees, and only a same-block cash outflow can change it,
+    /// which [`BasketCashTouchedBlock`] turns into a cheap failure instead.
+    pub fn root_claim_cash_declared_weight(hotkey: &T::AccountId) -> Weight {
+        let rows = u64::from(Self::root_claim_hotkey_declared_work());
+        let mut queued: u64 = 0;
+        for _ in PendingBasketDeposits::<T>::iter_key_prefix(hotkey) {
+            queued = queued.saturating_add(1);
+            if queued >= super::basket_flush::MAX_BASKET_FLUSH_ROWS {
+                break;
+            }
+        }
+        let flush = BasketFlushWork::new(
+            queued
+                .saturating_mul(4)
+                .saturating_add(rows.saturating_mul(2)),
+            queued,
+        );
+        <T as crate::pallet::Config>::WeightInfo::claim_root(1)
+            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+                Self::root_claim_hotkey_declared_work(),
+            ))
+            .saturating_add(Self::basket_flush_weight(flush))
+            .saturating_add(Self::root_claim_cash_extra_weight())
+    }
+
+    /// State-dependent declaration of `claim_root_with_hotkey`: the cheap cash-path
+    /// weight when the fund's cash slot is ready to pay ([`Self::root_claim_cash_ready`]),
+    /// otherwise the full 129-unit envelope. Evaluated on the state right before the call
+    /// runs, so the path the call takes is the path that was declared.
+    pub fn root_claim_hotkey_state_declared_weight(hotkey: &T::AccountId) -> Weight {
+        if Self::root_claim_cash_ready(hotkey) {
+            Self::root_claim_cash_declared_weight(hotkey)
+        } else {
+            Self::root_claim_hotkey_declared_weight()
+        }
+    }
+
+    /// Weight of a single-hotkey claim that stopped at its pre-checks: the hotkeys-plus-rows
+    /// admission count (one read per unit counted) and the touched-block read.
+    pub fn root_claim_precheck_weight(units_read: u32) -> Weight {
+        T::DbWeight::get().reads(u64::from(units_read).saturating_add(2))
     }
 
     /// Hotkeys relevant to a coldkey-wide root claim. Ordinary subnet-only staking hotkeys
@@ -975,32 +1287,59 @@ impl<T: Config> Pallet<T> {
             .max(selection_scanned)
             .max(1);
         let scanned = outcome.rows.saturating_sub(outcome.realized);
+        let cash_extra = if outcome.cash {
+            Self::root_claim_cash_extra_weight()
+        } else {
+            Weight::zero()
+        };
         <T as crate::pallet::Config>::WeightInfo::claim_root(active)
             .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
                 scanned,
             ))
             .saturating_add(Self::basket_flush_weight(outcome.flush))
+            .saturating_add(cash_extra)
     }
 
     pub fn do_root_claim(
         coldkey: T::AccountId,
         hotkeys: Vec<T::AccountId>,
     ) -> Result<RootClaimOutcome, DispatchError> {
-        Self::ensure_beta_basket_seed_idle()?;
-        with_transaction(|| match Self::try_do_root_claim(coldkey, &hotkeys) {
-            Ok(outcome) => TransactionOutcome::Commit(Ok(outcome)),
-            Err(err) => TransactionOutcome::Rollback(Err(err)),
-        })
+        Self::do_root_claim_tracked(coldkey, hotkeys).map_err(|(_, err)| err)
+    }
+
+    /// [`Self::do_root_claim`] that, on failure, also returns the work done before the
+    /// failing hotkey aborted the (rolled-back) claim, so the dispatcher can charge that
+    /// work instead of the declared envelope.
+    pub fn do_root_claim_tracked(
+        coldkey: T::AccountId,
+        hotkeys: Vec<T::AccountId>,
+    ) -> Result<RootClaimOutcome, (RootClaimOutcome, DispatchError)> {
+        Self::ensure_beta_basket_seed_idle()
+            .map_err(|err| (RootClaimOutcome::default(), err.into()))?;
+        let mut total = RootClaimOutcome::default();
+        let result: DispatchResult =
+            with_transaction(
+                || match Self::try_do_root_claim(coldkey, &hotkeys, &mut total) {
+                    Ok(()) => TransactionOutcome::Commit(Ok(())),
+                    Err(err) => TransactionOutcome::Rollback(Err(err)),
+                },
+            );
+        match result {
+            Ok(()) => Ok(total),
+            Err(err) => Err((total, err)),
+        }
     }
 
     fn try_do_root_claim(
         coldkey: T::AccountId,
         hotkeys: &[T::AccountId],
-    ) -> Result<RootClaimOutcome, DispatchError> {
-        let mut total = RootClaimOutcome::default();
+        total: &mut RootClaimOutcome,
+    ) -> DispatchResult {
         for hotkey in hotkeys {
-            let outcome = Self::root_claim_for_hotkey(hotkey, &coldkey, false)?;
+            let mut outcome = RootClaimOutcome::default();
+            let result = Self::root_claim_for_hotkey_into(hotkey, &coldkey, false, &mut outcome);
             total.accumulate(outcome);
+            result?;
         }
 
         Self::deposit_event(Event::RootClaimed {
@@ -1008,7 +1347,7 @@ impl<T: Config> Pallet<T> {
             tao: total.tao.into(),
         });
 
-        Ok(total)
+        Ok(())
     }
 
     pub fn maybe_add_coldkey_index(coldkey: &T::AccountId) {
@@ -1212,6 +1551,20 @@ impl<T: Config> Pallet<T> {
             };
             BasketTradeBucket::<T>::insert(new_hotkey, carried);
         }
+        // The cash-claim bucket is carried the same conservative way.
+        if let Some((old_level, old_block)) = BasketCashClaimBucket::<T>::take(old_hotkey) {
+            let carried = match BasketCashClaimBucket::<T>::get(new_hotkey) {
+                Some((new_level, new_block)) => {
+                    (old_level.min(new_level), old_block.max(new_block))
+                }
+                None => (old_level, old_block),
+            };
+            BasketCashClaimBucket::<T>::insert(new_hotkey, carried);
+        }
+        // Both funds' rows, cash and queued credits just changed under any single-hotkey
+        // claim declared earlier in this block.
+        Self::mark_basket_cash_touched(old_hotkey);
+        Self::mark_basket_cash_touched(new_hotkey);
 
         // Destination-flow counters follow the fund so a hotkey swap cannot
         // reset wash headroom. Carry the higher used amount and the later block,
@@ -1576,6 +1929,7 @@ impl<T: Config> Pallet<T> {
         escrow: &T::AccountId,
         tao: TaoBalance,
     ) -> TaoBalance {
+        let cash_ready_before = Self::root_claim_cash_ready(hotkey);
         let removed: TaoBalance = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
             hotkey,
             escrow,
@@ -1585,6 +1939,7 @@ impl<T: Config> Pallet<T> {
         .to_u64()
         .into();
         Self::debit_root_reserves(removed);
+        Self::note_basket_cash_touch(hotkey, cash_ready_before);
         removed
     }
 }

@@ -397,6 +397,7 @@ fn test_stake_into_basket_claim_retains_concavity_surplus_for_existing_holders()
 #[test]
 fn test_retained_concavity_cash_balances_with_new_root_entitlement() {
     new_test_ext(1).execute_with(|| {
+        crate::BasketCashClaimCap::<Test>::put(0); // redemption-path test: cash-first off
         let (owner, hotkey, netuid) = setup_stake_in_env();
         open_fund_with_alpha(&hotkey, netuid);
 

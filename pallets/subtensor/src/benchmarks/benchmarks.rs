@@ -2190,6 +2190,91 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn claim_root_cash(h: Linear<1, { crate::MAX_ROOT_CLAIM_WORK / 2 }>) {
+        // Cash-first claim: `h` validator hotkeys, each with one subnet holding and a TAO
+        // cash slot large enough to pay the claimant, so every fund takes the cash path
+        // (one quote per row, one root-slot reassignment, bucket bookkeeping; no sale).
+        // Not yet wired into `WeightInfo`: the cash path is priced from the benchmarked
+        // `claim_root(1)` / `claim_root_scan(rows)` units plus explicit reads and writes
+        // (`root_claim_cash_extra_weight`). This benchmark exists so CI can measure the
+        // path directly and replace that composition.
+        let coldkey: T::AccountId = whitelisted_caller();
+        let owner_coldkey: T::AccountId = account("cash_owner_cold", 0, 0);
+        let owner_hotkey: T::AccountId = account("cash_owner_hot", 0, 1);
+        let netuid = Subtensor::<T>::get_next_netuid();
+
+        let lock_cost = Subtensor::<T>::get_network_lock_cost();
+        add_balance_to_coldkey_account::<T>(&owner_coldkey, lock_cost.into());
+
+        assert_ok!(Subtensor::<T>::register_network(
+            RawOrigin::Signed(owner_coldkey).into(),
+            owner_hotkey
+        ));
+        SubtokenEnabled::<T>::insert(netuid, true);
+        SubnetMechanism::<T>::insert(netuid, 1);
+        set_reserves::<T>(
+            netuid,
+            TaoBalance::from(100_000_000_000_000_u64),
+            AlphaBalance::from(100_000_000_000_000_u64),
+        );
+        SubnetMovingPrice::<T>::insert(netuid, I96F32::from_num(1));
+        SubnetFastMovingPrice::<T>::insert(netuid, U64F64::from_num(1));
+        RootClaimableThreshold::<T>::insert(NetUid::ROOT, I96F32::from_num(0));
+        BasketCashClaimCap::<T>::put(u16::MAX);
+
+        let escrow = Subtensor::<T>::get_beta_escrow_account_id();
+        let holding_alpha = AlphaBalance::from(100_000_000_u64);
+        let cash = AlphaBalance::from(1_000_000_000_u64);
+        let mut hotkeys: Vec<T::AccountId> = Vec::new();
+        for i in 0..h {
+            let hotkey: T::AccountId = account("cash_hot", i, 1);
+            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                AlphaBalance::from(1_u64),
+            );
+            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                netuid,
+                holding_alpha,
+            );
+            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                NetUid::ROOT,
+                cash,
+            );
+            // The claimant owns one of a thousand shares: a payout the cash slot covers.
+            BasketShares::<T>::insert(&hotkey, 1_000_u64);
+            BasketRate::<T>::insert(&hotkey, I96F32::from_num(1));
+            assert!(Subtensor::<T>::root_claim_cash_ready(&hotkey));
+            hotkeys.push(hotkey);
+        }
+
+        #[block]
+        {
+            let outcome = Subtensor::<T>::do_root_claim(coldkey.clone(), hotkeys.clone())
+                .expect("cash claim must succeed");
+            assert!(outcome.tao > 0, "cash benchmark must pay out");
+            assert!(outcome.cash, "cash benchmark must take the cash path");
+        }
+
+        let first_hotkey: T::AccountId = account("cash_hot", 0, 1);
+        assert_eq!(BasketShares::<T>::get(first_hotkey), 999_u64);
+        assert_eq!(
+            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &account::<T::AccountId>("cash_hot", 0, 1),
+                &escrow,
+                netuid
+            ),
+            holding_alpha,
+            "nothing sold"
+        );
+    }
+
+    #[benchmark]
     fn sudo_set_root_claim_threshold() {
         #[extrinsic_call]
         _(RawOrigin::Root, NetUid::ROOT, 100);

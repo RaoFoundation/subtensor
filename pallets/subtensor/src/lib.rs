@@ -132,6 +132,18 @@ pub const BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
 /// subnet's alpha reserve after a `swap_basket` buy (u16-normalized).
 pub const DEFAULT_BASKET_LIQUIDITY_CAP: u16 = u16::MAX / 10;
 
+/// Default [`BasketCashClaimCap`]: the cash-first claim path may pay out at most 1% of a
+/// fund's guarded NAV per refill window ([`BASKET_TRADE_REFILL_BLOCKS`], one day) from the
+/// fund's TAO cash slot (u16-normalized; 655/65535). Sized from live finney claim flow
+/// (about 0.8% of basket NAV per day is claimed) so honest flow fits while a held pump can
+/// extract at most this fraction times the mark inflation the fast EMA allows.
+pub const DEFAULT_BASKET_CASH_CLAIM_CAP: u16 = u16::MAX / 100;
+
+/// The cash-first claim path opens only while the fund's cash-claim bucket holds at least
+/// this fraction (1/4) of its daily budget, so a drained bucket reopens after about six
+/// hours instead of dribbling one block's refill at a time.
+pub const BASKET_CASH_READY_BUCKET_FRACTION: u64 = 4;
+
 /// Max deviation of a `swap_basket` leg's execution price from its reference, in basis
 /// points (2%). The reference is the *strictest* of the subnet's slow moving (emission
 /// EMA) price, its fast moving price ([`SubnetFastMovingPrice`]), and its spot price: the
@@ -3122,6 +3134,43 @@ pub mod pallet {
         (u64, u64),
         OptionQuery,
     >;
+
+    #[pallet::type_value]
+    /// Default cash-first claim budget: 1% of a fund's guarded NAV per refill window
+    /// (u16-normalized; 655/65535).
+    pub fn DefaultBasketCashClaimCap<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_CASH_CLAIM_CAP
+    }
+
+    /// --- ITEM --> capacity of a fund's cash-first claim bucket as a u16-normalized share
+    /// of the fund's guarded NAV (`u16::MAX` = 100%). A root claim that finds TAO in the
+    /// fund's cash (root) slot is paid from that cash instead of selling every holding;
+    /// the TAO so paid in one refill window ([`crate::BASKET_TRADE_REFILL_BLOCKS`]) is
+    /// capped here. When the bucket is empty the claim takes the ordinary pro-rata
+    /// redemption path. Set via `AdminUtils::sudo_set_basket_cash_claim_cap`.
+    #[pallet::storage]
+    pub type BasketCashClaimCap<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketCashClaimCap<T>>;
+
+    /// --- MAP ( validator_hotkey ) --> `(tao_available, last_refill_block)` of the fund's
+    /// cash-first claim bucket. Same arithmetic as [`BasketTradeBucket`]: a missing row is
+    /// a full bucket; each cash claim refills for the blocks elapsed at
+    /// `budget / BASKET_TRADE_REFILL_BLOCKS` per block, clamps to one budget, then takes
+    /// the TAO paid out. Follows the fund on hotkey swap.
+    #[pallet::storage]
+    pub type BasketCashClaimBucket<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u64), OptionQuery>;
+
+    /// --- MAP ( validator_hotkey ) --> block in which the fund's cash-path facts last
+    /// changed against a cheap claim declaration: the cash slot or claim bucket dropped
+    /// below what [`Pallet::root_claim_cash_ready`] requires, or the fund's rows / queued
+    /// credits moved in through a hotkey swap. A single-hotkey claim whose declared weight
+    /// was computed from the pre-change state must not run the heavy path under that
+    /// declaration; when this equals the current block the claim fails cheaply with
+    /// [`Error::CashPathUnavailable`] instead.
+    #[pallet::storage]
+    pub type BasketCashTouchedBlock<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
 
     #[pallet::type_value]
     /// Default concentration cap for a single basket holding: 1/16 of fund NAV
