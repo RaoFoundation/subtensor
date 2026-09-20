@@ -1738,6 +1738,17 @@ pub mod pallet {
     pub type SubnetFastMovingPrice<T: Config> =
         StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
 
+    /// --- MAP ( netuid ) --> fast EMA of the subnet's alpha reserve (`SubnetAlphaIn`),
+    /// same half-life and update point as [`SubnetFastMovingPrice`]. Together they let the
+    /// cash-first claim path value a holding as a liquidation against *anchored* reserves
+    /// (`alpha × price × reserve / (reserve + alpha)`), a figure nothing inside a block can
+    /// move: a same-block buy raises spot, a same-block liquidity add deepens the pool, and
+    /// neither touches this. Absent until the subnet's first update after the upgrade (the
+    /// current reserve is used until then).
+    #[pallet::storage]
+    pub type SubnetFastMovingAlphaIn<T: Config> =
+        StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
+
     /// MAP ( netuid ) --> root_prop | The subnet root proportion.
     #[pallet::storage]
     pub type RootProp<T: Config> =

@@ -21,7 +21,8 @@ use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
     BASKET_TRADE_REFILL_BLOCKS, BasketCashClaimBucket, BasketCashClaimCap, BasketCashTouchedBlock,
-    Error, Event, RootClaimableThreshold, SubnetFastMovingPrice, SubnetMovingPrice, SubnetTAO,
+    Error, Event, RootClaimableThreshold, SubnetAlphaIn, SubnetFastMovingAlphaIn,
+    SubnetFastMovingPrice, SubnetMovingPrice, SubnetTAO,
 };
 use frame_support::dispatch::GetDispatchInfo;
 use frame_support::weights::Weight;
@@ -52,6 +53,10 @@ fn setup_fund(stakes: &[u64], cash: u64) -> Fund {
     fund_pool(netuid);
     SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(1));
     SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(1));
+    SubnetFastMovingAlphaIn::<Test>::insert(
+        netuid,
+        U64F64::from_num(SubnetAlphaIn::<Test>::get(netuid).to_u64()),
+    );
     SubtensorModule::set_tao_weight(u64::MAX);
     zero_claim_threshold();
 
@@ -407,14 +412,9 @@ fn pump_does_not_inflate_cash_payout_and_budget_caps_the_window() {
         });
         let pumped_nav = SubtensorModule::get_validator_basket_nav_tao(&fund.hotkey);
         assert!(pumped_nav.to_u64() > honest_nav.to_u64().saturating_mul(10));
-        // The mark can rise only from the row's slippage-discounted quote up to its
-        // anchored value (alpha at the fast EMA): a few basis points, not a hundredfold.
+        // The mark is a liquidation against anchored price and depth: it does not move.
         let pumped_mark = SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey);
-        assert!(pumped_mark >= honest_mark);
-        assert!(
-            pumped_mark.to_u64() - honest_mark.to_u64() <= honest_mark.to_u64() / 10_000,
-            "the cash mark is anchored: {pumped_mark:?} vs {honest_mark:?}"
-        );
+        assert_eq!(pumped_mark, honest_mark, "the cash mark is anchored");
 
         let before = root_stake_of(&fund.hotkey, &attacker);
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
@@ -422,10 +422,7 @@ fn pump_does_not_inflate_cash_payout_and_budget_caps_the_window() {
             fund.hotkey
         ));
         let paid = root_stake_of(&fund.hotkey, &attacker) - before;
-        assert!(
-            paid >= honest_payout && paid <= honest_payout + honest_payout / 10_000 + 1,
-            "the pump bought nothing: paid {paid}, honest {honest_payout}"
-        );
+        assert_eq!(paid, honest_payout, "the pump bought nothing");
         assert!(paid < CASH / 10);
 
         // Budget: whatever the mark, the cash path pays at most the daily cap per window.
@@ -638,6 +635,132 @@ fn path_is_decided_before_the_flush() {
             post.actual_weight
                 .expect("actual")
                 .all_lte(declared(fund.hotkey))
+        );
+    });
+}
+
+/// Skeptic/auditor finding on #3184: with a holding that is a material share of its pool,
+/// the realizable quote sits well below `alpha × EMA` because of slippage, and a same-block
+/// buy (or liquidity add) can lift it toward that cap with the price anchor unchanged. The
+/// mark now liquidates against anchored price *and* anchored depth, so neither move pays.
+#[test]
+fn material_holding_pump_or_liquidity_add_cannot_raise_the_cash_mark() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund(&[1, 199], CASH);
+        // Thin pool: the fund's row is 10% of the alpha reserve (the liquidity cap).
+        let reserve = 1_000_000_000_000u64;
+        let holding = reserve / 10;
+        SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve));
+        SubnetAlphaIn::<Test>::insert(fund.netuid, AlphaBalance::from(reserve));
+        SubnetFastMovingAlphaIn::<Test>::insert(fund.netuid, U64F64::from_num(reserve));
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        let held = escrow_alpha(&fund.hotkey, fund.netuid);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &fund.hotkey,
+            &escrow,
+            fund.netuid,
+            (holding - held).into(),
+        );
+        assert_eq!(escrow_alpha(&fund.hotkey, fund.netuid), holding);
+        // Enough cash that the claimant's 0.5% share is fully cash-covered.
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &fund.hotkey,
+            &escrow,
+            NetUid::ROOT,
+            (holding / 10).into(),
+        );
+
+        let realizable = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
+        // ~9% slippage discount below alpha × EMA on a 10%-of-pool row.
+        assert!(realizable < holding * 92 / 100 && realizable > holding * 89 / 100);
+        let honest_mark =
+            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, realizable);
+        assert_eq!(
+            honest_mark, realizable,
+            "un-manipulated: mark is the liquidation quote"
+        );
+        let honest_payout = {
+            let owed = SubtensorModule::get_basket_owed_shares(&fund.hotkey, &fund.stakers[0]);
+            SubtensorModule::basket_payout_from(
+                owed,
+                SubtensorModule::get_validator_basket_cash_mark_nav_tao(&fund.hotkey).to_u64(),
+                fund_shares(&fund.hotkey),
+            )
+        };
+
+        // Attack 1: a 50%-of-reserve buy. Spot 1.0 → 2.25; the row's liquidation quote
+        // nearly doubles; the mark does not move at all.
+        let bought = reserve / 2;
+        SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve + bought));
+        SubnetAlphaIn::<Test>::insert(
+            fund.netuid,
+            AlphaBalance::from(
+                (reserve as u128 * reserve as u128 / (reserve + bought) as u128) as u64,
+            ),
+        );
+        let pumped = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
+        assert!(pumped > realizable * 18 / 10);
+        assert_eq!(
+            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, pumped),
+            honest_mark
+        );
+
+        // Attack 2: deepen the pool a hundredfold at the same price, erasing slippage. The
+        // quote rises to alpha × price; the mark still does not move.
+        SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve * 100));
+        SubnetAlphaIn::<Test>::insert(fund.netuid, AlphaBalance::from(reserve * 100));
+        let deep = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
+        assert!(deep > holding * 99 / 100);
+        assert_eq!(
+            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, deep),
+            honest_mark
+        );
+
+        // And the claim under attack 2 pays exactly the honest amount.
+        let before = root_stake_of(&fund.hotkey, &fund.stakers[0]);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(fund.stakers[0]),
+            fund.hotkey
+        ));
+        assert_eq!(
+            root_stake_of(&fund.hotkey, &fund.stakers[0]) - before,
+            honest_payout
+        );
+        assert_eq!(cash_claim_events().len(), 1);
+
+        // A dump (price below the anchor) lowers the quote; the mark follows it down.
+        SubnetTAO::<Test>::insert(fund.netuid, TaoBalance::from(reserve / 2));
+        SubnetAlphaIn::<Test>::insert(fund.netuid, AlphaBalance::from(reserve * 2));
+        let dumped = SubtensorModule::realizable_tao_for_alpha(fund.netuid, holding);
+        assert!(dumped < honest_mark);
+        assert_eq!(
+            SubtensorModule::cash_mark_holding_value(fund.netuid, holding, dumped),
+            dumped
+        );
+    });
+}
+
+/// The reserve anchor advances once per block like the price anchor and starts at the
+/// current reserve.
+#[test]
+fn fast_reserve_anchor_tracks_the_pool_between_blocks() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund(&[1, 199], 0);
+        SubnetFastMovingAlphaIn::<Test>::remove(fund.netuid);
+        let reserve = SubnetAlphaIn::<Test>::get(fund.netuid).to_u64();
+        SubtensorModule::update_fast_moving_price(fund.netuid);
+        assert_eq!(
+            SubnetFastMovingAlphaIn::<Test>::get(fund.netuid),
+            Some(U64F64::from_num(reserve)),
+            "seeded at the current reserve"
+        );
+        SubnetAlphaIn::<Test>::insert(fund.netuid, AlphaBalance::from(reserve * 2));
+        SubtensorModule::update_fast_moving_price(fund.netuid);
+        let anchored = SubnetFastMovingAlphaIn::<Test>::get(fund.netuid).expect("anchor");
+        assert!(anchored > U64F64::from_num(reserve));
+        assert!(
+            anchored < U64F64::from_num(reserve + reserve / 100),
+            "one block moves ~0.1%"
         );
     });
 }

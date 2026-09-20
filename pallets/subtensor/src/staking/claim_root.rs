@@ -3,6 +3,7 @@ use super::*;
 use crate::weights::WeightInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::{Weight, WeightMeter};
+use safe_math::*;
 use sp_core::Get;
 use sp_runtime::DispatchError;
 use sp_runtime::traits::{AccountIdConversion, Zero};
@@ -666,26 +667,49 @@ impl<T: Config> Pallet<T> {
         Self::mul_div_u64(nav, BasketCashClaimCap::<T>::get() as u64, u16::MAX as u64)
     }
 
-    /// The mark a cash claim values a holding at: its realizable quote capped at the value
-    /// of the alpha at the subnet's fast moving price ([`SubnetFastMovingPrice`], two-hour
-    /// half-life, advanced only between blocks). Root cash is TAO 1:1. The realizable
-    /// quote alone is pumpable inside a block (the pool's TAO reserve grows by whatever the
-    /// pumper deposits); the fast anchor cannot be moved inside a block, so a claim paid
-    /// in cash against this mark cannot be inflated by a same-block pump. Holding the
-    /// pump for several half-lives drags the anchor, and the daily cash-claim budget
-    /// bounds what that can extract. A subnet without a fast anchor yet falls back to
-    /// the slow (monthly) emission EMA, which only under-marks.
+    /// The mark a cash claim values a holding at: its realizable quote, capped at what a
+    /// liquidation of the whole holding would fetch against *anchored* reserves —
+    /// `alpha × price_anchor × reserve_anchor / (reserve_anchor + alpha)`, the
+    /// constant-product sale of `alpha` into a pool whose price is the fast EMA
+    /// ([`SubnetFastMovingPrice`]) and whose alpha reserve is the fast EMA of
+    /// `SubnetAlphaIn` ([`SubnetFastMovingAlphaIn`]). Root cash is TAO 1:1.
+    ///
+    /// The realizable quote alone is pumpable inside a block, and so is the slippage
+    /// discount hidden in it: a same-block buy lifts spot, a same-block liquidity add
+    /// deepens the pool, and either raises the quote toward `alpha × EMA` while the price
+    /// anchor stays put. Both anchors advance only between blocks, so nothing an
+    /// extrinsic does can raise this cap; a claim paid in cash therefore never pays more
+    /// than an un-manipulated liquidation would have fetched (pinned in
+    /// `pump_does_not_inflate_cash_payout_and_budget_caps_the_window`). Holding a
+    /// manipulation across several half-lives drags the anchors, and the daily cash budget
+    /// bounds what that can extract. A subnet without anchors yet falls back to the slow
+    /// (monthly) price EMA and the current reserve.
     pub(crate) fn cash_mark_holding_value(netuid: NetUid, alpha: u64, realizable: u64) -> u64 {
         if netuid.is_root() {
             return realizable;
         }
-        let anchor: U64F64 = match SubnetFastMovingPrice::<T>::get(netuid) {
+        let price: U64F64 = match SubnetFastMovingPrice::<T>::get(netuid) {
             Some(fast) if fast > U64F64::saturating_from_num(0) => fast,
             _ => Self::get_moving_alpha_price(netuid),
         };
-        let anchored: u64 = anchor
-            .saturating_mul(U64F64::saturating_from_num(alpha))
-            .saturating_to_num::<u64>();
+        let reserve: U64F64 = match SubnetFastMovingAlphaIn::<T>::get(netuid) {
+            Some(fast) if fast > U64F64::saturating_from_num(0) => fast,
+            _ => U64F64::saturating_from_num(SubnetAlphaIn::<T>::get(netuid).to_u64()),
+        };
+        let alpha_fixed = U64F64::saturating_from_num(alpha);
+        // Selling `alpha` into anchored reserves: `alpha × price × reserve / (reserve + alpha)`.
+        // The depth ratio is taken first (it is at most one) so the product never needs
+        // more than the 64 integer bits of the fixed type.
+        let depth = reserve.saturating_add(alpha_fixed);
+        let anchored: u64 = if depth > U64F64::saturating_from_num(0) {
+            let depth_ratio: U64F64 = reserve.safe_div(depth);
+            alpha_fixed
+                .saturating_mul(price)
+                .saturating_mul(depth_ratio)
+                .saturating_to_num::<u64>()
+        } else {
+            0
+        };
         realizable.min(anchored)
     }
 

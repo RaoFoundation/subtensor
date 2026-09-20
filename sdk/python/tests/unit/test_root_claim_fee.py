@@ -613,3 +613,84 @@ def test_cash_ready_mirrors_the_runtime_predicate():
     # Integer refill: a budget not divisible by four needs one block past the quarter.
     assert fees.root_claim_cash_ready(cash, threshold, cap, drained, 100 + 7_200 // 4 + 1)
     assert fees._bucket_level_at(drained, 100 + 7_200, budget_floor) == budget_floor
+
+
+def _seed_cash_fund(substrate: FakeSubstrate, *, cash_rao: int, nav_rao: int, payout: int) -> None:
+    """A single-hotkey fund with `cash_rao` in its root slot (row netuid 0) and `nav_rao` NAV."""
+    _seed_claim_quote(
+        substrate,
+        hotkeys=[ALICE_HOT],
+        payouts={ALICE_HOT: payout},
+        holdings={ALICE_HOT: 3},
+    )
+    substrate.seed_runtime(
+        "BetaBasketRuntimeApi",
+        "get_validator_basket",
+        lambda params: [(0, cash_rao, cash_rao), (1, 5, 5), (2, 5, 5)],
+    )
+    substrate.seed_runtime("BetaBasketRuntimeApi", "get_validator_basket_nav", nav_rao)
+    substrate.seed("System", "Number", [], 100)
+
+
+@pytest.mark.asyncio
+async def test_single_hotkey_quote_reports_cash_path_and_caps_the_payout():
+    substrate = FakeSubstrate()
+    # 1000 TAO fund, 50 TAO cash, claimant owed 20 TAO: the 1% daily budget (10 TAO)
+    # binds, so the claim pays 10 TAO from cash and leaves 10 TAO owed.
+    _seed_cash_fund(substrate, cash_rao=50 * 10**9, nav_rao=1000 * 10**9, payout=20 * 10**9)
+
+    quote = await fees.quote_root_claim_fee(
+        substrate,
+        ALICE,
+        hotkeys=[ALICE_HOT],
+        compose=lambda: substrate.compose(
+            ("SubtensorModule", "claim_root_with_hotkey", {"hotkey": ALICE_HOT})
+        ),
+    )
+    assert quote is not None
+    assert quote.cash_path
+    assert quote.accrued.rao == 20 * 10**9, "full entitlement is still reported"
+    budget = 1000 * 10**9 * fees._DEFAULT_CASH_CLAIM_CAP // 65_535  # 655/65535 of NAV
+    assert quote.redeemable.rao == budget, "what this claim pays: the daily budget"
+    assert quote.eligible_hotkeys == 1
+    assert any("stays owed" in line for line in quote.effects())
+    assert ("path", "paid from the fund's TAO cash; no holdings sold") in quote.facts()
+
+
+@pytest.mark.asyncio
+async def test_single_hotkey_quote_cash_below_threshold_is_a_noop():
+    substrate = FakeSubstrate()
+    # Cash covers the path, but the fund is tiny: the budgeted payment sits under the
+    # claim threshold, so the claim no-ops and the preview says so.
+    _seed_cash_fund(substrate, cash_rao=2_000_000, nav_rao=20_000_000, payout=900_000)
+
+    quote = await fees.quote_root_claim_fee(
+        substrate,
+        ALICE,
+        hotkeys=[ALICE_HOT],
+        compose=lambda: substrate.compose(
+            ("SubtensorModule", "claim_root_with_hotkey", {"hotkey": ALICE_HOT})
+        ),
+    )
+    assert quote is not None
+    assert quote.cash_path
+    assert quote.redeemable.rao == 0
+    assert quote.below_threshold
+
+
+@pytest.mark.asyncio
+async def test_single_hotkey_quote_without_cash_keeps_the_full_payout():
+    substrate = FakeSubstrate()
+    _seed_cash_fund(substrate, cash_rao=0, nav_rao=1000 * 10**9, payout=20 * 10**9)
+
+    quote = await fees.quote_root_claim_fee(
+        substrate,
+        ALICE,
+        hotkeys=[ALICE_HOT],
+        compose=lambda: substrate.compose(
+            ("SubtensorModule", "claim_root_with_hotkey", {"hotkey": ALICE_HOT})
+        ),
+    )
+    assert quote is not None
+    assert not quote.cash_path
+    assert quote.redeemable.rao == 20 * 10**9

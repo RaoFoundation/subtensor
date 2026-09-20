@@ -363,8 +363,9 @@ class RootClaimFeeQuote:
         ]
         if self.cash_path:
             lines.append(
-                "the fund's TAO cash covers claims: paid from cash at the guarded mark, "
-                "no holdings sold, cheap declared weight"
+                "the fund's TAO cash pays this claim at the guarded mark: no holdings sold, "
+                "cheap declared weight; what the cash and daily budget do not cover stays "
+                "owed for a later claim"
             )
         if self.below_threshold:
             lines.append(
@@ -580,7 +581,14 @@ async def _quote(
     threshold_rao = await _threshold_rao(substrate)
     cash_path = False
     if not coldkey_wide:
-        cash_path = await _cash_path_ready(substrate, selected_hotkeys[0], threshold_rao)
+        cash = await _cash_path_state(substrate, selected_hotkeys[0], threshold_rao)
+        cash_path = cash.ready
+        if cash_path and payouts[0] is not None:
+            # What this claim will actually pay: the entitlement capped by the cash on
+            # hand and the bucket room. The runtime marks the entitlement at the guarded
+            # (anchored-liquidation) NAV, which is at most the realizable payout used
+            # here, so this is an upper bound on the cash payment. The rest stays owed.
+            payouts = [min(payouts[0], cash.available)]
 
     holding_counts = list(admission.holding_counts)
     eligible = [payout is not None and payout >= threshold_rao for payout in payouts]
@@ -622,12 +630,27 @@ async def _quote(
     )
 
 
-async def _cash_path_ready(substrate: Any, hotkey: str, threshold_rao: int) -> bool:
-    """Best-effort mirror of ``root_claim_cash_ready`` for the fee preview: reads the
-    fund's cash slot, the cash-claim cap and bucket, and the current block. Storage items
-    the connected runtime does not have (pre-468) read as their defaults."""
+@dataclass(frozen=True)
+class CashPathState:
+    """The fund-level facts the cash-first path is decided and sized from."""
+
+    ready: bool
+    cash_rao: int
+    #: TAO the cash path can pay right now: ``min(cash, bucket room)`` with the bucket
+    #: sized from the fund's NAV (realizable here, an upper bound on the guarded mark).
+    available: int
+
+
+async def _cash_path_state(substrate: Any, hotkey: str, threshold_rao: int) -> CashPathState:
+    """Best-effort mirror of ``root_claim_cash_ready`` and the cash-path sizing for the
+    fee preview: reads the fund's cash slot and NAV, the cash-claim cap and bucket, and the
+    current block. Storage items the connected runtime does not have (pre-468) read as
+    their defaults."""
     rows = await substrate.runtime_call(*BetaBasketRuntimeApi.get_validator_basket, [hotkey])
     cash_rao = sum(int(row[1]) for row in (rows or []) if int(row[0]) == 0)
+    nav_rao = int(
+        await substrate.runtime_call(*BetaBasketRuntimeApi.get_validator_basket_nav, [hotkey]) or 0
+    )
     cap_item = getattr(st.SubtensorModule, "BasketCashClaimCap", None)
     cap = _DEFAULT_CASH_CLAIM_CAP
     if cap_item is not None:
@@ -641,7 +664,9 @@ async def _cash_path_ready(substrate: Any, hotkey: str, threshold_rao: int) -> b
         if raw_bucket is not None:
             bucket = (int(raw_bucket[0]), int(raw_bucket[1]))
     now = int(await substrate.query(*st.System.Number) or 0)
-    return root_claim_cash_ready(cash_rao, threshold_rao, cap, bucket, now)
+    ready = root_claim_cash_ready(cash_rao, threshold_rao, cap, bucket, now)
+    room = _bucket_level_at(bucket, now, max(nav_rao, cash_rao) * cap // _U16_MAX)
+    return CashPathState(ready=ready, cash_rao=cash_rao, available=min(cash_rao, room))
 
 
 async def _existing_network_count(substrate: Any) -> int:

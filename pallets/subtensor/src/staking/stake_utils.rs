@@ -87,19 +87,32 @@ impl<T: Config> Pallet<T> {
         let spot: U64F64 = T::SwapInterface::current_alpha_price(netuid.into());
         let next = match SubnetFastMovingPrice::<T>::get(netuid) {
             None => spot,
-            Some(fast) => {
-                // ln 2 / H: the per-block weight that halves the distance to spot every H blocks.
-                let alpha: U64F64 = U64F64::saturating_from_num(core::f64::consts::LN_2).safe_div(
-                    U64F64::saturating_from_num(crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS.max(1)),
-                );
-                if spot >= fast {
-                    fast.saturating_add(spot.saturating_sub(fast).saturating_mul(alpha))
-                } else {
-                    fast.saturating_sub(fast.saturating_sub(spot).saturating_mul(alpha))
-                }
-            }
+            Some(fast) => Self::fast_ema_step(fast, spot),
         };
         SubnetFastMovingPrice::<T>::insert(netuid, next);
+
+        // The alpha reserve gets the same anchor ([`SubnetFastMovingAlphaIn`]) so the
+        // cash-claim mark can liquidate against anchored depth, not the current pool.
+        let reserve: U64F64 = U64F64::saturating_from_num(SubnetAlphaIn::<T>::get(netuid).to_u64());
+        let next_reserve = match SubnetFastMovingAlphaIn::<T>::get(netuid) {
+            None => reserve,
+            Some(fast) => Self::fast_ema_step(fast, reserve),
+        };
+        SubnetFastMovingAlphaIn::<T>::insert(netuid, next_reserve);
+    }
+
+    /// One block of the fast EMA: `fast += (value - fast) × (1 - 2^(-1/H))`, `H` =
+    /// [`crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS`] (`ln 2 / H` to fixed-point precision).
+    fn fast_ema_step(fast: U64F64, value: U64F64) -> U64F64 {
+        // ln 2 / H: the per-block weight that halves the distance to `value` every H blocks.
+        let alpha: U64F64 = U64F64::saturating_from_num(core::f64::consts::LN_2).safe_div(
+            U64F64::saturating_from_num(crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS.max(1)),
+        );
+        if value >= fast {
+            fast.saturating_add(value.saturating_sub(fast).saturating_mul(alpha))
+        } else {
+            fast.saturating_sub(fast.saturating_sub(value).saturating_mul(alpha))
+        }
     }
 
     /// Gets the Median Subnet Alpha Price
