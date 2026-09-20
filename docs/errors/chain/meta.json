@@ -53,6 +53,7 @@
     "CapNotRaised",
     "CapRaised",
     "CapTooLow",
+    "CashPathUnavailable",
     "ChainIdMismatch",
     "ChangePending",
     "ChildParentInconsistency",

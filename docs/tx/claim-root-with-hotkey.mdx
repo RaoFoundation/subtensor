@@ -9,6 +9,15 @@ Redeems the signing coldkey's owed shares on the given validator only:
 that basket pays out pro-rata (subnet alpha holdings are sold to TAO at
 the current pool price) and the proceeds are staked back to root on the
 same validator. Other validators' accrued yield is left untouched.
+Cash first (spec 468): when the fund holds TAO in its cash slot that can
+pay claims, the claim is paid from that cash at the fund's guarded mark
+(each holding at the lower of its realizable quote and its fast-moving
+price), nothing is sold, and the call declares only a scan plus one
+transfer instead of the 129-row envelope. The cash paid per fund per day
+is capped (`BasketCashClaimCap`, 1% of guarded NAV); what the cash does
+not cover stays owed and redeems pro-rata on the next claim. A claim
+whose fund changed earlier in the same block fails with
+`CashPathUnavailable` after its pre-checks only; resubmit next block.
 Claims whose estimated payout is below the chain's claim threshold
 (see `root_claim_threshold`) are silently skipped and keep accruing.
 Orphaned dust holdings in the basket (subnets outside the validator's
@@ -17,12 +26,11 @@ consolidated into the fund's root (TAO) slot as a side effect, so the
 per-holding claim fee shrinks over time; curated positions are left to
 compound. The transaction fee is charged by work actually done:
 holdings redeemed pay full weight, holdings merely scanned pay a small
-per-row cost. The chain reserves a fixed 256-unit declared-work envelope
-plus a flat allowance for settling the validator's queued dividend credits
-first (the same allowance every basket call that flushes declares), counts
-only root-relevant hotkeys and their basket rows for admission, and
-separately caps classification of the staking-hotkey vector at 256. It
-refunds the unused part after.
+per-row cost. The chain reserves the declared-work envelope (129 units,
+or the cheap cash-path weight when the fund's cash is ready) plus an
+allowance for settling the validator's queued dividend credits first,
+counts only root-relevant hotkeys and their basket rows for admission,
+and refunds the unused part after — on failure too.
 `plan` and `btcli root claim --dry-run` show reserved versus spent,
 warn when the spent fee exceeds accrued yield, and refuse when free
 TAO cannot cover the reserve.
@@ -30,7 +38,7 @@ Preview per-validator payouts with `root_basket_owed_breakdown`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2130-L2149) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2157-L2194) |
 
 ## Parameters
 
@@ -79,24 +87,42 @@ result = sub.execute_tool("claim_root_with_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2134`](/code/pallets/subtensor/src/macros/dispatches.rs#L2130-L2149):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2161`](/code/pallets/subtensor/src/macros/dispatches.rs#L2157-L2194):
 
 ```rust
 #[pallet::call_index(148)]
 #[pallet::weight(
-    Pallet::<T>::root_claim_hotkey_declared_weight()
+    Pallet::<T>::root_claim_hotkey_state_declared_weight(hotkey)
 )]
 pub fn claim_root_with_hotkey(
     origin: OriginFor<T>,
     hotkey: T::AccountId,
 ) -> DispatchResultWithPostInfo {
     let coldkey: T::AccountId = ensure_signed(origin)?;
+    // A same-block change to the fund's cash, bucket, rows or queue means the
+    // declared weight may describe the other path. Stop before any heavy work.
+    ensure!(
+        !Self::basket_cash_touched_this_block(&hotkey),
+        Self::fail_with_weight(
+            Error::<T>::CashPathUnavailable,
+            Self::root_claim_precheck_weight(0)
+        )
+    );
+    let precheck =
+        Self::root_claim_precheck_weight(Self::root_claim_hotkey_declared_work());
     ensure!(
         Self::root_claim_hotkey_fits_declared_budget(&hotkey),
-        Error::<T>::RootClaimTooHeavy
+        Self::fail_with_weight(Error::<T>::RootClaimTooHeavy, precheck)
     );
 
-    let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
+    let outcome = Self::do_root_claim_tracked(coldkey.clone(), vec![hotkey]).map_err(
+        |(done, error)| {
+            Self::fail_with_weight(
+                error,
+                Self::root_claim_actual_weight(1, 0, &done).saturating_add(precheck),
+            )
+        },
+    )?;
     Self::maybe_add_coldkey_index(&coldkey);
 
     let weight = Self::root_claim_actual_weight(1, 0, &outcome);
@@ -104,6 +130,6 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L952), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L985), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L1014).
+Delegates to [`basket_cash_touched_this_block`](/code/pallets/subtensor/src/staking/claim_root.rs#L704), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1281), [`root_claim_precheck_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1210).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -11,7 +11,7 @@ A failed `execute` returns an `ExtrinsicResult` whose `error` has a semantic `co
 | --- | --- | --- |
 | [`insufficient_balance`](/docs/errors/insufficient-balance) | 25 | Fund the signing account or reduce the amount; check with `btcli wallet balance` |
 | [`insufficient_liquidity`](/docs/errors/insufficient-liquidity) | 9 | The pool cannot absorb this trade; reduce the amount or split it into smaller steps |
-| [`rate_limited`](/docs/errors/rate-limited) | 17 | Wait for the rate-limit window to pass, then retry |
+| [`rate_limited`](/docs/errors/rate-limited) | 18 | Wait for the rate-limit window to pass, then retry |
 | [`not_registered`](/docs/errors/not-registered) | 4 | Register the hotkey on this subnet first with `btcli subnets register` |
 | [`not_authorized`](/docs/errors/not-authorized) | 22 | Sign with the key or origin that owns the target object, then retry |
 | [`already_exists`](/docs/errors/already-exists) | 26 | The object or state already exists; treat the goal as met or pick a different target |

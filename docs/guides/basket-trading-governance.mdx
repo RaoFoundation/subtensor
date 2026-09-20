@@ -30,10 +30,11 @@ pip install "bittensor==11.3.0rc47"
 
 | Call | Storage it writes | Default | Bounds |
 |---|---|---|---|
-| `sudo_set_basket_trading_enabled(enabled)` | `BasketTradingEnabled` | `false` | Whether any fund may trade at all. |
+| `sudo_set_basket_trading_enabled(enabled)` | `BasketTradingEnabled` | `false` at genesis; the spec 468 upgrade sets it `true` once | Whether any fund may trade at all. |
 | `sudo_set_basket_trading_frozen(hotkey, frozen)` | `BasketTradingFrozen[hotkey]` | not frozen | Whether one fund may trade. |
 | `sudo_set_basket_daily_turnover_cap(cap)` | `BasketDailyTurnoverCap` | `6553` (10%) | TAO a fund can push through per burst and per day. |
 | `sudo_set_basket_liquidity_cap(cap)` | `BasketLiquidityCap` | `6553` (10%) | How much of any one pool a fund may hold. |
+| `sudo_set_basket_cash_claim_cap(cap)` | `BasketCashClaimCap` | `655` (1%) | TAO a fund's cash slot may pay to claimants per day (share of guarded NAV). `0` closes the cash-first claim path; zero is allowed here. |
 
 `cap` values are u16-normalized: `65535` is 100%, `6553` is 10%, `16383` is
 25%. Zero is rejected with `ValueNotInBounds`. Each call emits an event

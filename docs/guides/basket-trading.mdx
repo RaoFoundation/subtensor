@@ -387,8 +387,11 @@ at the 10% default. The cash slot has no pool and is exempt. Refusal is
 
 ### Enable and freeze switches → `BasketTradingDisabled` / `BasketTradingFrozen`
 
-- `BasketTradingEnabled` is the network-wide gate, **off** at launch. While
-  it is off every trade fails with `BasketTradingDisabled`.
+- `BasketTradingEnabled` is the network-wide gate. It shipped **off** and the
+  spec 468 upgrade turns it **on** (a one-shot, stamped migration); governance
+  can still turn it off with `sudo_set_basket_trading_enabled(false)`, and a
+  later upgrade never turns it back on by itself. While it is off every trade
+  fails with `BasketTradingDisabled`.
 - `BasketTradingFrozen[hotkey]` lets governance freeze one fund's trading,
   for example after a suspected key compromise. A frozen fund still accepts
   deposits, pays claims, and accrues dividends; only `swap_basket` fails,

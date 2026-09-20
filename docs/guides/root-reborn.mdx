@@ -69,8 +69,14 @@ staked back to root.
 - **Deposits price at NAV.** New dividends and direct deposits enter at the
   fund's pre-deposit value, so existing holders are neither diluted nor
   gifted, and each deposit bears its own swap slippage.
-- **Claims are proportional.** A claim redeems the staker's owed fraction of
-  every holding pro-rata, preserving fund composition.
+- **Claims are proportional — or paid from cash.** A claim redeems the staker's
+  owed fraction of every holding pro-rata, preserving fund composition. Since
+  spec 468 a fund that holds TAO in its cash slot (netuid 0) pays claims from
+  that cash first: the staker's share is valued at the guarded mark (each
+  holding at the lower of its realizable quote and its fast-moving-price value)
+  and paid in TAO with no sale, up to the cash on hand and the fund's daily
+  cash-claim budget (`BasketCashClaimCap`, 1% of guarded NAV per day). What the
+  cash does not cover stays owed and redeems pro-rata on the next claim.
 - **Inflows never change composition.** Dividends accumulate in place: each
   subnet's dividend is credited into the fund's holding on that subnet. The
   protocol executes zero trades (no swap fees, no slippage, no mechanical
