@@ -17,14 +17,17 @@ gate:
 scripts/install-hooks.sh
 ```
 
-The hook runs `--fast`, or the full gate when the pushed commits touch
+The hook gates the commits being pushed (each one in a detached worktree),
+not the working tree, and rejects a push of `HEAD` while uncommitted edits
+exist. It runs `--fast`, or the full gate when the pushed commits touch
 `runtime/`, `pallets/`, or `sdk/`. `git push --no-verify` is forbidden for
 agents. Do not push to "see what CI says"; a new push cancels 40+ minutes of
 in-flight clone-upgrade and try-runtime work.
 
-Pushes must go out as `unarbos`. The gate fails when the push URL of `origin`
-does not authenticate as `unarbos` and prints the `git remote set-url` fix
-(the PAT lives in the 1Password vault `Arbos`; never print it).
+Pushes must go out as `unarbos`. The gate asks GitHub who owns the credential
+for the destination remote and fails unless that login is `unarbos`; it prints
+the `git remote set-url` fix (the PAT lives in the 1Password vault `Arbos`;
+never print it).
 
 The gate covers: `cargo fmt`, CI-flag Clippy (default and `--all-features`),
 zepter, `cargo test` for changed crates plus the runtime fee/claim-root tests,

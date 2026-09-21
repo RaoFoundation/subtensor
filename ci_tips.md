@@ -105,9 +105,13 @@ scripts/preflight.sh --all    # every gate regardless of the diff
 scripts/install-hooks.sh      # pre-push hook: a red gate aborts the push
 ```
 
-Install the hook once per checkout. `git push --no-verify` is forbidden
-for agents. Pushes go out as `unarbos`; the gate checks the push URL of
-`origin` and prints the `git remote set-url` fix when it is wrong.
+Install the hook once per checkout. It gates the pushed commits in a
+detached worktree (`preflight.sh --rev SHA`), so uncommitted fixes do
+not count and `git push origin other-branch` validates `other-branch`.
+`git push --no-verify` is forbidden for agents. Pushes go out as
+`unarbos`; the gate verifies who owns the push credential for the
+destination remote via `api.github.com/user` and prints the
+`git remote set-url` fix when it is not `unarbos`.
 
 The rest of this section explains what each gate runs and how to fix
 it. Match fix-mode commands to the files you own.
