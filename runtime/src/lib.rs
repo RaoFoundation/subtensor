@@ -1713,6 +1713,14 @@ type Migrations = (
     pallet_subtensor::migrations::migrate_enable_basket_trading::enable_basket_trading::Migration<
         Runtime,
     >,
+    // Spec 468: TotalStake drifted 26.516982241 TAO below the sum of live SubnetTAO when
+    // subnet 108 dissolved on finney (block 9111229; the conversion of fund holdings
+    // subtracted it twice, fixed in `convert_basket_holding_to_root`). Second one-shot
+    // resync under its own HasMigrationRun marker; try-runtime checks the sum and that
+    // issuance is untouched.
+    pallet_subtensor::migrations::migrate_resync_total_stake::resync_total_stake_v2::Migration<
+        Runtime,
+    >,
 );
 
 // Unchecked extrinsic type as expected by this runtime.
