@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 467
+Spec version: 468
 """
 from typing import Any, NamedTuple
 
@@ -257,12 +257,12 @@ class SubtensorModule:
 
     @staticmethod
     def claim_root(subnets: 'BTreeSet') -> Call:
-        "Claims the root emissions for a coldkey across every validator it root-stakes to.  Redemption is fund-level: for each validator, the staker's accrued entitlement is paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on root. The corresponding alpha fraction is sold; any concavity surplus over the NAV-priced entitlement remains in the basket as root TAO for the other holders. The `subnets` argument is retained for call-data compatibility with pre-basket clients; it is ignored — baskets have no per-subnet claim selection.  Prefer [`Pallet::claim_root_with_hotkey`] to claim a single validator.  # Arguments * `origin`: The signature of the caller's coldkey. * `subnets`: Ignored. Kept so old clients' encoded call data still decodes.  # Events * `RootClaimed`: On successfully claiming the root emissions for a coldkey."
+        "Claims the root emissions for a coldkey across every validator it root-stakes to.  Redemption is fund-level: for each validator, the staker's accrued entitlement is paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on root. The corresponding alpha fraction is sold; any concavity surplus over the NAV-priced entitlement remains in the basket as root TAO for the other holders. The `subnets` argument is retained for call-data compatibility with pre-basket clients; it is ignored — baskets have no per-subnet claim selection.  Prefer [`Pallet::claim_root_with_hotkey`] to claim a single validator.  Dust rows are not sold (see [`Pallet::claim_root_with_hotkey`]); the claimant's slice of them stays in the fund. A claim that is admitted and then fails is charged the work it did, not the declared envelope; a claim refused at admission keeps the envelope.  # Arguments * `origin`: The signature of the caller's coldkey. * `subnets`: Ignored. Kept so old clients' encoded call data still decodes.  # Events * `RootClaimed`: On successfully claiming the root emissions for a coldkey. * `BasketClaimDustSkipped`: Per fund whose dust rows were left unsold.  # Errors * `RootClaimTooHeavy`: More hotkeys or fund rows than one claim may walk."
         return Call('SubtensorModule', 'claim_root', {'subnets': subnets})
 
     @staticmethod
     def claim_root_with_hotkey(hotkey: 'AccountId32') -> Call:
-        "Claims the root emissions for a coldkey on one validator hotkey.  Redemption is fund-level for that validator: the staker's accrued entitlement is paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on root. The corresponding alpha fraction is sold; any concavity surplus over the NAV-priced entitlement remains in the basket as root TAO for the other holders. Other validators' accrued yield is left untouched.  # Arguments * `origin`: The signature of the caller's coldkey. * `hotkey`: The validator whose basket entitlement to redeem.  # Events * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey."
+        "Claims the root emissions for a coldkey on one validator hotkey.  Redemption is fund-level for that validator: the staker's accrued entitlement is paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on root. The corresponding alpha fraction is sold; any concavity surplus over the NAV-priced entitlement remains in the basket as root TAO for the other holders. Other validators' accrued yield is left untouched.  Dust rows are not sold: a fund row worth less than `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × anchored NAV)`, or one whose slice for this claimant is worth less than `BasketClaimSliceDustTao`, is skipped when that slice is also worth at most `BasketClaimForfeitCapTao` (all at the anchored mark, which decides dust only). The claim burns the full entitlement, so the claimant's slice of a skipped row — never more than the cap at the anchored mark — is left to the remaining holders (`BasketClaimDustSkipped` reports it). A claim that is admitted and then fails is charged the work it did, not the declared envelope; a claim refused at admission keeps the envelope.  # Arguments * `origin`: The signature of the caller's coldkey. * `hotkey`: The validator whose basket entitlement to redeem.  # Events * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey. * `BasketClaimDustSkipped`: When the claim left dust rows unsold.  # Errors * `RootClaimTooHeavy`: The fund has more rows (or queued credits) than one claim may walk."
         return Call('SubtensorModule', 'claim_root_with_hotkey', {'hotkey': hotkey})
 
     @staticmethod
@@ -921,6 +921,11 @@ class AdminUtils:
     def sudo_set_alpha_values(netuid: 'NetUid', alpha_low: 'u16', alpha_high: 'u16') -> Call:
         'Sets values for liquid alpha'
         return Call('AdminUtils', 'sudo_set_alpha_values', {'netuid': netuid, 'alpha_low': alpha_low, 'alpha_high': alpha_high})
+
+    @staticmethod
+    def sudo_set_basket_claim_dust(row_cap_rao: 'u64', row_bps: 'u16', slice_rao: 'u64', forfeit_cap_rao: 'u64') -> Call:
+        "Sets the four root-claim dust knobs at once. A claim does not sell a fund row whose whole holding is worth less than `min(row_cap_rao, row_bps × anchored NAV)` ([`pallet_subtensor::BasketClaimRowDustCapTao`], [`pallet_subtensor::BasketClaimRowDustBps`]), nor a row where the claimant's own slice is worth less than `slice_rao` ([`pallet_subtensor::BasketClaimSliceDustTao`]), provided that slice is worth at most `forfeit_cap_rao` ([`pallet_subtensor::BasketClaimForfeitCapTao`]) — all at the anchored mark; the skipped slices stay in the fund for the other holders. Zero turns the respective skip off (a zero cap turns every skip off). `row_bps` is at most 10_000 (100%). Declared at four times the sibling one-write basket setter's weight (four writes; a dedicated benchmark exists for CI to measure). Root-only."
+        return Call('AdminUtils', 'sudo_set_basket_claim_dust', {'row_cap_rao': row_cap_rao, 'row_bps': row_bps, 'slice_rao': slice_rao, 'forfeit_cap_rao': forfeit_cap_rao})
 
     @staticmethod
     def sudo_set_basket_concentration_cap(cap: 'u16') -> Call:
