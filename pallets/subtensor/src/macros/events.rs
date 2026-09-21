@@ -862,10 +862,10 @@ mod events {
         /// A root claim skipped `rows` dust rows of the fund: rows whose whole holding was
         /// worth less than `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × anchored
         /// NAV)`, or whose slice for this claimant was worth less than
-        /// `BasketClaimSliceDustTao`, at the anchored (fast-EMA-capped) mark. Those rows were neither sold nor
-        /// paid. The claim burned only the shares matching what it redeemed, so the claimant
-        /// still owns `retained_shares` fund shares — worth about `retained_tao_est` at the
-        /// pre-sale realizable quote — to redeem in a later, larger claim.
+        /// `BasketClaimSliceDustTao`, at the anchored (fast-EMA-capped) mark. Those rows were
+        /// neither sold nor paid. The claim burned the whole entitlement, so the claimant's
+        /// slices of those rows — about `forfeited_tao_est` at the pre-sale realizable quote,
+        /// each below the slice floor — stay in the fund for the remaining holders.
         BasketClaimDustSkipped {
             /// Validator hotkey the basket belongs to.
             hotkey: T::AccountId,
@@ -873,10 +873,8 @@ mod events {
             coldkey: T::AccountId,
             /// Fund rows the claim did not sell.
             rows: u32,
-            /// Owed fund shares left unburned for the skipped slices.
-            retained_shares: u64,
-            /// Estimated TAO value of the claimant's slices of those rows, still owed.
-            retained_tao_est: TaoBalance,
+            /// Estimated TAO value of the claimant's slices of those rows, left in the fund.
+            forfeited_tao_est: TaoBalance,
         },
     }
 }

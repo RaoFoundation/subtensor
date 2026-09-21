@@ -3703,7 +3703,7 @@ fn test_sudo_set_basket_claim_dust() {
         assert_eq!(pallet_subtensor::DEFAULT_BASKET_CLAIM_ROW_DUST_BPS, 10);
         assert_eq!(
             pallet_subtensor::DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO,
-            1_000_000
+            100_000
         );
 
         assert_noop!(

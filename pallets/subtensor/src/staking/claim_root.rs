@@ -53,6 +53,7 @@ struct ValuedHolding {
     value: u64,
     /// The same, capped at the fast-anchor value of the alpha
     /// ([`Pallet::anchored_basket_holding_value`]): what a same-block pump cannot move.
+    /// Used only to decide whether the row is dust for this claim.
     anchored: u64,
     terminal_garbage: bool,
     dust: bool,
@@ -104,18 +105,6 @@ impl<T: Config> Pallet<T> {
         u128::from(a)
             .saturating_mul(u128::from(b))
             .checked_div(u128::from(denom))
-            .unwrap_or(0)
-            .min(u128::from(u64::MAX)) as u64
-    }
-
-    /// [`Self::mul_div_u64`] rounded up: `ceil(a * b / denom)`, saturated to u64, zero when
-    /// `denom` is zero.
-    pub(crate) fn mul_div_u64_ceil(a: u64, b: u64, denom: u64) -> u64 {
-        let denom = u128::from(denom);
-        u128::from(a)
-            .saturating_mul(u128::from(b))
-            .saturating_add(denom.saturating_sub(1))
-            .checked_div(denom)
             .unwrap_or(0)
             .min(u128::from(u64::MAX)) as u64
     }
@@ -595,12 +584,12 @@ impl<T: Config> Pallet<T> {
     /// `[`BasketClaimRowDustBps`]` × anchored NAV)`, or the claimant's pro-rata slice of it
     /// is worth less than [`BasketClaimSliceDustTao`], both at the anchored mark
     /// ([`Self::anchored_basket_holding_value`]: the live quote capped at the fast-EMA
-    /// anchor `swap_basket` already uses). A skipped row is neither sold nor paid, and
-    /// nothing is forfeited: the claim burns only the shares matching the value it redeemed
-    /// (`owed × redeemed / total`, skipped rows counted at the anchored mark), so NAV per
-    /// share is unchanged for the other holders and the claimant keeps the shares for the
-    /// skipped slices, to redeem later when they are bigger (`BasketClaimDustSkipped`
-    /// reports both).
+    /// anchor `swap_basket` already uses). A skipped row is neither sold nor paid. The claim
+    /// still burns the whole entitlement, so the claimant's slice of a skipped row — worth
+    /// less than the slice floor by construction — stays in the fund for the remaining
+    /// holders (`BasketClaimDustSkipped` reports an estimate). No price enters the share
+    /// accounting: the mark only decides *whether* a slice is sold, never how many shares a
+    /// claim burns or what anyone else is owed, so there is nothing to pump.
     /// The root cash slot (TAO 1:1, no swap) and terminal write-offs are never skipped, and
     /// a claimant redeeming the whole fund skips nothing — there is nobody left to hold the
     /// rest. Zero thresholds turn the skip off.
@@ -697,9 +686,10 @@ impl<T: Config> Pallet<T> {
         }
         let has_terminal_garbage = valued_holdings.iter().any(|row| row.terminal_garbage);
         let dust_rows: u32 = valued_holdings.iter().filter(|row| row.dust).count() as u32;
-        // What the skipped slices would have paid at the pre-sale quote. Not forfeited: the
-        // matching shares stay owed (see `burned_shares` below).
-        let retained_est: u64 =
+        // What the skipped slices would have paid at the pre-sale quote. Informational only
+        // (the event): nothing in the accounting below depends on it. The claim burns the
+        // whole entitlement, so this value stays in the fund for the remaining holders.
+        let forfeited_est: u64 =
             valued_holdings
                 .iter()
                 .filter(|row| row.dust)
@@ -717,28 +707,6 @@ impl<T: Config> Pallet<T> {
             .iter()
             .filter(|row| !row.dust)
             .fold(0u64, |acc, row| acc.saturating_add(row.value));
-        // Burn only the shares that match the value redeemed: `owed × redeemed / total`,
-        // rounded up so the fund is never short a share, where the redeemed rows enter at
-        // their live quote (what is actually sold) and the skipped rows at their anchored
-        // value (what a same-block pump cannot move). NAV per share is unchanged for
-        // everyone else, and the claimant keeps `owed − burned` shares — their slice of the
-        // skipped rows — to redeem later, when it is bigger. Pumping a skipped row's live
-        // quote does not grow that retained fraction; dumping a redeemed row lowers the
-        // payout by more than it lowers the burn. The claimant can only lose the fast
-        // anchor's lag on the skipped rows (hours, not months), never the other holders.
-        // Without dust rows this is exactly `owed`.
-        let burned_shares: u64 = if dust_rows == 0 {
-            owed_shares
-        } else {
-            let denominator: u64 = valued_holdings.iter().fold(0u64, |acc, row| {
-                acc.saturating_add(if row.dust { row.anchored } else { row.value })
-            });
-            if denominator == 0 {
-                owed_shares
-            } else {
-                Self::mul_div_u64_ceil(owed_shares, redeemable_nav, denominator).min(owed_shares)
-            }
-        };
         let estimated_payout: u64 =
             Self::basket_payout_from(owed_shares, redeemable_nav, shares_total);
         if !ignore_minimum_condition
@@ -923,9 +891,11 @@ impl<T: Config> Pallet<T> {
                 );
             }
 
-            // Consume the redeemed shares and advance the watermark by the same amount.
+            // Consume the claimed shares and advance the watermark. The whole entitlement
+            // is burned, skipped rows included: the fund keeps exactly `owed / P` of every
+            // skipped row for its remaining holders, and no price enters this accounting.
             let remaining = BasketShares::<T>::mutate(hotkey, |p| {
-                *p = p.saturating_sub(burned_shares);
+                *p = p.saturating_sub(owed_shares);
                 *p
             });
             if remaining == 0 {
@@ -934,7 +904,7 @@ impl<T: Config> Pallet<T> {
                 Self::retire_beta_display_state(hotkey);
             }
             BasketClaimed::<T>::mutate(hotkey, coldkey, |claimed| {
-                *claimed = claimed.saturating_add(i128::from(burned_shares));
+                *claimed = claimed.saturating_add(i128::from(owed_shares));
             });
             BasketRedeemedTao::<T>::mutate(hotkey, |total| {
                 *total = total.saturating_add(total_tao.into())
@@ -945,8 +915,7 @@ impl<T: Config> Pallet<T> {
                     hotkey: hotkey.clone(),
                     coldkey: coldkey.clone(),
                     rows: dust_rows,
-                    retained_shares: owed_shares.saturating_sub(burned_shares),
-                    retained_tao_est: retained_est.into(),
+                    forfeited_tao_est: forfeited_est.into(),
                 });
             }
             Self::deposit_event(Event::BasketClaimed {
@@ -1189,10 +1158,17 @@ impl<T: Config> Pallet<T> {
             .saturating_add(Self::basket_flush_weight(outcome.flush))
     }
 
-    /// Weight of a claim that stopped at its admission pre-checks: one read per
-    /// hotkey-or-row unit counted, plus the staking-hotkeys read.
-    pub fn root_claim_precheck_weight(units_read: u32) -> Weight {
-        T::DbWeight::get().reads(u64::from(units_read).saturating_add(1))
+    /// Weight of a claim's admission scan, charged on top of the work done when an admitted
+    /// claim fails: one read per hotkey-or-row unit the row count may walk, the
+    /// staking-hotkeys read, and the pending-deposit queue scan at its bound
+    /// ([`super::basket_flush::MAX_BASKET_FLUSH_ROWS`] rows). Bounds, not measurements, so
+    /// the refund can only under-state the work in the claimant's disfavour.
+    pub fn root_claim_admission_weight(units: u32) -> Weight {
+        T::DbWeight::get().reads(
+            u64::from(units)
+                .saturating_add(1)
+                .saturating_add(super::basket_flush::MAX_BASKET_FLUSH_ROWS),
+        )
     }
 
     pub fn do_root_claim(

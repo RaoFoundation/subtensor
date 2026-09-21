@@ -2592,8 +2592,8 @@ pub mod pallet {
         /// ([`pallet_subtensor::BasketClaimRowDustCapTao`],
         /// [`pallet_subtensor::BasketClaimRowDustBps`]), nor a row where the claimant's own
         /// slice is worth less than `slice_rao` ([`pallet_subtensor::BasketClaimSliceDustTao`]),
-        /// all at the anchored mark; the claimant keeps the shares for skipped slices and
-        /// redeems them in a later, larger claim. Zero turns the respective skip off. `row_bps` is at most 10_000 (100%).
+        /// all at the anchored mark; the skipped slices stay in the fund for the other
+        /// holders. Zero turns the respective skip off. `row_bps` is at most 10_000 (100%).
         /// Declared at three times the sibling one-write basket setter's weight (three
         /// writes; a dedicated benchmark exists for CI to measure). Root-only.
         #[pallet::call_index(110)]

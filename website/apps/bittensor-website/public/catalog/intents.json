@@ -62,9 +62,9 @@
         "pallet": "SubtensorModule",
         "call": "add_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2837,
-        "end_line": 2845,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2835-L2845",
+        "line": 2839,
+        "end_line": 2847,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2837-L2847",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -318,9 +318,9 @@
         "pallet": "SubtensorModule",
         "call": "announce_coldkey_swap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2355,
-        "end_line": 2381,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2353-L2381",
+        "line": 2357,
+        "end_line": 2383,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2355-L2383",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -513,7 +513,7 @@
   {
     "name": "claim_root",
     "summary": "Redeem accrued root dividends across every validator for the coldkey.",
-    "description": "Redeem accrued root dividends across every validator for the coldkey.\n\nRoot dividends accrue as shares of each validator's basket \u2014 an\nescrowed index fund of subnet alpha built from the validator's root\ndividends, each held on the subnet it was earned on (the validator\nreshapes it only with `swap_basket`). This call\nredeems the signing coldkey's owed shares on every validator it\nroot-stakes to. The `subnets` argument is retained for call-data\ncompatibility with pre-basket clients and is ignored \u2014 baskets have no\nper-subnet claim selection.\n\nPrefer :class:`ClaimRootWithHotkey` to claim a single validator.\n\nSince spec 468 each fund's dust rows are left unsold (a row worth less\nthan `min(1 TAO, 0.1% of the fund's anchored NAV)`, or one where this\nclaimant's slice is worth less than 0.001 TAO); the claim burns only the\nshares matching what it redeemed and the rest stays owed for a later,\nlarger claim. A failed claim pays for the work it did, not the declared\nenvelope.\n\n`plan` (and `btcli root claim --dry-run`) estimates the reserved\ninclusion fee versus the fee that will actually settle, compares that\nspent fee to accrued yield, warns when the claim loses money, and\nrefuses when free TAO cannot cover the reserve.",
+    "description": "Redeem accrued root dividends across every validator for the coldkey.\n\nRoot dividends accrue as shares of each validator's basket \u2014 an\nescrowed index fund of subnet alpha built from the validator's root\ndividends, each held on the subnet it was earned on (the validator\nreshapes it only with `swap_basket`). This call\nredeems the signing coldkey's owed shares on every validator it\nroot-stakes to. The `subnets` argument is retained for call-data\ncompatibility with pre-basket clients and is ignored \u2014 baskets have no\nper-subnet claim selection.\n\nPrefer :class:`ClaimRootWithHotkey` to claim a single validator.\n\nSince spec 468 each fund's dust rows are left unsold (a row worth less\nthan `min(1 TAO, 0.1% of the fund's anchored NAV)`, or one where this\nclaimant's slice is worth less than 0.0001 TAO); the whole entitlement is\nsettled, so those slices stay in the fund for the remaining holders. A\nclaim that is admitted and then fails pays for the work it did, not the\ndeclared envelope.\n\n`plan` (and `btcli root claim --dry-run`) estimates the reserved\ninclusion fee versus the fee that will actually settle, compares that\nspent fee to accrued yield, warns when the claim loses money, and\nrefuses when free TAO cannot cover the reserve.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -546,9 +546,9 @@
         "pallet": "SubtensorModule",
         "call": "claim_root",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2098,
-        "end_line": 2136,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2094-L2136",
+        "line": 2099,
+        "end_line": 2137,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2095-L2137",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -556,7 +556,7 @@
   {
     "name": "claim_root_with_hotkey",
     "summary": "Redeem accrued root dividends (basket shares) for one validator.",
-    "description": "Redeem accrued root dividends (basket shares) for one validator.\n\nRedeems the signing coldkey's owed shares on the given validator only:\nthat basket pays out pro-rata (subnet alpha holdings are sold to TAO at\nthe current pool price) and the proceeds are staked back to root on the\nsame validator. Other validators' accrued yield is left untouched.\nClaims whose estimated payout is below the chain's claim threshold\n(see `root_claim_threshold`) are silently skipped and keep accruing.\nOrphaned dust holdings in the basket (subnets outside the validator's\ncurrent weight vector, worth less than the same threshold) are\nconsolidated into the fund's root (TAO) slot as a side effect, so the\nper-holding claim fee shrinks over time; curated positions are left to\ncompound. Since spec 468 a claim also leaves dust rows unsold: a holding\nworth less than `min(1 TAO, 0.1% of the fund's anchored NAV)`, or one\nwhere this claimant's own slice is worth less than 0.001 TAO, is neither\nsold nor paid; the claim burns only the shares matching what it redeemed,\nso those slices stay owed and pay out in a later, larger claim (event\n`BasketClaimDustSkipped`). The transaction fee is charged by work\nactually done: holdings redeemed pay full weight, holdings merely scanned\n(including skipped dust rows) pay a small per-row cost, and a failed claim\npays for the work it did rather than the declared envelope. The chain\nreserves a fixed 256-unit declared-work envelope\nplus a flat allowance for settling the validator's queued dividend credits\nfirst (the same allowance every basket call that flushes declares), counts\nonly root-relevant hotkeys and their basket rows for admission, and\nseparately caps classification of the staking-hotkey vector at 256. It\nrefunds the unused part after.\n`plan` and `btcli root claim --dry-run` show reserved versus spent,\nwarn when the spent fee exceeds accrued yield, and refuse when free\nTAO cannot cover the reserve.\nPreview per-validator payouts with `root_basket_owed_breakdown`.",
+    "description": "Redeem accrued root dividends (basket shares) for one validator.\n\nRedeems the signing coldkey's owed shares on the given validator only:\nthat basket pays out pro-rata (subnet alpha holdings are sold to TAO at\nthe current pool price) and the proceeds are staked back to root on the\nsame validator. Other validators' accrued yield is left untouched.\nClaims whose estimated payout is below the chain's claim threshold\n(see `root_claim_threshold`) are silently skipped and keep accruing.\nOrphaned dust holdings in the basket (subnets outside the validator's\ncurrent weight vector, worth less than the same threshold) are\nconsolidated into the fund's root (TAO) slot as a side effect, so the\nper-holding claim fee shrinks over time; curated positions are left to\ncompound. Since spec 468 a claim also leaves dust rows unsold: a holding\nworth less than `min(1 TAO, 0.1% of the fund's anchored NAV)`, or one\nwhere this claimant's own slice is worth less than 0.0001 TAO, is neither\nsold nor paid; the whole entitlement is still settled, so those slices\n(each under the floor) stay in the fund for the remaining holders (event\n`BasketClaimDustSkipped`). The transaction fee is charged by work\nactually done: holdings redeemed pay full weight, holdings merely scanned\n(including skipped dust rows) pay a small per-row cost, and a claim that\nis admitted and then fails pays for the work it did rather than the\ndeclared envelope. The chain\nreserves a fixed 256-unit declared-work envelope\nplus a flat allowance for settling the validator's queued dividend credits\nfirst (the same allowance every basket call that flushes declares), counts\nonly root-relevant hotkeys and their basket rows for admission, and\nseparately caps classification of the staking-hotkey vector at 256. It\nrefunds the unused part after.\n`plan` and `btcli root claim --dry-run` show reserved versus spent,\nwarn when the spent fee exceeds accrued yield, and refuse when free\nTAO cannot cover the reserve.\nPreview per-validator payouts with `root_basket_owed_breakdown`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -588,9 +588,9 @@
         "pallet": "SubtensorModule",
         "call": "claim_root_with_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2170,
-        "end_line": 2194,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2166-L2194",
+        "line": 2171,
+        "end_line": 2196,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2167-L2196",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -623,9 +623,9 @@
         "pallet": "SubtensorModule",
         "call": "clear_coldkey_swap_announcement",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2558,
-        "end_line": 2573,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2556-L2573",
+        "line": 2560,
+        "end_line": 2575,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2558-L2575",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -978,9 +978,9 @@
         "pallet": "SubtensorModule",
         "call": "dispute_coldkey_swap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2428,
-        "end_line": 2445,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2426-L2445",
+        "line": 2430,
+        "end_line": 2447,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2428-L2447",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1394,9 +1394,9 @@
         "pallet": "SubtensorModule",
         "call": "lock_stake",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2629,
-        "end_line": 2637,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2627-L2637",
+        "line": 2631,
+        "end_line": 2639,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2629-L2639",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1441,9 +1441,9 @@
         "pallet": "SubtensorModule",
         "call": "move_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2653,
-        "end_line": 2660,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2651-L2660",
+        "line": 2655,
+        "end_line": 2662,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2653-L2662",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1560,9 +1560,9 @@
         "pallet": "SubtensorModule",
         "call": "claim_root_with_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2170,
-        "end_line": 2194,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2166-L2194",
+        "line": 2171,
+        "end_line": 2196,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2167-L2196",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
@@ -2191,9 +2191,9 @@
         "pallet": "SubtensorModule",
         "call": "claim_root_with_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2170,
-        "end_line": 2194,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2166-L2194",
+        "line": 2171,
+        "end_line": 2196,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2167-L2196",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
@@ -2310,9 +2310,9 @@
         "pallet": "SubtensorModule",
         "call": "claim_root_with_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2170,
-        "end_line": 2194,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2166-L2194",
+        "line": 2171,
+        "end_line": 2196,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2167-L2196",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
@@ -3478,9 +3478,9 @@
         "pallet": "SubtensorModule",
         "call": "set_min_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2872,
-        "end_line": 2879,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2870-L2879",
+        "line": 2874,
+        "end_line": 2881,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2872-L2881",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3525,9 +3525,9 @@
         "pallet": "SubtensorModule",
         "call": "set_perpetual_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2669,
-        "end_line": 2676,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2667-L2676",
+        "line": 2671,
+        "end_line": 2678,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2669-L2678",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3567,9 +3567,9 @@
         "pallet": "SubtensorModule",
         "call": "set_reject_locked_alpha",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2725,
-        "end_line": 2730,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2723-L2730",
+        "line": 2727,
+        "end_line": 2732,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2725-L2732",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3622,9 +3622,9 @@
         "pallet": "SubtensorModule",
         "call": "sudo_set_root_claim_threshold",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2318,
-        "end_line": 2337,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2316-L2337",
+        "line": 2320,
+        "end_line": 2339,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2318-L2339",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3959,9 +3959,9 @@
         "pallet": "SubtensorModule",
         "call": "add_stake_burn",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2542,
-        "end_line": 2550,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2540-L2550",
+        "line": 2544,
+        "end_line": 2552,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2542-L2552",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4021,9 +4021,9 @@
         "pallet": "SubtensorModule",
         "call": "stake_into_basket",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2236,
-        "end_line": 2244,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2228-L2244",
+        "line": 2238,
+        "end_line": 2246,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2230-L2246",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4148,9 +4148,9 @@
         "pallet": "SubtensorModule",
         "call": "swap_basket",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2290,
-        "end_line": 2308,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2283-L2308",
+        "line": 2292,
+        "end_line": 2310,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2285-L2310",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4190,9 +4190,9 @@
         "pallet": "SubtensorModule",
         "call": "swap_coldkey_announced",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2393,
-        "end_line": 2417,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2391-L2417",
+        "line": 2395,
+        "end_line": 2419,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2393-L2419",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4571,9 +4571,9 @@
         "pallet": "SubtensorModule",
         "call": "transfer_stake_and_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2770,
-        "end_line": 2797,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2763-L2797",
+        "line": 2772,
+        "end_line": 2799,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2765-L2799",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4681,9 +4681,9 @@
         "pallet": "SubtensorModule",
         "call": "claim_root_with_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2170,
-        "end_line": 2194,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2166-L2194",
+        "line": 2171,
+        "end_line": 2196,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2167-L2196",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {

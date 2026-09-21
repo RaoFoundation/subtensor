@@ -2077,9 +2077,10 @@ mod dispatches {
         ///
         /// Prefer [`Pallet::claim_root_with_hotkey`] to claim a single validator.
         ///
-        /// Dust rows are not sold (see [`Pallet::claim_root_with_hotkey`]): the claim burns
-        /// only the shares matching what it redeemed and the claimant keeps the rest. A
-        /// failed claim is charged the work it did, not the declared envelope.
+        /// Dust rows are not sold (see [`Pallet::claim_root_with_hotkey`]); the claimant's
+        /// slice of them stays in the fund. A claim that is admitted and then fails is
+        /// charged the work it did, not the declared envelope; a claim refused at admission
+        /// keeps the envelope.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
@@ -2104,28 +2105,28 @@ mod dispatches {
 
             let staking_hotkeys = StakingHotkeys::<T>::get(&coldkey);
             let selection_scanned = u32::try_from(staking_hotkeys.len()).unwrap_or(u32::MAX);
-            // Every failure path reports the work done so far instead of the declared
-            // envelope, so a refused or rolled-back claim is not billed for 256 rows.
-            let precheck = Self::root_claim_precheck_weight(selection_scanned);
+            // Admission failures keep the declared envelope: the admission scan's cost is
+            // not precisely metered, so refunding it could under-charge. Only a claim that
+            // was admitted and then failed is billed for the work it actually did.
             ensure!(
                 selection_scanned <= Self::root_claim_declared_work(),
-                Self::fail_with_weight(Error::<T>::RootClaimTooHeavy, precheck)
+                Error::<T>::RootClaimTooHeavy
             );
             let hotkeys = Self::root_claim_hotkeys(&coldkey, staking_hotkeys);
-            let precheck = precheck.saturating_add(Self::root_claim_precheck_weight(
-                Self::root_claim_declared_work(),
-            ));
             ensure!(
                 Self::root_claim_fits_declared_budget(&hotkeys),
-                Self::fail_with_weight(Error::<T>::RootClaimTooHeavy, precheck)
+                Error::<T>::RootClaimTooHeavy
             );
             let hotkey_count = hotkeys.len() as u32;
+            let admitted = Self::root_claim_admission_weight(
+                selection_scanned.saturating_add(Self::root_claim_declared_work()),
+            );
             let outcome = Self::do_root_claim_tracked(coldkey.clone(), hotkeys).map_err(
                 |(done, error)| {
                     Self::fail_with_weight(
                         error,
                         Self::root_claim_actual_weight(hotkey_count, selection_scanned, &done)
-                            .saturating_add(precheck),
+                            .saturating_add(admitted),
                     )
                 },
             )?;
@@ -2146,11 +2147,11 @@ mod dispatches {
         /// Dust rows are not sold: a fund row worth less than
         /// `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × anchored NAV)`, or one
         /// whose slice for this claimant is worth less than `BasketClaimSliceDustTao` (both
-        /// at the anchored mark), stays in the fund. The claim burns only the shares
-        /// matching what it redeemed, so the claimant keeps the shares for the skipped
-        /// slices and redeems them in a later, larger claim (`BasketClaimDustSkipped`
-        /// reports them). A failed claim is charged the work it did, not the declared
-        /// envelope.
+        /// at the anchored mark), stays in the fund. The claim burns the full entitlement,
+        /// so the claimant's slice of a skipped row — below the floor by construction — is
+        /// left to the remaining holders (`BasketClaimDustSkipped` reports it). A claim
+        /// that is admitted and then fails is charged the work it did, not the declared
+        /// envelope; a claim refused at admission keeps the envelope.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
@@ -2172,18 +2173,19 @@ mod dispatches {
             hotkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
-            let precheck =
-                Self::root_claim_precheck_weight(Self::root_claim_hotkey_declared_work());
+            // Admission failures keep the declared envelope (see `claim_root`).
             ensure!(
                 Self::root_claim_hotkey_fits_declared_budget(&hotkey),
-                Self::fail_with_weight(Error::<T>::RootClaimTooHeavy, precheck)
+                Error::<T>::RootClaimTooHeavy
             );
 
+            let admitted =
+                Self::root_claim_admission_weight(Self::root_claim_hotkey_declared_work());
             let outcome = Self::do_root_claim_tracked(coldkey.clone(), vec![hotkey]).map_err(
                 |(done, error)| {
                     Self::fail_with_weight(
                         error,
-                        Self::root_claim_actual_weight(1, 0, &done).saturating_add(precheck),
+                        Self::root_claim_actual_weight(1, 0, &done).saturating_add(admitted),
                     )
                 },
             )?;

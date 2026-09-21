@@ -73,14 +73,14 @@ staked back to root.
   fraction of every holding pro-rata, preserving fund composition. Since
   spec 468 it leaves dust rows alone: a holding worth less than
   `min(1 TAO, 0.1% of the fund's NAV)`, or one where your own slice is worth
-  less than 0.001 TAO — both at the fast-anchored mark `swap-basket` already
-  prices against — is neither sold nor paid. Nothing is lost:
-  the claim burns only the shares that match what it redeemed, so you keep
-  the shares for the skipped slices and they pay out in a later, larger
-  claim (the `BasketClaimDustSkipped` event shows how many shares and roughly
-  what they are worth). This is what keeps a small claim from paying a swap
-  per row for amounts that round to nothing; governance can tune or zero the
-  floors with `sudo_set_basket_claim_dust`.
+  less than 0.0001 TAO — both at the fast-anchored mark `swap-basket` already
+  prices against — is neither sold nor paid. The claim still settles your
+  whole entitlement, so those slices (each under 0.0001 TAO) stay in the fund
+  for the remaining holders; the `BasketClaimDustSkipped` event reports how
+  many rows and roughly how much. On finney's claim flow this removes about a
+  fifth of the swaps while a median claim leaves under 1% of its value
+  behind. Governance can tune or zero the floors with
+  `sudo_set_basket_claim_dust`.
 - **Inflows never change composition.** Dividends accumulate in place: each
   subnet's dividend is credited into the fund's holding on that subnet. The
   protocol executes zero trades (no swap fees, no slippage, no mechanical
@@ -283,8 +283,8 @@ root-stakes to.
   consolidated holdings pay full weight, holdings merely scanned (including
   dust rows a claim skips) pay a small per-row cost — so a fund littered with
   dust positions gets cheaper to claim after its first claim, not more
-  expensive forever. A claim that fails is charged for the work it did, not
-  the declared envelope.
+  expensive forever. A claim that is admitted and then fails is charged for
+  the work it did, not the declared envelope.
 
 ### What existing root stakers should know
 

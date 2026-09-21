@@ -17,13 +17,14 @@ consolidated into the fund's root (TAO) slot as a side effect, so the
 per-holding claim fee shrinks over time; curated positions are left to
 compound. Since spec 468 a claim also leaves dust rows unsold: a holding
 worth less than `min(1 TAO, 0.1% of the fund's anchored NAV)`, or one
-where this claimant's own slice is worth less than 0.001 TAO, is neither
-sold nor paid; the claim burns only the shares matching what it redeemed,
-so those slices stay owed and pay out in a later, larger claim (event
+where this claimant's own slice is worth less than 0.0001 TAO, is neither
+sold nor paid; the whole entitlement is still settled, so those slices
+(each under the floor) stay in the fund for the remaining holders (event
 `BasketClaimDustSkipped`). The transaction fee is charged by work
 actually done: holdings redeemed pay full weight, holdings merely scanned
-(including skipped dust rows) pay a small per-row cost, and a failed claim
-pays for the work it did rather than the declared envelope. The chain
+(including skipped dust rows) pay a small per-row cost, and a claim that
+is admitted and then fails pays for the work it did rather than the
+declared envelope. The chain
 reserves a fixed 256-unit declared-work envelope
 plus a flat allowance for settling the validator's queued dividend credits
 first (the same allowance every basket call that flushes declares), counts
@@ -37,7 +38,7 @@ Preview per-validator payouts with `root_basket_owed_breakdown`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2166-L2194) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2167-L2196) |
 
 ## Parameters
 
@@ -86,7 +87,7 @@ result = sub.execute_tool("claim_root_with_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2170`](/code/pallets/subtensor/src/macros/dispatches.rs#L2166-L2194):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2171`](/code/pallets/subtensor/src/macros/dispatches.rs#L2167-L2196):
 
 ```rust
 #[pallet::call_index(148)]
@@ -98,18 +99,19 @@ pub fn claim_root_with_hotkey(
     hotkey: T::AccountId,
 ) -> DispatchResultWithPostInfo {
     let coldkey: T::AccountId = ensure_signed(origin)?;
-    let precheck =
-        Self::root_claim_precheck_weight(Self::root_claim_hotkey_declared_work());
+    // Admission failures keep the declared envelope (see `claim_root`).
     ensure!(
         Self::root_claim_hotkey_fits_declared_budget(&hotkey),
-        Self::fail_with_weight(Error::<T>::RootClaimTooHeavy, precheck)
+        Error::<T>::RootClaimTooHeavy
     );
 
+    let admitted =
+        Self::root_claim_admission_weight(Self::root_claim_hotkey_declared_work());
     let outcome = Self::do_root_claim_tracked(coldkey.clone(), vec![hotkey]).map_err(
         |(done, error)| {
             Self::fail_with_weight(
                 error,
-                Self::root_claim_actual_weight(1, 0, &done).saturating_add(precheck),
+                Self::root_claim_actual_weight(1, 0, &done).saturating_add(admitted),
             )
         },
     )?;
@@ -120,6 +122,6 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`root_claim_precheck_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1194), [`root_claim_hotkey_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1078), [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1159).
+Delegates to [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1128), [`root_claim_admission_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1166), [`root_claim_hotkey_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1047).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
