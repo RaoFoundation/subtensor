@@ -50,10 +50,10 @@ step() {
   printf '\n%s▶ %s%s\n%s$ %s%s\n' "$BOLD" "$name" "$RESET" "$DIM" "$*" "$RESET"
   if "$@" 2>&1 | tee "$log"; then
     record PASS "$name" "$((SECONDS - started))s"
-    printf '%sPASS%s  %s\n' "$GREEN" "$RESET" "$name"
+    printf '%sPASS%s  %s (%ss)\n' "$GREEN" "$RESET" "$name" "$((SECONDS - started))"
   else
     record FAIL "$name" "$((SECONDS - started))s"
-    printf '%sFAIL%s  %s — last lines:\n' "$RED" "$RESET" "$name"
+    printf '%sFAIL%s  %s (%ss) — last lines:\n' "$RED" "$RESET" "$name" "$((SECONDS - started))"
     tail -n 40 "$log" | sed 's/^/      /'
   fi
   rm -f "$log"
