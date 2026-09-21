@@ -1784,9 +1784,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_positions",
         "path": "pallets/subtensor/src/rpc_info/basket_info.rs",
-        "line": 260,
-        "end_line": 275,
-        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L260-L275",
+        "line": 262,
+        "end_line": 277,
+        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L262-L277",
         "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/basket_info.rs"
       }
     ]
@@ -1854,9 +1854,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_all_validator_baskets",
         "path": "pallets/subtensor/src/rpc_info/basket_info.rs",
-        "line": 209,
-        "end_line": 213,
-        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L209-L213",
+        "line": 211,
+        "end_line": 215,
+        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L211-L215",
         "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/basket_info.rs"
       }
     ]
@@ -2727,9 +2727,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_summary",
         "path": "pallets/subtensor/src/rpc_info/basket_info.rs",
-        "line": 177,
-        "end_line": 205,
-        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L177-L205",
+        "line": 179,
+        "end_line": 207,
+        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L179-L207",
         "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/basket_info.rs"
       }
     ]
