@@ -72,8 +72,9 @@ staked back to root.
 - **Claims are proportional, minus dust.** A claim redeems the staker's owed
   fraction of every holding pro-rata, preserving fund composition. Since
   spec 468 it leaves dust rows alone: a holding worth less than
-  `min(1 TAO, 0.1% of the fund's guarded NAV)`, or one where your own slice
-  is worth less than 0.001 TAO, is neither sold nor paid. Nothing is lost:
+  `min(1 TAO, 0.1% of the fund's NAV)`, or one where your own slice is worth
+  less than 0.001 TAO — both at the fast-anchored mark `swap-basket` already
+  prices against — is neither sold nor paid. Nothing is lost:
   the claim burns only the shares that match what it redeemed, so you keep
   the shares for the skipped slices and they pay out in a later, larger
   claim (the `BasketClaimDustSkipped` event shows how many shares and roughly

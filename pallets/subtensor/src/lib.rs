@@ -134,18 +134,18 @@ pub const DEFAULT_BASKET_LIQUIDITY_CAP: u16 = u16::MAX / 10;
 
 /// Default [`BasketClaimRowDustCapTao`]: the row-dust floor of a root claim is at most 1 TAO.
 /// A claim does not sell a fund row whose whole holding is worth less than
-/// `min(cap, bps × guarded NAV)` at the guarded mark ([`Pallet::guarded_basket_holding_value`]);
+/// `min(cap, bps × anchored NAV)` at the anchored mark ([`Pallet::anchored_basket_holding_value`]);
 /// the claimant keeps the shares for such slices and redeems them later (see
 /// [`Pallet::root_claim_for_hotkey`]).
 pub const DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO: u64 = 1_000_000_000;
 
-/// Default [`BasketClaimRowDustBps`]: the row-dust floor is 0.1% of the fund's guarded NAV
+/// Default [`BasketClaimRowDustBps`]: the row-dust floor is 0.1% of the fund's anchored NAV
 /// (10 basis points), capped at [`DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO`]. Relative so a
 /// small validator's fund — where every row may be under 1 TAO — still redeems its rows.
 pub const DEFAULT_BASKET_CLAIM_ROW_DUST_BPS: u16 = 10;
 
 /// Default [`BasketClaimSliceDustTao`]: a root claim does not sell a fund row when the
-/// claimant's own slice of it is worth less than 0.001 TAO at the guarded mark. Sized so a
+/// claimant's own slice of it is worth less than 0.001 TAO at the anchored mark. Sized so a
 /// median claimant (a fraction of a TAO spread over ~125 rows) sells the rows that carry the
 /// payout and skips the tail that costs a swap each for a rounding-sized amount.
 pub const DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO: u64 = 1_000_000;
@@ -3120,7 +3120,7 @@ pub mod pallet {
 
     /// --- ITEM --> cap, in rao, of the row-dust floor of a root claim. A claim skips a fund
     /// row entirely when the fund's whole holding on that subnet is worth less than
-    /// `min(this cap, BasketClaimRowDustBps × guarded NAV)` at the guarded mark: the row is
+    /// `min(this cap, BasketClaimRowDustBps × anchored NAV)` at the anchored mark: the row is
     /// neither sold nor paid; the claimant keeps the matching shares and redeems them in a
     /// later, larger claim. `0` disables the row skip. Set via
     /// `AdminUtils::sudo_set_basket_claim_dust`.
@@ -3135,7 +3135,7 @@ pub mod pallet {
     }
 
     /// --- ITEM --> relative part of the row-dust floor, in basis points of the fund's
-    /// guarded NAV (see [`BasketClaimRowDustCapTao`]). Keeps the floor proportionate for
+    /// anchored NAV (see [`BasketClaimRowDustCapTao`]). Keeps the floor proportionate for
     /// small funds. `0` disables the row skip. Set via `AdminUtils::sudo_set_basket_claim_dust`.
     #[pallet::storage]
     pub type BasketClaimRowDustBps<T: Config> =
@@ -3148,7 +3148,7 @@ pub mod pallet {
     }
 
     /// --- ITEM --> rao value below which a root claim skips a fund row for this claimant:
-    /// when the claimant's pro-rata slice of the row is worth less than this at the guarded
+    /// when the claimant's pro-rata slice of the row is worth less than this at the anchored
     /// mark, the row is neither sold nor paid; the claimant keeps the matching shares for a
     /// later, larger claim. `0` disables the skip. Set via
     /// `AdminUtils::sudo_set_basket_claim_dust`.

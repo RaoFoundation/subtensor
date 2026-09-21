@@ -7,7 +7,7 @@ use sp_core::Get;
 use sp_runtime::DispatchError;
 use sp_runtime::traits::{AccountIdConversion, Zero};
 use sp_std::collections::btree_map::BTreeMap;
-use substrate_fixed::types::I96F32;
+use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::clear_prefix_with_meter;
 use subtensor_swap_interface::{SwapFailureKind, SwapHandler};
 
@@ -51,8 +51,9 @@ struct ValuedHolding {
     alpha: AlphaBalance,
     /// Pre-sale realizable quote (what a sale of the whole row would fetch now).
     value: u64,
-    /// The same, capped at the slow-EMA value of the alpha ([`Pallet::guarded_basket_holding_value`]).
-    guarded: u64,
+    /// The same, capped at the fast-anchor value of the alpha
+    /// ([`Pallet::anchored_basket_holding_value`]): what a same-block pump cannot move.
+    anchored: u64,
     terminal_garbage: bool,
     dust: bool,
 }
@@ -591,13 +592,15 @@ impl<T: Config> Pallet<T> {
     ///
     /// Dust rows are not redeemed. A subnet row is skipped for this claim when the fund's
     /// whole holding on it is worth less than `min(`[`BasketClaimRowDustCapTao`]`,
-    /// `[`BasketClaimRowDustBps`]` × guarded NAV)`, or the claimant's pro-rata slice of it is
-    /// worth less than [`BasketClaimSliceDustTao`], both at the guarded mark every basket
-    /// NAV guard already uses ([`Self::guarded_basket_holding_value`]). A skipped row is
-    /// neither sold nor paid, and nothing is forfeited: the claim burns only the shares
-    /// matching the value it redeemed (`owed × redeemed NAV / NAV`), so NAV per share is
-    /// unchanged for the other holders and the claimant keeps the shares for the skipped
-    /// slices, to redeem later when they are bigger (`BasketClaimDustSkipped` reports both).
+    /// `[`BasketClaimRowDustBps`]` × anchored NAV)`, or the claimant's pro-rata slice of it
+    /// is worth less than [`BasketClaimSliceDustTao`], both at the anchored mark
+    /// ([`Self::anchored_basket_holding_value`]: the live quote capped at the fast-EMA
+    /// anchor `swap_basket` already uses). A skipped row is neither sold nor paid, and
+    /// nothing is forfeited: the claim burns only the shares matching the value it redeemed
+    /// (`owed × redeemed / total`, skipped rows counted at the anchored mark), so NAV per
+    /// share is unchanged for the other holders and the claimant keeps the shares for the
+    /// skipped slices, to redeem later when they are bigger (`BasketClaimDustSkipped`
+    /// reports both).
     /// The root cash slot (TAO 1:1, no swap) and terminal write-offs are never skipped, and
     /// a claimant redeeming the whole fund skips nothing — there is nobody left to hold the
     /// rest. Zero thresholds turn the skip off.
@@ -653,37 +656,38 @@ impl<T: Config> Pallet<T> {
         // Without that cap, selling a raw alpha fraction on a concave AMM curve overpays the
         // first redeemer and transfers the loss to the remaining shareholders.
         //
-        // Dust rows are decided at the guarded mark (realizable capped at the slow-EMA
-        // value, so a same-block pump cannot lift a row out of the dust band), against a
-        // row floor that scales with the fund's guarded NAV. A claimant taking the whole
-        // fund skips nothing.
+        // Dust rows are decided at the anchored mark (realizable capped at the fast-EMA
+        // value of the alpha, so a same-block pump cannot lift a row out of the dust band
+        // and a young subnet is not written down to a months-slow EMA), against a row floor
+        // that scales with the fund's anchored NAV. A claimant taking the whole fund skips
+        // nothing.
         let mut valued_holdings: Vec<ValuedHolding> = Vec::new();
-        let mut guarded_nav: u64 = 0;
+        let mut anchored_nav: u64 = 0;
         for (netuid, alpha) in holdings {
             let (value, terminal_garbage) =
                 match Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())? {
                     Some(value) => (value, false),
                     None => (0, true),
                 };
-            let guarded = Self::guarded_basket_holding_value(netuid, alpha.to_u64(), value);
-            guarded_nav = guarded_nav.saturating_add(guarded);
+            let anchored = Self::anchored_basket_holding_value(netuid, alpha.to_u64(), value);
+            anchored_nav = anchored_nav.saturating_add(anchored);
             valued_holdings.push(ValuedHolding {
                 netuid,
                 alpha,
                 value,
-                guarded,
+                anchored,
                 terminal_garbage,
                 dust: false,
             });
         }
         if owed_shares < shares_total {
-            let row_dust = Self::basket_claim_row_dust_floor(guarded_nav);
+            let row_dust = Self::basket_claim_row_dust_floor(anchored_nav);
             let slice_dust: u64 = BasketClaimSliceDustTao::<T>::get();
             for row in valued_holdings.iter_mut() {
                 row.dust = !row.netuid.is_root()
                     && !row.terminal_garbage
                     && Self::basket_row_is_claim_dust(
-                        row.guarded,
+                        row.anchored,
                         owed_shares,
                         shares_total,
                         row_dust,
@@ -706,9 +710,6 @@ impl<T: Config> Pallet<T> {
                         shares_total,
                     ))
                 });
-        let nav: u64 = valued_holdings
-            .iter()
-            .fold(0u64, |acc, row| acc.saturating_add(row.value));
         // Threshold check against the payout the claim can actually make: the owed fraction
         // of the redeemed (non-dust) rows' realizable value. A claim that would sell nothing
         // is a no-op that burns nothing.
@@ -716,33 +717,27 @@ impl<T: Config> Pallet<T> {
             .iter()
             .filter(|row| !row.dust)
             .fold(0u64, |acc, row| acc.saturating_add(row.value));
-        // Burn only the shares that match the value redeemed: `owed × redeemed NAV / NAV`,
-        // rounded up so the fund is never short a share. NAV per share is unchanged for
+        // Burn only the shares that match the value redeemed: `owed × redeemed / total`,
+        // rounded up so the fund is never short a share, where the redeemed rows enter at
+        // their live quote (what is actually sold) and the skipped rows at their anchored
+        // value (what a same-block pump cannot move). NAV per share is unchanged for
         // everyone else, and the claimant keeps `owed − burned` shares — their slice of the
-        // skipped rows — to redeem later, when it is bigger. The ratio is taken at both
-        // marks and the larger burn wins: at the live quote it is exact, and at the guarded
-        // mark it cannot be moved inside a block, so a same-block pump of a skipped row
-        // (which lifts its live quote but not its anchored one) cannot grow the retained
-        // fraction; the claimant can only lose the two marks' gap on the skipped rows, never
-        // the other holders. Without dust rows this is exactly `owed`.
+        // skipped rows — to redeem later, when it is bigger. Pumping a skipped row's live
+        // quote does not grow that retained fraction; dumping a redeemed row lowers the
+        // payout by more than it lowers the burn. The claimant can only lose the fast
+        // anchor's lag on the skipped rows (hours, not months), never the other holders.
+        // Without dust rows this is exactly `owed`.
         let burned_shares: u64 = if dust_rows == 0 {
             owed_shares
         } else {
-            let redeemable_guarded: u64 = valued_holdings
-                .iter()
-                .filter(|row| !row.dust)
-                .fold(0u64, |acc, row| acc.saturating_add(row.guarded));
-            let at_live = if nav == 0 {
+            let denominator: u64 = valued_holdings.iter().fold(0u64, |acc, row| {
+                acc.saturating_add(if row.dust { row.anchored } else { row.value })
+            });
+            if denominator == 0 {
                 owed_shares
             } else {
-                Self::mul_div_u64_ceil(owed_shares, redeemable_nav, nav)
-            };
-            let at_guarded = if guarded_nav == 0 {
-                owed_shares
-            } else {
-                Self::mul_div_u64_ceil(owed_shares, redeemable_guarded, guarded_nav)
-            };
-            at_live.max(at_guarded).min(owed_shares)
+                Self::mul_div_u64_ceil(owed_shares, redeemable_nav, denominator).min(owed_shares)
+            }
         };
         let estimated_payout: u64 =
             Self::basket_payout_from(owed_shares, redeemable_nav, shares_total);
@@ -966,33 +961,53 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// The row-dust floor of a claim on a fund whose guarded NAV is `guarded_nav`:
-    /// `min(`[`BasketClaimRowDustCapTao`]`, `[`BasketClaimRowDustBps`]` × guarded_nav)`.
-    /// Relative so a small fund's rows are judged against its own size, capped so a large
-    /// fund never skips a row worth more than the cap. Zero when either knob is zero.
-    pub fn basket_claim_row_dust_floor(guarded_nav: u64) -> u64 {
-        let cap: u64 = BasketClaimRowDustCapTao::<T>::get();
-        let bps: u64 = u64::from(BasketClaimRowDustBps::<T>::get());
-        cap.min(Self::mul_div_u64(guarded_nav, bps, 10_000))
+    /// The anchored mark of `alpha` on `netuid` given its `realizable` quote:
+    /// `min(realizable, alpha × fast EMA)`, the fast anchor ([`SubnetFastMovingPrice`], 2 h
+    /// half-life, seeded at spot) that `swap_basket` already bounds its prices with. Nothing
+    /// inside a block can move it, and it follows a young or rallying subnet within hours —
+    /// unlike the slow (monthly) EMA behind [`Self::guarded_basket_holding_value`], which
+    /// starts near zero for a new subnet and would mark its rows as worthless for months.
+    /// Falls back to the slow-guarded mark while the fast series is unseeded. Root cash is
+    /// TAO 1:1 and passes through.
+    pub fn anchored_basket_holding_value(netuid: NetUid, alpha: u64, realizable: u64) -> u64 {
+        if netuid.is_root() {
+            return realizable;
+        }
+        match SubnetFastMovingPrice::<T>::get(netuid) {
+            Some(fast) => realizable.min(
+                fast.saturating_mul(U64F64::saturating_from_num(alpha))
+                    .saturating_to_num::<u64>(),
+            ),
+            None => Self::guarded_basket_holding_value(netuid, alpha, realizable),
+        }
     }
 
-    /// Whether a claim of `owed_shares` out of `shares_total` leaves a row worth `guarded`
-    /// (at [`Self::guarded_basket_holding_value`], the same un-pumpable mark the trading
-    /// guards use — no new price source) in the fund as dust: the whole row is worth less
-    /// than `row_dust`, or the claimant's pro-rata slice of it is worth less than
+    /// The row-dust floor of a claim on a fund whose anchored NAV is `anchored_nav`:
+    /// `min(`[`BasketClaimRowDustCapTao`]`, `[`BasketClaimRowDustBps`]` × anchored_nav)`.
+    /// Relative so a small fund's rows are judged against its own size, capped so a large
+    /// fund never skips a row worth more than the cap. Zero when either knob is zero.
+    pub fn basket_claim_row_dust_floor(anchored_nav: u64) -> u64 {
+        let cap: u64 = BasketClaimRowDustCapTao::<T>::get();
+        let bps: u64 = u64::from(BasketClaimRowDustBps::<T>::get());
+        cap.min(Self::mul_div_u64(anchored_nav, bps, 10_000))
+    }
+
+    /// Whether a claim of `owed_shares` out of `shares_total` leaves a row worth `anchored`
+    /// (at [`Self::anchored_basket_holding_value`]) in the fund as dust: the whole row is
+    /// worth less than `row_dust`, or the claimant's pro-rata slice of it is worth less than
     /// `slice_dust`. Zero thresholds never match. Callers exclude the root cash slot and
     /// terminal write-offs.
     pub fn basket_row_is_claim_dust(
-        guarded: u64,
+        anchored: u64,
         owed_shares: u64,
         shares_total: u64,
         row_dust: u64,
         slice_dust: u64,
     ) -> bool {
-        if row_dust > 0 && guarded < row_dust {
+        if row_dust > 0 && anchored < row_dust {
             return true;
         }
-        slice_dust > 0 && Self::basket_payout_from(owed_shares, guarded, shares_total) < slice_dust
+        slice_dust > 0 && Self::basket_payout_from(owed_shares, anchored, shares_total) < slice_dust
     }
 
     /// Consolidates a fund's dust holdings into its root (TAO cash) slot: every subnet

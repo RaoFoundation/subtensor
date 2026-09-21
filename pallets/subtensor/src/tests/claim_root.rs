@@ -16,7 +16,7 @@ use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
 use frame_support::pallet_prelude::Weight;
 use frame_support::traits::Get;
-use frame_support::{assert_err, assert_err_ignore_postinfo, assert_ok};
+use frame_support::{assert_err, assert_err_ignore_postinfo, assert_ok, assert_storage_noop};
 use sp_core::U256;
 use sp_runtime::DispatchError;
 use sp_std::collections::btree_set::BTreeSet;
@@ -341,10 +341,10 @@ fn test_claim_root_rejects_work_above_declared_budget() {
         // Candidate classification is independently bounded even if every relationship would
         // subsequently be filtered as non-root.
         StakingHotkeys::<Test>::insert(coldkey, hotkeys);
-        assert_err_ignore_postinfo!(
+        assert_storage_noop!(assert_err_ignore_postinfo!(
             SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), BTreeSet::new()),
             Error::<Test>::RootClaimTooHeavy
-        );
+        ));
     });
 }
 
@@ -398,13 +398,13 @@ fn test_claim_root_ignores_network_count_and_bounds_actual_basket_rows() {
         assert!(!SubtensorModule::root_claim_hotkey_fits_declared_budget(
             &single
         ));
-        assert_err_ignore_postinfo!(
+        assert_storage_noop!(assert_err_ignore_postinfo!(
             SubtensorModule::claim_root_with_hotkey(
                 RuntimeOrigin::signed(U256::from(1001)),
                 single
             ),
             Error::<Test>::RootClaimTooHeavy
-        );
+        ));
     });
 }
 

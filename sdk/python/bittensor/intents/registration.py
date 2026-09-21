@@ -378,6 +378,13 @@ class ClaimRoot(_RootClaimIntent):
 
     Prefer :class:`ClaimRootWithHotkey` to claim a single validator.
 
+    Since spec 468 each fund's dust rows are left unsold (a row worth less
+    than ``min(1 TAO, 0.1% of the fund's anchored NAV)``, or one where this
+    claimant's slice is worth less than 0.001 TAO); the claim burns only the
+    shares matching what it redeemed and the rest stays owed for a later,
+    larger claim. A failed claim pays for the work it did, not the declared
+    envelope.
+
     ``plan`` (and ``btcli root claim --dry-run``) estimates the reserved
     inclusion fee versus the fee that will actually settle, compares that
     spent fee to accrued yield, warns when the claim loses money, and
@@ -425,7 +432,7 @@ class ClaimRootWithHotkey(_RootClaimIntent):
     consolidated into the fund's root (TAO) slot as a side effect, so the
     per-holding claim fee shrinks over time; curated positions are left to
     compound. Since spec 468 a claim also leaves dust rows unsold: a holding
-    worth less than ``min(1 TAO, 0.1% of the fund's guarded NAV)``, or one
+    worth less than ``min(1 TAO, 0.1% of the fund's anchored NAV)``, or one
     where this claimant's own slice is worth less than 0.001 TAO, is neither
     sold nor paid; the claim burns only the shares matching what it redeemed,
     so those slices stay owed and pay out in a later, larger claim (event

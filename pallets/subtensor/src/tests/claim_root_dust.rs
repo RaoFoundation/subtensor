@@ -26,12 +26,12 @@ use crate::{
     BasketClaimRowDustBps, BasketClaimRowDustCapTao, BasketClaimSliceDustTao, BasketClaimed,
     BasketRate, BasketShares, DEFAULT_BASKET_CLAIM_ROW_DUST_BPS,
     DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO, DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO, Event,
-    SubnetAlphaIn, SubnetMovingPrice, SubnetTAO,
+    SubnetAlphaIn, SubnetFastMovingPrice, SubnetMovingPrice, SubnetTAO,
 };
 use frame_support::assert_ok;
 use frame_support::dispatch::{GetDispatchInfo, Pays};
 use sp_core::U256;
-use substrate_fixed::types::I96F32;
+use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 
 const TAO: u64 = 1_000_000_000;
@@ -58,8 +58,8 @@ fn deep_pool(netuid: NetUid) {
     }
 }
 
-/// A root validator whose fund holds `rows[i]` alpha on a deep pool priced at 1 (spot and
-/// slow EMA), so a row's realizable and guarded values are both about `rows[i]` rao.
+/// A root validator whose fund holds `rows[i]` alpha on a deep pool priced at 1 (spot, fast
+/// anchor and slow EMA), so a row's realizable and anchored values are both about `rows[i]`.
 /// `stakes` root stakers each hold `stakes[i] × SHARE` fund shares (`BasketRate` = 1,
 /// shares outstanding = the sum), so staker `i`'s fraction is `stakes[i] / Σ stakes`.
 fn setup_fund(rows: &[u64], stakes: &[u64]) -> Fund {
@@ -87,6 +87,7 @@ fn setup_fund(rows: &[u64], stakes: &[u64]) -> Fund {
             remove_owner_registration_stake(netuid);
             deep_pool(netuid);
             SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(1));
+            SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(1));
             mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
                 &hotkey,
                 &escrow,
@@ -632,6 +633,99 @@ fn two_claimants_in_one_block_keep_the_accounting_honest() {
             2_000,
             "A's retained value",
         );
+    });
+}
+
+/// A row on a young subnet: the slow EMA sits at 2% of spot (it starts at zero and takes a
+/// month to reach half the price) while the fast anchor has caught up. The row must not be
+/// written down to the slow mark: it is not dust at 300 TAO, the claimant is paid for it,
+/// and nothing is forfeited. (The local skeptic/auditor found the slow-EMA version of this
+/// forfeiting ~30% of such a claim.)
+#[test]
+fn young_subnet_row_is_neither_dust_nor_forfeited() {
+    new_test_ext(1).execute_with(|| {
+        // Alice owns 1 bp of a 1_000 TAO fund (owed ≈ 0.1 TAO).
+        let fund = setup_fund(&[700 * TAO, 300 * TAO], &[1, 9_999]);
+        let young = fund.netuids[1];
+        SubnetMovingPrice::<Test>::insert(young, I96F32::from_num(0.02));
+        let alice = fund.stakers[0];
+        let bob = fund.stakers[1];
+        let nav_per_share_before = nav_per_share_e9(&fund);
+        let bob_before = entitlement_tao(&fund, &bob);
+        let alice_before = entitlement_tao(&fund, &alice);
+        let alice_root_before = root_stake_of(&fund.hotkey, &alice);
+        let young_before = escrow_alpha(&fund.hotkey, young);
+
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(alice),
+            fund.hotkey
+        ));
+
+        assert!(
+            escrow_alpha(&fund.hotkey, young) < young_before,
+            "a 300 TAO row is sold, whatever the slow EMA says"
+        );
+        assert!(dust_skipped_events().is_empty());
+        assert_eq!(owed(&fund, &alice), 0);
+        assert_close(
+            nav_per_share_e9(&fund),
+            nav_per_share_before,
+            100,
+            "NAV per share",
+        );
+        assert_close(
+            u128::from(entitlement_tao(&fund, &bob)),
+            u128::from(bob_before),
+            100,
+            "the other holder's entitlement",
+        );
+        let paid = root_stake_of(&fund.hotkey, &alice) - alice_root_before;
+        assert_close(
+            u128::from(paid),
+            u128::from(alice_before),
+            2_000,
+            "paid vs owed (nothing forfeited)",
+        );
+    });
+}
+
+/// A same-block pump of a skipped row lifts its live quote but not its anchored value, so
+/// the retained fraction does not grow: the claimant keeps the same shares as without the
+/// pump, and the other holder is unaffected.
+#[test]
+fn pumping_a_skipped_row_does_not_grow_the_retained_shares() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund(&[20 * TAO, 5 * TAO], &[1, 9_999]);
+        let alice = fund.stakers[0];
+        let bob = fund.stakers[1];
+        let dust = fund.netuids[1];
+        // Without a pump the 5 TAO row is 1/5 of the fund: ≈ 1/5 of the owed shares stay.
+        let expected_retained = SHARE * 5 / 25;
+
+        // Pump: the dust row's pool now quotes 3× (live realizable ≈ 15 TAO), the fast
+        // anchor still says 1.0.
+        SubnetTAO::<Test>::insert(dust, TaoBalance::from(300_000 * TAO));
+        let live = SubtensorModule::realizable_tao_for_alpha(dust, 5 * TAO);
+        assert!(live > 14 * TAO, "pump lifted the live quote: {live}");
+        assert_eq!(
+            SubtensorModule::anchored_basket_holding_value(dust, 5 * TAO, live),
+            5 * TAO,
+            "the anchored value did not move"
+        );
+        let bob_before = entitlement_tao(&fund, &bob);
+
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(alice),
+            fund.hotkey
+        ));
+        let retained = owed(&fund, &alice);
+        assert!(
+            retained <= expected_retained + expected_retained / 100,
+            "retained {retained} must not exceed the un-pumped {expected_retained}"
+        );
+        assert!(retained > expected_retained * 98 / 100, "{retained}");
+        // Bob's entitlement at the (pumped) live quote is not reduced by Alice's claim.
+        assert!(entitlement_tao(&fund, &bob) >= bob_before - 2);
     });
 }
 

@@ -2077,12 +2077,20 @@ mod dispatches {
         ///
         /// Prefer [`Pallet::claim_root_with_hotkey`] to claim a single validator.
         ///
+        /// Dust rows are not sold (see [`Pallet::claim_root_with_hotkey`]): the claim burns
+        /// only the shares matching what it redeemed and the claimant keeps the rest. A
+        /// failed claim is charged the work it did, not the declared envelope.
+        ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
         /// * `subnets`: Ignored. Kept so old clients' encoded call data still decodes.
         ///
         /// # Events
         /// * `RootClaimed`: On successfully claiming the root emissions for a coldkey.
+        /// * `BasketClaimDustSkipped`: Per fund whose dust rows were left unsold.
+        ///
+        /// # Errors
+        /// * `RootClaimTooHeavy`: More hotkeys or fund rows than one claim may walk.
         #[pallet::call_index(121)]
         #[pallet::weight(
             Pallet::<T>::root_claim_declared_weight()
@@ -2136,9 +2144,9 @@ mod dispatches {
         /// Other validators' accrued yield is left untouched.
         ///
         /// Dust rows are not sold: a fund row worth less than
-        /// `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × guarded NAV)`, or one
+        /// `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × anchored NAV)`, or one
         /// whose slice for this claimant is worth less than `BasketClaimSliceDustTao` (both
-        /// at the guarded mark), stays in the fund. The claim burns only the shares
+        /// at the anchored mark), stays in the fund. The claim burns only the shares
         /// matching what it redeemed, so the claimant keeps the shares for the skipped
         /// slices and redeems them in a later, larger claim (`BasketClaimDustSkipped`
         /// reports them). A failed claim is charged the work it did, not the declared

@@ -173,9 +173,9 @@ pub mod pallet {
         /// The root-claim dust floors were set (`BasketClaimRowDustCapTao`,
         /// `BasketClaimRowDustBps`, `BasketClaimSliceDustTao`).
         BasketClaimDustSet {
-            /// Cap, in rao, of the row floor `min(cap, bps × guarded NAV)` (`0` = row skip off).
+            /// Cap, in rao, of the row floor `min(cap, bps × anchored NAV)` (`0` = row skip off).
             row_cap_rao: u64,
-            /// Relative row floor in basis points of the fund's guarded NAV (`0` = row skip off).
+            /// Relative row floor in basis points of the fund's anchored NAV (`0` = row skip off).
             row_bps: u16,
             /// Rao value below which a claim leaves its own slice of a row unsold (`0` = off).
             slice_rao: u64,
@@ -2588,11 +2588,11 @@ pub mod pallet {
         }
 
         /// Sets the three root-claim dust floors at once. A claim does not sell a fund row
-        /// whose whole holding is worth less than `min(row_cap_rao, row_bps × guarded NAV)`
+        /// whose whole holding is worth less than `min(row_cap_rao, row_bps × anchored NAV)`
         /// ([`pallet_subtensor::BasketClaimRowDustCapTao`],
         /// [`pallet_subtensor::BasketClaimRowDustBps`]), nor a row where the claimant's own
         /// slice is worth less than `slice_rao` ([`pallet_subtensor::BasketClaimSliceDustTao`]),
-        /// all at the guarded mark; the claimant keeps the shares for skipped slices and
+        /// all at the anchored mark; the claimant keeps the shares for skipped slices and
         /// redeems them in a later, larger claim. Zero turns the respective skip off. `row_bps` is at most 10_000 (100%).
         /// Declared at three times the sibling one-write basket setter's weight (three
         /// writes; a dedicated benchmark exists for CI to measure). Root-only.

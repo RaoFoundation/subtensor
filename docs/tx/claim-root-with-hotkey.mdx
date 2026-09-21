@@ -16,7 +16,7 @@ current weight vector, worth less than the same threshold) are
 consolidated into the fund's root (TAO) slot as a side effect, so the
 per-holding claim fee shrinks over time; curated positions are left to
 compound. Since spec 468 a claim also leaves dust rows unsold: a holding
-worth less than `min(1 TAO, 0.1% of the fund's guarded NAV)`, or one
+worth less than `min(1 TAO, 0.1% of the fund's anchored NAV)`, or one
 where this claimant's own slice is worth less than 0.001 TAO, is neither
 sold nor paid; the claim burns only the shares matching what it redeemed,
 so those slices stay owed and pay out in a later, larger claim (event
@@ -37,7 +37,7 @@ Preview per-validator payouts with `root_basket_owed_breakdown`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2158-L2186) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2166-L2194) |
 
 ## Parameters
 
@@ -86,7 +86,7 @@ result = sub.execute_tool("claim_root_with_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2162`](/code/pallets/subtensor/src/macros/dispatches.rs#L2158-L2186):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2170`](/code/pallets/subtensor/src/macros/dispatches.rs#L2166-L2194):
 
 ```rust
 #[pallet::call_index(148)]
@@ -120,6 +120,6 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`root_claim_precheck_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1179), [`root_claim_hotkey_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1063), [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1144).
+Delegates to [`root_claim_precheck_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1194), [`root_claim_hotkey_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1078), [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1159).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
