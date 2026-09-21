@@ -21,7 +21,7 @@ period ends. Use `root_register` instead for the root network
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L842-L850) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L838-L846) |
 
 ## Parameters
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("burned_register", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.burned_register` — [`pallets/subtensor/src/macros/dispatches.rs#L844`](/code/pallets/subtensor/src/macros/dispatches.rs#L842-L850):
+`SubtensorModule.burned_register` — [`pallets/subtensor/src/macros/dispatches.rs#L840`](/code/pallets/subtensor/src/macros/dispatches.rs#L838-L846):
 
 ```rust
 #[pallet::call_index(7)]
@@ -80,11 +80,11 @@ pub fn burned_register(
     origin: OriginFor<T>,
     netuid: NetUid,
     hotkey: T::AccountId,
-) -> DispatchResult {
-    Self::do_register(origin, netuid, hotkey)
+) -> DispatchResultWithPostInfo {
+    Self::do_register_with_post_info(origin, netuid, hotkey)
 }
 ```
 
-Delegates to [`do_register`](/code/pallets/subtensor/src/subnets/registration.rs#L38).
+Delegates to [`do_register_with_post_info`](/code/pallets/subtensor/src/subnets/registration.rs#L62).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

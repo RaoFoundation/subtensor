@@ -16,11 +16,13 @@ entry slippage and swap fees. The shares do not require or change
 root stake, and they do not change anyone's dividend accrual.
 Redeem them later with `claim_root_with_hotkey`. Pass `all` to
 deploy the whole free balance minus the existential deposit and a
-small fee headroom.
+small fee headroom. Fee (spec 469+): billed as if the fund had four
+rows (about τ0.005) while the 256-slot envelope is only reserved for
+admission; a refused deposit pays its pre-check reads.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.stake_into_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2232-L2248) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.stake_into_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2216-L2233) |
 
 ## Parameters
 
@@ -72,7 +74,7 @@ result = sub.execute_tool("stake_into_basket", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.stake_into_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2240`](/code/pallets/subtensor/src/macros/dispatches.rs#L2232-L2248):
+`SubtensorModule.stake_into_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2224`](/code/pallets/subtensor/src/macros/dispatches.rs#L2216-L2233):
 
 ```rust
 #[pallet::call_index(147)]
@@ -89,11 +91,12 @@ pub fn stake_into_basket(
     amount_staked: TaoBalance,
 ) -> DispatchResultWithPostInfo {
     let coldkey: T::AccountId = ensure_signed(origin)?;
-    let weight = Self::do_stake_into_basket(coldkey, hotkey, amount_staked)?;
+    let weight = Self::do_stake_into_basket_tracked(coldkey, hotkey, amount_staked)
+        .map_err(|(done, error)| Self::fail_with_weight(error, done))?;
     Ok((Some(weight), Pays::Yes).into())
 }
 ```
 
-Delegates to [`do_stake_into_basket`](/code/pallets/subtensor/src/staking/claim_root.rs#L365).
+Delegates to [`do_stake_into_basket_tracked`](/code/pallets/subtensor/src/staking/claim_root.rs#L414), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1298).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
