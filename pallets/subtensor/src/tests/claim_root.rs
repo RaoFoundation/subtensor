@@ -1272,8 +1272,32 @@ fn test_root_basket_dissolve_converts_to_root_slot() {
 
         // Dissolving queues the subnet; metered cleanup converts the holding into the fund's
         // root (TAO) slot. Shares, rates, and watermarks are untouched — NAV continuous minus slippage.
+        // Keep a second live subnet so `TotalStake` stays positive through the removal (the
+        // mock does not maintain it otherwise), and sync it to the invariant first.
+        let other_owner = U256::from(7001);
+        let other_hotkey = U256::from(7002);
+        let other_netuid = add_dynamic_network(&other_hotkey, &other_owner);
+        fund_pool(other_netuid);
+        let sync_total_stake = || {
+            let live: u64 = NetworksAdded::<Test>::iter()
+                .filter(|(_, added)| *added)
+                .map(|(n, _)| SubnetTAO::<Test>::get(n).to_u64())
+                .sum();
+            live
+        };
+        TotalStake::<Test>::put(TaoBalance::from(sync_total_stake()));
+
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
         run_block_idle();
+
+        // The dissolved subnet's TAO already left `TotalStake` when the network was removed;
+        // selling the fund's holding on it and crediting the fund's root slot must not take
+        // it out a second time (finney block 9111229, subnet 108: -26.5 TAO of drift).
+        assert_eq!(
+            TotalStake::<Test>::get().to_u64(),
+            sync_total_stake(),
+            "TotalStake must equal the sum of live SubnetTAO after a dissolution converts basket holdings"
+        );
 
         assert_eq!(escrow_alpha(&hotkey, netuid), 0);
         assert!(
