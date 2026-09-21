@@ -412,6 +412,15 @@ at the 10% default. The cash slot has no pool and is exempt. Refusal is
 | `BetaBasketSeedInProgress` | The basket seed migration is still running. |
 | `ColdkeySwapAnnounced` | A coldkey swap is announced for the signer. |
 
+A refused or failed `swap_basket` costs what it did, not the trade it declared.
+The chain reserves a 256-row envelope for admission (about τ0.43 at 468 prices)
+and bills the fee as if the fund had four rows and four queued credits to flush
+(about τ0.006 quoted). A trade refused by a gate pays its pre-check reads; one
+refused by the band after the sell leg ran and rolled back pays one valuation
+sweep over the fund's real row count (about τ0.0015 on a one-row fund); a
+successful trade pays for the rows it touched. The same rule applies to
+`stake_into_basket` (about τ0.005 quoted).
+
 ## How to read the budget
 
 [`basket-trading-status`](/docs/query/basket-trading-status) returns the

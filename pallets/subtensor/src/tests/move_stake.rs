@@ -547,7 +547,7 @@ fn inexact_pool_position() -> (NetUid, U256, U256, AlphaBalance, AlphaBalance) {
     );
 
     for candidate in 0_u64..64 {
-        let moved = AlphaBalance::from(6_658_030_659_780_u64 + candidate);
+        let moved = AlphaBalance::from(6_658_030_659_780_u64.saturating_add(candidate));
         mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
             &origin_hotkey,
             &coldkey,

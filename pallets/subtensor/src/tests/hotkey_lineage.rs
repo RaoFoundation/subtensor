@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use frame_support::{assert_noop, assert_ok};
+use frame_support::assert_ok;
 use sp_core::U256;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::AlphaBalance;

@@ -28,10 +28,10 @@ use crate::{
     SubtokenEnabled, TotalStake, Uids,
 };
 use codec::Encode;
+use frame_support::assert_ok;
 use frame_support::dispatch::DispatchResultWithPostInfo;
 use frame_support::traits::{ExtendedDispatchable, Get};
 use frame_support::weights::Weight;
-use frame_support::{assert_noop, assert_ok};
 use sp_core::U256;
 use sp_runtime::traits::Hash;
 use substrate_fixed::types::{I96F32, U64F64};
