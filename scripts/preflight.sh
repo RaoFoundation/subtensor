@@ -8,6 +8,8 @@
 #   scripts/preflight.sh --all      run every gate regardless of what changed
 #   scripts/preflight.sh --rev SHA  gate that exact commit in a detached worktree
 #                                   (what the pre-push hook does for every pushed ref)
+#   scripts/preflight.sh --print-artifacts   show Cargo's target dir and the node /
+#                                   wasm paths the gate will use, then exit
 #
 # Change detection compares the tree with the merge-base against origin/main
 # (override with PREFLIGHT_BASE) and reuses CI's own path classifiers under
@@ -21,13 +23,15 @@ export SKIP_WASM_BUILD=1 # as CI's lint/test jobs; the node and try-runtime wasm
 FAST=false
 ALL=false
 REV=''
+PRINT_ARTIFACTS=false
 PASSTHRU=()
 while (($#)); do
   case "$1" in
     --fast) FAST=true; PASSTHRU+=("$1") ;;
     --all) ALL=true; PASSTHRU+=("$1") ;;
+    --print-artifacts) PRINT_ARTIFACTS=true; PASSTHRU+=("$1") ;;
     --rev) REV=${2:?--rev needs a commit}; shift ;;
-    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
   shift
@@ -46,12 +50,16 @@ if [[ -n "$REV" ]]; then
   export UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT:-$ROOT/sdk/python/.venv}
   export PYTHONPATH=$WT/sdk/python${PYTHONPATH:+:$PYTHONPATH} # editable install points at $ROOT
   [[ ! -d $ROOT/ts-tests/node_modules || -e $WT/ts-tests/node_modules ]] || ln -s "$ROOT/ts-tests/node_modules" "$WT/ts-tests/node_modules"
-  gate=$WT/scripts/preflight.sh
-  [[ -x "$gate" ]] || gate=$ROOT/scripts/preflight.sh
   echo "gating commit ${REV:0:9} in worktree $WT"
-  (cd "$WT" && "$gate" ${PASSTHRU[@]:+"${PASSTHRU[@]}"})
+  (cd "$WT" && "$ROOT/scripts/preflight.sh" ${PASSTHRU[@]:+"${PASSTHRU[@]}"}) # this gate, that tree
   exit
 fi
+
+# Build artifacts live wherever Cargo puts them (CARGO_TARGET_DIR, .cargo/config
+# overrides, or the shared dir a --rev worktree borrows), not in ./target.
+TARGET_DIR=$(cargo metadata --no-deps --format-version 1 | jq -r .target_directory)
+NODE_BIN=$TARGET_DIR/release/node-subtensor
+TRY_RUNTIME_WASM=$TARGET_DIR/production/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   RED=$'\e[31m' GREEN=$'\e[32m' YELLOW=$'\e[33m' BOLD=$'\e[1m' DIM=$'\e[2m' RESET=$'\e[0m'
@@ -114,6 +122,27 @@ fi
 printf '%s%d changed path(s) vs %s (%s)%s\n' "$DIM" "$(wc -l <"$CHANGED" | tr -d ' ')" "$BASE_REF" "${BASE:0:9}" "$RESET"
 printf '%srust=%s runtime=%s docs=%s python_sdk=%s sdk_drift=%s fast=%s all=%s%s\n' \
   "$DIM" "$rust" "$runtime" "$docs" "$python_sdk" "$sdk_drift" "$FAST" "$ALL" "$RESET"
+
+# SDK bindings drift needs a node built from this tree: trigger on a
+# spec_version change or any production Rust path that shapes metadata.
+metadata_surface_changed() {
+  git diff "$BASE" -- runtime/src/lib.rs | grep -qE '^[+-][[:space:]]*spec_version:' && return 0
+  grep -E '^(pallets/[^/]+/src/|runtime/src/|common/src/|primitives/)' "$CHANGED" |
+    grep -vqE '/(tests?|mock|benchmarking|benchmarks|weights)(/|\.rs$)'
+}
+# try-runtime replays on_runtime_upgrade when a migration or the Migrations tuple changed.
+migrations_changed() {
+  changed '^(pallets|runtime)/.*/migrations/' && return 0
+  [[ "$(git show "$BASE:runtime/src/lib.rs" | awk '/^type Migrations = \(/,/^\);/')" != \
+     "$(awk '/^type Migrations = \(/,/^\);/' runtime/src/lib.rs)" ]]
+}
+if [[ $PRINT_ARTIFACTS == true ]]; then
+  printf 'root=%s\ntarget_dir=%s\nnode=%s\nwasm=%s\n' "$ROOT" "$TARGET_DIR" "$NODE_BIN" "$TRY_RUNTIME_WASM"
+  printf 'sdk_drift_gate=%s\ntry_runtime_gate=%s\n' \
+    "$([[ $sdk_drift == true ]] && { [[ $ALL == true ]] || metadata_surface_changed; } && echo true || echo false)" \
+    "$([[ $runtime == true ]] && { [[ $ALL == true ]] || migrations_changed; } && echo true || echo false)"
+  exit 0
+fi
 
 # ------------------------------------------------------------ cheap gates ---
 # Verify who the push credential belongs to, not what the URL says. The hook
@@ -260,13 +289,7 @@ else
   skip "cargo clippy / cargo test" "no Rust paths changed"
 fi
 
-# SDK bindings drift: needs a node built from this tree. Trigger on a
-# spec_version change or any production Rust path that shapes metadata.
-metadata_surface_changed() {
-  git diff "$BASE" -- runtime/src/lib.rs | grep -qE '^[+-][[:space:]]*spec_version:' && return 0
-  grep -E '^(pallets/[^/]+/src/|runtime/src/|common/src/|primitives/)' "$CHANGED" |
-    grep -vqE '/(tests?|mock|benchmarking|benchmarks|weights)(/|\.rs$)'
-}
+# SDK bindings drift: build the node from this tree and compare its metadata.
 NODE_PORT=${PREFLIGHT_RPC_PORT:-9977}
 NODE_PIDFILE=$(mktemp)
 stop_node() { # the step runs in a pipeline subshell, so the PID travels via a file
@@ -277,7 +300,8 @@ trap 'stop_node; rm -f "$CHANGED" "$NODE_PIDFILE"' EXIT
 sdk_regen_check() {
   local want got='' i pid
   want=$(grep -oE '^[[:space:]]*spec_version: [0-9]+,' runtime/src/lib.rs | grep -oE '[0-9]+')
-  target/release/node-subtensor --chain local --tmp --alice --validator --rpc-port "$NODE_PORT" \
+  [[ -x "$NODE_BIN" ]] || { echo "release node not found at $NODE_BIN"; return 1; }
+  "$NODE_BIN" --chain local --tmp --alice --validator --rpc-port "$NODE_PORT" \
     --rpc-cors all --rpc-methods unsafe --unsafe-force-node-key-generation >/tmp/preflight-node.log 2>&1 &
   pid=$!
   echo "$pid" >"$NODE_PIDFILE"
@@ -311,14 +335,8 @@ else
   skip "SDK bindings drift (release node)" "no spec_version / metadata surface change"
 fi
 
-# try-runtime: replay on_runtime_upgrade against the nightly mainnet snapshot
-# CI uses, when a migration or the runtime Migrations tuple changed.
+# try-runtime: replay on_runtime_upgrade against the nightly mainnet snapshot CI uses.
 TRY_RUNTIME_VERSION=0.10.1
-migrations_changed() {
-  changed '^(pallets|runtime)/.*/migrations/' && return 0
-  [[ "$(git show "$BASE:runtime/src/lib.rs" | awk '/^type Migrations = \(/,/^\);/')" != \
-     "$(awk '/^type Migrations = \(/,/^\);/' runtime/src/lib.rs)" ]]
-}
 fetch_snapshot() {
   local cache=${PREFLIGHT_CACHE_DIR:-$HOME/.cache/subtensor-preflight} repo=${PREFLIGHT_REPO:-RaoFoundation/subtensor} id
   mkdir -p "$cache"
@@ -332,13 +350,13 @@ fetch_snapshot() {
   [[ -s $cache/mainnet.snap ]]
 }
 try_runtime_check() {
-  local wasm=target/production/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm mbm=()
-  local cache=${PREFLIGHT_CACHE_DIR:-$HOME/.cache/subtensor-preflight}
+  local mbm=() cache=${PREFLIGHT_CACHE_DIR:-$HOME/.cache/subtensor-preflight}
+  [[ -s "$TRY_RUNTIME_WASM" ]] || { echo "try-runtime wasm not found at $TRY_RUNTIME_WASM"; return 1; }
   [[ "$(grep -cE '^[[:space:]]*type MultiBlockMigrator[[:space:]]*=' runtime/src/lib.rs)" == 1 ]] ||
     { echo "expected exactly one MultiBlockMigrator definition"; return 1; }
   grep -qE '^[[:space:]]*type MultiBlockMigrator[[:space:]]*=[[:space:]]*\(\)[[:space:]]*;' runtime/src/lib.rs && mbm=(--disable-mbm-checks)
   fetch_snapshot || return 1
-  RUST_LOG=remote-ext=debug,runtime=debug try-runtime --runtime "$wasm" on-runtime-upgrade \
+  RUST_LOG=remote-ext=debug,runtime=debug try-runtime --runtime "$TRY_RUNTIME_WASM" on-runtime-upgrade \
     --checks=all --blocktime 12000 --disable-spec-version-check --no-weight-warnings \
     ${mbm[@]:+"${mbm[@]}"} snap --path "$cache/mainnet.snap"
 }

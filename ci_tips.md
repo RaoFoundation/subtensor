@@ -111,7 +111,9 @@ not count and `git push origin other-branch` validates `other-branch`.
 `git push --no-verify` is forbidden for agents. Pushes go out as
 `unarbos`; the gate verifies who owns the push credential for the
 destination remote via `api.github.com/user` and prints the
-`git remote set-url` fix when it is not `unarbos`.
+`git remote set-url` fix when it is not `unarbos`. Build artifacts are
+resolved from Cargo's target dir (`--print-artifacts` shows the paths);
+`scripts/test-preflight-rev.sh` is the regression for the `--rev` path.
 
 The rest of this section explains what each gate runs and how to fix
 it. Match fix-mode commands to the files you own.
