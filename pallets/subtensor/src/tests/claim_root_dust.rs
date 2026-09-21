@@ -610,6 +610,60 @@ fn pumping_a_skipped_row_changes_nothing_for_anyone() {
     });
 }
 
+/// A zero forfeit cap is a hard off-switch for both rules, even for a slice whose anchored
+/// value rounds to zero while its live entitlement is positive (auditor `484ac8f8`): the row
+/// is sold. With the default cap the same slice is dust.
+#[test]
+fn zero_cap_sells_a_slice_whose_anchored_value_rounds_to_zero() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund(&[20 * TAO, 5 * TAO], &[1, 99_999]);
+        let alice = fund.stakers[0];
+        let row = fund.netuids[1];
+        // The row's fast anchor sits far below the live quote: anchored value 5 rao, so
+        // Alice's 1/100_000 slice rounds to zero there while it is 0.00005 TAO live.
+        SubnetFastMovingPrice::<Test>::insert(row, U64F64::from_num(0.000_000_001));
+        let live = SubtensorModule::realizable_tao_for_alpha(row, 5 * TAO);
+        let anchored = SubtensorModule::anchored_basket_holding_value(row, 5 * TAO, live);
+        assert!(anchored <= 5, "anchored {anchored}");
+        assert_eq!(
+            SubtensorModule::basket_payout_from(SHARE, anchored, 100_000 * SHARE),
+            0
+        );
+        assert!(SubtensorModule::basket_payout_from(SHARE, live, 100_000 * SHARE) > 0);
+
+        // Default cap: the zero-valued slice is dust.
+        assert!(SubtensorModule::basket_row_is_claim_dust(
+            anchored,
+            SHARE,
+            100_000 * SHARE,
+            0,
+            DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO,
+            DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO,
+        ));
+        // Cap 0: never dust.
+        assert!(!SubtensorModule::basket_row_is_claim_dust(
+            anchored,
+            SHARE,
+            100_000 * SHARE,
+            0,
+            DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO,
+            0,
+        ));
+
+        BasketClaimForfeitCapTao::<Test>::put(0);
+        let before = escrow_alpha(&fund.hotkey, row);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(alice),
+            fund.hotkey
+        ));
+        assert!(
+            escrow_alpha(&fund.hotkey, row) < before,
+            "cap 0: the row is sold"
+        );
+        assert!(dust_skipped_events().is_empty());
+    });
+}
+
 /// (4) A small finney claimant (P10 ≈ 0.015 TAO) against a fund spread over 125 rows whose
 /// values tail off: the claim sells only the rows whose slice clears 0.0001 TAO, and payout
 /// plus the reported forfeit add up to the entitlement (less pool slippage).

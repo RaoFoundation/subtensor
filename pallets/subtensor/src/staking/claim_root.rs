@@ -972,8 +972,8 @@ impl<T: Config> Pallet<T> {
     /// `slice_dust` — **and** that slice is worth at most `forfeit_cap`, whichever rule
     /// matched. The cap is the hard bound on what one skipped slice can leave in the fund:
     /// a claimant with a large slice of a small row sells it as before. Zero thresholds never
-    /// match; a zero cap turns every skip off. Callers exclude the root cash slot and
-    /// terminal write-offs.
+    /// match; a zero cap turns every skip off, including for slices whose anchored value
+    /// rounds to zero. Callers exclude the root cash slot and terminal write-offs.
     pub fn basket_row_is_claim_dust(
         anchored: u64,
         owed_shares: u64,
@@ -982,6 +982,12 @@ impl<T: Config> Pallet<T> {
         slice_dust: u64,
         forfeit_cap: u64,
     ) -> bool {
+        // A zero cap is a hard off-switch: without the explicit check a slice whose anchored
+        // value rounds to zero (positive live entitlement, anchor far below it) would pass
+        // `slice > 0 == false` and still be skipped.
+        if forfeit_cap == 0 {
+            return false;
+        }
         let slice = Self::basket_payout_from(owed_shares, anchored, shares_total);
         if slice > forfeit_cap {
             return false;
