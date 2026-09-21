@@ -46,17 +46,17 @@ impl RootClaimOutcome {
 /// One fund row as a claim sees it before redeeming: its pre-sale realizable quote, whether
 /// the pool is terminally shallow (written off instead of sold), and whether this claim
 /// leaves it in the fund as dust (see [`Pallet::basket_row_is_claim_dust`]).
-struct ValuedHolding {
-    netuid: NetUid,
-    alpha: AlphaBalance,
+pub(crate) struct ValuedHolding {
+    pub(crate) netuid: NetUid,
+    pub(crate) alpha: AlphaBalance,
     /// Pre-sale realizable quote (what a sale of the whole row would fetch now).
-    value: u64,
+    pub(crate) value: u64,
     /// The same, capped at the fast-anchor value of the alpha
     /// ([`Pallet::anchored_basket_holding_value`]): what a same-block pump cannot move.
     /// Used only to decide whether the row is dust for this claim.
-    anchored: u64,
-    terminal_garbage: bool,
-    dust: bool,
+    pub(crate) anchored: u64,
+    pub(crate) terminal_garbage: bool,
+    pub(crate) dust: bool,
 }
 
 impl<T: Config> Pallet<T> {
@@ -640,55 +640,9 @@ impl<T: Config> Pallet<T> {
         // cleanup sticks regardless of how the claim itself resolves.
         outcome.swept = Self::consolidate_dust_basket_holdings(hotkey);
 
-        let holdings = Self::get_basket_holdings(hotkey);
-        outcome.rows = holdings.len() as u32;
+        let valued_holdings = Self::plan_basket_claim(hotkey, owed_shares, shares_total)?;
+        outcome.rows = valued_holdings.len() as u32;
 
-        // Value every row before touching anything. Keep each slot's pre-sale value as well
-        // as the total: redemption caps every slot independently at the same NAV fraction.
-        // Without that cap, selling a raw alpha fraction on a concave AMM curve overpays the
-        // first redeemer and transfers the loss to the remaining shareholders.
-        //
-        // Dust rows are decided at the anchored mark (realizable capped at the fast-EMA
-        // value of the alpha, so a same-block pump cannot lift a row out of the dust band
-        // and a young subnet is not written down to a months-slow EMA), against a row floor
-        // that scales with the fund's anchored NAV. A claimant taking the whole fund skips
-        // nothing.
-        let mut valued_holdings: Vec<ValuedHolding> = Vec::new();
-        let mut anchored_nav: u64 = 0;
-        for (netuid, alpha) in holdings {
-            let (value, terminal_garbage) =
-                match Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())? {
-                    Some(value) => (value, false),
-                    None => (0, true),
-                };
-            let anchored = Self::anchored_basket_holding_value(netuid, alpha.to_u64(), value);
-            anchored_nav = anchored_nav.saturating_add(anchored);
-            valued_holdings.push(ValuedHolding {
-                netuid,
-                alpha,
-                value,
-                anchored,
-                terminal_garbage,
-                dust: false,
-            });
-        }
-        if owed_shares < shares_total {
-            let row_dust = Self::basket_claim_row_dust_floor(anchored_nav);
-            let slice_dust: u64 = BasketClaimSliceDustTao::<T>::get();
-            let forfeit_cap: u64 = BasketClaimForfeitCapTao::<T>::get();
-            for row in valued_holdings.iter_mut() {
-                row.dust = !row.netuid.is_root()
-                    && !row.terminal_garbage
-                    && Self::basket_row_is_claim_dust(
-                        row.anchored,
-                        owed_shares,
-                        shares_total,
-                        row_dust,
-                        slice_dust,
-                        forfeit_cap,
-                    );
-            }
-        }
         let has_terminal_garbage = valued_holdings.iter().any(|row| row.terminal_garbage);
         let dust_rows: u32 = valued_holdings.iter().filter(|row| row.dust).count() as u32;
         // What the skipped slices would have paid at the pre-sale quote. Informational only
@@ -933,6 +887,64 @@ impl<T: Config> Pallet<T> {
         })?;
 
         Ok(())
+    }
+
+    /// Every row of `hotkey`'s fund as a claim of `owed_shares` out of `shares_total` would
+    /// see it: pre-sale realizable quote, anchored value, terminal flag, and whether the claim
+    /// skips it as dust. Shared by the claim itself and the claim preview view, so the SDK
+    /// never re-implements the dust rules.
+    ///
+    /// Keep each slot's pre-sale value as well as the total: redemption caps every slot
+    /// independently at the same NAV fraction. Without that cap, selling a raw alpha
+    /// fraction on a concave AMM curve overpays the first redeemer and transfers the loss to
+    /// the remaining shareholders.
+    ///
+    /// Dust rows are decided at the anchored mark (realizable capped at the fast-EMA value
+    /// of the alpha, so a same-block pump cannot lift a row out of the dust band and a young
+    /// subnet is not written down to a months-slow EMA), against a row floor that scales
+    /// with the fund's anchored NAV. A claimant taking the whole fund skips nothing.
+    pub(crate) fn plan_basket_claim(
+        hotkey: &T::AccountId,
+        owed_shares: u64,
+        shares_total: u64,
+    ) -> Result<Vec<ValuedHolding>, DispatchError> {
+        let mut valued_holdings: Vec<ValuedHolding> = Vec::new();
+        let mut anchored_nav: u64 = 0;
+        for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
+            let (value, terminal_garbage) =
+                match Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())? {
+                    Some(value) => (value, false),
+                    None => (0, true),
+                };
+            let anchored = Self::anchored_basket_holding_value(netuid, alpha.to_u64(), value);
+            anchored_nav = anchored_nav.saturating_add(anchored);
+            valued_holdings.push(ValuedHolding {
+                netuid,
+                alpha,
+                value,
+                anchored,
+                terminal_garbage,
+                dust: false,
+            });
+        }
+        if owed_shares < shares_total {
+            let row_dust = Self::basket_claim_row_dust_floor(anchored_nav);
+            let slice_dust: u64 = BasketClaimSliceDustTao::<T>::get();
+            let forfeit_cap: u64 = BasketClaimForfeitCapTao::<T>::get();
+            for row in valued_holdings.iter_mut() {
+                row.dust = !row.netuid.is_root()
+                    && !row.terminal_garbage
+                    && Self::basket_row_is_claim_dust(
+                        row.anchored,
+                        owed_shares,
+                        shares_total,
+                        row_dust,
+                        slice_dust,
+                        forfeit_cap,
+                    );
+            }
+        }
+        Ok(valued_holdings)
     }
 
     /// The anchored mark of `alpha` on `netuid` given its `realizable` quote:

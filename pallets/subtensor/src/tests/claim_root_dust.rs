@@ -17,6 +17,7 @@
     clippy::unwrap_used
 )]
 
+use crate::RootClaimableThreshold;
 use crate::migrations::migrate_seed_beta_basket::{
     SeedBetaBasketV2Migration, SeedBetaBasketV2Progress,
 };
@@ -862,5 +863,147 @@ fn refund_on_failure_applies_after_admission_only() {
             SubtensorModule::root_claim_admission_weight(crate::MAX_ROOT_CLAIM_HOTKEY_WORK);
         assert!(charged.all_gte(admission), "{charged:?} < {admission:?}");
         assert!(charged.all_lt(SubtensorModule::root_claim_hotkey_declared_weight()));
+    });
+}
+
+/// The claim preview applies the same dust rules as the claim: `redeemable_tao` excludes the
+/// skipped slices, `accrued_tao` keeps the full entitlement, and `rows_to_sell` counts only
+/// the rows the claim will sell. The claim then pays exactly what the preview said.
+#[test]
+fn claim_preview_matches_the_claim_on_mixed_dust() {
+    new_test_ext(1).execute_with(|| {
+        // Small staker owns 1/100_000: 20 TAO → 0.0002 (sold), 5 TAO → 0.00005 (dust),
+        // 200 TAO → 0.002 (sold).
+        let fund = setup_fund(&[20 * TAO, 5 * TAO, 200 * TAO], &[1, 99_999]);
+        let small = fund.stakers[0];
+        let preview = SubtensorModule::get_basket_claim_preview(&fund.hotkey, &small)
+            .expect("owed shares ⇒ a preview");
+        assert_eq!(preview.owed_shares, SHARE);
+        assert_eq!(preview.rows, 3);
+        assert_eq!(preview.rows_to_sell, 2);
+        assert_eq!(preview.dust_rows, 1);
+        let accrued = preview.accrued_tao.to_u64();
+        let redeemable = preview.redeemable_tao.to_u64();
+        let forfeited = preview.forfeited_tao_est.to_u64();
+        assert!(
+            accrued > 2_240_000 && accrued <= 2_250_000,
+            "accrued {accrued}"
+        );
+        assert!(
+            forfeited > 49_000 && forfeited <= 50_000,
+            "forfeited {forfeited}"
+        );
+        // Per-row floors: the parts can differ from the whole by up to one rao per row.
+        assert!(
+            accrued.abs_diff(redeemable + forfeited) <= 3,
+            "{accrued} vs {redeemable}+{forfeited}"
+        );
+
+        let previews = SubtensorModule::get_root_basket_claim_previews(&small);
+        assert_eq!(previews.len(), 1);
+        assert_eq!(previews[0], preview);
+
+        let root_before = root_stake_of(&fund.hotkey, &small);
+        let post =
+            SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(small), fund.hotkey)
+                .expect("claim runs");
+        let paid = root_stake_of(&fund.hotkey, &small) - root_before;
+        assert_close(
+            u128::from(paid),
+            u128::from(redeemable),
+            2_000,
+            "paid vs preview",
+        );
+        assert!(post.actual_weight.is_some());
+        assert!(
+            SubtensorModule::get_basket_claim_preview(&fund.hotkey, &small).is_none(),
+            "nothing owed after the claim"
+        );
+    });
+}
+
+/// An all-dust claim previews as a no-op: `redeemable_tao == 0`, `rows_to_sell == 0`, while
+/// the full entitlement is still reported as accrued. The claim itself burns nothing.
+#[test]
+fn claim_preview_reports_an_all_dust_claim_as_a_noop() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund(&[5 * TAO, 3 * TAO], &[1, 999_999]);
+        let small = fund.stakers[0];
+        let preview = SubtensorModule::get_basket_claim_preview(&fund.hotkey, &small).unwrap();
+        assert_eq!(preview.redeemable_tao.to_u64(), 0);
+        assert_eq!(preview.rows_to_sell, 0);
+        assert_eq!(preview.dust_rows, 2);
+        assert!(preview.accrued_tao.to_u64() > 7_900);
+        assert!(
+            preview
+                .forfeited_tao_est
+                .to_u64()
+                .abs_diff(preview.accrued_tao.to_u64())
+                <= 2
+        );
+
+        let shares_before = fund_shares(&fund.hotkey);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(small),
+            fund.hotkey
+        ));
+        assert_eq!(fund_shares(&fund.hotkey), shares_before);
+        assert_eq!(owed(&fund, &small), SHARE);
+    });
+}
+
+/// Dust can push a claim below the threshold although the full entitlement is above it: the
+/// preview's `redeemable_tao` is what the runtime compares, and the claim is a no-op.
+#[test]
+fn claim_preview_redeemable_is_what_the_threshold_applies_to() {
+    new_test_ext(1).execute_with(|| {
+        // 1/100_000 of [20, 5, 5, 5] TAO: accrued 0.00035 TAO, redeemable 0.0002 TAO (the
+        // three 5 TAO slices are 0.00005 each: dust).
+        let fund = setup_fund(&[20 * TAO, 5 * TAO, 5 * TAO, 5 * TAO], &[1, 99_999]);
+        let small = fund.stakers[0];
+        let preview = SubtensorModule::get_basket_claim_preview(&fund.hotkey, &small).unwrap();
+        let accrued = preview.accrued_tao.to_u64();
+        let redeemable = preview.redeemable_tao.to_u64();
+        assert!(accrued > 340_000 && accrued <= 350_000, "{accrued}");
+        assert!(
+            redeemable > 190_000 && redeemable <= 200_000,
+            "{redeemable}"
+        );
+        assert_eq!(preview.rows_to_sell, 1);
+        assert_eq!(preview.dust_rows, 3);
+
+        // Threshold between the two: the full entitlement clears it, the payout does not.
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(250_000));
+        let shares_before = fund_shares(&fund.hotkey);
+        let root_before = root_stake_of(&fund.hotkey, &small);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(small),
+            fund.hotkey
+        ));
+        assert_eq!(
+            fund_shares(&fund.hotkey),
+            shares_before,
+            "no-op: nothing burned"
+        );
+        assert_eq!(
+            root_stake_of(&fund.hotkey, &small),
+            root_before,
+            "nothing paid"
+        );
+        assert_eq!(owed(&fund, &small), SHARE);
+
+        // Below the payout the claim goes through and pays the previewed amount.
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(150_000));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(small),
+            fund.hotkey
+        ));
+        let paid = root_stake_of(&fund.hotkey, &small) - root_before;
+        assert_close(
+            u128::from(paid),
+            u128::from(redeemable),
+            2_000,
+            "paid vs preview",
+        );
     });
 }

@@ -5,8 +5,8 @@ use alloc::vec::Vec;
 use codec::Compact;
 use pallet_subtensor::rpc_info::{
     basket_info::{
-        BasketPosition, BasketSummary, BasketTradingStatus, BetaPosition, BetaPricing,
-        BetaPricingPage,
+        BasketClaimPreview, BasketPosition, BasketSummary, BasketTradingStatus, BetaPosition,
+        BetaPricing, BetaPricingPage,
     },
     delegate_info::DelegateInfo,
     dynamic_info::DynamicInfo,
@@ -148,5 +148,13 @@ sp_api::decl_runtime_apis! {
         /// plus the turnover window a trade at the current block would be charged to.
         #[api_version(4)]
         fn get_basket_trading_status(hotkey: AccountId32) -> BasketTradingStatus;
+        /// What `claim_root_with_hotkey` would do now for this staker with the dust rules
+        /// applied: full entitlement, the part a claim pays, rows sold vs skipped. `None`
+        /// when the staker has no owed shares on the validator.
+        #[api_version(5)]
+        fn get_basket_claim_preview(hotkey: AccountId32, coldkey: AccountId32) -> Option<BasketClaimPreview<AccountId32>>;
+        /// The same for every validator a coldkey-wide `claim_root` would touch.
+        #[api_version(5)]
+        fn get_root_basket_claim_previews(coldkey: AccountId32) -> Vec<BasketClaimPreview<AccountId32>>;
     }
 }

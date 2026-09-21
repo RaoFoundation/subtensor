@@ -2584,7 +2584,7 @@ impl_runtime_apis! {
         }
     }
 
-    #[api_version(4)]
+    #[api_version(5)]
     impl subtensor_custom_rpc_runtime_api::BetaBasketRuntimeApi<Block> for Runtime {
         fn get_root_basket_owed(coldkey: AccountId32) -> TaoBalance {
             SubtensorModule::get_root_basket_owed_tao(&coldkey)
@@ -2633,6 +2633,12 @@ impl_runtime_apis! {
         }
         fn get_basket_trading_status(hotkey: AccountId32) -> pallet_subtensor::rpc_info::basket_info::BasketTradingStatus {
             SubtensorModule::get_basket_trading_status(&hotkey)
+        }
+        fn get_basket_claim_preview(hotkey: AccountId32, coldkey: AccountId32) -> Option<pallet_subtensor::rpc_info::basket_info::BasketClaimPreview<AccountId32>> {
+            SubtensorModule::get_basket_claim_preview(&hotkey, &coldkey)
+        }
+        fn get_root_basket_claim_previews(coldkey: AccountId32) -> Vec<pallet_subtensor::rpc_info::basket_info::BasketClaimPreview<AccountId32>> {
+            SubtensorModule::get_root_basket_claim_previews(&coldkey)
         }
     }
 
