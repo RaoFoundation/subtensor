@@ -996,5 +996,17 @@ mod benchmarks {
         _(RawOrigin::Root, 6553u16);
     }
 
+    #[benchmark]
+    fn sudo_set_basket_claim_dust() {
+        #[extrinsic_call]
+        _(
+            RawOrigin::Root,
+            1_000_000_000u64,
+            10u16,
+            100_000u64,
+            10_000_000u64,
+        );
+    }
+
     impl_benchmark_test_suite!(AdminUtils, mock::new_test_ext(), mock::Test);
 }

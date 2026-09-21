@@ -21,7 +21,7 @@ payout: the claim pays 100% of the basket.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1243-L1256), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2130-L2149), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1243-L1256), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2169-L2198), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -92,7 +92,7 @@ pub fn unstake_all(
 
 Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L132), [`unstake_all_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L256).
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2134`](/code/pallets/subtensor/src/macros/dispatches.rs#L2130-L2149):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2173`](/code/pallets/subtensor/src/macros/dispatches.rs#L2169-L2198):
 
 ```rust
 #[pallet::call_index(148)]
@@ -104,12 +104,22 @@ pub fn claim_root_with_hotkey(
     hotkey: T::AccountId,
 ) -> DispatchResultWithPostInfo {
     let coldkey: T::AccountId = ensure_signed(origin)?;
+    // Admission failures keep the declared envelope (see `claim_root`).
     ensure!(
         Self::root_claim_hotkey_fits_declared_budget(&hotkey),
         Error::<T>::RootClaimTooHeavy
     );
 
-    let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
+    let admitted =
+        Self::root_claim_admission_weight(Self::root_claim_hotkey_declared_work());
+    let outcome = Self::do_root_claim_tracked(coldkey.clone(), vec![hotkey]).map_err(
+        |(done, error)| {
+            Self::fail_with_weight(
+                error,
+                Self::root_claim_actual_weight(1, 0, &done).saturating_add(admitted),
+            )
+        },
+    )?;
     Self::maybe_add_coldkey_index(&coldkey);
 
     let weight = Self::root_claim_actual_weight(1, 0, &outcome);
@@ -117,7 +127,7 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L952), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L985), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L1014).
+Delegates to [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1169), [`root_claim_admission_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1207), [`root_claim_hotkey_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1088).
 
 `Utility.batch_all` — [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362):
 

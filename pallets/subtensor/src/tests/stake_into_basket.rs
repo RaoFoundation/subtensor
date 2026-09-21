@@ -847,11 +847,13 @@ fn test_stake_into_empty_basket_opens_as_root_cash() {
     });
 }
 
-/// Regression: a fully drained holding cannot simply be omitted from a direct deposit. With
-/// no realizable price there is no fair way to make the depositor buy that exposure, so the
-/// mint must wait for the holding to become priceable again.
+/// Spec 468: a fully drained holding (alpha with zero realizable value) is left out of the
+/// mirror instead of blocking every deposit into the fund with `AmountTooLow`. It
+/// contributes nothing to the NAV the shares are priced at, so the new shares are owed
+/// nothing from it. A barely priceable holding whose deposit slice rounds to zero still
+/// rejects the deposit: it has value the depositor would otherwise not buy.
 #[test]
-fn test_stake_into_basket_rejects_unpriceable_holding() {
+fn test_stake_into_basket_skips_unpriceable_holding_and_rejects_zero_slices() {
     new_test_ext(1).execute_with(|| {
         let (_owner, hotkey, stale_netuid) = setup_stake_in_env();
         let current_owner = U256::from(3001);
@@ -893,16 +895,24 @@ fn test_stake_into_basket_rejects_unpriceable_holding() {
 
         let bob = U256::from(2002);
         let deposit = 100_000_000u64;
-        add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * deposit));
-        assert_noop!(
-            SubtensorModule::do_stake_into_basket(bob, hotkey, deposit.into()),
-            Error::<Test>::AmountTooLow
+        add_balance_to_coldkey_account(&bob, TaoBalance::from(4 * deposit));
+        let stale_before = escrow_alpha(&hotkey, stale_netuid);
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
+            hotkey,
+            deposit.into()
+        ));
+        assert!(
+            escrow_alpha(&hotkey, current_netuid) > current_before,
+            "the deposit mirrors the priceable holding"
         );
         assert_eq!(
-            escrow_alpha(&hotkey, current_netuid),
-            current_before,
-            "rejected mint must not deploy into only the priceable holdings"
+            escrow_alpha(&hotkey, stale_netuid),
+            stale_before,
+            "the worthless row is left out of the mirror"
         );
+        assert!(SubtensorModule::get_basket_owed_shares(&hotkey, &bob) > 0);
+        let current_before = escrow_alpha(&hotkey, current_netuid);
 
         // A barely priceable holding is also unsafe when its proportional slice rounds to
         // zero. It must remain part of the deposit or the mint must be rejected.
@@ -935,6 +945,7 @@ fn test_stake_into_basket_rejects_unpriceable_holding() {
             SubtensorModule::do_stake_into_basket(bob, hotkey, deposit.into()),
             Error::<Test>::AmountTooLow
         );
+        assert_eq!(escrow_alpha(&hotkey, current_netuid), current_before);
     });
 }
 

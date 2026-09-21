@@ -378,6 +378,14 @@ class ClaimRoot(_RootClaimIntent):
 
     Prefer :class:`ClaimRootWithHotkey` to claim a single validator.
 
+    Since spec 468 each fund's dust rows are left unsold (a row worth less
+    than ``min(1 TAO, 0.1% of the fund's anchored NAV)``, or one where this
+    claimant's slice is worth less than 0.0001 TAO, when that slice is at most
+    the 0.01 TAO forfeit cap); the whole entitlement is settled, so those
+    slices stay in the fund for the remaining holders. A
+    claim that is admitted and then fails pays for the work it did, not the
+    declared envelope.
+
     ``plan`` (and ``btcli root claim --dry-run``) estimates the reserved
     inclusion fee versus the fee that will actually settle, compares that
     spent fee to accrued yield, warns when the claim loses money, and
@@ -424,9 +432,18 @@ class ClaimRootWithHotkey(_RootClaimIntent):
     current weight vector, worth less than the same threshold) are
     consolidated into the fund's root (TAO) slot as a side effect, so the
     per-holding claim fee shrinks over time; curated positions are left to
-    compound. The transaction fee is charged by work actually done:
-    holdings redeemed pay full weight, holdings merely scanned pay a small
-    per-row cost. The chain reserves a fixed 256-unit declared-work envelope
+    compound. Since spec 468 a claim also leaves dust rows unsold: a holding
+    worth less than ``min(1 TAO, 0.1% of the fund's anchored NAV)``, or one
+    where this claimant's own slice is worth less than 0.0001 TAO, is neither
+    sold nor paid — provided the slice is worth at most 0.01 TAO (the forfeit
+    cap; bigger slices of small rows are sold as before). The whole
+    entitlement is still settled, so those slices stay in the fund for the
+    remaining holders (event ``BasketClaimDustSkipped``). The transaction fee is charged by work
+    actually done: holdings redeemed pay full weight, holdings merely scanned
+    (including skipped dust rows) pay a small per-row cost, and a claim that
+    is admitted and then fails pays for the work it did rather than the
+    declared envelope. The chain
+    reserves a fixed 256-unit declared-work envelope
     plus a flat allowance for settling the validator's queued dividend credits
     first (the same allowance every basket call that flushes declares), counts
     only root-relevant hotkeys and their basket rows for admission, and

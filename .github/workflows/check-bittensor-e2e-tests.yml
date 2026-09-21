@@ -442,6 +442,34 @@ jobs:
       IMAGE_REF: ${{ needs.build-localnet-image.outputs.image_ref || needs.plan.outputs.base_image_ref }}
     steps:
       - name: Download compiled Rust e2e binary
+        id: download-rust-e2e
+        # The artifact service can return an intermediary 403 to individual shards.
+        # Retry the pinned action, but keep a persistent download failure fatal.
+        continue-on-error: true
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: bittensor-core-e2e
+          path: rust-e2e
+
+      - name: Wait before retrying Rust e2e artifact download
+        if: steps.download-rust-e2e.outcome == 'failure'
+        run: sleep 10
+
+      - name: Retry compiled Rust e2e binary download
+        id: download-rust-e2e-retry
+        if: steps.download-rust-e2e.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: bittensor-core-e2e
+          path: rust-e2e
+
+      - name: Wait before final Rust e2e artifact download
+        if: steps.download-rust-e2e-retry.outcome == 'failure'
+        run: sleep 20
+
+      - name: Final compiled Rust e2e binary download
+        if: steps.download-rust-e2e-retry.outcome == 'failure'
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: bittensor-core-e2e

@@ -15,9 +15,18 @@ Orphaned dust holdings in the basket (subnets outside the validator's
 current weight vector, worth less than the same threshold) are
 consolidated into the fund's root (TAO) slot as a side effect, so the
 per-holding claim fee shrinks over time; curated positions are left to
-compound. The transaction fee is charged by work actually done:
-holdings redeemed pay full weight, holdings merely scanned pay a small
-per-row cost. The chain reserves a fixed 256-unit declared-work envelope
+compound. Since spec 468 a claim also leaves dust rows unsold: a holding
+worth less than `min(1 TAO, 0.1% of the fund's anchored NAV)`, or one
+where this claimant's own slice is worth less than 0.0001 TAO, is neither
+sold nor paid — provided the slice is worth at most 0.01 TAO (the forfeit
+cap; bigger slices of small rows are sold as before). The whole
+entitlement is still settled, so those slices stay in the fund for the
+remaining holders (event `BasketClaimDustSkipped`). The transaction fee is charged by work
+actually done: holdings redeemed pay full weight, holdings merely scanned
+(including skipped dust rows) pay a small per-row cost, and a claim that
+is admitted and then fails pays for the work it did rather than the
+declared envelope. The chain
+reserves a fixed 256-unit declared-work envelope
 plus a flat allowance for settling the validator's queued dividend credits
 first (the same allowance every basket call that flushes declares), counts
 only root-relevant hotkeys and their basket rows for admission, and
@@ -30,7 +39,7 @@ Preview per-validator payouts with `root_basket_owed_breakdown`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2130-L2149) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2169-L2198) |
 
 ## Parameters
 
@@ -79,7 +88,7 @@ result = sub.execute_tool("claim_root_with_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2134`](/code/pallets/subtensor/src/macros/dispatches.rs#L2130-L2149):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2173`](/code/pallets/subtensor/src/macros/dispatches.rs#L2169-L2198):
 
 ```rust
 #[pallet::call_index(148)]
@@ -91,12 +100,22 @@ pub fn claim_root_with_hotkey(
     hotkey: T::AccountId,
 ) -> DispatchResultWithPostInfo {
     let coldkey: T::AccountId = ensure_signed(origin)?;
+    // Admission failures keep the declared envelope (see `claim_root`).
     ensure!(
         Self::root_claim_hotkey_fits_declared_budget(&hotkey),
         Error::<T>::RootClaimTooHeavy
     );
 
-    let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
+    let admitted =
+        Self::root_claim_admission_weight(Self::root_claim_hotkey_declared_work());
+    let outcome = Self::do_root_claim_tracked(coldkey.clone(), vec![hotkey]).map_err(
+        |(done, error)| {
+            Self::fail_with_weight(
+                error,
+                Self::root_claim_actual_weight(1, 0, &done).saturating_add(admitted),
+            )
+        },
+    )?;
     Self::maybe_add_coldkey_index(&coldkey);
 
     let weight = Self::root_claim_actual_weight(1, 0, &outcome);
@@ -104,6 +123,6 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L952), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L985), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L1014).
+Delegates to [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1169), [`root_claim_admission_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1207), [`root_claim_hotkey_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1088).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

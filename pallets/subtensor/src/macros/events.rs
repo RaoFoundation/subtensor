@@ -858,5 +858,24 @@ mod events {
             /// Alpha (or TAO when destination is root) added to the destination holding.
             alpha_bought: AlphaBalance,
         },
+
+        /// A root claim skipped `rows` dust rows of the fund: rows whose whole holding was
+        /// worth less than `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × anchored
+        /// NAV)`, or whose slice for this claimant was worth less than
+        /// `BasketClaimSliceDustTao`, each worth at most `BasketClaimForfeitCapTao` for this
+        /// claimant, all at the anchored (fast-EMA-capped) mark. Those rows were neither sold
+        /// nor paid. The claim burned the whole entitlement, so the claimant's slices of those
+        /// rows — about `forfeited_tao_est` at the pre-sale realizable quote — stay in the fund
+        /// for the remaining holders.
+        BasketClaimDustSkipped {
+            /// Validator hotkey the basket belongs to.
+            hotkey: T::AccountId,
+            /// Staker coldkey that claimed.
+            coldkey: T::AccountId,
+            /// Fund rows the claim did not sell.
+            rows: u32,
+            /// Estimated TAO value of the claimant's slices of those rows, left in the fund.
+            forfeited_tao_est: TaoBalance,
+        },
     }
 }

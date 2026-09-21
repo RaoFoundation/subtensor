@@ -2077,12 +2077,21 @@ mod dispatches {
         ///
         /// Prefer [`Pallet::claim_root_with_hotkey`] to claim a single validator.
         ///
+        /// Dust rows are not sold (see [`Pallet::claim_root_with_hotkey`]); the claimant's
+        /// slice of them stays in the fund. A claim that is admitted and then fails is
+        /// charged the work it did, not the declared envelope; a claim refused at admission
+        /// keeps the envelope.
+        ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
         /// * `subnets`: Ignored. Kept so old clients' encoded call data still decodes.
         ///
         /// # Events
         /// * `RootClaimed`: On successfully claiming the root emissions for a coldkey.
+        /// * `BasketClaimDustSkipped`: Per fund whose dust rows were left unsold.
+        ///
+        /// # Errors
+        /// * `RootClaimTooHeavy`: More hotkeys or fund rows than one claim may walk.
         #[pallet::call_index(121)]
         #[pallet::weight(
             Pallet::<T>::root_claim_declared_weight()
@@ -2096,6 +2105,9 @@ mod dispatches {
 
             let staking_hotkeys = StakingHotkeys::<T>::get(&coldkey);
             let selection_scanned = u32::try_from(staking_hotkeys.len()).unwrap_or(u32::MAX);
+            // Admission failures keep the declared envelope: the admission scan's cost is
+            // not precisely metered, so refunding it could under-charge. Only a claim that
+            // was admitted and then failed is billed for the work it actually did.
             ensure!(
                 selection_scanned <= Self::root_claim_declared_work(),
                 Error::<T>::RootClaimTooHeavy
@@ -2106,7 +2118,18 @@ mod dispatches {
                 Error::<T>::RootClaimTooHeavy
             );
             let hotkey_count = hotkeys.len() as u32;
-            let outcome = Self::do_root_claim(coldkey.clone(), hotkeys)?;
+            let admitted = Self::root_claim_admission_weight(
+                selection_scanned.saturating_add(Self::root_claim_declared_work()),
+            );
+            let outcome = Self::do_root_claim_tracked(coldkey.clone(), hotkeys).map_err(
+                |(done, error)| {
+                    Self::fail_with_weight(
+                        error,
+                        Self::root_claim_actual_weight(hotkey_count, selection_scanned, &done)
+                            .saturating_add(admitted),
+                    )
+                },
+            )?;
             Self::maybe_add_coldkey_index(&coldkey);
 
             let weight = Self::root_claim_actual_weight(hotkey_count, selection_scanned, &outcome);
@@ -2121,12 +2144,28 @@ mod dispatches {
         /// NAV-priced entitlement remains in the basket as root TAO for the other holders.
         /// Other validators' accrued yield is left untouched.
         ///
+        /// Dust rows are not sold: a fund row worth less than
+        /// `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × anchored NAV)`, or one
+        /// whose slice for this claimant is worth less than `BasketClaimSliceDustTao`, is
+        /// skipped when that slice is also worth at most `BasketClaimForfeitCapTao` (all at
+        /// the anchored mark, which decides dust only). The claim burns the full
+        /// entitlement, so the claimant's slice of a skipped row — never more than the cap
+        /// at the anchored mark — is left to the remaining holders (`BasketClaimDustSkipped`
+        /// reports it). A claim
+        /// that is admitted and then fails is charged the work it did, not the declared
+        /// envelope; a claim refused at admission keeps the envelope.
+        ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
         /// * `hotkey`: The validator whose basket entitlement to redeem.
         ///
         /// # Events
         /// * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey.
+        /// * `BasketClaimDustSkipped`: When the claim left dust rows unsold.
+        ///
+        /// # Errors
+        /// * `RootClaimTooHeavy`: The fund has more rows (or queued credits) than one claim
+        ///   may walk.
         #[pallet::call_index(148)]
         #[pallet::weight(
             Pallet::<T>::root_claim_hotkey_declared_weight()
@@ -2136,12 +2175,22 @@ mod dispatches {
             hotkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
+            // Admission failures keep the declared envelope (see `claim_root`).
             ensure!(
                 Self::root_claim_hotkey_fits_declared_budget(&hotkey),
                 Error::<T>::RootClaimTooHeavy
             );
 
-            let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
+            let admitted =
+                Self::root_claim_admission_weight(Self::root_claim_hotkey_declared_work());
+            let outcome = Self::do_root_claim_tracked(coldkey.clone(), vec![hotkey]).map_err(
+                |(done, error)| {
+                    Self::fail_with_weight(
+                        error,
+                        Self::root_claim_actual_weight(1, 0, &done).saturating_add(admitted),
+                    )
+                },
+            )?;
             Self::maybe_add_coldkey_index(&coldkey);
 
             let weight = Self::root_claim_actual_weight(1, 0, &outcome);

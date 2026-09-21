@@ -742,7 +742,16 @@ pub fn new_test_ext(block_number: BlockNumber) -> sp_io::TestExternalities {
         .build_storage()
         .unwrap();
     let mut ext = sp_io::TestExternalities::new(t);
-    ext.execute_with(|| System::set_block_number(block_number));
+    ext.execute_with(|| {
+        System::set_block_number(block_number);
+        // The mock never advances `SubnetMovingPrice` (it stays at its zero default unless
+        // a test sets it), so at the guarded mark every alpha row would read as claim dust
+        // and no redemption test could sell anything. Tests start with the dust floors off;
+        // `tests::claim_root_dust` pins the chain defaults explicitly, with priced pools.
+        BasketClaimRowDustCapTao::<Test>::put(0);
+        BasketClaimRowDustBps::<Test>::put(0);
+        BasketClaimSliceDustTao::<Test>::put(0);
+    });
     ext
 }
 

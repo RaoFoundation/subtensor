@@ -499,8 +499,15 @@ async function findTransferDestinationNetuid(originNetuid) {
   const snapshots = await reserveSnapshots();
   for (const { netuid } of snapshots) {
     if (netuid === originNetuid) continue;
-    const transferEnabled = await api.query.subtensorModule.transferToggle(netuid);
-    if (transferEnabled.isTrue) {
+    // A dissolved subnet keeps its swap pool "initialized" through the metered cleanup
+    // phases but is no longer a live network and refuses stake with `SubtokenDisabled`
+    // (finney subnet 108 dissolved at block 9111229 and was picked here).
+    const [added, subtokenEnabled, transferEnabled] = await Promise.all([
+      api.query.subtensorModule.networksAdded(netuid),
+      api.query.subtensorModule.subtokenEnabled(netuid),
+      api.query.subtensorModule.transferToggle(netuid),
+    ]);
+    if (added.isTrue && subtokenEnabled.isTrue && transferEnabled.isTrue) {
       return netuid;
     }
   }

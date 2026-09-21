@@ -7608,3 +7608,47 @@ fn test_staking_hotkeys_cleanup_preserves_stake_added_between_passes() {
         );
     });
 }
+
+// =============================================================================
+// Spec 468: enable basket trading (one-shot, stamped)
+// =============================================================================
+
+#[test]
+fn test_migrate_enable_basket_trading_flips_once_and_stamps() {
+    new_test_ext(1).execute_with(|| {
+        use crate::migrations::migrate_enable_basket_trading::{
+            MIGRATION_NAME, migrate_enable_basket_trading,
+        };
+        assert!(!BasketTradingEnabled::<Test>::get());
+        assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+
+        let first = migrate_enable_basket_trading::<Test>();
+        assert!(
+            BasketTradingEnabled::<Test>::get(),
+            "first run enables trading"
+        );
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert_eq!(first, <Test as Config>::DbWeight::get().reads_writes(2, 2));
+
+        // Governance turns trading off after the upgrade: later runs must not undo that.
+        BasketTradingEnabled::<Test>::put(false);
+        let second = migrate_enable_basket_trading::<Test>();
+        assert!(!BasketTradingEnabled::<Test>::get(), "a re-run is a no-op");
+        assert_eq!(second, <Test as Config>::DbWeight::get().reads(1));
+    });
+}
+
+#[test]
+fn test_migrate_enable_basket_trading_only_stamps_when_already_on() {
+    new_test_ext(1).execute_with(|| {
+        use crate::migrations::migrate_enable_basket_trading::{
+            MIGRATION_NAME, migrate_enable_basket_trading,
+        };
+        // Devnet / testnet: trading is already on. The migration writes only the stamp.
+        BasketTradingEnabled::<Test>::put(true);
+        let weight = migrate_enable_basket_trading::<Test>();
+        assert!(BasketTradingEnabled::<Test>::get());
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert_eq!(weight, <Test as Config>::DbWeight::get().reads_writes(2, 1));
+    });
+}

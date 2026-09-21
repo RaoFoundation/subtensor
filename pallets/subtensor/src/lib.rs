@@ -132,6 +132,31 @@ pub const BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
 /// subnet's alpha reserve after a `swap_basket` buy (u16-normalized).
 pub const DEFAULT_BASKET_LIQUIDITY_CAP: u16 = u16::MAX / 10;
 
+/// Default [`BasketClaimRowDustCapTao`]: the row-dust floor of a root claim is at most 1 TAO.
+/// A claim does not sell a fund row whose whole holding is worth less than
+/// `min(cap, bps × anchored NAV)` at the anchored mark ([`Pallet::anchored_basket_holding_value`]);
+/// the claimant's slice of such a row stays in the fund for the remaining holders (see
+/// [`Pallet::root_claim_for_hotkey`]).
+pub const DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO: u64 = 1_000_000_000;
+
+/// Default [`BasketClaimRowDustBps`]: the row-dust floor is 0.1% of the fund's anchored NAV
+/// (10 basis points), capped at [`DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO`]. Relative so a
+/// small validator's fund — where every row may be under 1 TAO — still redeems its rows.
+pub const DEFAULT_BASKET_CLAIM_ROW_DUST_BPS: u16 = 10;
+
+/// Default [`BasketClaimSliceDustTao`]: a root claim does not sell a fund row when the
+/// claimant's own slice of it is worth less than 0.0001 TAO at the anchored mark. The slice
+/// is forfeited to the fund, so the floor is set where the forfeit is rounding-sized: on
+/// finney's claim flow it removes about a fifth of the swaps while a median claim leaves
+/// under 1% of its value behind (a 0.001 TAO floor would remove half the swaps but leave 12%).
+pub const DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO: u64 = 100_000;
+
+/// Default [`BasketClaimForfeitCapTao`]: whatever rule marks a row as dust, a claim skips it
+/// only if the claimant's own slice of it is worth at most 0.01 TAO at the anchored mark.
+/// This is the hard bound on what any one skipped slice can leave in the fund; a bigger slice
+/// of a small row is sold as before.
+pub const DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO: u64 = 10_000_000;
+
 /// Max deviation of a `swap_basket` leg's execution price from its reference, in basis
 /// points (2%). The reference is the *strictest* of the subnet's slow moving (emission
 /// EMA) price, its fast moving price ([`SubnetFastMovingPrice`]), and its spot price: the
@@ -3093,6 +3118,66 @@ pub mod pallet {
     #[pallet::storage]
     pub type BasketLiquidityCap<T: Config> =
         StorageValue<_, u16, ValueQuery, DefaultBasketLiquidityCap<T>>;
+
+    #[pallet::type_value]
+    /// Default cap of the row-dust floor for root claims: 1 TAO (in rao).
+    pub fn DefaultBasketClaimRowDustCapTao<T: Config>() -> u64 {
+        crate::DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO
+    }
+
+    /// --- ITEM --> cap, in rao, of the row-dust floor of a root claim. A claim skips a fund
+    /// row entirely when the fund's whole holding on that subnet is worth less than
+    /// `min(this cap, BasketClaimRowDustBps × anchored NAV)` at the anchored mark: the row is
+    /// neither sold nor paid, and the claimant's slice of it (below the floor by
+    /// construction) stays in the fund for the remaining holders. `0` disables the row skip.
+    /// Set via `AdminUtils::sudo_set_basket_claim_dust`.
+    #[pallet::storage]
+    pub type BasketClaimRowDustCapTao<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultBasketClaimRowDustCapTao<T>>;
+
+    #[pallet::type_value]
+    /// Default relative row-dust floor for root claims: 10 bps (0.1%) of guarded NAV.
+    pub fn DefaultBasketClaimRowDustBps<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_CLAIM_ROW_DUST_BPS
+    }
+
+    /// --- ITEM --> relative part of the row-dust floor, in basis points of the fund's
+    /// anchored NAV (see [`BasketClaimRowDustCapTao`]). Keeps the floor proportionate for
+    /// small funds. `0` disables the row skip. Set via `AdminUtils::sudo_set_basket_claim_dust`.
+    #[pallet::storage]
+    pub type BasketClaimRowDustBps<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketClaimRowDustBps<T>>;
+
+    #[pallet::type_value]
+    /// Default slice-dust floor for root claims: 0.0001 TAO (in rao).
+    pub fn DefaultBasketClaimSliceDustTao<T: Config>() -> u64 {
+        crate::DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO
+    }
+
+    /// --- ITEM --> rao value below which a root claim skips a fund row for this claimant:
+    /// when the claimant's pro-rata slice of the row is worth less than this at the anchored
+    /// mark, the row is neither sold nor paid and the slice stays in the fund for the
+    /// remaining holders. `0` disables the skip. Set via
+    /// `AdminUtils::sudo_set_basket_claim_dust`.
+    #[pallet::storage]
+    pub type BasketClaimSliceDustTao<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultBasketClaimSliceDustTao<T>>;
+
+    #[pallet::type_value]
+    /// Default forfeit cap for root-claim dust skips: 0.01 TAO (in rao).
+    pub fn DefaultBasketClaimForfeitCapTao<T: Config>() -> u64 {
+        crate::DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO
+    }
+
+    /// --- ITEM --> rao value a claimant's slice of a row may be worth, at the anchored
+    /// mark, and still be skipped by either dust rule. A row the rules mark as dust whose
+    /// slice for this claimant is worth more than this is sold as before, so no single
+    /// skipped slice ever leaves more than this in the fund. `0` turns every skip off (a
+    /// slice can only be skipped if it is worth nothing). Set via
+    /// `AdminUtils::sudo_set_basket_claim_dust`.
+    #[pallet::storage]
+    pub type BasketClaimForfeitCapTao<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultBasketClaimForfeitCapTao<T>>;
 
     /// --- MAP ( validator_hotkey ) --> `(tao_available, last_refill_block)` of the fund's
     /// `swap_basket` turnover bucket. A missing row is a full bucket (a new fund starts full).

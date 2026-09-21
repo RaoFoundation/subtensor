@@ -16,6 +16,14 @@ per-subnet claim selection.
 
 Prefer :class:`ClaimRootWithHotkey` to claim a single validator.
 
+Since spec 468 each fund's dust rows are left unsold (a row worth less
+than `min(1 TAO, 0.1% of the fund's anchored NAV)`, or one where this
+claimant's slice is worth less than 0.0001 TAO, when that slice is at most
+the 0.01 TAO forfeit cap); the whole entitlement is settled, so those
+slices stay in the fund for the remaining holders. A
+claim that is admitted and then fails pays for the work it did, not the
+declared envelope.
+
 `plan` (and `btcli root claim --dry-run`) estimates the reserved
 inclusion fee versus the fee that will actually settle, compares that
 spent fee to accrued yield, warns when the claim loses money, and
@@ -23,7 +31,7 @@ refuses when free TAO cannot cover the reserve.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L2086-L2114) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L2095-L2137) |
 
 ## Parameters
 
@@ -70,7 +78,7 @@ result = sub.execute_tool("claim_root", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L2090`](/code/pallets/subtensor/src/macros/dispatches.rs#L2086-L2114):
+`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L2099`](/code/pallets/subtensor/src/macros/dispatches.rs#L2095-L2137):
 
 ```rust
 #[pallet::call_index(121)]
@@ -86,6 +94,9 @@ pub fn claim_root(
 
     let staking_hotkeys = StakingHotkeys::<T>::get(&coldkey);
     let selection_scanned = u32::try_from(staking_hotkeys.len()).unwrap_or(u32::MAX);
+    // Admission failures keep the declared envelope: the admission scan's cost is
+    // not precisely metered, so refunding it could under-charge. Only a claim that
+    // was admitted and then failed is billed for the work it actually did.
     ensure!(
         selection_scanned <= Self::root_claim_declared_work(),
         Error::<T>::RootClaimTooHeavy
@@ -96,7 +107,18 @@ pub fn claim_root(
         Error::<T>::RootClaimTooHeavy
     );
     let hotkey_count = hotkeys.len() as u32;
-    let outcome = Self::do_root_claim(coldkey.clone(), hotkeys)?;
+    let admitted = Self::root_claim_admission_weight(
+        selection_scanned.saturating_add(Self::root_claim_declared_work()),
+    );
+    let outcome = Self::do_root_claim_tracked(coldkey.clone(), hotkeys).map_err(
+        |(done, error)| {
+            Self::fail_with_weight(
+                error,
+                Self::root_claim_actual_weight(hotkey_count, selection_scanned, &done)
+                    .saturating_add(admitted),
+            )
+        },
+    )?;
     Self::maybe_add_coldkey_index(&coldkey);
 
     let weight = Self::root_claim_actual_weight(hotkey_count, selection_scanned, &outcome);
@@ -104,6 +126,6 @@ pub fn claim_root(
 }
 ```
 
-Delegates to [`root_claim_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L866), [`root_claim_hotkeys`](/code/pallets/subtensor/src/staking/claim_root.rs#L905), [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L948).
+Delegates to [`root_claim_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1083), [`root_claim_hotkeys`](/code/pallets/subtensor/src/staking/claim_root.rs#L1122), [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1165).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

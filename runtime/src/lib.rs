@@ -238,7 +238,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 467,
+    spec_version: 468,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1707,6 +1707,20 @@ type Migrations = (
     pallet_subtensor::migrations::migrate_remove_root_weights::remove_root_weights::Migration<
         Runtime,
     >,
+    // Spec 468: turn validator-directed basket trading on (`BasketTradingEnabled = true`),
+    // one-shot and stamped in HasMigrationRun so `sudo_set_basket_trading_enabled(false)`
+    // stays a durable emergency off. Already-on chains (devnet, testnet) only get the stamp.
+    pallet_subtensor::migrations::migrate_enable_basket_trading::enable_basket_trading::Migration<
+        Runtime,
+    >,
+    // Spec 468: TotalStake drifted 26.516982241 TAO below the sum of live SubnetTAO when
+    // subnet 108 dissolved on finney (block 9111229; the conversion of fund holdings
+    // subtracted it twice, fixed in `convert_basket_holding_to_root`). Second one-shot
+    // resync under its own HasMigrationRun marker; try-runtime checks the sum and that
+    // issuance is untouched.
+    pallet_subtensor::migrations::migrate_resync_total_stake::resync_total_stake_v2::Migration<
+        Runtime,
+    >,
 );
 
 // Unchecked extrinsic type as expected by this runtime.
@@ -2570,7 +2584,7 @@ impl_runtime_apis! {
         }
     }
 
-    #[api_version(4)]
+    #[api_version(5)]
     impl subtensor_custom_rpc_runtime_api::BetaBasketRuntimeApi<Block> for Runtime {
         fn get_root_basket_owed(coldkey: AccountId32) -> TaoBalance {
             SubtensorModule::get_root_basket_owed_tao(&coldkey)
@@ -2619,6 +2633,12 @@ impl_runtime_apis! {
         }
         fn get_basket_trading_status(hotkey: AccountId32) -> pallet_subtensor::rpc_info::basket_info::BasketTradingStatus {
             SubtensorModule::get_basket_trading_status(&hotkey)
+        }
+        fn get_basket_claim_preview(hotkey: AccountId32, coldkey: AccountId32) -> Option<pallet_subtensor::rpc_info::basket_info::BasketClaimPreview<AccountId32>> {
+            SubtensorModule::get_basket_claim_preview(&hotkey, &coldkey)
+        }
+        fn get_root_basket_claim_previews(coldkey: AccountId32) -> Vec<pallet_subtensor::rpc_info::basket_info::BasketClaimPreview<AccountId32>> {
+            SubtensorModule::get_root_basket_claim_previews(&coldkey)
         }
     }
 

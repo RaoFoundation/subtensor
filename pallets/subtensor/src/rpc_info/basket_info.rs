@@ -1,6 +1,8 @@
 extern crate alloc;
 
 use frame_support::pallet_prelude::{Decode, Encode};
+use frame_support::storage::{TransactionOutcome, with_transaction};
+use sp_runtime::DispatchError;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
@@ -294,4 +296,123 @@ pub struct BasketTradingStatus {
     pub tao_available: TaoBalance,
     /// The bucket's capacity: `BasketDailyTurnoverCap` share of current NAV.
     pub budget_tao: TaoBalance,
+}
+
+/// What one `claim_root_with_hotkey` would do right now for a staker, computed the way the
+/// claim computes it: the fund's queued dividend credits are flushed and its sub-threshold
+/// rows consolidated into root cash first (under a rolled-back storage transaction, so the
+/// view changes nothing), then the dust rules are applied to the resulting rows
+/// (`Pallet::plan_basket_claim`). `redeemable_tao` is what the runtime compares against the
+/// claim threshold; a claim whose `redeemable_tao` is zero is a no-op that burns nothing.
+#[freeze_struct("d4f82b112919f41c")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct BasketClaimPreview<AccountId: TypeInfo + Encode + Decode> {
+    pub hotkey: AccountId,
+    /// The staker's owed shares on this validator after the pending credits are flushed
+    /// (capped at the outstanding supply).
+    pub owed_shares: u64,
+    /// Full entitlement at the pre-sale realizable quote: `owed × NAV / P`.
+    pub accrued_tao: TaoBalance,
+    /// What the claim pays: the entitlement excluding the skipped dust slices.
+    pub redeemable_tao: TaoBalance,
+    /// Estimated value of the skipped slices, left in the fund for the remaining holders.
+    pub forfeited_tao_est: TaoBalance,
+    /// Fund rows the claim scans.
+    pub rows: u32,
+    /// Rows the claim sells (or reassigns, for root cash): what the post-dispatch weight
+    /// prices at full claim work.
+    pub rows_to_sell: u32,
+    /// Rows the claim skips as dust.
+    pub dust_rows: u32,
+    /// Sub-threshold rows the claim first consolidates into root cash (one swap each).
+    pub swept: u32,
+    /// Queued dividend credits the claim flushes first.
+    pub flushed_credits: u32,
+}
+
+impl<T: Config> Pallet<T> {
+    /// Dust-aware claim preview for one staker on one validator; `None` when the staker has
+    /// no owed shares there or the fund cannot be valued.
+    pub fn get_basket_claim_preview(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) -> Option<BasketClaimPreview<T::AccountId>> {
+        // Prepare the fund exactly as the claim does — flush queued credits, consolidate
+        // sub-threshold rows into root cash — but roll every write back: this is a view.
+        with_transaction(|| {
+            TransactionOutcome::Rollback(Ok::<_, DispatchError>(Self::preview_basket_claim(
+                hotkey, coldkey,
+            )))
+        })
+        .ok()
+        .flatten()
+    }
+
+    fn preview_basket_claim(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) -> Option<BasketClaimPreview<T::AccountId>> {
+        let flushed_credits =
+            u32::try_from(PendingBasketDeposits::<T>::iter_prefix(hotkey).count())
+                .unwrap_or(u32::MAX);
+        let _ = Self::flush_basket_deposits_for_hotkey(hotkey);
+        let shares_total = BasketShares::<T>::get(hotkey);
+        let owed_shares = Self::get_basket_owed_shares(hotkey, coldkey).min(shares_total);
+        if owed_shares == 0 {
+            return None;
+        }
+        let swept = Self::consolidate_dust_basket_holdings(hotkey);
+        let rows = Self::plan_basket_claim(hotkey, owed_shares, shares_total).ok()?;
+        let nav: u64 = rows
+            .iter()
+            .fold(0u64, |acc, row| acc.saturating_add(row.value));
+        let redeemable_nav: u64 = rows
+            .iter()
+            .filter(|row| !row.dust)
+            .fold(0u64, |acc, row| acc.saturating_add(row.value));
+        let forfeited: u64 = rows.iter().filter(|row| row.dust).fold(0u64, |acc, row| {
+            acc.saturating_add(Self::basket_payout_from(
+                owed_shares,
+                row.value,
+                shares_total,
+            ))
+        });
+        // A row is sold when its pro-rata alpha take is at least one unit, or it owes at
+        // least one rao (the claim then sells one atomic unit); terminal rows are written
+        // off, which the weight model also prices as full work.
+        let rows_to_sell = rows
+            .iter()
+            .filter(|row| {
+                !row.dust
+                    && (Self::mul_div_u64(row.alpha.to_u64(), owed_shares, shares_total) > 0
+                        || Self::basket_payout_from(owed_shares, row.value, shares_total) > 0
+                        || row.terminal_garbage)
+            })
+            .count() as u32;
+        let dust_rows = rows.iter().filter(|row| row.dust).count() as u32;
+        Some(BasketClaimPreview {
+            hotkey: hotkey.clone(),
+            owed_shares,
+            accrued_tao: Self::basket_payout_from(owed_shares, nav, shares_total).into(),
+            redeemable_tao: Self::basket_payout_from(owed_shares, redeemable_nav, shares_total)
+                .into(),
+            forfeited_tao_est: forfeited.into(),
+            rows: rows.len() as u32,
+            rows_to_sell,
+            dust_rows,
+            swept,
+            flushed_credits,
+        })
+    }
+
+    /// Dust-aware claim previews for every validator on which `coldkey` has owed shares:
+    /// what a coldkey-wide `claim_root` would do fund by fund.
+    pub fn get_root_basket_claim_previews(
+        coldkey: &T::AccountId,
+    ) -> Vec<BasketClaimPreview<T::AccountId>> {
+        StakingHotkeys::<T>::get(coldkey)
+            .iter()
+            .filter_map(|hotkey| Self::get_basket_claim_preview(hotkey, coldkey))
+            .collect()
+    }
 }

@@ -559,3 +559,261 @@ async def test_proxy_claim_reads_dispatch_state_checks_delegate_and_prices_wrapp
     assert priced_calls
     assert all((call.module, call.function) == ("Proxy", "proxy") for call in priced_calls)
     assert any("below the reserved claim fee" in violation for violation in plan.violations)
+
+
+def _preview(
+    hotkey: str,
+    *,
+    accrued: int,
+    redeemable: int,
+    rows: int,
+    sold: int,
+    swept: int = 0,
+    flushed: int = 0,
+) -> dict:
+    return {
+        "hotkey": hotkey,
+        "owed_shares": 1,
+        "accrued_tao": accrued,
+        "redeemable_tao": redeemable,
+        "forfeited_tao_est": accrued - redeemable,
+        "rows": rows,
+        "rows_to_sell": sold,
+        "dust_rows": rows - sold,
+        "swept": swept,
+        "flushed_credits": flushed,
+    }
+
+
+@pytest.mark.asyncio
+async def test_single_hotkey_quote_uses_the_dust_aware_preview_on_mixed_dust():
+    substrate = FakeSubstrate()
+    _seed_claim_quote(
+        substrate,
+        hotkeys=[ALICE_HOT],
+        payouts={ALICE_HOT: 2_250_000},
+        holdings={ALICE_HOT: 3},
+    )
+    # Spec 468 runtime: one of three rows is dust; the claim pays the other two.
+    substrate.seed_runtime(
+        "BetaBasketRuntimeApi",
+        "get_basket_claim_preview",
+        _preview(ALICE_HOT, accrued=2_250_000, redeemable=2_200_000, rows=3, sold=2),
+    )
+
+    quote = await fees.quote_root_claim_fee(
+        substrate,
+        ALICE,
+        hotkeys=[ALICE_HOT],
+        compose=lambda: substrate.compose(
+            ("SubtensorModule", "claim_root_with_hotkey", {"hotkey": ALICE_HOT})
+        ),
+    )
+
+    assert quote is not None
+    assert quote.accrued.rao == 2_250_000, "full entitlement is kept as accrued"
+    assert quote.redeemable.rao == 2_200_000, "payout excludes the skipped slice"
+    assert quote.dust_rows == 1
+    assert quote.forfeited.rao == 50_000
+    assert quote.eligible_hotkeys == 1
+    assert any("1 dust row skipped" in line for line in quote.effects())
+    # The work estimate prices two redeemed rows and one scanned row, not three redeemed.
+    reserved = fees.Balance.from_rao(10**9)
+    spent_all_sold = fees._spent_fee(
+        reserved, fees.RootClaimWork(hotkeys=1, redeem_holdings=3, scan_holdings=0), 129
+    )
+    spent_dust_aware = fees._spent_fee(
+        reserved, fees.RootClaimWork(hotkeys=1, redeem_holdings=2, scan_holdings=1), 129
+    )
+    assert spent_dust_aware.rao < spent_all_sold.rao
+    assert quote.spent.rao <= quote.reserved.rao
+
+
+@pytest.mark.asyncio
+async def test_single_hotkey_quote_reports_an_all_dust_claim_as_a_noop():
+    substrate = FakeSubstrate()
+    _seed_claim_quote(
+        substrate,
+        hotkeys=[ALICE_HOT],
+        payouts={ALICE_HOT: 8_000},
+        holdings={ALICE_HOT: 2},
+    )
+    substrate.seed_runtime(
+        "BetaBasketRuntimeApi",
+        "get_basket_claim_preview",
+        _preview(ALICE_HOT, accrued=8_000, redeemable=0, rows=2, sold=0),
+    )
+
+    quote = await fees.quote_root_claim_fee(
+        substrate,
+        ALICE,
+        hotkeys=[ALICE_HOT],
+        compose=lambda: substrate.compose(
+            ("SubtensorModule", "claim_root_with_hotkey", {"hotkey": ALICE_HOT})
+        ),
+    )
+
+    assert quote is not None
+    assert quote.accrued.rao == 8_000
+    assert quote.redeemable.rao == 0
+    assert quote.eligible_hotkeys == 0
+    assert quote.below_threshold, "an all-dust claim is a no-op that realizes nothing"
+    assert any("realizes nothing" in warning for warning in quote.warnings())
+
+
+@pytest.mark.asyncio
+async def test_coldkey_quote_applies_the_threshold_to_the_dust_aware_payout():
+    substrate = FakeSubstrate()
+    # Threshold seeded by the helper: 0.0005 TAO (500_000 rao).
+    _seed_claim_quote(
+        substrate,
+        hotkeys=[ALICE_HOT, BOB_HOT],
+        payouts={ALICE_HOT: 700_000, BOB_HOT: 900_000},
+        holdings={ALICE_HOT: 4, BOB_HOT: 3},
+    )
+    substrate.seed_runtime(
+        "BetaBasketRuntimeApi",
+        "get_root_basket_claim_previews",
+        [
+            # Full entitlement above the threshold, payout after dust below it: no-op.
+            _preview(ALICE_HOT, accrued=700_000, redeemable=400_000, rows=4, sold=1),
+            # Above the threshold either way.
+            _preview(BOB_HOT, accrued=900_000, redeemable=880_000, rows=3, sold=2),
+        ],
+    )
+
+    quote = await fees.quote_root_claim_fee(
+        substrate,
+        ALICE,
+        hotkeys=None,
+        compose=lambda: substrate.compose(("SubtensorModule", "claim_root", {})),
+    )
+
+    assert quote is not None
+    assert quote.accrued.rao == 1_600_000
+    assert quote.redeemable.rao == 880_000, "only Bob's fund pays; Alice's is below threshold"
+    assert quote.eligible_hotkeys == 1
+    assert quote.below_threshold_hotkeys == 1
+    assert quote.dust_rows == 4
+    assert quote.forfeited.rao == 320_000
+
+
+@pytest.mark.asyncio
+async def test_quote_falls_back_to_full_entitlement_without_the_preview_api():
+    substrate = FakeSubstrate()
+    _seed_claim_quote(
+        substrate,
+        hotkeys=[ALICE_HOT],
+        payouts={ALICE_HOT: 900_000},
+        holdings={ALICE_HOT: 3},
+    )
+
+    async def unsupported(api, method, params, block_hash=None):
+        if method in ("get_basket_claim_preview", "get_root_basket_claim_previews"):
+            raise RuntimeError("Method not found")
+        return await FakeSubstrate.runtime_call(substrate, api, method, params, block_hash)
+
+    substrate.runtime_call = unsupported  # type: ignore[method-assign]
+
+    quote = await fees.quote_root_claim_fee(
+        substrate,
+        ALICE,
+        hotkeys=[ALICE_HOT],
+        compose=lambda: substrate.compose(
+            ("SubtensorModule", "claim_root_with_hotkey", {"hotkey": ALICE_HOT})
+        ),
+    )
+
+    assert quote is not None
+    assert quote.accrued.rao == 900_000
+    assert quote.redeemable.rao == 900_000
+    assert quote.dust_rows == 0
+
+
+@pytest.mark.asyncio
+async def test_quote_prices_consolidated_rows_as_full_claim_units():
+    substrate = FakeSubstrate()
+    # Admission sees the 8 rows the fund holds now; the claim consolidates 6 of them into
+    # root cash (6 swaps), then sells the 3 rows that remain (2 real + the cash).
+    _seed_claim_quote(
+        substrate,
+        hotkeys=[ALICE_HOT],
+        payouts={ALICE_HOT: 2_700_000_000},
+        holdings={ALICE_HOT: 8},
+    )
+    substrate.seed_runtime(
+        "BetaBasketRuntimeApi",
+        "get_basket_claim_preview",
+        _preview(
+            ALICE_HOT, accrued=2_700_000_000, redeemable=2_700_000_000, rows=3, sold=3, swept=6
+        ),
+    )
+
+    quote = await fees.quote_root_claim_fee(
+        substrate,
+        ALICE,
+        hotkeys=[ALICE_HOT],
+        compose=lambda: substrate.compose(
+            ("SubtensorModule", "claim_root_with_hotkey", {"hotkey": ALICE_HOT})
+        ),
+    )
+
+    assert quote is not None
+    assert quote.holdings == 8, "admission keeps the pre-preparation row count"
+    # Runtime formula: claim_root(realized + swept = 9) + claim_root_scan(rows − realized = 0).
+    expected = fees._spent_fee(
+        quote.reserved,
+        fees.RootClaimWork(
+            hotkeys=1, redeem_holdings=9, scan_holdings=0, selection_scans=quote.selection_scans
+        ),
+        quote.admission_limit,
+    )
+    assert quote.spent.rao == expected.rao
+    # With a reserve large enough not to cap the estimate, 9 full units cost more than
+    # 3 full units plus 5 scans: consolidation is swap work, not scans.
+    uncapped = Balance.from_rao(10**9)
+    full_units = fees._spent_fee(
+        uncapped, fees.RootClaimWork(hotkeys=1, redeem_holdings=9, scan_holdings=0), 129
+    )
+    scans_only = fees._spent_fee(
+        uncapped, fees.RootClaimWork(hotkeys=1, redeem_holdings=3, scan_holdings=5), 129
+    )
+    assert full_units.rao > scans_only.rao
+
+
+@pytest.mark.asyncio
+async def test_quote_counts_consolidation_even_when_the_claim_is_below_threshold():
+    substrate = FakeSubstrate()
+    _seed_claim_quote(
+        substrate,
+        hotkeys=[ALICE_HOT],
+        payouts={ALICE_HOT: 300_000},
+        holdings={ALICE_HOT: 8},
+    )
+    # Redeemable 0.0003 TAO is under the 0.0005 TAO threshold: the redemption is a no-op,
+    # but the 6 consolidations still ran.
+    substrate.seed_runtime(
+        "BetaBasketRuntimeApi",
+        "get_basket_claim_preview",
+        _preview(ALICE_HOT, accrued=300_000, redeemable=300_000, rows=3, sold=3, swept=6),
+    )
+
+    quote = await fees.quote_root_claim_fee(
+        substrate,
+        ALICE,
+        hotkeys=[ALICE_HOT],
+        compose=lambda: substrate.compose(
+            ("SubtensorModule", "claim_root_with_hotkey", {"hotkey": ALICE_HOT})
+        ),
+    )
+
+    assert quote is not None
+    assert quote.below_threshold
+    expected = fees._spent_fee(
+        quote.reserved,
+        fees.RootClaimWork(
+            hotkeys=1, redeem_holdings=6, scan_holdings=3, selection_scans=quote.selection_scans
+        ),
+        quote.admission_limit,
+    )
+    assert quote.spent.rao == expected.rao

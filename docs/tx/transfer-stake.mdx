@@ -32,7 +32,7 @@ owners. Pass `all` to hand over the entire origin position.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1372-L1404), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2718-L2752) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1372-L1404), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2767-L2801) |
 
 ## Parameters
 
@@ -132,9 +132,9 @@ pub fn transfer_stake(
 }
 ```
 
-Delegates to [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L196), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1274).
+Delegates to [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L196), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1275).
 
-`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2725`](/code/pallets/subtensor/src/macros/dispatches.rs#L2718-L2752):
+`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2774`](/code/pallets/subtensor/src/macros/dispatches.rs#L2767-L2801):
 
 ```rust
 #[pallet::call_index(143)]
@@ -174,6 +174,6 @@ pub fn transfer_stake_and_hotkey(
 }
 ```
 
-Delegates to [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L269), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1274).
+Delegates to [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L269), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1275).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

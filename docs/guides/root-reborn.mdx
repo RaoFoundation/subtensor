@@ -69,8 +69,20 @@ staked back to root.
 - **Deposits price at NAV.** New dividends and direct deposits enter at the
   fund's pre-deposit value, so existing holders are neither diluted nor
   gifted, and each deposit bears its own swap slippage.
-- **Claims are proportional.** A claim redeems the staker's owed fraction of
-  every holding pro-rata, preserving fund composition.
+- **Claims are proportional, minus dust.** A claim redeems the staker's owed
+  fraction of every holding pro-rata, preserving fund composition. Since
+  spec 468 it leaves dust rows alone: a holding worth less than
+  `min(1 TAO, 0.1% of the fund's NAV)`, or one where your own slice is worth
+  less than 0.0001 TAO — both at the fast-anchored mark `swap-basket` already
+  prices against — is neither sold nor paid, provided your slice of it is at
+  most 0.01 TAO (a bigger slice of a small row is sold as before). The claim
+  still settles your whole entitlement, so those slices — never more than
+  0.01 TAO each at the anchored mark — stay in the fund for the remaining
+  holders; the `BasketClaimDustSkipped` event reports how many rows and
+  roughly how much. On finney's claim flow this removes about a
+  fifth of the swaps while a median claim leaves under 1% of its value
+  behind. Governance can tune or zero the floors with
+  `sudo_set_basket_claim_dust`.
 - **Inflows never change composition.** Dividends accumulate in place: each
   subnet's dividend is credited into the fund's holding on that subnet. The
   protocol executes zero trades (no swap fees, no slippage, no mechanical
@@ -270,9 +282,11 @@ root-stakes to.
   deleting the holding. A position bought with `swap-basket` is far above
   the threshold at entry, so only a collapsed one is ever swept. The
   transaction fee is charged by what the claim actually did: redeemed and
-  consolidated holdings pay full weight, holdings merely scanned pay a small
-  per-row cost — so a fund littered with dust positions gets cheaper to
-  claim after its first claim, not more expensive forever.
+  consolidated holdings pay full weight, holdings merely scanned (including
+  dust rows a claim skips) pay a small per-row cost — so a fund littered with
+  dust positions gets cheaper to claim after its first claim, not more
+  expensive forever. A claim that is admitted and then fails is charged for
+  the work it did, not the declared envelope.
 
 ### What existing root stakers should know
 
