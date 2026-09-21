@@ -3,14 +3,16 @@
 # surface late in clone-upgrade) with the same commands CI uses, so a push
 # never burns a CI cycle on a failure that was checkable here.
 #
-#   scripts/preflight.sh          full gate (may build the release node)
-#   scripts/preflight.sh --fast   skip the node / wasm builds (SDK regen, try-runtime)
-#   scripts/preflight.sh --all    run every gate regardless of what changed
+#   scripts/preflight.sh            full gate (may build the release node)
+#   scripts/preflight.sh --fast     skip the node / wasm builds (SDK regen, try-runtime)
+#   scripts/preflight.sh --all      run every gate regardless of what changed
+#   scripts/preflight.sh --rev SHA  gate that exact commit in a detached worktree
+#                                   (what the pre-push hook does for every pushed ref)
 #
-# Change detection compares the working tree with the merge-base against
-# origin/main (override with PREFLIGHT_BASE) and reuses CI's own path
-# classifiers under .github/scripts/. Cheap gates run first; compile-heavy
-# gates are skipped while any cheap gate is red.
+# Change detection compares the tree with the merge-base against origin/main
+# (override with PREFLIGHT_BASE) and reuses CI's own path classifiers under
+# .github/scripts/. Cheap gates run first; compile-heavy gates are skipped
+# while any cheap gate is red.
 set -euo pipefail
 
 ROOT=$(git rev-parse --show-toplevel)
@@ -18,14 +20,38 @@ cd "$ROOT"
 export SKIP_WASM_BUILD=1 # as CI's lint/test jobs; the node and try-runtime wasm builds unset it
 FAST=false
 ALL=false
-for arg in "$@"; do
-  case "$arg" in
-    --fast) FAST=true ;;
-    --all) ALL=true ;;
-    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "unknown flag: $arg" >&2; exit 2 ;;
+REV=''
+PASSTHRU=()
+while (($#)); do
+  case "$1" in
+    --fast) FAST=true; PASSTHRU+=("$1") ;;
+    --all) ALL=true; PASSTHRU+=("$1") ;;
+    --rev) REV=${2:?--rev needs a commit}; shift ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
+  shift
 done
+
+# --rev: check the commit out into a throwaway worktree and run the gate
+# there, so the verdict is about the pushed revision, not the working tree.
+# The main checkout lends its cargo target dir, sdk/python venv, and
+# ts-tests/node_modules so the run is not cold.
+if [[ -n "$REV" ]]; then
+  REV=$(git rev-parse --verify "$REV^{commit}")
+  WT=$(mktemp -d "${TMPDIR:-/tmp}/preflight-wt.XXXXXX")
+  trap 'git worktree remove --force "$WT" 2>/dev/null || rm -rf "$WT"' EXIT
+  git worktree add --detach -q "$WT" "$REV"
+  export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$ROOT/target}
+  export UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT:-$ROOT/sdk/python/.venv}
+  export PYTHONPATH=$WT/sdk/python${PYTHONPATH:+:$PYTHONPATH} # editable install points at $ROOT
+  [[ ! -d $ROOT/ts-tests/node_modules || -e $WT/ts-tests/node_modules ]] || ln -s "$ROOT/ts-tests/node_modules" "$WT/ts-tests/node_modules"
+  gate=$WT/scripts/preflight.sh
+  [[ -x "$gate" ]] || gate=$ROOT/scripts/preflight.sh
+  echo "gating commit ${REV:0:9} in worktree $WT"
+  (cd "$WT" && "$gate" ${PASSTHRU[@]:+"${PASSTHRU[@]}"})
+  exit
+fi
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   RED=$'\e[31m' GREEN=$'\e[32m' YELLOW=$'\e[33m' BOLD=$'\e[1m' DIM=$'\e[2m' RESET=$'\e[0m'
@@ -90,15 +116,31 @@ printf '%srust=%s runtime=%s docs=%s python_sdk=%s sdk_drift=%s fast=%s all=%s%s
   "$DIM" "$rust" "$runtime" "$docs" "$python_sdk" "$sdk_drift" "$FAST" "$ALL" "$RESET"
 
 # ------------------------------------------------------------ cheap gates ---
+# Verify who the push credential belongs to, not what the URL says. The hook
+# passes the destination remote and URL; token and login never reach argv or
+# stdout. Fails closed when no credential can be resolved.
 push_actor_check() {
-  local want=${PREFLIGHT_PUSH_ACTOR:-unarbos} url
-  url=$(git remote get-url --push origin)
-  if [[ "$url" != *"://${want}"[:@]* ]]; then
-    echo "push URL for origin does not authenticate as ${want}: ${url%%:*}://***" >&2
-    echo "fix: git remote set-url --push origin \"https://${want}:\$(op read 'op://Arbos/vvnyarkwampjl3diocn7n6vcqe/credential')@github.com/RaoFoundation/subtensor.git\"" >&2
+  local want=${PREFLIGHT_PUSH_ACTOR:-unarbos} remote=${PREFLIGHT_PUSH_REMOTE:-origin} url userinfo token='' login=''
+  url=${PREFLIGHT_PUSH_URL:-$(git remote get-url --push "$remote")}
+  if [[ "$url" =~ ^(ssh://)?git@github\.com[:/] ]]; then
+    login=$(ssh -o BatchMode=yes -T git@github.com 2>&1 | sed -n 's/^Hi \([^!]*\)!.*/\1/p')
+  else
+    if [[ "$url" =~ ^https?://([^@/]+)@ ]]; then
+      userinfo=${BASH_REMATCH[1]}
+      [[ "$userinfo" != *:* ]] || token=${userinfo#*:}
+    fi
+    [[ -n "$token" ]] || token=$(printf 'url=%s\n' "$url" |
+      GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true git credential fill 2>/dev/null | sed -n 's/^password=//p')
+    [[ -n "$token" ]] || { echo "no credential resolvable for remote '$remote' (${url%%:*}://…); cannot verify the push actor"; }
+    [[ -z "$token" ]] || login=$(printf 'header = "Authorization: Bearer %s"\n' "$token" |
+      curl -sS -m 20 -K - https://api.github.com/user | jq -r '.login // empty')
+  fi
+  if [[ "$login" != "$want" ]]; then
+    echo "push credential for '$remote' belongs to '${login:-nobody}', expected '$want'"
+    echo "fix: git remote set-url --push $remote \"https://${want}:\$(op read 'op://Arbos/vvnyarkwampjl3diocn7n6vcqe/credential')@github.com/RaoFoundation/subtensor.git\""
     return 1
   fi
-  echo "push actor: $want"
+  echo "push actor: $login (credential owner verified via api.github.com/user)"
 }
 step "push actor is ${PREFLIGHT_PUSH_ACTOR:-unarbos}" push_actor_check
 
@@ -136,7 +178,7 @@ fi
 SDK=sdk/python
 uv_ready() {
   need uv "curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh" || return 1
-  [[ -d $SDK/.venv ]] && return 0
+  [[ -d ${UV_PROJECT_ENVIRONMENT:-$SDK/.venv} ]] && return 0
   fail "sdk/python locked env" "missing. Run: (cd $SDK && uv sync --python 3.14 --locked --all-extras --dev)"
   return 1
 }
