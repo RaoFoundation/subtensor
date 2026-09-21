@@ -1358,7 +1358,8 @@ mod dispatches {
         /// * `hotkey`: The hotkey associated with the stake.
         /// * `origin_netuid`: The network/subnet ID to move stake from.
         /// * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer).
-        /// * `alpha_amount`: The amount of stake to transfer.
+        /// * `alpha_amount`: The amount of stake to transfer. `AlphaBalance::MAX` means the
+        ///   live origin position at execution.
         ///
         /// # Errors
         /// * `BadOrigin`: The transaction is not signed.
@@ -1411,7 +1412,8 @@ mod dispatches {
         /// * `hotkey`: The hotkey whose stake is being swapped.
         /// * `origin_netuid`: The network/subnet ID from which stake is removed.
         /// * `destination_netuid`: The network/subnet ID to which stake is added.
-        /// * `alpha_amount`: The amount of stake to swap.
+        /// * `alpha_amount`: The amount of stake to swap. `AlphaBalance::MAX` means the live
+        ///   origin position at execution.
         ///
         /// # Errors
         /// * `BadOrigin`: The transaction is not signed.
@@ -1576,7 +1578,8 @@ mod dispatches {
         /// * `hotkey`: The hotkey whose stake is being swapped.
         /// * `origin_netuid`: The network/subnet ID from which stake is removed.
         /// * `destination_netuid`: The network/subnet ID to which stake is added.
-        /// * `alpha_amount`: The amount of stake to swap.
+        /// * `alpha_amount`: The amount of stake to swap. `AlphaBalance::MAX` means the live
+        ///   origin position at execution.
         /// * `limit_price`: The limit price expressed in units of RAO per one Alpha.
         /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes fill or kill type of order.
         ///
@@ -2743,7 +2746,8 @@ mod dispatches {
         /// * `destination_hotkey`: The hotkey the stake lands on.
         /// * `origin_netuid`: The network/subnet ID to move stake from.
         /// * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer).
-        /// * `alpha_amount`: The amount of stake to transfer.
+        /// * `alpha_amount`: The amount of stake to transfer. `AlphaBalance::MAX` means the
+        ///   live origin position at execution.
         ///
         /// # Errors
         /// * `BadOrigin`: The transaction is not signed.
