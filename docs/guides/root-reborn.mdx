@@ -69,15 +69,17 @@ staked back to root.
 - **Deposits price at NAV.** New dividends and direct deposits enter at the
   fund's pre-deposit value, so existing holders are neither diluted nor
   gifted, and each deposit bears its own swap slippage.
-- **Claims are proportional — or paid from cash.** A claim redeems the staker's
-  owed fraction of every holding pro-rata, preserving fund composition. Since
-  spec 468 a fund that holds TAO in its cash slot (netuid 0) pays claims from
-  that cash first: the staker's share is valued at the guarded mark (each
-  holding at the lower of its realizable quote and its fast-moving-price value)
-  and paid in TAO with no sale, up to the cash on hand and the fund's daily
-  cash-claim budget (`BasketCashClaimCap`). The path ships **off** (cap `0`) and
-  governance opens it (`655` = the sized 1% of guarded NAV per day). What the
-  cash does not cover stays owed and redeems pro-rata on the next claim.
+- **Claims are proportional, minus dust.** A claim redeems the staker's owed
+  fraction of every holding pro-rata, preserving fund composition. Since
+  spec 468 it leaves dust rows alone: a holding worth less than
+  `min(1 TAO, 0.1% of the fund's guarded NAV)`, or one where your own slice
+  is worth less than 0.001 TAO, is neither sold nor paid. Nothing is lost:
+  the claim burns only the shares that match what it redeemed, so you keep
+  the shares for the skipped slices and they pay out in a later, larger
+  claim (the `BasketClaimDustSkipped` event shows how many shares and roughly
+  what they are worth). This is what keeps a small claim from paying a swap
+  per row for amounts that round to nothing; governance can tune or zero the
+  floors with `sudo_set_basket_claim_dust`.
 - **Inflows never change composition.** Dividends accumulate in place: each
   subnet's dividend is credited into the fund's holding on that subnet. The
   protocol executes zero trades (no swap fees, no slippage, no mechanical
@@ -277,9 +279,11 @@ root-stakes to.
   deleting the holding. A position bought with `swap-basket` is far above
   the threshold at entry, so only a collapsed one is ever swept. The
   transaction fee is charged by what the claim actually did: redeemed and
-  consolidated holdings pay full weight, holdings merely scanned pay a small
-  per-row cost — so a fund littered with dust positions gets cheaper to
-  claim after its first claim, not more expensive forever.
+  consolidated holdings pay full weight, holdings merely scanned (including
+  dust rows a claim skips) pay a small per-row cost — so a fund littered with
+  dust positions gets cheaper to claim after its first claim, not more
+  expensive forever. A claim that fails is charged for the work it did, not
+  the declared envelope.
 
 ### What existing root stakers should know
 

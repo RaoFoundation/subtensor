@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 468
+Spec version: 467
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -114,7 +114,6 @@ class SubtensorModule:
     SubnetMovingAlpha = Item('SubtensorModule', 'SubnetMovingAlpha', 'FixedI128')
     SubnetMovingPrice = Item('SubtensorModule', 'SubnetMovingPrice', 'FixedI128')
     SubnetFastMovingPrice = Item('SubtensorModule', 'SubnetFastMovingPrice', 'FixedU128')
-    SubnetFastMovingAlphaIn = Item('SubtensorModule', 'SubnetFastMovingAlphaIn', 'FixedU128')
     RootProp = Item('SubtensorModule', 'RootProp', 'FixedU128')
     SubnetVolume = Item('SubtensorModule', 'SubnetVolume', 'u128')
     SubnetTAO = Item('SubtensorModule', 'SubnetTAO', 'TaoBalance')
@@ -303,10 +302,6 @@ class SubtensorModule:
     BasketLiquidityCap = Item('SubtensorModule', 'BasketLiquidityCap', 'u16')
     BasketTradeBucket = Item('SubtensorModule', 'BasketTradeBucket', '(u64, u64)')
     BasketLiquidityUsed = Item('SubtensorModule', 'BasketLiquidityUsed', '(u64, u64)')
-    BasketCashClaimCap = Item('SubtensorModule', 'BasketCashClaimCap', 'u16')
-    BasketCashClaimBucket = Item('SubtensorModule', 'BasketCashClaimBucket', '(u64, u64)')
-    BasketCashNavAdjust = Item('SubtensorModule', 'BasketCashNavAdjust', '(i128, u64)')
-    BasketCashTouchedBlock = Item('SubtensorModule', 'BasketCashTouchedBlock', 'u64')
     BasketConcentrationCap = Item('SubtensorModule', 'BasketConcentrationCap', 'u16')
     RootClaimableThreshold = Item('SubtensorModule', 'RootClaimableThreshold', 'FixedI128')
     RootClaimable = Item('SubtensorModule', 'RootClaimable', 'BTreeMap')

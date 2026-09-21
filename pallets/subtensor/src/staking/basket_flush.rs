@@ -556,18 +556,12 @@ impl<T: Config> Pallet<T> {
             return Ok(None);
         };
 
-        // No epoch credits root itself, but a root-origin credit would be a cash inflow
-        // and must record a cash-path flip like every other one.
-        let cash_ready_before = origin_netuid.is_root() && Self::root_claim_cash_ready(hotkey);
         Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
             hotkey,
             escrow,
             origin_netuid,
             root_alpha,
         );
-        if origin_netuid.is_root() {
-            Self::note_basket_cash_touch(hotkey, cash_ready_before);
-        }
 
         // Re-read the holding after the credit so share-pool rounding is priced in.
         let held_after: u64 =

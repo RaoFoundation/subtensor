@@ -4,7 +4,7 @@ mod batch_tx;
 mod beta_pricing;
 mod children;
 mod claim_root;
-mod claim_root_cash;
+mod claim_root_dust;
 mod cleanup_tests;
 mod coinbase;
 mod coldkey_lineage;

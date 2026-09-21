@@ -418,9 +418,8 @@ fn test_swap_basket_post_dispatch_weight_is_bounded() {
         let fund = setup_fund();
         let post = swap(&fund, fund.netuid_a, fund.netuid_b, TRADE).expect("trade succeeds");
         let actual = post.actual_weight.expect("trade reports its actual weight");
-        // Two rows after the trade (A remainder + B), plus the cost-basis bookkeeping of
-        // the alpha buy leg.
-        assert_eq!(actual, SubtensorModule::swap_basket_actual_weight(2, true));
+        // Two rows after the trade (A remainder + B).
+        assert_eq!(actual, SubtensorModule::swap_basket_weight(2));
         assert!(actual.all_lt(SubtensorModule::swap_basket_weight(256)));
     });
 }

@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 468
+Spec version: 467
 """
 from typing import Any, NamedTuple
 
@@ -262,7 +262,7 @@ class SubtensorModule:
 
     @staticmethod
     def claim_root_with_hotkey(hotkey: 'AccountId32') -> Call:
-        "Claims the root emissions for a coldkey on one validator hotkey.  Redemption is fund-level for that validator: the staker's accrued entitlement is paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on root. The corresponding alpha fraction is sold; any concavity surplus over the NAV-priced entitlement remains in the basket as root TAO for the other holders. Other validators' accrued yield is left untouched.  Cash first: when the fund's TAO cash slot can pay claims ([`Pallet::root_claim_cash_ready`]) the claim is paid from that cash at the fund's guarded mark and sells nothing, and the call declares only a scan plus one transfer instead of the 129-row redemption envelope. Otherwise it declares the full envelope and redeems pro-rata as before. Both decisions are taken on the same state, right before the call runs. If the fund's cash was drained (or its rows moved) earlier in the same block, the call fails with `CashPathUnavailable` after its pre-checks only: resubmit next block.  # Arguments * `origin`: The signature of the caller's coldkey. * `hotkey`: The validator whose basket entitlement to redeem.  # Events * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey. * `BasketCashClaimed`: When the claim was paid from the fund's cash slot.  # Errors * `RootClaimTooHeavy`: The fund has more rows (or queued credits) than one claim may walk. * `CashPathUnavailable`: The fund changed earlier in this block; resubmit."
+        "Claims the root emissions for a coldkey on one validator hotkey.  Redemption is fund-level for that validator: the staker's accrued entitlement is paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on root. The corresponding alpha fraction is sold; any concavity surplus over the NAV-priced entitlement remains in the basket as root TAO for the other holders. Other validators' accrued yield is left untouched.  # Arguments * `origin`: The signature of the caller's coldkey. * `hotkey`: The validator whose basket entitlement to redeem.  # Events * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey."
         return Call('SubtensorModule', 'claim_root_with_hotkey', {'hotkey': hotkey})
 
     @staticmethod
@@ -921,11 +921,6 @@ class AdminUtils:
     def sudo_set_alpha_values(netuid: 'NetUid', alpha_low: 'u16', alpha_high: 'u16') -> Call:
         'Sets values for liquid alpha'
         return Call('AdminUtils', 'sudo_set_alpha_values', {'netuid': netuid, 'alpha_low': alpha_low, 'alpha_high': alpha_high})
-
-    @staticmethod
-    def sudo_set_basket_cash_claim_cap(cap: 'u16') -> Call:
-        "Sets the cash-first claim budget ([`pallet_subtensor::BasketCashClaimCap`]): the TAO a fund's cash slot may pay to root claimants per refill window (7200 blocks) as a u16-normalized share of the fund's guarded NAV (`u16::MAX` = 100%). `0` closes the cash path: every claim redeems pro-rata as before spec 468. The weight is that of the sibling one-write basket setter; a dedicated benchmark exists for CI to measure. Root-only."
-        return Call('AdminUtils', 'sudo_set_basket_cash_claim_cap', {'cap': cap})
 
     @staticmethod
     def sudo_set_basket_concentration_cap(cap: 'u16') -> Call:

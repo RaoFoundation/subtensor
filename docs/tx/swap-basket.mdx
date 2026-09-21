@@ -38,7 +38,7 @@ swap` derives it from a quote and `--max-slippage`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2283-L2308) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2274-L2299) |
 
 ## Parameters
 
@@ -97,7 +97,7 @@ result = sub.execute_tool("swap_basket", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2290`](/code/pallets/subtensor/src/macros/dispatches.rs#L2283-L2308):
+`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2281`](/code/pallets/subtensor/src/macros/dispatches.rs#L2274-L2299):
 
 ```rust
 #[pallet::call_index(150)]

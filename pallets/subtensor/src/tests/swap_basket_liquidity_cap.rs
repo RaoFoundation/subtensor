@@ -424,7 +424,6 @@ fn test_over_cap_winner_only_blocks_further_buys() {
 #[test]
 fn test_over_cap_winner_untouched_by_dividends_dust_claims_and_hotkey_swap() {
     new_test_ext(1).execute_with(|| {
-        crate::BasketCashClaimCap::<Test>::put(0); // redemption-path test: cash-first off
         let coldkey = U256::from(1);
         let hotkey = U256::from(2);
         let alice = U256::from(3);
@@ -746,10 +745,7 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
             )
         );
         let bare_actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO, 0).unwrap();
-        assert_eq!(
-            bare_actual,
-            SubtensorModule::swap_basket_actual_weight(3, true)
-        );
+        assert_eq!(bare_actual, SubtensorModule::swap_basket_weight(3));
 
         // Queued origins do not move the declared weight: the allowance is flat, and the
         // weight function reads no storage.
@@ -774,7 +770,7 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
         );
         assert_eq!(
             actual,
-            SubtensorModule::swap_basket_actual_weight(3, true)
+            SubtensorModule::swap_basket_weight(3)
                 .saturating_add(SubtensorModule::basket_flush_weight(flush_work))
         );
         assert!(actual.all_gt(bare_actual), "flush work must be charged");
@@ -846,7 +842,7 @@ fn test_swap_basket_declared_weight_covers_failing_multi_credit_flush() {
         assert!(flush_work.quotes <= bound.quotes && flush_work.rows <= bound.rows);
         assert_eq!(
             actual,
-            SubtensorModule::swap_basket_actual_weight(holdings_before, true)
+            SubtensorModule::swap_basket_weight(holdings_before)
                 .saturating_add(SubtensorModule::basket_flush_weight(flush_work))
         );
         assert!(

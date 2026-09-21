@@ -997,9 +997,9 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn sudo_set_basket_cash_claim_cap() {
+    fn sudo_set_basket_claim_dust() {
         #[extrinsic_call]
-        _(RawOrigin::Root, 655u16);
+        _(RawOrigin::Root, 1_000_000_000u64, 10u16, 1_000_000u64);
     }
 
     impl_benchmark_test_suite!(AdminUtils, mock::new_test_ext(), mock::Test);

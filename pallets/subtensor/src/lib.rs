@@ -132,24 +132,23 @@ pub const BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
 /// subnet's alpha reserve after a `swap_basket` buy (u16-normalized).
 pub const DEFAULT_BASKET_LIQUIDITY_CAP: u16 = u16::MAX / 10;
 
-/// Default [`BasketCashClaimCap`]: **zero — the cash-first claim path ships dark.** With a
-/// zero cap [`Pallet::root_claim_cash_ready`] is never true, so every claim declares
-/// today's envelope and redeems pro-rata exactly as on spec 467. Governance opens the path
-/// with `AdminUtils::sudo_set_basket_cash_claim_cap` (the value the design measured for is
-/// [`RECOMMENDED_BASKET_CASH_CLAIM_CAP`]) after a focused audit.
-pub const DEFAULT_BASKET_CASH_CLAIM_CAP: u16 = 0;
+/// Default [`BasketClaimRowDustCapTao`]: the row-dust floor of a root claim is at most 1 TAO.
+/// A claim does not sell a fund row whose whole holding is worth less than
+/// `min(cap, bps × guarded NAV)` at the guarded mark ([`Pallet::guarded_basket_holding_value`]);
+/// the claimant keeps the shares for such slices and redeems them later (see
+/// [`Pallet::root_claim_for_hotkey`]).
+pub const DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO: u64 = 1_000_000_000;
 
-/// The cash-first budget the design was sized for: 1% of a fund's guarded NAV per refill
-/// window ([`BASKET_TRADE_REFILL_BLOCKS`], one day) from the fund's TAO cash slot
-/// (u16-normalized; 655/65535). Sized from live finney claim flow (about 0.8% of basket NAV
-/// per day is claimed) so honest flow fits while anchor drift can move at most this
-/// fraction of NAV per day.
-pub const RECOMMENDED_BASKET_CASH_CLAIM_CAP: u16 = u16::MAX / 100;
+/// Default [`BasketClaimRowDustBps`]: the row-dust floor is 0.1% of the fund's guarded NAV
+/// (10 basis points), capped at [`DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO`]. Relative so a
+/// small validator's fund — where every row may be under 1 TAO — still redeems its rows.
+pub const DEFAULT_BASKET_CLAIM_ROW_DUST_BPS: u16 = 10;
 
-/// The cash-first claim path opens only while the fund's cash-claim bucket holds at least
-/// this fraction (1/4) of its daily budget, so a drained bucket reopens after about six
-/// hours instead of dribbling one block's refill at a time.
-pub const BASKET_CASH_READY_BUCKET_FRACTION: u64 = 4;
+/// Default [`BasketClaimSliceDustTao`]: a root claim does not sell a fund row when the
+/// claimant's own slice of it is worth less than 0.001 TAO at the guarded mark. Sized so a
+/// median claimant (a fraction of a TAO spread over ~125 rows) sells the rows that carry the
+/// payout and skips the tail that costs a swap each for a rounding-sized amount.
+pub const DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO: u64 = 1_000_000;
 
 /// Max deviation of a `swap_basket` leg's execution price from its reference, in basis
 /// points (2%). The reference is the *strictest* of the subnet's slow moving (emission
@@ -1745,17 +1744,6 @@ pub mod pallet {
     pub type SubnetFastMovingPrice<T: Config> =
         StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
 
-    /// --- MAP ( netuid ) --> fast EMA of the subnet's alpha reserve (`SubnetAlphaIn`),
-    /// same half-life and update point as [`SubnetFastMovingPrice`]. Together they let the
-    /// cash-first claim path value a holding as a liquidation against *anchored* reserves
-    /// (`alpha × price × reserve / (reserve + alpha)`), a figure nothing inside a block can
-    /// move: a same-block buy raises spot, a same-block liquidity add deepens the pool, and
-    /// neither touches this. Absent until the subnet's first update after the upgrade (the
-    /// current reserve is used until then).
-    #[pallet::storage]
-    pub type SubnetFastMovingAlphaIn<T: Config> =
-        StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
-
     /// MAP ( netuid ) --> root_prop | The subnet root proportion.
     #[pallet::storage]
     pub type RootProp<T: Config> =
@@ -3124,6 +3112,50 @@ pub mod pallet {
     pub type BasketLiquidityCap<T: Config> =
         StorageValue<_, u16, ValueQuery, DefaultBasketLiquidityCap<T>>;
 
+    #[pallet::type_value]
+    /// Default cap of the row-dust floor for root claims: 1 TAO (in rao).
+    pub fn DefaultBasketClaimRowDustCapTao<T: Config>() -> u64 {
+        crate::DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO
+    }
+
+    /// --- ITEM --> cap, in rao, of the row-dust floor of a root claim. A claim skips a fund
+    /// row entirely when the fund's whole holding on that subnet is worth less than
+    /// `min(this cap, BasketClaimRowDustBps × guarded NAV)` at the guarded mark: the row is
+    /// neither sold nor paid; the claimant keeps the matching shares and redeems them in a
+    /// later, larger claim. `0` disables the row skip. Set via
+    /// `AdminUtils::sudo_set_basket_claim_dust`.
+    #[pallet::storage]
+    pub type BasketClaimRowDustCapTao<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultBasketClaimRowDustCapTao<T>>;
+
+    #[pallet::type_value]
+    /// Default relative row-dust floor for root claims: 10 bps (0.1%) of guarded NAV.
+    pub fn DefaultBasketClaimRowDustBps<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_CLAIM_ROW_DUST_BPS
+    }
+
+    /// --- ITEM --> relative part of the row-dust floor, in basis points of the fund's
+    /// guarded NAV (see [`BasketClaimRowDustCapTao`]). Keeps the floor proportionate for
+    /// small funds. `0` disables the row skip. Set via `AdminUtils::sudo_set_basket_claim_dust`.
+    #[pallet::storage]
+    pub type BasketClaimRowDustBps<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketClaimRowDustBps<T>>;
+
+    #[pallet::type_value]
+    /// Default slice-dust floor for root claims: 0.001 TAO (in rao).
+    pub fn DefaultBasketClaimSliceDustTao<T: Config>() -> u64 {
+        crate::DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO
+    }
+
+    /// --- ITEM --> rao value below which a root claim skips a fund row for this claimant:
+    /// when the claimant's pro-rata slice of the row is worth less than this at the guarded
+    /// mark, the row is neither sold nor paid; the claimant keeps the matching shares for a
+    /// later, larger claim. `0` disables the skip. Set via
+    /// `AdminUtils::sudo_set_basket_claim_dust`.
+    #[pallet::storage]
+    pub type BasketClaimSliceDustTao<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultBasketClaimSliceDustTao<T>>;
+
     /// --- MAP ( validator_hotkey ) --> `(tao_available, last_refill_block)` of the fund's
     /// `swap_basket` turnover bucket. A missing row is a full bucket (a new fund starts full).
     /// On each trade the bucket is refilled for the blocks elapsed since `last_refill_block`
@@ -3152,65 +3184,6 @@ pub mod pallet {
         (u64, u64),
         OptionQuery,
     >;
-
-    #[pallet::type_value]
-    /// Default cash-first claim budget: zero, i.e. the cash path is off until governance
-    /// sets a cap ([`crate::RECOMMENDED_BASKET_CASH_CLAIM_CAP`] is the sized value).
-    pub fn DefaultBasketCashClaimCap<T: Config>() -> u16 {
-        crate::DEFAULT_BASKET_CASH_CLAIM_CAP
-    }
-
-    /// --- ITEM --> capacity of a fund's cash-first claim bucket as a u16-normalized share
-    /// of the fund's guarded NAV (`u16::MAX` = 100%). A root claim that finds TAO in the
-    /// fund's cash (root) slot is paid from that cash instead of selling every holding;
-    /// the TAO so paid in one refill window ([`crate::BASKET_TRADE_REFILL_BLOCKS`]) is
-    /// capped here. When the bucket is empty the claim takes the ordinary pro-rata
-    /// redemption path. Set via `AdminUtils::sudo_set_basket_cash_claim_cap`.
-    #[pallet::storage]
-    pub type BasketCashClaimCap<T: Config> =
-        StorageValue<_, u16, ValueQuery, DefaultBasketCashClaimCap<T>>;
-
-    /// --- MAP ( validator_hotkey ) --> `(tao_available, last_refill_block)` of the fund's
-    /// cash-first claim bucket. Same arithmetic as [`BasketTradeBucket`]: a missing row is
-    /// a full bucket; each cash claim refills for the blocks elapsed at
-    /// `budget / BASKET_TRADE_REFILL_BLOCKS` per block, clamps to one budget, then takes
-    /// the TAO paid out. Follows the fund on hotkey swap.
-    #[pallet::storage]
-    pub type BasketCashClaimBucket<T: Config> =
-        StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u64), OptionQuery>;
-
-    /// --- MAP ( validator_hotkey, netuid ) --> `(adjust, last_block)`: the cost-basis
-    /// correction of one basket row for the cash-claim mark. Every purchase of alpha on
-    /// `netuid` at live prices (a direct deposit's mirror buy, a `swap_basket` buy leg) adds
-    /// `anchored value added − TAO paid`, so the row's cash-claimable value rises by exactly
-    /// what was paid, never by a stale anchored valuation of what was bought. Any disposal
-    /// of the row (a `swap_basket` sell, a pro-rata redemption, a dust sweep or write-off)
-    /// releases the correction pro-rata to the fraction disposed; a fund that ends clears
-    /// them all. The correction decays on the fast-EMA schedule
-    /// ([`crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS`]), i.e. it fades exactly as the anchors
-    /// catch up with the market. Signed: buys above the anchors leave a negative correction
-    /// (the purchase is still carried at cost).
-    #[pallet::storage]
-    pub type BasketCashNavAdjust<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        Identity,
-        NetUid,
-        (i128, u64),
-        OptionQuery,
-    >;
-
-    /// --- MAP ( validator_hotkey ) --> block in which the fund's cash-path facts last
-    /// changed against a cheap claim declaration: the cash slot or claim bucket dropped
-    /// below what [`Pallet::root_claim_cash_ready`] requires, or the fund's rows / queued
-    /// credits moved in through a hotkey swap. A single-hotkey claim whose declared weight
-    /// was computed from the pre-change state must not run the heavy path under that
-    /// declaration; when this equals the current block the claim fails cheaply with
-    /// [`Error::CashPathUnavailable`] instead.
-    #[pallet::storage]
-    pub type BasketCashTouchedBlock<T: Config> =
-        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
 
     #[pallet::type_value]
     /// Default concentration cap for a single basket holding: 1/16 of fund NAV

@@ -2096,6 +2096,8 @@ mod dispatches {
 
             let staking_hotkeys = StakingHotkeys::<T>::get(&coldkey);
             let selection_scanned = u32::try_from(staking_hotkeys.len()).unwrap_or(u32::MAX);
+            // Every failure path reports the work done so far instead of the declared
+            // envelope, so a refused or rolled-back claim is not billed for 256 rows.
             let precheck = Self::root_claim_precheck_weight(selection_scanned);
             ensure!(
                 selection_scanned <= Self::root_claim_declared_work(),
@@ -2133,14 +2135,14 @@ mod dispatches {
         /// NAV-priced entitlement remains in the basket as root TAO for the other holders.
         /// Other validators' accrued yield is left untouched.
         ///
-        /// Cash first: when the fund's TAO cash slot can pay claims
-        /// ([`Pallet::root_claim_cash_ready`]) the claim is paid from that cash at the
-        /// fund's guarded mark and sells nothing, and the call declares only a scan plus
-        /// one transfer instead of the 129-row redemption envelope. Otherwise it declares
-        /// the full envelope and redeems pro-rata as before. Both decisions are taken on
-        /// the same state, right before the call runs. If the fund's cash was drained (or
-        /// its rows moved) earlier in the same block, the call fails with
-        /// `CashPathUnavailable` after its pre-checks only: resubmit next block.
+        /// Dust rows are not sold: a fund row worth less than
+        /// `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × guarded NAV)`, or one
+        /// whose slice for this claimant is worth less than `BasketClaimSliceDustTao` (both
+        /// at the guarded mark), stays in the fund. The claim burns only the shares
+        /// matching what it redeemed, so the claimant keeps the shares for the skipped
+        /// slices and redeems them in a later, larger claim (`BasketClaimDustSkipped`
+        /// reports them). A failed claim is charged the work it did, not the declared
+        /// envelope.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
@@ -2148,30 +2150,20 @@ mod dispatches {
         ///
         /// # Events
         /// * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey.
-        /// * `BasketCashClaimed`: When the claim was paid from the fund's cash slot.
+        /// * `BasketClaimDustSkipped`: When the claim left dust rows unsold.
         ///
         /// # Errors
         /// * `RootClaimTooHeavy`: The fund has more rows (or queued credits) than one claim
         ///   may walk.
-        /// * `CashPathUnavailable`: The fund changed earlier in this block; resubmit.
         #[pallet::call_index(148)]
         #[pallet::weight(
-            Pallet::<T>::root_claim_hotkey_state_declared_weight(hotkey)
+            Pallet::<T>::root_claim_hotkey_declared_weight()
         )]
         pub fn claim_root_with_hotkey(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
-            // A same-block change to the fund's cash, bucket, rows or queue means the
-            // declared weight may describe the other path. Stop before any heavy work.
-            ensure!(
-                !Self::basket_cash_touched_this_block(&hotkey),
-                Self::fail_with_weight(
-                    Error::<T>::CashPathUnavailable,
-                    Self::root_claim_precheck_weight(0)
-                )
-            );
             let precheck =
                 Self::root_claim_precheck_weight(Self::root_claim_hotkey_declared_work());
             ensure!(

@@ -3682,40 +3682,81 @@ fn test_sudo_set_basket_daily_turnover_cap() {
 }
 
 #[test]
-fn test_sudo_set_basket_cash_claim_cap() {
+fn test_sudo_set_basket_claim_dust() {
     new_test_ext().execute_with(|| {
-        // Launch default: 1% of guarded fund NAV per window.
         assert_eq!(
-            pallet_subtensor::BasketCashClaimCap::<Test>::get(),
-            pallet_subtensor::DEFAULT_BASKET_CASH_CLAIM_CAP
+            pallet_subtensor::BasketClaimRowDustCapTao::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO
+        );
+        assert_eq!(
+            pallet_subtensor::BasketClaimRowDustBps::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_ROW_DUST_BPS
+        );
+        assert_eq!(
+            pallet_subtensor::BasketClaimSliceDustTao::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO
+        );
+        assert_eq!(
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO,
+            1_000_000_000
+        );
+        assert_eq!(pallet_subtensor::DEFAULT_BASKET_CLAIM_ROW_DUST_BPS, 10);
+        assert_eq!(
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO,
+            1_000_000
         );
 
-        // Only root may set the cap.
         assert_noop!(
-            AdminUtils::sudo_set_basket_cash_claim_cap(
+            AdminUtils::sudo_set_basket_claim_dust(
                 <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
-                1000
+                5_000_000_000,
+                20,
+                10_000_000
             ),
             DispatchError::BadOrigin
         );
+        assert_noop!(
+            AdminUtils::sudo_set_basket_claim_dust(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                5_000_000_000,
+                10_001,
+                10_000_000
+            ),
+            Error::<Test>::ValueNotInBounds
+        );
 
-        // Zero is allowed: it closes the cash path (every claim redeems pro-rata).
-        assert_ok!(AdminUtils::sudo_set_basket_cash_claim_cap(
+        assert_ok!(AdminUtils::sudo_set_basket_claim_dust(
             <<Test as Config>::RuntimeOrigin>::root(),
-            0
-        ));
-        assert_eq!(pallet_subtensor::BasketCashClaimCap::<Test>::get(), 0);
-        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
-            crate::Event::BasketCashClaimCapSet { cap: 0 },
-        ));
-
-        assert_ok!(AdminUtils::sudo_set_basket_cash_claim_cap(
-            <<Test as Config>::RuntimeOrigin>::root(),
-            u16::MAX
+            5_000_000_000,
+            20,
+            10_000_000
         ));
         assert_eq!(
-            pallet_subtensor::BasketCashClaimCap::<Test>::get(),
-            u16::MAX
+            pallet_subtensor::BasketClaimRowDustCapTao::<Test>::get(),
+            5_000_000_000
         );
+        assert_eq!(pallet_subtensor::BasketClaimRowDustBps::<Test>::get(), 20);
+        assert_eq!(
+            pallet_subtensor::BasketClaimSliceDustTao::<Test>::get(),
+            10_000_000
+        );
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketClaimDustSet {
+                row_cap_rao: 5_000_000_000,
+                row_bps: 20,
+                slice_rao: 10_000_000,
+            },
+        ));
+
+        // Zeros are allowed: they turn the skips off (every priced row is redeemed).
+        assert_ok!(AdminUtils::sudo_set_basket_claim_dust(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            0,
+            0,
+            0
+        ));
+        assert_eq!(pallet_subtensor::BasketClaimRowDustCapTao::<Test>::get(), 0);
+        assert_eq!(pallet_subtensor::BasketClaimRowDustBps::<Test>::get(), 0);
+        assert_eq!(pallet_subtensor::BasketClaimSliceDustTao::<Test>::get(), 0);
     });
 }

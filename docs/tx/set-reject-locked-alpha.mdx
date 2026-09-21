@@ -15,7 +15,7 @@ itself.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_reject_locked_alpha`](/code/pallets/subtensor/src/macros/dispatches.rs#L2723-L2730) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_reject_locked_alpha`](/code/pallets/subtensor/src/macros/dispatches.rs#L2714-L2721) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("set_reject_locked_alpha", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_reject_locked_alpha` — [`pallets/subtensor/src/macros/dispatches.rs#L2725`](/code/pallets/subtensor/src/macros/dispatches.rs#L2723-L2730):
+`SubtensorModule.set_reject_locked_alpha` — [`pallets/subtensor/src/macros/dispatches.rs#L2716`](/code/pallets/subtensor/src/macros/dispatches.rs#L2714-L2721):
 
 ```rust
 #[pallet::call_index(142)]

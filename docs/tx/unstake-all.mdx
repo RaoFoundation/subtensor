@@ -21,7 +21,7 @@ payout: the claim pays 100% of the basket.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1243-L1256), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2157-L2194), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1243-L1256), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2157-L2185), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -92,27 +92,18 @@ pub fn unstake_all(
 
 Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L132), [`unstake_all_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L256).
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2161`](/code/pallets/subtensor/src/macros/dispatches.rs#L2157-L2194):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2161`](/code/pallets/subtensor/src/macros/dispatches.rs#L2157-L2185):
 
 ```rust
 #[pallet::call_index(148)]
 #[pallet::weight(
-    Pallet::<T>::root_claim_hotkey_state_declared_weight(hotkey)
+    Pallet::<T>::root_claim_hotkey_declared_weight()
 )]
 pub fn claim_root_with_hotkey(
     origin: OriginFor<T>,
     hotkey: T::AccountId,
 ) -> DispatchResultWithPostInfo {
     let coldkey: T::AccountId = ensure_signed(origin)?;
-    // A same-block change to the fund's cash, bucket, rows or queue means the
-    // declared weight may describe the other path. Stop before any heavy work.
-    ensure!(
-        !Self::basket_cash_touched_this_block(&hotkey),
-        Self::fail_with_weight(
-            Error::<T>::CashPathUnavailable,
-            Self::root_claim_precheck_weight(0)
-        )
-    );
     let precheck =
         Self::root_claim_precheck_weight(Self::root_claim_hotkey_declared_work());
     ensure!(
@@ -135,7 +126,7 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`basket_cash_touched_this_block`](/code/pallets/subtensor/src/staking/claim_root.rs#L942), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1322), [`root_claim_precheck_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1447).
+Delegates to [`root_claim_precheck_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1121), [`root_claim_hotkey_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1005), [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1086).
 
 `Utility.batch_all` — [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362):
 

@@ -145,10 +145,8 @@ impl<T: Config> Pallet<T> {
             alpha_bought: outcome.alpha_bought.into(),
         });
 
-        Ok(
-            Self::swap_basket_actual_weight(outcome.holdings, !destination_netuid.is_root())
-                .saturating_add(Self::basket_flush_weight(flush_work)),
-        )
+        Ok(Self::swap_basket_weight(outcome.holdings)
+            .saturating_add(Self::basket_flush_weight(flush_work)))
     }
 
     /// Transactional body of [`Self::do_swap_basket`]; any error rolls the whole trade back.
@@ -202,33 +200,9 @@ impl<T: Config> Pallet<T> {
             Self::get_subnet_account_id(destination_netuid).ok_or(Error::<T>::SubnetNotExists)?;
         Self::transfer_tao_from_subnet(origin_netuid, &destination_account, tao_mid.into())?;
 
-        // --- 4. Buy leg: TAO -> destination holding. The fund paid `tao_mid` for it; book
-        // the difference to the anchored value of what it bought into the cost-basis
-        // correction so the cash-claim mark carries the purchase at cost.
-        let destination_anchored_before = Self::anchored_liquidation_value(
-            destination_netuid,
-            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, destination_netuid)
-                .to_u64(),
-        );
+        // --- 4. Buy leg: TAO -> destination holding.
         let alpha_bought =
             Self::buy_basket_leg(hotkey, escrow, destination_netuid, tao_mid.into())?;
-        if !destination_netuid.is_root() {
-            let destination_anchored_after = Self::anchored_liquidation_value(
-                destination_netuid,
-                Self::get_stake_for_hotkey_and_coldkey_on_subnet(
-                    hotkey,
-                    escrow,
-                    destination_netuid,
-                )
-                .to_u64(),
-            );
-            Self::note_basket_cost_basis(
-                hotkey,
-                destination_netuid,
-                destination_anchored_after.saturating_sub(destination_anchored_before),
-                tao_mid,
-            );
-        }
 
         // --- 4a. Caller's floor on the credited amount (fees already settled in the leg).
         // The unit follows the destination: alpha, or rao of TAO for the root cash slot.
@@ -325,13 +299,9 @@ impl<T: Config> Pallet<T> {
             );
             return Ok(alpha.to_u64());
         }
-        let held_before =
-            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid).to_u64();
         let alpha_removed =
             Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid, alpha);
         ensure!(alpha_removed == alpha, Error::<T>::NotEnoughStakeToWithdraw);
-        // The sold slice leaves the fund: release its share of the row's cost basis.
-        Self::release_basket_cost_basis(hotkey, netuid, alpha.to_u64(), held_before);
         let floor = Self::basket_trade_price_limit(netuid, Leg::Sell)?;
         let out = Self::swap_alpha_for_tao(netuid, alpha, floor, false)?;
         let consumed = out.amount_paid_in.saturating_add(out.fee_paid);
@@ -556,26 +526,6 @@ impl<T: Config> Pallet<T> {
             u32::try_from(num_holdings).unwrap_or(u32::MAX),
         )
         .saturating_add(T::DbWeight::get().reads_writes(1, 1))
-    }
-
-    /// Post-dispatch weight of a trade over `num_holdings` rows: [`Self::swap_basket_weight`]
-    /// plus the cost-basis bookkeeping: the sell leg's release and, on a non-root buy leg,
-    /// the depth anchor read and the `BasketCashNavAdjust` get/insert (the price anchor was
-    /// already read for the band).
-    /// The declaration ([`Self::swap_basket_declared_weight`]) is left at the 256-row
-    /// envelope plus the flat flush allowance, which covers this bookkeeping many times over
-    /// for every admissible trade, so the trade's fee does not move.
-    pub(crate) fn swap_basket_actual_weight(num_holdings: u64, bought_alpha: bool) -> Weight {
-        let bookkeeping = if bought_alpha {
-            T::DbWeight::get().reads_writes(2, 1)
-        } else {
-            Weight::zero()
-        };
-        // The sell leg's cost-basis release: one read and one write on a non-root origin
-        // (a root origin has no correction; the read still runs).
-        Self::swap_basket_weight(num_holdings)
-            .saturating_add(bookkeeping)
-            .saturating_add(T::DbWeight::get().reads_writes(2, 1))
     }
 
     /// Pre-dispatch weight of `swap_basket`: the trade over the row cap plus the flat

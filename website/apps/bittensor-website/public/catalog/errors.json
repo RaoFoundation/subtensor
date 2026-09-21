@@ -726,8 +726,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 191,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L191",
+          "line": 195,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L195",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -936,24 +936,6 @@
           "line": 243,
           "url": "/code/pallets/crowdloan/src/lib.rs#L243",
           "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
-        }
-      ]
-    },
-    "CashPathUnavailable": {
-      "code": "rate_limited",
-      "description": "A single-validator root claim (`claim_root_with_hotkey`) found that the fund's cash slot, cash-claim bucket, holdings or queued credits changed earlier in this same block. Since spec 468 such a claim declares only the cheap cash path when the fund's TAO cash can pay it, and must never run the full per-holding redemption under that cheap declaration, so it stops after its pre-checks and is charged only for those. Nothing was paid or burned. Resubmit in a later block: the claim is then declared for whichever path the fund's state calls for.",
-      "docs_url": "/docs/errors/chain/CashPathUnavailable",
-      "markdown_url": "/llms.mdx/docs/errors/chain/CashPathUnavailable/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 415,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L415",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
@@ -1257,8 +1239,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 215,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L215",
+          "line": 219,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L219",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1275,8 +1257,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 213,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L213",
+          "line": 217,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L217",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1590,8 +1572,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 211,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L211",
+          "line": 215,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L215",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -2020,8 +2002,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 217,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L217",
+          "line": 221,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L221",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2866,8 +2848,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 205,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L205",
+          "line": 209,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L209",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3208,8 +3190,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 189,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L189",
+          "line": 193,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L193",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3226,8 +3208,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 203,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L203",
+          "line": 207,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L207",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3244,8 +3226,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 201,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L201",
+          "line": 205,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L205",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3316,8 +3298,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 187,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L187",
+          "line": 191,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L191",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3414,8 +3396,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 197,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L197",
+          "line": 201,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L201",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3432,8 +3414,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 199,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L199",
+          "line": 203,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L203",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3531,8 +3513,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 193,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L193",
+          "line": 197,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L197",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4091,8 +4073,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 207,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L207",
+          "line": 211,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L211",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4351,8 +4333,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 209,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L209",
+          "line": 213,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L213",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5161,8 +5143,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 185,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L185",
+          "line": 189,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L189",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5981,8 +5963,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 195,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L195",
+          "line": 199,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L199",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]

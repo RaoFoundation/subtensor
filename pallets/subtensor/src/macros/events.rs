@@ -859,19 +859,24 @@ mod events {
             alpha_bought: AlphaBalance,
         },
 
-        /// A staker's root claim was paid from the fund's TAO cash slot instead of selling
-        /// every holding: `tao` moved from the escrow root slot to the staker's root
-        /// position and `shares` fund shares were burned at the fund's guarded mark. Emitted
-        /// alongside `BasketClaimed`.
-        BasketCashClaimed {
+        /// A root claim skipped `rows` dust rows of the fund: rows whose whole holding was
+        /// worth less than `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × guarded
+        /// NAV)`, or whose slice for this claimant was worth less than
+        /// `BasketClaimSliceDustTao`, at the guarded mark. Those rows were neither sold nor
+        /// paid. The claim burned only the shares matching what it redeemed, so the claimant
+        /// still owns `retained_shares` fund shares — worth about `retained_tao_est` at the
+        /// pre-sale realizable quote — to redeem in a later, larger claim.
+        BasketClaimDustSkipped {
             /// Validator hotkey the basket belongs to.
             hotkey: T::AccountId,
             /// Staker coldkey that claimed.
             coldkey: T::AccountId,
-            /// TAO paid from the fund's cash slot.
-            tao: TaoBalance,
-            /// Fund shares burned for that TAO.
-            shares: u64,
+            /// Fund rows the claim did not sell.
+            rows: u32,
+            /// Owed fund shares left unburned for the skipped slices.
+            retained_shares: u64,
+            /// Estimated TAO value of the claimant's slices of those rows, still owed.
+            retained_tao_est: TaoBalance,
         },
     }
 }

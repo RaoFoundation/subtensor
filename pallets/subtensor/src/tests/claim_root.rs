@@ -4,13 +4,13 @@ use crate::staking::BasketFlushWork;
 use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
-    AlphaV2, BasketCashClaimCap, BasketClaimed, BasketRate, BasketRedeemedTao, BasketShares,
-    BurnIncreaseMult, DefaultMinRootClaimAmount, Error, Keys, LastEpochBlock,
-    MAX_ROOT_CLAIM_HOTKEY_WORK, MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK, NetworksAdded,
-    NumStakingColdkeys, PendingBasketDeposits, RegistrationsThisInterval,
-    RootAlphaDividendsPerSubnet, RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex,
-    StakingHotkeys, SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice, SubnetOwnerHotkey,
-    SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
+    AlphaV2, BasketClaimed, BasketRate, BasketRedeemedTao, BasketShares, BurnIncreaseMult,
+    DefaultMinRootClaimAmount, Error, Keys, LastEpochBlock, MAX_ROOT_CLAIM_HOTKEY_WORK,
+    MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK, NetworksAdded, NumStakingColdkeys,
+    PendingBasketDeposits, RegistrationsThisInterval, RootAlphaDividendsPerSubnet,
+    RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn,
+    SubnetAlphaOut, SubnetMovingPrice, SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO,
+    SubnetworkN, Tempo, TotalStake, Uids,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -64,23 +64,6 @@ pub(super) fn flush_baskets() {
 /// origin subnet.
 pub(super) fn register_on_root(hotkey: &U256, uid: u16) {
     Uids::<Test>::insert(NetUid::ROOT, hotkey, uid);
-}
-
-/// Turn the cash-first claim path off (`BasketCashClaimCap = 0`): every claim redeems
-/// pro-rata, as before spec 468. For tests that exercise the redemption mechanics.
-pub(super) fn disable_cash_claims() {
-    BasketCashClaimCap::<Test>::put(0);
-}
-
-/// Let the cash-first path pay a whole claim from cash in one call (`BasketCashClaimCap =
-/// 100%` of guarded NAV per day) instead of the conservative default budget.
-pub(super) fn allow_full_cash_claims() {
-    BasketCashClaimCap::<Test>::put(u16::MAX);
-}
-
-/// Open the cash-first path at the cap the design was sized for (it ships dark).
-pub(super) fn enable_recommended_cash_claims() {
-    BasketCashClaimCap::<Test>::put(crate::RECOMMENDED_BASKET_CASH_CLAIM_CAP);
 }
 
 pub(super) fn escrow_alpha(hotkey: &U256, netuid: NetUid) -> u64 {
@@ -1381,9 +1364,6 @@ fn test_root_basket_dissolve_preserves_owed_not_stake() {
             RuntimeOrigin::signed(alice),
             hotkey
         ));
-        // Alice's cash claim may have exhausted the fund's cash budget in this block; a
-        // second single-hotkey claim on the fund waits for the next block.
-        System::set_block_number(System::block_number() + 1);
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(bob),
             hotkey
@@ -2377,7 +2357,6 @@ fn test_root_basket_uid0_claim_reassigns_no_swap() {
 
         SubtensorModule::set_tao_weight(u64::MAX);
         zero_claim_threshold();
-        allow_full_cash_claims();
         register_on_root(&hotkey, 0);
 
         let deposit = 2_000_000u64;
@@ -2432,7 +2411,6 @@ fn test_root_basket_uid0_compounds() {
 
         SubtensorModule::set_tao_weight(u64::MAX);
         zero_claim_threshold();
-        allow_full_cash_claims();
 
         mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
@@ -3133,9 +3111,8 @@ fn test_root_basket_threshold_skip_consumes_nothing() {
         let cash = escrow_alpha(&hotkey, NetUid::ROOT);
         assert!(cash > 0 && cash <= nav_before && cash >= nav_before * 99 / 100);
 
-        // Lower the threshold: the full amount pays out (from the swept cash, in one call).
+        // Lower the threshold: the full amount pays out.
         zero_claim_threshold();
-        allow_full_cash_claims();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(coldkey),
             hotkey
@@ -3618,7 +3595,6 @@ fn test_root_basket_uid0_excludes_escrow_from_denominator() {
 
         SubtensorModule::set_tao_weight(u64::MAX);
         zero_claim_threshold();
-        disable_cash_claims();
 
         mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,

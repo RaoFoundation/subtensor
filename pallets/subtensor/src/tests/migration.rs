@@ -6831,7 +6831,6 @@ fn test_migrate_seed_beta_basket_v2_after_v1_already_ran() {
     use crate::migrations::migrate_seed_beta_basket::{deprecated, migrate_seed_beta_basket_v2};
 
     new_test_ext(1).execute_with(|| {
-        crate::BasketCashClaimCap::<Test>::put(0); // redemption-path test: cash-first off
         let owner_coldkey = U256::from(1001);
         let hotkey = U256::from(1002);
         let coldkey = U256::from(1003);

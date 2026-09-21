@@ -23,7 +23,7 @@ refuses when free TAO cannot cover the reserve.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L2086-L2126) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L2086-L2128) |
 
 ## Parameters
 
@@ -70,7 +70,7 @@ result = sub.execute_tool("claim_root", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L2090`](/code/pallets/subtensor/src/macros/dispatches.rs#L2086-L2126):
+`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L2090`](/code/pallets/subtensor/src/macros/dispatches.rs#L2086-L2128):
 
 ```rust
 #[pallet::call_index(121)]
@@ -86,6 +86,8 @@ pub fn claim_root(
 
     let staking_hotkeys = StakingHotkeys::<T>::get(&coldkey);
     let selection_scanned = u32::try_from(staking_hotkeys.len()).unwrap_or(u32::MAX);
+    // Every failure path reports the work done so far instead of the declared
+    // envelope, so a refused or rolled-back claim is not billed for 256 rows.
     let precheck = Self::root_claim_precheck_weight(selection_scanned);
     ensure!(
         selection_scanned <= Self::root_claim_declared_work(),
@@ -116,6 +118,6 @@ pub fn claim_root(
 }
 ```
 
-Delegates to [`root_claim_precheck_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1447), [`root_claim_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1360), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1322).
+Delegates to [`root_claim_precheck_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1121), [`root_claim_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1000), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1281).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

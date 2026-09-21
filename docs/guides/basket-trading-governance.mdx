@@ -34,12 +34,13 @@ pip install "bittensor==11.3.0rc47"
 | `sudo_set_basket_trading_frozen(hotkey, frozen)` | `BasketTradingFrozen[hotkey]` | not frozen | Whether one fund may trade. |
 | `sudo_set_basket_daily_turnover_cap(cap)` | `BasketDailyTurnoverCap` | `6553` (10%) | TAO a fund can push through per burst and per day. |
 | `sudo_set_basket_liquidity_cap(cap)` | `BasketLiquidityCap` | `6553` (10%) | How much of any one pool a fund may hold. |
-| `sudo_set_basket_cash_claim_cap(cap)` | `BasketCashClaimCap` | `0` (cash path off; `655` = the sized 1%) | TAO a fund's cash slot may pay to claimants per day (share of guarded NAV). The path ships dark; governance opens it. |
+| `sudo_set_basket_claim_dust(row_cap_rao, row_bps, slice_rao)` | `BasketClaimRowDustCapTao`, `BasketClaimRowDustBps`, `BasketClaimSliceDustTao` | `1_000_000_000` (1 TAO), `10` (0.1%), `1_000_000` (0.001 TAO) | Root claims do not sell a fund row worth less than `min(row_cap, row_bps × guarded NAV)`, nor a row where the claimant's own slice is worth less than `slice`, all at the guarded mark; the claimant keeps the shares for skipped slices and redeems them later. Zero turns the respective skip off. |
 
 `cap` values are u16-normalized: `65535` is 100%, `6553` is 10%, `16383` is
-25%. Zero is rejected with `ValueNotInBounds`. Each call emits an event
-(`BasketTradingToggled`, `BasketTradingFrozenSet`,
-`BasketDailyTurnoverCapSet`, `BasketLiquidityCapSet`).
+25%. Zero is rejected with `ValueNotInBounds` (the dust floors accept zero,
+which turns a skip off). Each call emits an event (`BasketTradingToggled`,
+`BasketTradingFrozenSet`, `BasketDailyTurnoverCapSet`, `BasketLiquidityCapSet`,
+`BasketClaimDustSet`).
 
 ### Enable trading
 
