@@ -590,12 +590,6 @@ async def _quote(
     )
 
 
-# Spec 468 `BetaBasketRuntimeApi` v5 methods. Named here until the generated bindings are
-# regenerated from a node that exposes them (then `BetaBasketRuntimeApi.<name>`).
-_CLAIM_PREVIEW_API = ("BetaBasketRuntimeApi", "get_basket_claim_preview")
-_CLAIM_PREVIEWS_API = ("BetaBasketRuntimeApi", "get_root_basket_claim_previews")
-
-
 @dataclass(frozen=True)
 class _ClaimPreview:
     """Decoded ``BasketClaimPreview`` for one validator."""
@@ -632,12 +626,16 @@ async def _claim_previews(
     payout views."""
     try:
         if coldkey_wide:
-            raw = await substrate.runtime_call(*_CLAIM_PREVIEWS_API, [claimant_address])
+            raw = await substrate.runtime_call(
+                *BetaBasketRuntimeApi.get_root_basket_claim_previews, [claimant_address]
+            )
             if raw is None:
                 return None
             by_hotkey = {str(entry["hotkey"]): _decode_claim_preview(entry) for entry in raw}
             return [by_hotkey.get(hotkey) for hotkey in hotkeys]
-        raw = await substrate.runtime_call(*_CLAIM_PREVIEW_API, [hotkeys[0], claimant_address])
+        raw = await substrate.runtime_call(
+            *BetaBasketRuntimeApi.get_basket_claim_preview, [hotkeys[0], claimant_address]
+        )
     except Exception:
         return None
     if raw is None:
