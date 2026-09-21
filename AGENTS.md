@@ -1,111 +1,60 @@
 # Repository Agent Guidance
 
-## Quick CI preflight
+## CI preflight gate (mandatory before every push)
 
-Before handing off implementation work, run only the quick, deterministic
-checks below that match the changed files. Heavy compilation, tests, audits,
-and environment-sensitive validation belong in CI unless the user explicitly
-requests them.
+Run the local gate before every push. It runs the checks CI requires, with the
+same commands CI uses, and exits nonzero on any failure:
 
-This file does not authorize commits, pushes, labels, PR changes, dependency
-updates, or unrelated cleanup. Review and diagnostic tasks remain read-only.
-If scope or ownership is unclear, do not take action; report what remains.
+```bash
+scripts/preflight.sh          # full gate; builds the release node when runtime metadata may have changed
+scripts/preflight.sh --fast   # skips the node / wasm builds (SDK bindings drift, try-runtime)
+```
+
+Install the pre-push hook once per checkout so a push cannot leave with a red
+gate:
+
+```bash
+scripts/install-hooks.sh
+```
+
+The hook runs `--fast`, or the full gate when the pushed commits touch
+`runtime/`, `pallets/`, or `sdk/`. `git push --no-verify` is forbidden for
+agents. Do not push to "see what CI says"; a new push cancels 40+ minutes of
+in-flight clone-upgrade and try-runtime work.
+
+Pushes must go out as `unarbos`. The gate fails when the push URL of `origin`
+does not authenticate as `unarbos` and prints the `git remote set-url` fix
+(the PAT lives in the 1Password vault `Arbos`; never print it).
+
+The gate covers: `cargo fmt`, CI-flag Clippy (default and `--all-features`),
+zepter, `cargo test` for changed crates plus the runtime fee/claim-root tests,
+SDK bindings drift from a node built from this tree, ruff, `codegen.check`,
+`generate.py --check` docs drift, `pnpm run fmt`, try-runtime against the
+mainnet snapshot when migrations changed, `git diff --check`, untracked
+generated files, and the push actor. `ci_tips.md` explains each failure.
+
+## Fixing a red gate
 
 Before any command that can rewrite files, inspect `git status --short` and
-preserve all pre-existing changes as user-owned work. Run check mode first. Use
-fix mode only for a failure attributable to files in the current task, then
-inspect the resulting diff.
-
-Always finish with:
-
-```bash
-git diff --check
-git status --short
-```
-
-Report the exact checks run and any check skipped because its existing locked
-environment was unavailable. Do not install dependencies solely for this quick
-preflight.
-
-## Rust formatting
-
-For Rust source, manifest, fixture, or feature changes, run:
-
-```bash
-cargo fmt --check --all
-```
-
-If it fails only because of task-owned files, run `cargo fmt --all`, inspect the
-diff, and repeat the check. Do not run `scripts/fix_rust.sh`; it creates a
+preserve pre-existing changes as user-owned work. Use fix mode (`cargo fmt
+--all`, `uv run --no-sync ruff format .`, `generate.py`, `pnpm run fmt:fix`)
+only for failures attributable to files in the current task, then inspect the
+diff and rerun the gate. Do not run `scripts/fix_rust.sh`; it creates a
 commit.
 
-Leave Clippy, Rust builds and tests, and `cargo audit` to CI unless explicitly
-requested. If `Cargo.toml` or `Cargo.lock` changed, confirm the lockfile change
-is intentional; do not update dependencies or add advisory ignores merely to
-make CI pass.
-
-## Python SDK formatting and ABI drift
-
-If the existing `sdk/python` environment is available, run from that directory:
-
-```bash
-uv run --no-sync ruff check .
-uv run --no-sync ruff format --check .
-```
-
-For failures confined to task-owned files, use
-`uv run --no-sync ruff check . --fix` and
-`uv run --no-sync ruff format .`, inspect the diff, and repeat both checks.
-Leave full type checking and tests to CI.
-
-The Solidity ABI files in `precompiles/src/solidity/*.abi` are canonical. When
-one of those or a vendored ABI changes, run this narrow consistency test from
-`sdk/python`:
-
-```bash
-uv run --no-sync pytest tests/unit/test_evm.py::TestVendoredAbiSync -q
-```
-
-Update `sdk/python/bittensor/evm/abi/*.json` only when drift is caused by the
-current canonical ABI change. Do not edit only the vendored copy.
-
-Runtime metadata bindings under `sdk/python/bittensor/_generated/` require the
-correct upgraded node. Do not regenerate them as routine preflight. If CI or
-the task indicates they are stale, report the required regeneration unless the
-user explicitly requests it and the correct node provenance is known.
-
-## Generated reference docs
-
-Changes to Python registries, calls, queries, errors, hyperparameters, or other
-docs-generator inputs require this check from `sdk/python` when its existing
-locked environment is available:
-
-```bash
-uv run --no-sync python ../../website/apps/bittensor-website/scripts/generate.py --check
-```
-
-If drift is attributable to the current task, run
-`uv run --no-sync python ../../website/apps/bittensor-website/scripts/generate.py`,
-repeat the check, and inspect the generated diff. Unexpected broad drift is a
-reason to stop and report it. Do not hand-edit generated files under
+Do not hand-edit generated files: `sdk/python/bittensor/_generated/`,
 `docs/tx/`, `docs/query/`, `docs/errors/`, generated hyperparameter index/meta
-files, or `website/apps/bittensor-website/public/catalog/`.
+files, or `website/apps/bittensor-website/public/catalog/`. Regenerate them
+with the gate or the commands it prints. Unexpected broad drift is a reason to
+stop and report, not to commit someone else's churn.
 
-For rendered Markdown and MDX changes, verify that pages have string `title`
-and `description` frontmatter and that referenced MDX components exist. Leave
-the full website install and build to CI.
+The Solidity ABI files in `precompiles/src/solidity/*.abi` are canonical.
+Update `sdk/python/bittensor/evm/abi/*.json` only when drift is caused by the
+current canonical ABI change (`uv run --no-sync pytest
+tests/unit/test_evm.py::TestVendoredAbiSync -q` from `sdk/python`).
 
-## TypeScript formatting
-
-For `ts-tests` changes, run this when its existing locked environment is
-available:
-
-```bash
-pnpm run fmt
-```
-
-If it fails only in task-owned files, run `pnpm run fmt:fix`, inspect the diff,
-and repeat the check. Leave lint, type checking, builds, and E2E tests to CI.
+Hand-written Markdown and MDX pages need string `title` and `description`
+frontmatter and may only reference existing MDX components.
 
 ## Advisory-only checks
 
@@ -129,5 +78,6 @@ For `.github/**` changes, run `actionlint` only when it is already available.
 Leave workflow execution to CI, preserve action pinning, and do not add an
 unapproved third-party action merely to make a workflow pass.
 
-Do not start clone/regression workflows, full builds, comprehensive test
-suites, dependency audits, or benchmark generation as routine preflight.
+Do not start clone/regression workflows, dependency audits, or benchmark
+generation as routine preflight; `scripts/preflight.sh` already runs what CI
+requires.

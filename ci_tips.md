@@ -25,7 +25,8 @@ Do this in order. Stop when the remaining red jobs are slow or infra.
 
 1. Confirm GitHub is testing the commit you think it is.
    Local fmt/clippy that you did not push does not count.
-2. Run the fast local gates that match the files you changed.
+2. Run `scripts/preflight.sh` (see §3). It scopes itself to the
+   files you changed and stops at the cheap failures first.
 3. Push those fixes as one commit.
 4. Watch with fail-fast. Fix the next cheap failure. Repeat.
 5. Rerun only when the log is infra (429, GHCR pull/push, warp-proof,
@@ -33,8 +34,9 @@ Do this in order. Stop when the remaining red jobs are slow or infra.
 6. Do not push again just to "unstick" CI. A new push cancels
    in-flight Runtime Checks. Clone-upgrade and try-runtime then
    restart from zero (often 40+ minutes).
-7. Leave Clippy workspace runs, full `cargo test`, clone-upgrade, and
-   e2e to CI unless you already know they are the failure.
+7. Leave clone-upgrade and e2e to CI unless you already know they are
+   the failure. Clippy and `cargo test` for changed crates are part of
+   the local gate.
 
 ```bash
 gh pr view --json number,url,headRefName,headRefOid
@@ -91,9 +93,24 @@ manual, not on pull requests.
 
 ---
 
-## 3. Fast local gates (do these before push)
+## 3. Local gates (run before every push)
 
-Match the changed files. Do not run the whole matrix.
+One command runs every gate below with CI's exact flags, scoped to the
+files changed vs `origin/main`, and exits nonzero on any failure:
+
+```bash
+scripts/preflight.sh          # full gate (builds the release node when runtime metadata may have changed)
+scripts/preflight.sh --fast   # skip the node / wasm builds
+scripts/preflight.sh --all    # every gate regardless of the diff
+scripts/install-hooks.sh      # pre-push hook: a red gate aborts the push
+```
+
+Install the hook once per checkout. `git push --no-verify` is forbidden
+for agents. Pushes go out as `unarbos`; the gate checks the push URL of
+`origin` and prints the `git remote set-url` fix when it is wrong.
+
+The rest of this section explains what each gate runs and how to fix
+it. Match fix-mode commands to the files you own.
 
 ### Rust source, manifests, fixtures
 
@@ -121,8 +138,10 @@ SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D wa
 Root `just clippy` only denies `todo` and `unimplemented`. CI denies
 **all** warnings. Unused imports fail CI and pass `just clippy`.
 
-Do not run workspace Clippy as routine preflight. When CI is already
-red on Clippy, run the two commands above.
+`scripts/preflight.sh` runs both whenever a Rust path changed, plus
+`zepter run check` and `cargo test --all-features` for the changed
+crates (and `runtime/tests/fee_baseline.rs` + `claim_root_weight.rs`
+when `pallets/` or `runtime/` changed).
 
 `cargo clippy -p pallet-subtensor --lib` misses test-only denies.
 A new test module usually needs the same crate-level allow as the
@@ -430,8 +449,9 @@ label hides the check; it does not fix drift.
 
 **Traps:**
 
-- Do not regenerate `_generated/` as routine preflight. You need a
-  node on the **new** spec. A Mac `SKIP_WASM_BUILD=1` tree cannot
+- Do not regenerate `_generated/` by hand. You need a node on the
+  **new** spec; the full `scripts/preflight.sh` builds one from this
+  tree and regenerates for you. A Mac `SKIP_WASM_BUILD=1` tree cannot
   produce that node.
 - Do not regen from `--dev` / `pow-faucet`. That adds `faucet`.
 - Do not add `skip-clone-upgrade` to hide a runtime/SDK change.
@@ -641,7 +661,8 @@ If it fails the same way on the same commit, treat it as real.
 ## 7. Time-wasters (do not do these)
 
 - Run `scripts/fix_rust.sh`. It commits.
-- Run full workspace Clippy or `cargo test` as routine preflight.
+- Push without running `scripts/preflight.sh`, or push with
+  `--no-verify`.
 - Regenerate `_generated/` without a node on this spec.
 - Hand-edit generated docs or `_generated/`.
 - Bump `spec_version` or apply labels without being asked.
@@ -671,6 +692,10 @@ If it fails the same way on the same commit, treat it as real.
 ## 8. Command card
 
 ```bash
+# Local gate (before every push; the pre-push hook runs it for you)
+scripts/preflight.sh --fast
+scripts/preflight.sh          # full: node build + SDK drift + try-runtime when relevant
+
 # Where are we?
 gh pr view --json number,url,headRefOid,mergeStateStatus
 gh pr checks --json name,bucket,state,link
