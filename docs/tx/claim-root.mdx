@@ -18,8 +18,9 @@ Prefer :class:`ClaimRootWithHotkey` to claim a single validator.
 
 Since spec 468 each fund's dust rows are left unsold (a row worth less
 than `min(1 TAO, 0.1% of the fund's anchored NAV)`, or one where this
-claimant's slice is worth less than 0.0001 TAO); the whole entitlement is
-settled, so those slices stay in the fund for the remaining holders. A
+claimant's slice is worth less than 0.0001 TAO, when that slice is at most
+the 0.01 TAO forfeit cap); the whole entitlement is settled, so those
+slices stay in the fund for the remaining holders. A
 claim that is admitted and then fails pays for the work it did, not the
 declared envelope.
 
@@ -125,6 +126,6 @@ pub fn claim_root(
 }
 ```
 
-Delegates to [`root_claim_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1042), [`root_claim_hotkeys`](/code/pallets/subtensor/src/staking/claim_root.rs#L1081), [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1124).
+Delegates to [`root_claim_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1052), [`root_claim_hotkeys`](/code/pallets/subtensor/src/staking/claim_root.rs#L1091), [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1134).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
