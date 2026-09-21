@@ -3697,6 +3697,10 @@ fn test_sudo_set_basket_claim_dust() {
             pallet_subtensor::DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO
         );
         assert_eq!(
+            pallet_subtensor::BasketClaimForfeitCapTao::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO
+        );
+        assert_eq!(
             pallet_subtensor::DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO,
             1_000_000_000
         );
@@ -3705,13 +3709,18 @@ fn test_sudo_set_basket_claim_dust() {
             pallet_subtensor::DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO,
             100_000
         );
+        assert_eq!(
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO,
+            10_000_000
+        );
 
         assert_noop!(
             AdminUtils::sudo_set_basket_claim_dust(
                 <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
                 5_000_000_000,
                 20,
-                10_000_000
+                1_000_000,
+                20_000_000
             ),
             DispatchError::BadOrigin
         );
@@ -3720,7 +3729,8 @@ fn test_sudo_set_basket_claim_dust() {
                 <<Test as Config>::RuntimeOrigin>::root(),
                 5_000_000_000,
                 10_001,
-                10_000_000
+                1_000_000,
+                20_000_000
             ),
             Error::<Test>::ValueNotInBounds
         );
@@ -3729,7 +3739,8 @@ fn test_sudo_set_basket_claim_dust() {
             <<Test as Config>::RuntimeOrigin>::root(),
             5_000_000_000,
             20,
-            10_000_000
+            1_000_000,
+            20_000_000
         ));
         assert_eq!(
             pallet_subtensor::BasketClaimRowDustCapTao::<Test>::get(),
@@ -3738,13 +3749,18 @@ fn test_sudo_set_basket_claim_dust() {
         assert_eq!(pallet_subtensor::BasketClaimRowDustBps::<Test>::get(), 20);
         assert_eq!(
             pallet_subtensor::BasketClaimSliceDustTao::<Test>::get(),
-            10_000_000
+            1_000_000
+        );
+        assert_eq!(
+            pallet_subtensor::BasketClaimForfeitCapTao::<Test>::get(),
+            20_000_000
         );
         frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
             crate::Event::BasketClaimDustSet {
                 row_cap_rao: 5_000_000_000,
                 row_bps: 20,
-                slice_rao: 10_000_000,
+                slice_rao: 1_000_000,
+                forfeit_cap_rao: 20_000_000,
             },
         ));
 
@@ -3753,10 +3769,12 @@ fn test_sudo_set_basket_claim_dust() {
             <<Test as Config>::RuntimeOrigin>::root(),
             0,
             0,
+            0,
             0
         ));
         assert_eq!(pallet_subtensor::BasketClaimRowDustCapTao::<Test>::get(), 0);
         assert_eq!(pallet_subtensor::BasketClaimRowDustBps::<Test>::get(), 0);
         assert_eq!(pallet_subtensor::BasketClaimSliceDustTao::<Test>::get(), 0);
+        assert_eq!(pallet_subtensor::BasketClaimForfeitCapTao::<Test>::get(), 0);
     });
 }

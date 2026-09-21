@@ -2146,10 +2146,12 @@ mod dispatches {
         ///
         /// Dust rows are not sold: a fund row worth less than
         /// `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × anchored NAV)`, or one
-        /// whose slice for this claimant is worth less than `BasketClaimSliceDustTao` (both
-        /// at the anchored mark), stays in the fund. The claim burns the full entitlement,
-        /// so the claimant's slice of a skipped row — below the floor by construction — is
-        /// left to the remaining holders (`BasketClaimDustSkipped` reports it). A claim
+        /// whose slice for this claimant is worth less than `BasketClaimSliceDustTao`, is
+        /// skipped when that slice is also worth at most `BasketClaimForfeitCapTao` (all at
+        /// the anchored mark, which decides dust only). The claim burns the full
+        /// entitlement, so the claimant's slice of a skipped row — never more than the cap
+        /// at the anchored mark — is left to the remaining holders (`BasketClaimDustSkipped`
+        /// reports it). A claim
         /// that is admitted and then fails is charged the work it did, not the declared
         /// envelope; a claim refused at admission keeps the envelope.
         ///

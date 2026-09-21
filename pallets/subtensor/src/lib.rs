@@ -151,6 +151,12 @@ pub const DEFAULT_BASKET_CLAIM_ROW_DUST_BPS: u16 = 10;
 /// under 1% of its value behind (a 0.001 TAO floor would remove half the swaps but leave 12%).
 pub const DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO: u64 = 100_000;
 
+/// Default [`BasketClaimForfeitCapTao`]: whatever rule marks a row as dust, a claim skips it
+/// only if the claimant's own slice of it is worth at most 0.01 TAO at the anchored mark.
+/// This is the hard bound on what any one skipped slice can leave in the fund; a bigger slice
+/// of a small row is sold as before.
+pub const DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO: u64 = 10_000_000;
+
 /// Max deviation of a `swap_basket` leg's execution price from its reference, in basis
 /// points (2%). The reference is the *strictest* of the subnet's slow moving (emission
 /// EMA) price, its fast moving price ([`SubnetFastMovingPrice`]), and its spot price: the
@@ -3156,6 +3162,22 @@ pub mod pallet {
     #[pallet::storage]
     pub type BasketClaimSliceDustTao<T: Config> =
         StorageValue<_, u64, ValueQuery, DefaultBasketClaimSliceDustTao<T>>;
+
+    #[pallet::type_value]
+    /// Default forfeit cap for root-claim dust skips: 0.01 TAO (in rao).
+    pub fn DefaultBasketClaimForfeitCapTao<T: Config>() -> u64 {
+        crate::DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO
+    }
+
+    /// --- ITEM --> rao value a claimant's slice of a row may be worth, at the anchored
+    /// mark, and still be skipped by either dust rule. A row the rules mark as dust whose
+    /// slice for this claimant is worth more than this is sold as before, so no single
+    /// skipped slice ever leaves more than this in the fund. `0` turns every skip off (a
+    /// slice can only be skipped if it is worth nothing). Set via
+    /// `AdminUtils::sudo_set_basket_claim_dust`.
+    #[pallet::storage]
+    pub type BasketClaimForfeitCapTao<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultBasketClaimForfeitCapTao<T>>;
 
     /// --- MAP ( validator_hotkey ) --> `(tao_available, last_refill_block)` of the fund's
     /// `swap_basket` turnover bucket. A missing row is a full bucket (a new fund starts full).

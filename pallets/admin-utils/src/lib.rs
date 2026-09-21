@@ -171,7 +171,7 @@ pub mod pallet {
         },
 
         /// The root-claim dust floors were set (`BasketClaimRowDustCapTao`,
-        /// `BasketClaimRowDustBps`, `BasketClaimSliceDustTao`).
+        /// `BasketClaimRowDustBps`, `BasketClaimSliceDustTao`, `BasketClaimForfeitCapTao`).
         BasketClaimDustSet {
             /// Cap, in rao, of the row floor `min(cap, bps × anchored NAV)` (`0` = row skip off).
             row_cap_rao: u64,
@@ -179,6 +179,8 @@ pub mod pallet {
             row_bps: u16,
             /// Rao value below which a claim leaves its own slice of a row unsold (`0` = off).
             slice_rao: u64,
+            /// Largest slice, in rao, either rule may leave unsold (`0` = every skip off).
+            forfeit_cap_rao: u64,
         },
     }
 
@@ -2587,35 +2589,40 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Sets the three root-claim dust floors at once. A claim does not sell a fund row
+        /// Sets the four root-claim dust knobs at once. A claim does not sell a fund row
         /// whose whole holding is worth less than `min(row_cap_rao, row_bps × anchored NAV)`
         /// ([`pallet_subtensor::BasketClaimRowDustCapTao`],
         /// [`pallet_subtensor::BasketClaimRowDustBps`]), nor a row where the claimant's own
         /// slice is worth less than `slice_rao` ([`pallet_subtensor::BasketClaimSliceDustTao`]),
-        /// all at the anchored mark; the skipped slices stay in the fund for the other
-        /// holders. Zero turns the respective skip off. `row_bps` is at most 10_000 (100%).
-        /// Declared at three times the sibling one-write basket setter's weight (three
+        /// provided that slice is worth at most `forfeit_cap_rao`
+        /// ([`pallet_subtensor::BasketClaimForfeitCapTao`]) — all at the anchored mark; the
+        /// skipped slices stay in the fund for the other holders. Zero turns the respective
+        /// skip off (a zero cap turns every skip off). `row_bps` is at most 10_000 (100%).
+        /// Declared at four times the sibling one-write basket setter's weight (four
         /// writes; a dedicated benchmark exists for CI to measure). Root-only.
         #[pallet::call_index(110)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_liquidity_cap().saturating_mul(3))]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_liquidity_cap().saturating_mul(4))]
         pub fn sudo_set_basket_claim_dust(
             origin: OriginFor<T>,
             row_cap_rao: u64,
             row_bps: u16,
             slice_rao: u64,
+            forfeit_cap_rao: u64,
         ) -> DispatchResult {
             ensure_root(origin)?;
             ensure!(row_bps <= 10_000, Error::<T>::ValueNotInBounds);
             pallet_subtensor::BasketClaimRowDustCapTao::<T>::put(row_cap_rao);
             pallet_subtensor::BasketClaimRowDustBps::<T>::put(row_bps);
             pallet_subtensor::BasketClaimSliceDustTao::<T>::put(slice_rao);
+            pallet_subtensor::BasketClaimForfeitCapTao::<T>::put(forfeit_cap_rao);
             Self::deposit_event(Event::BasketClaimDustSet {
                 row_cap_rao,
                 row_bps,
                 slice_rao,
+                forfeit_cap_rao,
             });
             log::debug!(
-                "BasketClaimDustSet( row_cap_rao: {row_cap_rao:?}, row_bps: {row_bps:?}, slice_rao: {slice_rao:?} )"
+                "BasketClaimDustSet( row_cap_rao: {row_cap_rao:?}, row_bps: {row_bps:?}, slice_rao: {slice_rao:?}, forfeit_cap_rao: {forfeit_cap_rao:?} )"
             );
             Ok(())
         }

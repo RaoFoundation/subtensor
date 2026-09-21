@@ -380,8 +380,9 @@ class ClaimRoot(_RootClaimIntent):
 
     Since spec 468 each fund's dust rows are left unsold (a row worth less
     than ``min(1 TAO, 0.1% of the fund's anchored NAV)``, or one where this
-    claimant's slice is worth less than 0.0001 TAO); the whole entitlement is
-    settled, so those slices stay in the fund for the remaining holders. A
+    claimant's slice is worth less than 0.0001 TAO, when that slice is at most
+    the 0.01 TAO forfeit cap); the whole entitlement is settled, so those
+    slices stay in the fund for the remaining holders. A
     claim that is admitted and then fails pays for the work it did, not the
     declared envelope.
 
@@ -434,9 +435,10 @@ class ClaimRootWithHotkey(_RootClaimIntent):
     compound. Since spec 468 a claim also leaves dust rows unsold: a holding
     worth less than ``min(1 TAO, 0.1% of the fund's anchored NAV)``, or one
     where this claimant's own slice is worth less than 0.0001 TAO, is neither
-    sold nor paid; the whole entitlement is still settled, so those slices
-    (each under the floor) stay in the fund for the remaining holders (event
-    ``BasketClaimDustSkipped``). The transaction fee is charged by work
+    sold nor paid — provided the slice is worth at most 0.01 TAO (the forfeit
+    cap; bigger slices of small rows are sold as before). The whole
+    entitlement is still settled, so those slices stay in the fund for the
+    remaining holders (event ``BasketClaimDustSkipped``). The transaction fee is charged by work
     actually done: holdings redeemed pay full weight, holdings merely scanned
     (including skipped dust rows) pay a small per-row cost, and a claim that
     is admitted and then fails pays for the work it did rather than the

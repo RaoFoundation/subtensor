@@ -862,10 +862,11 @@ mod events {
         /// A root claim skipped `rows` dust rows of the fund: rows whose whole holding was
         /// worth less than `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × anchored
         /// NAV)`, or whose slice for this claimant was worth less than
-        /// `BasketClaimSliceDustTao`, at the anchored (fast-EMA-capped) mark. Those rows were
-        /// neither sold nor paid. The claim burned the whole entitlement, so the claimant's
-        /// slices of those rows — about `forfeited_tao_est` at the pre-sale realizable quote,
-        /// each below the slice floor — stay in the fund for the remaining holders.
+        /// `BasketClaimSliceDustTao`, each worth at most `BasketClaimForfeitCapTao` for this
+        /// claimant, all at the anchored (fast-EMA-capped) mark. Those rows were neither sold
+        /// nor paid. The claim burned the whole entitlement, so the claimant's slices of those
+        /// rows — about `forfeited_tao_est` at the pre-sale realizable quote — stay in the fund
+        /// for the remaining holders.
         BasketClaimDustSkipped {
             /// Validator hotkey the basket belongs to.
             hotkey: T::AccountId,

@@ -4,8 +4,9 @@
 //! rows that cost a swap each for a rounding-sized amount: a row whose whole holding is
 //! worth less than `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × anchored NAV)`
 //! (1 TAO cap, 0.1% of NAV), or whose slice for this claimant is worth less than
-//! `BasketClaimSliceDustTao` (0.0001 TAO), both at the anchored mark, is left in the fund.
-//! The claim burns the whole entitlement, so the skipped slices — each below the floor —
+//! `BasketClaimSliceDustTao` (0.0001 TAO), both at the anchored mark, is left in the fund —
+//! provided the claimant's slice of it is at most `BasketClaimForfeitCapTao` (0.01 TAO).
+//! The claim burns the whole entitlement, so the skipped slices — each at most the cap —
 //! stay with the remaining holders. No price enters the share accounting: the mark only
 //! decides whether a slice is sold. Zero floors restore the pre-468 behaviour.
 
@@ -25,8 +26,9 @@ use crate::tests::claim_root::{
 use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
-    BasketClaimRowDustBps, BasketClaimRowDustCapTao, BasketClaimSliceDustTao, BasketRate,
-    BasketShares, DEFAULT_BASKET_CLAIM_ROW_DUST_BPS, DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO,
+    BasketClaimForfeitCapTao, BasketClaimRowDustBps, BasketClaimRowDustCapTao,
+    BasketClaimSliceDustTao, BasketRate, BasketShares, DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO,
+    DEFAULT_BASKET_CLAIM_ROW_DUST_BPS, DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO,
     DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO, Event, SubnetAlphaIn, SubnetFastMovingPrice,
     SubnetMovingPrice, SubnetTAO,
 };
@@ -73,6 +75,10 @@ fn setup_fund(rows: &[u64], stakes: &[u64]) -> Fund {
         DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO,
         DEFAULT_BASKET_CLAIM_ROW_DUST_BPS,
         DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO,
+    );
+    assert_eq!(
+        BasketClaimForfeitCapTao::<Test>::get(),
+        DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO
     );
     register_on_root(&hotkey, 0);
 
@@ -185,13 +191,16 @@ fn assert_close(a: u128, b: u128, rel_ppm: u128, what: &str) {
 }
 
 /// (1) A row whose whole holding is under the row floor — 1 TAO here, since 0.1% of this
-/// 1_025 TAO fund is more — is not sold: its alpha stays in the fund, every other row is
-/// redeemed pro-rata, the whole entitlement is burned and the event reports the slice left
-/// behind.
+/// 1_025 TAO fund is more — is skipped only when the claimant's slice of it is within the
+/// forfeit cap. Alice owns half the fund: her 0.25 TAO slice of the 0.5 TAO row is above
+/// the 0.01 TAO cap, so the row is sold like any other. Carol, with 1% of the fund, has a
+/// 0.005 TAO slice of the same row: skipped, and the whole entitlement is burned. With the
+/// cap at zero the row rule never skips.
 #[test]
-fn row_under_one_tao_is_skipped() {
+fn row_under_one_tao_is_skipped_only_within_the_forfeit_cap() {
     new_test_ext(1).execute_with(|| {
-        let fund = setup_fund(&[5 * TAO, TAO / 2, 1_020 * TAO], &[1_000, 1_000]);
+        // Alice 50%, Bob 49%, Carol 1%.
+        let fund = setup_fund(&[5 * TAO, TAO / 2, 1_020 * TAO], &[5_000, 4_900, 100]);
         assert_eq!(
             BasketClaimRowDustCapTao::<Test>::get(),
             DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO
@@ -201,66 +210,71 @@ fn row_under_one_tao_is_skipped() {
             DEFAULT_BASKET_CLAIM_ROW_DUST_BPS
         );
         assert_eq!(DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO, 100_000);
-        let anchored_nav: u64 = fund
-            .netuids
-            .iter()
-            .map(|n| {
-                let alpha = escrow_alpha(&fund.hotkey, *n);
-                SubtensorModule::anchored_basket_holding_value(
-                    *n,
-                    alpha,
-                    SubtensorModule::realizable_tao_for_alpha(*n, alpha),
-                )
-            })
-            .sum();
-        assert!(anchored_nav > 1_000 * TAO);
+        assert_eq!(DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO, 10_000_000);
         assert_eq!(
-            SubtensorModule::basket_claim_row_dust_floor(anchored_nav),
+            SubtensorModule::basket_claim_row_dust_floor(nav(&fund)),
             TAO,
             "0.1% of the NAV is above the 1 TAO cap, so the cap binds"
         );
-        let [big, dust, bigger] = [fund.netuids[0], fund.netuids[1], fund.netuids[2]];
-        let alice = fund.stakers[0];
-        let before = |n: NetUid| escrow_alpha(&fund.hotkey, n);
-        let (big_before, dust_before, bigger_before) = (before(big), before(dust), before(bigger));
-        let root_before = root_stake_of(&fund.hotkey, &alice);
-        let shares_before = fund_shares(&fund.hotkey);
+        let small_row = fund.netuids[1];
+        let (alice, carol) = (fund.stakers[0], fund.stakers[2]);
 
+        // (a) Alice's 0.25 TAO slice of the 0.5 TAO row exceeds the forfeit cap: sold.
+        let small_before = escrow_alpha(&fund.hotkey, small_row);
+        let alice_root_before = root_stake_of(&fund.hotkey, &alice);
         let post =
             SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(alice), fund.hotkey)
                 .expect("claim runs");
         assert_eq!(post.pays_fee, Pays::Yes);
-
-        assert_eq!(before(dust), dust_before, "the sub-1-TAO row is left whole");
         assert_eq!(
-            before(big),
-            big_before - big_before / 2,
-            "5 TAO row: half sold"
+            escrow_alpha(&fund.hotkey, small_row),
+            small_before - small_before / 2,
+            "a 0.25 TAO slice is never left behind, however small the row"
         );
-        assert_eq!(before(bigger), bigger_before - bigger_before / 2);
-        let paid = root_stake_of(&fund.hotkey, &alice) - root_before;
-        // Half of 1_025 TAO less the pool's slippage (about 0.5% on the big row); nothing
-        // from the skipped row.
-        assert!(
-            paid > 505 * TAO && paid < 512 * TAO + TAO / 2,
-            "paid {paid}"
-        );
-        assert_eq!(
-            fund_shares(&fund.hotkey),
-            shares_before - 1_000 * SHARE,
-            "the whole entitlement is burned"
-        );
+        assert!(dust_skipped_events().is_empty());
+        let paid = root_stake_of(&fund.hotkey, &alice) - alice_root_before;
+        assert!(paid > 505 * TAO && paid < 513 * TAO, "paid {paid}");
         assert_eq!(owed(&fund, &alice), 0);
+
+        // (b) Carol's slice of what is left of that row is ≈ 0.25 TAO × 1/50 = 0.005 TAO:
+        // under the cap and on a sub-1-TAO row, so it is skipped; her entitlement is burned.
+        System::reset_events();
+        let small_before = escrow_alpha(&fund.hotkey, small_row);
+        let shares_before = fund_shares(&fund.hotkey);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(carol),
+            fund.hotkey
+        ));
+        assert_eq!(
+            escrow_alpha(&fund.hotkey, small_row),
+            small_before,
+            "row left whole"
+        );
         let events = dust_skipped_events();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].coldkey, alice);
+        assert_eq!(events[0].coldkey, carol);
         assert_eq!(events[0].rows, 1);
-        // Alice's half of the 0.5 TAO row, at the pre-sale quote, stays in the fund.
         let est = events[0].forfeited_tao_est;
+        assert!(est > 4_900_000 && est <= 5_000_000, "forfeited est {est}");
+        assert_eq!(fund_shares(&fund.hotkey), shares_before - 100 * SHARE);
+        assert_eq!(owed(&fund, &carol), 0);
+
+        // (c) Cap at zero: the row rule never skips. Rebuild Carol's position and claim again.
+        BasketClaimForfeitCapTao::<Test>::put(0);
+        BasketShares::<Test>::mutate(fund.hotkey, |p| *p += 100 * SHARE);
+        crate::BasketClaimed::<Test>::mutate(fund.hotkey, carol, |c| *c -= i128::from(100 * SHARE));
+        assert_eq!(owed(&fund, &carol), 100 * SHARE);
+        System::reset_events();
+        let small_before = escrow_alpha(&fund.hotkey, small_row);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(carol),
+            fund.hotkey
+        ));
         assert!(
-            est > TAO / 4 - 2_000 && est <= TAO / 4,
-            "forfeited est {est}"
+            escrow_alpha(&fund.hotkey, small_row) < small_before,
+            "cap 0: the sub-1-TAO row is sold"
         );
+        assert!(dust_skipped_events().is_empty());
     });
 }
 

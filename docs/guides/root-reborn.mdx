@@ -74,10 +74,12 @@ staked back to root.
   spec 468 it leaves dust rows alone: a holding worth less than
   `min(1 TAO, 0.1% of the fund's NAV)`, or one where your own slice is worth
   less than 0.0001 TAO — both at the fast-anchored mark `swap-basket` already
-  prices against — is neither sold nor paid. The claim still settles your
-  whole entitlement, so those slices (each under 0.0001 TAO) stay in the fund
-  for the remaining holders; the `BasketClaimDustSkipped` event reports how
-  many rows and roughly how much. On finney's claim flow this removes about a
+  prices against — is neither sold nor paid, provided your slice of it is at
+  most 0.01 TAO (a bigger slice of a small row is sold as before). The claim
+  still settles your whole entitlement, so those slices — never more than
+  0.01 TAO each at the anchored mark — stay in the fund for the remaining
+  holders; the `BasketClaimDustSkipped` event reports how many rows and
+  roughly how much. On finney's claim flow this removes about a
   fifth of the swaps while a median claim leaves under 1% of its value
   behind. Governance can tune or zero the floors with
   `sudo_set_basket_claim_dust`.

@@ -582,14 +582,17 @@ impl<T: Config> Pallet<T> {
     /// Dust rows are not redeemed. A subnet row is skipped for this claim when the fund's
     /// whole holding on it is worth less than `min(`[`BasketClaimRowDustCapTao`]`,
     /// `[`BasketClaimRowDustBps`]` × anchored NAV)`, or the claimant's pro-rata slice of it
-    /// is worth less than [`BasketClaimSliceDustTao`], both at the anchored mark
-    /// ([`Self::anchored_basket_holding_value`]: the live quote capped at the fast-EMA
-    /// anchor `swap_basket` already uses). A skipped row is neither sold nor paid. The claim
-    /// still burns the whole entitlement, so the claimant's slice of a skipped row — worth
-    /// less than the slice floor by construction — stays in the fund for the remaining
-    /// holders (`BasketClaimDustSkipped` reports an estimate). No price enters the share
-    /// accounting: the mark only decides *whether* a slice is sold, never how many shares a
-    /// claim burns or what anyone else is owed, so there is nothing to pump.
+    /// is worth less than [`BasketClaimSliceDustTao`] — and, whichever rule matched, only if
+    /// that slice is worth at most [`BasketClaimForfeitCapTao`]. All three are read at the
+    /// anchored mark ([`Self::anchored_basket_holding_value`]: the live quote capped at the
+    /// fast-EMA anchor `swap_basket` already uses). A skipped row is neither sold nor paid.
+    /// The claim still burns the whole entitlement, so the claimant's slice of a skipped row
+    /// stays in the fund for the remaining holders (`BasketClaimDustSkipped` reports an
+    /// estimate). Hard guarantee: no single skipped slice exceeds the forfeit cap at the
+    /// anchored mark; its live value can exceed the anchor only by the anchor gap (a 2 h
+    /// EMA's lag). No price enters the share accounting: the mark only decides *whether* a
+    /// slice is sold, never how many shares a claim burns or what anyone else is owed, so
+    /// there is nothing to pump.
     /// The root cash slot (TAO 1:1, no swap) and terminal write-offs are never skipped, and
     /// a claimant redeeming the whole fund skips nothing — there is nobody left to hold the
     /// rest. Zero thresholds turn the skip off.
@@ -672,6 +675,7 @@ impl<T: Config> Pallet<T> {
         if owed_shares < shares_total {
             let row_dust = Self::basket_claim_row_dust_floor(anchored_nav);
             let slice_dust: u64 = BasketClaimSliceDustTao::<T>::get();
+            let forfeit_cap: u64 = BasketClaimForfeitCapTao::<T>::get();
             for row in valued_holdings.iter_mut() {
                 row.dust = !row.netuid.is_root()
                     && !row.terminal_garbage
@@ -681,6 +685,7 @@ impl<T: Config> Pallet<T> {
                         shares_total,
                         row_dust,
                         slice_dust,
+                        forfeit_cap,
                     );
             }
         }
@@ -964,7 +969,10 @@ impl<T: Config> Pallet<T> {
     /// Whether a claim of `owed_shares` out of `shares_total` leaves a row worth `anchored`
     /// (at [`Self::anchored_basket_holding_value`]) in the fund as dust: the whole row is
     /// worth less than `row_dust`, or the claimant's pro-rata slice of it is worth less than
-    /// `slice_dust`. Zero thresholds never match. Callers exclude the root cash slot and
+    /// `slice_dust` — **and** that slice is worth at most `forfeit_cap`, whichever rule
+    /// matched. The cap is the hard bound on what one skipped slice can leave in the fund:
+    /// a claimant with a large slice of a small row sells it as before. Zero thresholds never
+    /// match; a zero cap turns every skip off. Callers exclude the root cash slot and
     /// terminal write-offs.
     pub fn basket_row_is_claim_dust(
         anchored: u64,
@@ -972,11 +980,13 @@ impl<T: Config> Pallet<T> {
         shares_total: u64,
         row_dust: u64,
         slice_dust: u64,
+        forfeit_cap: u64,
     ) -> bool {
-        if row_dust > 0 && anchored < row_dust {
-            return true;
+        let slice = Self::basket_payout_from(owed_shares, anchored, shares_total);
+        if slice > forfeit_cap {
+            return false;
         }
-        slice_dust > 0 && Self::basket_payout_from(owed_shares, anchored, shares_total) < slice_dust
+        (row_dust > 0 && anchored < row_dust) || (slice_dust > 0 && slice < slice_dust)
     }
 
     /// Consolidates a fund's dust holdings into its root (TAO cash) slot: every subnet
