@@ -50,7 +50,7 @@ jobs:
             echo "rust=true" >> "$GITHUB_OUTPUT"
           }
 
-          if ! pages=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --slurp); then
+          if ! pages=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" --paginate --slurp); then
             echo "::warning::PR file listing failed; running eco-tests."
             select_rust
             exit 0

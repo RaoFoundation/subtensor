@@ -119,11 +119,8 @@ class DocsPreviewWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("docs_preview_bundle.py \\", self.request)
         self.assertIn("seal \\", self.request)
 
-    def test_trusted_extract_preserves_the_vercel_project_root_directory(self):
-        self.assertIn(
-            'output_root="${deploy_root}/website/apps/bittensor-website"',
-            self.deploy,
-        )
+    def test_trusted_extract_publishes_vercel_output_at_deploy_root(self):
+        self.assertIn('output_root="${deploy_root}"', self.deploy)
         self.assertIn('"${output_root}"', self.deploy)
         self.assertIn('echo "root=${deploy_root}"', self.deploy)
 

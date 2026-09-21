@@ -106,7 +106,7 @@ jobs:
             enable_all
             exit 0
           fi
-          if ! pages=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --slurp); then
+          if ! pages=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" --paginate --slurp); then
             echo "::warning::PR file listing failed; enabling every check."
             enable_all
             exit 0
@@ -215,7 +215,7 @@ jobs:
       (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
       !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
     # Turbo runners probe the host-local tier and fail open to direct R2.
-    runs-on: [self-hosted, fireactions-turbo-8]
+    runs-on: [self-hosted, fireactions-turbo-16]
     environment:
       name: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'sccache-reader' || 'sccache-writer' }}
       deployment: false

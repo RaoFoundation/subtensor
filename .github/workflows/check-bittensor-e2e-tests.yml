@@ -130,7 +130,7 @@ jobs:
             exit 0
           fi
 
-          if ! files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate); then
+          if ! files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" --paginate); then
             echo "changed-file lookup failed; running the full Rust SDK E2E suite" >&2
             select_full_suite
             exit 0

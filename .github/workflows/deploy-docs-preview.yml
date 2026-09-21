@@ -99,7 +99,7 @@ jobs:
         run: |
           set -euo pipefail
           deploy_root="${RUNNER_TEMP}/docs-preview-deploy"
-          output_root="${deploy_root}/website/apps/bittensor-website"
+          output_root="${deploy_root}"
           test ! -e "${deploy_root}"
           python3 trusted-source/.github/scripts/docs_preview_bundle.py \
             extract \
