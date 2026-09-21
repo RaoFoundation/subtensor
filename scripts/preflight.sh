@@ -15,7 +15,7 @@ set -euo pipefail
 
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
-export SKIP_WASM_BUILD=1
+export SKIP_WASM_BUILD=1 # as CI's lint/test jobs; the node and try-runtime wasm builds unset it
 FAST=false
 ALL=false
 for arg in "$@"; do
@@ -209,7 +209,7 @@ if [[ $rust == true ]]; then
     else
       skip "cargo test (changed crates)" "no workspace crate changed"
     fi
-    if changed '^(pallets|runtime)/' && [[ " ${crates[*]} " != *" node-subtensor-runtime "* ]]; then
+    if changed '^(pallets|runtime)/' && [[ " ${crates[*]:-} " != *" node-subtensor-runtime "* ]]; then
       step "runtime fee_baseline + claim_root_weight tests" \
         cargo test --all-features -p node-subtensor-runtime --test fee_baseline --test claim_root_weight
     fi
@@ -221,7 +221,7 @@ fi
 # SDK bindings drift: needs a node built from this tree. Trigger on a
 # spec_version change or any production Rust path that shapes metadata.
 metadata_surface_changed() {
-  git diff "$BASE" -- runtime/src/lib.rs | grep -qE '^[+-]\s*spec_version:' && return 0
+  git diff "$BASE" -- runtime/src/lib.rs | grep -qE '^[+-][[:space:]]*spec_version:' && return 0
   grep -E '^(pallets/[^/]+/src/|runtime/src/|common/src/|primitives/)' "$CHANGED" |
     grep -vqE '/(tests?|mock|benchmarking|benchmarks|weights)(/|\.rs$)'
 }
@@ -261,7 +261,7 @@ if [[ $sdk_drift == true ]] && { [[ $ALL == true ]] || metadata_surface_changed;
   if [[ $FAST == true ]]; then
     skip "SDK bindings drift (release node)" "--fast; run without --fast before pushing runtime changes"
   elif uv_ready; then
-    step "cargo build --release -p node-subtensor" cargo build --release -p node-subtensor
+    step "cargo build --release -p node-subtensor" env -u SKIP_WASM_BUILD cargo build --release -p node-subtensor
     step "SDK bindings drift (codegen.check --drift)" sdk_regen_check
     stop_node
   fi
@@ -298,7 +298,7 @@ try_runtime_check() {
   fetch_snapshot || return 1
   RUST_LOG=remote-ext=debug,runtime=debug try-runtime --runtime "$wasm" on-runtime-upgrade \
     --checks=all --blocktime 12000 --disable-spec-version-check --no-weight-warnings \
-    "${mbm[@]}" snap --path "$cache/mainnet.snap"
+    ${mbm[@]:+"${mbm[@]}"} snap --path "$cache/mainnet.snap"
 }
 if [[ $runtime == true ]] && { [[ $ALL == true ]] || migrations_changed; }; then
   if [[ $FAST == true ]]; then
