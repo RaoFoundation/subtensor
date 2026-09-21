@@ -724,6 +724,10 @@ mod pallet_benchmarks {
             alpha_amount.into()
         );
 
+        let mut expected_hotkeys =
+            pad_staking_hotkeys_for_benchmark::<T>(&coldkey, crate::MAX_STAKING_HOTKEYS);
+        expected_hotkeys.retain(|entry| entry != &hotkey);
+
         #[extrinsic_call]
         _(
             RawOrigin::Signed(coldkey.clone()),
@@ -731,6 +735,7 @@ mod pallet_benchmarks {
             alpha_amount,
             netuid,
         );
+        assert_eq!(StakingHotkeys::<T>::get(&coldkey), expected_hotkeys);
     }
 
     #[benchmark]
@@ -766,6 +771,10 @@ mod pallet_benchmarks {
             alpha_amount.into()
         );
 
+        let mut expected_hotkeys =
+            pad_staking_hotkeys_for_benchmark::<T>(&coldkey, crate::MAX_STAKING_HOTKEYS);
+        expected_hotkeys.retain(|entry| entry != &hotkey);
+
         #[extrinsic_call]
         _(
             RawOrigin::Signed(coldkey.clone()),
@@ -773,6 +782,45 @@ mod pallet_benchmarks {
             alpha_amount.into(),
             netuid,
         );
+        assert_eq!(StakingHotkeys::<T>::get(&coldkey), expected_hotkeys);
+    }
+
+    /// Measure the bounded vector rewrite independently of a stake exit. Keep
+    /// this in normal generation so future runs retain its WeightInfo method.
+    #[benchmark]
+    fn staking_hotkeys_prune_empty(h: Linear<1, { crate::MAX_STAKING_HOTKEYS }>) {
+        let coldkey: T::AccountId = account("cleanup_cold", 0, 0);
+        let hotkey: T::AccountId = account("cleanup_hot", 0, 0);
+        StakingHotkeys::<T>::insert(&coldkey, vec![hotkey.clone()]);
+        let mut expected_hotkeys = pad_staking_hotkeys_for_benchmark::<T>(&coldkey, h);
+        expected_hotkeys.retain(|entry| entry != &hotkey);
+
+        #[block]
+        {
+            Subtensor::<T>::maybe_remove_staking_hotkey_bounded(&hotkey, &coldkey);
+        }
+
+        assert_eq!(StakingHotkeys::<T>::get(&coldkey), expected_hotkeys);
+        assert_eq!(StakingHotkeys::<T>::contains_key(&coldkey), h > 1);
+    }
+
+    /// A zero-stake basket claimant must retain its association. This reaches
+    /// both empty share-prefix probes and the final watermark keep condition.
+    #[benchmark]
+    fn staking_hotkeys_prune_claimant(h: Linear<1, { crate::MAX_STAKING_HOTKEYS }>) {
+        let coldkey: T::AccountId = account("cleanup_cold", 0, 0);
+        let hotkey: T::AccountId = account("cleanup_hot", 0, 0);
+        StakingHotkeys::<T>::insert(&coldkey, vec![hotkey.clone()]);
+        BasketClaimed::<T>::insert(&hotkey, &coldkey, -1_i128);
+        let expected_hotkeys = pad_staking_hotkeys_for_benchmark::<T>(&coldkey, h);
+
+        #[block]
+        {
+            Subtensor::<T>::maybe_remove_staking_hotkey_bounded(&hotkey, &coldkey);
+        }
+
+        assert_eq!(StakingHotkeys::<T>::get(&coldkey), expected_hotkeys);
+        assert_eq!(BasketClaimed::<T>::get(&hotkey, &coldkey), -1);
     }
 
     #[benchmark]
@@ -2123,6 +2171,59 @@ mod pallet_benchmarks {
         let last_hotkey: T::AccountId = account("claim_hot", h.saturating_sub(1), 1);
         assert_eq!(BasketShares::<T>::get(first_hotkey), 0);
         assert_eq!(BasketShares::<T>::get(last_hotkey), 0);
+    }
+
+    /// Ordinary redemption adds root stake and retains the claimant. A wholly
+    /// terminal holding instead settles the watermark without adding stake,
+    /// exercising the association-removal branch at the maximum vector length.
+    #[benchmark(extra)]
+    fn claim_root_terminal_cleanup() {
+        let coldkey: T::AccountId = account("terminal_claim_cold", 0, 0);
+        let owner: T::AccountId = account("terminal_claim_owner", 0, 0);
+        let hotkey: T::AccountId = account("terminal_claim_hot", 0, 0);
+        let netuid = NetUid::from(1);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        SubtokenEnabled::<T>::insert(netuid, true);
+        SubnetMechanism::<T>::insert(netuid, 1);
+        // With no output reserve this holding cannot be sold at any size.
+        set_reserves::<T>(netuid, TaoBalance::ZERO, AlphaBalance::from(1_000_000_u64));
+        Subtensor::<T>::set_tao_weight(u64::MAX);
+        RootClaimableThreshold::<T>::insert(NetUid::ROOT, I96F32::from_num(0));
+        Owner::<T>::insert(&hotkey, &owner);
+        Uids::<T>::insert(NetUid::ROOT, &hotkey, 0_u16);
+
+        let escrow = Subtensor::<T>::get_beta_escrow_account_id();
+        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid,
+            AlphaBalance::from(1_000_u64),
+        );
+        BasketShares::<T>::insert(&hotkey, 100_u64);
+        BasketClaimed::<T>::insert(&hotkey, &coldkey, -100_i128);
+        StakingHotkeys::<T>::insert(&coldkey, vec![hotkey.clone()]);
+        let mut expected_hotkeys =
+            pad_staking_hotkeys_for_benchmark::<T>(&coldkey, crate::MAX_STAKING_HOTKEYS);
+        expected_hotkeys.retain(|entry| entry != &hotkey);
+
+        #[extrinsic_call]
+        claim_root_with_hotkey(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
+
+        assert_eq!(BasketShares::<T>::get(&hotkey), 0);
+        assert_eq!(BasketClaimed::<T>::get(&hotkey, &coldkey), 0);
+        assert!(
+            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+            )
+            .is_zero()
+        );
+        assert!(
+            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid,)
+                .is_zero()
+        );
+        assert_eq!(StakingHotkeys::<T>::get(&coldkey), expected_hotkeys);
     }
 
     #[benchmark]

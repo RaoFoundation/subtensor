@@ -15,6 +15,7 @@
 use super::*;
 use crate::weights::WeightInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
+use frame_support::traits::Get;
 use frame_support::weights::Weight;
 use pallet_alpha_assets::AlphaAssetsInterface;
 use sp_runtime::DispatchError;
@@ -116,6 +117,64 @@ impl<T: Config> Pallet<T> {
     /// Flat pre-dispatch flush allowance: [`Self::basket_flush_work_bound`] priced as weight.
     pub fn basket_flush_weight_bound() -> Weight {
         Self::basket_flush_weight(Self::basket_flush_work_bound())
+    }
+
+    /// One hotkey, using the per-hotkey bound proved above (6Q quotes, Q rows).
+    /// Staking helpers do not return flush counters, including on failure, so
+    /// their dispatches retain this allowance in both outcomes. Do not refund
+    /// it merely because the enclosing storage transaction was rolled back.
+    pub fn staking_basket_flush_weight_bound() -> Weight {
+        Self::basket_flush_weight(BasketFlushWork::new(
+            MAX_BASKET_ROWS.saturating_mul(6),
+            MAX_BASKET_ROWS,
+        ))
+        .saturating_add(T::DbWeight::get().reads(4 * (MAX_BASKET_ROWS + 2)))
+    }
+
+    /// Enforce the row axes before an eager staking flush. Use lazy raw-key
+    /// iterators: `alpha_iter_prefix` eagerly folds an unbounded share prefix.
+    /// Counting legacy/current duplicates separately is deliberately conservative.
+    /// Empty queues do not value holdings and need no holdings admission check.
+    pub(crate) fn ensure_staking_basket_flush_bounded(hotkey: &T::AccountId) -> DispatchResult {
+        let limit = MAX_BASKET_ROWS as usize;
+        let queued = PendingBasketDeposits::<T>::iter_key_prefix(hotkey)
+            .take(limit + 1)
+            .count();
+        ensure!(queued <= limit, Error::<T>::RootClaimTooHeavy);
+        if queued != 0 {
+            let escrow = Self::get_beta_escrow_account_id();
+            let rows = Alpha::<T>::iter_key_prefix((hotkey, &escrow))
+                .chain(AlphaV2::<T>::iter_key_prefix((hotkey, &escrow)))
+                .take(limit + 1)
+                .count();
+            ensure!(rows <= limit, Error::<T>::RootClaimTooHeavy);
+        }
+        Ok(())
+    }
+
+    /// A root removal can flush once for the requested debit and once more
+    /// while clearing a remaining small nomination.
+    pub fn remove_stake_basket_flush_weight(netuid: NetUid) -> Weight {
+        if netuid.is_root() {
+            Self::staking_basket_flush_weight_bound().saturating_mul(2)
+        } else {
+            Weight::zero()
+        }
+    }
+
+    /// Cross-subnet transitions touch root at most once. Within root, each
+    /// distinct hotkey is flushed once before its claimant base changes.
+    pub fn transition_stake_basket_flush_weight(
+        origin_netuid: NetUid,
+        destination_netuid: NetUid,
+        same_hotkey: bool,
+    ) -> Weight {
+        let flushes = match (origin_netuid.is_root(), destination_netuid.is_root()) {
+            (false, false) => 0,
+            (true, true) if !same_hotkey => 2,
+            _ => 1,
+        };
+        Self::staking_basket_flush_weight_bound().saturating_mul(flushes)
     }
 
     /// True when flushing every one of `hotkeys` fits the flush axis of the declared

@@ -689,6 +689,11 @@ impl<T: Config> Pallet<T> {
     /// unstaked root claimant can have a negative watermark representing basket shares that
     /// still need to be claimed or moved during a coldkey swap.
     pub(crate) fn maybe_remove_staking_hotkey(hotkey: &T::AccountId, coldkey: &T::AccountId) {
+        // The seed migration resumes by vector index. Removing an earlier entry
+        // would shift an unvisited claimant behind that cursor.
+        if crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
+            return;
+        }
         let has_stake = Self::alpha_iter_prefix((hotkey, coldkey)).next().is_some();
         if has_stake || BasketClaimed::<T>::get(hotkey, coldkey) != 0 {
             return;
@@ -707,13 +712,20 @@ impl<T: Config> Pallet<T> {
     /// Bounded variant of [`Self::maybe_remove_staking_hotkey`] for weight-metered
     /// paths that cannot rely on benchmarked reads (subnet dissolution): probes
     /// one row per share map instead of [`Self::alpha_iter_prefix`]'s eager
-    /// full-prefix fold, so its cost is fixed regardless of how many subnets the
-    /// pair still holds rows on. Zero-valued or retired rows read as "present",
-    /// which errs toward retention (the safe direction).
+    /// full-prefix fold. Legacy or account-association vectors can exceed the
+    /// staking admission cap: leave those untouched instead of decoding and
+    /// rewriting an unbounded vector under a fixed reservation. Zero-valued or
+    /// retired rows read as "present", which errs toward retention.
     pub(crate) fn maybe_remove_staking_hotkey_bounded(
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
     ) {
+        if crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>()
+            || StakingHotkeys::<T>::decode_len(coldkey).unwrap_or(0)
+                > crate::MAX_STAKING_HOTKEYS as usize
+        {
+            return;
+        }
         let has_stake = Alpha::<T>::iter_prefix((hotkey, coldkey)).next().is_some()
             || AlphaV2::<T>::iter_prefix((hotkey, coldkey))
                 .next()
@@ -931,9 +943,12 @@ impl<T: Config> Pallet<T> {
     /// We update the pools associated with a subnet as well as update hotkey alpha shares.
     /// Credits the unstaked TAO to the beneficiary account.
     ///
-    /// When `enforce_root_hold` is true and `netuid` is root, rejects if the position is
-    /// still inside `RootStakeUnlockInterval`. Protocol-internal callers (dust cleanup,
-    /// fee withdrawal) pass `false`.
+    /// Public root exits (`enforce_root_hold`) check both the unlock hold and
+    /// basket admission. Protocol callers (dust cleanup, fee withdrawal) pass
+    /// `false` and retain their existing accounting contract. In particular,
+    /// same-call dust cleanup uses the public exit's earlier basket bound:
+    /// no new credits arrive, and each new holding consumes a queued row, so
+    /// H + Q <= 2M and Q <= M still bound a second flush by 2H + 4Q <= 6M.
     pub fn unstake_from_subnet(
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
@@ -951,6 +966,7 @@ impl<T: Config> Pallet<T> {
         if netuid.is_root() {
             if enforce_root_hold {
                 Self::ensure_root_stake_unlocked(coldkey, hotkey)?;
+                Self::ensure_staking_basket_flush_bounded(hotkey)?;
             }
             Self::flush_basket_deposits_for_hotkey(hotkey);
         }
@@ -1311,10 +1327,10 @@ impl<T: Config> Pallet<T> {
     /// a failing call may already have pruned entries mid-execution (for example
     /// a cross-subnet move fully unstakes the source hotkey before the
     /// destination leg fails), and the refund must cover the walk that actually
-    /// ran over the pre-execution list. `walk <= walk_bound` (the list is capped
-    /// by `ensure_staking_hotkeys_can_grow`), so the post-info can never exceed
-    /// the declared weight. Failures that surface before the walk runs are
-    /// over-charged by the unperformed walk, which is conservative.
+    /// ran over the pre-execution list. `base` also retains any untracked basket
+    /// flush allowance. For lists within `MAX_STAKING_HOTKEYS`, the post-info
+    /// stays within the declared envelope. Failures before the walk or flush
+    /// are conservatively charged the corresponding allowance.
     pub(crate) fn staking_hotkeys_failure_post_info(
         base: Weight,
         walk: Weight,

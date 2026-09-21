@@ -179,7 +179,11 @@ impl<T: Config> Pallet<T> {
                     Self::bill_full_enumeration(&mut work);
                     return Err((work, error));
                 }
-                Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
+                // Root was removed in full at its 1:1 price. Avoid a redundant
+                // second flush: the bulk envelope reserves one root flush.
+                if !netuid.is_root() {
+                    Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
+                }
             }
         }
 
@@ -257,18 +261,20 @@ impl<T: Config> Pallet<T> {
     /// (`scanned = TotalNetworks`). Refunded to the actual work post-dispatch.
     pub fn unstake_all_declared_weight() -> Weight {
         Self::unstake_all_weight(
-            <T as crate::pallet::Config>::WeightInfo::unstake_all(),
+            <T as crate::pallet::Config>::WeightInfo::unstake_all()
+                .saturating_add(Self::staking_basket_flush_weight_bound()),
             Self::unstake_all_worst_case_work(),
             Self::staking_hotkeys_walk_bound(),
         )
     }
 
     /// Post-dispatch weight of `unstake_all` for the work it really did.
-    pub fn unstake_all_actual_weight(coldkey: &T::AccountId, work: UnstakeAllWork) -> Weight {
+    pub fn unstake_all_actual_weight(walk: Weight, work: UnstakeAllWork) -> Weight {
         Self::unstake_all_weight(
-            <T as crate::pallet::Config>::WeightInfo::unstake_all(),
+            <T as crate::pallet::Config>::WeightInfo::unstake_all()
+                .saturating_add(Self::staking_basket_flush_weight_bound()),
             work,
-            Self::staking_hotkeys_walk_actual(coldkey),
+            walk,
         )
     }
 
@@ -276,18 +282,20 @@ impl<T: Config> Pallet<T> {
     /// includes the final root restake) plus one `remove_stake` per envelope slot.
     pub fn unstake_all_alpha_declared_weight() -> Weight {
         Self::unstake_all_weight(
-            <T as crate::pallet::Config>::WeightInfo::unstake_all_alpha(),
+            <T as crate::pallet::Config>::WeightInfo::unstake_all_alpha()
+                .saturating_add(Self::staking_basket_flush_weight_bound()),
             Self::unstake_all_worst_case_work(),
             Self::staking_hotkeys_walk_bound(),
         )
     }
 
     /// Post-dispatch weight of `unstake_all_alpha` for the work it really did.
-    pub fn unstake_all_alpha_actual_weight(coldkey: &T::AccountId, work: UnstakeAllWork) -> Weight {
+    pub fn unstake_all_alpha_actual_weight(walk: Weight, work: UnstakeAllWork) -> Weight {
         Self::unstake_all_weight(
-            <T as crate::pallet::Config>::WeightInfo::unstake_all_alpha(),
+            <T as crate::pallet::Config>::WeightInfo::unstake_all_alpha()
+                .saturating_add(Self::staking_basket_flush_weight_bound()),
             work,
-            Self::staking_hotkeys_walk_actual(coldkey),
+            walk,
         )
     }
 
@@ -380,7 +388,19 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        // Nothing can be restaked. Fail before touching another claimant's
+        // pending basket deposits; a zero-input root stake would flush them
+        // before returning the same error.
+        if total_tao_unstaked.is_zero() {
+            Self::bill_full_enumeration(&mut work);
+            return Err((work, Error::<T>::AmountTooLow.into()));
+        }
+
         // Stake into root.
+        if let Err(error) = Self::ensure_staking_basket_flush_bounded(&hotkey) {
+            Self::bill_full_enumeration(&mut work);
+            return Err((work, error));
+        }
         if let Err(error) = Self::stake_into_subnet(
             &hotkey,
             &coldkey,
@@ -1042,10 +1062,11 @@ impl<T: Config> Pallet<T> {
             }
 
             // The ghost prune is the bounded variant: two prefix probes, one
-            // watermark read, one vector write, reserved per coldkey so the
-            // meter never under-charges it. Skipped when the meter cannot fit
-            // it; a leftover entry is inert (the walk just visits it).
-            let prune = T::DbWeight::get().reads_writes(6, 1);
+            // watermark read, migration/length guards, and one bounded vector
+            // rewrite. Reserve storage work per coldkey; reference benchmarks
+            // must also cover the maximum admitted vector length.
+            // Skipped when the meter cannot fit it; a leftover entry is inert.
+            let prune = T::DbWeight::get().reads_writes(8, 1);
             let prune_reserved = removals_reserved
                 && weight_meter.can_consume(prune.saturating_mul(coldkeys.len() as u64));
             if prune_reserved {

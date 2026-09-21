@@ -1,6 +1,29 @@
 use super::*;
 use crate::subnets::leasing::LeaseId;
 
+/// Pad an existing relationship list so cleanup includes the admitted vector size.
+/// The padding relationships have no stake and must survive a targeted prune.
+pub(super) fn pad_staking_hotkeys_for_benchmark<T: Config>(
+    coldkey: &T::AccountId,
+    entries: u32,
+) -> Vec<T::AccountId> {
+    let mut hotkeys = StakingHotkeys::<T>::get(coldkey);
+    assert!(hotkeys.len() <= entries as usize);
+    assert!(entries <= crate::MAX_STAKING_HOTKEYS);
+    for i in 0..entries {
+        if hotkeys.len() == entries as usize {
+            break;
+        }
+        let hotkey: T::AccountId = account("cleanup_padding", i, 0);
+        if !hotkeys.contains(&hotkey) {
+            hotkeys.push(hotkey);
+        }
+    }
+    assert_eq!(hotkeys.len(), entries as usize);
+    StakingHotkeys::<T>::insert(coldkey, &hotkeys);
+    hotkeys
+}
+
 /// Exercise both beneficiary/proxy replacement and a destination share merge.
 pub(super) fn seed_coldkey_lease<T: Config>(
     netuid: NetUid,

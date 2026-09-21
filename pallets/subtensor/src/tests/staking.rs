@@ -5482,7 +5482,9 @@ fn test_unstake_all_weight_covers_every_subnet() {
             "actual {actual:?} must not exceed declared {declared:?}"
         );
         // Subnets without a position are charged their quote reads, not a full leg.
-        let one_more_leg = legs_run.saturating_add(remove_stake_unit);
+        let one_more_leg = legs_run
+            .saturating_add(remove_stake_unit)
+            .saturating_add(SubtensorModule::staking_basket_flush_weight_bound());
         assert!(
             !actual.all_gte(one_more_leg),
             "actual {actual:?} must not charge a full leg for a subnet without stake"

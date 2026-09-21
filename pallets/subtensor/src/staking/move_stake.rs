@@ -515,6 +515,9 @@ impl<T: Config> Pallet<T> {
                 DefaultMinStake::<T>::get()
             };
             if tao_unstaked >= restake_min {
+                if destination_netuid.is_root() {
+                    Self::ensure_staking_basket_flush_bounded(destination_hotkey)?;
+                }
                 // If the coldkey is not the owner, make the hotkey a delegate.
                 if Self::get_owning_coldkey_for_hotkey(destination_hotkey) != *destination_coldkey {
                     Self::maybe_become_delegate(destination_hotkey);
@@ -532,6 +535,12 @@ impl<T: Config> Pallet<T> {
 
             Ok(tao_unstaked)
         } else {
+            if origin_netuid.is_root() {
+                Self::ensure_staking_basket_flush_bounded(origin_hotkey)?;
+                if destination_hotkey != origin_hotkey {
+                    Self::ensure_staking_basket_flush_bounded(destination_hotkey)?;
+                }
+            }
             Self::transfer_stake_within_subnet(
                 origin_coldkey,
                 origin_hotkey,

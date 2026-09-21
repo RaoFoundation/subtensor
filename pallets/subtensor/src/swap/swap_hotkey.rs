@@ -896,6 +896,7 @@ impl<T: Config> Pallet<T> {
                 // remain, or the single-subnet swap leaves a ghost that every later
                 // unstake-side call walks.
                 Self::maybe_remove_staking_hotkey_bounded(old_hotkey, coldkey);
+                weight.saturating_accrue(T::DbWeight::get().reads_writes(8, 1));
                 Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
                     new_hotkey,
                     coldkey,

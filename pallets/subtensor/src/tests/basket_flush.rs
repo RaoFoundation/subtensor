@@ -62,6 +62,213 @@ fn setup_root_validator(hotkey: U256, coldkey: U256, uid: u16) -> NetUid {
     netuid
 }
 
+#[test]
+fn test_pr3190_empty_alpha_unstake_does_not_flush_another_claimants_queue() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+        let hotkey = U256::from(70_001);
+        let coldkey = U256::from(70_002);
+        let stranger = U256::from(70_003);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey, &hotkey
+        ));
+        let netuid = setup_root_validator(hotkey, coldkey, 1);
+        queue_credit(&hotkey, netuid, 1_000_000);
+        add_balance_to_coldkey_account(&stranger, 1_000_000_000u64.into());
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+
+        for _ in 0..2 {
+            reset_basket_op_counters();
+            let err = SubtensorModule::unstake_all_alpha(RuntimeOrigin::signed(stranger), hotkey)
+                .unwrap_err();
+            assert_eq!(err.error, crate::Error::<Test>::AmountTooLow.into());
+            assert_eq!(
+                (basket_quote_ops(), basket_write_ops(), basket_swap_ops()),
+                (0, 0, 0)
+            );
+            assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+        }
+    });
+}
+
+#[test]
+fn test_pr3190_root_unstake_error_retains_executed_flush_weight() {
+    use crate::weights::WeightInfo;
+    use frame_support::{dispatch::GetDispatchInfo, traits::Currency};
+
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        crate::SubtokenEnabled::<Test>::insert(NetUid::ROOT, true);
+        zero_claim_threshold();
+        let hotkey = U256::from(70_001);
+        let coldkey = U256::from(70_002);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey, &hotkey
+        ));
+        let netuid = setup_root_validator(hotkey, coldkey, 1);
+        queue_credit(&hotkey, netuid, 1_000_000);
+        // Validation quotes root at 1:1; the later payout fails after the flush.
+        let root_account = SubtensorModule::get_subnet_account_id(NetUid::ROOT).unwrap();
+        Balances::make_free_balance_be(&root_account, TaoBalance::ZERO);
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        let walk = SubtensorModule::staking_hotkeys_walk_actual(&coldkey);
+        let allowance = SubtensorModule::remove_stake_basket_flush_weight(NetUid::ROOT);
+        let declared = RuntimeCall::SubtensorModule(crate::Call::remove_stake {
+            hotkey,
+            netuid: NetUid::ROOT,
+            amount_unstaked: 2_000_000u64.into(),
+        })
+        .get_dispatch_info()
+        .call_weight;
+        for _ in 0..2 {
+            reset_basket_op_counters();
+            let err = SubtensorModule::remove_stake(
+                RuntimeOrigin::signed(coldkey),
+                hotkey,
+                NetUid::ROOT,
+                2_000_000u64.into(),
+            )
+            .unwrap_err();
+            assert!(
+                basket_quote_ops() > 0,
+                "the failure must occur after the flush: {err:?}"
+            );
+            assert!(basket_write_ops() > 0);
+            let actual = err.post_info.actual_weight.unwrap();
+            assert_eq!(
+                actual,
+                <Test as crate::Config>::WeightInfo::remove_stake()
+                    .saturating_add(walk)
+                    .saturating_add(allowance)
+            );
+            assert!(declared.all_gte(actual));
+            assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+        }
+    });
+}
+
+#[test]
+fn test_pr3190_eager_flush_rejects_oversized_queue_or_holdings_before_work() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(70_001);
+        let coldkey = U256::from(70_002);
+        for n in 0..=MAX_BASKET_ROWS {
+            PendingBasketDeposits::<Test>::insert(
+                hotkey,
+                NetUid::from(n as u16),
+                AlphaBalance::from(1),
+            );
+        }
+        reset_basket_op_counters();
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert_eq!(
+            SubtensorModule::unstake_from_subnet(
+                &hotkey,
+                &coldkey,
+                &coldkey,
+                NetUid::ROOT,
+                AlphaBalance::from(1),
+                TaoBalance::ZERO,
+                false,
+                true
+            ),
+            Err(crate::Error::<Test>::RootClaimTooHeavy.into())
+        );
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+        assert_eq!(basket_quote_ops(), 0);
+        for n in 1..=MAX_BASKET_ROWS {
+            PendingBasketDeposits::<Test>::remove(hotkey, NetUid::from(n as u16));
+        }
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        for n in 0..=MAX_BASKET_ROWS {
+            AlphaV2::<Test>::insert(
+                (hotkey, escrow, NetUid::from(n as u16)),
+                share_pool::SafeFloat::from(1u64),
+            );
+        }
+        assert_eq!(
+            SubtensorModule::ensure_staking_basket_flush_bounded(&hotkey),
+            Err(crate::Error::<Test>::RootClaimTooHeavy.into())
+        );
+        // With no queue, oversized holdings incur no valuation work.
+        PendingBasketDeposits::<Test>::remove(hotkey, NetUid::ROOT);
+        assert_ok!(SubtensorModule::ensure_staking_basket_flush_bounded(
+            &hotkey
+        ));
+    });
+}
+
+#[test]
+fn test_pr3190_dust_exit_reuses_admission_after_flush_expands_holdings() {
+    use frame_support::traits::Currency;
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(70_001);
+        let coldkey = U256::from(70_002);
+        let owner = U256::from(70_004);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &owner, &hotkey
+        ));
+        let deposited = setup_root_validator(hotkey, coldkey, 1);
+        let deferred = add_dynamic_network(&U256::from(72_000), &U256::from(71_000));
+        fund_pool(deferred);
+        SubtensorModule::set_tao_weight(u64::MAX);
+        crate::SubtokenEnabled::<Test>::insert(NetUid::ROOT, true);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+        SubtensorModule::set_nominator_min_required_stake(3_000_000);
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(1_000));
+        let root_account = SubtensorModule::get_subnet_account_id(NetUid::ROOT).unwrap();
+        Balances::make_free_balance_be(&root_account, TaoBalance::from(100_000_000));
+
+        // Retired/zero rows are deliberately counted by bounded admission.
+        // The first flush creates the 257th raw holding while a dust credit
+        // remains queued. Rechecking H <= 256 on the cleanup leg would fail
+        // and enter its destructive fallback instead of paying out the rest.
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        for n in 0..MAX_BASKET_ROWS {
+            AlphaV2::<Test>::insert(
+                (hotkey, escrow, NetUid::from(1000 + n as u16)),
+                share_pool::SafeFloat::from(0u64),
+            );
+        }
+        queue_credit(&hotkey, deposited, 1_000_000);
+        queue_credit(&hotkey, deferred, 1);
+        let balance = Balances::free_balance(coldkey);
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            NetUid::ROOT,
+            AlphaBalance::from(2_000_000)
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT
+            ),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(
+            Balances::free_balance(coldkey).saturating_sub(balance),
+            TaoBalance::from(4_000_000)
+        );
+        assert_eq!(pending_credit(&hotkey, deferred), 1);
+        assert_eq!(
+            AlphaV2::<Test>::iter_key_prefix((hotkey, escrow)).count(),
+            MAX_BASKET_ROWS as usize + 1
+        );
+        assert!(
+            crate::BasketClaimed::<Test>::get(hotkey, coldkey) < 0,
+            "the residual exit must rebase accrued basket shares"
+        );
+    });
+}
+
 /// The per-block drain flushes exactly one hotkey and advances the cursor past it.
 #[test]
 fn test_flush_drain_one_hotkey_per_block_advances_cursor() {
