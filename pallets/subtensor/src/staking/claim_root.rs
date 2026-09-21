@@ -640,8 +640,12 @@ impl<T: Config> Pallet<T> {
         // cleanup sticks regardless of how the claim itself resolves.
         outcome.swept = Self::consolidate_dust_basket_holdings(hotkey);
 
-        let valued_holdings = Self::plan_basket_claim(hotkey, owed_shares, shares_total)?;
-        outcome.rows = valued_holdings.len() as u32;
+        // Count the rows before valuing them: a valuation that fails mid-way (an unknown
+        // swap error on one pool) still scanned every row up to it, and the refund on that
+        // failure must charge the scan, not report zero rows.
+        let holdings = Self::get_basket_holdings(hotkey);
+        outcome.rows = holdings.len() as u32;
+        let valued_holdings = Self::plan_basket_claim_rows(holdings, owed_shares, shares_total)?;
 
         let has_terminal_garbage = valued_holdings.iter().any(|row| row.terminal_garbage);
         let dust_rows: u32 = valued_holdings.iter().filter(|row| row.dust).count() as u32;
@@ -908,9 +912,18 @@ impl<T: Config> Pallet<T> {
         owed_shares: u64,
         shares_total: u64,
     ) -> Result<Vec<ValuedHolding>, DispatchError> {
+        Self::plan_basket_claim_rows(Self::get_basket_holdings(hotkey), owed_shares, shares_total)
+    }
+
+    /// [`Self::plan_basket_claim`] over an already-read set of holdings.
+    fn plan_basket_claim_rows(
+        holdings: Vec<(NetUid, AlphaBalance)>,
+        owed_shares: u64,
+        shares_total: u64,
+    ) -> Result<Vec<ValuedHolding>, DispatchError> {
         let mut valued_holdings: Vec<ValuedHolding> = Vec::new();
         let mut anchored_nav: u64 = 0;
-        for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
+        for (netuid, alpha) in holdings {
             let (value, terminal_garbage) =
                 match Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())? {
                     Some(value) => (value, false),

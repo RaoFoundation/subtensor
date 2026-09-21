@@ -1087,3 +1087,50 @@ fn claim_preview_flushes_and_consolidates_like_the_claim() {
         assert!(dust_skipped_events().is_empty());
     });
 }
+
+/// A valuation that fails mid-plan (one row on a pool priced below the swap's minimum, an
+/// unknown swap error) aborts the admitted claim; the refund must still charge the rows
+/// scanned up to and including that one, plus the admission scan (skeptic `c8404e68`).
+#[test]
+fn failed_valuation_refund_charges_the_rows_it_scanned() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund(&[20 * TAO, 5 * TAO, 5 * TAO, 5 * TAO], &[1, 9]);
+        let claimant = fund.stakers[0];
+        // Make the last row's pool quote below the swap's minimum price (1_000 rao TAO
+        // reserve against a 1_000 TAO alpha reserve): the sell simulation fails with
+        // `PriceLimitExceeded`, which the valuation does not classify as terminal.
+        let broken = fund.netuids[3];
+        SubnetTAO::<Test>::insert(broken, TaoBalance::from(1_000u64));
+        SubnetAlphaIn::<Test>::insert(broken, AlphaBalance::from(1_000 * TAO));
+        assert!(SubtensorModule::try_realizable_tao_for_alpha(broken, 5 * TAO).is_err());
+
+        let err =
+            SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(claimant), fund.hotkey)
+                .expect_err("the valuation error aborts the claim");
+        let charged = err
+            .post_info
+            .actual_weight
+            .expect("admitted failures report actual weight");
+        let scanned_all = crate::staking::RootClaimOutcome {
+            tao: 0,
+            rows: 4,
+            realized: 0,
+            swept: 0,
+            flush: Default::default(),
+        };
+        let floor = SubtensorModule::root_claim_admission_weight(crate::MAX_ROOT_CLAIM_HOTKEY_WORK)
+            .saturating_add(SubtensorModule::root_claim_actual_weight(
+                1,
+                0,
+                &scanned_all,
+            ));
+        assert!(
+            charged.all_gte(floor),
+            "refund {charged:?} must charge admission + 4 row scans {floor:?}"
+        );
+        assert!(charged.all_lt(SubtensorModule::root_claim_hotkey_declared_weight()));
+        // Nothing moved.
+        assert_eq!(owed(&fund, &claimant), SHARE);
+        assert_eq!(escrow_alpha(&fund.hotkey, fund.netuids[0]), 20 * TAO);
+    });
+}
