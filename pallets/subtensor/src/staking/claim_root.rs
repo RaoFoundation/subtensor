@@ -99,24 +99,22 @@ impl<T: Config> Pallet<T> {
     /// back to u64 (a u64*u64 product can exceed U96F32's 96 integer bits at chain-scale
     /// magnitudes, which would silently saturate fixed-point math). Returns 0 when `denom`
     /// is zero.
-    /// `ceil(a × b / denom)` in u128, saturating; zero when `denom` is zero.
-    pub(crate) fn mul_div_u64_ceil(a: u64, b: u64, denom: u64) -> u64 {
-        if denom == 0 {
-            return 0;
-        }
-        let num = u128::from(a).saturating_mul(u128::from(b));
-        let denom = u128::from(denom);
-        u64::try_from(
-            num.saturating_add(denom.saturating_sub(1))
-                .saturating_div(denom),
-        )
-        .unwrap_or(u64::MAX)
-    }
-
     pub(crate) fn mul_div_u64(a: u64, b: u64, denom: u64) -> u64 {
         u128::from(a)
             .saturating_mul(u128::from(b))
             .checked_div(u128::from(denom))
+            .unwrap_or(0)
+            .min(u128::from(u64::MAX)) as u64
+    }
+
+    /// [`Self::mul_div_u64`] rounded up: `ceil(a * b / denom)`, saturated to u64, zero when
+    /// `denom` is zero.
+    pub(crate) fn mul_div_u64_ceil(a: u64, b: u64, denom: u64) -> u64 {
+        let denom = u128::from(denom);
+        u128::from(a)
+            .saturating_mul(u128::from(b))
+            .saturating_add(denom.saturating_sub(1))
+            .checked_div(denom)
             .unwrap_or(0)
             .min(u128::from(u64::MAX)) as u64
     }
