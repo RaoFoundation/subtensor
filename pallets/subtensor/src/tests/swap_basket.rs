@@ -779,6 +779,58 @@ fn test_swap_basket_failed_second_leg_leaves_no_partial_state() {
     });
 }
 
+/// Spec 469 regression (Yuma, finney v468): a `swap_basket` sized at ~1% of the destination
+/// reserve with `min_amount_out = 0` is refused by the 2% protocol band (`SlippageTooHigh`)
+/// after the sell leg ran and rolled back. It used to keep the 256-row declared envelope
+/// (0.43 TAO quoted); it now reports the pre-checks, the flush and one trade over the
+/// fund's real row count — never the envelope, never below the valuation sweep it did.
+#[test]
+fn regression_failed_swap_basket_pays_its_work_not_the_envelope() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        // A thin destination: the trade's own impact pushes the buy leg out of the band.
+        let reserve_tao = 100 * TRADE;
+        SubnetTAO::<Test>::insert(fund.netuid_b, TaoBalance::from(reserve_tao));
+        SubnetAlphaIn::<Test>::insert(fund.netuid_b, AlphaBalance::from(reserve_tao));
+        let rows = SubtensorModule::get_basket_holdings(&fund.hotkey).len() as u64;
+        assert_eq!(rows, 1, "the fund holds A only before the trade");
+
+        let err = swap(&fund, fund.netuid_a, fund.netuid_b, TRADE).expect_err("band refuses");
+        assert_eq!(err.error, Error::<Test>::SlippageTooHigh.into());
+        let actual = err
+            .post_info
+            .actual_weight
+            .expect("a failed trade reports the weight it used");
+
+        let precheck = SubtensorModule::swap_basket_precheck_weight();
+        let one_trade = SubtensorModule::swap_basket_weight(rows);
+        // Nothing was queued, so the flush contributed nothing: exactly base + scan.
+        assert_eq!(actual, one_trade.saturating_add(precheck));
+        assert!(
+            actual.all_gte(one_trade),
+            "never below the valuation sweep it did"
+        );
+        assert!(
+            actual.ref_time() * 20 < SubtensorModule::swap_basket_declared_weight().ref_time(),
+            "a failed trade over one row is a small fraction of the 256-row envelope"
+        );
+        assert!(!System::events().iter().any(|e| matches!(
+            e.event,
+            RuntimeEvent::SubtensorModule(Event::BasketSwapped { .. })
+        )));
+
+        // A successful trade still refunds to its actual row count.
+        SubnetTAO::<Test>::insert(fund.netuid_b, TaoBalance::from(100_000 * TRADE));
+        SubnetAlphaIn::<Test>::insert(fund.netuid_b, AlphaBalance::from(100_000 * TRADE));
+        let post = swap(&fund, fund.netuid_a, fund.netuid_b, TRADE).expect("trade succeeds");
+        assert_eq!(
+            post.actual_weight,
+            Some(SubtensorModule::swap_basket_weight(2)),
+            "two rows after the trade, no flush"
+        );
+    });
+}
+
 // =============================================================================
 // Caller floor: `min_amount_out`
 // =============================================================================
