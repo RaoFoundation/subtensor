@@ -1554,6 +1554,8 @@ impl<T: Config> Pallet<T> {
                 return TransactionOutcome::Commit(Ok::<(), DispatchError>(()));
             }
 
+            let total_stake_before_sale =
+                (!NetworksAdded::<T>::get(netuid)).then(TotalStake::<T>::get);
             let tao = match Self::sell_basket_alpha_for_root_tao(netuid, holding_alpha) {
                 Ok(tao) => tao,
                 Err(err)
@@ -1578,12 +1580,14 @@ impl<T: Config> Pallet<T> {
 
             // On a dissolved subnet the whole `SubnetTAO` already left `TotalStake` when the
             // network was removed (`do_dissolve_network`), so the sale's own `TotalStake`
-            // decrement (`swap_alpha_for_tao`) took it out a second time. Put that back:
-            // the TAO now moves into the fund's root slot, which `credit_root_slot` books
-            // once, and `TotalStake` stays the sum of live subnet reserves. Finney drifted
-            // by exactly the converted amount when subnet 108 dissolved (block 9111229).
-            if !NetworksAdded::<T>::get(netuid) {
-                TotalStake::<T>::mutate(|total| *total = total.saturating_add(tao));
+            // decrement (`swap_alpha_for_tao`) took it out a second time. Restore the exact
+            // pre-sale value rather than the nominal proceeds: the decrement saturates, so
+            // adding all proceeds could restore more than it removed. The TAO now moves into
+            // the fund's root slot, which `credit_root_slot` books once, and `TotalStake` stays
+            // the sum of live subnet reserves. Finney drifted by exactly the converted amount
+            // when subnet 108 dissolved (block 9111229).
+            if let Some(total_stake_before_sale) = total_stake_before_sale {
+                TotalStake::<T>::put(total_stake_before_sale);
             }
 
             // Hold the realized TAO as the fund's root-slot (cash) position.
