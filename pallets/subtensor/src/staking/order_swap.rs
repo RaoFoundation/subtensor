@@ -152,6 +152,7 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
             amount,
         );
         ensure!(removed == amount, Error::<T>::NotEnoughStakeToWithdraw);
+        Self::maybe_remove_staking_hotkey_bounded(from_hotkey, from_coldkey);
         Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
             to_hotkey, to_coldkey, netuid, removed,
         );

@@ -891,6 +891,11 @@ impl<T: Config> Pallet<T> {
                 let alpha_moved = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
                     old_hotkey, coldkey, netuid, alpha_old,
                 );
+                // The old hotkey's position may be fully drained here; drop the
+                // `StakingHotkeys` entry when no position and no basket watermark
+                // remain, or the single-subnet swap leaves a ghost that every later
+                // unstake-side call walks.
+                Self::maybe_remove_staking_hotkey_bounded(old_hotkey, coldkey);
                 Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
                     new_hotkey,
                     coldkey,

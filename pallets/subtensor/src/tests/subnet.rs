@@ -479,7 +479,7 @@ fn test_subtoken_enable_reject_trading_before_enable() {
         );
 
         // For unstake_all_alpha, the result is AmountTooLow because no re-staking happens.
-        assert_noop!(
+        assert_noop_refund!(
             SubtensorModule::unstake_all_alpha(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id
@@ -506,7 +506,7 @@ fn test_subtoken_enable_reject_trading_before_enable() {
         )
         .unwrap();
 
-        assert_noop!(
+        assert_noop_refund!(
             SubtensorModule::remove_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
@@ -536,7 +536,7 @@ fn test_subtoken_enable_reject_trading_before_enable() {
             Error::<Test>::SubtokenDisabled
         );
 
-        assert_noop!(
+        assert_noop_refund!(
             SubtensorModule::move_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
@@ -548,7 +548,7 @@ fn test_subtoken_enable_reject_trading_before_enable() {
             Error::<Test>::SubtokenDisabled
         );
 
-        assert_noop!(
+        assert_noop_refund!(
             SubtensorModule::transfer_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
@@ -560,7 +560,7 @@ fn test_subtoken_enable_reject_trading_before_enable() {
             Error::<Test>::SubtokenDisabled
         );
 
-        assert_noop!(
+        assert_noop_refund!(
             SubtensorModule::swap_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,

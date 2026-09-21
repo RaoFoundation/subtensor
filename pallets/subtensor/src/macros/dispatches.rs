@@ -5,6 +5,7 @@ use frame_support::pallet_macros::pallet_section;
 /// This can later be imported into the pallet using [`import_section`].
 #[pallet_section]
 mod dispatches {
+    use frame_support::dispatch::{DispatchErrorWithPostInfo, PostDispatchInfo};
     use frame_support::pallet_prelude::DispatchResultWithPostInfo;
     use frame_support::traits::{Get, schedule::v3::Anon as ScheduleAnon};
     use frame_system::pallet_prelude::BlockNumberFor;
@@ -601,7 +602,14 @@ mod dispatches {
             amount_unstaked: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            Self::do_remove_stake(origin, hotkey, netuid, amount_unstaked)?;
+            let walk = Self::staking_hotkeys_walk_actual(&coldkey);
+            Self::do_remove_stake(origin, hotkey, netuid, amount_unstaked).map_err(|error| {
+                Self::staking_hotkeys_failure_post_info(
+                    <T as crate::pallet::Config>::WeightInfo::remove_stake(),
+                    walk,
+                    error,
+                )
+            })?;
             Ok((
                 Some(
                     <T as crate::pallet::Config>::WeightInfo::remove_stake()
@@ -1247,7 +1255,26 @@ mod dispatches {
             hotkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            let work = Self::do_unstake_all(origin, hotkey)?;
+            // Capture the walk before execution: legs may prune `StakingHotkeys`
+            // entries mid-run, and the error refund must cover the walk that ran
+            // over the pre-execution list.
+            let walk = Self::staking_hotkeys_walk_actual(&coldkey);
+            let work = match Self::do_unstake_all(origin, hotkey) {
+                Ok(work) => work,
+                Err((work, error)) => {
+                    return Err(DispatchErrorWithPostInfo {
+                        post_info: PostDispatchInfo {
+                            actual_weight: Some(Self::unstake_all_weight(
+                                <T as crate::pallet::Config>::WeightInfo::unstake_all(),
+                                work,
+                                walk,
+                            )),
+                            pays_fee: Pays::Yes,
+                        },
+                        error,
+                    });
+                }
+            };
             Ok((
                 Some(Self::unstake_all_actual_weight(&coldkey, work)),
                 Pays::Yes,
@@ -1285,7 +1312,26 @@ mod dispatches {
             hotkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            let work = Self::do_unstake_all_alpha(origin, hotkey)?;
+            // Capture the walk before execution: legs may prune `StakingHotkeys`
+            // entries mid-run, and the error refund must cover the walk that ran
+            // over the pre-execution list.
+            let walk = Self::staking_hotkeys_walk_actual(&coldkey);
+            let work = match Self::do_unstake_all_alpha(origin, hotkey) {
+                Ok(work) => work,
+                Err((work, error)) => {
+                    return Err(DispatchErrorWithPostInfo {
+                        post_info: PostDispatchInfo {
+                            actual_weight: Some(Self::unstake_all_weight(
+                                <T as crate::pallet::Config>::WeightInfo::unstake_all_alpha(),
+                                work,
+                                walk,
+                            )),
+                            pays_fee: Pays::Yes,
+                        },
+                        error,
+                    });
+                }
+            };
             Ok((
                 Some(Self::unstake_all_alpha_actual_weight(&coldkey, work)),
                 Pays::Yes,
@@ -1326,6 +1372,7 @@ mod dispatches {
             alpha_amount: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let walk = Self::staking_hotkeys_walk_actual(&coldkey);
             Self::do_move_stake(
                 origin,
                 origin_hotkey,
@@ -1333,7 +1380,14 @@ mod dispatches {
                 origin_netuid,
                 destination_netuid,
                 alpha_amount,
-            )?;
+            )
+            .map_err(|error| {
+                Self::staking_hotkeys_failure_post_info(
+                    <T as crate::pallet::Config>::WeightInfo::move_stake(),
+                    walk,
+                    error,
+                )
+            })?;
             Ok((
                 Some(
                     <T as crate::pallet::Config>::WeightInfo::move_stake()
@@ -1385,6 +1439,7 @@ mod dispatches {
             alpha_amount: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let walk = Self::staking_hotkeys_walk_actual(&coldkey);
             Self::do_transfer_stake(
                 origin,
                 destination_coldkey,
@@ -1392,7 +1447,14 @@ mod dispatches {
                 origin_netuid,
                 destination_netuid,
                 alpha_amount,
-            )?;
+            )
+            .map_err(|error| {
+                Self::staking_hotkeys_failure_post_info(
+                    <T as crate::pallet::Config>::WeightInfo::transfer_stake(),
+                    walk,
+                    error,
+                )
+            })?;
             Ok((
                 Some(
                     <T as crate::pallet::Config>::WeightInfo::transfer_stake()
@@ -1440,13 +1502,21 @@ mod dispatches {
             alpha_amount: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let walk = Self::staking_hotkeys_walk_actual(&coldkey);
             Self::do_swap_stake(
                 origin,
                 hotkey,
                 origin_netuid,
                 destination_netuid,
                 alpha_amount,
-            )?;
+            )
+            .map_err(|error| {
+                Self::staking_hotkeys_failure_post_info(
+                    <T as crate::pallet::Config>::WeightInfo::swap_stake(),
+                    walk,
+                    error,
+                )
+            })?;
             Ok((
                 Some(
                     <T as crate::pallet::Config>::WeightInfo::swap_stake()
@@ -1558,6 +1628,7 @@ mod dispatches {
             allow_partial: bool,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let walk = Self::staking_hotkeys_walk_actual(&coldkey);
             Self::do_remove_stake_limit(
                 origin,
                 hotkey,
@@ -1565,7 +1636,14 @@ mod dispatches {
                 amount_unstaked,
                 limit_price,
                 allow_partial,
-            )?;
+            )
+            .map_err(|error| {
+                Self::staking_hotkeys_failure_post_info(
+                    <T as crate::pallet::Config>::WeightInfo::remove_stake_limit(),
+                    walk,
+                    error,
+                )
+            })?;
             Ok((
                 Some(
                     <T as crate::pallet::Config>::WeightInfo::remove_stake_limit()
@@ -1618,6 +1696,7 @@ mod dispatches {
             allow_partial: bool,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let walk = Self::staking_hotkeys_walk_actual(&coldkey);
             Self::do_swap_stake_limit(
                 origin,
                 hotkey,
@@ -1626,7 +1705,14 @@ mod dispatches {
                 alpha_amount,
                 limit_price,
                 allow_partial,
-            )?;
+            )
+            .map_err(|error| {
+                Self::staking_hotkeys_failure_post_info(
+                    <T as crate::pallet::Config>::WeightInfo::swap_stake_limit(),
+                    walk,
+                    error,
+                )
+            })?;
             Ok((
                 Some(
                     <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
@@ -1663,6 +1749,7 @@ mod dispatches {
             allow_partial: bool,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let walk = Self::staking_hotkeys_walk_actual(&coldkey);
             Self::do_move_stake_limit(
                 origin,
                 origin_hotkey,
@@ -1672,7 +1759,14 @@ mod dispatches {
                 alpha_amount,
                 limit_price,
                 allow_partial,
-            )?;
+            )
+            .map_err(|error| {
+                Self::staking_hotkeys_failure_post_info(
+                    <T as crate::pallet::Config>::WeightInfo::move_stake_limit(),
+                    walk,
+                    error,
+                )
+            })?;
             Ok((
                 Some(
                     <T as crate::pallet::Config>::WeightInfo::move_stake_limit()
@@ -1833,7 +1927,16 @@ mod dispatches {
             limit_price: Option<TaoBalance>,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
-            Self::do_remove_stake_full_limit(origin, hotkey, netuid, limit_price)?;
+            let walk = Self::staking_hotkeys_walk_actual(&coldkey);
+            Self::do_remove_stake_full_limit(origin, hotkey, netuid, limit_price).map_err(
+                |error| {
+                    Self::staking_hotkeys_failure_post_info(
+                        <T as crate::pallet::Config>::WeightInfo::remove_stake_full_limit(),
+                        walk,
+                        error,
+                    )
+                },
+            )?;
             Ok((
                 Some(
                     <T as crate::pallet::Config>::WeightInfo::remove_stake_full_limit()
@@ -2732,6 +2835,7 @@ mod dispatches {
             alpha_amount: AlphaBalance,
         ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin.clone())?;
+            let walk = Self::staking_hotkeys_walk_actual(&coldkey);
             Self::do_transfer_stake_and_hotkey(
                 origin,
                 destination_coldkey,
@@ -2740,7 +2844,14 @@ mod dispatches {
                 origin_netuid,
                 destination_netuid,
                 alpha_amount,
-            )?;
+            )
+            .map_err(|error| {
+                Self::staking_hotkeys_failure_post_info(
+                    <T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey(),
+                    walk,
+                    error,
+                )
+            })?;
             Ok((
                 Some(
                     <T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey()

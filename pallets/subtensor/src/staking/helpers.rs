@@ -272,6 +272,7 @@ impl<T: Config> Pallet<T> {
                     Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
                         hotkey, coldkey, netuid, alpha,
                     );
+                    Self::maybe_remove_staking_hotkey_bounded(hotkey, coldkey);
                 }
 
                 // Reduce lock (if exists) by the cleaned stake amount
