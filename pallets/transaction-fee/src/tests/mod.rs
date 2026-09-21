@@ -1057,7 +1057,8 @@ fn test_remove_stake_failing_transaction_alpha_fees() {
 
 /// Spec 469: an alpha payer is refunded like a TAO payer. A `remove_stake` that fails at
 /// `SubtokenDisabled` reports base + its real `StakingHotkeys` walk, far below the declared
-/// 256-key envelope; the alpha sold for the envelope is bought back down to the actual fee.
+/// 256-key envelope; the alpha sold for the envelope stays sold, and the TAO the call did
+/// not use comes back to the payer's free balance.
 // cargo test --package subtensor-transaction-fee --lib -- tests::test_failed_alpha_fee_is_refunded_to_actual_weight --exact --show-output
 #[test]
 fn test_failed_alpha_fee_is_refunded_to_actual_weight() {
@@ -1084,6 +1085,8 @@ fn test_failed_alpha_fee_is_refunded_to_actual_weight() {
             &sn.coldkey,
             sn.subnets[0].netuid,
         );
+        let tao_before = Balances::free_balance(sn.coldkey);
+        let issuance_before = pallet_subtensor::TotalIssuance::<Test>::get();
         let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::remove_stake {
             hotkey: sn.hotkeys[0],
             netuid: sn.subnets[0].netuid,
@@ -1113,15 +1116,10 @@ fn test_failed_alpha_fee_is_refunded_to_actual_weight() {
             actual_fee * 4.into() < declared_fee,
             "the refund is the point"
         );
-        // What the envelope and the actual fee cost in alpha at the pre-trade price.
-        let alpha_for = |tao: TaoBalance| {
-            pallet_subtensor_swap::Pallet::<Test>::get_alpha_amount_for_tao(
-                sn.subnets[0].netuid,
-                tao.into(),
-            )
-        };
-        let declared_alpha = alpha_for(declared_fee);
-        let actual_alpha = alpha_for(actual_fee);
+        let declared_alpha = pallet_subtensor_swap::Pallet::<Test>::get_alpha_amount_for_tao(
+            sn.subnets[0].netuid,
+            declared_fee.into(),
+        );
 
         let ext = pallet_transaction_payment::ChargeTransactionPayment::<Test>::from(0.into());
         assert_ok!(ext.dispatch_transaction(
@@ -1140,17 +1138,26 @@ fn test_failed_alpha_fee_is_refunded_to_actual_weight() {
         let charged_alpha = alpha_before - alpha_after;
         assert!(
             charged_alpha > 0.into(),
-            "the actual fee is still paid in alpha"
+            "the declared fee was sold in alpha"
         );
+        assert_abs_diff_eq!(charged_alpha, declared_alpha, epsilon = 2.into());
+        // The unused part comes back as TAO: what the alpha sale realised minus the
+        // actual fee. The sale's own slippage stays with the payer, so the refund sits
+        // just under declared minus actual.
+        let refund = Balances::free_balance(sn.coldkey) - tao_before;
+        let full_refund = declared_fee - actual_fee;
+        assert!(refund > 0.into());
+        assert!(refund <= full_refund);
         assert!(
-            charged_alpha < declared_alpha / 2.into(),
-            "charged {charged_alpha:?} alpha, envelope would have been {declared_alpha:?}"
+            refund > full_refund * 9.into() / 10.into(),
+            "{refund:?} vs {full_refund:?}"
         );
-        // The round trip costs two AMM fees, so the net charge sits a little above the
-        // actual fee in alpha, never below it.
-        assert!(charged_alpha >= actual_alpha);
-        assert!(charged_alpha < actual_alpha * 2.into());
-        // The event reports the net charge, not the envelope.
+        // Issuance: the sale recycled `declared`, the refund re-issued `declared - actual`.
+        assert_eq!(
+            issuance_before - pallet_subtensor::TotalIssuance::<Test>::get(),
+            actual_fee
+        );
+        // The event reports the net TAO charge.
         let (event_alpha, event_tao) = System::events()
             .into_iter()
             .find_map(|record| match record.event {
@@ -1164,8 +1171,8 @@ fn test_failed_alpha_fee_is_refunded_to_actual_weight() {
                 _ => None,
             })
             .expect("alpha fee event");
-        assert!(event_alpha < declared_alpha / 2.into());
-        assert!(event_tao <= actual_fee + 1.into());
+        assert_eq!(event_alpha, charged_alpha);
+        assert_eq!(event_tao, actual_fee);
     });
 }
 
