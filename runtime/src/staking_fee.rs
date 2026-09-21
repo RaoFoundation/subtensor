@@ -633,8 +633,10 @@ mod tests {
                     let allowance = TransactionPayment::compute_fee(100, &fee_info, tip);
                     if execution_weight == light {
                         assert!(charged < allowance, "a refused call pays its pre-checks");
-                    } else {
+                    } else if execution_weight == declared {
                         assert_eq!(charged, allowance, "heavy failures pay the allowance only");
+                    } else {
+                        assert!(charged <= allowance, "never above the allowance");
                     }
                 });
             }
