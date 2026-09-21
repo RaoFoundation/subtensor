@@ -509,6 +509,13 @@ async def _quote(
         sell_counts = [
             p.rows_to_sell if p is not None else count for p, count in zip(previews, holding_counts)
         ]
+        # The claim first consolidates the fund's sub-threshold rows into root cash — one
+        # swap each, charged as full claim units whether or not the redemption then goes
+        # ahead — and scans the rows that remain after that preparation.
+        swept_counts = [p.swept if p is not None else 0 for p in previews]
+        scan_counts = [
+            p.rows if p is not None else count for p, count in zip(previews, holding_counts)
+        ]
         dust_rows = sum(p.dust_rows for p in previews if p is not None)
         forfeited_rao = sum(p.forfeited for p in previews if p is not None)
     elif coldkey_wide:
@@ -525,6 +532,8 @@ async def _quote(
         payouts = [by_hotkey.get(hotkey) for hotkey in selected_hotkeys]
         accrued_rao = sum(payout for payout in payouts if payout is not None)
         sell_counts = holding_counts
+        swept_counts = [0 for _ in holding_counts]
+        scan_counts = holding_counts
         dust_rows = 0
         forfeited_rao = 0
     else:
@@ -537,6 +546,8 @@ async def _quote(
         payouts = [int(payout)]
         accrued_rao = payouts[0]
         sell_counts = holding_counts
+        swept_counts = [0 for _ in holding_counts]
+        scan_counts = holding_counts
         dust_rows = 0
         forfeited_rao = 0
 
@@ -548,14 +559,19 @@ async def _quote(
     below_threshold = [
         payout is not None and not can_redeem for payout, can_redeem in zip(payouts, eligible)
     ]
-    redeem_holdings = sum(sold for sold, can_redeem in zip(sell_counts, eligible) if can_redeem)
-    # Every row is scanned; the ones not sold (skipped dust, or a whole fund below the
-    # threshold) are charged at the per-row scan cost.
+    # Runtime: `claim_root(max(hotkeys, realized + swept, ..)) + claim_root_scan(rows −
+    # realized)`. Consolidation runs before the threshold check, so its swaps count even
+    # for a fund whose redemption is then a no-op; rows sold count only when it goes ahead.
+    redeem_holdings = sum(swept_counts) + sum(
+        sold for sold, can_redeem in zip(sell_counts, eligible) if can_redeem
+    )
+    # Every row left after preparation is scanned; the ones not sold (skipped dust, or a
+    # whole fund below the threshold) are charged at the per-row scan cost.
     scan_holdings = sum(
         count - sold
-        for count, sold, can_redeem in zip(holding_counts, sell_counts, eligible)
+        for count, sold, can_redeem in zip(scan_counts, sell_counts, eligible)
         if can_redeem
-    ) + sum(count for count, below in zip(holding_counts, below_threshold) if below)
+    ) + sum(count for count, below in zip(scan_counts, below_threshold) if below)
     redeemable_rao = sum(
         payout for payout, can_redeem in zip(payouts, eligible) if payout is not None and can_redeem
     )
@@ -600,6 +616,8 @@ class _ClaimPreview:
     rows: int
     rows_to_sell: int
     dust_rows: int
+    swept: int
+    flushed_credits: int
 
 
 def _decode_claim_preview(raw: Any) -> _ClaimPreview:
@@ -610,6 +628,8 @@ def _decode_claim_preview(raw: Any) -> _ClaimPreview:
         rows=int(raw["rows"]),
         rows_to_sell=int(raw["rows_to_sell"]),
         dust_rows=int(raw["dust_rows"]),
+        swept=int(raw["swept"]),
+        flushed_credits=int(raw["flushed_credits"]),
     )
 
 
