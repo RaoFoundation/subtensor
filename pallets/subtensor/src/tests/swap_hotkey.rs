@@ -864,7 +864,7 @@ fn test_do_swap_hotkey_err_not_owner() {
         add_balance_to_coldkey_account(&not_owner_coldkey, swap_cost);
 
         // Attempt the swap with a non-owner coldkey
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 <<Test as Config>::RuntimeOrigin>::signed(not_owner_coldkey),
                 &old_hotkey,
@@ -1225,7 +1225,7 @@ fn test_swap_hotkey_error_cases() {
         add_balance_to_coldkey_account(&coldkey, initial_balance);
 
         // Test new hotkey same as old
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
@@ -1238,7 +1238,7 @@ fn test_swap_hotkey_error_cases() {
 
         // Test new hotkey already registered
         IsNetworkMember::<Test>::insert(new_hotkey, NetUid::ROOT, true);
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
@@ -1251,7 +1251,7 @@ fn test_swap_hotkey_error_cases() {
         IsNetworkMember::<Test>::remove(new_hotkey, NetUid::ROOT);
 
         // Test non-associated coldkey
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(wrong_coldkey),
                 &old_hotkey,
@@ -1311,7 +1311,7 @@ fn test_do_swap_hotkey_err_new_hotkey_not_clean_for_root() {
         );
 
         // Full swap (netuid = None) — touches root, must fail.
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
@@ -1323,7 +1323,7 @@ fn test_do_swap_hotkey_err_new_hotkey_not_clean_for_root() {
         );
 
         // Explicit root-subnet swap — also must fail.
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,

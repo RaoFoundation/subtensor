@@ -3530,7 +3530,7 @@ fn register_network_queues_when_waiting_for_dissolve_cleanup() {
         assert!(SubtensorModule::coldkey_owns_hotkey(&cold, &hot));
 
         SubtensorModule::set_burn(n2, TaoBalance::ZERO);
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::burned_register(RuntimeOrigin::signed(U256::from(9303)), n2, hot,),
             Error::<Test>::NonAssociatedColdKey,
         );

@@ -198,9 +198,9 @@ fn test_registration_disabled() {
             hotkey,
         );
 
-        assert_eq!(
+        frame_support::assert_err_ignore_postinfo!(
             result,
-            Err(Error::<Test>::SubNetRegistrationDisabled.into())
+            Error::<Test>::SubNetRegistrationDisabled
         );
     });
 }
@@ -221,9 +221,9 @@ fn test_registration_root_not_permitted() {
             hotkey,
         );
 
-        assert_eq!(
+        frame_support::assert_err_ignore_postinfo!(
             result,
-            Err(Error::<Test>::RegistrationNotPermittedOnRootSubnet.into())
+            Error::<Test>::RegistrationNotPermittedOnRootSubnet
         );
     });
 }
@@ -250,7 +250,7 @@ fn test_registration_not_enough_balance() {
             hotkey,
         );
 
-        assert_eq!(result, Err(Error::<Test>::NotEnoughBalanceToStake.into()));
+        frame_support::assert_err_ignore_postinfo!(result, Error::<Test>::NotEnoughBalanceToStake);
         assert_eq!(SubtensorModule::get_subnetwork_n(netuid), 0);
     });
 }
@@ -280,7 +280,7 @@ fn test_registration_non_associated_coldkey() {
             hotkey,
         );
 
-        assert_eq!(result, Err(Error::<Test>::NonAssociatedColdKey.into()));
+        frame_support::assert_err_ignore_postinfo!(result, Error::<Test>::NonAssociatedColdKey);
         assert_eq!(SubtensorModule::get_subnetwork_n(netuid), 0);
     });
 }
@@ -303,7 +303,7 @@ fn test_registration_without_neuron_slot_doesnt_burn() {
         // No slots => should fail before burning.
         SubtensorModule::set_max_allowed_uids(netuid, 0);
 
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::burned_register(
                 <<Test as Config>::RuntimeOrigin>::signed(coldkey),
                 netuid,
@@ -344,9 +344,9 @@ fn test_registration_already_active_hotkey_error() {
             netuid,
             hotkey,
         );
-        assert_eq!(
+        frame_support::assert_err_ignore_postinfo!(
             result,
-            Err(Error::<Test>::HotKeyAlreadyRegisteredInSubNet.into())
+            Error::<Test>::HotKeyAlreadyRegisteredInSubNet
         );
     });
 }
@@ -886,9 +886,9 @@ fn test_neuron_registration_disabled() {
             hotkey_account_id,
             coldkey_account_id,
         );
-        assert_eq!(
+        frame_support::assert_err_ignore_postinfo!(
             result,
-            Err(Error::<Test>::SubNetRegistrationDisabled.into())
+            Error::<Test>::SubNetRegistrationDisabled
         );
     });
 }

@@ -1024,6 +1024,30 @@ impl<T: Config> Pallet<T> {
         price_limit: TaoBalance,
         drop_fees: bool,
     ) -> Result<AlphaBalance, DispatchError> {
+        Self::stake_into_subnet_from(
+            coldkey,
+            hotkey,
+            coldkey,
+            netuid,
+            tao,
+            price_limit,
+            drop_fees,
+        )
+    }
+
+    /// [`Self::stake_into_subnet`] with the TAO taken from `payer` instead of `coldkey`;
+    /// the alpha is still credited to `(hotkey, coldkey)`. The fee refund buys a payer's
+    /// alpha back with TAO held by the subnet account (see `refund_in_alpha`), the mirror
+    /// of `unstake_from_subnet` selling it into that account.
+    pub fn stake_into_subnet_from(
+        payer: &T::AccountId,
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+        tao: TaoBalance,
+        price_limit: TaoBalance,
+        drop_fees: bool,
+    ) -> Result<AlphaBalance, DispatchError> {
         // Root stake is the claimant base for queued basket deposits: flush the hotkey's
         // pending dividend credits before the new stake lands, so it can't capture
         // flushable dividends earned before it arrived.
@@ -1031,9 +1055,9 @@ impl<T: Config> Pallet<T> {
             Self::flush_basket_deposits_for_hotkey(hotkey);
         }
 
-        // Transfer TAO from coldkey to the subnet account.
+        // Transfer TAO from the payer to the subnet account.
         // Actual transfered may be different within ED amount.
-        let tao_staked = Self::transfer_tao_to_subnet(netuid, coldkey, tao)?;
+        let tao_staked = Self::transfer_tao_to_subnet(netuid, payer, tao)?;
 
         // Swap the tao to alpha.
         let swap_result = Self::swap_tao_for_alpha(netuid, tao_staked, price_limit, drop_fees)?;
@@ -1080,7 +1104,7 @@ impl<T: Config> Pallet<T> {
             .saturating_add(swap_result.fee_paid);
         let refund_tao = tao_staked.saturating_sub(consumed_tao);
         if !refund_tao.is_zero() {
-            Self::transfer_tao_from_subnet(netuid, coldkey, refund_tao)?;
+            Self::transfer_tao_from_subnet(netuid, payer, refund_tao)?;
         }
 
         // Record TAO inflow

@@ -1128,7 +1128,7 @@ fn test_remove_stake_amount_too_low() {
         );
 
         // Removing zero should fail
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::remove_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
@@ -1178,7 +1178,7 @@ fn test_remove_stake_below_min_stake() {
         );
 
         // Unstake less than full stake -> leaves a non-zero remainder below min -> errors
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::remove_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
@@ -1318,7 +1318,7 @@ fn test_remove_stake_no_enough_stake() {
             TaoBalance::ZERO
         );
 
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::remove_stake(
                 RuntimeOrigin::signed(coldkey_id),
                 hotkey_id,
@@ -1545,7 +1545,7 @@ fn test_remove_stake_insufficient_liquidity() {
         mock::setup_reserves(netuid, reserve.into(), reserve.into());
 
         // Check the error
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::remove_stake(RuntimeOrigin::signed(coldkey), hotkey, netuid, alpha),
             Error::<Test>::InsufficientLiquidity
         );
@@ -4739,7 +4739,7 @@ fn test_remove_stake_limit_fill_or_kill() {
         let limit_price = TaoBalance::from(1_350_000_000);
 
         // Remove stake with slippage safety - fails
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::remove_stake_limit(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
@@ -5149,7 +5149,7 @@ fn test_move_stake_limit_fill_or_kill_preserves_stake_when_limit_is_exceeded() {
     new_test_ext(1).execute_with(|| {
         let fixture = setup_move_stake_limit_fixture();
 
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::move_stake_limit(
                 RuntimeOrigin::signed(fixture.coldkey),
                 fixture.origin_hotkey,
@@ -5297,7 +5297,7 @@ fn test_unstake_all_alpha_hits_liquidity_min() {
 
         // Try to unstake, but we reduce liquidity too far
 
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::unstake_all_alpha(RuntimeOrigin::signed(coldkey), hotkey),
             Error::<Test>::AmountTooLow
         );
@@ -5877,7 +5877,7 @@ fn test_unstake_from_subnet_prohibitive_limit() {
             &coldkey,
             netuid,
         );
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::remove_stake_limit(
                 RuntimeOrigin::signed(coldkey),
                 owner_hotkey,
@@ -6276,7 +6276,7 @@ fn test_remove_stake_full_limit_fails_slippage_too_high() {
         let invalid_limit_price = TaoBalance::from(910_000_000_u64);
 
         // Remove stake with slippage safety
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::remove_stake_full_limit(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,

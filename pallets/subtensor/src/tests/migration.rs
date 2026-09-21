@@ -1786,7 +1786,7 @@ fn test_migrate_fix_root_pot_shortfall() {
             SubtensorModule::get_coldkey_balance(&root_pot).to_u64(),
             stake_b - gap
         );
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::remove_stake(
                 RuntimeOrigin::signed(staker_b),
                 hotkey,
@@ -6468,9 +6468,9 @@ fn test_migrate_seed_beta_basket_gates_live_deposits() {
             &coldkey,
             NetUid::ROOT,
         );
-        assert_eq!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::unstake_all_alpha(RuntimeOrigin::signed(coldkey), hotkey),
-            Err(Error::<Test>::BetaBasketSeedInProgress.into())
+            Error::<Test>::BetaBasketSeedInProgress
         );
         let alpha_after =
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);

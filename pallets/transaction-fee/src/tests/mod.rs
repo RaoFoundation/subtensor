@@ -4,6 +4,7 @@ use approx::assert_abs_diff_eq;
 use frame_support::dispatch::GetDispatchInfo;
 use frame_support::pallet_prelude::Zero;
 use frame_support::{assert_err, assert_ok};
+use pallet_subtensor::weights::WeightInfo;
 use sp_runtime::{
     traits::{AccountIdConversion, DispatchTransaction, TransactionExtension, TxBaseImplication},
     transaction_validity::{InvalidTransaction, TransactionValidityError},
@@ -1051,6 +1052,120 @@ fn test_remove_stake_failing_transaction_alpha_fees() {
         assert_eq!(actual_tao_fee, 0.into());
         assert!(actual_alpha_fee > 0.into());
         assert!(actual_alpha_fee < unstake_amount);
+    });
+}
+
+/// Spec 469: an alpha payer is refunded like a TAO payer. A `remove_stake` that fails at
+/// `SubtokenDisabled` reports base + its real `StakingHotkeys` walk, far below the declared
+/// 256-key envelope; the alpha sold for the envelope is bought back down to the actual fee.
+// cargo test --package subtensor-transaction-fee --lib -- tests::test_failed_alpha_fee_is_refunded_to_actual_weight --exact --show-output
+#[test]
+fn test_failed_alpha_fee_is_refunded_to_actual_weight() {
+    new_test_ext().execute_with(|| {
+        let stake_amount = TAO;
+        let sn = setup_subnets(1, 1);
+        setup_stake(
+            sn.subnets[0].netuid,
+            &sn.coldkey,
+            &sn.hotkeys[0],
+            stake_amount,
+        );
+        SubnetTAO::<Test>::insert(sn.subnets[0].netuid, TaoBalance::from(1_000_000_000_u64));
+        SubnetAlphaIn::<Test>::insert(sn.subnets[0].netuid, AlphaBalance::from(1_000_000_000_u64));
+        let current_balance = Balances::free_balance(sn.coldkey);
+        remove_balance_from_coldkey_account(
+            &sn.coldkey,
+            current_balance - ExistentialDeposit::get(),
+        );
+        pallet_subtensor::SubtokenEnabled::<Test>::insert(sn.subnets[0].netuid, false);
+
+        let alpha_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &sn.hotkeys[0],
+            &sn.coldkey,
+            sn.subnets[0].netuid,
+        );
+        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::remove_stake {
+            hotkey: sn.hotkeys[0],
+            netuid: sn.subnets[0].netuid,
+            amount_unstaked: alpha_before,
+        });
+        // The mock prices every read and benchmark at zero, so stand in for the runtime's
+        // declaration (base + 256-key scan bound, ~92 G ref_time) explicitly. The call's
+        // reported actual weight is base + its real one-key walk, zero in this mock.
+        let info = frame_support::dispatch::DispatchInfo {
+            call_weight: frame_support::weights::Weight::from_parts(92_000_000_000, 0),
+            ..call.get_dispatch_info()
+        };
+        let len = 0;
+        let declared_fee = TransactionPayment::compute_fee(len, &info, 0.into());
+        let actual_weight = <Test as pallet_subtensor::Config>::WeightInfo::remove_stake()
+            .saturating_add(SubtensorModule::staking_hotkeys_walk_actual(&sn.coldkey));
+        let actual_fee = TransactionPayment::compute_actual_fee(
+            len,
+            &info,
+            &frame_support::dispatch::PostDispatchInfo {
+                actual_weight: Some(actual_weight),
+                pays_fee: frame_support::dispatch::Pays::Yes,
+            },
+            0.into(),
+        );
+        assert!(
+            actual_fee * 4.into() < declared_fee,
+            "the refund is the point"
+        );
+        // What the envelope and the actual fee cost in alpha at the pre-trade price.
+        let alpha_for = |tao: TaoBalance| {
+            pallet_subtensor_swap::Pallet::<Test>::get_alpha_amount_for_tao(
+                sn.subnets[0].netuid,
+                tao.into(),
+            )
+        };
+        let declared_alpha = alpha_for(declared_fee);
+        let actual_alpha = alpha_for(actual_fee);
+
+        let ext = pallet_transaction_payment::ChargeTransactionPayment::<Test>::from(0.into());
+        assert_ok!(ext.dispatch_transaction(
+            RuntimeOrigin::signed(sn.coldkey).into(),
+            call,
+            &info,
+            len as usize,
+            0,
+        ));
+
+        let alpha_after = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &sn.hotkeys[0],
+            &sn.coldkey,
+            sn.subnets[0].netuid,
+        );
+        let charged_alpha = alpha_before - alpha_after;
+        assert!(
+            charged_alpha > 0.into(),
+            "the actual fee is still paid in alpha"
+        );
+        assert!(
+            charged_alpha < declared_alpha / 2.into(),
+            "charged {charged_alpha:?} alpha, envelope would have been {declared_alpha:?}"
+        );
+        // The round trip costs two AMM fees, so the net charge sits a little above the
+        // actual fee in alpha, never below it.
+        assert!(charged_alpha >= actual_alpha);
+        assert!(charged_alpha < actual_alpha * 2.into());
+        // The event reports the net charge, not the envelope.
+        let (event_alpha, event_tao) = System::events()
+            .into_iter()
+            .find_map(|record| match record.event {
+                RuntimeEvent::SubtensorModule(
+                    pallet_subtensor::Event::TransactionFeePaidWithAlpha {
+                        alpha_fee,
+                        tao_amount,
+                        ..
+                    },
+                ) => Some((alpha_fee, tao_amount)),
+                _ => None,
+            })
+            .expect("alpha fee event");
+        assert!(event_alpha < declared_alpha / 2.into());
+        assert!(event_tao <= actual_fee + 1.into());
     });
 }
 
