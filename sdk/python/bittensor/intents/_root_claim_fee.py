@@ -15,7 +15,7 @@ and tells the caller when a claim loses money or cannot even be included.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
 from .._generated import storage as st
@@ -243,6 +243,11 @@ class RootClaimFeeQuote:
     redeemable: Balance
     admission_limit: int
     selection_scans: int
+    #: Fund rows the claim leaves unsold as dust (spec 468), summed over the selected
+    #: validators. Zero on runtimes without the dust-aware preview.
+    dust_rows: int = 0
+    #: Estimated value of those skipped slices, left in the fund for the other holders.
+    forfeited: Balance = field(default_factory=lambda: Balance.from_rao(0))
 
     @property
     def refund(self) -> Balance:
@@ -278,6 +283,14 @@ class RootClaimFeeQuote:
         if self.refund.rao > 0:
             rows.append(("refunded", f"~{self.refund}"))
         rows.append(("accrued", str(self.accrued)))
+        if self.dust_rows:
+            rows.append(("redeemable", str(self.redeemable)))
+            rows.append(
+                (
+                    "dust",
+                    f"{self.dust_rows} rows skipped; ~{self.forfeited} stays in the fund",
+                )
+            )
         return rows
 
     def effects(self) -> list[str]:
@@ -290,6 +303,11 @@ class RootClaimFeeQuote:
             fee_line,
             f"accrued {self.accrued}",
         ]
+        if self.dust_rows:
+            lines.append(
+                f"{self.dust_rows} dust {'row' if self.dust_rows == 1 else 'rows'} skipped: "
+                f"redeems {self.redeemable}, ~{self.forfeited} stays in the fund"
+            )
         if self.below_threshold:
             lines.append(
                 f"accrued is below the claim threshold ({self.threshold}); "
@@ -478,7 +496,22 @@ async def _quote(
             declared_work=admission.limit,
         )
 
-    if coldkey_wide:
+    holding_counts = list(admission.holding_counts)
+    previews = await _claim_previews(
+        substrate, claimant_address, selected_hotkeys, coldkey_wide=coldkey_wide
+    )
+    if previews is not None:
+        # Spec 468 runtime: the dust rules applied exactly as the claim applies them.
+        # `payouts` is what the claim pays (and what the threshold applies to); the full
+        # entitlement is reported separately as accrued.
+        payouts: list[Optional[int]] = [p.redeemable if p is not None else None for p in previews]
+        accrued_rao = sum(p.accrued for p in previews if p is not None)
+        sell_counts = [
+            p.rows_to_sell if p is not None else count for p, count in zip(previews, holding_counts)
+        ]
+        dust_rows = sum(p.dust_rows for p in previews if p is not None)
+        forfeited_rao = sum(p.forfeited for p in previews if p is not None)
+    elif coldkey_wide:
         positions = await substrate.runtime_call(
             *BetaBasketRuntimeApi.get_root_basket_positions,
             [claimant_address],
@@ -489,8 +522,11 @@ async def _quote(
         # The runtime API omits validators for which this coldkey has no owed
         # shares. Preserve that distinction: a missing position exits before
         # the runtime's basket scan and is not a below-threshold entitlement.
-        payouts: list[Optional[int]] = [by_hotkey.get(hotkey) for hotkey in selected_hotkeys]
+        payouts = [by_hotkey.get(hotkey) for hotkey in selected_hotkeys]
         accrued_rao = sum(payout for payout in payouts if payout is not None)
+        sell_counts = holding_counts
+        dust_rows = 0
+        forfeited_rao = 0
     else:
         payout = await substrate.runtime_call(
             *BetaBasketRuntimeApi.get_basket_payout,
@@ -500,16 +536,26 @@ async def _quote(
             return None
         payouts = [int(payout)]
         accrued_rao = payouts[0]
+        sell_counts = holding_counts
+        dust_rows = 0
+        forfeited_rao = 0
 
     threshold_rao = await _threshold_rao(substrate)
 
-    holding_counts = list(admission.holding_counts)
-    eligible = [payout is not None and payout >= threshold_rao for payout in payouts]
-    below_threshold = [payout is not None and payout < threshold_rao for payout in payouts]
-    redeem_holdings = sum(
-        count for count, can_redeem in zip(holding_counts, eligible) if can_redeem
-    )
-    scan_holdings = sum(count for count, below in zip(holding_counts, below_threshold) if below)
+    # The runtime is a no-op for a payout of zero (every row dust) as well as for one
+    # below the threshold; neither burns anything.
+    eligible = [payout is not None and payout > 0 and payout >= threshold_rao for payout in payouts]
+    below_threshold = [
+        payout is not None and not can_redeem for payout, can_redeem in zip(payouts, eligible)
+    ]
+    redeem_holdings = sum(sold for sold, can_redeem in zip(sell_counts, eligible) if can_redeem)
+    # Every row is scanned; the ones not sold (skipped dust, or a whole fund below the
+    # threshold) are charged at the per-row scan cost.
+    scan_holdings = sum(
+        count - sold
+        for count, sold, can_redeem in zip(holding_counts, sell_counts, eligible)
+        if can_redeem
+    ) + sum(count for count, below in zip(holding_counts, below_threshold) if below)
     redeemable_rao = sum(
         payout for payout, can_redeem in zip(payouts, eligible) if payout is not None and can_redeem
     )
@@ -539,7 +585,66 @@ async def _quote(
         redeemable=Balance.from_rao(redeemable_rao),
         admission_limit=admission.limit,
         selection_scans=admission.selection_scans,
+        dust_rows=dust_rows,
+        forfeited=Balance.from_rao(forfeited_rao),
     )
+
+
+# Spec 468 `BetaBasketRuntimeApi` v5 methods. Named here until the generated bindings are
+# regenerated from a node that exposes them (then `BetaBasketRuntimeApi.<name>`).
+_CLAIM_PREVIEW_API = ("BetaBasketRuntimeApi", "get_basket_claim_preview")
+_CLAIM_PREVIEWS_API = ("BetaBasketRuntimeApi", "get_root_basket_claim_previews")
+
+
+@dataclass(frozen=True)
+class _ClaimPreview:
+    """Decoded ``BasketClaimPreview`` for one validator."""
+
+    accrued: int
+    redeemable: int
+    forfeited: int
+    rows: int
+    rows_to_sell: int
+    dust_rows: int
+
+
+def _decode_claim_preview(raw: Any) -> _ClaimPreview:
+    return _ClaimPreview(
+        accrued=int(raw["accrued_tao"]),
+        redeemable=int(raw["redeemable_tao"]),
+        forfeited=int(raw["forfeited_tao_est"]),
+        rows=int(raw["rows"]),
+        rows_to_sell=int(raw["rows_to_sell"]),
+        dust_rows=int(raw["dust_rows"]),
+    )
+
+
+async def _claim_previews(
+    substrate: Any,
+    claimant_address: str,
+    hotkeys: list[str],
+    *,
+    coldkey_wide: bool,
+) -> Optional[list[Optional[_ClaimPreview]]]:
+    """Per selected hotkey, the runtime's dust-aware claim preview (``None`` for a
+    validator on which the coldkey has no owed shares), or ``None`` when the runtime
+    predates the preview API (spec 468) so the caller falls back to the full-entitlement
+    payout views."""
+    try:
+        if coldkey_wide:
+            raw = await substrate.runtime_call(*_CLAIM_PREVIEWS_API, [claimant_address])
+            if raw is None:
+                return None
+            by_hotkey = {str(entry["hotkey"]): _decode_claim_preview(entry) for entry in raw}
+            return [by_hotkey.get(hotkey) for hotkey in hotkeys]
+        raw = await substrate.runtime_call(*_CLAIM_PREVIEW_API, [hotkeys[0], claimant_address])
+    except Exception:
+        return None
+    if raw is None:
+        # Either no owed shares on this validator or a pre-468 runtime; the payout view
+        # below distinguishes the two (it returns 0 for the former).
+        return None
+    return [_decode_claim_preview(raw)]
 
 
 async def _existing_network_count(substrate: Any) -> int:
