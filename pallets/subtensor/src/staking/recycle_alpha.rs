@@ -57,6 +57,7 @@ impl<T: Config> Pallet<T> {
 
         // Deduct from the coldkey's stake.
         Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid, amount);
+        Self::maybe_remove_staking_hotkey_bounded(&hotkey, &coldkey);
 
         // Recycle means we should decrease the alpha issuance tracker.
         Self::recycle_subnet_alpha(netuid, amount);
@@ -119,6 +120,7 @@ impl<T: Config> Pallet<T> {
 
         // Deduct from the coldkey's stake.
         Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid, amount);
+        Self::maybe_remove_staking_hotkey_bounded(&hotkey, &coldkey);
 
         Self::burn_subnet_alpha(netuid, amount);
 

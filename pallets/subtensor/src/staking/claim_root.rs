@@ -787,6 +787,10 @@ impl<T: Config> Pallet<T> {
             BasketClaimed::<T>::mutate(hotkey, coldkey, |claimed| {
                 *claimed = claimed.saturating_add(i128::from(owed_shares));
             });
+            // A redemption can land the watermark on exactly zero; without a
+            // position anywhere that leaves a ghost `StakingHotkeys` entry the
+            // coldkey walks on every later unstake-side call.
+            Self::maybe_remove_staking_hotkey_bounded(hotkey, coldkey);
             BasketRedeemedTao::<T>::mutate(hotkey, |total| {
                 *total = total.saturating_add(total_tao.into())
             });
@@ -1067,6 +1071,9 @@ impl<T: Config> Pallet<T> {
                     .saturating_to_num::<i128>(),
             );
         });
+        // The rebase can land the watermark on exactly zero; prune the
+        // `StakingHotkeys` entry if no position remains.
+        Self::maybe_remove_staking_hotkey_bounded(hotkey, coldkey);
     }
 
     /// Grant `shares` fund shares to a staker unconditionally by decrementing their signed
@@ -1078,6 +1085,9 @@ impl<T: Config> Pallet<T> {
         BasketClaimed::<T>::mutate(hotkey, coldkey, |claimed| {
             *claimed = claimed.saturating_sub(i128::from(shares));
         });
+        // The grant can land the watermark on exactly zero; prune the
+        // `StakingHotkeys` entry if no position remains.
+        Self::maybe_remove_staking_hotkey_bounded(hotkey, coldkey);
     }
 
     /// Watermark rebase for a root-stake increase of `amount`.

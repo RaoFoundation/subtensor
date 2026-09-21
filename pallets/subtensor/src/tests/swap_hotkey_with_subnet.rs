@@ -577,13 +577,15 @@ fn test_swap_staking_hotkeys_multiple_coldkeys() {
             false
         ));
 
-        // Check if new_hotkey replaced old_hotkey in StakingHotkeys
+        // Check if new_hotkey replaced old_hotkey in StakingHotkeys. The old
+        // hotkey's only position moved to new_hotkey, so the drained entry is
+        // pruned instead of lingering as a ghost.
         assert!(StakingHotkeys::<Test>::get(coldkey1).contains(&new_hotkey));
-        assert!(StakingHotkeys::<Test>::get(coldkey1).contains(&old_hotkey));
+        assert!(!StakingHotkeys::<Test>::get(coldkey1).contains(&old_hotkey));
 
         // Check if new_hotkey replaced old_hotkey for coldkey2 as well
         assert!(StakingHotkeys::<Test>::get(coldkey2).contains(&new_hotkey));
-        assert!(StakingHotkeys::<Test>::get(coldkey2).contains(&old_hotkey));
+        assert!(!StakingHotkeys::<Test>::get(coldkey2).contains(&old_hotkey));
         assert!(StakingHotkeys::<Test>::get(coldkey2).contains(&staker5));
         // Other hotkeys should remain
     });

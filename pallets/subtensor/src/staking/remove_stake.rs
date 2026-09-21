@@ -129,19 +129,27 @@ impl<T: Config> Pallet<T> {
     /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
     ///
     /// Returns the work performed so the dispatch can report its actual weight.
+    ///
+    /// On failure the partial work completed before the error is returned
+    /// alongside the error, so the dispatch can refund the declared envelope
+    /// down to the work that actually ran instead of billing the full
+    /// worst-case walk.
     pub fn do_unstake_all(
         origin: OriginFor<T>,
         hotkey: T::AccountId,
-    ) -> Result<UnstakeAllWork, DispatchError> {
+    ) -> Result<UnstakeAllWork, (UnstakeAllWork, DispatchError)> {
         // 1. We check the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
-        let coldkey = ensure_signed(origin)?;
+        let coldkey =
+            ensure_signed(origin).map_err(|error| (UnstakeAllWork::default(), error.into()))?;
         log::debug!("do_unstake_all( origin:{coldkey:?} hotkey:{hotkey:?} )");
 
         // 2. Ensure that the hotkey account exists this is only possible through registration.
-        ensure!(
-            Self::hotkey_account_exists(&hotkey),
-            Error::<T>::HotKeyAccountNotExists
-        );
+        if !Self::hotkey_account_exists(&hotkey) {
+            return Err((
+                UnstakeAllWork::default(),
+                Error::<T>::HotKeyAccountNotExists.into(),
+            ));
+        }
 
         // 3. Get all netuids.
         let netuids = Self::get_all_subnet_netuids();
@@ -158,7 +166,7 @@ impl<T: Config> Pallet<T> {
                 Self::unstake_all_consider_subnet(&mut work, &coldkey, &hotkey, netuid)
             {
                 work.legs = work.legs.saturating_add(1);
-                Self::unstake_from_subnet(
+                if let Err(error) = Self::unstake_from_subnet(
                     &hotkey,
                     &coldkey,
                     &coldkey,
@@ -167,7 +175,10 @@ impl<T: Config> Pallet<T> {
                     T::SwapInterface::min_price(),
                     false,
                     true,
-                )?;
+                ) {
+                    Self::bill_full_enumeration(&mut work);
+                    return Err((work, error));
+                }
                 Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
             }
         }
@@ -212,7 +223,7 @@ impl<T: Config> Pallet<T> {
     /// reads that decided to skip them.
     /// `walk` is the `StakingHotkeys` walk every validated subnet performs, which the
     /// `remove_stake` benchmark does not include.
-    fn unstake_all_weight(base: Weight, work: UnstakeAllWork, walk: Weight) -> Weight {
+    pub(crate) fn unstake_all_weight(base: Weight, work: UnstakeAllWork, walk: Weight) -> Weight {
         let cheap = u64::from(work.scanned.saturating_sub(work.validated));
         let expensive_skips = u64::from(work.validated.saturating_sub(work.legs));
         base.saturating_add(
@@ -280,6 +291,16 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    /// On failure, bill the full subnet enumeration the call performed before
+    /// the loop: `work.scanned` only counts loop visits, but
+    /// `get_all_subnet_netuids` reads every network upfront, and the error
+    /// refund must not under-report that work. Charging every unvisited subnet
+    /// as a cheap skip is a conservative upper bound of the enumeration reads
+    /// and stays inside the declared envelope.
+    fn bill_full_enumeration(work: &mut UnstakeAllWork) {
+        work.scanned = work.scanned.max(u32::from(TotalNetworks::<T>::get()));
+    }
+
     /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
     ///
     /// # Arguments
@@ -302,17 +323,21 @@ impl<T: Config> Pallet<T> {
     pub fn do_unstake_all_alpha(
         origin: OriginFor<T>,
         hotkey: T::AccountId,
-    ) -> Result<UnstakeAllWork, DispatchError> {
+    ) -> Result<UnstakeAllWork, (UnstakeAllWork, DispatchError)> {
         // 1. We check the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
-        let coldkey = ensure_signed(origin)?;
-        Self::ensure_beta_basket_seed_idle()?;
+        let coldkey =
+            ensure_signed(origin).map_err(|error| (UnstakeAllWork::default(), error.into()))?;
+        Self::ensure_beta_basket_seed_idle()
+            .map_err(|error| (UnstakeAllWork::default(), error.into()))?;
         log::debug!("do_unstake_all( origin:{coldkey:?} hotkey:{hotkey:?} )");
 
         // 2. Ensure that the hotkey account exists this is only possible through registration.
-        ensure!(
-            Self::hotkey_account_exists(&hotkey),
-            Error::<T>::HotKeyAccountNotExists
-        );
+        if !Self::hotkey_account_exists(&hotkey) {
+            return Err((
+                UnstakeAllWork::default(),
+                Error::<T>::HotKeyAccountNotExists.into(),
+            ));
+        }
 
         // 3. Get all netuids.
         let netuids = Self::get_all_subnet_netuids();
@@ -334,7 +359,7 @@ impl<T: Config> Pallet<T> {
                 Self::unstake_all_consider_subnet(&mut work, &coldkey, &hotkey, netuid)
             {
                 work.legs = work.legs.saturating_add(1);
-                let tao_unstaked = Self::unstake_from_subnet(
+                let tao_unstaked = match Self::unstake_from_subnet(
                     &hotkey,
                     &coldkey,
                     &coldkey,
@@ -343,21 +368,30 @@ impl<T: Config> Pallet<T> {
                     T::SwapInterface::min_price(),
                     false,
                     true,
-                )?;
+                ) {
+                    Ok(tao) => tao,
+                    Err(error) => {
+                        Self::bill_full_enumeration(&mut work);
+                        return Err((work, error));
+                    }
+                };
                 total_tao_unstaked = total_tao_unstaked.saturating_add(tao_unstaked);
                 Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
             }
         }
 
         // Stake into root.
-        Self::stake_into_subnet(
+        if let Err(error) = Self::stake_into_subnet(
             &hotkey,
             &coldkey,
             NetUid::ROOT,
             total_tao_unstaked,
             T::SwapInterface::max_price(),
             false,
-        )?;
+        ) {
+            Self::bill_full_enumeration(&mut work);
+            return Err((work, error.into()));
+        }
 
         // 5. Queue the live child relations for the threshold re-check in on_idle.
         Self::queue_childkey_threshold_check(&hotkey);
@@ -992,14 +1026,30 @@ impl<T: Config> Pallet<T> {
                 coldkeys.push(cold.clone());
             }
 
-            // Alpha, AlphaV2 and AlphaShareEpoch removals per coldkey.
+            // Alpha, AlphaV2 and AlphaShareEpoch removals per coldkey. Keep the
+            // pre-existing behavior of completing the current hotkey's removals
+            // even when the removal reservation cannot be consumed (the cursor
+            // design); the new prune work only runs when it is separately
+            // reserved, so exhaustion never adds unmetered work.
             let weight_for_all_remove = w
                 .saturating_mul(3_u64)
                 .saturating_mul(coldkeys.len() as u64);
-            if weight_meter.can_consume(weight_for_all_remove) {
+            let removals_reserved = weight_meter.can_consume(weight_for_all_remove);
+            if removals_reserved {
                 weight_meter.consume(weight_for_all_remove);
             } else {
                 exhausted = true;
+            }
+
+            // The ghost prune is the bounded variant: two prefix probes, one
+            // watermark read, one vector write, reserved per coldkey so the
+            // meter never under-charges it. Skipped when the meter cannot fit
+            // it; a leftover entry is inert (the walk just visits it).
+            let prune = T::DbWeight::get().reads_writes(6, 1);
+            let prune_reserved = removals_reserved
+                && weight_meter.can_consume(prune.saturating_mul(coldkeys.len() as u64));
+            if prune_reserved {
+                weight_meter.consume(prune.saturating_mul(coldkeys.len() as u64));
             }
 
             last_completed_key = Some(TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid));
@@ -1008,6 +1058,9 @@ impl<T: Config> Pallet<T> {
                 Alpha::<T>::remove((&hot, &cold, netuid));
                 AlphaV2::<T>::remove((&hot, &cold, netuid));
                 AlphaShareEpoch::<T>::remove((&hot, &cold, netuid));
+                if prune_reserved {
+                    Self::maybe_remove_staking_hotkey_bounded(&hot, &cold);
+                }
             }
 
             if exhausted {

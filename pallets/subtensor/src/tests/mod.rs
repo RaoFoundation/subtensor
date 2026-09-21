@@ -49,3 +49,23 @@ mod total_alpha_staked;
 mod uids;
 mod voting_power;
 mod weights;
+
+/// [`frame_support::assert_noop`] compares the full `DispatchErrorWithPostInfo`
+/// and asserts storage was not mutated. Unstake-side dispatchables now attach a
+/// weight-refund post-info on failure, so these helpers strip the post-info and
+/// delegate back to the frame_support macros, preserving both the inner-error
+/// comparison and the storage no-op check.
+#[macro_export]
+macro_rules! assert_noop_refund {
+    ($call:expr, $expected:expr $(,)?) => {{
+        frame_support::assert_noop!($call.map_err(|e| e.error), $expected);
+    }};
+}
+
+/// [`frame_support::assert_err_ignore_postinfo`] alias for unstake-side failures.
+#[macro_export]
+macro_rules! assert_err_refund {
+    ($call:expr, $expected:expr $(,)?) => {{
+        frame_support::assert_err_ignore_postinfo!($call, $expected);
+    }};
+}

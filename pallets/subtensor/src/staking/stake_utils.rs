@@ -1,4 +1,5 @@
 use super::*;
+use frame_support::dispatch::{DispatchErrorWithPostInfo, Pays, PostDispatchInfo};
 use frame_support::weights::Weight;
 use safe_math::*;
 use share_pool::{SafeFloat, SharePool, SharePoolDataOperations};
@@ -703,6 +704,34 @@ impl<T: Config> Pallet<T> {
         });
     }
 
+    /// Bounded variant of [`Self::maybe_remove_staking_hotkey`] for weight-metered
+    /// paths that cannot rely on benchmarked reads (subnet dissolution): probes
+    /// one row per share map instead of [`Self::alpha_iter_prefix`]'s eager
+    /// full-prefix fold, so its cost is fixed regardless of how many subnets the
+    /// pair still holds rows on. Zero-valued or retired rows read as "present",
+    /// which errs toward retention (the safe direction).
+    pub(crate) fn maybe_remove_staking_hotkey_bounded(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) {
+        let has_stake = Alpha::<T>::iter_prefix((hotkey, coldkey)).next().is_some()
+            || AlphaV2::<T>::iter_prefix((hotkey, coldkey))
+                .next()
+                .is_some();
+        if has_stake || BasketClaimed::<T>::get(hotkey, coldkey) != 0 {
+            return;
+        }
+
+        StakingHotkeys::<T>::mutate_exists(coldkey, |maybe_hotkeys| {
+            if let Some(hotkeys) = maybe_hotkeys {
+                hotkeys.retain(|staking_hotkey| staking_hotkey != hotkey);
+                if hotkeys.is_empty() {
+                    *maybe_hotkeys = None;
+                }
+            }
+        });
+    }
+
     /// Swaps TAO for the alpha token on the subnet.
     ///
     /// Updates TaoIn, AlphaIn, and AlphaOut
@@ -1274,6 +1303,30 @@ impl<T: Config> Pallet<T> {
     pub fn staking_hotkeys_walk_actual(coldkey: &T::AccountId) -> Weight {
         let entries = StakingHotkeys::<T>::decode_len(coldkey).unwrap_or(0) as u64;
         Self::staking_hotkeys_walk_weight(entries)
+    }
+
+    /// Post-dispatch info for a failed unstake-side call: charge the fixed base
+    /// plus the `StakingHotkeys` walk captured *before* execution instead of the
+    /// 256-entry pre-dispatch bound. Capturing the walk up front matters because
+    /// a failing call may already have pruned entries mid-execution (for example
+    /// a cross-subnet move fully unstakes the source hotkey before the
+    /// destination leg fails), and the refund must cover the walk that actually
+    /// ran over the pre-execution list. `walk <= walk_bound` (the list is capped
+    /// by `ensure_staking_hotkeys_can_grow`), so the post-info can never exceed
+    /// the declared weight. Failures that surface before the walk runs are
+    /// over-charged by the unperformed walk, which is conservative.
+    pub(crate) fn staking_hotkeys_failure_post_info(
+        base: Weight,
+        walk: Weight,
+        error: sp_runtime::DispatchError,
+    ) -> DispatchErrorWithPostInfo {
+        DispatchErrorWithPostInfo {
+            post_info: PostDispatchInfo {
+                actual_weight: Some(base.saturating_add(walk)),
+                pays_fee: Pays::Yes,
+            },
+            error,
+        }
     }
 
     pub fn get_alpha_share_pool(
