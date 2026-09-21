@@ -186,21 +186,35 @@ impl<T: Config> Pallet<T> {
         let who = ensure_signed(origin)?;
         let now = frame_system::Pallet::<T>::block_number();
 
+        // The checks below read the lease and the hotkey owner and write nothing; a
+        // termination refused by them is charged those reads, not the declared envelope
+        // of `MaxContributors` clears and stake transfers.
+        let precheck = T::DbWeight::get().reads(3);
+
         // Ensure the lease exists and the beneficiary is the caller
-        let lease = SubnetLeases::<T>::get(lease_id).ok_or(Error::<T>::LeaseDoesNotExist)?;
+        let lease = SubnetLeases::<T>::get(lease_id).ok_or(Self::fail_with_weight(
+            Error::<T>::LeaseDoesNotExist,
+            precheck,
+        ))?;
         ensure!(
             lease.beneficiary == who,
-            Error::<T>::ExpectedBeneficiaryOrigin
+            Self::fail_with_weight(Error::<T>::ExpectedBeneficiaryOrigin, precheck)
         );
 
         // Ensure the lease has an end block and we are past it
-        let end_block = lease.end_block.ok_or(Error::<T>::LeaseHasNoEndBlock)?;
-        ensure!(now >= end_block, Error::<T>::LeaseHasNotEnded);
+        let end_block = lease.end_block.ok_or(Self::fail_with_weight(
+            Error::<T>::LeaseHasNoEndBlock,
+            precheck,
+        ))?;
+        ensure!(
+            now >= end_block,
+            Self::fail_with_weight(Error::<T>::LeaseHasNotEnded, precheck)
+        );
 
         // Transfer ownership to the beneficiary
         ensure!(
             Self::coldkey_owns_hotkey(&lease.beneficiary, &hotkey),
-            Error::<T>::BeneficiaryDoesNotOwnHotkey
+            Self::fail_with_weight(Error::<T>::BeneficiaryDoesNotOwnHotkey, precheck)
         );
         // A lease whose deferred dividends could not all be paid keeps its record (see
         // below) and may be terminated again to retry; the one-time hand-over steps run

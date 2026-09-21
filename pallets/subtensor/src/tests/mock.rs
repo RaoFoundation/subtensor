@@ -14,6 +14,41 @@ use frame_support::traits::{Contains, Everything, InsideBoth, InstanceFilter};
 use frame_support::weights::Weight;
 use frame_support::weights::constants::RocksDbWeight;
 use frame_support::{PalletId, derive_impl};
+
+/// The bare `DispatchError` of a failed dispatch, with or without post-dispatch info.
+pub trait BareDispatchError {
+    fn bare(self) -> sp_runtime::DispatchError;
+}
+
+impl BareDispatchError for sp_runtime::DispatchError {
+    fn bare(self) -> sp_runtime::DispatchError {
+        self
+    }
+}
+
+impl BareDispatchError for frame_support::dispatch::DispatchErrorWithPostInfo {
+    fn bare(self) -> sp_runtime::DispatchError {
+        self.error
+    }
+}
+
+/// `assert_noop!` for dispatchables that report actual weight on failure (spec 469):
+/// compares the error only, ignoring the post-dispatch info, and checks storage is
+/// untouched.
+#[macro_export]
+macro_rules! assert_noop_ignore_postinfo {
+    ($x:expr, $y:expr $(,)?) => {
+        let h = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        match $x {
+            Ok(_) => panic!("expected Err({:?}), got Ok", $y),
+            Err(err) => assert_eq!(
+                $crate::tests::mock::BareDispatchError::bare(err),
+                sp_runtime::DispatchError::from($y)
+            ),
+        }
+        assert_eq!(h, sp_io::storage::root(sp_runtime::StateVersion::V1));
+    };
+}
 use frame_support::{
     assert_ok, parameter_types,
     traits::{Hooks, PrivilegeCmp},
@@ -941,13 +976,13 @@ pub fn register_ok_neuron(
     let result = SubtensorModule::burned_register(origin.clone(), netuid, hotkey_account_id);
 
     match result {
-        Ok(()) => {
+        Ok(_) => {
             // success
         }
         Err(e)
-            if e == Error::<Test>::TooManyRegistrationsThisInterval.into()
-                || e == Error::<Test>::NotEnoughBalanceToStake.into()
-                || e == Error::<Test>::ZeroBalanceAfterWithdrawn.into() =>
+            if e.error == Error::<Test>::TooManyRegistrationsThisInterval.into()
+                || e.error == Error::<Test>::NotEnoughBalanceToStake.into()
+                || e.error == Error::<Test>::ZeroBalanceAfterWithdrawn.into() =>
         {
             // Re-top-up and retry once (burn can be state-dependent).
             top_up_for_burn(netuid, coldkey_account_id);

@@ -86,28 +86,70 @@ impl<T: Config> Pallet<T> {
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> Result<ColdkeySwapWork, DispatchError> {
+        Self::do_swap_coldkey_tracked(old_coldkey, new_coldkey).map_err(|(_, err)| err)
+    }
+
+    /// Weight of the stake work a failed coldkey swap did, on top of the benchmarked base
+    /// the dispatch adds: nothing but the pre-check reads when refused before the scan,
+    /// the admission scan (one `StakingHotkeys` read plus one read per position) when
+    /// refused as too heavy, and the admitted work when a later step rolled it back.
+    fn coldkey_swap_failed_weight(work: Option<ColdkeySwapWork>, admitted: bool) -> Weight {
+        let precheck = T::DbWeight::get().reads(4);
+        match work {
+            None => precheck,
+            Some(work) if !admitted => precheck.saturating_add(
+                T::DbWeight::get().reads(
+                    u64::from(work.hotkeys)
+                        .saturating_add(u64::from(work.positions))
+                        .saturating_add(1),
+                ),
+            ),
+            Some(work) => precheck.saturating_add(Self::coldkey_swap_weight(Weight::zero(), work)),
+        }
+    }
+
+    /// [`Self::do_swap_coldkey`] that, on failure, also returns the weight of the work
+    /// done (without the call's benchmarked base) so the dispatcher charges that instead
+    /// of the declared envelope of `MAX_COLDKEY_SWAP_POSITIONS` stake transfers.
+    pub fn do_swap_coldkey_tracked(
+        old_coldkey: &T::AccountId,
+        new_coldkey: &T::AccountId,
+    ) -> Result<ColdkeySwapWork, (Weight, DispatchError)> {
+        let refused =
+            |error: Error<T>| (Self::coldkey_swap_failed_weight(None, false), error.into());
         // The multi-block seed may still hold `RootClaimed[(netuid, hotkey, old_coldkey)]`
         // rows and mid-hotkey `BasketClaimed` writes. Moving root stake + only the new
         // watermark would leave legacy claims on the dead coldkey.
-        Self::ensure_beta_basket_seed_idle()?;
-        ensure!(
-            StakingHotkeys::<T>::get(new_coldkey).is_empty(),
-            Error::<T>::ColdKeyAlreadyAssociated
-        );
-        ensure!(
-            !Self::hotkey_account_exists(new_coldkey),
-            Error::<T>::NewColdKeyIsHotkey
-        );
+        Self::ensure_beta_basket_seed_idle().map_err(refused)?;
+        if !StakingHotkeys::<T>::get(new_coldkey).is_empty() {
+            return Err(refused(Error::<T>::ColdKeyAlreadyAssociated));
+        }
+        if Self::hotkey_account_exists(new_coldkey) {
+            return Err(refused(Error::<T>::NewColdKeyIsHotkey));
+        }
         // Admission: the stake move is one `transfer_stake` per position and the declared
         // weight reserves a fixed number of them, so refuse (before any write) a coldkey
         // whose list or position count exceeds what one call is priced for.
         let work = Self::coldkey_swap_work(old_coldkey);
-        ensure!(
-            work.hotkeys <= crate::MAX_COLDKEY_SWAP_HOTKEYS
-                && work.positions <= crate::MAX_COLDKEY_SWAP_POSITIONS,
-            Error::<T>::ColdkeySwapTooHeavy
-        );
+        if work.hotkeys > crate::MAX_COLDKEY_SWAP_HOTKEYS
+            || work.positions > crate::MAX_COLDKEY_SWAP_POSITIONS
+        {
+            return Err((
+                Self::coldkey_swap_failed_weight(Some(work), false),
+                Error::<T>::ColdkeySwapTooHeavy.into(),
+            ));
+        }
 
+        Self::execute_swap_coldkey(old_coldkey, new_coldkey, work)
+            .map_err(|error| (Self::coldkey_swap_failed_weight(Some(work), true), error))
+    }
+
+    /// The transactional body of a coldkey swap whose `work` was admitted.
+    fn execute_swap_coldkey(
+        old_coldkey: &T::AccountId,
+        new_coldkey: &T::AccountId,
+        work: ColdkeySwapWork,
+    ) -> Result<ColdkeySwapWork, DispatchError> {
         with_transaction(|| {
             let result = (|| -> DispatchResult {
                 // Swap the identity if the old coldkey has one and the new coldkey doesn't

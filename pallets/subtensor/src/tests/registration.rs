@@ -177,7 +177,7 @@ fn test_registration_failed_no_signature() {
             hotkey,
         );
 
-        assert_eq!(result, Err(sp_runtime::DispatchError::BadOrigin));
+        frame_support::assert_err_ignore_postinfo!(result, sp_runtime::DispatchError::BadOrigin);
     });
 }
 

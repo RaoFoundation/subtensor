@@ -49,18 +49,51 @@ impl<T: Config> Pallet<T> {
         if !touches_root {
             return Weight::zero();
         }
-        let claimed_rows = BasketClaimed::<T>::iter_prefix(old_hotkey).count() as u64;
-        let pending_rows = PendingBasketDeposits::<T>::iter_prefix(old_hotkey).count() as u64;
-        let used_rows = BasketLiquidityUsed::<T>::iter_prefix(old_hotkey).count() as u64;
-        let rows = claimed_rows
-            .saturating_add(pending_rows)
-            .saturating_add(used_rows);
+        let rows = Self::basket_claimed_swap_rows(old_hotkey);
         // One read per scanned row + remove/insert pair per row. Three prefix
         // heads are covered by the +1 / +2 slack on the first map plus the
         // extra reads here being cheaper than an under-reservation.
         T::DbWeight::get().reads_writes(
             rows.saturating_mul(2).saturating_add(3),
             rows.saturating_mul(2),
+        )
+    }
+
+    /// Basket rows keyed by `old_hotkey` that a root-touching swap moves: claim
+    /// watermarks, queued deposits and liquidity-flow rows.
+    fn basket_claimed_swap_rows(old_hotkey: &T::AccountId) -> u64 {
+        let claimed_rows = BasketClaimed::<T>::iter_prefix(old_hotkey).count() as u64;
+        let pending_rows = PendingBasketDeposits::<T>::iter_prefix(old_hotkey).count() as u64;
+        let used_rows = BasketLiquidityUsed::<T>::iter_prefix(old_hotkey).count() as u64;
+        claimed_rows
+            .saturating_add(pending_rows)
+            .saturating_add(used_rows)
+    }
+
+    /// Weight a swap refused by [`Self::check_swap_hotkey`] is charged: the pre-checks
+    /// read the owners, the new hotkey's account and root state, up to two rows per
+    /// subnet (membership and collateral), and the basket row count the declaration
+    /// took (one read per row on a root-touching swap). Nothing is written before they
+    /// pass, so a refused swap does not pay the benchmarked stake-moving envelope.
+    pub fn swap_hotkey_precheck_weight(
+        old_hotkey: &T::AccountId,
+        netuid: &Option<NetUid>,
+    ) -> Weight {
+        let subnets = u64::from(TotalNetworks::<T>::get());
+        let touches_root = match netuid {
+            None => true,
+            Some(n) => *n == NetUid::ROOT,
+        };
+        let basket_rows = if touches_root {
+            Self::basket_claimed_swap_rows(old_hotkey)
+        } else {
+            0
+        };
+        T::DbWeight::get().reads(
+            subnets
+                .saturating_mul(2)
+                .saturating_add(12)
+                .saturating_add(basket_rows),
         )
     }
 
@@ -117,6 +150,31 @@ impl<T: Config> Pallet<T> {
         // // 1. Ensure the origin is signed and get the coldkey
         let coldkey = ensure_signed(origin)?;
 
+        // 2-8. Read-only pre-checks. A swap refused here is charged those reads, not the
+        // benchmarked stake-moving envelope; everything after this point scans the old
+        // hotkey's stake and keeps the declared weight on failure.
+        let weight = Self::check_swap_hotkey(&coldkey, old_hotkey, new_hotkey, netuid, keep_stake)
+            .map_err(|error| {
+                Self::fail_with_weight(
+                    error,
+                    Self::swap_hotkey_precheck_weight(old_hotkey, &netuid),
+                )
+            })?;
+
+        Self::execute_swap_hotkey(&coldkey, old_hotkey, new_hotkey, netuid, keep_stake, weight)
+    }
+
+    /// The read-only preconditions of a hotkey swap: subnet existence, ownership of both
+    /// keys, distinct keys, the `keep_stake` collateral rule, the new hotkey's registration
+    /// and (on a root-touching swap) its clean root state. Returns the reads accrued so far.
+    fn check_swap_hotkey(
+        coldkey: &T::AccountId,
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+        netuid: Option<NetUid>,
+        keep_stake: bool,
+    ) -> Result<Weight, DispatchError> {
+        let coldkey = coldkey.clone();
         if let Some(netuid) = netuid {
             ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         }
@@ -160,9 +218,6 @@ impl<T: Config> Pallet<T> {
                     .reads(Self::get_all_subnet_netuids().len().saturating_mul(1) as u64),
             });
         }
-
-        // 6. Get the current block number
-        let block: u64 = Self::get_current_block_as_u64();
 
         match netuid {
             // 8. Ensure the hotkey is not registered on the network before, if netuid is provided
@@ -209,6 +264,21 @@ impl<T: Config> Pallet<T> {
                 Error::<T>::NewHotKeyNotCleanForRootSwap
             );
         }
+        Ok(weight)
+    }
+
+    /// The stake scan and the transactional body of a hotkey swap, after
+    /// [`Self::check_swap_hotkey`] passed. `weight` is what the pre-checks accrued.
+    fn execute_swap_hotkey(
+        coldkey: &T::AccountId,
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+        netuid: Option<NetUid>,
+        keep_stake: bool,
+        mut weight: Weight,
+    ) -> DispatchResultWithPostInfo {
+        let coldkey = coldkey.clone();
+        let block: u64 = Self::get_current_block_as_u64();
 
         // Read and group stake once before any hotkey-swap mutation. Execution
         // reuses this snapshot instead of rescanning both prefixes per subnet.
