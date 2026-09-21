@@ -13,6 +13,10 @@ cd "$(git rev-parse --show-toplevel)"
 hooks_dir=$(git rev-parse --git-path hooks)
 mkdir -p "$hooks_dir"
 hook="$hooks_dir/pre-push"
+if [[ -e "$hook" ]] && ! grep -q 'Installed by scripts/install-hooks.sh' "$hook"; then
+  mv "$hook" "$hook.bak.$(date +%s)"
+  echo "existing pre-push hook moved to $hook.bak.*; re-add anything you need to it"
+fi
 
 cat >"$hook" <<'EOF'
 #!/usr/bin/env bash
