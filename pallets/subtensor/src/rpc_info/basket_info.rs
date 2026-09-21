@@ -1,6 +1,8 @@
 extern crate alloc;
 
 use frame_support::pallet_prelude::{Decode, Encode};
+use frame_support::storage::{TransactionOutcome, with_transaction};
+use sp_runtime::DispatchError;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
@@ -296,16 +298,18 @@ pub struct BasketTradingStatus {
     pub budget_tao: TaoBalance,
 }
 
-/// What one `claim_root_with_hotkey` would do right now for a staker, dust rules applied
-/// exactly as the claim applies them (`Pallet::plan_basket_claim`): the full entitlement,
-/// the part a claim pays out, and the rows it sells versus leaves behind. `redeemable_tao`
-/// is what the runtime compares against the claim threshold; a claim whose
-/// `redeemable_tao` is zero is a no-op that burns nothing.
-#[freeze_struct("85caada99ae52c50")]
+/// What one `claim_root_with_hotkey` would do right now for a staker, computed the way the
+/// claim computes it: the fund's queued dividend credits are flushed and its sub-threshold
+/// rows consolidated into root cash first (under a rolled-back storage transaction, so the
+/// view changes nothing), then the dust rules are applied to the resulting rows
+/// (`Pallet::plan_basket_claim`). `redeemable_tao` is what the runtime compares against the
+/// claim threshold; a claim whose `redeemable_tao` is zero is a no-op that burns nothing.
+#[freeze_struct("d4f82b112919f41c")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct BasketClaimPreview<AccountId: TypeInfo + Encode + Decode> {
     pub hotkey: AccountId,
-    /// The staker's owed shares on this validator (capped at the outstanding supply).
+    /// The staker's owed shares on this validator after the pending credits are flushed
+    /// (capped at the outstanding supply).
     pub owed_shares: u64,
     /// Full entitlement at the pre-sale realizable quote: `owed × NAV / P`.
     pub accrued_tao: TaoBalance,
@@ -320,6 +324,10 @@ pub struct BasketClaimPreview<AccountId: TypeInfo + Encode + Decode> {
     pub rows_to_sell: u32,
     /// Rows the claim skips as dust.
     pub dust_rows: u32,
+    /// Sub-threshold rows the claim first consolidates into root cash (one swap each).
+    pub swept: u32,
+    /// Queued dividend credits the claim flushes first.
+    pub flushed_credits: u32,
 }
 
 impl<T: Config> Pallet<T> {
@@ -329,11 +337,31 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
     ) -> Option<BasketClaimPreview<T::AccountId>> {
+        // Prepare the fund exactly as the claim does — flush queued credits, consolidate
+        // sub-threshold rows into root cash — but roll every write back: this is a view.
+        with_transaction(|| {
+            TransactionOutcome::Rollback(Ok::<_, DispatchError>(Self::preview_basket_claim(
+                hotkey, coldkey,
+            )))
+        })
+        .ok()
+        .flatten()
+    }
+
+    fn preview_basket_claim(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) -> Option<BasketClaimPreview<T::AccountId>> {
+        let flushed_credits =
+            u32::try_from(PendingBasketDeposits::<T>::iter_prefix(hotkey).count())
+                .unwrap_or(u32::MAX);
+        let _ = Self::flush_basket_deposits_for_hotkey(hotkey);
         let shares_total = BasketShares::<T>::get(hotkey);
         let owed_shares = Self::get_basket_owed_shares(hotkey, coldkey).min(shares_total);
         if owed_shares == 0 {
             return None;
         }
+        let swept = Self::consolidate_dust_basket_holdings(hotkey);
         let rows = Self::plan_basket_claim(hotkey, owed_shares, shares_total).ok()?;
         let nav: u64 = rows
             .iter()
@@ -372,6 +400,8 @@ impl<T: Config> Pallet<T> {
             rows: rows.len() as u32,
             rows_to_sell,
             dust_rows,
+            swept,
+            flushed_credits,
         })
     }
 

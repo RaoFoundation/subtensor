@@ -1007,3 +1007,83 @@ fn claim_preview_redeemable_is_what_the_threshold_applies_to() {
         );
     });
 }
+
+/// The preview prepares the fund exactly as the claim does — flushes the queued dividend
+/// credit and consolidates the sub-threshold rows into root cash (which is never dust) —
+/// under a rolled-back transaction, so `redeemable_tao` is what the claim then pays and
+/// `rows` / `rows_to_sell` / `swept` / `flushed_credits` match the executed work. Without
+/// that preparation the 20 tiny rows would preview as forfeited dust and the credit as
+/// absent, and the preview would under-report the payout.
+#[test]
+fn claim_preview_flushes_and_consolidates_like_the_claim() {
+    new_test_ext(1).execute_with(|| {
+        // Two real rows plus 20 rows worth 0.0005 TAO each; a 10% claimant.
+        let mut rows = vec![20 * TAO, 5 * TAO];
+        rows.extend(core::iter::repeat_n(TAO / 2_000, 20));
+        let fund = setup_fund(&rows, &[1, 9]);
+        let claimant = fund.stakers[0];
+        // A nonzero claim threshold (0.001 TAO) makes the tiny rows consolidatable.
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(1_000_000));
+        // A queued dividend credit of 2 TAO alpha on the first row, not yet flushed.
+        crate::PendingBasketDeposits::<Test>::insert(
+            fund.hotkey,
+            fund.netuids[0],
+            AlphaBalance::from(2 * TAO),
+        );
+        assert!(
+            SubtensorModule::is_hotkey_registered_on_network(NetUid::ROOT, &fund.hotkey),
+            "flush requires a root-registered fund"
+        );
+        let holdings_before = SubtensorModule::get_basket_holdings(&fund.hotkey).len();
+        assert_eq!(holdings_before, 22);
+
+        let preview =
+            SubtensorModule::get_basket_claim_preview(&fund.hotkey, &claimant).expect("preview");
+        // The view changed nothing.
+        assert_eq!(SubtensorModule::get_basket_holdings(&fund.hotkey).len(), 22);
+        assert!(crate::PendingBasketDeposits::<Test>::contains_key(
+            fund.hotkey,
+            fund.netuids[0]
+        ));
+        assert_eq!(escrow_alpha(&fund.hotkey, NetUid::ROOT), 0);
+
+        assert_eq!(preview.flushed_credits, 1);
+        assert_eq!(
+            preview.swept, 20,
+            "the sub-threshold rows are consolidated first"
+        );
+        assert_eq!(
+            preview.rows, 3,
+            "two real rows plus the root cash they became"
+        );
+        assert_eq!(preview.rows_to_sell, 3);
+        assert_eq!(preview.dust_rows, 0);
+        let redeemable = preview.redeemable_tao.to_u64();
+        // 10% of (22 + 5 + ~0.01) TAO — the flushed credit is in, nothing is forfeited.
+        assert!(
+            redeemable > 2_690_000_000 && redeemable < 2_710_000_000,
+            "{redeemable}"
+        );
+        assert_eq!(preview.accrued_tao, preview.redeemable_tao);
+
+        let root_before = root_stake_of(&fund.hotkey, &claimant);
+        let post =
+            SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(claimant), fund.hotkey)
+                .expect("claim runs");
+        let paid = root_stake_of(&fund.hotkey, &claimant) - root_before;
+        assert_close(
+            u128::from(paid),
+            u128::from(redeemable),
+            2_000,
+            "paid vs preview",
+        );
+        assert!(post.actual_weight.is_some());
+        // The executed claim left the fund as the preview described it.
+        assert_eq!(SubtensorModule::get_basket_holdings(&fund.hotkey).len(), 3);
+        assert!(!crate::PendingBasketDeposits::<Test>::contains_key(
+            fund.hotkey,
+            fund.netuids[0]
+        ));
+        assert!(dust_skipped_events().is_empty());
+    });
+}
