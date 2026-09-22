@@ -983,8 +983,7 @@ mod tests {
     /// either constant must force this grant to be re-evaluated.
     #[test]
     fn validate_commitment_grant_relies_on_zero_commitment_deposit() {
-        use frame_support::traits::Get;
-        use subtensor_runtime_common::TaoBalance;
+        use subtensor_runtime_common::{TaoBalance, Token};
 
         assert_eq!(crate::CommitmentInitialDeposit::get(), TaoBalance::ZERO);
         assert_eq!(crate::CommitmentFieldDeposit::get(), TaoBalance::ZERO);
