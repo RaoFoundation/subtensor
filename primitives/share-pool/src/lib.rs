@@ -540,6 +540,28 @@ where
         }
     }
 
+    /// True when a withdrawal of `magnitude` leaves `key` with nothing a reader can see:
+    /// either the remaining share values to zero, or `magnitude` is exactly the value the
+    /// member was quoted before the withdrawal (a full exit), whose remainder is by
+    /// construction less than one rao however the share arithmetic rounds it.
+    fn withdrawal_drains_member(
+        magnitude: u64,
+        shared_value: u64,
+        current_share: &SafeFloat,
+        denominator: &SafeFloat,
+        updated_shared_value: u64,
+        new_current_share: &SafeFloat,
+        new_denominator: &SafeFloat,
+    ) -> bool {
+        let quoted_before =
+            Self::try_get_value_from_parts(shared_value, current_share, denominator);
+        if quoted_before == Some(magnitude) {
+            return true;
+        }
+        Self::try_get_value_from_parts(updated_shared_value, new_current_share, new_denominator)
+            == Some(0)
+    }
+
     fn get_shares_per_update(
         &self,
         update: i64,
@@ -633,7 +655,7 @@ where
                             denominator_gain,
                             current_share,
                         );
-                        current_share
+                        current_share.clone()
                     }
                 };
                 (new_denominator, new_current_share)
@@ -671,6 +693,7 @@ where
                 } else {
                     // `sub` returns None only for a zero share, which means nothing is left.
                     let new_current_share = current_share
+                        .clone()
                         .sub(&denominator_loss)
                         .unwrap_or_else(SafeFloat::zero);
                     (new_denominator, new_current_share)
@@ -690,18 +713,24 @@ where
                 new_current_share = SafeFloat::zero();
             } else if update < 0
                 && !new_current_share.is_zero()
-                && Self::try_get_value_from_parts(
+                && Self::withdrawal_drains_member(
+                    magnitude,
+                    shared_value,
+                    &current_share,
+                    &denominator,
                     updated_shared_value,
                     &new_current_share,
                     &new_denominator,
-                ) == Some(0)
+                )
                 && let Some(denominator_without_dust) = new_denominator.sub(&new_current_share)
             {
                 // Withdrawing the integer value reported for a position can leave a positive
-                // fractional share worth less than one rao. If retained, later emissions can
-                // make that supposedly drained position visible again. Canonicalize such
-                // withdrawal dust to zero and remove it from the denominator so the remaining
-                // pool shares continue to sum to the denominator. Never interpret a failed
+                // fractional share worth less than one rao, and share-unit truncation on the
+                // way out can even make that remainder read as one rao. If retained, later
+                // emissions can make that supposedly drained position visible again, and the
+                // owner's `StakingHotkeys` entry never clears. Canonicalize such withdrawal
+                // dust to zero and remove it from the denominator so the remaining pool
+                // shares continue to sum to the denominator. Never interpret a failed
                 // valuation as zero.
                 new_denominator = denominator_without_dust;
                 new_current_share = SafeFloat::zero();
@@ -1005,6 +1034,40 @@ mod tests {
         assert_eq!(pool.get_value(&2), 0);
         pool.update_value_for_one(&3, -100_000);
         assert_eq!(pool.state_ops.get_shared_value(), 0);
+    }
+
+    // v468 defect 1 (spec 469). In a pool whose value per share is not a whole number, a
+    // deposit of N reads back as N - 1, and withdrawing that quoted value used to leave a
+    // share that could read as one rao. Withdrawing exactly the quoted value must retire the
+    // member's whole share, with the remaining shares still summing to the denominator.
+    // cargo test --package share-pool --lib -- tests::test_full_quoted_withdrawal_retires_the_share_in_an_inexact_pool --exact
+    #[test]
+    fn test_full_quoted_withdrawal_retires_the_share_in_an_inexact_pool() {
+        let mut mock_ops = MockSharePoolDataOperations::new();
+        mock_ops.set_shared_value(786_042_366_495_955);
+        mock_ops.set_denominator(86_737_855_666u64.into());
+        mock_ops.set_share(&1, 86_737_855_666u64.into());
+        let mut pool = SharePool::<u16, MockSharePoolDataOperations>::new(mock_ops);
+
+        let mut drained = false;
+        for deposit in 6_658_030_659_780u64..6_658_030_659_844 {
+            pool.update_value_for_one(&2, deposit as i64);
+            let quoted = pool.get_value(&2);
+            assert!(quoted <= deposit);
+            pool.update_value_for_one(&2, -(quoted as i64));
+            assert!(
+                pool.state_ops.get_share(&2).is_zero(),
+                "withdrawing the quoted value {quoted} of a {deposit} deposit left a share"
+            );
+            assert_eq!(pool.get_value(&2), 0);
+            assert_eq!(
+                pool.state_ops.get_denominator(),
+                sum_of_shares(&pool),
+                "remaining shares sum to the denominator"
+            );
+            drained |= quoted < deposit;
+        }
+        assert!(drained, "the fixture must exercise an inexact read");
     }
 
     // A pool that still has shares but no value cannot price a deposit. It is closed and

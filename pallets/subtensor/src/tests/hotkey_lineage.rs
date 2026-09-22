@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use frame_support::{assert_noop, assert_ok};
+use frame_support::assert_ok;
 use sp_core::U256;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::AlphaBalance;
@@ -195,7 +195,7 @@ fn test_bonded_hotkey_swap_migrates_collateral_keep_stake_blocked() {
         });
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(coldkey),
                 &h0,
@@ -224,7 +224,7 @@ fn test_bonded_hotkey_swap_migrates_collateral_keep_stake_blocked() {
         let uid = Uids::<Test>::get(netuid, h1).expect("registered");
         SubtensorModule::set_validator_permit_for_uid(netuid, uid, true);
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get() + 1);
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(coldkey),
                 &h1,
@@ -351,7 +351,7 @@ fn test_unindexed_collateral_at_full_cap_rolls_back_hotkey_swap() {
         );
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(coldkey),
                 &h0,

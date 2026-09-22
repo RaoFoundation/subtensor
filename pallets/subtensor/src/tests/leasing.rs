@@ -74,7 +74,7 @@ fn test_coldkey_swap_migrates_lease_shares_beneficiary_and_proxy() {
         System::set_block_number(500);
         let hotkey = U256::from(5);
         assert_ok!(SubtensorModule::create_account_if_non_existent(&new_beneficiary, &hotkey));
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::do_terminate_lease(RuntimeOrigin::signed(beneficiary), lease_id, hotkey),
             Error::<Test>::ExpectedBeneficiaryOrigin,
         );
@@ -833,7 +833,7 @@ fn test_terminate_lease_fails_if_lease_does_not_exist() {
         let beneficiary = U256::from(1);
         let hotkey = U256::from(2);
 
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::terminate_lease(RuntimeOrigin::signed(beneficiary), lease_id, hotkey),
             Error::<Test>::LeaseDoesNotExist,
         );
@@ -870,7 +870,7 @@ fn test_terminate_lease_fails_if_origin_is_not_beneficiary() {
         let _ = SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
 
         // Terminate the lease
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::terminate_lease(
                 RuntimeOrigin::signed(U256::from(42)),
                 lease_id,
@@ -903,7 +903,7 @@ fn test_terminate_lease_fails_if_lease_has_no_end_block() {
         let _ = SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
 
         // Terminate the lease
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::terminate_lease(
                 RuntimeOrigin::signed(lease.beneficiary),
                 lease_id,
@@ -941,7 +941,7 @@ fn test_terminate_lease_fails_if_lease_has_not_ended() {
         let _ = SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
 
         // Terminate the lease
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::terminate_lease(
                 RuntimeOrigin::signed(lease.beneficiary),
                 lease_id,
@@ -978,7 +978,7 @@ fn test_terminate_lease_fails_if_beneficiary_does_not_own_hotkey() {
         run_to_block(end_block);
 
         // Terminate the lease
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::terminate_lease(
                 RuntimeOrigin::signed(lease.beneficiary),
                 lease_id,

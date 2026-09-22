@@ -597,7 +597,9 @@ mod events {
         /// Transaction fee was paid in Alpha.
         ///
         /// Emitted in addition to `TransactionFeePaid` when the fee payment path is Alpha.
-        /// `alpha_fee` is the exact Alpha amount deducted.
+        /// `alpha_fee` is the exact Alpha amount sold; `tao_amount` is the TAO the call was
+        /// finally charged. Since spec 469 the TAO the call did not use is refunded to the
+        /// payer's free balance, so `tao_amount` can be below what the sale realised.
         TransactionFeePaidWithAlpha {
             /// Account that paid the transaction fee.
             who: T::AccountId,
@@ -605,7 +607,7 @@ mod events {
             netuid: NetUid,
             /// Exact fee deducted in Alpha units.
             alpha_fee: AlphaBalance,
-            /// Resulting swapped TAO amount
+            /// TAO charged for the call, net of the post-dispatch refund.
             tao_amount: TaoBalance,
         },
         /// Burn half-life set for neuron registration.

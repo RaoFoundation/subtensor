@@ -1,10 +1,11 @@
 //! Fee discounts that leave admission and execution weight alone.
 //!
-//! Three subsidies, applied per fee-bearing leaf call (descending through batch and
+//! Four subsidies, applied per fee-bearing leaf call (descending through batch and
 //! proxy wrappers whose declared weight includes their inner calls):
 //! 1. the `StakingHotkeys` scan is billed at [`STAKING_HOTKEYS_FEE_ALLOWANCE`] keys;
 //! 2. root claims are billed at [`ROOT_CLAIM_FEE_ALLOWANCE`] claim units;
-//! 3. every call whose declared weight grew after spec 459 is billed at most its 459
+//! 3. basket deposits and trades are billed over [`BASKET_FEE_ALLOWANCE`] fund rows;
+//! 4. every call whose declared weight grew after spec 459 is billed at most its 459
 //!    declared weight ([`fee_weight_cap_459`]).
 
 use crate::transaction_payment_wrapper::{FeeWeightDiscount, fee_dispatch_info};
@@ -41,6 +42,53 @@ pub fn root_claim_fee_weight(units: u32) -> Weight {
 fn root_claim_discount(limit: u32) -> Weight {
     pallet_subtensor::Pallet::<Runtime>::root_claim_declared_weight_for(limit)
         .saturating_sub(root_claim_fee_weight(ROOT_CLAIM_FEE_ALLOWANCE))
+}
+
+/// Fee allowance for `stake_into_basket` and `swap_basket`, in fund rows. Both declare a
+/// `MAX_BASKET_ROWS` (256) envelope plus the flat flush allowance for admission and
+/// refund to the rows they touched; the fee is capped as if the fund had this many rows
+/// (and as many queued credits to flush), the same figure the claim allowance uses.
+pub const BASKET_FEE_ALLOWANCE: u32 = STAKING_HOTKEYS_FEE_ALLOWANCE;
+
+/// Flush work one hotkey with `rows` queued credits and `rows` holdings can do (`4Q + 2H`
+/// quotes, `Q` rows; see `basket_flush_work_bound`), the same shape the claim allowance
+/// prices.
+fn basket_fee_flush_weight(rows: u32) -> Weight {
+    let rows = u64::from(rows);
+    pallet_subtensor::Pallet::<Runtime>::basket_flush_weight(BasketFlushWork::new(
+        rows.saturating_mul(6),
+        rows,
+    ))
+}
+
+/// Weight a `swap_basket` is charged for: one trade over [`BASKET_FEE_ALLOWANCE`] rows
+/// (the NAV sweep, both AMM legs and the two re-quotes) plus that many rows of flush.
+pub fn swap_basket_fee_weight() -> Weight {
+    pallet_subtensor::Pallet::<Runtime>::swap_basket_weight(u64::from(BASKET_FEE_ALLOWANCE))
+        .saturating_add(basket_fee_flush_weight(BASKET_FEE_ALLOWANCE))
+}
+
+/// Weight a `stake_into_basket` is charged for: one deployment across
+/// [`BASKET_FEE_ALLOWANCE`] slots (each slot may open one holding, so twice as many rows
+/// are swept) plus that many rows of flush.
+pub fn stake_into_basket_fee_weight() -> Weight {
+    let rows = u64::from(BASKET_FEE_ALLOWANCE);
+    pallet_subtensor::Pallet::<Runtime>::stake_into_basket_weight(rows, rows.saturating_mul(2))
+        .saturating_add(basket_fee_flush_weight(BASKET_FEE_ALLOWANCE))
+}
+
+fn basket_discount(call: &RuntimeCall) -> Weight {
+    match call {
+        RuntimeCall::SubtensorModule(SubtensorCall::swap_basket { .. }) => {
+            pallet_subtensor::Pallet::<Runtime>::swap_basket_declared_weight()
+                .saturating_sub(swap_basket_fee_weight())
+        }
+        RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket { .. }) => {
+            pallet_subtensor::Pallet::<Runtime>::stake_into_basket_declared_weight()
+                .saturating_sub(stake_into_basket_fee_weight())
+        }
+        _ => Weight::zero(),
+    }
 }
 
 /// Declared `call_weight` (ref_time) each call quoted on spec 459: `payment_queryInfo`
@@ -149,7 +197,8 @@ fn claim_discount(call: &RuntimeCall) -> Weight {
 pub fn leaf_fee_weight(call: &RuntimeCall, declared: Weight) -> Weight {
     let fee_weight = declared
         .saturating_sub(staking_scan_discount(call))
-        .saturating_sub(claim_discount(call));
+        .saturating_sub(claim_discount(call))
+        .saturating_sub(basket_discount(call));
     match fee_weight_cap_459(call) {
         Some(cap) => fee_weight.min(cap),
         None => fee_weight,
@@ -474,6 +523,124 @@ mod tests {
             );
             assert_eq!(Runtime::fee_discount_overhead(&call), Weight::zero());
         });
+    }
+
+    fn swap_basket() -> RuntimeCall {
+        RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+            hotkey: AccountId::from([2_u8; 32]),
+            origin_netuid: NetUid::from(1),
+            destination_netuid: NetUid::from(2),
+            amount: AlphaBalance::new(1_000_000),
+            min_amount_out: 0,
+        })
+    }
+
+    fn stake_into_basket() -> RuntimeCall {
+        RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket {
+            hotkey: AccountId::from([2_u8; 32]),
+            amount_staked: Balance::new(1_000_000),
+        })
+    }
+
+    /// Each basket call with the envelope its dispatch declares and the weight it is billed.
+    fn basket_cases() -> [(RuntimeCall, Weight, Weight); 2] {
+        [
+            (
+                swap_basket(),
+                SubtensorModule::swap_basket_declared_weight(),
+                swap_basket_fee_weight(),
+            ),
+            (
+                stake_into_basket(),
+                SubtensorModule::stake_into_basket_declared_weight(),
+                stake_into_basket_fee_weight(),
+            ),
+        ]
+    }
+
+    #[test]
+    fn basket_fee_estimate_prices_the_allowance_and_reports_full_execution_weight() {
+        new_test_ext().execute_with(|| {
+            assert_eq!(BASKET_FEE_ALLOWANCE, 4);
+            for (call, declared, fee_weight) in basket_cases() {
+                assert!(fee_weight.all_lt(declared));
+                let info = call.get_dispatch_info();
+                assert_eq!(info.call_weight, declared.saturating_add(extension()));
+
+                let discount = discount(&call);
+                assert_eq!(discount, declared.saturating_sub(fee_weight));
+                assert!(discount.all_lt(info.call_weight));
+                assert_eq!(Runtime::fee_discount_overhead(&call), Weight::zero());
+
+                let expected_info = DispatchInfo {
+                    call_weight: capped(&call, fee_weight.saturating_add(extension())),
+                    ..info
+                };
+                let quote = query_info(&call, &info, 100, false);
+                assert_eq!(quote.weight, info.total_weight());
+                assert_eq!(
+                    quote.partial_fee,
+                    TransactionPayment::compute_fee(100, &expected_info, Balance::ZERO)
+                );
+                assert!(
+                    quote.partial_fee < TransactionPayment::compute_fee(100, &info, Balance::ZERO)
+                );
+            }
+        });
+    }
+
+    /// A basket call that fails after reporting its actual weight is charged that weight
+    /// when it is below the allowance, and the allowance otherwise — never the envelope.
+    #[test]
+    fn failed_basket_calls_pay_their_reported_work_capped_at_the_allowance() {
+        let light = SubtensorModule::swap_basket_precheck_weight();
+        for (call, declared, fee_weight) in basket_cases() {
+            for execution_weight in [light, fee_weight, declared] {
+                new_test_ext().execute_with(|| {
+                    let tip = Balance::new(1_000_000);
+                    let payment = ChargeTransactionPaymentWrapper::<Runtime>::new(tip);
+                    let info = DispatchInfo {
+                        extension_weight: payment.weight(&call),
+                        ..call.get_dispatch_info()
+                    };
+                    let fee_info = fee_dispatch_info(&info, discount(&call));
+                    let charged_info = DispatchInfo {
+                        call_weight: execution_weight.min(fee_info.call_weight),
+                        ..info
+                    };
+                    let before = Balances::free_balance(signer());
+                    let result = payment
+                        .test_run(
+                            RuntimeOrigin::signed(signer()),
+                            &call,
+                            &info,
+                            100,
+                            0,
+                            |_| {
+                                Err(SubtensorModule::fail_with_weight(
+                                    sp_runtime::DispatchError::Other("failed"),
+                                    execution_weight,
+                                ))
+                            },
+                        )
+                        .unwrap();
+                    assert!(result.is_err());
+                    let charged = before.saturating_sub(Balances::free_balance(signer()));
+                    assert_eq!(
+                        charged,
+                        TransactionPayment::compute_fee(100, &charged_info, tip)
+                    );
+                    let allowance = TransactionPayment::compute_fee(100, &fee_info, tip);
+                    if execution_weight == light {
+                        assert!(charged < allowance, "a refused call pays its pre-checks");
+                    } else if execution_weight == declared {
+                        assert_eq!(charged, allowance, "heavy failures pay the allowance only");
+                    } else {
+                        assert!(charged <= allowance, "never above the allowance");
+                    }
+                });
+            }
+        }
     }
 
     #[test]

@@ -626,13 +626,13 @@ pub fn register_ok_neuron(
     let result = SubtensorModule::burned_register(origin.clone(), netuid, hotkey_account_id);
 
     match result {
-        Ok(()) => {
+        Ok(_) => {
             // success
         }
         Err(e)
-            if e == Error::<Test>::TooManyRegistrationsThisInterval.into()
-                || e == Error::<Test>::NotEnoughBalanceToStake.into()
-                || e == Error::<Test>::ZeroBalanceAfterWithdrawn.into() =>
+            if e.error == Error::<Test>::TooManyRegistrationsThisInterval.into()
+                || e.error == Error::<Test>::NotEnoughBalanceToStake.into()
+                || e.error == Error::<Test>::ZeroBalanceAfterWithdrawn.into() =>
         {
             // Re-top-up and retry once (burn can be state-dependent).
             top_up_for_burn(netuid, coldkey_account_id);

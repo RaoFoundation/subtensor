@@ -15,7 +15,7 @@ future operations sign with the new coldkey.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_coldkey_announced`](/code/pallets/subtensor/src/macros/dispatches.rs#L2395-L2421) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_coldkey_announced`](/code/pallets/subtensor/src/macros/dispatches.rs#L2381-L2419) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("swap_coldkey_announced", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_coldkey_announced` — [`pallets/subtensor/src/macros/dispatches.rs#L2397`](/code/pallets/subtensor/src/macros/dispatches.rs#L2395-L2421):
+`SubtensorModule.swap_coldkey_announced` — [`pallets/subtensor/src/macros/dispatches.rs#L2383`](/code/pallets/subtensor/src/macros/dispatches.rs#L2381-L2419):
 
 ```rust
 #[pallet::call_index(126)]
@@ -75,18 +75,30 @@ pub fn swap_coldkey_announced(
 ) -> DispatchResultWithPostInfo {
     let who = ensure_signed(origin)?;
 
-    let (when, new_coldkey_hash) = ColdkeySwapAnnouncements::<T>::take(who.clone())
-        .ok_or(Error::<T>::ColdkeySwapAnnouncementNotFound)?;
+    // A swap refused by the announcement checks read one row; charge that plus
+    // the benchmarked base, not the envelope of `MAX_COLDKEY_SWAP_POSITIONS`
+    // stake transfers.
+    let base = <T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced();
+    let precheck = base.saturating_add(T::DbWeight::get().reads(1));
+    let (when, new_coldkey_hash) = ColdkeySwapAnnouncements::<T>::take(who.clone()).ok_or(
+        Self::fail_with_weight(Error::<T>::ColdkeySwapAnnouncementNotFound, precheck),
+    )?;
 
     ensure!(
         new_coldkey_hash == T::Hashing::hash_of(&new_coldkey),
-        Error::<T>::AnnouncedColdkeyHashDoesNotMatch
+        Self::fail_with_weight(Error::<T>::AnnouncedColdkeyHashDoesNotMatch, precheck)
     );
 
     let now = <frame_system::Pallet<T>>::block_number();
-    ensure!(now >= when, Error::<T>::ColdkeySwapTooEarly);
+    ensure!(
+        now >= when,
+        Self::fail_with_weight(Error::<T>::ColdkeySwapTooEarly, precheck)
+    );
 
-    let work = Self::do_swap_coldkey(&who, &new_coldkey)?;
+    let work =
+        Self::do_swap_coldkey_tracked(&who, &new_coldkey).map_err(|(done, error)| {
+            Self::fail_with_weight(error, base.saturating_add(done))
+        })?;
 
     Ok((
         Some(Self::swap_coldkey_announced_actual_weight(work)),
@@ -96,6 +108,6 @@ pub fn swap_coldkey_announced(
 }
 ```
 
-Delegates to [`do_swap_coldkey`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L85), [`swap_coldkey_announced_actual_weight`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L62).
+Delegates to [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1298), [`do_swap_coldkey_tracked`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L114), [`swap_coldkey_announced_actual_weight`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L62).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

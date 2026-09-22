@@ -792,7 +792,7 @@ fn test_do_swap_hotkey_err_not_owner() {
         add_balance_to_coldkey_account(&not_owner_coldkey, swap_cost);
 
         // Attempt the swap with a non-owner coldkey
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(not_owner_coldkey),
                 &old_hotkey,
@@ -820,7 +820,7 @@ fn test_swap_owner_old_hotkey_not_exist() {
         assert!(!Owner::<Test>::contains_key(old_hotkey));
 
         // Perform the swap
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
@@ -855,7 +855,7 @@ fn test_swap_owner_new_hotkey_owned_by_another_coldkey() {
 
         // Perform the swap
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
@@ -891,7 +891,7 @@ fn test_swap_owner_new_hotkey_already_exists() {
 
         // Perform the swap
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
@@ -1113,7 +1113,7 @@ fn test_swap_hotkey_error_cases() {
 
         // Test new hotkey same as old
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
@@ -1127,7 +1127,7 @@ fn test_swap_hotkey_error_cases() {
         // Test new hotkey already registered
         IsNetworkMember::<Test>::insert(new_hotkey, netuid, true);
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
@@ -1140,7 +1140,7 @@ fn test_swap_hotkey_error_cases() {
         IsNetworkMember::<Test>::remove(new_hotkey, netuid);
 
         // Test non-associated coldkey
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(wrong_coldkey),
                 &old_hotkey,

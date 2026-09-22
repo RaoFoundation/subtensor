@@ -49,12 +49,7 @@ impl<T: Config> Pallet<T> {
         if !touches_root {
             return Weight::zero();
         }
-        let claimed_rows = BasketClaimed::<T>::iter_prefix(old_hotkey).count() as u64;
-        let pending_rows = PendingBasketDeposits::<T>::iter_prefix(old_hotkey).count() as u64;
-        let used_rows = BasketLiquidityUsed::<T>::iter_prefix(old_hotkey).count() as u64;
-        let rows = claimed_rows
-            .saturating_add(pending_rows)
-            .saturating_add(used_rows);
+        let rows = Self::basket_claimed_swap_rows(old_hotkey);
         // One read per scanned row + remove/insert pair per row. Three prefix
         // heads are covered by the +1 / +2 slack on the first map plus the
         // extra reads here being cheaper than an under-reservation.
@@ -62,6 +57,40 @@ impl<T: Config> Pallet<T> {
             rows.saturating_mul(2).saturating_add(3),
             rows.saturating_mul(2),
         )
+    }
+
+    /// Basket rows keyed by `old_hotkey` that a root-touching swap moves: claim
+    /// watermarks, queued deposits and liquidity-flow rows.
+    fn basket_claimed_swap_rows(old_hotkey: &T::AccountId) -> u64 {
+        let claimed_rows = BasketClaimed::<T>::iter_prefix(old_hotkey).count() as u64;
+        let pending_rows = PendingBasketDeposits::<T>::iter_prefix(old_hotkey).count() as u64;
+        let used_rows = BasketLiquidityUsed::<T>::iter_prefix(old_hotkey).count() as u64;
+        claimed_rows
+            .saturating_add(pending_rows)
+            .saturating_add(used_rows)
+    }
+
+    /// Weight a single-subnet swap refused by [`Self::check_swap_hotkey`] is charged: the
+    /// pre-checks read the subnet, the owners (twice each), the new hotkey's account, one
+    /// collateral row and one membership row (eight reads at most), and for root the
+    /// clean-root state — seed state, `BasketRate`, `BasketShares`, the root stake,
+    /// `RootClaimable` and the first `RootClaimed` row (six more) — a fixed set of single
+    /// reads priced at twenty, plus the basket row count taken twice on a root swap (once
+    /// by the declaration, once here). Nothing is written before they pass, so a refused
+    /// swap does not pay the benchmarked stake-moving envelope. All-subnet refusals are
+    /// not priced here: their checks walk the subnet list and the membership prefix, which
+    /// no stored count bounds, so they keep the declaration.
+    pub fn swap_hotkey_precheck_weight(
+        old_hotkey: &T::AccountId,
+        netuid: &Option<NetUid>,
+    ) -> Weight {
+        let basket_rows = match netuid {
+            Some(n) if *n == NetUid::ROOT => {
+                Self::basket_claimed_swap_rows(old_hotkey).saturating_mul(2)
+            }
+            _ => 0,
+        };
+        T::DbWeight::get().reads(basket_rows.saturating_add(20))
     }
 
     /// Read and merge the old hotkey's V1/V2 stake rows once. V2 keeps the
@@ -117,6 +146,34 @@ impl<T: Config> Pallet<T> {
         // // 1. Ensure the origin is signed and get the coldkey
         let coldkey = ensure_signed(origin)?;
 
+        // 2-8. Read-only pre-checks. A single-subnet swap refused here is charged those
+        // reads, not the benchmarked stake-moving envelope. An all-subnet swap's checks walk
+        // the subnet list and the new hotkey's membership prefix, neither bounded by a
+        // stored count, so their meter is not provably complete: that refusal keeps the
+        // declaration.
+        let weight = Self::check_swap_hotkey(&coldkey, old_hotkey, new_hotkey, netuid, keep_stake)
+            .map_err(|error| match netuid {
+                Some(_) => Self::fail_with_weight(
+                    error,
+                    Self::swap_hotkey_precheck_weight(old_hotkey, &netuid),
+                ),
+                None => error.into(),
+            })?;
+
+        Self::execute_swap_hotkey(&coldkey, old_hotkey, new_hotkey, netuid, keep_stake, weight)
+    }
+
+    /// The read-only preconditions of a hotkey swap: subnet existence, ownership of both
+    /// keys, distinct keys, the `keep_stake` collateral rule, the new hotkey's registration
+    /// and (on a root-touching swap) its clean root state. Returns the reads accrued so far.
+    fn check_swap_hotkey(
+        coldkey: &T::AccountId,
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+        netuid: Option<NetUid>,
+        keep_stake: bool,
+    ) -> Result<Weight, DispatchError> {
+        let coldkey = coldkey.clone();
         if let Some(netuid) = netuid {
             ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         }
@@ -160,9 +217,6 @@ impl<T: Config> Pallet<T> {
                     .reads(Self::get_all_subnet_netuids().len().saturating_mul(1) as u64),
             });
         }
-
-        // 6. Get the current block number
-        let block: u64 = Self::get_current_block_as_u64();
 
         match netuid {
             // 8. Ensure the hotkey is not registered on the network before, if netuid is provided
@@ -209,30 +263,66 @@ impl<T: Config> Pallet<T> {
                 Error::<T>::NewHotKeyNotCleanForRootSwap
             );
         }
+        Ok(weight)
+    }
 
+    /// The stake scan and the transactional body of a hotkey swap, after
+    /// [`Self::check_swap_hotkey`] passed. `weight` is what the pre-checks accrued.
+    fn execute_swap_hotkey(
+        coldkey: &T::AccountId,
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+        netuid: Option<NetUid>,
+        keep_stake: bool,
+        mut weight: Weight,
+    ) -> DispatchResultWithPostInfo {
+        let coldkey = coldkey.clone();
+        let block: u64 = Self::get_current_block_as_u64();
         // Read and group stake once before any hotkey-swap mutation. Execution
-        // reuses this snapshot instead of rescanning both prefixes per subnet.
+        // reuses this snapshot instead of rescanning both prefixes per subnet. The scan
+        // has no admission cap, so it is charged at its real length (one read per
+        // position) to anything that fails after it.
         let prepared_stake = if keep_stake {
             None
         } else {
-            Some(Self::prepare_hotkey_stake(old_hotkey))
+            let prepared = Self::prepare_hotkey_stake(old_hotkey);
+            weight.saturating_accrue(T::DbWeight::get().reads(prepared.positions.len() as u64));
+            Some(prepared)
         };
 
         // Preflight collateral-index capacity before charging or writing so a
         // full-cap / unindexed legacy row cannot fail mid-swap. The mutation
         // body below is also transactional for any other fallible path.
         if !keep_stake {
-            Self::ensure_hotkey_collateral_swappable(old_hotkey, new_hotkey, &coldkey, netuid)?;
             weight.saturating_accrue(match netuid {
                 Some(_) => T::DbWeight::get().reads(2),
                 None => T::DbWeight::get()
                     .reads(Self::get_all_subnet_netuids().len().saturating_mul(2) as u64),
             });
+            // A single-subnet refusal here is charged additively: the pre-check figure
+            // (which covers the reads the pre-checks do not meter) plus everything accrued
+            // since — the position scan and the collateral reads. Evaluated on failure
+            // only: it rescans the basket rows. An all-subnet refusal keeps the declaration
+            // (see `do_swap_hotkey`).
+            Self::ensure_hotkey_collateral_swappable(old_hotkey, new_hotkey, &coldkey, netuid)
+                .map_err(|error| match netuid {
+                    Some(_) => Self::fail_with_weight(
+                        error,
+                        weight
+                            .saturating_add(Self::swap_hotkey_precheck_weight(old_hotkey, &netuid)),
+                    ),
+                    None => error.into(),
+                })?;
         }
 
         // All fee charges and storage mutations run in one storage transaction
         // so a late failure (including collateral index) rolls back ownership,
         // membership, UID, fee, and other writes together.
+        //
+        // A failure inside the transaction keeps the declared weight on every path: the
+        // body's meter is partial (it walks `NetworksAdded` more than it charges), so the
+        // envelope is the only honest figure there — as it is for the stake-moving
+        // success path.
         with_transaction(|| {
             let result = (|| -> DispatchResultWithPostInfo {
                 // Swap LastTxBlockDelegateTake / ChildKeyTake.

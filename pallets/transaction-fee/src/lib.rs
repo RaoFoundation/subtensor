@@ -95,6 +95,12 @@ pub trait AlphaFeeHandler<T: frame_system::Config> {
         alpha_vec: &[(AccountIdOf<T>, NetUid)],
         tao_amount: TaoBalance,
     ) -> Result<(AlphaBalance, TaoBalance, NetUid), TransactionValidityError>;
+    /// Give `tao_amount` of an alpha-paid fee back to `coldkey`, in TAO: the TAO recycled
+    /// at withdraw is re-issued to the payer's free balance, the same refund a TAO payer
+    /// gets. Returns what was refunded, or `None` (nothing changed) when the deposit cannot
+    /// land (below the existential deposit for a payer without an account), in which case
+    /// the charge stays final as before spec 469.
+    fn refund_alpha_payer(coldkey: &AccountIdOf<T>, tao_amount: TaoBalance) -> Option<TaoBalance>;
     fn get_all_netuids_for_coldkey_and_hotkey(
         coldkey: &AccountIdOf<T>,
         hotkey: &AccountIdOf<T>,
@@ -127,6 +133,26 @@ where
             *total = total.saturating_sub(amount);
         });
         drop(imbalance);
+    }
+}
+
+impl<T> TransactionFeeHandler<T>
+where
+    T: frame_system::Config + pallet_subtensor::Config,
+{
+    /// The fee sale is an exit like any other: it may not sell a subnet's alpha while its
+    /// token is disabled, nor root stake still inside `RootStakeUnlockInterval`. Since
+    /// spec 469 the unused part of the fee comes back to the payer as TAO, so without
+    /// these gates the fee path would be a fee-free, hold-exempt exit.
+    fn alpha_fee_source_may_leave(
+        coldkey: &AccountIdOf<T>,
+        hotkey: &AccountIdOf<T>,
+        netuid: NetUid,
+    ) -> bool {
+        pallet_subtensor::SubtokenEnabled::<T>::get(netuid)
+            && (!netuid.is_root()
+                || pallet_subtensor::Pallet::<T>::ensure_root_stake_unlocked(coldkey, hotkey)
+                    .is_ok())
     }
 }
 
@@ -168,7 +194,9 @@ where
                 *netuid,
                 tao_amount.into(),
             );
-            !alpha_fee.is_zero() && available >= alpha_fee
+            !alpha_fee.is_zero()
+                && available >= alpha_fee
+                && Self::alpha_fee_source_may_leave(coldkey, hotkey, *netuid)
         } else {
             false
         }
@@ -195,7 +223,7 @@ where
                 alpha_equivalent = available;
             }
             let alpha_fee = alpha_equivalent.min(available);
-            if alpha_fee.is_zero() {
+            if alpha_fee.is_zero() || !Self::alpha_fee_source_may_leave(coldkey, hotkey, *netuid) {
                 return Err(InvalidTransaction::Payment.into());
             }
 
@@ -220,7 +248,7 @@ where
                         alpha_fee,
                         0.into(),
                         true,
-                        false,
+                        true,
                     ) {
                         Ok(tao_amount) => {
                             match pallet_subtensor::Pallet::<T>::recycle_tao(
@@ -243,6 +271,32 @@ where
         } else {
             Ok((0.into(), 0.into(), NetUid::ROOT))
         }
+    }
+
+    fn refund_alpha_payer(coldkey: &AccountIdOf<T>, tao_amount: TaoBalance) -> Option<TaoBalance> {
+        if tao_amount.is_zero() {
+            return None;
+        }
+        // Re-issue the over-recycled TAO to the payer, in one storage transaction so a
+        // deposit that cannot land (no account to hold it) also rolls the re-issue back.
+        with_transaction(
+            || -> TransactionOutcome<Result<TaoBalance, DispatchError>> {
+                let credit = pallet_subtensor::Pallet::<T>::mint_tao(tao_amount);
+                if credit.peek() != tao_amount {
+                    return TransactionOutcome::Rollback(Err(
+                        pallet_subtensor::Error::<T>::InsufficientTaoBalance.into(),
+                    ));
+                }
+                match pallet_subtensor::Pallet::<T>::spend_tao(coldkey, credit, tao_amount) {
+                    Ok(_) => TransactionOutcome::Commit(Ok(tao_amount)),
+                    Err(_) => TransactionOutcome::Rollback(Err(
+                        pallet_subtensor::Error::<T>::InsufficientTaoBalance.into(),
+                    )),
+                }
+            },
+        )
+        .map_err(|err| log::debug!("Alpha fee refund not applied, charge stays final: {err:?}"))
+        .ok()
     }
 
     fn get_all_netuids_for_coldkey_and_hotkey(
@@ -499,15 +553,20 @@ where
                     OU::on_unbalanceds(Some(fee).into_iter().chain(Some(tip)));
                 }
                 WithdrawnFee::Alpha((alpha_fee, tao_amount, netuid)) => {
+                    // Spec 469: alpha payers are refunded like TAO payers. The alpha sold at
+                    // withdraw covered the declared fee; the TAO the call did not use is
+                    // re-issued to the payer. A refund too small to open an account for a
+                    // payer without one rolls back and the charge stays final.
+                    let refund_tao = tao_amount.saturating_sub(corrected_fee.into());
+                    let refunded = OU::refund_alpha_payer(who, refund_tao).unwrap_or_default();
                     frame_system::Pallet::<T>::deposit_event(
                         pallet_subtensor::Event::<T>::TransactionFeePaidWithAlpha {
                             who: who.clone(),
                             netuid,
                             alpha_fee,
-                            tao_amount,
+                            tao_amount: tao_amount.saturating_sub(refunded),
                         },
                     );
-                    // Subtensor does not refund Alpha fees, charges are final
                 }
             }
         }

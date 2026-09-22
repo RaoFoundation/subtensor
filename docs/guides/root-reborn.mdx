@@ -286,7 +286,9 @@ root-stakes to.
   dust rows a claim skips) pay a small per-row cost — so a fund littered with
   dust positions gets cheaper to claim after its first claim, not more
   expensive forever. A claim that is admitted and then fails is charged for
-  the work it did, not the declared envelope.
+  the work it did, not the declared envelope — and since spec 469 so is every
+  other heavy call (stake exits, `unstake_all`, basket deposits and trades,
+  key swaps, registration, lease termination), for TAO and alpha payers alike.
 
 ### What existing root stakers should know
 

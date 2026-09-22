@@ -367,29 +367,63 @@ impl<T: Config> Pallet<T> {
         hotkey: T::AccountId,
         tao: TaoBalance,
     ) -> Result<Weight, DispatchError> {
+        Self::do_stake_into_basket_tracked(coldkey, hotkey, tao).map_err(|(_, err)| err)
+    }
+
+    /// The read-only preconditions of `stake_into_basket`: seed idle, hotkey exists and is
+    /// on root, the caller's `StakingHotkeys` can grow, amount at least the minimum, and
+    /// the caller can pay. Nothing is written before they pass, so a deposit refused here
+    /// is charged [`Self::stake_into_basket_precheck_weight`] only.
+    pub(crate) fn check_stake_into_basket(
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+        tao: TaoBalance,
+    ) -> Result<(), Error<T>> {
         Self::ensure_beta_basket_seed_idle()?;
         ensure!(
-            Self::hotkey_account_exists(&hotkey),
+            Self::hotkey_account_exists(hotkey),
             Error::<T>::HotKeyAccountNotExists
         );
         // Direct deposits open per-(caller, validator) entitlement state. Restricting
         // the target to a live root uid caps the validator axis at MaxAllowedUids on
         // root, the same bound as a normal root-stake position.
         ensure!(
-            Self::is_hotkey_registered_on_network(NetUid::ROOT, &hotkey),
+            Self::is_hotkey_registered_on_network(NetUid::ROOT, hotkey),
             Error::<T>::HotKeyNotRegisteredInSubNet
         );
         // A deposit registers the validator in the caller's `StakingHotkeys` (claims walk it).
-        Self::ensure_staking_hotkeys_can_grow(&coldkey, &hotkey)?;
+        Self::ensure_staking_hotkeys_can_grow(coldkey, hotkey)?;
+        ensure!(tao >= DefaultMinStake::<T>::get(), Error::<T>::AmountTooLow);
+        ensure!(
+            Self::can_remove_balance_from_coldkey_account(coldkey, tao.into()),
+            Error::<T>::NotEnoughBalanceToStake
+        );
+        Ok(())
+    }
+
+    /// Reads [`Self::check_stake_into_basket`] performs at most: the seed state, the
+    /// hotkey owner, root membership, the caller's `StakingHotkeys`, the minimum stake,
+    /// and the caller's account.
+    pub fn stake_into_basket_precheck_weight() -> Weight {
+        T::DbWeight::get().reads(8)
+    }
+
+    /// [`Self::do_stake_into_basket`] that also reports the weight of the work a failed
+    /// deposit did — its pre-checks, or the flush and the rolled-back deployment — so the
+    /// dispatcher charges that instead of the declared 256-slot envelope.
+    pub fn do_stake_into_basket_tracked(
+        coldkey: T::AccountId,
+        hotkey: T::AccountId,
+        tao: TaoBalance,
+    ) -> Result<Weight, (Weight, DispatchError)> {
+        let precheck = Self::stake_into_basket_precheck_weight();
+        Self::check_stake_into_basket(&coldkey, &hotkey, tao)
+            .map_err(|err| (precheck, err.into()))?;
         // Deposit queued dividend credits first so the share mint below prices against
         // the fund's full, current NAV. The flush work is priced into the post-dispatch
         // weight; the declared weight carries its flat allowance.
         let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(&hotkey);
-        ensure!(tao >= DefaultMinStake::<T>::get(), Error::<T>::AmountTooLow);
-        ensure!(
-            Self::can_remove_balance_from_coldkey_account(&coldkey, tao.into()),
-            Error::<T>::NotEnoughBalanceToStake
-        );
+        let flush_weight = Self::basket_flush_weight(flush_work);
 
         // The deployment slots are the holdings the deposit mirrors, or the single root
         // cash slot that opens an empty fund. Each slot can add at most one new holding, so
@@ -398,13 +432,19 @@ impl<T: Config> Pallet<T> {
         let holdings = Self::get_basket_holdings(&hotkey);
         let num_slots = (holdings.len() as u64).max(1);
         let num_holdings = (holdings.len() as u64).saturating_add(num_slots);
+        // A rolled-back deployment still valued the fund and bought up to every slot
+        // before failing; charge the whole deployment over the real counts.
+        let failed_weight = Self::stake_into_basket_weight(num_slots, num_holdings)
+            .saturating_add(flush_weight)
+            .saturating_add(precheck);
 
-        with_transaction(|| {
-            match Self::try_stake_into_basket(&coldkey, &hotkey, tao, &holdings) {
+        with_transaction(
+            || match Self::try_stake_into_basket(&coldkey, &hotkey, tao, &holdings) {
                 Ok(()) => TransactionOutcome::Commit(Ok(())),
                 Err(err) => TransactionOutcome::Rollback(Err(err)),
-            }
-        })?;
+            },
+        )
+        .map_err(|err| (failed_weight, err))?;
 
         // A fund's very first successful mint stamps its frozen display baseline
         // (index splice). No-op (one read) for every later deposit.
@@ -412,7 +452,7 @@ impl<T: Config> Pallet<T> {
 
         Ok(
             Self::stake_into_basket_weight(num_slots, num_holdings.saturating_add(stamp_work))
-                .saturating_add(Self::basket_flush_weight(flush_work)),
+                .saturating_add(flush_weight),
         )
     }
 
@@ -505,7 +545,7 @@ impl<T: Config> Pallet<T> {
     /// account, a swap, the escrow stake write, and protocol-flow bookkeeping. Per holding:
     /// two `sim_swap` valuations (the `nav_before` / `nav_after` sweeps), plus one stake-position
     /// lookup to verify the quantity acquired for direct-deposit share issuance.
-    pub(crate) fn stake_into_basket_weight(num_slots: u64, num_holdings: u64) -> Weight {
+    pub fn stake_into_basket_weight(num_slots: u64, num_holdings: u64) -> Weight {
         Weight::from_parts(25_000_000, 4000)
             .saturating_add(T::DbWeight::get().reads(6_u64))
             .saturating_add(T::DbWeight::get().writes(5_u64))
@@ -519,7 +559,7 @@ impl<T: Config> Pallet<T> {
     /// as deployment slots over the row cap of holdings, plus the flat pending-deposit flush allowance
     /// ([`Self::basket_flush_weight_bound`]) shared by every extrinsic that flushes. Refunded
     /// to actual post-dispatch.
-    pub(crate) fn stake_into_basket_declared_weight() -> Weight {
+    pub fn stake_into_basket_declared_weight() -> Weight {
         Self::stake_into_basket_weight(MAX_BASKET_ROWS, MAX_BASKET_ROWS)
             .saturating_add(Self::basket_flush_weight_bound())
     }

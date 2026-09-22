@@ -78,6 +78,14 @@ await client.execute(bt.RemoveStake(hotkey_ss58="5F...", netuid=1, amount_alpha=
 accepted by add, remove, move, swap, move-swap, and transfer stake intents,
 including the add/remove limit variants where applicable.
 
+If you build calls yourself, do not size a follow-up from a `StakeAdded` event:
+a position is stored as pool shares and reads back truncated, so the alpha the
+event reports can be one rao above what the position returns, and a
+`transfer_stake` for that figure fails with `NotEnoughStakeToWithdraw`. Pass
+`alpha_amount = u64::MAX` instead: since spec 469 every debit call
+(`move_stake*`, `transfer_stake*`, `swap_stake*`) reads it as "the whole live
+position at execution" and leaves no dust behind.
+
 To bound the execution price instead of accepting whatever the pool gives, use
 [`add-stake-limit`](/docs/tx/add-stake-limit) /
 [`remove-stake-limit`](/docs/tx/remove-stake-limit). Compute the limit from the

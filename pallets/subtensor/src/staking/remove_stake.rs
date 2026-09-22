@@ -133,6 +133,26 @@ impl<T: Config> Pallet<T> {
         origin: OriginFor<T>,
         hotkey: T::AccountId,
     ) -> Result<UnstakeAllWork, DispatchError> {
+        Self::do_unstake_all_tracked(origin, hotkey).map_err(|(_, err)| err)
+    }
+
+    /// [`Self::do_unstake_all`] that, on failure, also returns the work done up to the
+    /// failing subnet so the dispatcher charges that instead of the declared envelope.
+    pub fn do_unstake_all_tracked(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+    ) -> Result<UnstakeAllWork, (UnstakeAllWork, DispatchError)> {
+        let mut work = UnstakeAllWork::default();
+        Self::do_unstake_all_into(origin, hotkey, &mut work)
+            .map(|()| work)
+            .map_err(|err| (work, err))
+    }
+
+    fn do_unstake_all_into(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+        work: &mut UnstakeAllWork,
+    ) -> DispatchResult {
         // 1. We check the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
         let coldkey = ensure_signed(origin)?;
         log::debug!("do_unstake_all( origin:{coldkey:?} hotkey:{hotkey:?} )");
@@ -149,13 +169,12 @@ impl<T: Config> Pallet<T> {
 
         // 4. Iterate through subnets and remove stake, stopping at the admission
         // envelope so the declared weight stays under the normal-class block.
-        let mut work = UnstakeAllWork::default();
         for netuid in netuids.into_iter() {
             if work.validated >= crate::MAX_UNSTAKE_ALL_LEGS {
                 break;
             }
             if let Some(alpha_unstaked) =
-                Self::unstake_all_consider_subnet(&mut work, &coldkey, &hotkey, netuid)
+                Self::unstake_all_consider_subnet(work, &coldkey, &hotkey, netuid)
             {
                 work.legs = work.legs.saturating_add(1);
                 Self::unstake_from_subnet(
@@ -176,7 +195,7 @@ impl<T: Config> Pallet<T> {
         Self::queue_childkey_threshold_check(&hotkey);
 
         // 6. Done and ok.
-        Ok(work)
+        Ok(())
     }
 
     /// Decide whether one subnet in an `unstake_all*` loop is a cheap skip, a
@@ -303,6 +322,26 @@ impl<T: Config> Pallet<T> {
         origin: OriginFor<T>,
         hotkey: T::AccountId,
     ) -> Result<UnstakeAllWork, DispatchError> {
+        Self::do_unstake_all_alpha_tracked(origin, hotkey).map_err(|(_, err)| err)
+    }
+
+    /// [`Self::do_unstake_all_alpha`] that, on failure, also returns the work done up to the
+    /// failing subnet so the dispatcher charges that instead of the declared envelope.
+    pub fn do_unstake_all_alpha_tracked(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+    ) -> Result<UnstakeAllWork, (UnstakeAllWork, DispatchError)> {
+        let mut work = UnstakeAllWork::default();
+        Self::do_unstake_all_alpha_into(origin, hotkey, &mut work)
+            .map(|()| work)
+            .map_err(|err| (work, err))
+    }
+
+    fn do_unstake_all_alpha_into(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+        work: &mut UnstakeAllWork,
+    ) -> DispatchResult {
         // 1. We check the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
         let coldkey = ensure_signed(origin)?;
         Self::ensure_beta_basket_seed_idle()?;
@@ -320,7 +359,6 @@ impl<T: Config> Pallet<T> {
 
         // 4. Iterate through non-root subnets and remove stake, stopping at the
         // admission envelope so the declared weight stays under the normal-class block.
-        let mut work = UnstakeAllWork::default();
         let mut total_tao_unstaked = TaoBalance::ZERO;
         for netuid in netuids.into_iter() {
             if work.validated >= crate::MAX_UNSTAKE_ALL_LEGS {
@@ -331,7 +369,7 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
             if let Some(alpha_unstaked) =
-                Self::unstake_all_consider_subnet(&mut work, &coldkey, &hotkey, netuid)
+                Self::unstake_all_consider_subnet(work, &coldkey, &hotkey, netuid)
             {
                 work.legs = work.legs.saturating_add(1);
                 let tao_unstaked = Self::unstake_from_subnet(
@@ -363,7 +401,7 @@ impl<T: Config> Pallet<T> {
         Self::queue_childkey_threshold_check(&hotkey);
 
         // 6. Done and ok.
-        Ok(work)
+        Ok(())
     }
 
     /// The implementation for the extrinsic remove_stake_limit: Removes stake from

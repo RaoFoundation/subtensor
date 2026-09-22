@@ -28,10 +28,10 @@ use crate::{
     SubtokenEnabled, TotalStake, Uids,
 };
 use codec::Encode;
+use frame_support::assert_ok;
 use frame_support::dispatch::DispatchResultWithPostInfo;
 use frame_support::traits::{ExtendedDispatchable, Get};
 use frame_support::weights::Weight;
-use frame_support::{assert_noop, assert_ok};
 use sp_core::U256;
 use sp_runtime::traits::Hash;
 use substrate_fixed::types::{I96F32, U64F64};
@@ -433,7 +433,7 @@ fn test_swap_basket_rejects_when_trading_disabled() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         BasketTradingEnabled::<Test>::put(false);
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::BasketTradingDisabled
         );
@@ -445,7 +445,7 @@ fn test_swap_basket_rejects_when_frozen() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         BasketTradingFrozen::<Test>::insert(fund.hotkey, ());
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::BasketTradingFrozen
         );
@@ -458,11 +458,11 @@ fn test_swap_basket_rejects_when_frozen() {
 fn test_swap_basket_rejects_same_subnet() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_a, TRADE),
             Error::<Test>::BasketSameSubnet
         );
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, NetUid::ROOT, NetUid::ROOT, TRADE),
             Error::<Test>::BasketSameSubnet
         );
@@ -474,7 +474,7 @@ fn test_swap_basket_rejects_non_owner_coldkey() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         let stranger = U256::from(777);
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::swap_basket(
                 RuntimeOrigin::signed(stranger),
                 fund.hotkey,
@@ -486,7 +486,7 @@ fn test_swap_basket_rejects_non_owner_coldkey() {
             Error::<Test>::NonAssociatedColdKey
         );
         // A hotkey with no account at all is also "not owned".
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::swap_basket(
                 RuntimeOrigin::signed(fund.coldkey),
                 U256::from(778),
@@ -505,7 +505,7 @@ fn test_swap_basket_rejects_hotkey_not_on_root() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         Uids::<Test>::remove(NetUid::ROOT, fund.hotkey);
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::HotKeyNotRegisteredInSubNet
         );
@@ -517,7 +517,7 @@ fn test_swap_basket_rejects_while_seed_migration_in_progress() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         kickoff_seed_beta_basket_v2::<Test>();
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::BetaBasketSeedInProgress
         );
@@ -564,11 +564,11 @@ fn test_swap_basket_rejects_nonexistent_subnets() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         let missing = NetUid::from(99u16);
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, missing, TRADE),
             Error::<Test>::SubnetNotExists
         );
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, missing, fund.netuid_a, TRADE),
             Error::<Test>::SubnetNotExists
         );
@@ -580,7 +580,7 @@ fn test_swap_basket_rejects_subtoken_disabled_destination() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         SubtokenEnabled::<Test>::insert(fund.netuid_b, false);
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SubtokenDisabled
         );
@@ -591,13 +591,13 @@ fn test_swap_basket_rejects_subtoken_disabled_destination() {
 fn test_swap_basket_rejects_zero_and_dust_amounts() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, 0),
             Error::<Test>::AmountTooLow
         );
         // Positive, but the TAO through the middle lands below `DefaultMinStake`.
         let dust = DefaultMinStake::<Test>::get().to_u64() / 2;
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, dust),
             Error::<Test>::AmountTooLow
         );
@@ -609,12 +609,12 @@ fn test_swap_basket_rejects_more_than_held() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         let held = escrow_alpha(&fund.hotkey, fund.netuid_a);
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, held + 1),
             Error::<Test>::NotEnoughStakeToWithdraw
         );
         // An empty origin (no cash yet) fails the same way.
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, NetUid::ROOT, fund.netuid_b, TRADE),
             Error::<Test>::NotEnoughStakeToWithdraw
         );
@@ -633,7 +633,7 @@ fn test_swap_basket_buy_refused_when_spot_above_ema_band() {
         let fund = setup_fund();
         // Spot is 1.0; a moving price of 0.9 puts the ceiling at 0.918.
         SubnetMovingPrice::<Test>::insert(fund.netuid_b, I96F32::from_num(0.9));
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SlippageTooHigh
         );
@@ -648,7 +648,7 @@ fn test_swap_basket_sell_refused_when_spot_below_ema_band() {
         let fund = setup_fund();
         // Spot is 1.0; a moving price of 1.1 puts the floor at 1.078.
         SubnetMovingPrice::<Test>::insert(fund.netuid_a, I96F32::from_num(1.1));
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SlippageTooHigh
         );
@@ -661,13 +661,13 @@ fn test_swap_basket_refused_without_moving_price() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         SubnetMovingPrice::<Test>::insert(fund.netuid_b, I96F32::from_num(0));
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SlippageTooHigh
         );
         SubnetMovingPrice::<Test>::insert(fund.netuid_b, I96F32::from_num(1));
         SubnetMovingPrice::<Test>::insert(fund.netuid_a, I96F32::from_num(0));
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SlippageTooHigh
         );
@@ -676,13 +676,13 @@ fn test_swap_basket_refused_without_moving_price() {
         // The fast anchor is required too: a subnet not yet updated since the fast series
         // was introduced (or never emitting) is refused on either leg.
         SubnetFastMovingPrice::<Test>::remove(fund.netuid_b);
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SlippageTooHigh
         );
         SubnetFastMovingPrice::<Test>::insert(fund.netuid_b, U64F64::from_num(1));
         SubnetFastMovingPrice::<Test>::remove(fund.netuid_a);
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SlippageTooHigh
         );
@@ -700,7 +700,7 @@ fn test_swap_basket_buy_refused_when_own_impact_exceeds_band() {
         // 10 TAO / 10 alpha: a 4 TAO buy would move the price ~96%.
         SubnetTAO::<Test>::insert(fund.netuid_b, TaoBalance::from(10_000_000u64));
         SubnetAlphaIn::<Test>::insert(fund.netuid_b, AlphaBalance::from(10_000_000u64));
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SlippageTooHigh
         );
@@ -714,7 +714,7 @@ fn test_swap_basket_sell_refused_when_own_impact_exceeds_band() {
         let fund = setup_fund();
         SubnetTAO::<Test>::insert(fund.netuid_a, TaoBalance::from(10_000_000u64));
         SubnetAlphaIn::<Test>::insert(fund.netuid_a, AlphaBalance::from(10_000_000u64));
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SlippageTooHigh
         );
@@ -776,6 +776,58 @@ fn test_swap_basket_failed_second_leg_leaves_no_partial_state() {
             e.event,
             RuntimeEvent::SubtensorModule(Event::BasketSwapped { .. })
         )));
+    });
+}
+
+/// Spec 469 regression (Yuma, finney v468): a `swap_basket` sized at ~1% of the destination
+/// reserve with `min_amount_out = 0` is refused by the 2% protocol band (`SlippageTooHigh`)
+/// after the sell leg ran and rolled back. It used to keep the 256-row declared envelope
+/// (0.43 TAO quoted); it now reports the pre-checks, the flush and one trade over the
+/// fund's real row count — never the envelope, never below the valuation sweep it did.
+#[test]
+fn regression_failed_swap_basket_pays_its_work_not_the_envelope() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        // A thin destination: the trade's own impact pushes the buy leg out of the band.
+        let reserve_tao = 100 * TRADE;
+        SubnetTAO::<Test>::insert(fund.netuid_b, TaoBalance::from(reserve_tao));
+        SubnetAlphaIn::<Test>::insert(fund.netuid_b, AlphaBalance::from(reserve_tao));
+        let rows = SubtensorModule::get_basket_holdings(&fund.hotkey).len() as u64;
+        assert_eq!(rows, 1, "the fund holds A only before the trade");
+
+        let err = swap(&fund, fund.netuid_a, fund.netuid_b, TRADE).expect_err("band refuses");
+        assert_eq!(err.error, Error::<Test>::SlippageTooHigh.into());
+        let actual = err
+            .post_info
+            .actual_weight
+            .expect("a failed trade reports the weight it used");
+
+        let precheck = SubtensorModule::swap_basket_precheck_weight();
+        let one_trade = SubtensorModule::swap_basket_weight(rows);
+        // Nothing was queued, so the flush contributed nothing: exactly base + scan.
+        assert_eq!(actual, one_trade.saturating_add(precheck));
+        assert!(
+            actual.all_gte(one_trade),
+            "never below the valuation sweep it did"
+        );
+        assert!(
+            actual.ref_time() * 20 < SubtensorModule::swap_basket_declared_weight().ref_time(),
+            "a failed trade over one row is a small fraction of the 256-row envelope"
+        );
+        assert!(!System::events().iter().any(|e| matches!(
+            e.event,
+            RuntimeEvent::SubtensorModule(Event::BasketSwapped { .. })
+        )));
+
+        // A successful trade still refunds to its actual row count.
+        SubnetTAO::<Test>::insert(fund.netuid_b, TaoBalance::from(100_000 * TRADE));
+        SubnetAlphaIn::<Test>::insert(fund.netuid_b, AlphaBalance::from(100_000 * TRADE));
+        let post = swap(&fund, fund.netuid_a, fund.netuid_b, TRADE).expect("trade succeeds");
+        assert_eq!(
+            post.actual_weight,
+            Some(SubtensorModule::swap_basket_weight(2)),
+            "two rows after the trade, no flush"
+        );
     });
 }
 
@@ -861,11 +913,11 @@ fn test_swap_basket_min_out_not_met_fails_and_rolls_back() {
         let flow_b = SubnetProtocolFlow::<Test>::get(fund.netuid_b);
         let before = entitlements(&fund);
 
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap_with_min(&fund, fund.netuid_a, fund.netuid_b, TRADE, quoted + 1),
             Error::<Test>::BasketMinOutNotMet
         );
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap_with_min(&fund, fund.netuid_a, fund.netuid_b, TRADE, u64::MAX),
             Error::<Test>::BasketMinOutNotMet
         );
@@ -895,7 +947,7 @@ fn test_swap_basket_min_out_not_met_fails_and_rolls_back() {
         // is still refused as `SlippageTooHigh`, not as a missed floor.
         SubnetTAO::<Test>::insert(fund.netuid_b, TaoBalance::from(10_000_000u64));
         SubnetAlphaIn::<Test>::insert(fund.netuid_b, AlphaBalance::from(10_000_000u64));
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap_with_min(&fund, fund.netuid_a, fund.netuid_b, TRADE, u64::MAX),
             Error::<Test>::SlippageTooHigh
         );
@@ -920,7 +972,7 @@ fn test_swap_basket_min_out_on_cash_slot_uses_tao_units() {
 
         // Alpha -> cash: a floor of `TRADE` alpha-equivalents cannot be met (the sell leg
         // pays fees and slippage), one rao above the true TAO proceeds cannot either.
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap_with_min(&fund, fund.netuid_a, NetUid::ROOT, TRADE, tao_out + 1),
             Error::<Test>::BasketMinOutNotMet
         );
@@ -940,7 +992,7 @@ fn test_swap_basket_min_out_on_cash_slot_uses_tao_units() {
         // so the buy leg alone decides; `tao_out` TAO buys a little less than `tao_out`
         // alpha at price 1, and asking for exactly `tao_out` alpha is refused.
         refill_turnover_bucket(&fund.hotkey);
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap_with_min(&fund, NetUid::ROOT, fund.netuid_b, tao_out, tao_out),
             Error::<Test>::BasketMinOutNotMet
         );
@@ -1004,7 +1056,7 @@ fn test_swap_basket_turnover_bucket_drains_refuses_and_refills() {
             "each trade takes its tao_mid out of the bucket"
         );
 
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::BasketTurnoverBudgetExceeded
         );
@@ -1024,7 +1076,7 @@ fn test_swap_basket_turnover_bucket_drains_refuses_and_refills() {
             status.tao_available
         );
         assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, TRADE));
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::BasketTurnoverBudgetExceeded
         );
@@ -1080,19 +1132,19 @@ fn test_swap_basket_refuses_destination_over_concentration_cap() {
         let held = escrow_alpha(&fund.hotkey, fund.netuid_a);
 
         // 60% of the fund into B: over the cap.
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, held * 6 / 10),
             Error::<Test>::BasketConcentrationCapExceeded
         );
         // 40% is fine.
         assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, held * 4 / 10));
         // Topping B up past the cap is refused even though this trade alone is small.
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, held * 2 / 10),
             Error::<Test>::BasketConcentrationCapExceeded
         );
         // The cash slot is a destination like any other.
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, NetUid::ROOT, held * 6 / 10),
             Error::<Test>::BasketConcentrationCapExceeded
         );
@@ -1121,7 +1173,7 @@ fn test_swap_basket_allows_selling_out_of_over_cap_position() {
         // B holds 100% (> 50%): selling 30% of it back into A is allowed ...
         assert_ok!(swap(&fund, fund.netuid_b, fund.netuid_a, held_b * 3 / 10));
         // ... but moving 60% would put A over the cap.
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_b, fund.netuid_a, held_b * 6 / 10),
             Error::<Test>::BasketConcentrationCapExceeded
         );
@@ -1187,7 +1239,7 @@ fn test_swap_basket_freeze_and_bucket_follow_hotkey_swap() {
             hotkey: new_hotkey,
             ..fund
         };
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&new_fund, new_fund.netuid_b, new_fund.netuid_a, TRADE),
             Error::<Test>::BasketTradingFrozen
         );
@@ -1465,7 +1517,7 @@ fn finding_2_2_bucket_denies_a_second_budget_in_the_adjacent_block() {
             level < budget / 100,
             "bucket nearly empty: {level} of {budget}"
         );
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::BasketTurnoverBudgetExceeded
         );
@@ -1476,11 +1528,11 @@ fn finding_2_2_bucket_denies_a_second_budget_in_the_adjacent_block() {
         let per_block = budget / BASKET_TRADE_REFILL_BLOCKS;
         let status = SubtensorModule::get_basket_trading_status(&fund.hotkey);
         assert!(status.tao_available.to_u64() <= level + per_block + 1);
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, budget / 2),
             Error::<Test>::BasketTurnoverBudgetExceeded
         );
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::BasketTurnoverBudgetExceeded
         );
@@ -1556,11 +1608,11 @@ fn finding_crash_lock_blocks_selling_a_falling_holding() {
         // Spot is 1.0 on both pools. A's EMA is 5% above spot: the fund holds A and cannot
         // sell any of it — into another subnet or into cash.
         SubnetMovingPrice::<Test>::insert(fund.netuid_a, I96F32::from_num(1.0 / 0.95));
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SlippageTooHigh
         );
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, NetUid::ROOT, TRADE),
             Error::<Test>::SlippageTooHigh
         );
@@ -1568,7 +1620,7 @@ fn finding_crash_lock_blocks_selling_a_falling_holding() {
 
         // B's EMA is 5% below spot: the fund cannot buy B.
         SubnetMovingPrice::<Test>::insert(fund.netuid_b, I96F32::from_num(0.95));
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SlippageTooHigh
         );
@@ -1596,7 +1648,7 @@ fn finding_cash_slot_is_capped_at_concentration_cap() {
 
         let held = escrow_alpha(&fund.hotkey, fund.netuid_a);
         // 10% of the fund into cash: refused.
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, NetUid::ROOT, held / 10),
             Error::<Test>::BasketConcentrationCapExceeded
         );

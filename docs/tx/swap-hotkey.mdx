@@ -23,7 +23,7 @@ instead.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L862-L875) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L858-L871) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("swap_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L868`](/code/pallets/subtensor/src/macros/dispatches.rs#L862-L875):
+`SubtensorModule.swap_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L864`](/code/pallets/subtensor/src/macros/dispatches.rs#L858-L871):
 
 ```rust
 #[pallet::call_index(70)]
@@ -93,6 +93,6 @@ pub fn swap_hotkey(
 }
 ```
 
-Delegates to [`do_swap_hotkey`](/code/pallets/subtensor/src/swap/swap_hotkey.rs#L110).
+Delegates to [`do_swap_hotkey`](/code/pallets/subtensor/src/swap/swap_hotkey.rs#L139).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

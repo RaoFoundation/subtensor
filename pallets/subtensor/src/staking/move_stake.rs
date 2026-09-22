@@ -128,12 +128,18 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// `AlphaBalance::MAX` means "the live origin position".
+    /// `AlphaBalance::MAX` means "the live origin position", on every call that debits a
+    /// position: `move_stake*`, `transfer_stake*` and `swap_stake*`.
     ///
     /// A client can batch `claim_root_with_hotkey` then `move_stake`. The claim
     /// first flushes pending basket deposits and restakes a payout that did not
     /// exist when the extrinsic was built, so a pre-execution quote cannot size
-    /// the follow-up. Other oversize amounts still fail `NotEnoughStakeToWithdraw`.
+    /// the follow-up. Likewise a position is stored as pool shares, and reading it back
+    /// truncates, so the alpha a `StakeAdded` event reports can read one rao above what the
+    /// position returns; a client that replays that figure into `transfer_stake` would fail
+    /// (spec 469, v468 defect 1). The sentinel resolves the whole position against live
+    /// state at execution instead. Other oversize amounts still fail
+    /// `NotEnoughStakeToWithdraw`.
     fn cap_move_all_to_live_origin(
         origin_hotkey: &T::AccountId,
         origin_coldkey: &T::AccountId,
@@ -203,6 +209,8 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // Ensure the extrinsic is signed by the origin_coldkey.
         let coldkey = ensure_signed(origin)?;
+        let alpha_amount =
+            Self::cap_move_all_to_live_origin(&hotkey, &coldkey, origin_netuid, alpha_amount);
 
         // Validate input and move stake
         let tao_moved = Self::transition_stake_internal(
@@ -277,6 +285,12 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // Ensure the extrinsic is signed by the origin_coldkey.
         let coldkey = ensure_signed(origin)?;
+        let alpha_amount = Self::cap_move_all_to_live_origin(
+            &origin_hotkey,
+            &coldkey,
+            origin_netuid,
+            alpha_amount,
+        );
 
         // Validate input and move stake
         let tao_moved = Self::transition_stake_internal(
@@ -342,6 +356,8 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // Ensure the extrinsic is signed by the coldkey.
         let coldkey = ensure_signed(origin)?;
+        let alpha_amount =
+            Self::cap_move_all_to_live_origin(&hotkey, &coldkey, origin_netuid, alpha_amount);
 
         // Validate input and move stake
         let tao_moved = Self::transition_stake_internal(
@@ -409,6 +425,8 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // Ensure the extrinsic is signed by the coldkey.
         let coldkey = ensure_signed(origin)?;
+        let alpha_amount =
+            Self::cap_move_all_to_live_origin(&hotkey, &coldkey, origin_netuid, alpha_amount);
 
         // Validate input and move stake
         let tao_moved = Self::transition_stake_internal(

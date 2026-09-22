@@ -1235,7 +1235,10 @@ class SwapStake(Intent):
     any price. The two netuids must differ (``SameNetuid``). Use
     ``move_swap_stake`` (or ``move_stake``) when the hotkey should change too,
     and ``remove_stake`` plus ``add_stake`` only if you want to control each
-    leg separately. Pass ``all`` to swap the entire origin position.
+    leg separately. Pass ``all`` to swap the entire origin position; on chain
+    (spec 469+) ``alpha_amount = u64::MAX`` means the same, resolved against the
+    live position at execution. A call that fails is charged the work it did,
+    not its declared weight.
     """
 
     op = "swap_stake"
@@ -1436,7 +1439,12 @@ class TransferStake(Intent):
     the subnet owner has disabled stake transfers on the origin or destination
     subnet. A spend-cap policy treats this as an unbounded spend and blocks it
     until the cap is raised. Use ``move_stake`` to re-delegate without changing
-    owners. Pass ``all`` to hand over the entire origin position.
+    owners. Pass ``all`` to hand over the entire origin position; on chain
+    (spec 469+) ``alpha_amount = u64::MAX`` means the same and is resolved
+    against the live position at execution, so a figure copied from a
+    ``StakeAdded`` event — which can read one rao above the position — is not
+    needed. A call that fails is charged the work it did, not its declared
+    weight.
     """
 
     op = "transfer_stake"
@@ -1647,7 +1655,9 @@ class StakeIntoBasket(Intent):
     root stake, and they do not change anyone's dividend accrual.
     Redeem them later with ``claim_root_with_hotkey``. Pass ``all`` to
     deploy the whole free balance minus the existential deposit and a
-    small fee headroom.
+    small fee headroom. Fee (spec 469+): billed as if the fund had four
+    rows (about τ0.005) while the 256-slot envelope is only reserved for
+    admission; a refused deposit pays its pre-check reads.
     """
 
     op = "stake_into_basket"
@@ -1735,6 +1745,11 @@ class SwapBasket(Intent):
     destination is netuid 0), after fees, or the whole trade rolls back with
     ``BasketMinOutNotMet``. The default ``0`` sets no floor. ``btcli root
     swap`` derives it from a quote and ``--max-slippage``.
+
+    Fee (spec 469+): the call declares a 256-row envelope for admission but is
+    billed as if the fund had four rows and four queued credits to flush
+    (about τ0.006), and a trade that is refused or rolls back pays only the
+    pre-checks and the valuation sweep it did, never the envelope.
     """
 
     op = "swap_basket"

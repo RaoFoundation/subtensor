@@ -43,10 +43,26 @@ done
 # ts-tests/node_modules so the run is not cold.
 if [[ -n "$REV" ]]; then
   REV=$(git rev-parse --verify "$REV^{commit}")
+  # The pushed revision is this checkout's clean HEAD: gate it here. The verdict is
+  # about the same tree, the caches are warm, and the wasm builder is not asked to
+  # build one runtime from two checkout paths through one target dir (its build
+  # script is shared per package and resolves the workspace `[patch]` paths against
+  # the checkout that compiled it, which fails with "package collision in the
+  # lockfile" for the vendored crates).
+  if [[ "$REV" == "$(git rev-parse HEAD)" && -z "$(git status --porcelain --untracked-files=no)" ]]; then
+    echo "gating commit ${REV:0:9}: clean HEAD of this checkout"
+    exec "$ROOT/scripts/preflight.sh" ${PASSTHRU[@]:+"${PASSTHRU[@]}"}
+  fi
   WT=$(mktemp -d "${TMPDIR:-/tmp}/preflight-wt.XXXXXX")
   trap 'git worktree remove --force "$WT" 2>/dev/null || rm -rf "$WT"' EXIT
   git worktree add --detach -q "$WT" "$REV"
   export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$ROOT/target}
+  # The wasm builder keeps its own lockfile under wbuild/, recording vendored path
+  # dependencies by absolute path. One left behind by a build from another checkout
+  # (the main tree, or an earlier worktree) collides with this worktree's paths
+  # ("package collision in the lockfile"). Drop them; the builder re-derives them
+  # from the workspace Cargo.lock, so nothing is re-resolved.
+  find "$CARGO_TARGET_DIR" -maxdepth 4 -path '*/wbuild/*/Cargo.lock' -delete 2>/dev/null || true
   export UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT:-$ROOT/sdk/python/.venv}
   export PYTHONPATH=$WT/sdk/python${PYTHONPATH:+:$PYTHONPATH} # editable install points at $ROOT
   [[ ! -d $ROOT/ts-tests/node_modules || -e $WT/ts-tests/node_modules ]] || ln -s "$ROOT/ts-tests/node_modules" "$WT/ts-tests/node_modules"

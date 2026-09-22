@@ -515,6 +515,249 @@ fn test_do_move_oversize_non_max_still_fails() {
     });
 }
 
+/// v468 defect 1 (spec 469). A position is stored as pool shares; reading it back truncates,
+/// so the alpha `move_stake` credits (and reports in `StakeAdded`) can read one rao short.
+/// Builds a hotkey pool whose value-per-share is not a whole number, moves an odd amount
+/// into an empty position, and returns `(netuid, coldkey, hotkey, moved, readable)` with
+/// `readable < moved`. Panics if no amount in a small range reproduces the gap, so the
+/// fixture cannot silently stop testing the defect.
+fn inexact_pool_position() -> (NetUid, U256, U256, AlphaBalance, AlphaBalance) {
+    let subnet_owner_coldkey = U256::from(1001);
+    let subnet_owner_hotkey = U256::from(1002);
+    let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+    let coldkey = U256::from(1);
+    let other_member = U256::from(4);
+    let origin_hotkey = U256::from(2);
+    let hotkey = U256::from(3);
+    let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &origin_hotkey);
+    let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
+    let _ = SubtensorModule::create_account_if_non_existent(&other_member, &hotkey);
+
+    // Another member plus a shareless emission make value / share a non-terminating ratio.
+    mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+        &hotkey,
+        &other_member,
+        netuid,
+        AlphaBalance::from(86_737_855_666_u64),
+    );
+    SubtensorModule::increase_stake_for_hotkey_on_subnet(
+        &hotkey,
+        netuid,
+        AlphaBalance::from(699_304_510_829_u64),
+    );
+
+    for candidate in 0_u64..64 {
+        let moved = AlphaBalance::from(6_658_030_659_780_u64.saturating_add(candidate));
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &origin_hotkey,
+            &coldkey,
+            netuid,
+            moved,
+        );
+        assert_ok!(SubtensorModule::do_move_stake(
+            RuntimeOrigin::signed(coldkey),
+            origin_hotkey,
+            hotkey,
+            netuid,
+            netuid,
+            AlphaBalance::MAX,
+        ));
+        let readable =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
+        assert!(
+            readable <= moved,
+            "a read never exceeds the credited amount"
+        );
+        if readable < moved {
+            return (netuid, coldkey, hotkey, moved, readable);
+        }
+        // Exact this time: give the position back and try the next amount.
+        assert_ok!(SubtensorModule::do_move_stake(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            origin_hotkey,
+            netuid,
+            netuid,
+            AlphaBalance::MAX,
+        ));
+    }
+    panic!("no amount in range reproduces the one-rao read truncation");
+}
+
+/// Replaying the credited amount into `transfer_stake` fails by one rao (the v468
+/// symptom); `AlphaBalance::MAX` resolves the whole position at execution and succeeds.
+#[test]
+fn test_transfer_max_caps_to_live_origin_in_inexact_pool() {
+    new_test_ext(1).execute_with(|| {
+        let (netuid, coldkey, hotkey, moved, readable) = inexact_pool_position();
+        let destination_coldkey = U256::from(5);
+        assert_eq!(
+            readable,
+            moved - 1.into(),
+            "the live case is short by one rao"
+        );
+
+        crate::assert_noop_ignore_postinfo!(
+            SubtensorModule::transfer_stake(
+                RuntimeOrigin::signed(coldkey),
+                destination_coldkey,
+                hotkey,
+                netuid,
+                netuid,
+                moved,
+            ),
+            Error::<Test>::NotEnoughStakeToWithdraw
+        );
+
+        assert_ok!(SubtensorModule::transfer_stake(
+            RuntimeOrigin::signed(coldkey),
+            destination_coldkey,
+            hotkey,
+            netuid,
+            netuid,
+            AlphaBalance::MAX,
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
+            AlphaBalance::ZERO
+        );
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &destination_coldkey,
+                netuid
+            ),
+            readable,
+            epsilon = 2.into()
+        );
+    });
+}
+
+#[test]
+fn test_transfer_stake_and_hotkey_max_caps_to_live_origin() {
+    new_test_ext(1).execute_with(|| {
+        let (netuid, coldkey, hotkey, _moved, readable) = inexact_pool_position();
+        let destination_coldkey = U256::from(5);
+        let destination_hotkey = U256::from(6);
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &destination_hotkey);
+
+        assert_ok!(SubtensorModule::transfer_stake_and_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            destination_coldkey,
+            hotkey,
+            destination_hotkey,
+            netuid,
+            netuid,
+            AlphaBalance::MAX,
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
+            AlphaBalance::ZERO
+        );
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &destination_hotkey,
+                &destination_coldkey,
+                netuid
+            ),
+            readable,
+            epsilon = 2.into()
+        );
+    });
+}
+
+#[test]
+fn test_swap_stake_max_caps_to_live_origin() {
+    new_test_ext(1).execute_with(|| {
+        let (netuid, coldkey, hotkey, _moved, _readable) = inexact_pool_position();
+        let other_owner_coldkey = U256::from(2001);
+        let other_owner_hotkey = U256::from(2002);
+        let destination_netuid = add_dynamic_network(&other_owner_hotkey, &other_owner_coldkey);
+        SubtensorModule::set_tao_weight(u64::MAX);
+
+        assert_ok!(SubtensorModule::swap_stake(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            netuid,
+            destination_netuid,
+            AlphaBalance::MAX,
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
+            AlphaBalance::ZERO
+        );
+        assert!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                destination_netuid
+            ) > AlphaBalance::ZERO
+        );
+    });
+}
+
+#[test]
+fn test_swap_stake_limit_max_caps_to_live_origin() {
+    new_test_ext(1).execute_with(|| {
+        let (netuid, coldkey, hotkey, _moved, _readable) = inexact_pool_position();
+        let other_owner_coldkey = U256::from(2001);
+        let other_owner_hotkey = U256::from(2002);
+        let destination_netuid = add_dynamic_network(&other_owner_hotkey, &other_owner_coldkey);
+        SubtensorModule::set_tao_weight(u64::MAX);
+
+        // A zero relative limit price accepts any fill, so the whole position moves.
+        assert_ok!(SubtensorModule::swap_stake_limit(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            netuid,
+            destination_netuid,
+            AlphaBalance::MAX,
+            TaoBalance::ZERO,
+            false,
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
+            AlphaBalance::ZERO,
+            "the whole live position was swapped"
+        );
+    });
+}
+
+/// An explicit oversize amount that is not the sentinel still fails, on every debit call.
+#[test]
+fn test_transfer_and_swap_oversize_non_max_still_fail() {
+    new_test_ext(1).execute_with(|| {
+        let (netuid, coldkey, hotkey, moved, _readable) = inexact_pool_position();
+        let destination_coldkey = U256::from(5);
+        let other_owner_coldkey = U256::from(2001);
+        let other_owner_hotkey = U256::from(2002);
+        let destination_netuid = add_dynamic_network(&other_owner_hotkey, &other_owner_coldkey);
+        let oversize = moved + 1.into();
+
+        crate::assert_noop_ignore_postinfo!(
+            SubtensorModule::transfer_stake(
+                RuntimeOrigin::signed(coldkey),
+                destination_coldkey,
+                hotkey,
+                netuid,
+                netuid,
+                oversize,
+            ),
+            Error::<Test>::NotEnoughStakeToWithdraw
+        );
+        crate::assert_noop_ignore_postinfo!(
+            SubtensorModule::swap_stake(
+                RuntimeOrigin::signed(coldkey),
+                hotkey,
+                netuid,
+                destination_netuid,
+                oversize,
+            ),
+            Error::<Test>::NotEnoughStakeToWithdraw
+        );
+    });
+}
+
 // 10. test_do_move_multiple_times
 // Description: Test moving stake multiple times between the same hotkeys
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::move_stake::test_do_move_multiple_times --exact --show-output
@@ -990,7 +1233,7 @@ fn test_moving_too_little_unstakes() {
             (amount.to_u64() + fee * 2).into()
         ));
 
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::move_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
