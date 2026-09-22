@@ -71,8 +71,11 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Weight a swap refused by [`Self::check_swap_hotkey`] is charged: the pre-checks
-    /// read the owners, the new hotkey's account and root state, up to two rows per
-    /// subnet (membership and collateral), and the basket row count taken twice on a
+    /// read the owners, the new hotkey's account and root state, and on an all-subnet
+    /// `keep_stake` swap walk the subnet list up to four times (`NetworksAdded` and
+    /// `MinerCollateral` for the collateral rule, `NetworksAdded` again to price it,
+    /// `IsNetworkMember` for the registration rule) — charged as six reads per subnet to
+    /// cover stored inactive rows — plus the basket row count taken twice on a
     /// root-touching swap (once by the declaration, once here). Nothing is written
     /// before they pass, so a refused swap does not pay the benchmarked stake-moving
     /// envelope.
@@ -92,7 +95,7 @@ impl<T: Config> Pallet<T> {
         };
         T::DbWeight::get().reads(
             subnets
-                .saturating_mul(2)
+                .saturating_mul(6)
                 .saturating_add(12)
                 .saturating_add(basket_rows),
         )

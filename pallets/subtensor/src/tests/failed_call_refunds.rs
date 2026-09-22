@@ -316,6 +316,51 @@ fn refused_swap_hotkey_pays_its_prechecks() {
     });
 }
 
+/// An all-subnet `keep_stake` swap passes the collateral rule (walking every subnet twice)
+/// and is refused by the registration rule (walking the memberships): the pre-check figure
+/// must cover every one of those subnet scans, so it grows with the subnet count and is
+/// never below the reads performed.
+#[test]
+fn refused_keep_stake_swap_hotkey_is_charged_every_subnet_scan() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let old_hotkey = U256::from(2);
+        let new_hotkey = U256::from(3);
+        let subnets = 6u16;
+        for raw in 1..=subnets {
+            add_network(NetUid::from(raw), 1, 0);
+            register_ok_neuron(NetUid::from(raw), old_hotkey, coldkey, 0);
+        }
+        // The new hotkey is already registered somewhere: refused after the collateral walk.
+        register_ok_neuron(NetUid::from(1), new_hotkey, coldkey, 0);
+        add_balance_to_coldkey_account(&coldkey, TaoBalance::from(10_000_000_000_u64));
+        let actual = failed_weight(
+            SubtensorModule::swap_hotkey_v2(
+                RuntimeOrigin::signed(coldkey),
+                old_hotkey,
+                new_hotkey,
+                None,
+                true,
+            ),
+            Error::<Test>::HotKeyAlreadyRegisteredInSubNet,
+        );
+        assert_eq!(
+            actual,
+            SubtensorModule::swap_hotkey_precheck_weight(&old_hotkey, &None)
+        );
+        // At least: NetworksAdded + MinerCollateral per subnet (collateral rule),
+        // NetworksAdded again (its pricing), IsNetworkMember per membership.
+        let scans = <Test as frame_system::Config>::DbWeight::get()
+            .reads(u64::from(TotalNetworks::<Test>::get()).saturating_mul(4));
+        assert!(actual.all_gte(scans), "{actual:?} covers {scans:?}");
+        assert!(
+            actual.ref_time()
+                < SubtensorModule::swap_hotkey_v2_dispatch_weight(&old_hotkey, &None, true)
+                    .ref_time()
+        );
+    });
+}
+
 /// A hotkey swap that fails inside its transaction keeps the declared weight on every
 /// path, `keep_stake` included: the body's meter walks `NetworksAdded` more than it
 /// charges, so the envelope is the only honest figure there.
