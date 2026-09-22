@@ -45,6 +45,12 @@ Prefer the narrowest type that covers the job:
   [`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814), [`register_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L2242-L2249)).
 - **ChildKeys** — [`set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093-L1101) and [`set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L935-L945).
 - **RootClaim** — [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1905-L1939) and [`claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1941-L1970).
+- **BasketTrading** — `swap_basket` only.
+- **Validate** (spec 470+) — validator hotkey operations: all weights calls,
+  `serve_axon` / `serve_axon_tls` / `serve_prometheus`, `associate_evm_key`,
+  and `Commitments.set_commitment`. Nothing that moves stake or TAO.
+- **Weights** (spec 470+) — the weights calls only; a strict subset of
+  `Validate` for third-party weight setters.
 - **Owner** — subnet-owner admin calls; **NonCritical** — everything except
   registrations, coldkey swaps, and subnet dissolution;
   **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls.

@@ -63,6 +63,23 @@ Prefer the narrowest type that covers the job:
   [`register_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L2242-L2249)).
 * **ChildKeys** — [`set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093-L1101) and [`set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L935-L945);
   **RootClaim** — [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1905-L1939) and [`claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1941-L1970).
+  A staking service that also needs to claim root dividends grants both
+  `Staking` and `RootClaim` to the same delegate; `Proxy.proxy` picks
+  whichever grant covers the call.
+* **BasketTrading** — `swap_basket` only: rebalance a root validator's basket
+  without being able to deposit, withdraw, or claim.
+* **Validate** (spec 470+) — run a validator *hotkey* from an operations key:
+  every weights call (`set_weights`, `commit_weights`, `reveal_weights`,
+  their mechanism, timelocked, CRv3 and batch variants), `serve_axon`,
+  `serve_axon_tls`, `serve_prometheus`, `associate_evm_key`, and
+  `Commitments.set_commitment`. No stake, transfer, registration, key swap,
+  child-key, or take call, and no `Utility` / `Proxy` / `Multisig` wrapper.
+  The real is the hotkey, so the hotkey signs `add_proxy`. A leaked
+  `Validate` key can set bad weights and re-point the axon or EVM key; it
+  cannot move TAO or alpha.
+* **Weights** (spec 470+) — the weights calls only. Strictly inside
+  `Validate`: use it for a third-party weight setter (auditor model) that
+  must not be able to change where the subnet reaches or pays the neuron.
 * **Owner** — subnet-owner admin calls; **NonCritical** — everything except
   registrations, coldkey swaps, and subnet dissolution;
   **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls.
