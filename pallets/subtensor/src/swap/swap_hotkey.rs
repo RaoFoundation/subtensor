@@ -71,13 +71,15 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Weight a single-subnet swap refused by [`Self::check_swap_hotkey`] is charged: the
-    /// pre-checks read the subnet, the owners, the new hotkey's account, one collateral
-    /// row, one membership row and (for root) the clean-root state — a fixed set of single
-    /// reads — plus the basket row count taken twice on a root swap (once by the
-    /// declaration, once here). Nothing is written before they pass, so a refused swap
-    /// does not pay the benchmarked stake-moving envelope. All-subnet refusals are not
-    /// priced here: their checks walk the subnet list and the membership prefix, which no
-    /// stored count bounds, so they keep the declaration.
+    /// pre-checks read the subnet, the owners (twice each), the new hotkey's account, one
+    /// collateral row and one membership row (eight reads at most), and for root the
+    /// clean-root state — seed state, `BasketRate`, `BasketShares`, the root stake,
+    /// `RootClaimable` and the first `RootClaimed` row (six more) — a fixed set of single
+    /// reads priced at twenty, plus the basket row count taken twice on a root swap (once
+    /// by the declaration, once here). Nothing is written before they pass, so a refused
+    /// swap does not pay the benchmarked stake-moving envelope. All-subnet refusals are
+    /// not priced here: their checks walk the subnet list and the membership prefix, which
+    /// no stored count bounds, so they keep the declaration.
     pub fn swap_hotkey_precheck_weight(
         old_hotkey: &T::AccountId,
         netuid: &Option<NetUid>,
@@ -88,7 +90,7 @@ impl<T: Config> Pallet<T> {
             }
             _ => 0,
         };
-        T::DbWeight::get().reads(basket_rows.saturating_add(12))
+        T::DbWeight::get().reads(basket_rows.saturating_add(20))
     }
 
     /// Read and merge the old hotkey's V1/V2 stake rows once. V2 keeps the

@@ -319,6 +319,48 @@ fn refused_single_subnet_swap_hotkey_pays_its_prechecks() {
     });
 }
 
+/// The longest single-subnet refusal: a root swap that passes every ownership, collateral
+/// and membership check and is refused by the last clean-root rule (`RootClaimed` residue).
+/// It performs about fourteen single reads; the fixed pre-check figure covers them all.
+#[test]
+fn late_clean_root_refusal_is_charged_every_precheck_read() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(3);
+        let old_hotkey = U256::from(1);
+        let new_hotkey = U256::from(2);
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
+        TotalNetworks::<Test>::put(1);
+        Owner::<Test>::insert(old_hotkey, coldkey);
+        Owner::<Test>::insert(new_hotkey, coldkey);
+        add_balance_to_coldkey_account(&coldkey, TaoBalance::from(10_000_000_000_u64));
+        // Every earlier rule passes; only the legacy claim residue on the new hotkey fails.
+        RootClaimed::<Test>::insert((NetUid::ROOT, new_hotkey, U256::from(9)), 1u128);
+        let root = Some(NetUid::ROOT);
+        let actual = failed_weight(
+            SubtensorModule::swap_hotkey_v2(
+                RuntimeOrigin::signed(coldkey),
+                old_hotkey,
+                new_hotkey,
+                root,
+                true,
+            ),
+            Error::<Test>::NewHotKeyNotCleanForRootSwap,
+        );
+        assert_eq!(
+            actual,
+            SubtensorModule::swap_hotkey_precheck_weight(&old_hotkey, &root)
+        );
+        // Subnet, owners ×2 each, account, collateral, membership, seed state, BasketRate,
+        // BasketShares, root stake, RootClaimable, RootClaimed: fourteen reads.
+        assert!(actual.all_gte(<Test as frame_system::Config>::DbWeight::get().reads(14)));
+        assert!(
+            actual.ref_time()
+                < SubtensorModule::swap_hotkey_v2_dispatch_weight(&old_hotkey, &root, true)
+                    .ref_time()
+        );
+    });
+}
+
 /// An all-subnet swap's pre-checks walk the subnet list (collateral rule, twice) and the
 /// new hotkey's membership prefix; neither is bounded by a stored count, so a refusal there
 /// keeps the declared weight rather than a refund that could under-bill (skeptic 533f63c3).
