@@ -99,12 +99,14 @@ jobs:
         run: |
           set -euo pipefail
           deploy_root="${RUNNER_TEMP}/docs-preview-deploy"
-          output_root="${deploy_root}"
           test ! -e "${deploy_root}"
           python3 trusted-source/.github/scripts/docs_preview_bundle.py \
             extract \
             "${GITHUB_WORKSPACE}/artifact/docs-preview-sealed.tgz" \
-            "${output_root}"
+            "${deploy_root}"
+          # `vercel deploy --prebuilt` reads .vercel/output from its working
+          # directory, but also requires the project's Root Directory to exist.
+          mkdir -p "${deploy_root}/website/apps/bittensor-website"
           echo "root=${deploy_root}" >> "${GITHUB_OUTPUT}"
 
       - name: Audit preview project and pre-provisioned domain

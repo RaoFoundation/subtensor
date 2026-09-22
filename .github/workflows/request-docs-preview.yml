@@ -121,6 +121,8 @@ jobs:
             docs-preview-action.txt
           if-no-files-found: error
           retention-days: 1
+          # The sealed bundle is already gzip-compressed.
+          compression-level: 0
 
   request-cleanup:
     name: Request preview cleanup (no secrets)

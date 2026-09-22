@@ -37,7 +37,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_TERM_COLOR: always
   WS_ENDPOINT: ws://127.0.0.1:9944
   KEEP_ALIVE_MINUTES: 360
 

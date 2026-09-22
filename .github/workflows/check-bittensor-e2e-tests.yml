@@ -28,7 +28,6 @@ on:
         default: ""
 
 env:
-  CARGO_TERM_COLOR: always
   VERBOSE: ${{ github.event.inputs.verbose }}
   # The Rust SDK e2e harness reads LOCALNET_IMAGE from the environment. Test
   # jobs retag the CI image to this compatibility name locally; it is
@@ -239,7 +238,6 @@ jobs:
       - name: Set up cached Rust build environment
         uses: ./.github/actions/rust-setup
         with:
-          cache-key: rust-sdk-e2e-test-binary
           sccache-credential-mode: reader
 
       - name: Compile once and prove manifest completeness
@@ -310,7 +308,6 @@ jobs:
       - name: Set up cached Rust build environment
         uses: ./.github/actions/rust-setup
         with:
-          cache-key: rust-sdk-localnet-fast
           fast-linker: "false"
           sccache-credential-mode: reader
 
@@ -426,7 +423,7 @@ jobs:
       - build-rust-e2e-test-binary
       - build-localnet-image
     if: >-
-      always() &&
+      !cancelled() &&
       needs.plan.outputs.run_e2e == 'true' &&
       needs.build-rust-e2e-test-binary.result == 'success' &&
       (needs.build-localnet-image.result == 'success' || needs.build-localnet-image.result == 'skipped')

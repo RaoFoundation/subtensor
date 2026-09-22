@@ -12,9 +12,6 @@ concurrency:
   group: check-node-compat-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
   trusted-pr:
     name: Trusted PR source (non-fork)
