@@ -977,6 +977,19 @@ mod tests {
         }
     }
 
+    /// `Validate` reaches `Commitments::set_commitment`, which reserves
+    /// `InitialDeposit + fields * FieldDeposit` from the real. The "no value
+    /// movement" claim for `Validate` holds only while both are zero, so raising
+    /// either constant must force this grant to be re-evaluated.
+    #[test]
+    fn validate_commitment_grant_relies_on_zero_commitment_deposit() {
+        use frame_support::traits::Get;
+        use subtensor_runtime_common::TaoBalance;
+
+        assert_eq!(crate::CommitmentInitialDeposit::get(), TaoBalance::ZERO);
+        assert_eq!(crate::CommitmentFieldDeposit::get(), TaoBalance::ZERO);
+    }
+
     /// Executable-filter proof for `Validate` / `Weights`: value-moving, key, and
     /// wrapper calls are refused at dispatch (not only in the advertised
     /// metadata); `Weights` also refuses the serving / association / commitment
