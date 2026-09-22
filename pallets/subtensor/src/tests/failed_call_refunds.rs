@@ -271,8 +271,10 @@ fn refused_swap_basket_pays_its_prechecks() {
 
 // ---------------------------------------------------------- swap_hotkey* ---
 
+/// A single-subnet swap refused by its pre-checks pays the fixed pre-check reads: those
+/// checks read one row each (subnet, owners, account, collateral, membership).
 #[test]
-fn refused_swap_hotkey_pays_its_prechecks() {
+fn refused_single_subnet_swap_hotkey_pays_its_prechecks() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);
         let coldkey = U256::from(1);
@@ -280,14 +282,15 @@ fn refused_swap_hotkey_pays_its_prechecks() {
         let not_owner = U256::from(3);
         add_network(netuid, 1, 0);
         register_ok_neuron(netuid, old_hotkey, coldkey, 0);
-        let precheck = SubtensorModule::swap_hotkey_precheck_weight(&old_hotkey, &None);
+        let some = Some(netuid);
+        let precheck = SubtensorModule::swap_hotkey_precheck_weight(&old_hotkey, &some);
         for (result, error) in [
             (
                 SubtensorModule::swap_hotkey_v2(
                     RuntimeOrigin::signed(not_owner),
                     old_hotkey,
                     U256::from(4),
-                    None,
+                    some,
                     false,
                 ),
                 Error::<Test>::NonAssociatedColdKey,
@@ -297,7 +300,7 @@ fn refused_swap_hotkey_pays_its_prechecks() {
                     RuntimeOrigin::signed(coldkey),
                     old_hotkey,
                     old_hotkey,
-                    None,
+                    some,
                     false,
                 ),
                 Error::<Test>::NewHotKeyIsSameWithOld,
@@ -308,7 +311,7 @@ fn refused_swap_hotkey_pays_its_prechecks() {
             assert!(
                 actual.all_lt(SubtensorModule::swap_hotkey_v2_dispatch_weight(
                     &old_hotkey,
-                    &None,
+                    &some,
                     false
                 ))
             );
@@ -316,48 +319,40 @@ fn refused_swap_hotkey_pays_its_prechecks() {
     });
 }
 
-/// An all-subnet `keep_stake` swap passes the collateral rule (walking every subnet twice)
-/// and is refused by the registration rule (walking the memberships): the pre-check figure
-/// must cover every one of those subnet scans, so it grows with the subnet count and is
-/// never below the reads performed.
+/// An all-subnet swap's pre-checks walk the subnet list (collateral rule, twice) and the
+/// new hotkey's membership prefix; neither is bounded by a stored count, so a refusal there
+/// keeps the declared weight rather than a refund that could under-bill (skeptic 533f63c3).
 #[test]
-fn refused_keep_stake_swap_hotkey_is_charged_every_subnet_scan() {
+fn refused_all_subnet_swap_hotkey_keeps_the_declaration() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
         let old_hotkey = U256::from(2);
         let new_hotkey = U256::from(3);
-        let subnets = 6u16;
-        for raw in 1..=subnets {
+        for raw in 1..=6u16 {
             add_network(NetUid::from(raw), 1, 0);
             register_ok_neuron(NetUid::from(raw), old_hotkey, coldkey, 0);
         }
         // The new hotkey is already registered somewhere: refused after the collateral walk.
         register_ok_neuron(NetUid::from(1), new_hotkey, coldkey, 0);
         add_balance_to_coldkey_account(&coldkey, TaoBalance::from(10_000_000_000_u64));
-        let actual = failed_weight(
-            SubtensorModule::swap_hotkey_v2(
+        for keep_stake in [true, false] {
+            let err = SubtensorModule::swap_hotkey_v2(
                 RuntimeOrigin::signed(coldkey),
                 old_hotkey,
                 new_hotkey,
                 None,
-                true,
-            ),
-            Error::<Test>::HotKeyAlreadyRegisteredInSubNet,
-        );
-        assert_eq!(
-            actual,
-            SubtensorModule::swap_hotkey_precheck_weight(&old_hotkey, &None)
-        );
-        // At least: NetworksAdded + MinerCollateral per subnet (collateral rule),
-        // NetworksAdded again (its pricing), IsNetworkMember per membership.
-        let scans = <Test as frame_system::Config>::DbWeight::get()
-            .reads(u64::from(TotalNetworks::<Test>::get()).saturating_mul(4));
-        assert!(actual.all_gte(scans), "{actual:?} covers {scans:?}");
-        assert!(
-            actual.ref_time()
-                < SubtensorModule::swap_hotkey_v2_dispatch_weight(&old_hotkey, &None, true)
-                    .ref_time()
-        );
+                keep_stake,
+            )
+            .expect_err("refused");
+            assert_eq!(
+                err.error,
+                Error::<Test>::HotKeyAlreadyRegisteredInSubNet.into()
+            );
+            assert_eq!(
+                err.post_info.actual_weight, None,
+                "keep_stake={keep_stake}: all-subnet pre-checks are not provably metered"
+            );
+        }
     });
 }
 

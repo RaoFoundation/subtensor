@@ -70,35 +70,25 @@ impl<T: Config> Pallet<T> {
             .saturating_add(used_rows)
     }
 
-    /// Weight a swap refused by [`Self::check_swap_hotkey`] is charged: the pre-checks
-    /// read the owners, the new hotkey's account and root state, and on an all-subnet
-    /// `keep_stake` swap walk the subnet list up to four times (`NetworksAdded` and
-    /// `MinerCollateral` for the collateral rule, `NetworksAdded` again to price it,
-    /// `IsNetworkMember` for the registration rule) — charged as six reads per subnet to
-    /// cover stored inactive rows — plus the basket row count taken twice on a
-    /// root-touching swap (once by the declaration, once here). Nothing is written
-    /// before they pass, so a refused swap does not pay the benchmarked stake-moving
-    /// envelope.
+    /// Weight a single-subnet swap refused by [`Self::check_swap_hotkey`] is charged: the
+    /// pre-checks read the subnet, the owners, the new hotkey's account, one collateral
+    /// row, one membership row and (for root) the clean-root state — a fixed set of single
+    /// reads — plus the basket row count taken twice on a root swap (once by the
+    /// declaration, once here). Nothing is written before they pass, so a refused swap
+    /// does not pay the benchmarked stake-moving envelope. All-subnet refusals are not
+    /// priced here: their checks walk the subnet list and the membership prefix, which no
+    /// stored count bounds, so they keep the declaration.
     pub fn swap_hotkey_precheck_weight(
         old_hotkey: &T::AccountId,
         netuid: &Option<NetUid>,
     ) -> Weight {
-        let subnets = u64::from(TotalNetworks::<T>::get());
-        let touches_root = match netuid {
-            None => true,
-            Some(n) => *n == NetUid::ROOT,
+        let basket_rows = match netuid {
+            Some(n) if *n == NetUid::ROOT => {
+                Self::basket_claimed_swap_rows(old_hotkey).saturating_mul(2)
+            }
+            _ => 0,
         };
-        let basket_rows = if touches_root {
-            Self::basket_claimed_swap_rows(old_hotkey).saturating_mul(2)
-        } else {
-            0
-        };
-        T::DbWeight::get().reads(
-            subnets
-                .saturating_mul(6)
-                .saturating_add(12)
-                .saturating_add(basket_rows),
-        )
+        T::DbWeight::get().reads(basket_rows.saturating_add(12))
     }
 
     /// Read and merge the old hotkey's V1/V2 stake rows once. V2 keeps the
@@ -154,15 +144,18 @@ impl<T: Config> Pallet<T> {
         // // 1. Ensure the origin is signed and get the coldkey
         let coldkey = ensure_signed(origin)?;
 
-        // 2-8. Read-only pre-checks. A swap refused here is charged those reads, not the
-        // benchmarked stake-moving envelope; everything after this point scans the old
-        // hotkey's stake and keeps the declared weight on failure.
+        // 2-8. Read-only pre-checks. A single-subnet swap refused here is charged those
+        // reads, not the benchmarked stake-moving envelope. An all-subnet swap's checks walk
+        // the subnet list and the new hotkey's membership prefix, neither bounded by a
+        // stored count, so their meter is not provably complete: that refusal keeps the
+        // declaration.
         let weight = Self::check_swap_hotkey(&coldkey, old_hotkey, new_hotkey, netuid, keep_stake)
-            .map_err(|error| {
-                Self::fail_with_weight(
+            .map_err(|error| match netuid {
+                Some(_) => Self::fail_with_weight(
                     error,
                     Self::swap_hotkey_precheck_weight(old_hotkey, &netuid),
-                )
+                ),
+                None => error.into(),
             })?;
 
         Self::execute_swap_hotkey(&coldkey, old_hotkey, new_hotkey, netuid, keep_stake, weight)
@@ -304,17 +297,19 @@ impl<T: Config> Pallet<T> {
                 None => T::DbWeight::get()
                     .reads(Self::get_all_subnet_netuids().len().saturating_mul(2) as u64),
             });
-            // Charged additively: the pre-check figure (which covers the reads the
-            // pre-checks do not meter) plus everything accrued since — the position scan
-            // and the collateral reads. Evaluated on failure only: it rescans the basket
-            // rows.
+            // A single-subnet refusal here is charged additively: the pre-check figure
+            // (which covers the reads the pre-checks do not meter) plus everything accrued
+            // since — the position scan and the collateral reads. Evaluated on failure
+            // only: it rescans the basket rows. An all-subnet refusal keeps the declaration
+            // (see `do_swap_hotkey`).
             Self::ensure_hotkey_collateral_swappable(old_hotkey, new_hotkey, &coldkey, netuid)
-                .map_err(|error| {
-                    Self::fail_with_weight(
+                .map_err(|error| match netuid {
+                    Some(_) => Self::fail_with_weight(
                         error,
                         weight
                             .saturating_add(Self::swap_hotkey_precheck_weight(old_hotkey, &netuid)),
-                    )
+                    ),
+                    None => error.into(),
                 })?;
         }
 
