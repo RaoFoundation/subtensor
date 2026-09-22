@@ -11,6 +11,14 @@ use system::pallet_prelude::BlockNumberFor;
 
 const LOG_TARGET: &str = "runtime::subtensor::registration";
 
+/// Why a registration was refused before its payment ran, and therefore what it pays:
+/// the fixed pre-check reads, or — after the prune search on a full subnet, which walks
+/// the owner's hotkeys and every uid — the declared registration weight.
+enum RegistrationRefusal {
+    BeforePruneSearch(DispatchError),
+    AfterPruneSearch(DispatchError),
+}
+
 impl<T: Config> Pallet<T> {
     pub fn register_neuron(netuid: NetUid, hotkey: &T::AccountId) -> Result<u16, DispatchError> {
         let block_number: u64 = Self::get_current_block_as_u64();
@@ -69,11 +77,13 @@ impl<T: Config> Pallet<T> {
         log::debug!("do_register( coldkey:{coldkey:?} netuid:{netuid:?} hotkey:{hotkey:?} )");
 
         let (burned_share, collateral_topup) = Self::check_registration(&coldkey, netuid, &hotkey)
-            .map_err(|(scanned, error)| {
-                Self::fail_with_weight(
-                    error,
-                    Self::registration_precheck_weight().saturating_add(scanned),
-                )
+            .map_err(|refusal| match refusal {
+                RegistrationRefusal::BeforePruneSearch(error) => {
+                    Self::fail_with_weight(error, Self::registration_precheck_weight())
+                }
+                // The prune search walks the owner's hotkeys and every uid; it is the
+                // benchmarked registration's own scan, so its refusal keeps the declaration.
+                RegistrationRefusal::AfterPruneSearch(error) => error.into(),
             })?;
 
         Self::execute_registration(&coldkey, netuid, &hotkey, burned_share, collateral_topup)?;
@@ -81,35 +91,28 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Steps 2-7 of a registration: every check before the payment, none of which can
-    /// fail after a swap ran. Returns the burned share and collateral top-up to charge;
-    /// on refusal, the weight of any per-uid scan the checks ran beyond the fixed reads
-    /// (the prune-candidate search on a full subnet).
+    /// fail after a swap ran. Returns the burned share and collateral top-up to charge.
     fn check_registration(
         coldkey: &T::AccountId,
         netuid: NetUid,
         hotkey: &T::AccountId,
-    ) -> Result<(TaoBalance, TaoBalance), (Weight, DispatchError)> {
-        Self::check_registration_inner(coldkey, netuid, hotkey)
-            .map_err(|error| (Weight::zero(), error))
-            .and_then(|charges| {
-                // 7) capacity check + prune candidate if full
-                ensure!(
-                    Self::get_max_allowed_uids(netuid) != 0,
-                    (Weight::zero(), Error::<T>::NoNeuronIdAvailable.into())
-                );
-                let current_n = Self::get_subnetwork_n(netuid);
-                let max_n = Self::get_max_allowed_uids(netuid);
-                if current_n >= max_n {
-                    // The prune search reads the keys, registration blocks and immunity of
-                    // every uid before it can find none.
-                    let scanned = T::DbWeight::get().reads(u64::from(current_n).saturating_mul(3));
-                    ensure!(
-                        Self::get_neuron_to_prune(netuid).is_some(),
-                        (scanned, Error::<T>::NoNeuronIdAvailable.into())
-                    );
-                }
-                Ok(charges)
-            })
+    ) -> Result<(TaoBalance, TaoBalance), RegistrationRefusal> {
+        let charges = Self::check_registration_inner(coldkey, netuid, hotkey)
+            .map_err(RegistrationRefusal::BeforePruneSearch)?;
+        // 7) capacity check + prune candidate if full
+        ensure!(
+            Self::get_max_allowed_uids(netuid) != 0,
+            RegistrationRefusal::BeforePruneSearch(Error::<T>::NoNeuronIdAvailable.into())
+        );
+        let current_n = Self::get_subnetwork_n(netuid);
+        let max_n = Self::get_max_allowed_uids(netuid);
+        if current_n >= max_n {
+            ensure!(
+                Self::get_neuron_to_prune(netuid).is_some(),
+                RegistrationRefusal::AfterPruneSearch(Error::<T>::NoNeuronIdAvailable.into())
+            );
+        }
+        Ok(charges)
     }
 
     /// Steps 2-6 of a registration: the fixed-cost reads and the account pairing.

@@ -403,6 +403,39 @@ fn refused_registration_pays_its_prechecks() {
     });
 }
 
+/// A full subnet whose every uid is owner-immortal has no prune candidate. Finding that out
+/// walks the owner's hotkeys and every uid — the benchmarked registration's own scan — so
+/// the refusal keeps the declared weight rather than reporting the fixed pre-check figure.
+#[test]
+fn registration_refused_after_the_prune_search_keeps_the_declaration() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(4);
+        let owner_ck = U256::from(7777);
+        let owner_hks = [U256::from(9001), U256::from(9002), U256::from(9003)];
+        add_network(netuid, 1, 0);
+        SubnetOwner::<Test>::insert(netuid, owner_ck);
+        for hk in owner_hks {
+            register_ok_neuron(netuid, hk, owner_ck, 0);
+            Owner::<Test>::insert(hk, owner_ck);
+        }
+        OwnedHotkeys::<Test>::insert(owner_ck, owner_hks.to_vec());
+        ImmuneOwnerUidsLimit::<Test>::insert(netuid, 10);
+        SubtensorModule::set_max_allowed_uids(netuid, owner_hks.len() as u16);
+        assert_eq!(SubtensorModule::get_neuron_to_prune(netuid), None);
+
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        add_balance_to_coldkey_account(&coldkey, TaoBalance::from(10_000_000_000_u64));
+        let err = SubtensorModule::burned_register(RuntimeOrigin::signed(coldkey), netuid, hotkey)
+            .expect_err("no slot");
+        assert_eq!(err.error, Error::<Test>::NoNeuronIdAvailable.into());
+        assert_eq!(
+            err.post_info.actual_weight, None,
+            "the prune search is the registration's own scan: keep the declaration"
+        );
+    });
+}
+
 // -------------------------------------------------------- terminate_lease ---
 
 #[test]
