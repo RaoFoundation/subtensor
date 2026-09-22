@@ -112,13 +112,17 @@ impl<T: Config> Pallet<T> {
                 .to_u64();
         // A trade that fails after this point swept the fund once (the pre-trade
         // valuation) and may have run a leg before rolling back; charge a whole trade over
-        // the rows the fund has, which bounds both.
-        let rows = Self::get_basket_holdings(&hotkey).len() as u64;
-        let failed_weight = Self::swap_basket_weight(rows.max(1))
-            .saturating_add(flush_weight)
-            .saturating_add(precheck);
+        // the rows the fund has, which bounds both. The row count is read on the failure
+        // path only (after the rollback it is the pre-trade count), so a successful trade
+        // does no work its benchmarked weight does not cover.
+        let failed_weight = || {
+            let rows = Self::get_basket_holdings(&hotkey).len() as u64;
+            Self::swap_basket_weight(rows.max(1))
+                .saturating_add(flush_weight)
+                .saturating_add(precheck)
+        };
         if amount > held {
-            return Err((failed_weight, Error::<T>::NotEnoughStakeToWithdraw.into()));
+            return Err((failed_weight(), Error::<T>::NotEnoughStakeToWithdraw.into()));
         }
 
         let outcome = with_transaction(|| {
@@ -134,7 +138,7 @@ impl<T: Config> Pallet<T> {
                 Err(err) => TransactionOutcome::Rollback(Err(err)),
             }
         })
-        .map_err(|err| (failed_weight, err))?;
+        .map_err(|err| (failed_weight(), err))?;
 
         Self::deposit_event(Event::BasketSwapped {
             hotkey,

@@ -72,9 +72,10 @@ impl<T: Config> Pallet<T> {
 
     /// Weight a swap refused by [`Self::check_swap_hotkey`] is charged: the pre-checks
     /// read the owners, the new hotkey's account and root state, up to two rows per
-    /// subnet (membership and collateral), and the basket row count the declaration
-    /// took (one read per row on a root-touching swap). Nothing is written before they
-    /// pass, so a refused swap does not pay the benchmarked stake-moving envelope.
+    /// subnet (membership and collateral), and the basket row count taken twice on a
+    /// root-touching swap (once by the declaration, once here). Nothing is written
+    /// before they pass, so a refused swap does not pay the benchmarked stake-moving
+    /// envelope.
     pub fn swap_hotkey_precheck_weight(
         old_hotkey: &T::AccountId,
         netuid: &Option<NetUid>,
@@ -85,7 +86,7 @@ impl<T: Config> Pallet<T> {
             Some(n) => *n == NetUid::ROOT,
         };
         let basket_rows = if touches_root {
-            Self::basket_claimed_swap_rows(old_hotkey)
+            Self::basket_claimed_swap_rows(old_hotkey).saturating_mul(2)
         } else {
             0
         };
@@ -279,6 +280,11 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResultWithPostInfo {
         let coldkey = coldkey.clone();
         let block: u64 = Self::get_current_block_as_u64();
+        // The pre-checks meter only part of their reads; never charge a later failure
+        // less than a refusal at the pre-checks would have paid. Evaluated on failure
+        // only: it rescans the basket rows.
+        let floored =
+            |weight: Weight| weight.max(Self::swap_hotkey_precheck_weight(old_hotkey, &netuid));
 
         // Read and group stake once before any hotkey-swap mutation. Execution
         // reuses this snapshot instead of rescanning both prefixes per subnet. The scan
@@ -302,7 +308,7 @@ impl<T: Config> Pallet<T> {
                     .reads(Self::get_all_subnet_netuids().len().saturating_mul(2) as u64),
             });
             Self::ensure_hotkey_collateral_swappable(old_hotkey, new_hotkey, &coldkey, netuid)
-                .map_err(|error| Self::fail_with_weight(error, weight))?;
+                .map_err(|error| Self::fail_with_weight(error, floored(weight)))?;
         }
 
         // All fee charges and storage mutations run in one storage transaction
@@ -455,7 +461,7 @@ impl<T: Config> Pallet<T> {
         });
         outcome.map_err(|error| {
             if metered_body && error.post_info.actual_weight.is_none() {
-                Self::fail_with_weight(error.error, weight)
+                Self::fail_with_weight(error.error, floored(weight))
             } else {
                 error
             }

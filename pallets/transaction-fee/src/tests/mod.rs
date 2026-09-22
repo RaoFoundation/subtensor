@@ -1011,8 +1011,8 @@ fn test_remove_stake_failing_transaction_alpha_fees() {
             current_balance - ExistentialDeposit::get(),
         );
 
-        // Disable subtoken so that removing stake tx fails (still allows the validation to pass)
-        pallet_subtensor::SubtokenEnabled::<Test>::insert(sn.subnets[0].netuid, false);
+        // Since spec 469 a subtoken-disabled subnet cannot pay fees in alpha at all, so
+        // disabling the subtoken is no longer a way to make the call fail after validation.
 
         // Remove stake
         let balance_before = Balances::free_balance(sn.coldkey);
@@ -1021,10 +1021,14 @@ fn test_remove_stake_failing_transaction_alpha_fees() {
             &sn.coldkey,
             sn.subnets[0].netuid,
         );
-        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::remove_stake {
+        // A limit price the pool cannot meet fails the sell at dispatch (`SlippageTooHigh`)
+        // while validation still passes.
+        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::remove_stake_limit {
             hotkey: sn.hotkeys[0],
             netuid: sn.subnets[0].netuid,
-            amount_unstaked: alpha_before,
+            amount_unstaked: alpha_before / 2.into(),
+            limit_price: TaoBalance::from(u64::MAX / 4),
+            allow_partial: false,
         });
 
         // Dispatch the extrinsic with ChargeTransactionPayment extension
@@ -1055,8 +1059,8 @@ fn test_remove_stake_failing_transaction_alpha_fees() {
     });
 }
 
-/// Spec 469: an alpha payer is refunded like a TAO payer. A `remove_stake` that fails at
-/// `SubtokenDisabled` reports base + its real `StakingHotkeys` walk, far below the declared
+/// Spec 469: an alpha payer is refunded like a TAO payer. A `remove_stake_limit` that fails
+/// at `SlippageTooHigh` reports base + its real `StakingHotkeys` walk, far below the declared
 /// 256-key envelope; the alpha sold for the envelope stays sold, and the TAO the call did
 /// not use comes back to the payer's free balance.
 // cargo test --package subtensor-transaction-fee --lib -- tests::test_failed_alpha_fee_is_refunded_to_actual_weight --exact --show-output
@@ -1078,8 +1082,6 @@ fn test_failed_alpha_fee_is_refunded_to_actual_weight() {
             &sn.coldkey,
             current_balance - ExistentialDeposit::get(),
         );
-        pallet_subtensor::SubtokenEnabled::<Test>::insert(sn.subnets[0].netuid, false);
-
         let alpha_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
             &sn.hotkeys[0],
             &sn.coldkey,
@@ -1087,10 +1089,14 @@ fn test_failed_alpha_fee_is_refunded_to_actual_weight() {
         );
         let tao_before = Balances::free_balance(sn.coldkey);
         let issuance_before = pallet_subtensor::TotalIssuance::<Test>::get();
-        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::remove_stake {
+        // A limit price the pool cannot meet fails the sell at dispatch (`SlippageTooHigh`)
+        // while validation still passes.
+        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::remove_stake_limit {
             hotkey: sn.hotkeys[0],
             netuid: sn.subnets[0].netuid,
-            amount_unstaked: alpha_before,
+            amount_unstaked: alpha_before / 2.into(),
+            limit_price: TaoBalance::from(u64::MAX / 4),
+            allow_partial: false,
         });
         // The mock prices every read and benchmark at zero, so stand in for the runtime's
         // declaration (base + 256-key scan bound, ~92 G ref_time) explicitly. The call's
@@ -1101,7 +1107,7 @@ fn test_failed_alpha_fee_is_refunded_to_actual_weight() {
         };
         let len = 0;
         let declared_fee = TransactionPayment::compute_fee(len, &info, 0.into());
-        let actual_weight = <Test as pallet_subtensor::Config>::WeightInfo::remove_stake()
+        let actual_weight = <Test as pallet_subtensor::Config>::WeightInfo::remove_stake_limit()
             .saturating_add(SubtensorModule::staking_hotkeys_walk_actual(&sn.coldkey));
         let actual_fee = TransactionPayment::compute_actual_fee(
             len,
@@ -1173,6 +1179,56 @@ fn test_failed_alpha_fee_is_refunded_to_actual_weight() {
             .expect("alpha fee event");
         assert_eq!(event_alpha, charged_alpha);
         assert_eq!(event_tao, actual_fee);
+    });
+}
+
+/// Spec 469: with the unused fee refunded in TAO, the alpha fee sale must obey the same
+/// exit rules as `remove_stake`: no sale from a subtoken-disabled subnet, no sale of root
+/// stake still inside `RootStakeUnlockInterval`. Otherwise the fee path would be a
+/// fee-free, hold-exempt exit.
+// cargo test --package subtensor-transaction-fee --lib -- tests::test_alpha_fee_sale_obeys_root_hold_and_subtoken --exact --show-output
+#[test]
+fn test_alpha_fee_sale_obeys_root_hold_and_subtoken() {
+    new_test_ext().execute_with(|| {
+        let stake_amount = TAO;
+        let root = NetUid::ROOT;
+        let coldkey = U256::from(100000);
+        let hotkey = U256::from(100001);
+        add_network(root, 10);
+        pallet_subtensor::Owner::<Test>::insert(hotkey, coldkey);
+        pallet_subtensor::SubtokenEnabled::<Test>::insert(root, true);
+        setup_stake(root, &coldkey, &hotkey, stake_amount);
+        let alpha_vec = vec![(hotkey, root)];
+        let tao_fee = TaoBalance::from(1_000_000u64);
+        let can_pay = || {
+            <TransactionFeeHandler<Test> as AlphaFeeHandler<Test>>::can_withdraw_in_alpha(
+                &coldkey, &alpha_vec, tao_fee,
+            )
+        };
+        assert!(can_pay(), "free root stake pays fees");
+
+        // Fresh root stake under a non-zero hold: refused at validation and at withdraw.
+        pallet_subtensor::RootStakeUnlockInterval::<Test>::put(1_000);
+        SubtensorModule::touch_root_stake_age(&coldkey, &hotkey);
+        assert!(!can_pay(), "held root stake does not pay fees");
+        assert_err!(
+            <TransactionFeeHandler<Test> as AlphaFeeHandler<Test>>::withdraw_in_alpha(
+                &coldkey, &alpha_vec, tao_fee,
+            ),
+            TransactionValidityError::Invalid(InvalidTransaction::Payment)
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, root),
+            stake_amount.into(),
+            "nothing sold"
+        );
+        // Once the hold has aged out the position pays again.
+        pallet_subtensor::RootStakeUnlockInterval::<Test>::put(0);
+        assert!(can_pay());
+
+        // A subtoken-disabled subnet cannot pay either.
+        pallet_subtensor::SubtokenEnabled::<Test>::insert(root, false);
+        assert!(!can_pay(), "disabled subtoken does not pay fees");
     });
 }
 
