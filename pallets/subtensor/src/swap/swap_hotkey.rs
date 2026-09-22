@@ -280,12 +280,6 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResultWithPostInfo {
         let coldkey = coldkey.clone();
         let block: u64 = Self::get_current_block_as_u64();
-        // The pre-checks meter only part of their reads; never charge a later failure
-        // less than a refusal at the pre-checks would have paid. Evaluated on failure
-        // only: it rescans the basket rows.
-        let floored =
-            |weight: Weight| weight.max(Self::swap_hotkey_precheck_weight(old_hotkey, &netuid));
-
         // Read and group stake once before any hotkey-swap mutation. Execution
         // reuses this snapshot instead of rescanning both prefixes per subnet. The scan
         // has no admission cap, so it is charged at its real length (one read per
@@ -307,20 +301,29 @@ impl<T: Config> Pallet<T> {
                 None => T::DbWeight::get()
                     .reads(Self::get_all_subnet_netuids().len().saturating_mul(2) as u64),
             });
+            // Charged additively: the pre-check figure (which covers the reads the
+            // pre-checks do not meter) plus everything accrued since — the position scan
+            // and the collateral reads. Evaluated on failure only: it rescans the basket
+            // rows.
             Self::ensure_hotkey_collateral_swappable(old_hotkey, new_hotkey, &coldkey, netuid)
-                .map_err(|error| Self::fail_with_weight(error, floored(weight)))?;
+                .map_err(|error| {
+                    Self::fail_with_weight(
+                        error,
+                        weight
+                            .saturating_add(Self::swap_hotkey_precheck_weight(old_hotkey, &netuid)),
+                    )
+                })?;
         }
 
         // All fee charges and storage mutations run in one storage transaction
         // so a late failure (including collateral index) rolls back ownership,
         // membership, UID, fee, and other writes together.
         //
-        // Only the all-subnets `keep_stake` path meters its whole body (its success
-        // reports `Some(weight)`); a failure there is charged the same accrued weight.
-        // The stake-moving paths keep the benchmarked declaration on failure as they do
-        // on success: their metering is partial and the envelope is the honest figure.
-        let metered_body = keep_stake && netuid.is_none();
-        let outcome = with_transaction(|| {
+        // A failure inside the transaction keeps the declared weight on every path: the
+        // body's meter is partial (it walks `NetworksAdded` more than it charges), so the
+        // envelope is the only honest figure there — as it is for the stake-moving
+        // success path.
+        with_transaction(|| {
             let result = (|| -> DispatchResultWithPostInfo {
                 // Swap LastTxBlockDelegateTake / ChildKeyTake.
                 let last_tx_block_delegate_take: u64 =
@@ -457,13 +460,6 @@ impl<T: Config> Pallet<T> {
             match result {
                 Ok(info) => TransactionOutcome::Commit(Ok(info)),
                 Err(e) => TransactionOutcome::Rollback(Err(e)),
-            }
-        });
-        outcome.map_err(|error| {
-            if metered_body && error.post_info.actual_weight.is_none() {
-                Self::fail_with_weight(error.error, floored(weight))
-            } else {
-                error
             }
         })
     }

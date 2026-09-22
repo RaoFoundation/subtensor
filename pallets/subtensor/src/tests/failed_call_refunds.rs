@@ -316,6 +316,42 @@ fn refused_swap_hotkey_pays_its_prechecks() {
     });
 }
 
+/// A hotkey swap that fails inside its transaction keeps the declared weight on every
+/// path, `keep_stake` included: the body's meter walks `NetworksAdded` more than it
+/// charges, so the envelope is the only honest figure there.
+#[test]
+fn swap_hotkey_failing_inside_the_transaction_keeps_the_declaration() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(1);
+        let new_hotkey = U256::from(2);
+        let coldkey = U256::from(3);
+        Owner::<Test>::insert(old_hotkey, coldkey);
+        for raw in 1..=4u16 {
+            add_network(NetUid::from(raw), 1, 0);
+        }
+        // No balance for the swap cost: the failure is inside the transaction, after the
+        // per-subnet cooldown and collateral walks.
+        for keep_stake in [true, false] {
+            let err = SubtensorModule::swap_hotkey_v2(
+                RuntimeOrigin::signed(coldkey),
+                old_hotkey,
+                new_hotkey,
+                None,
+                keep_stake,
+            )
+            .expect_err("cannot pay the swap cost");
+            assert_eq!(
+                err.error,
+                Error::<Test>::NotEnoughBalanceToPaySwapHotKey.into()
+            );
+            assert_eq!(
+                err.post_info.actual_weight, None,
+                "keep_stake={keep_stake}: a late failure keeps the declaration"
+            );
+        }
+    });
+}
+
 // --------------------------------------------------------- swap_coldkey* ---
 
 #[test]
