@@ -9,7 +9,7 @@
 
 use crate::Pallet as Subtensor;
 use crate::staking::lock::LockState;
-use crate::subnets::mechanism::GLOBAL_MAX_SUBNET_COUNT;
+use crate::subnets::mechanism::{GLOBAL_MAX_SUBNET_COUNT, MAX_MECHANISM_COUNT_PER_SUBNET};
 use crate::*;
 use codec::{Compact, Encode};
 use frame_benchmarking::v2::*;
@@ -29,7 +29,7 @@ use sp_std::collections::vec_deque::VecDeque;
 use sp_std::vec;
 use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{
-    AlphaBalance, AuthorshipInfo, NetUid, NetUidStorageIndex, TaoBalance,
+    AlphaBalance, AuthorshipInfo, MechId, NetUid, NetUidStorageIndex, TaoBalance,
 };
 use subtensor_swap_interface::SwapHandler;
 
@@ -2983,11 +2983,13 @@ mod pallet_benchmarks {
         let netuid = NetUid::from(1);
         let coldkey: T::AccountId = account("children_cold", 0, 1);
         let hotkey: T::AccountId = account("children_hot", 0, 1);
+        let mut current_children = Vec::with_capacity(5);
         let mut children = Vec::with_capacity(c as usize);
 
         Subtensor::<T>::init_new_network(netuid, 1);
         Subtensor::<T>::set_network_registration_allowed(netuid, true);
         SubtokenEnabled::<T>::insert(netuid, true);
+        MechanismCountCurrent::<T>::insert(netuid, MechId::from(MAX_MECHANISM_COUNT_PER_SUBNET));
         Burn::<T>::insert(netuid, benchmark_registration_burn());
         seed_swap_reserves::<T>(netuid);
         fund_for_registration::<T>(netuid, &coldkey);
@@ -2998,13 +3000,36 @@ mod pallet_benchmarks {
             hotkey.clone(),
         ));
 
-        for seed in 0..c {
-            let child: T::AccountId = account("children_child", seed, 1);
-            children.push((u64::MAX / c as u64, child));
+        for seed in 0..5 {
+            let current_child: T::AccountId = account("current_child", seed, 1);
+            let registration_block = Subtensor::<T>::get_current_block_as_u64();
+            Subtensor::<T>::append_neuron(netuid, &current_child, registration_block);
+            let uid = Subtensor::<T>::get_uid_for_net_and_hotkey(netuid, &current_child)
+                .expect("benchmark child must be registered");
+            Subtensor::<T>::set_validator_permit_for_uid(netuid, uid, true);
+
+            current_children.push((u64::MAX / 5, current_child));
         }
+        for seed in 0..c {
+            let replacement_child: T::AccountId = account("replacement_child", seed, 1);
+            children.push((u64::MAX / c as u64, replacement_child));
+        }
+        children.sort_by(|(_, child_a), (_, child_b)| child_a.cmp(child_b));
+        StakeThreshold::<T>::put(0);
+        Subtensor::<T>::persist_pending_chidren_ok(netuid, &hotkey, &current_children);
+
+        let cutoff = Subtensor::<T>::get_activity_cutoff_blocks(netuid);
+        set_benchmark_block_number::<T>(cutoff.saturating_add(2));
 
         #[extrinsic_call]
-        _(RawOrigin::Signed(coldkey.clone()), hotkey, netuid, children);
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            hotkey.clone(),
+            netuid,
+            children.clone(),
+        );
+
+        assert_eq!(ChildKeys::<T>::get(hotkey, netuid), children);
     }
 
     #[allow(deprecated)]

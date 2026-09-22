@@ -6,7 +6,7 @@ use super::mock::*;
 use approx::assert_abs_diff_eq;
 use frame_support::{assert_err, assert_noop, assert_ok};
 use substrate_fixed::types::{I64F64, I96F32};
-use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, TaoBalance};
+use subtensor_runtime_common::{AlphaBalance, MechId, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
 use crate::{utils::rate_limiting::TransactionType, *};
@@ -2414,6 +2414,288 @@ fn test_do_set_child_cooldown_period() {
             child.try_into().unwrap(),
             0,
             "Child key should match",
+        );
+    });
+}
+
+fn setup_childkey_cooldown_bypass_test(
+    child_hotkeys: &[U256],
+    current_children: &[(u64, U256)],
+) -> (NetUid, U256, U256) {
+    let netuid = NetUid::from(1);
+    let parent = U256::from(1);
+    let parent_coldkey = U256::from(2);
+
+    add_network(netuid, 10, 0);
+    register_ok_neuron(netuid, parent, parent_coldkey, 0);
+    for (index, child) in child_hotkeys.iter().enumerate() {
+        let child_coldkey = U256::from(100_u64 + u64::try_from(index).unwrap());
+        register_ok_neuron(netuid, *child, child_coldkey, 0);
+    }
+    StakeThreshold::<Test>::put(0);
+    mock_set_children_no_epochs(netuid, &parent, current_children);
+
+    (netuid, parent, parent_coldkey)
+}
+
+fn set_child_validator_activity(
+    netuid: NetUid,
+    child: U256,
+    permit: bool,
+    mecid: MechId,
+    last_update: u64,
+) {
+    let uid = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &child).unwrap();
+    SubtensorModule::set_validator_permit_for_uid(netuid, uid, permit);
+    SubtensorModule::set_last_update_for_uid(
+        SubtensorModule::get_mechanism_storage_index(netuid, mecid),
+        uid,
+        last_update,
+    );
+}
+
+#[test]
+fn test_inactive_child_reassignment_bypasses_cooldown() {
+    new_test_ext(1).execute_with(|| {
+        let inactive_child = U256::from(3);
+        let replacement_child = U256::from(4);
+        let (netuid, parent, parent_coldkey) = setup_childkey_cooldown_bypass_test(
+            &[inactive_child, replacement_child],
+            &[(u64::MAX, inactive_child)],
+        );
+        set_child_validator_activity(netuid, inactive_child, true, MechId::MAIN, 1);
+        let cutoff = SubtensorModule::get_activity_cutoff_blocks(netuid);
+        System::set_block_number(cutoff + 2);
+
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(parent_coldkey),
+            parent,
+            netuid,
+            vec![(u64::MAX, replacement_child)],
+        ));
+
+        assert!(!PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            SubtensorModule::get_children(&parent, netuid),
+            vec![(u64::MAX, replacement_child)]
+        );
+        assert!(SubtensorModule::get_parents(&inactive_child, netuid).is_empty());
+        assert_eq!(
+            SubtensorModule::get_parents(&replacement_child, netuid),
+            vec![(u64::MAX, parent)]
+        );
+    });
+}
+
+#[test]
+fn test_child_at_activity_cutoff_keeps_normal_cooldown() {
+    new_test_ext(1).execute_with(|| {
+        let active_child = U256::from(3);
+        let replacement_child = U256::from(4);
+        let (netuid, parent, parent_coldkey) = setup_childkey_cooldown_bypass_test(
+            &[active_child, replacement_child],
+            &[(u64::MAX, active_child)],
+        );
+        set_child_validator_activity(netuid, active_child, true, MechId::MAIN, 1);
+        let cutoff = SubtensorModule::get_activity_cutoff_blocks(netuid);
+        System::set_block_number(cutoff + 1);
+
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(parent_coldkey),
+            parent,
+            netuid,
+            vec![(u64::MAX, replacement_child)],
+        ));
+
+        assert!(PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            SubtensorModule::get_children(&parent, netuid),
+            vec![(u64::MAX, active_child)]
+        );
+    });
+}
+
+#[test]
+fn test_revoked_child_permit_bypasses_cooldown() {
+    new_test_ext(1).execute_with(|| {
+        let revoked_child = U256::from(3);
+        let replacement_child = U256::from(4);
+        let (netuid, parent, parent_coldkey) = setup_childkey_cooldown_bypass_test(
+            &[revoked_child, replacement_child],
+            &[(u64::MAX, revoked_child)],
+        );
+        set_child_validator_activity(
+            netuid,
+            revoked_child,
+            false,
+            MechId::MAIN,
+            System::block_number(),
+        );
+
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(parent_coldkey),
+            parent,
+            netuid,
+            vec![(u64::MAX, replacement_child)],
+        ));
+
+        assert!(!PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            SubtensorModule::get_children(&parent, netuid),
+            vec![(u64::MAX, replacement_child)]
+        );
+    });
+}
+
+#[test]
+fn test_unregistered_child_reassignment_bypasses_cooldown() {
+    new_test_ext(1).execute_with(|| {
+        let unregistered_child = U256::from(3);
+        let replacement_child = U256::from(4);
+        let (netuid, parent, parent_coldkey) = setup_childkey_cooldown_bypass_test(
+            &[replacement_child],
+            &[(u64::MAX, unregistered_child)],
+        );
+
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(parent_coldkey),
+            parent,
+            netuid,
+            vec![(u64::MAX, replacement_child)],
+        ));
+
+        assert!(!PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            SubtensorModule::get_children(&parent, netuid),
+            vec![(u64::MAX, replacement_child)]
+        );
+    });
+}
+
+#[test]
+fn test_only_inactive_child_allocation_moves_immediately() {
+    new_test_ext(1).execute_with(|| {
+        let active_child = U256::from(3);
+        let inactive_child = U256::from(4);
+        let replacement_child = U256::from(5);
+        let half = u64::MAX / 2;
+        let (netuid, parent, parent_coldkey) = setup_childkey_cooldown_bypass_test(
+            &[active_child, inactive_child, replacement_child],
+            &[(half, active_child), (half, inactive_child)],
+        );
+
+        let cutoff = SubtensorModule::get_activity_cutoff_blocks(netuid);
+        let current_block = cutoff + 2;
+        System::set_block_number(current_block);
+        set_child_validator_activity(netuid, active_child, true, MechId::MAIN, current_block);
+        set_child_validator_activity(netuid, inactive_child, true, MechId::MAIN, 1);
+
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(parent_coldkey),
+            parent,
+            netuid,
+            vec![(half, active_child), (half, replacement_child)],
+        ));
+
+        assert!(!PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            SubtensorModule::get_children(&parent, netuid),
+            vec![(half, active_child), (half, replacement_child)]
+        );
+    });
+}
+
+#[test]
+fn test_reducing_active_child_keeps_normal_cooldown() {
+    new_test_ext(1).execute_with(|| {
+        let active_child = U256::from(3);
+        let inactive_child = U256::from(4);
+        let replacement_child = U256::from(5);
+        let half = u64::MAX / 2;
+        let (netuid, parent, parent_coldkey) = setup_childkey_cooldown_bypass_test(
+            &[active_child, inactive_child, replacement_child],
+            &[(half, active_child), (half, inactive_child)],
+        );
+
+        let cutoff = SubtensorModule::get_activity_cutoff_blocks(netuid);
+        let current_block = cutoff + 2;
+        System::set_block_number(current_block);
+        set_child_validator_activity(netuid, active_child, true, MechId::MAIN, current_block);
+        set_child_validator_activity(netuid, inactive_child, true, MechId::MAIN, 1);
+
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(parent_coldkey),
+            parent,
+            netuid,
+            vec![(half.saturating_mul(2), replacement_child)],
+        ));
+
+        assert!(PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            SubtensorModule::get_children(&parent, netuid),
+            vec![(half, active_child), (half, inactive_child)]
+        );
+    });
+}
+
+#[test]
+fn test_bypass_cannot_allocate_more_than_inactive_child_freed() {
+    new_test_ext(1).execute_with(|| {
+        let inactive_child = U256::from(3);
+        let replacement_child = U256::from(4);
+        let half = u64::MAX / 2;
+        let (netuid, parent, parent_coldkey) = setup_childkey_cooldown_bypass_test(
+            &[inactive_child, replacement_child],
+            &[(half, inactive_child)],
+        );
+
+        let cutoff = SubtensorModule::get_activity_cutoff_blocks(netuid);
+        System::set_block_number(cutoff + 2);
+        set_child_validator_activity(netuid, inactive_child, true, MechId::MAIN, 1);
+
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(parent_coldkey),
+            parent,
+            netuid,
+            vec![(u64::MAX, replacement_child)],
+        ));
+
+        assert!(PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            SubtensorModule::get_children(&parent, netuid),
+            vec![(half, inactive_child)]
+        );
+    });
+}
+
+#[test]
+fn test_child_active_on_secondary_mechanism_keeps_normal_cooldown() {
+    new_test_ext(1).execute_with(|| {
+        let active_child = U256::from(3);
+        let replacement_child = U256::from(4);
+
+        let (netuid, parent, parent_coldkey) = setup_childkey_cooldown_bypass_test(
+            &[active_child, replacement_child],
+            &[(u64::MAX, active_child)],
+        );
+        MechanismCountCurrent::<Test>::insert(netuid, MechId::from(2));
+        let cutoff = SubtensorModule::get_activity_cutoff_blocks(netuid);
+        let current_block = cutoff + 2;
+        System::set_block_number(current_block);
+        set_child_validator_activity(netuid, active_child, true, MechId::MAIN, 1);
+        set_child_validator_activity(netuid, active_child, true, MechId::from(1), current_block);
+
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(parent_coldkey),
+            parent,
+            netuid,
+            vec![(u64::MAX, replacement_child)],
+        ));
+
+        assert!(PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            SubtensorModule::get_children(&parent, netuid),
+            vec![(u64::MAX, active_child)]
         );
     });
 }

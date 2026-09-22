@@ -2,7 +2,7 @@ use super::*;
 
 use sp_runtime::PerU16;
 use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
-use subtensor_runtime_common::NetUid;
+use subtensor_runtime_common::{MechId, NetUid};
 
 pub struct PCRelations<T: Config> {
     /// The distinguished `hotkey` this structure is built around.
@@ -68,7 +68,7 @@ impl<T: Config> PCRelations<T> {
     /// 3) Bipartite role separation: no child may also be a parent.
     pub fn ensure_pending_consistency(
         &self,
-        pending_children_vec: &Vec<(u64, T::AccountId)>,
+        pending_children_vec: &[(u64, T::AccountId)],
     ) -> DispatchResult {
         // Build a deduped children map (last proportion wins if duplicates present).
         let mut new_children: BTreeMap<T::AccountId, u64> = BTreeMap::new();
@@ -222,7 +222,7 @@ impl<T: Config> Pallet<T> {
     ///   (netuid, pivot) -> (Vec<(proportion, child)>)
     pub fn load_relations_from_pending(
         pivot: T::AccountId,
-        pending_children_vec: &Vec<(u64, T::AccountId)>,
+        pending_children_vec: &[(u64, T::AccountId)],
         netuid: NetUid,
     ) -> Result<PCRelations<T>, DispatchError> {
         let mut rel = PCRelations::<T>::new(pivot.clone());
@@ -447,6 +447,92 @@ impl<T: Config> Pallet<T> {
         Self::persist_child_parent_relations(relations, netuid, weight)
     }
 
+    /// Returns true when every child whose allocation is being reduced is unavailable and the
+    /// requested increases do not exceed the allocation freed from those children.
+    ///
+    /// An unavailable child is either no longer registered, no longer has a validator permit,
+    /// or is inactive on every mechanism according to the same cutoff used by consensus.
+    fn can_bypass_childkey_cooldown(
+        relations: &PCRelations<T>,
+        netuid: NetUid,
+        requested_children: &[(u64, T::AccountId)],
+    ) -> bool {
+        let requested: BTreeMap<T::AccountId, u64> = requested_children
+            .iter()
+            .map(|(proportion, child)| (child.clone(), *proportion))
+            .collect();
+
+        let mut freed: u64 = 0;
+        let mut allocated: u64 = 0;
+        let mut reduced_children: Vec<T::AccountId> = Vec::new();
+
+        for (child, current_proportion) in relations.children() {
+            let requested_proportion = requested.get(child).copied().unwrap_or_default();
+            if requested_proportion < *current_proportion {
+                freed =
+                    freed.saturating_add(current_proportion.saturating_sub(requested_proportion));
+                reduced_children.push(child.clone());
+            }
+        }
+
+        if reduced_children.is_empty() {
+            return false;
+        }
+
+        for (child, requested_proportion) in &requested {
+            let current_proportion = relations.children().get(child).copied().unwrap_or_default();
+            if *requested_proportion > current_proportion {
+                allocated = allocated
+                    .saturating_add(requested_proportion.saturating_sub(current_proportion));
+            }
+        }
+
+        allocated <= freed && Self::are_children_unavailable_on_subnet(netuid, &reduced_children)
+    }
+
+    /// Returns true when all children are unavailable for validator work on `netuid`.
+    fn are_children_unavailable_on_subnet(netuid: NetUid, children: &[T::AccountId]) -> bool {
+        let validator_permits = ValidatorPermit::<T>::get(netuid);
+        let mut registered_permitted_uids: Vec<u16> = Vec::new();
+
+        for child in children {
+            let Some(uid) = Uids::<T>::get(netuid, child) else {
+                continue;
+            };
+            if !validator_permits
+                .get(uid as usize)
+                .copied()
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            registered_permitted_uids.push(uid);
+        }
+
+        if registered_permitted_uids.is_empty() {
+            return true;
+        }
+
+        let current_block = Self::get_current_block_as_u64();
+        let activity_cutoff = Self::get_activity_cutoff_blocks(netuid);
+        let mechanism_count =
+            <u8 as From<MechId>>::from(MechanismCountCurrent::<T>::get(netuid)).max(1);
+
+        for mecid in 0..mechanism_count {
+            let netuid_index = Self::get_mechanism_storage_index(netuid, MechId::from(mecid));
+            let last_updates = LastUpdate::<T>::get(netuid_index);
+
+            for uid in &registered_permitted_uids {
+                let last_update = last_updates.get(*uid as usize).copied().unwrap_or_default();
+                if !Self::is_last_update_inactive(last_update, activity_cutoff, current_block) {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+
     /// The implementation for the extrinsic do_set_child_singular: Sets a single child.
     /// This function allows a coldkey to set children keys.
     ///
@@ -535,24 +621,26 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotEnoughStakeToSetChildkeys
         );
 
+        let bypass_cooldown = Self::can_bypass_childkey_cooldown(&relations, netuid, &children);
+
         // Set last transaction block
         let current_block = Self::get_current_block_as_u64();
         TransactionType::SetChildren.set_last_block_on_subnet::<T>(&hotkey, netuid, current_block);
 
         // Schedule or immediately apply CK
-        Self::schedule_or_apply_ck(netuid, hotkey, children)
+        Self::schedule_or_apply_ck(netuid, hotkey, children, bypass_cooldown)
     }
 
-    /// If the start call occured, schedule children, otherwise,
-    /// apply immediately
+    /// Schedule children after the normal cooldown, or apply immediately before subnet start
+    /// and for eligible reassignments away from unavailable validators.
     fn schedule_or_apply_ck(
         netuid: NetUid,
         hotkey: T::AccountId,
         children: Vec<(u64, T::AccountId)>,
+        bypass_cooldown: bool,
     ) -> DispatchResult {
-        if !SubtokenEnabled::<T>::get(netuid) {
-            Self::persist_pending_chidren_ok(netuid, &hotkey, &children);
-            return Ok(());
+        if !SubtokenEnabled::<T>::get(netuid) || bypass_cooldown {
+            return Self::persist_children(netuid, &hotkey, &children);
         }
 
         // Calculate cool-down block
@@ -726,26 +814,36 @@ impl<T: Config> Pallet<T> {
             && !SubnetOwnerHotkey::<T>::try_get(netuid).is_ok_and(|owner| owner.eq(parent))
     }
 
-    // If child-parent consistency is broken, fail setting new children silently
+    fn persist_children(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        children: &[(u64, T::AccountId)],
+    ) -> DispatchResult {
+        let relations = Self::load_relations_from_pending(hotkey.clone(), children, netuid)?;
+        let mut weight: Weight = T::DbWeight::get().reads(0);
+        Self::persist_child_parent_relations(relations, netuid, &mut weight)?;
+
+        log::trace!(
+            "SetChildren( netuid:{:?}, hotkey:{:?}, children:{:?} )",
+            hotkey,
+            netuid,
+            children.to_vec()
+        );
+        Self::deposit_event(Event::SetChildren(
+            hotkey.clone(),
+            netuid,
+            children.to_vec(),
+        ));
+        Ok(())
+    }
+
+    // If child-parent consistency is broken, fail setting new children silently.
     pub(crate) fn persist_pending_chidren_ok(
         netuid: NetUid,
         hotkey: &T::AccountId,
-        children: &Vec<(u64, T::AccountId)>,
+        children: &[(u64, T::AccountId)],
     ) {
-        let maybe_relations = Self::load_relations_from_pending(hotkey.clone(), children, netuid);
-        if let Ok(relations) = maybe_relations {
-            let mut _weight: Weight = T::DbWeight::get().reads(0);
-            if let Ok(()) = Self::persist_child_parent_relations(relations, netuid, &mut _weight) {
-                // Log and emit event.
-                log::trace!(
-                    "SetChildren( netuid:{:?}, hotkey:{:?}, children:{:?} )",
-                    hotkey,
-                    netuid,
-                    children.clone()
-                );
-                Self::deposit_event(Event::SetChildren(hotkey.clone(), netuid, children.clone()));
-            }
-        }
+        let _ = Self::persist_children(netuid, hotkey, children);
     }
 
     /* Retrieves the list of children for a given hotkey and network.

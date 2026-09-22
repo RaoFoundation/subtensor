@@ -22,7 +22,11 @@ parent of this hotkey cannot be added as its child (relations stay
 bipartite); and the parent hotkey needs a minimum own stake
 (StakeThreshold) unless it is the subnet-owner hotkey. Changes take
 effect after a chain-defined cooldown, except on subnets whose subtoken
-is not yet enabled, where they apply immediately.
+is not yet enabled, where they apply immediately. A reassignment also
+applies immediately when it only redirects stake weight freed from
+existing children that are unregistered, no longer validator-permitted,
+or inactive on every subnet mechanism. Reducing any active child's
+allocation keeps the normal cooldown.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
@@ -95,6 +99,6 @@ pub fn set_children(
 }
 ```
 
-Delegates to [`do_schedule_children`](/code/pallets/subtensor/src/staking/set_children.rs#L475).
+Delegates to [`do_schedule_children`](/code/pallets/subtensor/src/staking/set_children.rs#L561).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

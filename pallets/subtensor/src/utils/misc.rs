@@ -207,6 +207,14 @@ impl<T: Config> Pallet<T> {
         }
         v
     }
+    /// Returns true when a weight update is older than the consensus activity cutoff.
+    pub fn is_last_update_inactive(
+        last_update: u64,
+        activity_cutoff: u64,
+        current_block: u64,
+    ) -> bool {
+        last_update.saturating_add(activity_cutoff) < current_block
+    }
     /// Deprecated: PruningScores is no longer computed during epoch. Always returns empty.
     pub fn get_pruning_score(_netuid: NetUid) -> Vec<u16> {
         Vec::new()

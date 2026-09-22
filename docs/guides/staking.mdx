@@ -235,7 +235,10 @@ The chain enforces:
 - Setting or revoking children is rate-limited to once per 150 blocks
   (~30 minutes) per hotkey per subnet, and changes only take effect after a
   cooldown (default 7,200 blocks, ~24 hours) — see
-  [`pending-children`](/docs/query/pending-children).
+  [`pending-children`](/docs/query/pending-children). The cooldown is skipped
+  when a reassignment only redirects allocation freed from children that are
+  unregistered, no longer validator-permitted, or inactive on every subnet
+  mechanism. Reducing an active child's allocation keeps the normal cooldown.
 - The child's take ([`set-childkey-take`](/docs/tx/set-childkey-take)) ranges
   0–18% and defaults to 0; increases are rate-limited to once per 216,000
   blocks (~30 days).
