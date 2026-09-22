@@ -754,9 +754,7 @@ mod tests {
                 .collect::<BTreeSet<_>>()
         );
         assert!(!ProxyType::Weights.is_superset(&ProxyType::Validate));
-        assert!(
-            allowed_calls(ProxyType::Weights).is_subset(&allowed_calls(ProxyType::Validate))
-        );
+        assert!(allowed_calls(ProxyType::Weights).is_subset(&allowed_calls(ProxyType::Validate)));
         assert!(allowed_calls(ProxyType::Validate).len() > allowed_calls(ProxyType::Weights).len());
     }
 
@@ -1188,13 +1186,22 @@ mod tests {
                     !proxy_type.filter(call),
                     "{proxy_type:?} must not dispatch {name}"
                 );
-                assert!(!advertised(proxy_type, call), "{proxy_type:?} advertises {name}");
+                assert!(
+                    !advertised(proxy_type, call),
+                    "{proxy_type:?} advertises {name}"
+                );
             }
         }
         for call in &validate_only_calls {
             let name = call.get_call_metadata().function_name;
-            assert!(ProxyType::Validate.filter(call), "Validate dispatches {name}");
-            assert!(!ProxyType::Weights.filter(call), "Weights must not dispatch {name}");
+            assert!(
+                ProxyType::Validate.filter(call),
+                "Validate dispatches {name}"
+            );
+            assert!(
+                !ProxyType::Weights.filter(call),
+                "Weights must not dispatch {name}"
+            );
             assert!(advertised(ProxyType::Validate, call));
             assert!(!advertised(ProxyType::Weights, call));
         }
