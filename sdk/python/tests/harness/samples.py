@@ -141,6 +141,13 @@ INTENT_SAMPLES: dict[str, dict] = {
     "set_reject_locked_alpha": {"enabled": True},
     "stake_into_basket": {"hotkey_ss58": BOB_HOT, "amount_tao": 1.0},
     "swap_basket": {"hotkey_ss58": BOB_HOT, "origin_netuid": 1, "dest_netuid": 0, "amount": 1.0},
+    "swap_basket_many": {
+        "hotkey_ss58": BOB_HOT,
+        "legs": [
+            {"origin_netuid": 1, "dest_netuid": 0, "amount": 1.0},
+            {"origin_netuid": 0, "dest_netuid": 2, "amount": 0.5, "min_amount_out": 0.4},
+        ],
+    },
     "add_collateral": {"netuid": 1, "amount_alpha": 1.0},
     "set_min_collateral": {"netuid": 1, "min_alpha": 1.0},
     "create_crowdloan": {

@@ -120,6 +120,10 @@ DESCRIPTIONS: dict[str, str] = {
         "widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 "
         "disables this check; the 2% protocol band still applies."
     ),
+    "BasketSwapBatchEmpty": (
+        "`swap_basket_many` was submitted without any trade legs. Include at least one "
+        "origin/destination/amount leg; one call accepts at most 128 legs."
+    ),
     "BasketSameSubnet": (
         "`swap_basket` was called with the same origin and destination netuid. A basket "
         "trade sells one holding to buy another; pick two different subnets (netuid 0 is "

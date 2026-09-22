@@ -546,6 +546,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'swap_basket', {'hotkey': hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'amount': amount, 'min_amount_out': min_amount_out})
 
     @staticmethod
+    def swap_basket_many(hotkey: 'AccountId32', legs: 'BoundedVec') -> Call:
+        'Rebalance several legs of one validator basket atomically.  Pending dividend deposits are flushed once and the basket is valued once. Each leg then applies the same ownership, availability, slippage, turnover, liquidity, concentration, and caller-floor checks as [`Pallet::swap_basket`]. A failed leg rolls back every trade leg in this call; the preceding dividend flush remains settled, matching the failure behavior of the single-leg call.  Each tuple is `(origin_netuid, destination_netuid, amount, min_amount_out)`.'
+        return Call('SubtensorModule', 'swap_basket_many', {'hotkey': hotkey, 'legs': legs})
+
+    @staticmethod
     def swap_coldkey(old_coldkey: 'AccountId32', new_coldkey: 'AccountId32', swap_cost: 'TaoBalance') -> Call:
         "Performs an arbitrary coldkey swap for any coldkey.  Only callable by root as it doesn't require an announcement and can be used to swap any coldkey."
         return Call('SubtensorModule', 'swap_coldkey', {'old_coldkey': old_coldkey, 'new_coldkey': new_coldkey, 'swap_cost': swap_cost})

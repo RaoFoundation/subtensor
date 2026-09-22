@@ -2273,6 +2273,67 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn swap_basket_many(h: Linear<1, 256>, l: Linear<1, { crate::MAX_BASKET_SWAP_LEGS }>) {
+        // The fund starts with `h` holdings. Every leg trades the same origin into the
+        // same new destination so the benchmark exercises the AMM, fee settlement, flow,
+        // turnover, and cap paths while the implementation performs only one full sweep.
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("swap_basket_many_hot", 0, 1);
+        let escrow = Subtensor::<T>::get_beta_escrow_account_id();
+        let author = seed_block_author::<T>();
+        let author_balance_before = Subtensor::<T>::get_coldkey_balance(&author);
+
+        BasketTradingEnabled::<T>::put(true);
+        Subtensor::<T>::init_new_network(NetUid::ROOT, 1);
+        Uids::<T>::insert(NetUid::ROOT, &hotkey, 0u16);
+        Owner::<T>::insert(&hotkey, &coldkey);
+
+        // Much deeper pools than the single-leg benchmark keep all 128 repeated legs
+        // inside the 2% price band. One-TAO legs remain above the minimum trade amount.
+        let reserve_tao = TaoBalance::from(10_000_000_000_000_000_u64);
+        let reserve_alpha = AlphaBalance::from(10_000_000_000_000_000_u64);
+        let holding = AlphaBalance::from(5_000_000_000_000_000_u64);
+        for i in 0..=h {
+            let netuid = NetUid::from((i + 1) as u16);
+            Subtensor::<T>::init_new_network(netuid, 1);
+            SubnetMechanism::<T>::insert(netuid, 1);
+            SubtokenEnabled::<T>::insert(netuid, true);
+            set_reserves::<T>(netuid, reserve_tao, reserve_alpha);
+            SubnetMovingPrice::<T>::insert(netuid, I96F32::from_num(1));
+            SubnetFastMovingPrice::<T>::insert(netuid, U64F64::from_num(1));
+            if i < h {
+                Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey, &escrow, netuid, holding,
+                );
+            }
+        }
+
+        let origin_netuid = NetUid::from(1);
+        let destination_netuid = NetUid::from((h + 1) as u16);
+        let origin_account = Subtensor::<T>::get_subnet_account_id(origin_netuid).unwrap();
+        add_balance_to_coldkey_account::<T>(&origin_account, reserve_tao);
+        let amount = AlphaBalance::from(1_000_000_000_u64);
+        let legs: BoundedVec<_, ConstU32<{ crate::MAX_BASKET_SWAP_LEGS }>> = (0..l)
+            .map(|_| (origin_netuid, destination_netuid, amount, 0u64))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(coldkey), hotkey.clone(), legs);
+
+        assert!(
+            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                destination_netuid
+            ) > AlphaBalance::ZERO
+        );
+        assert!(Subtensor::<T>::get_coldkey_balance(&author) > author_balance_before);
+        assert!(BasketLiquidityUsed::<T>::get(&hotkey, destination_netuid).is_some());
+    }
+
+    #[benchmark]
     fn set_auto_parent_delegation_enabled() {
         let seed: u32 = 1;
         let coldkey: T::AccountId = account("Test", 0, seed);

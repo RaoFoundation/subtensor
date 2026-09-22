@@ -807,7 +807,10 @@ mod tests {
         );
         assert_eq!(
             allowed_calls(ProxyType::BasketTrading),
-            expected(&["SubtensorModule::swap_basket"])
+            expected(&[
+                "SubtensorModule::swap_basket",
+                "SubtensorModule::swap_basket_many",
+            ])
         );
         assert_eq!(
             allowed_calls(ProxyType::SudoUncheckedSetCode),
@@ -928,9 +931,9 @@ mod tests {
         ));
     }
 
-    /// `BasketTrading` is a single-call grant: it admits `swap_basket` and nothing else,
-    /// no other narrow proxy admits `swap_basket`, and the broad proxies include it only
-    /// where value-moving stake calls are allowed.
+    /// `BasketTrading` admits only the single- and multi-leg basket trade calls, no other
+    /// narrow proxy admits either call, and broad proxies include them only where
+    /// value-moving stake calls are allowed.
     #[test]
     fn basket_trading_proxy_grants_exactly_swap_basket() {
         use frame_system::Call as SystemCall;
@@ -945,6 +948,15 @@ mod tests {
             amount: AlphaBalance::from(1),
             min_amount_out: 0,
         });
+        let swap_basket_many = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket_many {
+            hotkey: hotkey.clone(),
+            legs: sp_runtime::BoundedVec::truncate_from(vec![(
+                NetUid::from(1),
+                NetUid::from(2),
+                AlphaBalance::from(1),
+                0,
+            )]),
+        });
         let stake_into_basket = RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket {
             hotkey: hotkey.clone(),
             amount_staked: TaoBalance::from(1),
@@ -954,6 +966,10 @@ mod tests {
 
         // The trading proxy admits the trade and nothing adjacent to it.
         assert!(proxy_type_filter(&ProxyType::BasketTrading, &swap_basket));
+        assert!(proxy_type_filter(
+            &ProxyType::BasketTrading,
+            &swap_basket_many
+        ));
         for denied in [&stake_into_basket, &claim, &remark] {
             assert!(!proxy_type_filter(&ProxyType::BasketTrading, denied));
         }
@@ -976,12 +992,21 @@ mod tests {
                 !proxy_type_filter(&narrow, &swap_basket),
                 "{narrow:?} must not admit swap_basket"
             );
+            assert!(
+                !proxy_type_filter(&narrow, &swap_basket_many),
+                "{narrow:?} must not admit swap_basket_many"
+            );
         }
 
         // Only `Any` may trade among the broad proxies; `NonFungible` (no value movement)
         // may not. `NonTransfer` / `NonCritical` are pinned separately below.
         assert!(proxy_type_filter(&ProxyType::Any, &swap_basket));
+        assert!(proxy_type_filter(&ProxyType::Any, &swap_basket_many));
         assert!(!proxy_type_filter(&ProxyType::NonFungible, &swap_basket));
+        assert!(!proxy_type_filter(
+            &ProxyType::NonFungible,
+            &swap_basket_many
+        ));
 
         // Superset relation: only `Any` covers the trading grant.
         let supersets = all_proxy_types()
@@ -996,9 +1021,9 @@ mod tests {
         );
     }
 
-    /// `swap_basket` needs the explicit `BasketTrading` grant: the broad `NonTransfer`
-    /// and `NonCritical` delegations do not admit it (PR #3150 calibration pass §5.6),
-    /// so an existing delegate does not gain trading power at upgrade without opting in.
+    /// Basket trades need the explicit `BasketTrading` grant: the broad `NonTransfer` and
+    /// `NonCritical` delegations do not admit them (PR #3150 calibration pass §5.6), so an
+    /// existing delegate does not gain trading power at upgrade without opting in.
     #[test]
     fn broad_proxies_do_not_admit_swap_basket_without_explicit_grant() {
         use pallet_subtensor::Call as SubtensorCall;
@@ -1011,14 +1036,29 @@ mod tests {
             amount: AlphaBalance::from(1),
             min_amount_out: 0,
         });
+        let swap_basket_many = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket_many {
+            hotkey: AccountId::new([7u8; 32]),
+            legs: sp_runtime::BoundedVec::truncate_from(vec![(
+                NetUid::from(1),
+                NetUid::from(2),
+                AlphaBalance::from(1),
+                0,
+            )]),
+        });
         for broad in [ProxyType::NonTransfer, ProxyType::NonCritical] {
             assert!(
                 !proxy_type_filter(&broad, &swap_basket),
                 "{broad:?} must not admit swap_basket"
             );
             assert!(!allowed_calls(broad).contains("SubtensorModule::swap_basket"));
+            assert!(!proxy_type_filter(&broad, &swap_basket_many));
+            assert!(!allowed_calls(broad).contains("SubtensorModule::swap_basket_many"));
         }
         assert!(proxy_type_filter(&ProxyType::BasketTrading, &swap_basket));
+        assert!(proxy_type_filter(
+            &ProxyType::BasketTrading,
+            &swap_basket_many
+        ));
     }
 
     #[test]

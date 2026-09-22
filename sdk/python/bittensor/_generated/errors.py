@@ -213,6 +213,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 169): ErrorInfo('SubtensorModule', 'BasketSameSubnet', '`swap_basket` origin and destination are the same subnet.'),
     (7, 170): ErrorInfo('SubtensorModule', 'BasketLiquidityCapExceeded', "The trade would leave the fund holding more of the destination subnet than [`crate::BasketLiquidityCap`] allows as a share of that subnet's alpha reserve. Trade a smaller amount or pick a deeper pool."),
     (7, 171): ErrorInfo('SubtensorModule', 'BasketMinOutNotMet', "The `swap_basket` buy leg credited less than the caller's `min_amount_out` (destination alpha, or TAO when the destination is root). The trade rolled back. Re-quote and retry, or lower the floor."),
+    (7, 172): ErrorInfo('SubtensorModule', 'BasketSwapBatchEmpty', 'A `swap_basket_many` call contained no trade legs. Submit at least one leg; the bounded call argument enforces the maximum at decode time.'),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),

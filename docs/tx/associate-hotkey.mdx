@@ -15,7 +15,7 @@ take over the hotkey.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.try_associate_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1682-L1690) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.try_associate_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1683-L1691) |
 
 ## Parameters
 
@@ -62,7 +62,7 @@ result = sub.execute_tool("associate_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.try_associate_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1684`](/code/pallets/subtensor/src/macros/dispatches.rs#L1682-L1690):
+`SubtensorModule.try_associate_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1685`](/code/pallets/subtensor/src/macros/dispatches.rs#L1683-L1691):
 
 ```rust
 #[pallet::call_index(91)]

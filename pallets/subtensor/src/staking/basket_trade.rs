@@ -40,6 +40,55 @@ struct BasketTradeOutcome {
     holdings: u64,
 }
 
+/// Cached guarded valuation for a multi-leg rebalance. Only the origin and destination
+/// marks can change during one leg, so later legs do not need another full basket sweep.
+struct BasketTradeState {
+    rows: Vec<(NetUid, u64)>,
+    guarded_nav: u64,
+}
+
+struct BasketTradeFailure {
+    attempted: u32,
+    error: DispatchError,
+}
+
+impl From<DispatchError> for BasketTradeFailure {
+    fn from(error: DispatchError) -> Self {
+        Self {
+            attempted: 1,
+            error,
+        }
+    }
+}
+
+impl BasketTradeState {
+    fn guarded_value(&self, netuid: NetUid) -> u64 {
+        self.rows
+            .iter()
+            .find(|(row, _)| *row == netuid)
+            .map(|(_, value)| *value)
+            .unwrap_or(0)
+    }
+
+    fn contains(&self, netuid: NetUid) -> bool {
+        self.rows.iter().any(|(row, _)| *row == netuid)
+    }
+
+    fn set_guarded_value(&mut self, netuid: NetUid, value: u64, exists: bool) {
+        if let Some(index) = self.rows.iter().position(|(row, _)| *row == netuid) {
+            if exists {
+                if let Some((_, current)) = self.rows.get_mut(index) {
+                    *current = value;
+                }
+            } else {
+                self.rows.remove(index);
+            }
+        } else if exists {
+            self.rows.push((netuid, value));
+        }
+    }
+}
+
 impl<T: Config> Pallet<T> {
     /// Validator-directed basket rebalance: sell `amount` of the fund's `origin_netuid`
     /// holding for TAO and buy `destination_netuid` with it. Either side may be root
@@ -152,6 +201,89 @@ impl<T: Config> Pallet<T> {
         Ok(Self::swap_basket_weight(outcome.holdings).saturating_add(flush_weight))
     }
 
+    /// Multi-leg basket rebalance with one pending-deposit flush and one initial NAV sweep.
+    /// Trade legs are atomic with one another; the flush intentionally precedes their
+    /// transaction so it remains settled when a leg fails, as it does for `swap_basket`.
+    pub fn do_swap_basket_many_tracked(
+        coldkey: T::AccountId,
+        hotkey: T::AccountId,
+        legs: &[(NetUid, NetUid, AlphaBalance, u64)],
+    ) -> Result<Weight, (Weight, DispatchError)> {
+        if legs.is_empty() {
+            return Err((Weight::zero(), Error::<T>::BasketSwapBatchEmpty.into()));
+        }
+
+        let precheck = Self::swap_basket_precheck_weight();
+        for (index, (origin, destination, amount, _)) in legs.iter().enumerate() {
+            Self::check_swap_basket(&coldkey, &hotkey, *origin, *destination, amount.to_u64())
+                .map_err(|error| {
+                    (
+                        precheck.saturating_mul((index as u64).saturating_add(1)),
+                        error.into(),
+                    )
+                })?;
+        }
+
+        let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(&hotkey);
+        let flush_weight = Self::basket_flush_weight(flush_work);
+        let escrow = Self::get_beta_escrow_account_id();
+        let mut state = Self::basket_trade_state(&hotkey).map_err(|error| {
+            let rows = Self::get_basket_holdings(&hotkey).len() as u64;
+            (
+                Self::swap_basket_many_weight(rows.max(1), 1).saturating_add(flush_weight),
+                error,
+            )
+        })?;
+        let initial_rows = state.rows.len() as u64;
+
+        let outcomes = with_transaction(|| {
+            let mut outcomes = Vec::with_capacity(legs.len());
+            for (index, (origin, destination, amount, min_amount_out)) in legs.iter().enumerate() {
+                match Self::try_swap_basket_with_state(
+                    &hotkey,
+                    &escrow,
+                    *origin,
+                    *destination,
+                    amount.to_u64(),
+                    *min_amount_out,
+                    &mut state,
+                ) {
+                    Ok(outcome) => outcomes.push((*origin, *destination, amount.to_u64(), outcome)),
+                    Err(error) => {
+                        return TransactionOutcome::Rollback(Err(BasketTradeFailure {
+                            attempted: u32::try_from(index.saturating_add(1)).unwrap_or(u32::MAX),
+                            error,
+                        }));
+                    }
+                }
+            }
+            TransactionOutcome::Commit(Ok(outcomes))
+        })
+        .map_err(|failure| {
+            (
+                Self::swap_basket_many_weight(initial_rows.max(1), failure.attempted)
+                    .saturating_add(flush_weight),
+                failure.error,
+            )
+        })?;
+
+        for (origin_netuid, destination_netuid, alpha_sold, outcome) in outcomes {
+            Self::deposit_event(Event::BasketSwapped {
+                hotkey: hotkey.clone(),
+                origin_netuid,
+                destination_netuid,
+                alpha_sold: alpha_sold.into(),
+                tao_mid: outcome.tao_mid.into(),
+                alpha_bought: outcome.alpha_bought.into(),
+            });
+        }
+
+        Ok(
+            Self::swap_basket_many_weight(initial_rows.max(1), legs.len() as u32)
+                .saturating_add(flush_weight),
+        )
+    }
+
     /// The read-only preconditions of `swap_basket`: gates, ownership, subnet existence
     /// and subtoken flags. Nothing is written before they pass, so a trade refused here is
     /// charged [`Self::swap_basket_precheck_weight`] only.
@@ -217,6 +349,20 @@ impl<T: Config> Pallet<T> {
         amount: u64,
         min_amount_out: u64,
     ) -> Result<BasketTradeOutcome, DispatchError> {
+        let mut state = Self::basket_trade_state(hotkey)?;
+        Self::try_swap_basket_with_state(
+            hotkey,
+            escrow,
+            origin_netuid,
+            destination_netuid,
+            amount,
+            min_amount_out,
+            &mut state,
+        )
+    }
+
+    /// Load the guarded value of every holding once for a single trade or multi-leg call.
+    fn basket_trade_state(hotkey: &T::AccountId) -> Result<BasketTradeState, DispatchError> {
         // Every holding is valued twice: at its realizable quote (the NAV the fund could
         // pay out, used for bookkeeping) and at its guarded mark (the same, capped at the
         // slow-EMA value of the alpha — the figure the turnover budget and the
@@ -231,17 +377,31 @@ impl<T: Config> Pallet<T> {
                 )
             })
             .collect();
-        let guarded_nav_before: u64 = guarded_before
+        let guarded_nav: u64 = guarded_before
             .iter()
             .fold(0u64, |nav, (_, value)| nav.saturating_add(*value));
-        let guarded_value_before = |netuid: NetUid| -> u64 {
-            guarded_before
-                .iter()
-                .find(|(row, _)| *row == netuid)
-                .map(|(_, value)| *value)
-                .unwrap_or(0)
-        };
-        let destination_is_new = !before.iter().any(|(row, _, _)| *row == destination_netuid);
+        Ok(BasketTradeState {
+            rows: guarded_before,
+            guarded_nav,
+        })
+    }
+
+    /// Execute one leg against a cached guarded valuation, then update only the two marks
+    /// whose pools or holdings changed.
+    fn try_swap_basket_with_state(
+        hotkey: &T::AccountId,
+        escrow: &T::AccountId,
+        origin_netuid: NetUid,
+        destination_netuid: NetUid,
+        amount: u64,
+        min_amount_out: u64,
+        state: &mut BasketTradeState,
+    ) -> Result<BasketTradeOutcome, DispatchError> {
+        let guarded_nav_before = state.guarded_nav;
+        let guarded_origin_before = state.guarded_value(origin_netuid);
+        let guarded_destination_before = state.guarded_value(destination_netuid);
+        let destination_is_new = !state.contains(destination_netuid);
+        let holdings_before = state.rows.len() as u64;
 
         // --- 1. Sell leg: origin holding -> free TAO on the origin pot.
         let tao_mid: u64 = Self::sell_basket_leg(hotkey, escrow, origin_netuid, amount.into())?;
@@ -283,20 +443,25 @@ impl<T: Config> Pallet<T> {
         // measured at its realizable value (a pump there only makes the check stricter);
         // the fund it is measured against is the guarded NAV, which a same-block pump of
         // any held pool cannot inflate.
-        let (_, origin_after) = Self::basket_holding_marks(hotkey, escrow, origin_netuid)?;
-        let (destination_value, destination_after) =
+        let (origin_exists, _, origin_after) =
+            Self::basket_holding_marks(hotkey, escrow, origin_netuid)?;
+        let (destination_exists, destination_value, destination_after) =
             Self::basket_holding_marks(hotkey, escrow, destination_netuid)?;
         let guarded_nav_after: u64 = guarded_nav_before
-            .saturating_sub(guarded_value_before(origin_netuid))
-            .saturating_sub(guarded_value_before(destination_netuid))
+            .saturating_sub(guarded_origin_before)
+            .saturating_sub(guarded_destination_before)
             .saturating_add(origin_after)
             .saturating_add(destination_after);
         Self::ensure_within_concentration_cap(destination_value, guarded_nav_after)?;
 
+        state.set_guarded_value(origin_netuid, origin_after, origin_exists);
+        state.set_guarded_value(destination_netuid, destination_after, destination_exists);
+        state.guarded_nav = guarded_nav_after;
+
         Ok(BasketTradeOutcome {
             tao_mid,
             alpha_bought: alpha_bought.to_u64(),
-            holdings: (before.len() as u64).saturating_add(u64::from(destination_is_new)),
+            holdings: holdings_before.saturating_add(u64::from(destination_is_new)),
         })
     }
 
@@ -307,11 +472,12 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         escrow: &T::AccountId,
         netuid: NetUid,
-    ) -> Result<(u64, u64), DispatchError> {
+    ) -> Result<(bool, u64, u64), DispatchError> {
         let held =
             Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid).to_u64();
         let realizable = Self::try_realizable_tao_for_alpha(netuid, held)?.unwrap_or(0);
         Ok((
+            held != 0,
             realizable,
             Self::guarded_basket_holding_value(netuid, held, realizable),
         ))
@@ -585,6 +751,24 @@ impl<T: Config> Pallet<T> {
             u32::try_from(num_holdings).unwrap_or(u32::MAX),
         )
         .saturating_add(T::DbWeight::get().reads_writes(1, 1))
+    }
+
+    /// Weight of a multi-leg call: one full basket trade envelope followed by one
+    /// single-row envelope per additional leg. Later legs use the cached valuation and
+    /// only re-quote their origin and destination, so this safely overprices their work.
+    pub fn swap_basket_many_weight(num_holdings: u64, num_legs: u32) -> Weight {
+        <T as crate::pallet::Config>::WeightInfo::swap_basket_many(
+            u32::try_from(num_holdings).unwrap_or(u32::MAX),
+            num_legs,
+        )
+        .saturating_add(T::DbWeight::get().reads_writes(u64::from(num_legs), u64::from(num_legs)))
+    }
+
+    /// Pre-dispatch envelope for [`Pallet::swap_basket_many`]: one capped initial sweep,
+    /// one conservative per-leg allowance, and one shared pending-deposit flush.
+    pub fn swap_basket_many_declared_weight(num_legs: u32) -> Weight {
+        Self::swap_basket_many_weight(MAX_BASKET_ROWS, num_legs)
+            .saturating_add(Self::basket_flush_weight_bound())
     }
 
     /// Pre-dispatch weight of `swap_basket`: the trade over the row cap plus the flat

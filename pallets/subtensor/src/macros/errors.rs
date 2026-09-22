@@ -407,5 +407,8 @@ mod errors {
         /// (destination alpha, or TAO when the destination is root). The trade rolled
         /// back. Re-quote and retry, or lower the floor.
         BasketMinOutNotMet,
+        /// A `swap_basket_many` call contained no trade legs. Submit at least one leg;
+        /// the bounded call argument enforces the maximum at decode time.
+        BasketSwapBatchEmpty,
     }
 }
