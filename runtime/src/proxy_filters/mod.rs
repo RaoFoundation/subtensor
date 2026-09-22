@@ -1160,7 +1160,7 @@ mod tests {
             }),
             RuntimeCall::Commitments(pallet_commitments::Call::set_commitment {
                 netuid,
-                info: Box::new(Default::default()),
+                info: Box::default(),
             }),
         ];
         let weight_calls = [
