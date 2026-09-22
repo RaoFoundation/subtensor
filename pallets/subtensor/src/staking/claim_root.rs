@@ -1,5 +1,6 @@
 use super::basket_flush::{BasketFlushWork, MAX_BASKET_ROWS};
 use super::*;
+use crate::migrations::migrate_alpha_v2::retired::Alpha;
 use crate::weights::WeightInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::{Weight, WeightMeter};

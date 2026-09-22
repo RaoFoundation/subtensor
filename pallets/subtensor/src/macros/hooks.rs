@@ -236,16 +236,20 @@ mod hooks {
         }
 
         fn on_idle(_block: BlockNumberFor<T>, limit: Weight) -> Weight {
+            let status_weight = T::DbWeight::get().reads(2);
+            let alpha_in_progress = migrations::migrate_alpha_v2::in_progress::<T>();
             let seed_in_progress =
                 migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>();
 
             // Dissolution removes RootClaimable/RootClaimed state that the seed still needs.
             // Give the migration exclusive ownership of those legacy maps until it completes;
-            // queued dissolutions resume on the first subsequent idle block.
-            let mut weight = if seed_in_progress {
-                Weight::zero()
+            // queued dissolutions resume on the first subsequent idle block. Alpha conversion
+            // also retains ownership of positions until its accounting sweep finishes.
+            let mut weight = if seed_in_progress || alpha_in_progress {
+                status_weight
             } else {
-                Self::remove_data_for_dissolved_networks(limit)
+                Self::remove_data_for_dissolved_networks(limit.saturating_sub(status_weight))
+                    .saturating_add(status_weight)
             };
 
             if weight.all_lt(limit) {
@@ -283,7 +287,13 @@ mod hooks {
                 );
             }
 
-            if !seed_in_progress && weight.all_lt(limit) {
+            if !seed_in_progress && alpha_in_progress && weight.all_lt(limit) {
+                weight.saturating_accrue(migrations::migrate_alpha_v2::continue_migration::<T>(
+                    limit.saturating_sub(weight),
+                ));
+            }
+
+            if !seed_in_progress && !alpha_in_progress && weight.all_lt(limit) {
                 weight.saturating_accrue(
                     migrations::migrate_storage_bloat_v2::continue_storage_bloat_cleanup::<T>(
                         limit.saturating_sub(weight),
@@ -296,6 +306,7 @@ mod hooks {
             // unexpectedly removed cursor cannot start the dependent cleanup early.
             let storage_bloat_completion_read = T::DbWeight::get().reads(1);
             let storage_bloat_complete = if !seed_in_progress
+                && !alpha_in_progress
                 && weight
                     .saturating_add(storage_bloat_completion_read)
                     .all_lt(limit)

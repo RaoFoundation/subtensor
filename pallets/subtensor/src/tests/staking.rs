@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::arithmetic_side_effects)]
 
+use crate::migrations::migrate_alpha_v2::retired::{Alpha, TotalHotkeyShares};
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, Pays};
 use frame_support::sp_runtime::DispatchError;
@@ -4798,7 +4799,11 @@ fn test_add_stake_specific_stake_into_subnet_fail() {
         hotkey_pool.update_value_for_one(&hotkey_owner_account_id, 1234); // Doesn't matter, will be overridden
 
         // Adjust the total hotkey stake and shares to match the existing values
-        TotalHotkeyShares::<Test>::insert(hotkey_account_id, netuid, existing_shares);
+        TotalHotkeySharesV2::<Test>::insert(
+            hotkey_account_id,
+            netuid,
+            SafeFloat::from(existing_shares),
+        );
         TotalHotkeyAlpha::<Test>::insert(hotkey_account_id, netuid, existing_stake);
 
         // Make the hotkey a delegate
@@ -6633,6 +6638,7 @@ fn test_lazy_sharepool_migration_get_stake_reads_from_deprecated_alpha_map() {
         Alpha::<Test>::insert((hotkey, coldkey, netuid), U64F64::from(1_u64));
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         assert_eq!(
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
@@ -6676,6 +6682,7 @@ fn test_lazy_sharepool_migration_get_stake_reads_from_cross_alpha_maps() {
         // but total shares are in TotalHotkeySharesV2 map (already migrated)
         TotalHotkeySharesV2::<Test>::insert(hotkey, netuid, SafeFloat::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         assert_eq!(
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
@@ -6697,6 +6704,7 @@ fn test_lazy_sharepool_migration_staking_causes_migration() {
         Alpha::<Test>::insert((hotkey, coldkey, netuid), U64F64::from(1_u64));
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Stake more via stake_into_subnet
         increase_stake_on_coldkey_hotkey_account(&coldkey, &hotkey, stake.into(), netuid);
@@ -6730,6 +6738,7 @@ fn test_sharepool_dataops_get_value_v1() {
         Alpha::<Test>::insert((hotkey, coldkey, netuid), U64F64::from(1_u64));
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and read get_value
         let share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -6776,6 +6785,7 @@ fn test_sharepool_dataops_get_value_mixed_v1_v2() {
         Alpha::<Test>::insert((hotkey, coldkey, netuid), U64F64::from(1_u64));
         TotalHotkeySharesV2::<Test>::insert(hotkey, netuid, share);
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and read get_value
         let share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -6799,6 +6809,7 @@ fn test_sharepool_dataops_get_value_mixed_v2_v1() {
         AlphaV2::<Test>::insert((hotkey, coldkey, netuid), share);
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and read get_value
         let share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -6820,6 +6831,7 @@ fn test_sharepool_dataops_get_value_from_shares_v1() {
         // add stake to deprecated THS map
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and read get_value_from_shares
         let share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -6893,6 +6905,7 @@ fn test_sharepool_dataops_update_value_for_one_v1_with_migration() {
         Alpha::<Test>::insert((hotkey, coldkey, netuid), U64F64::from(1_u64));
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and call update_value_for_one
         let mut share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -6943,6 +6956,7 @@ fn test_sharepool_dataops_update_value_for_one_mixed_v1_v2() {
         Alpha::<Test>::insert((hotkey, coldkey, netuid), U64F64::from(1_u64));
         TotalHotkeySharesV2::<Test>::insert(hotkey, netuid, share);
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and call update_value_for_one
         let mut share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -6969,6 +6983,7 @@ fn test_sharepool_dataops_update_value_for_one_mixed_v2_v1() {
         AlphaV2::<Test>::insert((hotkey, coldkey, netuid), share);
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and call update_value_for_one
         let mut share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -6994,6 +7009,7 @@ fn test_sharepool_dataops_get_value_returns_zero_on_non_existing_v1() {
         // add to deprecated THS map, but no value in Alpha map
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and read get_value
         let share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -7037,6 +7053,7 @@ fn test_sharepool_dataops_try_get_value_returns_err_on_non_existing_v1() {
         // add to deprecated THS map, but no value in Alpha map
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and read get_value
         let share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);

@@ -229,7 +229,7 @@ fn test_destroy_alpha_in_out_stakes_clean_alpha() {
             "destroy_alpha_in_out_stakes_clean_alpha should complete"
         );
         assert_eq!(
-            Alpha::<Test>::iter()
+            AlphaV2::<Test>::iter()
                 .filter(|((_, _, nu), _)| *nu == netuid)
                 .count(),
             0
@@ -423,7 +423,7 @@ fn test_destroy_alpha_clean_alpha_resumes_with_limited_weight() {
         assert!(!done);
 
         let mut iterations = 0;
-        while Alpha::<Test>::iter().any(|((_, _, nu), _)| nu == netuid) {
+        while AlphaV2::<Test>::iter().any(|((_, _, nu), _)| nu == netuid) {
             let mut weight_meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
             let (done, new_key) = SubtensorModule::destroy_alpha_in_out_stakes_clean_alpha(
                 netuid,
