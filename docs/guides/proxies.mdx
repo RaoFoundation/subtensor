@@ -64,8 +64,10 @@ Prefer the narrowest type that covers the job:
 * **ChildKeys** — [`set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093-L1101) and [`set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L935-L945);
   **RootClaim** — [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1905-L1939) and [`claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1941-L1970).
   A staking service that also needs to claim root dividends grants both
-  `Staking` and `RootClaim` to the same delegate; `Proxy.proxy` picks
-  whichever grant covers the call.
+  `Staking` and `RootClaim` to the same delegate. Set `Proxy.proxy`'s
+  `force_proxy_type` to `Staking` for staking calls and `RootClaim` for root
+  claims; omitting it selects the first matching delegation, not whichever
+  grant covers the call.
 * **BasketTrading** — `swap_basket` only: rebalance a root validator's basket
   without being able to deposit, withdraw, or claim.
 * **Validate** (spec 470+) — run a validator *hotkey* from an operations key:
