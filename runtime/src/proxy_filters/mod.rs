@@ -725,9 +725,11 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
-    /// `Weights` sits strictly inside `Validate`; only `Any`, `NonTransfer` and
-    /// `Validate` may hand out a `Weights` grant, and nothing narrower than
-    /// `NonTransfer` may hand out `Validate`.
+    /// `Weights` sits strictly inside `Validate`, and `NonTransfer` covers both.
+    /// `is_superset` governs onward `add_proxy` grants: only `Any` and
+    /// `NonTransfer` can actually hand out either type, since neither `Validate`
+    /// nor `Weights` reaches `Proxy::add_proxy`; the `Validate` ⊇ `Weights` arm
+    /// records the call-set containment.
     #[test]
     fn validate_and_weights_superset_ordering() {
         let supersets = |child: ProxyType| {
