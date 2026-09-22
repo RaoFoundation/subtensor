@@ -43,6 +43,12 @@ pub enum ProxyType {
     SubnetLeaseBeneficiary,
     RootClaim,
     BasketTrading,
+    /// Operate a validator hotkey: weights, serving, commitments, EVM-key
+    /// association. Never stake, transfer, or key rotation.
+    Validate,
+    /// Submit weights only (set / commit / reveal). A strict subset of
+    /// `Validate` for third-party weight setters.
+    Weights,
 }
 
 impl TryFrom<u8> for ProxyType {
@@ -69,6 +75,8 @@ impl TryFrom<u8> for ProxyType {
             16 => Ok(Self::SubnetLeaseBeneficiary),
             17 => Ok(Self::RootClaim),
             18 => Ok(Self::BasketTrading),
+            19 => Ok(Self::Validate),
+            20 => Ok(Self::Weights),
             _ => Err(()),
         }
     }
@@ -96,6 +104,8 @@ impl From<ProxyType> for u8 {
             ProxyType::SubnetLeaseBeneficiary => 16,
             ProxyType::RootClaim => 17,
             ProxyType::BasketTrading => 18,
+            ProxyType::Validate => 19,
+            ProxyType::Weights => 20,
         }
     }
 }
@@ -219,4 +229,43 @@ pub struct ProxyTypeInfo {
     pub name: Vec<u8>,
     pub index: u8,
     pub deprecated: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every stored `ProxyDefinition` carries the SCALE variant index, so the
+    /// `u8` mapping, the declaration order, and the wire encoding must agree
+    /// for every variant. A reordered or renumbered variant would silently
+    /// change what an existing on-chain delegation is allowed to do.
+    #[test]
+    fn proxy_type_indices_are_pinned_to_scale_encoding() {
+        let mut seen = 0u32;
+        for index in 0u8..=u8::MAX {
+            let Ok(proxy_type) = ProxyType::try_from(index) else {
+                continue;
+            };
+            seen = seen.saturating_add(1);
+            assert_eq!(u8::from(proxy_type), index, "{proxy_type:?} round trip");
+            assert_eq!(
+                proxy_type.encode(),
+                vec![index],
+                "{proxy_type:?} SCALE index"
+            );
+        }
+        assert_eq!(seen, 21, "ProxyType variant count");
+    }
+
+    #[test]
+    fn spec_470_proxy_types_have_stable_indices() {
+        assert_eq!(u8::from(ProxyType::BasketTrading), 18);
+        assert_eq!(u8::from(ProxyType::Validate), 19);
+        assert_eq!(u8::from(ProxyType::Weights), 20);
+        assert_eq!(ProxyType::try_from(19), Ok(ProxyType::Validate));
+        assert_eq!(ProxyType::try_from(20), Ok(ProxyType::Weights));
+        assert_eq!(ProxyType::try_from(21), Err(()));
+        assert!(!ProxyType::Validate.is_deprecated());
+        assert!(!ProxyType::Weights.is_deprecated());
+    }
 }
