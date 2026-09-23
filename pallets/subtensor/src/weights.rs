@@ -91,6 +91,13 @@ pub trait WeightInfo {
 	fn claim_root(h: u32, ) -> Weight;
 	fn claim_root_scan(h: u32, ) -> Weight;
 	fn swap_basket(h: u32, ) -> Weight;
+	/// Conservative composition used until reference benchmarking replaces it: one full
+	/// basket sweep and trade, then one single-row trade envelope for each additional leg.
+	fn swap_basket_many(h: u32, l: u32) -> Weight {
+		Self::swap_basket(h).saturating_add(
+			Self::swap_basket(1).saturating_mul(l.saturating_sub(1).into())
+		)
+	}
 	fn sudo_set_root_claim_threshold() -> Weight;
 	fn set_auto_parent_delegation_enabled() -> Weight;
 	fn add_stake_burn() -> Weight;

@@ -13,7 +13,7 @@ from ..balance import Balance
 from ..result import BittensorError
 from ..settings import RAO_PER_TAO
 from ..signing import public_view
-from ._money import ALL, UNBOUNDED, Money, Spend, call_amount
+from ._money import ALL, UNBOUNDED, Money, Spend, alpha_amount, call_amount
 from .base import BuiltCall, Intent, IntentPreflight
 from .registry import register
 
@@ -1833,3 +1833,93 @@ class SwapBasket(Intent):
             f"rebalance {self.hotkey_ss58}'s basket: sell {amount} on netuid "
             f"{self.origin_netuid} to buy netuid {self.dest_netuid}{note}"
         )
+
+
+@register
+@dataclass
+class SwapBasketMany(Intent):
+    """Atomically execute up to 128 legs of one validator basket rebalance.
+
+    The runtime flushes queued dividends and values the fund once, then applies every
+    ``swap_basket`` guardrail to each leg in order. If any leg fails, all trade legs roll
+    back; the dividend flush remains settled. Each leg is an object with
+    ``origin_netuid``, ``dest_netuid``, ``amount``, and optional ``min_amount_out``.
+    Amounts use the origin subnet's alpha unit and floors use the destination subnet's
+    alpha unit (TAO for netuid 0).
+    """
+
+    op = "swap_basket_many"
+    signer = "coldkey"
+    wraps = (("SubtensorModule", "swap_basket_many"),)
+    mev_shield_default = True
+
+    hotkey_ss58: str = field(
+        metadata={"help": "Root-registered validator whose basket to rebalance."}
+    )
+    legs: list[dict] = field(
+        metadata={
+            "help": "One to 128 ordered trade objects: origin_netuid, dest_netuid, "
+            "amount, and optional min_amount_out. The entire trade sequence is atomic."
+        }
+    )
+
+    def __post_init__(self):
+        if not self.legs:
+            raise BittensorError("swap_basket_many: at least one leg is required")
+        if len(self.legs) > 128:
+            raise BittensorError("swap_basket_many: at most 128 legs are allowed")
+
+        normalized: list[dict] = []
+        required = {"origin_netuid", "dest_netuid", "amount"}
+        allowed = required | {"min_amount_out"}
+        for index, leg in enumerate(self.legs):
+            if not isinstance(leg, dict):
+                raise BittensorError(f"swap_basket_many: leg {index} must be an object")
+            missing = required - set(leg)
+            extra = set(leg) - allowed
+            if missing or extra:
+                detail = []
+                if missing:
+                    detail.append(f"missing {sorted(missing)}")
+                if extra:
+                    detail.append(f"unknown {sorted(extra)}")
+                raise BittensorError(f"swap_basket_many: leg {index} has " + ", ".join(detail))
+            origin = int(leg["origin_netuid"])
+            destination = int(leg["dest_netuid"])
+            if origin == destination:
+                raise BittensorError(
+                    f"swap_basket_many: leg {index} origin and destination must differ"
+                )
+            normalized.append(
+                {
+                    "origin_netuid": origin,
+                    "dest_netuid": destination,
+                    "amount": alpha_amount(leg["amount"], origin),
+                    "min_amount_out": alpha_amount(leg.get("min_amount_out", 0), destination),
+                }
+            )
+        self.legs = normalized
+
+    def touches_netuids(self) -> list[int]:
+        return list(
+            dict.fromkeys(
+                netuid for leg in self.legs for netuid in (leg["origin_netuid"], leg["dest_netuid"])
+            )
+        )
+
+    async def build(self, substrate, wallet: Any):
+        legs = [
+            (
+                leg["origin_netuid"],
+                leg["dest_netuid"],
+                cast(Balance, leg["amount"]).rao,
+                cast(Balance, leg["min_amount_out"]).rao,
+            )
+            for leg in self.legs
+        ]
+        return await substrate.compose(
+            calls.SubtensorModule.swap_basket_many(hotkey=self.hotkey_ss58, legs=legs)
+        )
+
+    def summary(self) -> str:
+        return f"rebalance {self.hotkey_ss58}'s basket atomically across {len(self.legs)} legs"

@@ -588,6 +588,24 @@
         }
       ]
     },
+    "BasketSwapBatchEmpty": {
+      "code": "invalid_argument",
+      "description": "`swap_basket_many` was submitted without any trade legs. Include at least one origin/destination/amount leg; one call accepts at most 128 legs.",
+      "docs_url": "/docs/errors/chain/BasketSwapBatchEmpty",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketSwapBatchEmpty/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 412,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L412",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "BasketTradingDisabled": {
       "code": "disabled",
       "description": "`swap_basket` is switched off network-wide (`BasketTradingEnabled` is false). Governance opens it with `AdminUtils.sudo_set_basket_trading_enabled`. Deposits, claims, and dividend deployment are unaffected.",

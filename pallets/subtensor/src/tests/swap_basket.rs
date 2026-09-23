@@ -23,17 +23,17 @@ use crate::{
     BASKET_TRADE_REFILL_BLOCKS, BasketClaimed, BasketConcentrationCap, BasketDailyTurnoverCap,
     BasketLiquidityCap, BasketRate, BasketShares, BasketTradeBucket, BasketTradingEnabled,
     BasketTradingFrozen, ColdkeySwapAnnouncements, DEFAULT_BASKET_DAILY_TURNOVER_CAP,
-    DefaultMinStake, Error, Event, NetworksAdded, SubnetAlphaIn, SubnetAlphaOut,
-    SubnetFastMovingPrice, SubnetMovingPrice, SubnetProtocolFlow, SubnetTAO, SubnetTaoFlow,
-    SubtokenEnabled, TotalStake, Uids,
+    DefaultMinStake, Error, Event, MAX_BASKET_SWAP_LEGS, NetworksAdded, SubnetAlphaIn,
+    SubnetAlphaOut, SubnetFastMovingPrice, SubnetMovingPrice, SubnetProtocolFlow, SubnetTAO,
+    SubnetTaoFlow, SubtokenEnabled, TotalStake, Uids,
 };
 use codec::Encode;
 use frame_support::assert_ok;
 use frame_support::dispatch::DispatchResultWithPostInfo;
-use frame_support::traits::{ExtendedDispatchable, Get};
+use frame_support::traits::{ConstU32, ExtendedDispatchable, Get};
 use frame_support::weights::Weight;
 use sp_core::U256;
-use sp_runtime::traits::Hash;
+use sp_runtime::{BoundedVec, traits::Hash};
 use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::SwapHandler;
@@ -144,6 +144,15 @@ fn swap_with_min(
         amount.into(),
         min_amount_out,
     )
+}
+
+fn swap_many(
+    fund: &Fund,
+    legs: Vec<(NetUid, NetUid, AlphaBalance, u64)>,
+) -> DispatchResultWithPostInfo {
+    let legs: BoundedVec<_, ConstU32<MAX_BASKET_SWAP_LEGS>> =
+        legs.try_into().expect("test batch is bounded");
+    SubtensorModule::swap_basket_many(RuntimeOrigin::signed(fund.coldkey), fund.hotkey, legs)
 }
 
 fn nav(hotkey: &U256) -> u64 {
@@ -421,6 +430,93 @@ fn test_swap_basket_post_dispatch_weight_is_bounded() {
         // Two rows after the trade (A remainder + B).
         assert_eq!(actual, SubtensorModule::swap_basket_weight(2));
         assert!(actual.all_lt(SubtensorModule::swap_basket_weight(256)));
+    });
+}
+
+#[test]
+fn test_swap_basket_many_executes_legs_with_one_initial_sweep() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        let origin_before = escrow_alpha(&fund.hotkey, fund.netuid_a);
+        let post = swap_many(
+            &fund,
+            vec![
+                (
+                    fund.netuid_a,
+                    fund.netuid_b,
+                    AlphaBalance::from(8_000_000),
+                    0,
+                ),
+                (
+                    fund.netuid_b,
+                    NetUid::ROOT,
+                    AlphaBalance::from(4_000_000),
+                    0,
+                ),
+            ],
+        )
+        .expect("both legs succeed");
+
+        assert_eq!(
+            escrow_alpha(&fund.hotkey, fund.netuid_a),
+            origin_before - 8_000_000
+        );
+        assert!(escrow_alpha(&fund.hotkey, fund.netuid_b) > 0);
+        assert!(escrow_alpha(&fund.hotkey, NetUid::ROOT) > 0);
+        assert_eq!(
+            post.actual_weight,
+            Some(SubtensorModule::swap_basket_many_weight(1, 2))
+        );
+        let swaps = System::events()
+            .iter()
+            .filter(|record| {
+                matches!(
+                    record.event,
+                    RuntimeEvent::SubtensorModule(Event::BasketSwapped { .. })
+                )
+            })
+            .count();
+        assert_eq!(swaps, 2);
+    });
+}
+
+#[test]
+fn test_swap_basket_many_rolls_back_all_trade_legs_on_failure() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        let origin_before = escrow_alpha(&fund.hotkey, fund.netuid_a);
+        let result = swap_many(
+            &fund,
+            vec![
+                (
+                    fund.netuid_a,
+                    fund.netuid_b,
+                    AlphaBalance::from(8_000_000),
+                    0,
+                ),
+                (fund.netuid_b, NetUid::ROOT, AlphaBalance::from(DIVIDEND), 0),
+            ],
+        );
+
+        frame_support::assert_err_ignore_postinfo!(result, Error::<Test>::NotEnoughStakeToWithdraw);
+        assert_eq!(escrow_alpha(&fund.hotkey, fund.netuid_a), origin_before);
+        assert_eq!(escrow_alpha(&fund.hotkey, fund.netuid_b), 0);
+        assert_eq!(escrow_alpha(&fund.hotkey, NetUid::ROOT), 0);
+        assert!(!System::events().iter().any(|record| matches!(
+            record.event,
+            RuntimeEvent::SubtensorModule(Event::BasketSwapped { .. })
+        )));
+    });
+}
+
+#[test]
+fn test_swap_basket_many_rejects_an_empty_batch() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        frame_support::assert_err_ignore_postinfo!(
+            swap_many(&fund, Vec::new()),
+            Error::<Test>::BasketSwapBatchEmpty
+        );
     });
 }
 
@@ -1318,6 +1414,19 @@ fn regression_basket_swapped_event_index_is_appended() {
         Error::<Test>::BasketConcentrationCapExceeded.encode()[0],
         165
     );
+    assert_eq!(Error::<Test>::BasketMinOutNotMet.encode()[0], 171);
+    assert_eq!(Error::<Test>::BasketSwapBatchEmpty.encode()[0], 172);
+
+    let legs: BoundedVec<_, ConstU32<MAX_BASKET_SWAP_LEGS>> =
+        vec![(NetUid::from(1), NetUid::from(2), AlphaBalance::from(1), 0)]
+            .try_into()
+            .expect("one leg is bounded");
+    let call = crate::Call::<Test>::swap_basket_many {
+        hotkey: U256::from(1),
+        legs,
+    }
+    .encode();
+    assert_eq!(call[0], 151);
 }
 
 // =============================================================================

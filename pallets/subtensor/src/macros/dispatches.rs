@@ -11,6 +11,7 @@ mod dispatches {
     use sp_core::ecdsa::Signature;
     use sp_runtime::{Percent, Saturating, traits::Hash};
 
+    use crate::MAX_BASKET_SWAP_LEGS;
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
     /// Dispatchable functions allow users to interact with the pallet and invoke state changes.
@@ -2294,6 +2295,28 @@ mod dispatches {
                 min_amount_out,
             )
             .map_err(|(done, error)| Self::fail_with_weight(error, done))?;
+            Ok((Some(weight), Pays::Yes).into())
+        }
+
+        /// Rebalance several legs of one validator basket atomically.
+        ///
+        /// Pending dividend deposits are flushed once and the basket is valued once. Each
+        /// leg then applies the same ownership, availability, slippage, turnover, liquidity,
+        /// concentration, and caller-floor checks as [`Pallet::swap_basket`]. A failed leg
+        /// rolls back every trade leg in this call; the preceding dividend flush remains
+        /// settled, matching the failure behavior of the single-leg call.
+        ///
+        /// Each tuple is `(origin_netuid, destination_netuid, amount, min_amount_out)`.
+        #[pallet::call_index(151)]
+        #[pallet::weight((Pallet::<T>::swap_basket_many_declared_weight(legs.len() as u32), DispatchClass::Normal, Pays::Yes))]
+        pub fn swap_basket_many(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            legs: BoundedVec<(NetUid, NetUid, AlphaBalance, u64), ConstU32<MAX_BASKET_SWAP_LEGS>>,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey: T::AccountId = ensure_signed(origin)?;
+            let weight = Self::do_swap_basket_many_tracked(coldkey, hotkey, legs.as_slice())
+                .map_err(|(done, error)| Self::fail_with_weight(error, done))?;
             Ok((Some(weight), Pays::Yes).into())
         }
 

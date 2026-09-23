@@ -43,7 +43,7 @@ pre-checks and the valuation sweep it did, never the envelope.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2272-L2298) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2273-L2299) |
 
 ## Parameters
 
@@ -102,7 +102,7 @@ result = sub.execute_tool("swap_basket", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2279`](/code/pallets/subtensor/src/macros/dispatches.rs#L2272-L2298):
+`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2280`](/code/pallets/subtensor/src/macros/dispatches.rs#L2273-L2299):
 
 ```rust
 #[pallet::call_index(150)]
@@ -134,6 +134,6 @@ pub fn swap_basket(
 }
 ```
 
-Delegates to [`do_swap_basket_tracked`](/code/pallets/subtensor/src/staking/basket_trade.rs#L91), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1325).
+Delegates to [`do_swap_basket_tracked`](/code/pallets/subtensor/src/staking/basket_trade.rs#L140), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1325).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
