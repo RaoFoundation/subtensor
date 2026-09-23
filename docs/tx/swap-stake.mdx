@@ -22,7 +22,7 @@ not its declared weight.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1431-L1457), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1600-L1630) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1432-L1458), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1601-L1631) |
 
 ## Parameters
 
@@ -82,7 +82,7 @@ result = sub.execute_tool("swap_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1438`](/code/pallets/subtensor/src/macros/dispatches.rs#L1431-L1457):
+`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1439`](/code/pallets/subtensor/src/macros/dispatches.rs#L1432-L1458):
 
 ```rust
 #[pallet::call_index(87)]
@@ -116,7 +116,7 @@ pub fn swap_stake(
 
 Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1286), [`do_swap_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L350), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1277).
 
-`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1607`](/code/pallets/subtensor/src/macros/dispatches.rs#L1600-L1630):
+`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1608`](/code/pallets/subtensor/src/macros/dispatches.rs#L1601-L1631):
 
 ```rust
 #[pallet::call_index(90)]

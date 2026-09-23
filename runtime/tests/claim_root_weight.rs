@@ -6,6 +6,7 @@ use node_subtensor_runtime::{
     check_mortality, check_nonce, check_nonzero_sender, sudo_wrapper,
     transaction_payment_wrapper::ChargeTransactionPaymentWrapper,
 };
+use pallet_subtensor::weights::WeightInfo;
 use sp_runtime::{generic::Era, traits::TransactionExtension};
 use sp_std::collections::btree_set::BTreeSet;
 use subtensor_runtime_common::{AccountId, NetUid, TaoBalance};
@@ -20,8 +21,6 @@ fn new_test_ext() -> sp_io::TestExternalities {
 }
 
 fn expected_root_claim_weight(limit: u32) -> frame_support::weights::Weight {
-    use pallet_subtensor::weights::WeightInfo;
-
     pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root(limit)
         .saturating_add(
             pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root_scan(limit),
@@ -92,6 +91,36 @@ fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
         assert_eq!(
             call.get_dispatch_info().call_weight,
             expected_root_claim_weight(pallet_subtensor::MAX_ROOT_CLAIM_HOTKEY_WORK)
+        );
+        assert_call_fits_normal_limit(call);
+    });
+}
+
+#[test]
+fn swap_basket_many_at_leg_cap_fits_normal_extrinsic_limit() {
+    new_test_ext().execute_with(|| {
+        let hotkey = AccountId::new([1u8; 32]);
+        let leg = (
+            NetUid::from(1),
+            NetUid::from(2),
+            subtensor_runtime_common::AlphaBalance::from(1),
+            0,
+        );
+        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_basket_many {
+            hotkey,
+            legs: vec![leg; pallet_subtensor::MAX_BASKET_SWAP_LEGS as usize]
+                .try_into()
+                .expect("leg cap is bounded"),
+        });
+        assert_eq!(
+            call.get_dispatch_info().call_weight,
+            pallet_subtensor::Pallet::<Runtime>::swap_basket_many_declared_weight(
+                pallet_subtensor::MAX_BASKET_SWAP_LEGS
+            )
+            .saturating_add(
+                pallet_subtensor::weights::SubstrateWeight::<Runtime>::check_coldkey_swap_extension(
+                )
+            )
         );
         assert_call_fits_normal_limit(call);
     });

@@ -230,6 +230,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "BasketTurnoverBudgetExceeded": _C.RATE_LIMITED,
     "BasketSameSubnet": _C.INVALID_ARGUMENT,
     "BasketLiquidityCapExceeded": _C.LIMIT_EXCEEDED,
+    "BasketSwapBatchEmpty": _C.INVALID_ARGUMENT,
     "BasketMinOutNotMet": _C.INSUFFICIENT_LIQUIDITY,  # user floor, same family as SlippageTooHigh
     "RootStakeLocked": _C.TOO_EARLY,
     "TooManyUIDsPerMechanism": _C.LIMIT_EXCEEDED,

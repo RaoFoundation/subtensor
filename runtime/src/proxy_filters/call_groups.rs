@@ -429,7 +429,10 @@ call_filter_group!(
 // so a trader multisig can be granted this alone via `ProxyType::BasketTrading`.
 call_filter_group!(
     BasketTradingCalls,
-    [RuntimeCall::SubtensorModule(SubtensorCall::swap_basket)]
+    [
+        RuntimeCall::SubtensorModule(SubtensorCall::swap_basket),
+        RuntimeCall::SubtensorModule(SubtensorCall::swap_basket_many),
+    ]
 );
 
 // A subnet's public identity and token symbol.

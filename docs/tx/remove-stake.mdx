@@ -28,7 +28,7 @@ not a slice of the amount you unstake.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L590-L609), [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1544-L1572), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2153-L2182), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L591-L610), [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1545-L1573), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2154-L2183), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -88,9 +88,9 @@ result = sub.execute_tool("remove_stake", {...}, wallet)
 
 | Chain call | Source |
 | --- | --- |
-| `SubtensorModule.remove_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L597`](/code/pallets/subtensor/src/macros/dispatches.rs#L590-L609) |
-| `SubtensorModule.remove_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1551`](/code/pallets/subtensor/src/macros/dispatches.rs#L1544-L1572) |
-| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L2157`](/code/pallets/subtensor/src/macros/dispatches.rs#L2153-L2182) |
+| `SubtensorModule.remove_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L598`](/code/pallets/subtensor/src/macros/dispatches.rs#L591-L610) |
+| `SubtensorModule.remove_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1552`](/code/pallets/subtensor/src/macros/dispatches.rs#L1545-L1573) |
+| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L2158`](/code/pallets/subtensor/src/macros/dispatches.rs#L2154-L2183) |
 | `Utility.batch_all` | [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
