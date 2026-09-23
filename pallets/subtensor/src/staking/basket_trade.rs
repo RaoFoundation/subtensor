@@ -405,10 +405,10 @@ impl<T: Config> Pallet<T> {
 
         // --- 1. Sell leg: origin holding -> free TAO on the origin pot.
         let tao_mid: u64 = Self::sell_basket_leg(hotkey, escrow, origin_netuid, amount.into())?;
-        ensure!(
-            TaoBalance::from(tao_mid) >= DefaultMinStake::<T>::get(),
-            Error::<T>::AmountTooLow
-        );
+        let minimum_trade = DefaultMinStake::<T>::get()
+            .to_u64()
+            .max(crate::MIN_BASKET_TRADE_TAO);
+        ensure!(tao_mid >= minimum_trade, Error::<T>::AmountTooLow);
 
         // --- 2. Turnover budget, charged on the TAO through the middle and sized from the
         // guarded (un-pumpable) NAV.

@@ -23,9 +23,9 @@ use crate::{
     BASKET_TRADE_REFILL_BLOCKS, BasketClaimed, BasketConcentrationCap, BasketDailyTurnoverCap,
     BasketLiquidityCap, BasketRate, BasketShares, BasketTradeBucket, BasketTradingEnabled,
     BasketTradingFrozen, ColdkeySwapAnnouncements, DEFAULT_BASKET_DAILY_TURNOVER_CAP,
-    DefaultMinStake, Error, Event, MAX_BASKET_SWAP_LEGS, NetworksAdded, SubnetAlphaIn,
-    SubnetAlphaOut, SubnetFastMovingPrice, SubnetMovingPrice, SubnetProtocolFlow, SubnetTAO,
-    SubnetTaoFlow, SubtokenEnabled, TotalStake, Uids,
+    DefaultMinStake, Error, Event, MAX_BASKET_SWAP_LEGS, MIN_BASKET_TRADE_TAO, NetworksAdded,
+    SubnetAlphaIn, SubnetAlphaOut, SubnetFastMovingPrice, SubnetMovingPrice, SubnetProtocolFlow,
+    SubnetTAO, SubnetTaoFlow, SubtokenEnabled, TotalStake, Uids,
 };
 use codec::Encode;
 use frame_support::assert_ok;
@@ -45,11 +45,11 @@ type HashingOf<T> = <T as frame_system::Config>::Hashing;
 const FEE_TOLERANCE_PCT: u64 = 5;
 
 /// Dividend credited to the fund in the standard playground (alpha on subnet A, price ~1).
-const DIVIDEND: u64 = 100_000_000;
+const DIVIDEND: u64 = 25_000_000_000;
 
-/// A trade comfortably above `DefaultMinStake` (2 TAO in the mock) and well inside the
+/// A trade comfortably above `DefaultMinStake` (0.002 TAO in the mock) and well inside the
 /// default 10% turnover budget of a `DIVIDEND`-sized fund.
-const TRADE: u64 = 4_000_000;
+const TRADE: u64 = 1_000_000_000;
 
 struct Fund {
     /// Owns `hotkey`; the account that signs trades.
@@ -79,6 +79,16 @@ fn setup_fund() -> Fund {
     remove_owner_registration_stake(netuid_a);
     fund_pool(netuid_a);
     fund_pool(netuid_b);
+    // Keep the shared pool deep enough that moving the 25 TAO fixture holding remains
+    // inside the 2% execution band. The production-scale minimum below should not make
+    // unrelated guardrail tests fail because of fixture slippage.
+    for netuid in [netuid_a, netuid_b] {
+        let reserve = 1_000_000_000_000_000u64;
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(reserve));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(reserve));
+        let account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&account, TaoBalance::from(reserve));
+    }
     SubnetMovingPrice::<Test>::insert(netuid_a, I96F32::from_num(1));
     SubnetMovingPrice::<Test>::insert(netuid_b, I96F32::from_num(1));
     SubnetFastMovingPrice::<Test>::insert(netuid_a, U64F64::from_num(1));
@@ -444,22 +454,17 @@ fn test_swap_basket_many_executes_legs_with_one_initial_sweep() {
                 (
                     fund.netuid_a,
                     fund.netuid_b,
-                    AlphaBalance::from(8_000_000),
+                    AlphaBalance::from(2 * TRADE),
                     0,
                 ),
-                (
-                    fund.netuid_b,
-                    NetUid::ROOT,
-                    AlphaBalance::from(4_000_000),
-                    0,
-                ),
+                (fund.netuid_b, NetUid::ROOT, AlphaBalance::from(TRADE), 0),
             ],
         )
         .expect("both legs succeed");
 
         assert_eq!(
             escrow_alpha(&fund.hotkey, fund.netuid_a),
-            origin_before - 8_000_000
+            origin_before - 2 * TRADE
         );
         assert!(escrow_alpha(&fund.hotkey, fund.netuid_b) > 0);
         assert!(escrow_alpha(&fund.hotkey, NetUid::ROOT) > 0);
@@ -491,7 +496,7 @@ fn test_swap_basket_many_rolls_back_all_trade_legs_on_failure() {
                 (
                     fund.netuid_a,
                     fund.netuid_b,
-                    AlphaBalance::from(8_000_000),
+                    AlphaBalance::from(2 * TRADE),
                     0,
                 ),
                 (fund.netuid_b, NetUid::ROOT, AlphaBalance::from(DIVIDEND), 0),
@@ -695,6 +700,15 @@ fn test_swap_basket_rejects_zero_and_dust_amounts() {
         let dust = DefaultMinStake::<Test>::get().to_u64() / 2;
         crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, dust),
+            Error::<Test>::AmountTooLow
+        );
+        // A refill-driven 0.08 TAO trade clears the general staking minimum but is still
+        // uneconomic next to the transaction fee (about 0.006 TAO).
+        let fee_draining_dust = 80_000_000;
+        assert!(fee_draining_dust > DefaultMinStake::<Test>::get().to_u64());
+        assert!(fee_draining_dust < MIN_BASKET_TRADE_TAO);
+        crate::assert_noop_ignore_postinfo!(
+            swap(&fund, fund.netuid_a, fund.netuid_b, fee_draining_dust),
             Error::<Test>::AmountTooLow
         );
     });

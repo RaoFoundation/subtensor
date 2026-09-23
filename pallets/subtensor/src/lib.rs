@@ -128,6 +128,12 @@ pub const DEFAULT_BASKET_DAILY_TURNOVER_CAP: u16 = u16::MAX / 10;
 /// block, so at any instant at most one full budget can be spent.
 pub const BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
 
+/// Smallest TAO value allowed through the middle of a `swap_basket` trade. The call costs
+/// about 0.006 TAO at current fee calibration, so admitting every few blocks' worth of a
+/// refilling turnover bucket can spend more on transaction fees than it rebalances. Half a TAO
+/// keeps the fee near 1% while still allowing modest funds to rebalance incrementally.
+pub const MIN_BASKET_TRADE_TAO: u64 = 500_000_000;
+
 /// Most legs accepted by one [`Pallet::swap_basket_many`] call. The call values the
 /// basket and flushes queued dividends once, then updates the two affected marks after
 /// each leg. This bound keeps encoded calls and the conservative pre-dispatch envelope

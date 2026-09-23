@@ -342,7 +342,10 @@ Two properties follow:
 
 A trade whose `tao_mid` is larger than the bucket's current level fails with
 `BasketTurnoverBudgetExceeded`. A fund that has never traded starts with a
-full bucket. The bucket follows the fund through a hotkey swap.
+full bucket. The bucket follows the fund through a hotkey swap. Wait until at
+least 0.5 TAO is available before trading: the runtime rejects a smaller
+`tao_mid` so a watcher cannot drain its signer on fees by submitting each tiny
+increment as the bucket refills.
 
 ### 1/16 concentration cap → `BasketConcentrationCapExceeded`
 
@@ -407,7 +410,7 @@ at the 10% default. The cash slot has no pool and is exempt. Refusal is
 | `HotKeyNotRegisteredInSubNet` | The hotkey is not registered on root. |
 | `NotEnoughStakeToWithdraw` | The fund holds less than `amount` on the origin. |
 | `BasketMinOutNotMet` | The buy leg credited less than your `min_amount_out`. Re-quote and retry, or loosen the floor. |
-| `AmountTooLow` | `amount` is zero, or the sell leg yields less than the minimum stake. |
+| `AmountTooLow` | `amount` is zero, or the sell leg yields less than the 0.5 TAO basket-trade minimum. |
 | `SubnetNotExists`, `SubtokenDisabled` | A side does not exist, or the destination's token is not enabled. |
 | `BetaBasketSeedInProgress` | The basket seed migration is still running. |
 | `ColdkeySwapAnnounced` | A coldkey swap is announced for the signer. |

@@ -2265,6 +2265,7 @@ mod dispatches {
         /// * `NonAssociatedColdKey`: Caller does not own `hotkey`.
         /// * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root.
         /// * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin.
+        /// * `AmountTooLow`: The sell leg yields less than 0.5 TAO through the middle.
         /// * `SlippageTooHigh`: A leg could not fill within 2% of the moving price.
         /// * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`.
         /// * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds.

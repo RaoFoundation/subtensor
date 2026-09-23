@@ -1746,6 +1746,10 @@ class SwapBasket(Intent):
     ``BasketMinOutNotMet``. The default ``0`` sets no floor. ``btcli root
     swap`` derives it from a quote and ``--max-slippage``.
 
+    The sell leg must put at least 0.5 TAO through the middle. This prevents a
+    continuously refilling turnover bucket from triggering trades whose
+    transaction fee is disproportionate to the value rebalanced.
+
     Fee (spec 469+): the call declares a 256-row envelope for admission but is
     billed as if the fund had four rows and four queued credits to flush
     (about τ0.006), and a trade that is refused or rolls back pays only the
