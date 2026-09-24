@@ -6,24 +6,27 @@ use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
     dispatch::{DispatchExtension, DispatchInfo, PostDispatchInfo},
     ensure,
-    traits::{IsSubType, OriginTrait},
+    traits::{IsSubType, IsType, OriginTrait},
     weights::Weight,
 };
 use pallet_commitments::CanCommit;
+use pallet_subtensor_proxy as pallet_proxy;
+use pallet_subtensor_utility as pallet_utility;
 use scale_info::TypeInfo;
 use sp_runtime::traits::{
-    DispatchInfoOf, Dispatchable, Implication, TransactionExtension, ValidateResult,
+    DispatchInfoOf, Dispatchable, Implication, StaticLookup, TransactionExtension, ValidateResult,
 };
 use sp_runtime::{
     impl_tx_ext_default,
     transaction_validity::{TransactionSource, TransactionValidityError, ValidTransaction},
 };
-use sp_std::marker::PhantomData;
+use sp_std::{marker::PhantomData, vec::Vec};
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{CustomTransactionError, Token};
 
 type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
 type OriginOf<T> = <T as frame_system::Config>::RuntimeOrigin;
+type LookupOf<T> = <T as frame_system::Config>::Lookup;
 type CommitmentPolicy<T> = <T as pallet_commitments::Config>::CanCommit;
 
 #[allow(deprecated)]
@@ -80,10 +83,15 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
 
     fn check(origin: &OriginOf<T>, call: &CallOf<T>) -> Result<(), Error<T>>
     where
-        T: pallet_commitments::Config + pallet_shield::Config,
+        T: pallet_commitments::Config
+            + pallet_proxy::Config
+            + pallet_shield::Config
+            + pallet_utility::Config,
         CallOf<T>: Dispatchable<RuntimeOrigin = OriginOf<T>>
             + IsSubType<Call<T>>
             + IsSubType<pallet_commitments::Call<T>>
+            + IsSubType<pallet_proxy::Call<T>>
+            + IsSubType<pallet_utility::Call<T>>
             + IsSubType<pallet_shield::Call<T>>,
         OriginOf<T>: OriginTrait<AccountId = T::AccountId>,
         CommitmentPolicy<T>: CanCommit<T::AccountId, Error = Error<T>>,
@@ -93,40 +101,7 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
         };
 
         CheckColdkeySwap::<T>::check(who, call)?;
-
-        let subtensor_call: Option<&Call<T>> = call.is_sub_type();
-        match subtensor_call {
-            Some(Call::swap_basket {
-                hotkey,
-                origin_netuid,
-                destination_netuid,
-                amount,
-                ..
-            }) => {
-                Pallet::<T>::check_swap_basket(
-                    who,
-                    hotkey,
-                    *origin_netuid,
-                    *destination_netuid,
-                    amount.to_u64(),
-                )?;
-                Pallet::<T>::ensure_basket_trade_economic(*origin_netuid, amount.to_u64())?;
-            }
-            Some(Call::swap_basket_many { hotkey, legs }) => {
-                ensure!(!legs.is_empty(), Error::<T>::BasketSwapBatchEmpty);
-                for (origin_netuid, destination_netuid, amount, _) in legs {
-                    Pallet::<T>::check_swap_basket(
-                        who,
-                        hotkey,
-                        *origin_netuid,
-                        *destination_netuid,
-                        amount.to_u64(),
-                    )?;
-                    Pallet::<T>::ensure_basket_trade_economic(*origin_netuid, amount.to_u64())?;
-                }
-            }
-            _ => {}
-        }
+        Self::check_basket_calls(who, call)?;
 
         let commitment_call: Option<&pallet_commitments::Call<T>> = call.is_sub_type();
         if let Some(pallet_commitments::Call::set_commitment { netuid, .. }) = commitment_call {
@@ -152,6 +127,109 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
         Ok(())
     }
 
+    /// Validate basket trades nested in wrappers that can dispatch calls from a signed origin.
+    ///
+    /// Transaction extensions run only for the outer extrinsic. Walking these calls here keeps a
+    /// dust trade from reaching dispatch (and charging the outer fee) through Utility or Proxy.
+    fn check_basket_calls(who: &T::AccountId, call: &CallOf<T>) -> Result<(), Error<T>>
+    where
+        T: pallet_proxy::Config + pallet_utility::Config,
+        CallOf<T>: IsSubType<Call<T>>
+            + IsSubType<pallet_proxy::Call<T>>
+            + IsSubType<pallet_utility::Call<T>>,
+    {
+        let mut pending = Vec::from([(who.clone(), call)]);
+
+        while let Some((effective_signer, call)) = pending.pop() {
+            let subtensor_call: Option<&Call<T>> = call.is_sub_type();
+            match subtensor_call {
+                Some(Call::swap_basket {
+                    hotkey,
+                    origin_netuid,
+                    destination_netuid,
+                    amount,
+                    ..
+                }) => {
+                    Pallet::<T>::check_swap_basket(
+                        &effective_signer,
+                        hotkey,
+                        *origin_netuid,
+                        *destination_netuid,
+                        amount.to_u64(),
+                    )?;
+                    Pallet::<T>::ensure_basket_trade_economic(*origin_netuid, amount.to_u64())?;
+                    continue;
+                }
+                Some(Call::swap_basket_many { hotkey, legs }) => {
+                    ensure!(!legs.is_empty(), Error::<T>::BasketSwapBatchEmpty);
+                    for (origin_netuid, destination_netuid, amount, _) in legs {
+                        Pallet::<T>::check_swap_basket(
+                            &effective_signer,
+                            hotkey,
+                            *origin_netuid,
+                            *destination_netuid,
+                            amount.to_u64(),
+                        )?;
+                        Pallet::<T>::ensure_basket_trade_economic(*origin_netuid, amount.to_u64())?;
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+
+            let utility_call: Option<&pallet_utility::Call<T>> = call.is_sub_type();
+            match utility_call {
+                Some(
+                    pallet_utility::Call::batch { calls }
+                    | pallet_utility::Call::batch_all { calls }
+                    | pallet_utility::Call::force_batch { calls },
+                ) => {
+                    pending.extend(calls.iter().map(|inner| {
+                        let inner: &CallOf<T> = inner.into_ref();
+                        (effective_signer.clone(), inner)
+                    }));
+                    continue;
+                }
+                Some(pallet_utility::Call::as_derivative { index, call }) => {
+                    let derivative = pallet_utility::Pallet::<T>::derivative_account_id(
+                        effective_signer,
+                        *index,
+                    )
+                    .map_err(|_| Error::<T>::NonAssociatedColdKey)?;
+                    let inner: &CallOf<T> = call.as_ref().into_ref();
+                    pending.push((derivative, inner));
+                    continue;
+                }
+                Some(pallet_utility::Call::if_else { main, fallback }) => {
+                    let main: &CallOf<T> = main.as_ref().into_ref();
+                    let fallback: &CallOf<T> = fallback.as_ref().into_ref();
+                    pending.push((effective_signer.clone(), main));
+                    pending.push((effective_signer, fallback));
+                    continue;
+                }
+                _ => {}
+            }
+
+            let proxy_call: Option<&pallet_proxy::Call<T>> = call.is_sub_type();
+            match proxy_call {
+                Some(pallet_proxy::Call::proxy {
+                    real, call: inner, ..
+                })
+                | Some(pallet_proxy::Call::proxy_announced {
+                    real, call: inner, ..
+                }) => {
+                    let real = LookupOf::<T>::lookup(real.clone())
+                        .map_err(|_| Error::<T>::NonAssociatedColdKey)?;
+                    let inner: &CallOf<T> = inner.as_ref().into_ref();
+                    pending.push((real, inner));
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
     fn commitment_weight(call: &CallOf<T>) -> Weight
     where
         T: pallet_commitments::Config,
@@ -170,24 +248,82 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
 
     fn basket_trade_weight(call: &CallOf<T>) -> Weight
     where
-        CallOf<T>: IsSubType<Call<T>>,
+        T: pallet_proxy::Config + pallet_utility::Config,
+        CallOf<T>: IsSubType<Call<T>>
+            + IsSubType<pallet_proxy::Call<T>>
+            + IsSubType<pallet_utility::Call<T>>,
     {
-        let subtensor_call: Option<&Call<T>> = call.is_sub_type();
-        let legs = match subtensor_call {
-            Some(Call::swap_basket { .. }) => 1,
-            Some(Call::swap_basket_many { legs, .. }) => legs.len() as u64,
-            _ => 0,
-        };
-        Pallet::<T>::swap_basket_validation_weight().saturating_mul(legs)
+        let mut weight = Weight::zero();
+        let mut pending = Vec::from([call]);
+
+        while let Some(call) = pending.pop() {
+            let subtensor_call: Option<&Call<T>> = call.is_sub_type();
+            match subtensor_call {
+                Some(Call::swap_basket { .. }) => {
+                    weight = weight.saturating_add(Pallet::<T>::swap_basket_validation_weight());
+                    continue;
+                }
+                Some(Call::swap_basket_many { legs, .. }) => {
+                    weight = weight.saturating_add(
+                        Pallet::<T>::swap_basket_validation_weight()
+                            .saturating_mul(legs.len() as u64),
+                    );
+                    continue;
+                }
+                _ => {}
+            }
+
+            let utility_call: Option<&pallet_utility::Call<T>> = call.is_sub_type();
+            match utility_call {
+                Some(
+                    pallet_utility::Call::batch { calls }
+                    | pallet_utility::Call::batch_all { calls }
+                    | pallet_utility::Call::force_batch { calls },
+                ) => {
+                    pending.extend(calls.iter().map(|inner| inner.into_ref()));
+                    continue;
+                }
+                Some(pallet_utility::Call::as_derivative { call, .. }) => {
+                    pending.push(call.as_ref().into_ref());
+                    continue;
+                }
+                Some(pallet_utility::Call::if_else { main, fallback }) => {
+                    pending.push(main.as_ref().into_ref());
+                    pending.push(fallback.as_ref().into_ref());
+                    continue;
+                }
+                _ => {}
+            }
+
+            let proxy_call: Option<&pallet_proxy::Call<T>> = call.is_sub_type();
+            match proxy_call {
+                Some(pallet_proxy::Call::proxy { call, .. })
+                | Some(pallet_proxy::Call::proxy_announced { call, .. }) => {
+                    pending.push(call.as_ref().into_ref());
+                }
+                _ => {}
+            }
+        }
+
+        weight
     }
 }
 
 impl<T> TransactionExtension<CallOf<T>> for SubtensorTransactionExtension<T>
 where
-    T: Config + pallet_commitments::Config + pallet_shield::Config + Send + Sync + TypeInfo,
+    T: Config
+        + pallet_commitments::Config
+        + pallet_proxy::Config
+        + pallet_shield::Config
+        + pallet_utility::Config
+        + Send
+        + Sync
+        + TypeInfo,
     CallOf<T>: Dispatchable<RuntimeOrigin = OriginOf<T>, Info = DispatchInfo, PostInfo = PostDispatchInfo>
         + IsSubType<Call<T>>
         + IsSubType<pallet_commitments::Call<T>>
+        + IsSubType<pallet_proxy::Call<T>>
+        + IsSubType<pallet_utility::Call<T>>
         + IsSubType<pallet_shield::Call<T>>,
     OriginOf<T>: Clone + OriginTrait<AccountId = T::AccountId>,
     CommitmentPolicy<T>: CanCommit<T::AccountId, Error = Error<T>>,

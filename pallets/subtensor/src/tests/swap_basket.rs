@@ -175,9 +175,16 @@ fn validate_basket_call(
     fund: &Fund,
     call: &RuntimeCall,
 ) -> Result<ValidTransaction, TransactionValidityError> {
+    validate_basket_call_as(fund.coldkey, call)
+}
+
+fn validate_basket_call_as(
+    signer: U256,
+    call: &RuntimeCall,
+) -> Result<ValidTransaction, TransactionValidityError> {
     SubtensorTransactionExtension::<Test>::new()
         .validate(
-            RuntimeOrigin::signed(fund.coldkey),
+            RuntimeOrigin::signed(signer),
             call,
             &DispatchInfoOf::<RuntimeCall>::default(),
             0,
@@ -795,6 +802,128 @@ fn transaction_validation_rejects_fee_draining_basket_calls() {
             ),
             reserves_before
         );
+    });
+}
+
+#[test]
+fn transaction_validation_rejects_fee_draining_basket_calls_in_utility_wrappers() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        let dust_call = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+            hotkey: fund.hotkey,
+            origin_netuid: fund.netuid_a,
+            destination_netuid: fund.netuid_b,
+            amount: 80_000_000u64.into(),
+            min_amount_out: 0,
+        });
+
+        let wrapped_calls = [
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::batch {
+                calls: vec![dust_call.clone()],
+            }),
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::batch_all {
+                calls: vec![dust_call.clone()],
+            }),
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::force_batch {
+                calls: vec![dust_call.clone()],
+            }),
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::if_else {
+                main: Box::new(RuntimeCall::System(frame_system::Call::remark {
+                    remark: vec![],
+                })),
+                fallback: Box::new(dust_call),
+            }),
+        ];
+
+        for wrapped in wrapped_calls {
+            assert_eq!(
+                validate_basket_call(&fund, &wrapped).unwrap_err(),
+                CustomTransactionError::StakeAmountTooLow.into()
+            );
+        }
+    });
+}
+
+#[test]
+fn transaction_validation_uses_proxy_real_account_for_basket_calls() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        let delegate = U256::from(7001);
+
+        let wrap_proxy = |amount: u64| {
+            RuntimeCall::Proxy(pallet_subtensor_proxy::Call::proxy {
+                real: fund.coldkey,
+                force_proxy_type: Some(subtensor_runtime_common::ProxyType::BasketTrading),
+                call: Box::new(RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+                    hotkey: fund.hotkey,
+                    origin_netuid: fund.netuid_a,
+                    destination_netuid: fund.netuid_b,
+                    amount: amount.into(),
+                    min_amount_out: 0,
+                })),
+            })
+        };
+
+        // The delegate does not own the hotkey. Acceptance of the economic call proves the
+        // validator applies the inner ownership checks to the proxy's real account.
+        assert_ok!(validate_basket_call_as(delegate, &wrap_proxy(TRADE)));
+        assert_eq!(
+            validate_basket_call_as(delegate, &wrap_proxy(80_000_000)).unwrap_err(),
+            CustomTransactionError::StakeAmountTooLow.into()
+        );
+
+        // Wrapper traversal composes: a proxy call nested in Utility must not restore the outer
+        // delegate as the effective signer or hide the dust trade.
+        let nested = RuntimeCall::Utility(pallet_subtensor_utility::Call::batch_all {
+            calls: vec![wrap_proxy(80_000_000)],
+        });
+        assert_eq!(
+            validate_basket_call_as(delegate, &nested).unwrap_err(),
+            CustomTransactionError::StakeAmountTooLow.into()
+        );
+
+        let announced = RuntimeCall::Proxy(pallet_subtensor_proxy::Call::proxy_announced {
+            delegate,
+            real: fund.coldkey,
+            force_proxy_type: Some(subtensor_runtime_common::ProxyType::BasketTrading),
+            call: Box::new(RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+                hotkey: fund.hotkey,
+                origin_netuid: fund.netuid_a,
+                destination_netuid: fund.netuid_b,
+                amount: 80_000_000u64.into(),
+                min_amount_out: 0,
+            })),
+        });
+        assert_eq!(
+            validate_basket_call_as(U256::from(7002), &announced).unwrap_err(),
+            CustomTransactionError::StakeAmountTooLow.into()
+        );
+    });
+}
+
+#[test]
+fn transaction_validation_weight_accounts_for_wrapped_basket_legs() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        let basket_call = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+            hotkey: fund.hotkey,
+            origin_netuid: fund.netuid_a,
+            destination_netuid: fund.netuid_b,
+            amount: TRADE.into(),
+            min_amount_out: 0,
+        });
+        let empty_batch =
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::batch_all { calls: vec![] });
+        let wrapped = RuntimeCall::Utility(pallet_subtensor_utility::Call::batch_all {
+            calls: vec![basket_call.clone(), basket_call],
+        });
+        let extension = SubtensorTransactionExtension::<Test>::new();
+        let expected = extension
+            .weight(&empty_batch)
+            .saturating_add(SubtensorModule::swap_basket_validation_weight().saturating_mul(2));
+
+        assert_eq!(extension.weight(&wrapped), expected);
+        assert_ok!(validate_basket_call(&fund, &wrapped));
     });
 }
 
