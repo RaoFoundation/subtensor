@@ -3915,5 +3915,5 @@ pub trait CommitmentsInterface<AccountId> {
 /// Smallest TAO value allowed through the middle of a `swap_basket` trade. The call costs
 /// about 0.006 TAO at current fee calibration, so admitting every few blocks' worth of a
 /// refilling turnover bucket can spend more on transaction fees than it rebalances. Half a TAO
-/// keeps the fee near 1% while still allowing modest funds to rebalance incrementally.
+/// keeps the trade well above its fee while still allowing modest funds to rebalance incrementally.
 pub const MIN_BASKET_TRADE_TAO: u64 = 500_000_000;

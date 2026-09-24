@@ -1,10 +1,11 @@
 use crate::{
     Call, CheckColdkeySwap, CheckDelegateTake, CheckEvmKeyAssociation, CheckRateLimits,
-    CheckServingEndpoints, CheckWeights, Config, Error, guards::applicable_call,
+    CheckServingEndpoints, CheckWeights, Config, Error, Pallet, guards::applicable_call,
 };
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
     dispatch::{DispatchExtension, DispatchInfo, PostDispatchInfo},
+    ensure,
     traits::{IsSubType, OriginTrait},
     weights::Weight,
 };
@@ -19,7 +20,7 @@ use sp_runtime::{
 };
 use sp_std::marker::PhantomData;
 use subtensor_macros::freeze_struct;
-use subtensor_runtime_common::CustomTransactionError;
+use subtensor_runtime_common::{CustomTransactionError, Token};
 
 type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
 type OriginOf<T> = <T as frame_system::Config>::RuntimeOrigin;
@@ -93,6 +94,40 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
 
         CheckColdkeySwap::<T>::check(who, call)?;
 
+        let subtensor_call: Option<&Call<T>> = call.is_sub_type();
+        match subtensor_call {
+            Some(Call::swap_basket {
+                hotkey,
+                origin_netuid,
+                destination_netuid,
+                amount,
+                ..
+            }) => {
+                Pallet::<T>::check_swap_basket(
+                    who,
+                    hotkey,
+                    *origin_netuid,
+                    *destination_netuid,
+                    amount.to_u64(),
+                )?;
+                Pallet::<T>::ensure_basket_trade_economic(*origin_netuid, amount.to_u64())?;
+            }
+            Some(Call::swap_basket_many { hotkey, legs }) => {
+                ensure!(!legs.is_empty(), Error::<T>::BasketSwapBatchEmpty);
+                for (origin_netuid, destination_netuid, amount, _) in legs {
+                    Pallet::<T>::check_swap_basket(
+                        who,
+                        hotkey,
+                        *origin_netuid,
+                        *destination_netuid,
+                        amount.to_u64(),
+                    )?;
+                    Pallet::<T>::ensure_basket_trade_economic(*origin_netuid, amount.to_u64())?;
+                }
+            }
+            _ => {}
+        }
+
         let commitment_call: Option<&pallet_commitments::Call<T>> = call.is_sub_type();
         if let Some(pallet_commitments::Call::set_commitment { netuid, .. }) = commitment_call {
             CommitmentPolicy::<T>::validate(*netuid, who)?;
@@ -132,6 +167,19 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
             Weight::zero()
         }
     }
+
+    fn basket_trade_weight(call: &CallOf<T>) -> Weight
+    where
+        CallOf<T>: IsSubType<Call<T>>,
+    {
+        let subtensor_call: Option<&Call<T>> = call.is_sub_type();
+        let legs = match subtensor_call {
+            Some(Call::swap_basket { .. }) => 1,
+            Some(Call::swap_basket_many { legs, .. }) => legs.len() as u64,
+            _ => 0,
+        };
+        Pallet::<T>::swap_basket_validation_weight().saturating_mul(legs)
+    }
 }
 
 impl<T> TransactionExtension<CallOf<T>> for SubtensorTransactionExtension<T>
@@ -159,6 +207,7 @@ where
             .saturating_add(<CheckServingEndpoints<T> as DE<CallOf<T>>>::weight(call))
             .saturating_add(<CheckEvmKeyAssociation<T> as DE<CallOf<T>>>::weight(call))
             .saturating_add(Self::commitment_weight(call))
+            .saturating_add(Self::basket_trade_weight(call))
     }
 
     fn validate(

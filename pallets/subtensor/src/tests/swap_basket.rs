@@ -13,6 +13,7 @@
 )]
 
 use crate::CheckColdkeySwap;
+use crate::extensions::SubtensorTransactionExtension;
 use crate::migrations::migrate_seed_beta_basket::kickoff_seed_beta_basket_v2;
 use crate::tests::claim_root::{
     escrow_alpha, flush_baskets, fund_pool, fund_shares, register_on_root, root_stake_of,
@@ -33,8 +34,13 @@ use frame_support::dispatch::DispatchResultWithPostInfo;
 use frame_support::traits::{ConstU32, ExtendedDispatchable, Get};
 use frame_support::weights::Weight;
 use sp_core::U256;
-use sp_runtime::{BoundedVec, traits::Hash};
+use sp_runtime::{
+    BoundedVec,
+    traits::{DispatchInfoOf, Hash, TransactionExtension, TxBaseImplication},
+    transaction_validity::{TransactionSource, TransactionValidityError, ValidTransaction},
+};
 use substrate_fixed::types::{I96F32, U64F64};
+use subtensor_runtime_common::CustomTransactionError;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::SwapHandler;
 
@@ -163,6 +169,23 @@ fn swap_many(
     let legs: BoundedVec<_, ConstU32<MAX_BASKET_SWAP_LEGS>> =
         legs.try_into().expect("test batch is bounded");
     SubtensorModule::swap_basket_many(RuntimeOrigin::signed(fund.coldkey), fund.hotkey, legs)
+}
+
+fn validate_basket_call(
+    fund: &Fund,
+    call: &RuntimeCall,
+) -> Result<ValidTransaction, TransactionValidityError> {
+    SubtensorTransactionExtension::<Test>::new()
+        .validate(
+            RuntimeOrigin::signed(fund.coldkey),
+            call,
+            &DispatchInfoOf::<RuntimeCall>::default(),
+            0,
+            (),
+            &TxBaseImplication(()),
+            TransactionSource::External,
+        )
+        .map(|(validity, _, _)| validity)
 }
 
 fn nav(hotkey: &U256) -> u64 {
@@ -710,6 +733,67 @@ fn test_swap_basket_rejects_zero_and_dust_amounts() {
         crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, fee_draining_dust),
             Error::<Test>::AmountTooLow
+        );
+    });
+}
+
+#[test]
+fn transaction_validation_rejects_fee_draining_basket_calls() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        let fee_draining_dust = 80_000_000;
+        let reserves_before = (
+            SubnetTAO::<Test>::get(fund.netuid_a),
+            SubnetAlphaIn::<Test>::get(fund.netuid_a),
+            SubnetAlphaOut::<Test>::get(fund.netuid_a),
+        );
+
+        let dust_call = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+            hotkey: fund.hotkey,
+            origin_netuid: fund.netuid_a,
+            destination_netuid: fund.netuid_b,
+            amount: fee_draining_dust.into(),
+            min_amount_out: 0,
+        });
+        assert_eq!(
+            validate_basket_call(&fund, &dust_call).unwrap_err(),
+            CustomTransactionError::StakeAmountTooLow.into()
+        );
+
+        let dust_batch = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket_many {
+            hotkey: fund.hotkey,
+            legs: vec![(
+                fund.netuid_a,
+                fund.netuid_b,
+                AlphaBalance::from(fee_draining_dust),
+                0,
+            )]
+            .try_into()
+            .expect("one leg is bounded"),
+        });
+        assert_eq!(
+            validate_basket_call(&fund, &dust_batch).unwrap_err(),
+            CustomTransactionError::StakeAmountTooLow.into()
+        );
+
+        let economic_call = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+            hotkey: fund.hotkey,
+            origin_netuid: fund.netuid_a,
+            destination_netuid: fund.netuid_b,
+            amount: TRADE.into(),
+            min_amount_out: 0,
+        });
+        assert_ok!(validate_basket_call(&fund, &economic_call));
+
+        // Transaction validation quotes with rollback semantics; merely submitting the call
+        // to the pool cannot move reserves before inclusion.
+        assert_eq!(
+            (
+                SubnetTAO::<Test>::get(fund.netuid_a),
+                SubnetAlphaIn::<Test>::get(fund.netuid_a),
+                SubnetAlphaOut::<Test>::get(fund.netuid_a),
+            ),
+            reserves_before
         );
     });
 }
