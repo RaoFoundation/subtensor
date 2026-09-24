@@ -67,10 +67,7 @@
                 },
                 {
                     "name": "zombienet_shield_c",
-                    "files": [
-                        "suites/zombienet_shield/00.00-basic.test.ts",
-                        "suites/zombienet_shield/01-scaling.test.ts"
-                    ],
+                    "files": ["suites/zombienet_shield/00.00-basic.test.ts"],
                     "maxConcurrency": 6
                 },
                 {
@@ -82,6 +79,11 @@
                     "name": "zombienet_shield_e",
                     "files": ["suites/zombienet_shield/04-mortality.test.ts"],
                     "maxConcurrency": 1
+                },
+                {
+                    "name": "zombienet_shield_f",
+                    "files": ["suites/zombienet_shield/01-scaling.test.ts"],
+                    "maxConcurrency": 6
                 }
             ]
         }

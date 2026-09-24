@@ -381,8 +381,8 @@ jobs:
   # State-focused suites do not exercise multi-validator consensus. They use a
   # single immediately-finalized node; EVM and staking are split by measured
   # file runtime without changing coverage. Shield retains the production-like
-  # multi-node topology below. Seven state workers plus five Shield workers use
-  # 12 of the 32 turbo-8 runners, so two full PRs still leave eight slots free.
+  # multi-node topology below. Seven state workers plus six Shield workers use
+  # 13 of the 32 turbo-8 runners, so two full PRs still leave six slots free.
   run-fast-e2e-tests:
     needs: [trusted-pr, changes, build-fast]
     if: needs.changes.outputs.fast_state_count != '0'
