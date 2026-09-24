@@ -253,44 +253,32 @@ assert_contains "$tmp/output" 'available=true'
 grep -v '^::add-mask::' "$tmp/writer-main.log" > "$tmp/writer-main-public.log"
 assert_not_contains "$tmp/writer-main-public.log" 'writer-access-key-test'
 assert_not_contains "$tmp/writer-main-public.log" 'writer-secret-key-test'
-assert_contains "$tmp/config.json" '"local":'
+# Trusted writers bypass the host-local tier even when it is available: its
+# reader-only credentials would otherwise abort every R2 write-through.
+assert_not_contains "$tmp/config.json" '"local":'
 SCCACHE_INSTALL_OUTCOME=success "$CONFIGURE" activate "$tmp/config.json" "$tmp/env" "$tmp/output" >"$tmp/writer-activate.log"
 assert_contains "$tmp/output" 'enabled=true'
 assert_contains "$tmp/env" 'SCCACHE_BACKEND=r2'
 assert_contains "$tmp/env" 'RUSTC_WRAPPER=sccache'
-assert_contains "$tmp/env" 'SCCACHE_LOCAL_TIER=true'
-assert_contains "$tmp/env" 'SCCACHE_MULTILEVEL_CHAIN=webdav,s3'
-assert_contains "$tmp/env" 'SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY=all'
-assert_contains "$tmp/env" 'AWS_ACCESS_KEY_ID=writer-access-key-test'
-assert_contains "$tmp/env" 'SCCACHE_WEBDAV_USERNAME=reader-access-key-test'
-
-write_metadata
-reset_outputs
-export AWS_ACCESS_KEY_ID=writer-access-key-test
-export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
-export GITHUB_EVENT_NAME=push
-export GITHUB_REF=refs/heads/main
-"$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >/dev/null
-export MOCK_LOCAL_START_FAIL=true
-SCCACHE_INSTALL_OUTCOME=success "$CONFIGURE" activate "$tmp/config.json" "$tmp/env" "$tmp/output" >"$tmp/writer-local-start-fail.log"
-assert_contains "$tmp/output" 'enabled=true'
 assert_contains "$tmp/env" 'SCCACHE_LOCAL_TIER=false'
 assert_not_contains "$tmp/env" 'SCCACHE_MULTILEVEL_CHAIN='
-assert_contains "$tmp/writer-local-start-fail.log" 'retrying direct R2'
+assert_not_contains "$tmp/env" 'SCCACHE_WEBDAV_'
+assert_contains "$tmp/env" 'AWS_ACCESS_KEY_ID=writer-access-key-test'
 
-reset_outputs
-export AWS_ACCESS_KEY_ID=writer-access-key-test
-export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
-export GITHUB_EVENT_NAME=push
-export GITHUB_REF=refs/heads/main
-export MOCK_MMDS_FAIL=true
-"$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-local-unavailable.log"
-assert_contains "$tmp/output" 'available=true'
-assert_contains "$tmp/config.json" '"mode":"writer"'
-assert_not_contains "$tmp/config.json" '"local":'
-assert_contains "$tmp/writer-local-unavailable.log" 'using direct R2 writer'
+# A writer configuration that somehow carries a local tier fails closed.
+: > "$tmp/output"
+: > "$tmp/env"
+"$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >/dev/null
+python3 - "$tmp/config.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+values = json.load(open(path))
+values["local"] = {"endpoint": "http://192.168.128.1:8092", "key_prefix": "", "username": "u", "password": "p"}
+json.dump(values, open(path, "w"))
+PY
+: > "$tmp/output"
 SCCACHE_INSTALL_OUTCOME=success "$CONFIGURE" activate "$tmp/config.json" "$tmp/env" "$tmp/output" >/dev/null
-assert_contains "$tmp/env" 'SCCACHE_LOCAL_TIER=false'
+assert_contains "$tmp/output" 'enabled=false'
 assert_not_contains "$tmp/env" 'SCCACHE_MULTILEVEL_CHAIN='
 
 reset_outputs

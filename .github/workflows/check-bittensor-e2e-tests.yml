@@ -311,21 +311,9 @@ jobs:
           fast-linker: "false"
           sccache-credential-mode: reader
 
-      - name: Ensure native target is installed
-        run: rustup target add "$BUILD_TRIPLE"
-
-      - name: Patch limits for local run
-        run: ./scripts/localnet_patch.sh
-
+      # The daily sccache warm job runs the same script so this build hits.
       - name: Build only the fast-runtime node
-        run: |
-          CARGO_TARGET_DIR="target/$RUNTIME" cargo build \
-            --locked \
-            --profile release \
-            --features "pow-faucet metadata-hash fast-runtime" \
-            --package node-subtensor \
-            --package node-subtensor-runtime \
-            --target "$BUILD_TRIPLE"
+        run: .github/scripts/build-localnet-fast-node.sh
 
       - name: Report localnet compiler cache
         if: always()

@@ -339,8 +339,11 @@ jobs:
   build-fast:
     name: build (fast, --features fast-runtime)
     runs-on: [self-hosted, fireactions-turbo-8]
+    # Pull requests execute PR HEAD here and therefore stay in the reader
+    # environment without R2 write keys. Trusted main pushes write the
+    # fast-runtime objects through, so PRs hit them before the daily warm.
     environment:
-      name: sccache-reader
+      name: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'sccache-writer' || 'sccache-reader' }}
       deployment: false
     needs: [trusted-pr, changes]
     if: needs.changes.outputs.fast_build == 'true'
@@ -356,7 +359,9 @@ jobs:
       - name: Set up Rust build environment
         uses: ./.github/actions/rust-setup
         with:
-          sccache-credential-mode: reader
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
       - name: Build node-subtensor (fast)
         run: cargo build --profile release --features fast-runtime -p node-subtensor

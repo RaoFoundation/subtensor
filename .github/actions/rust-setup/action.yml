@@ -23,7 +23,7 @@ inputs:
     description: "Protected writer secret; used only for an authorized source"
     default: ""
   sccache-local-tier:
-    description: "auto to use a validated Fireactions host cache, or disabled for direct R2"
+    description: "Reader host-local tier: auto to use a validated Fireactions host cache, or disabled for direct R2 (writers always use direct R2)"
     default: "auto"
 
 runs:

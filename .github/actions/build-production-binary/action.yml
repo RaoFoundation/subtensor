@@ -18,7 +18,7 @@ inputs:
     description: "Protected writer secret"
     default: ""
   sccache-local-tier:
-    description: "auto for host-local reads, or disabled for direct R2 maintenance"
+    description: "Reader host-local tier: auto for host-local reads, or disabled for direct R2 (writers always use direct R2)"
     default: "auto"
 
 runs:
