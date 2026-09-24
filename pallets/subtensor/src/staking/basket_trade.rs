@@ -12,7 +12,7 @@ use sp_runtime::DispatchError;
 use sp_runtime::traits::Zero;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
-use subtensor_swap_interface::SwapHandler;
+use subtensor_swap_interface::{Order, SwapHandler};
 
 /// Basis-point denominator for [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`].
 const BPS_DENOMINATOR: u64 = 10_000;
@@ -340,6 +340,51 @@ impl<T: Config> Pallet<T> {
         T::DbWeight::get().reads(10)
     }
 
+    /// Conservative weight charged by transaction validation for one basket leg. Validation
+    /// repeats the read-only dispatch prechecks and simulates the sell against a rollback
+    /// overlay. A benchmarked one-row trade bounds that work without inventing a separate
+    /// unmeasured weight.
+    pub fn swap_basket_validation_weight() -> Weight {
+        Self::swap_basket_precheck_weight()
+            .saturating_add(<T as crate::pallet::Config>::WeightInfo::swap_basket(1))
+    }
+
+    /// Reject an uneconomic basket leg during transaction validation, before it can enter the
+    /// pool and pay an inclusion fee. The quote uses the same fee mode and guarded price floor
+    /// as the dispatch sell leg, but asks the swap engine to roll all state back.
+    pub(crate) fn ensure_basket_trade_economic(
+        origin_netuid: NetUid,
+        amount: u64,
+    ) -> Result<(), Error<T>> {
+        ensure!(amount > 0, Error::<T>::AmountTooLow);
+
+        let tao_mid = if origin_netuid.is_root() || SubnetMechanism::<T>::get(origin_netuid) != 1 {
+            amount
+        } else {
+            let floor = Self::basket_trade_price_limit(origin_netuid, Leg::Sell)
+                .map_err(|_| Error::<T>::SlippageTooHigh)?;
+            let order = GetTaoForAlpha::<T>::with_amount(amount);
+            let out = T::SwapInterface::swap(origin_netuid.into(), order, floor, false, true)
+                .map_err(|_| Error::<T>::SlippageTooHigh)?;
+            let consumed = out.amount_paid_in.saturating_add(out.fee_paid);
+            ensure!(consumed.to_u64() == amount, Error::<T>::SlippageTooHigh);
+            ensure!(!out.amount_paid_out.is_zero(), Error::<T>::AmountTooLow);
+            out.amount_paid_out.to_u64()
+        };
+
+        ensure!(
+            tao_mid >= Self::minimum_basket_trade_tao(),
+            Error::<T>::AmountTooLow
+        );
+        Ok(())
+    }
+
+    fn minimum_basket_trade_tao() -> u64 {
+        DefaultMinStake::<T>::get()
+            .to_u64()
+            .max(crate::MIN_BASKET_TRADE_TAO)
+    }
+
     /// Transactional body of [`Self::do_swap_basket`]; any error rolls the whole trade back.
     fn try_swap_basket(
         hotkey: &T::AccountId,
@@ -406,7 +451,7 @@ impl<T: Config> Pallet<T> {
         // --- 1. Sell leg: origin holding -> free TAO on the origin pot.
         let tao_mid: u64 = Self::sell_basket_leg(hotkey, escrow, origin_netuid, amount.into())?;
         ensure!(
-            TaoBalance::from(tao_mid) >= DefaultMinStake::<T>::get(),
+            tao_mid >= Self::minimum_basket_trade_tao(),
             Error::<T>::AmountTooLow
         );
 

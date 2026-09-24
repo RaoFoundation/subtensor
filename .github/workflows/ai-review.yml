@@ -323,11 +323,12 @@ jobs:
   auditor:
     name: auditor
     needs: [decide, skeptic]
-    # always() so this evaluates even when skeptic is skipped (e.g. when
-    # workflow_dispatch was invoked with persona=auditor). We still block on a
-    # failed skeptic — `skipped` is allowed; `failure`/`cancelled` is not.
+    # !cancelled() so this evaluates even when skeptic is skipped (e.g. when
+    # workflow_dispatch was invoked with persona=auditor), while a superseded
+    # run stops. We still block on a failed skeptic — `skipped` is allowed;
+    # `failure`/`cancelled` is not.
     if: |
-      always() &&
+      !cancelled() &&
       needs.decide.outputs.run_auditor == 'true' &&
       (needs.skeptic.result == 'success' || needs.skeptic.result == 'skipped')
     runs-on: ubuntu-latest

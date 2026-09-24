@@ -130,9 +130,9 @@ pub const BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
 
 /// Most legs accepted by one [`Pallet::swap_basket_many`] call. The call values the
 /// basket and flushes queued dividends once, then updates the two affected marks after
-/// each leg. This bound keeps encoded calls and the conservative pre-dispatch envelope
-/// below the normal-class maximum extrinsic weight.
-pub const MAX_BASKET_SWAP_LEGS: u32 = 128;
+/// each leg. This bound keeps encoded calls plus dispatch and transaction-validation
+/// weights below the normal-class maximum extrinsic weight.
+pub const MAX_BASKET_SWAP_LEGS: u32 = 64;
 
 /// Default [`BasketLiquidityCap`]: a fund's holding on a subnet may not exceed 10% of that
 /// subnet's alpha reserve after a `swap_basket` buy (u16-normalized).
@@ -3911,3 +3911,9 @@ pub trait CommitmentsInterface<AccountId> {
 
     fn purge_neuron(netuid: NetUid, account: &AccountId);
 }
+
+/// Smallest TAO value allowed through the middle of a `swap_basket` trade. The call costs
+/// about 0.006 TAO at current fee calibration, so admitting every few blocks' worth of a
+/// refilling turnover bucket can spend more on transaction fees than it rebalances. Half a TAO
+/// keeps the trade well above its fee while still allowing modest funds to rebalance incrementally.
+pub const MIN_BASKET_TRADE_TAO: u64 = 500_000_000;

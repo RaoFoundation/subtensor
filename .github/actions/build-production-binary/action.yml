@@ -8,9 +8,6 @@ inputs:
   target:
     description: "Rust target triple"
     required: true
-  cache-key:
-    description: "Architecture-specific Rust cache key"
-    required: true
   sccache-credential-mode:
     description: "reader, auto for trusted write-through CI, or writer for mandatory maintenance"
     default: "reader"
@@ -21,7 +18,7 @@ inputs:
     description: "Protected writer secret"
     default: ""
   sccache-local-tier:
-    description: "auto for host-local reads, or disabled for direct R2 maintenance"
+    description: "Reader host-local tier: auto for host-local reads, or disabled for direct R2 (writers always use direct R2)"
     default: "auto"
 
 runs:
@@ -29,7 +26,6 @@ runs:
   steps:
     - uses: ./.github/actions/rust-setup
       with:
-        cache-key: ${{ inputs.cache-key }}
         # cross mounts Cargo configuration into its build container. Avoid
         # selecting the host's mold binary, which is not present there.
         fast-linker: "false"

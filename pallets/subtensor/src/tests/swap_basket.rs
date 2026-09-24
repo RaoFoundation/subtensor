@@ -13,6 +13,7 @@
 )]
 
 use crate::CheckColdkeySwap;
+use crate::extensions::SubtensorTransactionExtension;
 use crate::migrations::migrate_seed_beta_basket::kickoff_seed_beta_basket_v2;
 use crate::tests::claim_root::{
     escrow_alpha, flush_baskets, fund_pool, fund_shares, register_on_root, root_stake_of,
@@ -23,9 +24,9 @@ use crate::{
     BASKET_TRADE_REFILL_BLOCKS, BasketClaimed, BasketConcentrationCap, BasketDailyTurnoverCap,
     BasketLiquidityCap, BasketRate, BasketShares, BasketTradeBucket, BasketTradingEnabled,
     BasketTradingFrozen, ColdkeySwapAnnouncements, DEFAULT_BASKET_DAILY_TURNOVER_CAP,
-    DefaultMinStake, Error, Event, MAX_BASKET_SWAP_LEGS, NetworksAdded, SubnetAlphaIn,
-    SubnetAlphaOut, SubnetFastMovingPrice, SubnetMovingPrice, SubnetProtocolFlow, SubnetTAO,
-    SubnetTaoFlow, SubtokenEnabled, TotalStake, Uids,
+    DefaultMinStake, Error, Event, MAX_BASKET_SWAP_LEGS, MIN_BASKET_TRADE_TAO, NetworksAdded,
+    SubnetAlphaIn, SubnetAlphaOut, SubnetFastMovingPrice, SubnetMovingPrice, SubnetProtocolFlow,
+    SubnetTAO, SubnetTaoFlow, SubtokenEnabled, TotalStake, Uids,
 };
 use codec::Encode;
 use frame_support::assert_ok;
@@ -33,8 +34,13 @@ use frame_support::dispatch::DispatchResultWithPostInfo;
 use frame_support::traits::{ConstU32, ExtendedDispatchable, Get};
 use frame_support::weights::Weight;
 use sp_core::U256;
-use sp_runtime::{BoundedVec, traits::Hash};
+use sp_runtime::{
+    BoundedVec,
+    traits::{DispatchInfoOf, Hash, TransactionExtension, TxBaseImplication},
+    transaction_validity::{TransactionSource, TransactionValidityError, ValidTransaction},
+};
 use substrate_fixed::types::{I96F32, U64F64};
+use subtensor_runtime_common::CustomTransactionError;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::SwapHandler;
 
@@ -45,11 +51,11 @@ type HashingOf<T> = <T as frame_system::Config>::Hashing;
 const FEE_TOLERANCE_PCT: u64 = 5;
 
 /// Dividend credited to the fund in the standard playground (alpha on subnet A, price ~1).
-const DIVIDEND: u64 = 100_000_000;
+const DIVIDEND: u64 = 25_000_000_000;
 
-/// A trade comfortably above `DefaultMinStake` (2 TAO in the mock) and well inside the
+/// A trade comfortably above `DefaultMinStake` (0.002 TAO in the mock) and well inside the
 /// default 10% turnover budget of a `DIVIDEND`-sized fund.
-const TRADE: u64 = 4_000_000;
+const TRADE: u64 = 1_000_000_000;
 
 struct Fund {
     /// Owns `hotkey`; the account that signs trades.
@@ -79,6 +85,16 @@ fn setup_fund() -> Fund {
     remove_owner_registration_stake(netuid_a);
     fund_pool(netuid_a);
     fund_pool(netuid_b);
+    // Keep the shared pool deep enough that moving the 25 TAO fixture holding remains
+    // inside the 2% execution band. The production-scale minimum below should not make
+    // unrelated guardrail tests fail because of fixture slippage.
+    for netuid in [netuid_a, netuid_b] {
+        let reserve = 1_000_000_000_000_000u64;
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(reserve));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(reserve));
+        let account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&account, TaoBalance::from(reserve));
+    }
     SubnetMovingPrice::<Test>::insert(netuid_a, I96F32::from_num(1));
     SubnetMovingPrice::<Test>::insert(netuid_b, I96F32::from_num(1));
     SubnetFastMovingPrice::<Test>::insert(netuid_a, U64F64::from_num(1));
@@ -153,6 +169,30 @@ fn swap_many(
     let legs: BoundedVec<_, ConstU32<MAX_BASKET_SWAP_LEGS>> =
         legs.try_into().expect("test batch is bounded");
     SubtensorModule::swap_basket_many(RuntimeOrigin::signed(fund.coldkey), fund.hotkey, legs)
+}
+
+fn validate_basket_call(
+    fund: &Fund,
+    call: &RuntimeCall,
+) -> Result<ValidTransaction, TransactionValidityError> {
+    validate_basket_call_as(fund.coldkey, call)
+}
+
+fn validate_basket_call_as(
+    signer: U256,
+    call: &RuntimeCall,
+) -> Result<ValidTransaction, TransactionValidityError> {
+    SubtensorTransactionExtension::<Test>::new()
+        .validate(
+            RuntimeOrigin::signed(signer),
+            call,
+            &DispatchInfoOf::<RuntimeCall>::default(),
+            0,
+            (),
+            &TxBaseImplication(()),
+            TransactionSource::External,
+        )
+        .map(|(validity, _, _)| validity)
 }
 
 fn nav(hotkey: &U256) -> u64 {
@@ -444,22 +484,17 @@ fn test_swap_basket_many_executes_legs_with_one_initial_sweep() {
                 (
                     fund.netuid_a,
                     fund.netuid_b,
-                    AlphaBalance::from(8_000_000),
+                    AlphaBalance::from(2 * TRADE),
                     0,
                 ),
-                (
-                    fund.netuid_b,
-                    NetUid::ROOT,
-                    AlphaBalance::from(4_000_000),
-                    0,
-                ),
+                (fund.netuid_b, NetUid::ROOT, AlphaBalance::from(TRADE), 0),
             ],
         )
         .expect("both legs succeed");
 
         assert_eq!(
             escrow_alpha(&fund.hotkey, fund.netuid_a),
-            origin_before - 8_000_000
+            origin_before - 2 * TRADE
         );
         assert!(escrow_alpha(&fund.hotkey, fund.netuid_b) > 0);
         assert!(escrow_alpha(&fund.hotkey, NetUid::ROOT) > 0);
@@ -491,7 +526,7 @@ fn test_swap_basket_many_rolls_back_all_trade_legs_on_failure() {
                 (
                     fund.netuid_a,
                     fund.netuid_b,
-                    AlphaBalance::from(8_000_000),
+                    AlphaBalance::from(2 * TRADE),
                     0,
                 ),
                 (fund.netuid_b, NetUid::ROOT, AlphaBalance::from(DIVIDEND), 0),
@@ -697,6 +732,198 @@ fn test_swap_basket_rejects_zero_and_dust_amounts() {
             swap(&fund, fund.netuid_a, fund.netuid_b, dust),
             Error::<Test>::AmountTooLow
         );
+        // A refill-driven 0.08 TAO trade clears the general staking minimum but is still
+        // uneconomic next to the transaction fee (about 0.006 TAO).
+        let fee_draining_dust = 80_000_000;
+        assert!(fee_draining_dust > DefaultMinStake::<Test>::get().to_u64());
+        assert!(fee_draining_dust < MIN_BASKET_TRADE_TAO);
+        crate::assert_noop_ignore_postinfo!(
+            swap(&fund, fund.netuid_a, fund.netuid_b, fee_draining_dust),
+            Error::<Test>::AmountTooLow
+        );
+    });
+}
+
+#[test]
+fn transaction_validation_rejects_fee_draining_basket_calls() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        let fee_draining_dust = 80_000_000;
+        let reserves_before = (
+            SubnetTAO::<Test>::get(fund.netuid_a),
+            SubnetAlphaIn::<Test>::get(fund.netuid_a),
+            SubnetAlphaOut::<Test>::get(fund.netuid_a),
+        );
+
+        let dust_call = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+            hotkey: fund.hotkey,
+            origin_netuid: fund.netuid_a,
+            destination_netuid: fund.netuid_b,
+            amount: fee_draining_dust.into(),
+            min_amount_out: 0,
+        });
+        assert_eq!(
+            validate_basket_call(&fund, &dust_call).unwrap_err(),
+            CustomTransactionError::StakeAmountTooLow.into()
+        );
+
+        let dust_batch = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket_many {
+            hotkey: fund.hotkey,
+            legs: vec![(
+                fund.netuid_a,
+                fund.netuid_b,
+                AlphaBalance::from(fee_draining_dust),
+                0,
+            )]
+            .try_into()
+            .expect("one leg is bounded"),
+        });
+        assert_eq!(
+            validate_basket_call(&fund, &dust_batch).unwrap_err(),
+            CustomTransactionError::StakeAmountTooLow.into()
+        );
+
+        let economic_call = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+            hotkey: fund.hotkey,
+            origin_netuid: fund.netuid_a,
+            destination_netuid: fund.netuid_b,
+            amount: TRADE.into(),
+            min_amount_out: 0,
+        });
+        assert_ok!(validate_basket_call(&fund, &economic_call));
+
+        // Transaction validation quotes with rollback semantics; merely submitting the call
+        // to the pool cannot move reserves before inclusion.
+        assert_eq!(
+            (
+                SubnetTAO::<Test>::get(fund.netuid_a),
+                SubnetAlphaIn::<Test>::get(fund.netuid_a),
+                SubnetAlphaOut::<Test>::get(fund.netuid_a),
+            ),
+            reserves_before
+        );
+    });
+}
+
+#[test]
+fn transaction_validation_rejects_fee_draining_basket_calls_in_utility_wrappers() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        let dust_call = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+            hotkey: fund.hotkey,
+            origin_netuid: fund.netuid_a,
+            destination_netuid: fund.netuid_b,
+            amount: 80_000_000u64.into(),
+            min_amount_out: 0,
+        });
+
+        let wrapped_calls = [
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::batch {
+                calls: vec![dust_call.clone()],
+            }),
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::batch_all {
+                calls: vec![dust_call.clone()],
+            }),
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::force_batch {
+                calls: vec![dust_call.clone()],
+            }),
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::if_else {
+                main: Box::new(RuntimeCall::System(frame_system::Call::remark {
+                    remark: vec![],
+                })),
+                fallback: Box::new(dust_call),
+            }),
+        ];
+
+        for wrapped in wrapped_calls {
+            assert_eq!(
+                validate_basket_call(&fund, &wrapped).unwrap_err(),
+                CustomTransactionError::StakeAmountTooLow.into()
+            );
+        }
+    });
+}
+
+#[test]
+fn transaction_validation_uses_proxy_real_account_for_basket_calls() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        let delegate = U256::from(7001);
+
+        let wrap_proxy = |amount: u64| {
+            RuntimeCall::Proxy(pallet_subtensor_proxy::Call::proxy {
+                real: fund.coldkey,
+                force_proxy_type: Some(subtensor_runtime_common::ProxyType::BasketTrading),
+                call: Box::new(RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+                    hotkey: fund.hotkey,
+                    origin_netuid: fund.netuid_a,
+                    destination_netuid: fund.netuid_b,
+                    amount: amount.into(),
+                    min_amount_out: 0,
+                })),
+            })
+        };
+
+        // The delegate does not own the hotkey. Acceptance of the economic call proves the
+        // validator applies the inner ownership checks to the proxy's real account.
+        assert_ok!(validate_basket_call_as(delegate, &wrap_proxy(TRADE)));
+        assert_eq!(
+            validate_basket_call_as(delegate, &wrap_proxy(80_000_000)).unwrap_err(),
+            CustomTransactionError::StakeAmountTooLow.into()
+        );
+
+        // Wrapper traversal composes: a proxy call nested in Utility must not restore the outer
+        // delegate as the effective signer or hide the dust trade.
+        let nested = RuntimeCall::Utility(pallet_subtensor_utility::Call::batch_all {
+            calls: vec![wrap_proxy(80_000_000)],
+        });
+        assert_eq!(
+            validate_basket_call_as(delegate, &nested).unwrap_err(),
+            CustomTransactionError::StakeAmountTooLow.into()
+        );
+
+        let announced = RuntimeCall::Proxy(pallet_subtensor_proxy::Call::proxy_announced {
+            delegate,
+            real: fund.coldkey,
+            force_proxy_type: Some(subtensor_runtime_common::ProxyType::BasketTrading),
+            call: Box::new(RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+                hotkey: fund.hotkey,
+                origin_netuid: fund.netuid_a,
+                destination_netuid: fund.netuid_b,
+                amount: 80_000_000u64.into(),
+                min_amount_out: 0,
+            })),
+        });
+        assert_eq!(
+            validate_basket_call_as(U256::from(7002), &announced).unwrap_err(),
+            CustomTransactionError::StakeAmountTooLow.into()
+        );
+    });
+}
+
+#[test]
+fn transaction_validation_weight_accounts_for_wrapped_basket_legs() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        let basket_call = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+            hotkey: fund.hotkey,
+            origin_netuid: fund.netuid_a,
+            destination_netuid: fund.netuid_b,
+            amount: TRADE.into(),
+            min_amount_out: 0,
+        });
+        let empty_batch =
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::batch_all { calls: vec![] });
+        let wrapped = RuntimeCall::Utility(pallet_subtensor_utility::Call::batch_all {
+            calls: vec![basket_call.clone(), basket_call],
+        });
+        let extension = SubtensorTransactionExtension::<Test>::new();
+        let expected = extension
+            .weight(&empty_batch)
+            .saturating_add(SubtensorModule::swap_basket_validation_weight().saturating_mul(2));
+
+        assert_eq!(extension.weight(&wrapped), expected);
+        assert_ok!(validate_basket_call(&fund, &wrapped));
     });
 }
 

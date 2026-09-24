@@ -537,8 +537,6 @@ jobs:
           ref: ${{ needs.check.outputs.sha }}
 
       - uses: ./.github/actions/rust-setup
-        with:
-          cache-key: publish-crates
 
       # Workspace crates are publish = false while they depend on the
       # patched polkadot-sdk fork. Any crate that flips publish on is
