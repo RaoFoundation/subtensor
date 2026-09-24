@@ -7,22 +7,33 @@ name: Docker Build Check
 on:
   pull_request:
     paths:
-      # Anything the Dockerfile's cargo build consumes.
-      - "common/**"
+      # Only inputs that can change what this check proves: the production
+      # node binary's native code and build configuration, and the image
+      # packaging. Runtime logic (pallets, runtime, precompiles, chain
+      # extensions, primitives) ships as the on-chain wasm, which Runtime
+      # Checks builds with the production profile; Check Rust and the release
+      # node builds compile the node against every such change. The node
+      # runs only the pallet RPC and runtime-API crates natively.
       - "node/**"
-      - "pallets/**"
-      - "precompiles/**"
-      - "primitives/**"
-      - "runtime/**"
+      - "common/**"
       - "support/**"
-      - "chain-extensions/**"
+      - "pallets/*/rpc/**"
+      - "pallets/*/runtime-api/**"
       - "src/**"
       - "vendor/**"
+      # Manifests carry dependency, feature, and profile changes for every
+      # crate linked into the node, including the runtime-side ones.
       # The bittensor-core SDK crates are not in node-subtensor's dependency
       # graph. Their shared dependency movement still enters through Cargo.lock.
       - "Cargo.toml"
       - "Cargo.lock"
+      - "pallets/**/Cargo.toml"
+      - "runtime/Cargo.toml"
+      - "precompiles/Cargo.toml"
+      - "chain-extensions/Cargo.toml"
+      - "primitives/**/Cargo.toml"
       - "build.rs"
+      - "runtime/build.rs"
       - "rust-toolchain.toml"
       - ".cargo/**"
       - ".dockerignore"
@@ -43,14 +54,7 @@ on:
       - ".github/workflows/check-docker.yml"
       # These modules are compiled only by Rust tests. Check Rust owns them;
       # they cannot change the production binary copied into the image.
-      - "!pallets/*/src/tests/**"
-      - "!pallets/*/src/tests.rs"
-      - "!pallets/*/src/mock.rs"
-      - "!chain-extensions/src/tests.rs"
-      - "!chain-extensions/src/mock.rs"
-      - "!precompiles/src/mock.rs"
       - "!node/tests/**"
-      - "!runtime/tests/**"
       - "!support/*/tests/**"
       - "!support/procedural-fork/src/pallet/parse/tests/**"
 
