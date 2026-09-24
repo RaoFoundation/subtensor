@@ -112,12 +112,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.upload-snapshot.outputs.artifact-id }}
           ARTIFACT_DIGEST: ${{ steps.upload-snapshot.outputs.artifact-digest }}
+        # upload-artifact reports the bare hex SHA-256; the mirror contract
+        # uses the Artifacts API form with its `sha256:` prefix.
         run: |
           set -euo pipefail
+          [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]
           .github/scripts/publish-artifact-mirror.sh \
             "$ARTIFACT_ID" \
             mainnet-snapshot \
-            "$ARTIFACT_DIGEST" \
+            "sha256:$ARTIFACT_DIGEST" \
             "$GITHUB_SHA" \
             .github/workflows/refresh-mainnet-snapshot.yml
 
