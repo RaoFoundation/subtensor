@@ -19,10 +19,13 @@ from pathlib import Path
 
 from .metadata import MetadataIR
 
+# The headers deliberately omit the runtime spec_version. Generated content
+# depends only on the metadata it describes; stamping the version made every
+# spec bump rewrite all five files and fail the SDK drift gate even when no
+# call, storage item, error, constant, or runtime API changed.
 _HEADER = '''"""Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: {spec_version}
 """
 '''
 
@@ -31,7 +34,6 @@ Spec version: {spec_version}
 _HEADER_WITH_DOC = '''"""Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: {spec_version}
 
 {doc}
 """
@@ -93,7 +95,7 @@ def _check_unique(scope: str, names: list[str], reserved: tuple[str, ...] = ()) 
 
 
 def emit_errors(ir: MetadataIR) -> str:
-    lines = [_HEADER.format(spec_version=ir.spec_version)]
+    lines = [_HEADER]
     lines.append("from dataclasses import dataclass\n\n")
     lines.append("@dataclass(frozen=True)\n")
     lines.append("class ErrorInfo:\n")
@@ -112,7 +114,7 @@ def emit_errors(ir: MetadataIR) -> str:
 
 
 def emit_calls(ir: MetadataIR) -> str:
-    lines = [_HEADER.format(spec_version=ir.spec_version)]
+    lines = [_HEADER]
     lines.append("from typing import Any, NamedTuple\n\n\n")
     lines.append("class Call(NamedTuple):\n")
     lines.append('    """A composed call target: (module, function, params).\n\n')
@@ -179,7 +181,7 @@ def _emit_item_classes(
     ``extra_field`` grows the item tuple with one more, defaulted str field;
     group items are then (name, value) pairs instead of bare names.
     """
-    lines = [_HEADER_WITH_DOC.format(spec_version=ir.spec_version, doc=header_doc)]
+    lines = [_HEADER_WITH_DOC.format(doc=header_doc)]
     lines.append("from typing import NamedTuple\n\n\n")
     lines.append(f"class {item_class}(NamedTuple):\n")
     lines.append('    """A (container, name) pair; unpack into query/constant calls."""\n\n')
