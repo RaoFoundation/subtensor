@@ -9,9 +9,6 @@ concurrency:
   group: typescript-e2e-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  CARGO_TERM_COLOR: always
-
 permissions:
   contents: read
 
@@ -119,7 +116,7 @@ jobs:
             exit 0
           fi
 
-          if ! files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate); then
+          if ! files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" --paginate); then
             echo "changed-file lookup failed; running the full E2E matrix" >&2
             "$classifier" --all "$GITHUB_OUTPUT"
             exit 0
@@ -271,7 +268,7 @@ jobs:
       deployment: false
     needs: [trusted-pr, changes, select-release-artifact]
     if: >-
-      always() &&
+      !cancelled() &&
       needs.trusted-pr.result == 'success' &&
       needs.changes.result == 'success' &&
       needs.changes.outputs.release_build == 'true'
@@ -321,7 +318,6 @@ jobs:
         if: steps.reuse.outputs.reused != 'true'
         uses: ./.github/actions/rust-setup
         with:
-          cache-key: e2e-release
           sccache-credential-mode: reader
 
       - name: Build node-subtensor (release)
@@ -343,8 +339,11 @@ jobs:
   build-fast:
     name: build (fast, --features fast-runtime)
     runs-on: [self-hosted, fireactions-turbo-8]
+    # Pull requests execute PR HEAD here and therefore stay in the reader
+    # environment without R2 write keys. Trusted main pushes write the
+    # fast-runtime objects through, so PRs hit them before the daily warm.
     environment:
-      name: sccache-reader
+      name: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'sccache-writer' || 'sccache-reader' }}
       deployment: false
     needs: [trusted-pr, changes]
     if: needs.changes.outputs.fast_build == 'true'
@@ -360,8 +359,9 @@ jobs:
       - name: Set up Rust build environment
         uses: ./.github/actions/rust-setup
         with:
-          cache-key: e2e-fast
-          sccache-credential-mode: reader
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
       - name: Build node-subtensor (fast)
         run: cargo build --profile release --features fast-runtime -p node-subtensor
@@ -381,8 +381,8 @@ jobs:
   # State-focused suites do not exercise multi-validator consensus. They use a
   # single immediately-finalized node; EVM and staking are split by measured
   # file runtime without changing coverage. Shield retains the production-like
-  # multi-node topology below. Seven state workers plus five Shield workers use
-  # 12 of the 32 turbo-8 runners, so two full PRs still leave eight slots free.
+  # multi-node topology below. Seven state workers plus six Shield workers use
+  # 13 of the 32 turbo-8 runners, so two full PRs still leave six slots free.
   run-fast-e2e-tests:
     needs: [trusted-pr, changes, build-fast]
     if: needs.changes.outputs.fast_state_count != '0'

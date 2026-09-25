@@ -124,6 +124,13 @@ pub struct CloneStateCmd {
     #[arg(long, default_value_t = 30466)]
     pub port: u16,
 
+    /// Maximum outbound peers for the temporary sync node. Clone jobs run
+    /// behind NAT and receive no inbound connections, so every peer is one
+    /// this node dials; warp proofs come only from peers on a compatible
+    /// release, and more outbound slots raise the chance of reaching one.
+    #[arg(long, default_value_t = 150)]
+    pub out_peers: u32,
+
     /// Maximum time to wait for sync completion.
     #[arg(long, default_value_t = 7200)]
     pub sync_timeout_sec: u64,

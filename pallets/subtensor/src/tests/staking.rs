@@ -2454,6 +2454,34 @@ fn test_clear_small_nominations() {
     });
 }
 
+#[test]
+fn test_clear_small_nomination_removes_staking_hotkey_after_failed_unstake() {
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(1);
+        let hotkey = U256::from(2);
+        let coldkey = U256::from(3);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        // Keep a nonzero price but force the dust swap to fail with ReservesTooLow.
+        mock::setup_reserves(netuid, 1.into(), 1.into());
+        SubtensorModule::set_nominator_min_required_stake(10);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            netuid,
+            1.into(),
+        );
+        assert!(StakingHotkeys::<Test>::get(coldkey).contains(&hotkey));
+
+        SubtensorModule::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
+
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
+            AlphaBalance::ZERO
+        );
+        assert!(!StakingHotkeys::<Test>::contains_key(coldkey));
+    });
+}
+
 // Verify delegate take can be decreased
 #[test]
 fn test_delegate_take_can_be_decreased() {

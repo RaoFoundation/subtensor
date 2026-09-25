@@ -85,7 +85,7 @@ grep -Fq '"$(jq -er '\''.size_in_bytes'\'' "$metadata")"' "$runtime_workflow"
 
 # A transient Files API outage must fail closed by selecting the full matrix,
 # not fail the classifier before required aggregate contexts can be reported.
-grep -Fq 'if ! pages=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --slurp); then' "$runtime_workflow"
+grep -Eq 'if ! pages=\$\(gh api "repos/\$GITHUB_REPOSITORY/pulls/\$PR_NUMBER/files[^"]*" --paginate --slurp\); then' "$runtime_workflow"
 grep -Fq '::warning::PR file listing failed; enabling every check.' "$runtime_workflow"
 grep -Fq 'Runtime classifier failed or emitted invalid outputs; enabling every check.' "$runtime_workflow"
 grep -Fq 'RUNTIME_RELEVANT: ${{ needs.changes.outputs.runtime }}' "$runtime_workflow"

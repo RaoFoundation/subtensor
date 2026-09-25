@@ -65,7 +65,6 @@ jobs:
         with:
           arch: ${{ matrix.platform.arch }}
           target: ${{ matrix.platform.target }}
-          cache-key: docker-production-${{ matrix.platform.arch }}
 
       - uses: actions/upload-artifact@v4
         with:

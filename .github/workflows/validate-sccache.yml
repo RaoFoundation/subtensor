@@ -104,7 +104,6 @@ jobs:
       - name: Configure direct R2 sccache baseline
         uses: ./.github/actions/rust-setup
         with:
-          cache-key: host-cache-benchmark-paired
           sccache-local-tier: disabled
 
       - name: Measure paired origin and warm-local reads in one VM
@@ -134,7 +133,6 @@ jobs:
       - name: Configure production reader cache
         uses: ./.github/actions/rust-setup
         with:
-          cache-key: host-cache-benchmark-fleet
           sccache-credential-mode: reader
 
       - name: Measure a clean runtime check

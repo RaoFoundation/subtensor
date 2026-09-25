@@ -58,12 +58,23 @@ jobs:
             --production-project-id "${VERCEL_PRODUCTION_PROJECT_ID}" \
             --docs-domain "${DOCS_DOMAIN}"
 
+      - name: Enable corepack (Yarn 4)
+        run: corepack enable
+
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: .github/docs-preview-vercel/package-lock.json
+
+      - name: Cache Yarn 4 packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.yarn/berry/cache
+          key: docs-yarn-${{ runner.os }}-${{ hashFiles('website/yarn.lock') }}
+          restore-keys: |
+            docs-yarn-${{ runner.os }}-
 
       - name: Install locked Vercel CLI (no secrets)
         run: |
@@ -72,8 +83,6 @@ jobs:
           npm audit --audit-level=high --omit=dev --prefix .github/docs-preview-vercel
           test -x .github/docs-preview-vercel/node_modules/.bin/vercel
 
-      - name: Enable corepack (Yarn 4)
-        run: corepack enable
 
       - name: Assemble Vercel prebuilt output (no deploy token)
         run: |
@@ -112,6 +121,8 @@ jobs:
             docs-preview-action.txt
           if-no-files-found: error
           retention-days: 1
+          # The sealed bundle is already gzip-compressed.
+          compression-level: 0
 
   request-cleanup:
     name: Request preview cleanup (no secrets)
