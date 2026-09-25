@@ -4,11 +4,13 @@ use frame_support::weights::Weight;
 use share_pool::SafeFloat;
 use sp_core::Get;
 use sp_std::collections::btree_map::BTreeMap;
+use sp_std::collections::btree_set::BTreeSet;
 use subtensor_runtime_common::{MechId, NetUid, Token};
 
 struct PreparedHotkeyStake<AccountId> {
     positions: Vec<(AccountId, NetUid, SafeFloat)>,
     coldkeys_by_netuid: BTreeMap<NetUid, Vec<AccountId>>,
+    moved_netuids: BTreeSet<NetUid>,
 }
 
 impl<T: Config> Pallet<T> {
@@ -99,18 +101,35 @@ impl<T: Config> Pallet<T> {
         let positions: Vec<(T::AccountId, NetUid, SafeFloat)> =
             Self::alpha_iter_single_prefix(old_hotkey).collect();
         let mut coldkeys_by_netuid: BTreeMap<NetUid, Vec<T::AccountId>> = BTreeMap::new();
+        let mut moved_netuids = BTreeSet::new();
 
-        for (coldkey, netuid, _) in &positions {
+        for (coldkey, netuid, alpha) in &positions {
             coldkeys_by_netuid
                 .entry(*netuid)
                 .or_default()
                 .push(coldkey.clone());
+            if !alpha.is_zero() {
+                moved_netuids.insert(*netuid);
+            }
         }
 
         PreparedHotkeyStake {
             positions,
             coldkeys_by_netuid,
+            moved_netuids,
         }
+    }
+
+    /// Subnets on which this operation will move nonzero alpha.
+    fn moved_stake_netuids(
+        prepared_stake: Option<&PreparedHotkeyStake<T::AccountId>>,
+        requested_netuid: Option<NetUid>,
+    ) -> Vec<NetUid> {
+        prepared_stake
+            .into_iter()
+            .flat_map(|prepared| prepared.moved_netuids.iter().copied())
+            .filter(|netuid| requested_netuid.is_none_or(|requested| requested == *netuid))
+            .collect()
     }
 
     /// Swaps the hotkey of a coldkey account.
@@ -289,6 +308,34 @@ impl<T: Config> Pallet<T> {
             weight.saturating_accrue(T::DbWeight::get().reads(prepared.positions.len() as u64));
             Some(prepared)
         };
+        let mut moved_stake_netuids = Self::moved_stake_netuids(prepared_stake.as_ref(), netuid);
+        if netuid.is_none() {
+            // The all-subnets mutation only visits live networks. Stake awaiting subnet
+            // dissolution settlement is not moved by this call and must not open or trip
+            // a destination-position cooldown.
+            let candidate_count = moved_stake_netuids.len() as u64;
+            moved_stake_netuids.retain(|moved_netuid| Self::if_subnet_exist(*moved_netuid));
+            weight.saturating_accrue(T::DbWeight::get().reads(candidate_count));
+        }
+
+        // A hotkey swap that moved alpha into this position opens a recovery window in
+        // which delegators can withdraw from a stable destination. Key this guard by the
+        // destination hotkey, not its owner, so a coldkey swap cannot reset it.
+        for moved_netuid in &moved_stake_netuids {
+            let cooldown_until = StakeMoveCooldownUntil::<T>::get(*moved_netuid, old_hotkey);
+            weight.saturating_accrue(T::DbWeight::get().reads(1));
+            if block < cooldown_until {
+                let error = Error::<T>::HotKeySwapOnSubnetIntervalNotPassed;
+                return Err(match netuid {
+                    Some(_) => Self::fail_with_weight(
+                        error,
+                        weight
+                            .saturating_add(Self::swap_hotkey_precheck_weight(old_hotkey, &netuid)),
+                    ),
+                    None => error.into(),
+                });
+            }
+        }
 
         // Preflight collateral-index capacity before charging or writing so a
         // full-cap / unindexed legacy row cannot fail mid-swap. The mutation
@@ -420,6 +467,17 @@ impl<T: Config> Pallet<T> {
                     keep_stake,
                     prepared_stake.as_ref(),
                 )?;
+
+                let stake_move_cooldown_until =
+                    block.saturating_add(T::HotkeySwapOnSubnetInterval::get());
+                for netuid in &moved_stake_netuids {
+                    StakeMoveCooldownUntil::<T>::insert(
+                        *netuid,
+                        new_hotkey,
+                        stake_move_cooldown_until,
+                    );
+                    weight.saturating_accrue(T::DbWeight::get().writes(1));
+                }
 
                 for netuid in cooldown_netuids.iter() {
                     Self::record_hotkey_swap_on_netuid(
@@ -713,6 +771,15 @@ impl<T: Config> Pallet<T> {
             keep_stake,
             stake_coldkeys,
         )?;
+
+        if prepared_stake.is_some_and(|prepared| prepared.moved_netuids.contains(&netuid)) {
+            StakeMoveCooldownUntil::<T>::insert(
+                netuid,
+                new_hotkey,
+                block.saturating_add(hotkey_swap_interval),
+            );
+            weight.saturating_accrue(T::DbWeight::get().writes(1));
+        }
 
         // 10. Record cooldown + lineage for the HotkeySwapOnSubnetInterval gate.
         Self::record_hotkey_swap_on_netuid(

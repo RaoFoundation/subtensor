@@ -350,6 +350,14 @@ mod hooks {
                         }
                         weight.saturating_accrue(T::DbWeight::get().reads(1_u64));
                     }
+                    for (hotkey, cooldown_until) in StakeMoveCooldownUntil::<T>::iter_prefix(netuid)
+                    {
+                        if cooldown_until <= block_number {
+                            StakeMoveCooldownUntil::<T>::remove(netuid, hotkey);
+                            weight.saturating_accrue(T::DbWeight::get().writes(1_u64));
+                        }
+                        weight.saturating_accrue(T::DbWeight::get().reads(1_u64));
+                    }
                 }
             }
             weight
