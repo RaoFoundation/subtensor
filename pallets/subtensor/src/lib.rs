@@ -1910,32 +1910,6 @@ pub mod pallet {
         DefaultZeroAlpha<T>,
     >;
 
-    /// DMAP ( hot, netuid ) --> total_alpha_shares | Returns the number of alpha shares for a hotkey on a subnet.
-    #[pallet::storage]
-    pub type TotalHotkeyShares<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        Identity,
-        NetUid,
-        U64F64,
-        ValueQuery,
-        DefaultSharePoolZero<T>,
-    >;
-
-    /// NMAP ( hot, cold, netuid ) --> alpha | Returns the alpha shares for a hotkey, coldkey, netuid triplet.
-    #[pallet::storage]
-    pub type Alpha<T: Config> = StorageNMap<
-        _,
-        (
-            NMapKey<Blake2_128Concat, T::AccountId>, // hot
-            NMapKey<Blake2_128Concat, T::AccountId>, // cold
-            NMapKey<Identity, NetUid>,               // subnet
-        ),
-        U64F64, // Shares
-        ValueQuery,
-    >;
-
     /// DMAP ( hot, netuid ) --> total_alpha_shares | Returns the number of alpha shares for a hotkey on a subnet, stores SafeFloat.
     #[pallet::storage]
     pub type TotalHotkeySharesV2<T: Config> = StorageDoubleMap<
@@ -2085,11 +2059,6 @@ pub mod pallet {
     /// ITEM( unlock_rate ) | Decay timescale in blocks for locked mass.
     #[pallet::storage]
     pub type UnlockRate<T: Config> = StorageValue<_, u64, ValueQuery, DefaultUnlockRate<T>>;
-
-    /// Contains last Alpha storage map key to iterate (check first)
-    #[pallet::storage]
-    pub type AlphaMapLastKey<T: Config> =
-        StorageValue<_, Option<Vec<u8>>, ValueQuery, DefaultAlphaIterationLastKey<T>>;
 
     /// Contains last AlphaV2 storage map key to iterate (check first)
     #[pallet::storage]

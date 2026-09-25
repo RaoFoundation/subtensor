@@ -8,6 +8,7 @@
 )]
 
 use super::mock::*;
+use crate::migrations::migrate_alpha_v2::retired::{Alpha, TotalHotkeyShares};
 use crate::staking::lock::LockState;
 use crate::*;
 use alloc::collections::BTreeMap;
@@ -7511,7 +7512,10 @@ fn test_staking_hotkeys_cleanup_is_bounded_and_preserves_live_relationships() {
         StakingHotkeys::<Test>::insert(coldkey, vec![stale, legacy, v2, basket, zero_v2]);
         StakingHotkeys::<Test>::insert(all_stale_coldkey, vec![other_stale]);
         StakingHotkeys::<Test>::insert(empty_coldkey, Vec::<U256>::new());
-        Alpha::<Test>::insert((legacy, coldkey, netuid), U64F64::from_num(1));
+        AlphaV2::<Test>::insert(
+            (legacy, coldkey, netuid),
+            share_pool::SafeFloat::from(1_u64),
+        );
         AlphaV2::<Test>::insert((v2, coldkey, netuid), share_pool::SafeFloat::from(1_u64));
         AlphaV2::<Test>::insert((zero_v2, coldkey, netuid), share_pool::SafeFloat::zero());
         BasketClaimed::<Test>::insert(basket, coldkey, -1);

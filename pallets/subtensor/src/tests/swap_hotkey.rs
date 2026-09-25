@@ -1,5 +1,6 @@
 #![allow(unused, clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
+use crate::migrations::migrate_alpha_v2::retired::{Alpha, TotalHotkeyShares};
 use approx::assert_abs_diff_eq;
 use codec::Encode;
 use frame_support::weights::Weight;
@@ -464,6 +465,7 @@ fn test_swap_staking_hotkeys() {
 
         StakingHotkeys::<Test>::insert(coldkey, vec![old_hotkey]);
         Alpha::<Test>::insert((old_hotkey, coldkey, netuid), U64F64::from_num(100));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
             &old_hotkey,
@@ -587,7 +589,9 @@ fn test_swap_staking_hotkeys_multiple_coldkeys() {
         StakingHotkeys::<Test>::insert(coldkey1, vec![old_hotkey]);
         StakingHotkeys::<Test>::insert(coldkey2, vec![old_hotkey, staker5]);
         Alpha::<Test>::insert((old_hotkey, coldkey1, netuid), U64F64::from_num(100));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
         Alpha::<Test>::insert((old_hotkey, coldkey2, netuid), U64F64::from_num(100));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         SubtensorModule::create_account_if_non_existent(&coldkey1, &old_hotkey);
         add_balance_to_coldkey_account(&coldkey1, stake + ExistentialDeposit::get());
@@ -956,6 +960,7 @@ fn test_swap_stake_success() {
         );
         TotalHotkeyShares::<Test>::insert(old_hotkey, netuid, shares);
         Alpha::<Test>::insert((old_hotkey, coldkey, netuid), U64F64::from_num(amount));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
         AlphaDividendsPerSubnet::<Test>::insert(netuid, old_hotkey, AlphaBalance::from(amount));
 
         // Perform the swap
@@ -1148,9 +1153,10 @@ fn test_swap_stake_old_hotkey_not_exist() {
         Alpha::<Test>::insert((old_hotkey, coldkey, netuid), alpha_share);
         TotalHotkeyAlpha::<Test>::insert(old_hotkey, netuid, alpha);
         TotalHotkeyShares::<Test>::insert(old_hotkey, netuid, alpha_share);
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Ensure old_hotkey has a stake
-        assert!(Alpha::<Test>::contains_key((old_hotkey, coldkey, netuid)));
+        assert!(AlphaV2::<Test>::contains_key((old_hotkey, coldkey, netuid)));
 
         // Perform the swap
         SubtensorModule::perform_hotkey_swap_on_all_subnets(

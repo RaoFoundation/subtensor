@@ -2445,7 +2445,11 @@ fn test_move_stake_specific_stake_into_subnet_fail() {
         hotkey_pool.update_value_for_one(&hotkey_owner_account_id, 1234); // Doesn't matter, will be overridden
 
         // Adjust the total hotkey stake and shares to match the existing values
-        TotalHotkeyShares::<Test>::insert(hotkey_account_id, netuid, existing_shares);
+        TotalHotkeySharesV2::<Test>::insert(
+            hotkey_account_id,
+            netuid,
+            share_pool::SafeFloat::from(existing_shares),
+        );
         TotalHotkeyAlpha::<Test>::insert(hotkey_account_id, netuid, existing_stake);
 
         // Make the hotkey a delegate

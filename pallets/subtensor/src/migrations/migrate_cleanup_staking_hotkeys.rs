@@ -34,9 +34,9 @@ pub type StakingHotkeysCleanupMigration<T: Config> =
     StorageValue<Pallet<T>, StakingHotkeysCleanupProgress, OptionQuery>;
 
 fn candidate_weight<T: Config>() -> Weight {
-    // One prefix probe in each share map plus one BasketClaimed read. The predicate may
-    // short-circuit, but charging all three reads keeps each candidate conservatively bounded.
-    T::DbWeight::get().reads(3)
+    // One share-prefix probe plus one BasketClaimed read. The predicate may
+    // short-circuit, but charging both reads keeps each candidate conservatively bounded.
+    T::DbWeight::get().reads(2)
 }
 
 fn vector_rewrite_weight<T: Config>() -> Weight {
@@ -51,14 +51,13 @@ fn row_load_weight<T: Config>() -> Weight {
 /// A conservative keep predicate for one hotkey/coldkey relationship.
 ///
 /// Any stored non-zero share row is retained. The storage-bloat migration runs first and clears
-/// exact-zero Alpha and AlphaV2 rows; treating an unexpected remaining row as live keeps this
+/// exact-zero AlphaV2 rows; treating an unexpected remaining row as live keeps this
 /// cleanup fail safe. A basket watermark is also sufficient to retain the relationship because
 /// zero-root-stake claimants still need to be discoverable by claims and coldkey swaps.
 fn relationship_must_remain<T: Config>(hotkey: &T::AccountId, coldkey: &T::AccountId) -> bool {
     AlphaV2::<T>::iter_prefix((hotkey, coldkey))
         .next()
         .is_some()
-        || Alpha::<T>::iter_prefix((hotkey, coldkey)).next().is_some()
         || BasketClaimed::<T>::get(hotkey, coldkey) != 0
 }
 
