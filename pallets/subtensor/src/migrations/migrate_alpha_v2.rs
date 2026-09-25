@@ -1,4 +1,4 @@
-//! Finish lazy share conversion and remove dust in metered idle-block batches.
+//! Finish lazy share conversion and make one dust sweep in metered idle-block batches.
 
 use crate::weights::WeightInfo;
 use crate::*;
@@ -137,7 +137,9 @@ pub struct Progress {
     pub refunded: u64,
     pub burned: u64,
     pub pending_burn: u64,
+    /// Number of V2 records deleted in the single sweep.
     pub pass_deleted: u64,
+    /// Zero until the V2 cursor is exhausted, then one even while a burn is pending.
     pub passes: u64,
     pub deferred: u64,
 }
@@ -238,6 +240,11 @@ pub fn continue_migration<T: Config>(limit: Weight) -> Weight {
     let mut finished = false;
     // Hard cap also bounds iterations independently of the configured DB weights.
     for _ in 0..10_000 {
+        if progress.phase == 2 && progress.passes != 0 {
+            // A pending burn may need another block, but must not restart the sweep.
+            finished = true;
+            break;
+        }
         // Reserve classification reads before loading the row or its current value.
         let inspect = T::DbWeight::get().reads(20);
         if !used.saturating_add(inspect).all_lte(limit) {
@@ -283,14 +290,10 @@ pub fn continue_migration<T: Config>(limit: Weight) -> Weight {
                 progress.phase = 1;
             } else {
                 progress.passes = progress.passes.saturating_add(1);
-                if progress.pass_deleted == 0 {
-                    finished = true;
-                    break;
-                }
-                // Verify with a fresh pass: denominator rounding and writes between
-                // batches may have made a previously scanned position dust.
-                progress.after = None;
-                progress.pass_deleted = 0;
+                // Emissions and valuation changes behind the cursor may leave dust.
+                // Completion requires one full sweep, not a globally dust-free V2 map.
+                finished = true;
+                break;
             }
             continue;
         };
@@ -401,10 +404,6 @@ pub fn continue_migration<T: Config>(limit: Weight) -> Weight {
     }
     if let Err(error) = flush_burn::<T>(&mut progress) {
         log::error!(target: "runtime", "AlphaV2 migration burn deferred: {error:?}");
-    }
-    if finished && progress.pending_burn != 0 {
-        // Include new dust behind the cursor while an initial sub-ED burn waits.
-        progress.after = None;
     }
     if finished && progress.pending_burn == 0 {
         retired::AlphaMapLastKey::<T>::kill();
@@ -969,6 +968,60 @@ mod tests {
     }
 
     #[test]
+    fn v2_sweep_finishes_without_revisiting_new_dust_behind_cursor() {
+        new_test_ext(1).execute_with(|| {
+            let netuid = network();
+            for i in 10..30 {
+                legacy_position(U256::from(i), U256::from(i + 100), netuid, 499);
+            }
+            convert_for_test::<Test>();
+            let original: Vec<_> = AlphaV2::<Test>::iter_keys().collect();
+            let burn: U256 = <Test as Config>::BurnAccountId::get().into_account_truncating();
+            add_balance_to_coldkey_account(&burn, 500u64.into());
+            migrate::<Test>();
+            let budget = Weight::from_parts(10_000_000_000, u64::MAX);
+            assert!(continue_migration::<Test>(budget).all_lte(budget));
+            let progress = AlphaV2Migration::<Test>::get().expect("partial sweep");
+            assert_eq!(progress.phase, 2);
+            assert!(progress.scanned > 0 && progress.scanned < 20);
+            let &(hot, cold, _) = original.first().expect("initial V2 positions");
+            assert!(!AlphaV2::<Test>::contains_key((hot, cold, netuid)));
+            // Normal emissions can recreate a deleted position behind the cursor.
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &cold,
+                netuid,
+                7u64.into(),
+            );
+            // New positions ahead of the cursor may also be cleaned; no snapshot is needed.
+            let new_hot = (1000..2000)
+                .map(U256::from)
+                .find(|candidate| {
+                    AlphaV2::<Test>::hashed_key_for((candidate, &cold, netuid))
+                        > progress.after.clone().expect("cursor")
+                })
+                .expect("new key ahead of cursor");
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &new_hot,
+                &cold,
+                netuid,
+                7u64.into(),
+            );
+            run_batches();
+            assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME));
+            let progress = AlphaV2Migration::<Test>::get().expect("completed sweep");
+            assert_eq!(progress.passes, 1);
+            assert_eq!(progress.scanned, 21);
+            assert_eq!(progress.deleted, 21);
+            assert_eq!(AlphaV2::<Test>::iter().count(), 1);
+            assert!(AlphaV2::<Test>::contains_key((hot, cold, netuid)));
+            assert!(!AlphaV2::<Test>::contains_key((new_hot, cold, netuid)));
+            assert!(retired::Alpha::<Test>::iter().next().is_none());
+            assert!(retired::TotalHotkeyShares::<Test>::iter().next().is_none());
+        });
+    }
+
+    #[test]
     fn insufficient_burn_account_ed_is_persisted_and_not_reported_complete() {
         new_test_ext(1).execute_with(|| {
             let netuid = network();
@@ -977,12 +1030,29 @@ mod tests {
             run_batches();
             let progress = AlphaV2Migration::<Test>::get().expect("pending burn");
             assert_eq!(progress.pending_burn, 249);
+            assert_eq!(progress.passes, 1);
+            assert_eq!(progress.scanned, 1);
             assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME));
+            // Waiting for burn settlement must not restart a completed V2 sweep.
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &U256::from(2),
+                &U256::from(3),
+                netuid,
+                7u64.into(),
+            );
             let burn: U256 = <Test as Config>::BurnAccountId::get().into_account_truncating();
             add_balance_to_coldkey_account(&burn, 500u64.into());
             run_batches();
             assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME));
             assert_eq!(SubtensorModule::get_coldkey_balance(&burn), 749u64.into());
+            let progress = AlphaV2Migration::<Test>::get().expect("settled burn");
+            assert_eq!(progress.scanned, 1);
+            assert_eq!(progress.passes, 1);
+            assert!(AlphaV2::<Test>::contains_key((
+                U256::from(2),
+                U256::from(3),
+                netuid
+            )));
         });
     }
 }
