@@ -1469,6 +1469,24 @@ pub mod pallet {
         DefaultZeroU64<T>,
     >;
 
+    /// DMap ( netuid, hotkey ) --> blocknumber | block at which alpha moved into this
+    /// hotkey may be moved again by an owner-driven hotkey swap.
+    ///
+    /// Unlike [`LastHotkeySwapOnNetuid`], this is bound to the stake position rather
+    /// than its current owner, so changing the owning coldkey cannot reset the recovery
+    /// window. Delegator withdrawals do not consult this map.
+    #[pallet::storage]
+    pub type StakeMoveCooldownUntil<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        u64,
+        ValueQuery,
+        DefaultZeroU64<T>,
+    >;
+
     /// DMap ( netuid, old_hotkey ) --> new_hotkey | hotkey swap successor on a subnet.
     ///
     /// Written on each successful hotkey swap so watchers can follow identity

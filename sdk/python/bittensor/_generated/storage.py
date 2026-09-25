@@ -80,6 +80,7 @@ class SubtensorModule:
     OwnerHyperparamRateLimit = Item('SubtensorModule', 'OwnerHyperparamRateLimit', 'u16')
     DissolveNetworkScheduleDuration = Item('SubtensorModule', 'DissolveNetworkScheduleDuration', 'u32')
     LastHotkeySwapOnNetuid = Item('SubtensorModule', 'LastHotkeySwapOnNetuid', 'u64')
+    StakeMoveCooldownUntil = Item('SubtensorModule', 'StakeMoveCooldownUntil', 'u64')
     HotkeySuccessor = Item('SubtensorModule', 'HotkeySuccessor', 'AccountId32')
     HotkeyRoot = Item('SubtensorModule', 'HotkeyRoot', 'AccountId32')
     ColdkeySuccessor = Item('SubtensorModule', 'ColdkeySuccessor', 'AccountId32')
