@@ -6,18 +6,18 @@ use crate::weights::WeightInfo;
 use crate::{
     AlphaV2, BasketClaimed, BasketRate, BasketRedeemedTao, BasketShares, BurnIncreaseMult,
     DefaultMinRootClaimAmount, Error, Keys, LastEpochBlock, MAX_ROOT_CLAIM_HOTKEY_WORK,
-    MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK, NetworksAdded, NumStakingColdkeys,
-    PendingBasketDeposits, RegistrationsThisInterval, RootAlphaDividendsPerSubnet,
-    RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn,
-    SubnetAlphaOut, SubnetMovingPrice, SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO,
-    SubnetworkN, Tempo, TotalStake, Uids,
+    MAX_ROOT_CLAIM_HOTKEY_WORK_TESTNET, MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK,
+    NetworksAdded, NumStakingColdkeys, PendingBasketDeposits, RegistrationsThisInterval,
+    RootAlphaDividendsPerSubnet, RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex,
+    StakingHotkeys, SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice, SubnetOwnerHotkey,
+    SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
 use frame_support::pallet_prelude::Weight;
 use frame_support::traits::Get;
 use frame_support::{assert_err, assert_err_ignore_postinfo, assert_ok, assert_storage_noop};
-use sp_core::U256;
+use sp_core::{H256, U256};
 use sp_runtime::DispatchError;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64, U96F32};
@@ -264,6 +264,34 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
         let single_envelope = SubtensorModule::root_claim_hotkey_declared_weight();
         assert!(single_declared.all_gte(single_envelope));
         assert!(single_declared.all_lt(declared_weight));
+    });
+}
+
+#[test]
+fn test_claim_root_hotkey_work_limit_is_raised_only_on_finney_testnet() {
+    new_test_ext(1).execute_with(|| {
+        const FINNEY_TESTNET_GENESIS_HASH: [u8; 32] =
+            hex_literal::hex!("8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105");
+
+        assert_eq!(
+            SubtensorModule::root_claim_hotkey_declared_work(),
+            MAX_ROOT_CLAIM_HOTKEY_WORK
+        );
+
+        frame_system::BlockHash::<Test>::insert(
+            0_u64,
+            H256::from_slice(&FINNEY_TESTNET_GENESIS_HASH),
+        );
+        assert_eq!(
+            SubtensorModule::root_claim_hotkey_declared_work(),
+            MAX_ROOT_CLAIM_HOTKEY_WORK_TESTNET
+        );
+
+        frame_system::BlockHash::<Test>::insert(0_u64, H256::from_low_u64_be(0xdeadbeef));
+        assert_eq!(
+            SubtensorModule::root_claim_hotkey_declared_work(),
+            MAX_ROOT_CLAIM_HOTKEY_WORK
+        );
     });
 }
 

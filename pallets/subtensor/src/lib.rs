@@ -81,6 +81,8 @@ pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
 /// [`MAX_ROOT_CLAIM_WORK`], so a 130-row basket cannot be admitted under a
 /// 129-unit declaration.
 pub const MAX_ROOT_CLAIM_HOTKEY_WORK: u32 = 129;
+/// Finney testnet single-hotkey quote: one validator plus up to 1,024 subnet slots.
+pub const MAX_ROOT_CLAIM_HOTKEY_WORK_TESTNET: u32 = 1_025;
 /// Longest `StakingHotkeys` list a third party may leave behind on a coldkey through
 /// stake transfers. Half the root-claim admission budget, so a coldkey with up to as many
 /// hotkeys of its own still passes the coldkey-wide `claim_root` gate.

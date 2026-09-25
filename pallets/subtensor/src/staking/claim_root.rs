@@ -3,6 +3,7 @@ use super::*;
 use crate::weights::WeightInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::{Weight, WeightMeter};
+use frame_system::pallet_prelude::BlockNumberFor;
 use sp_core::Get;
 use sp_runtime::DispatchError;
 use sp_runtime::traits::{AccountIdConversion, Zero};
@@ -1126,7 +1127,17 @@ impl<T: Config> Pallet<T> {
 
     /// Fixed admission budget for [`Pallet::claim_root_with_hotkey`].
     pub fn root_claim_hotkey_declared_work() -> u32 {
-        crate::MAX_ROOT_CLAIM_HOTKEY_WORK
+        const FINNEY_TESTNET_GENESIS_HASH: [u8; 32] =
+            hex_literal::hex!("8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105");
+
+        let genesis_hash = frame_system::Pallet::<T>::block_hash(BlockNumberFor::<T>::zero());
+        let genesis_bytes: &[u8] = genesis_hash.as_ref();
+
+        if genesis_bytes == FINNEY_TESTNET_GENESIS_HASH {
+            crate::MAX_ROOT_CLAIM_HOTKEY_WORK_TESTNET
+        } else {
+            crate::MAX_ROOT_CLAIM_HOTKEY_WORK
+        }
     }
 
     /// Weight of a claim over `units` hotkeys-plus-holdings (full claim work plus scan-only
