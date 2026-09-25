@@ -221,9 +221,24 @@ fn convert_row<T: Config>(hotkey: &T::AccountId, coldkey: &T::AccountId, netuid:
     }
 }
 
-/// Process only work which fits the remaining block weight. A failed transfer or
-/// protected withdrawal leaves the row and cursor unchanged; it cannot produce a
-/// false completion marker. Normal staking can still update a queued position.
+/// Whether the complete position can leave staking without violating a
+/// conviction lock or registration collateral. Protected positions still
+/// complete format conversion, but are retained in V2 instead of settled.
+fn can_settle_position<T: Config>(
+    hotkey: &T::AccountId,
+    coldkey: &T::AccountId,
+    netuid: NetUid,
+    alpha: AlphaBalance,
+) -> bool {
+    coldkey != &Pallet::<T>::get_beta_escrow_account_id()
+        && Pallet::<T>::ensure_available_to_unstake(coldkey, netuid, alpha).is_ok()
+        && Pallet::<T>::ensure_hotkey_covers_collateral(coldkey, hotkey, netuid, alpha).is_ok()
+}
+
+/// Process only work which fits the remaining block weight. Protected positions
+/// complete format conversion without settlement. Other failed settlements leave
+/// the row and cursor unchanged and cannot produce a false completion marker.
+/// Normal staking can still update a queued position.
 pub fn continue_migration<T: Config>(limit: Weight) -> Weight {
     // Progress read/write, completion marker/cursor cleanup and a burn transfer.
     let overhead = T::DbWeight::get().reads_writes(12, 10);
@@ -301,15 +316,21 @@ pub fn continue_migration<T: Config>(limit: Weight) -> Weight {
             Pallet::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
         let value = U64F64::from_num(alpha.to_u64())
             .saturating_mul(T::SwapInterface::current_alpha_price(netuid));
-        let dust = value < U64F64::from_num(MIN_PAYOUT_TAO);
-        let payout = legacy && !dust && value <= U64F64::from_num(MAX_DUST_TAO);
+        let below_minimum = value < U64F64::from_num(MIN_PAYOUT_TAO);
+        let within_payout_limit =
+            legacy && !below_minimum && value <= U64F64::from_num(MAX_DUST_TAO);
+        let settlement_candidate = below_minimum || within_payout_limit;
+        let can_settle =
+            !settlement_candidate || can_settle_position::<T>(&hotkey, &coldkey, netuid, alpha);
+        let dust = below_minimum && can_settle;
+        let payout = within_payout_limit && can_settle;
         let mut cost = if legacy {
             T::DbWeight::get().reads_writes(8, 8)
         } else {
             Weight::zero()
         };
         let mut flush_allowance = Weight::zero();
-        if dust || payout {
+        if settlement_candidate {
             cost.saturating_accrue(<T as Config>::WeightInfo::remove_stake());
             cost.saturating_accrue(Pallet::<T>::staking_hotkeys_walk_actual(&coldkey));
             if netuid.is_root()
@@ -824,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn locked_position_is_preserved() {
+    fn permanently_locked_legacy_position_converts_and_dissolution_resumes() {
         new_test_ext(1).execute_with(|| {
             let netuid = network();
             let hot = U256::from(2);
@@ -839,10 +860,114 @@ mod tests {
             ));
             AlphaV2::<Test>::remove((hot, cold, netuid));
             retired::Alpha::<Test>::insert((hot, cold, netuid), U64F64::from_num(MAX_DUST_TAO));
-            run_batches();
+
+            let doomed = add_dynamic_network(&U256::from(20), &U256::from(21));
+            assert_ok!(SubtensorModule::do_dissolve_network(doomed));
+            assert!(DissolveCleanupQueue::<Test>::get().contains(&doomed));
+
+            migrate::<Test>();
+            for _ in 0..20 {
+                if !in_progress::<Test>() {
+                    break;
+                }
+                SubtensorModule::on_idle(0, Weight::MAX);
+            }
+            assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME));
+            assert!(retired::Alpha::<Test>::iter().next().is_none());
+            assert!(AlphaV2::<Test>::contains_key((hot, cold, netuid)));
             assert_eq!(
                 SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hot, &cold, netuid),
                 MAX_DUST_TAO.into()
+            );
+            assert_eq!(
+                SubtensorModule::get_coldkey_lock(&cold, netuid).map(|state| state.locked_mass),
+                Some(MAX_DUST_TAO.into()),
+            );
+
+            for _ in 0..30 {
+                if !DissolveCleanupQueue::<Test>::get().contains(&doomed) {
+                    break;
+                }
+                SubtensorModule::on_idle(0, Weight::MAX);
+            }
+            assert!(!DissolveCleanupQueue::<Test>::get().contains(&doomed));
+            assert!(!SubtensorModule::if_subnet_exist(doomed));
+        });
+    }
+
+    #[test]
+    fn locked_and_collateral_backed_sub_500_rao_positions_are_preserved() {
+        new_test_ext(1).execute_with(|| {
+            let netuid = network();
+            let collateral_hot = U256::from(2);
+            let collateral_cold = U256::from(3);
+            let locked_hot = U256::from(4);
+            let locked_cold = U256::from(5);
+            let protected_alpha = AlphaBalance::from(499u64);
+
+            // Seed an existing V2 row so protection is exercised during the V2 sweep.
+            legacy_position(collateral_hot, collateral_cold, netuid, 499);
+            convert_row::<Test>(&collateral_hot, &collateral_cold, netuid);
+            let collateral = MinerCollateralState {
+                locked: protected_alpha,
+                drain_ratio: U64F64::from_num(1),
+                min_locked: AlphaBalance::ZERO,
+                earned: AlphaBalance::ZERO,
+            };
+            MinerCollateral::<Test>::insert(
+                (netuid, collateral_hot, collateral_cold),
+                collateral.clone(),
+            );
+            ColdkeyMinerCollateral::<Test>::insert(netuid, collateral_cold, protected_alpha);
+            ColdkeyCollateralHotkeys::<Test>::mutate(netuid, collateral_cold, |hotkeys| {
+                hotkeys
+                    .try_push(collateral_hot)
+                    .expect("test collateral index within bound");
+            });
+
+            // Seed legacy dust protected by a conviction lock.
+            legacy_position(locked_hot, locked_cold, netuid, 499);
+            assert_ok!(SubtensorModule::do_lock_stake(
+                &locked_cold,
+                netuid,
+                &locked_hot,
+                protected_alpha,
+            ));
+
+            run_batches();
+
+            assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME));
+            assert!(retired::Alpha::<Test>::iter().next().is_none());
+            assert!(AlphaV2::<Test>::contains_key((
+                locked_hot,
+                locked_cold,
+                netuid
+            )));
+            assert!(AlphaV2::<Test>::contains_key((
+                collateral_hot,
+                collateral_cold,
+                netuid
+            )));
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &locked_hot,
+                    &locked_cold,
+                    netuid,
+                ),
+                protected_alpha,
+            );
+            assert_eq!(
+                SubtensorModule::get_coldkey_lock(&locked_cold, netuid)
+                    .map(|state| state.locked_mass),
+                Some(protected_alpha),
+            );
+            assert_eq!(
+                MinerCollateral::<Test>::get((netuid, collateral_hot, collateral_cold)),
+                Some(collateral),
+            );
+            assert_eq!(
+                ColdkeyMinerCollateral::<Test>::get(netuid, collateral_cold),
+                protected_alpha,
             );
         });
     }
