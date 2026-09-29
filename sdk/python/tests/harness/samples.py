@@ -34,7 +34,7 @@ def dev_wallet(cold: str = "//Alice", hot: str = "//Alice//hot") -> SimpleNamesp
 # client-side validation; they are not meaningful amounts.
 INTENT_SAMPLES: dict[str, dict] = {
     "pow_register": {"netuid": 99},
-    "set_null_weights": {"netuid": 99, "uids": [1, 2], "weights": [4294967295, 1]},
+    "claim_null_rewards": {"netuid": 99},
     "add_stake": {"hotkey_ss58": BOB_HOT, "netuid": 1, "amount_tao": 1.0},
     "add_stake_limit": {
         "hotkey_ss58": BOB_HOT,

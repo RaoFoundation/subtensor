@@ -255,6 +255,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'burned_register', {'netuid': netuid, 'hotkey': hotkey})
 
     @staticmethod
+    def claim_null_rewards(netuid: 'NetUid', hotkey: 'AccountId32', stake_hotkey: 'AccountId32') -> Call:
+        'Claim equal null-miner emissions into a coldkey-owned staking position. Claims remain available while the subnet has returned to Yuma.'
+        return Call('SubtensorModule', 'claim_null_rewards', {'netuid': netuid, 'hotkey': hotkey, 'stake_hotkey': stake_hotkey})
+
+    @staticmethod
     def claim_root(subnets: 'BTreeSet') -> Call:
         "Claims the root emissions for a coldkey across every validator it root-stakes to.  Redemption is fund-level: for each validator, the staker's accrued entitlement is paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on root. The corresponding alpha fraction is sold; any concavity surplus over the NAV-priced entitlement remains in the basket as root TAO for the other holders. The `subnets` argument is retained for call-data compatibility with pre-basket clients; it is ignored — baskets have no per-subnet claim selection.  Prefer [`Pallet::claim_root_with_hotkey`] to claim a single validator.  Dust rows are not sold (see [`Pallet::claim_root_with_hotkey`]); the claimant's slice of them stays in the fund. A claim that is admitted and then fails is charged the work it did, not the declared envelope; a claim refused at admission keeps the envelope.  # Arguments * `origin`: The signature of the caller's coldkey. * `subnets`: Ignored. Kept so old clients' encoded call data still decodes.  # Events * `RootClaimed`: On successfully claiming the root emissions for a coldkey. * `BasketClaimDustSkipped`: Per fund whose dust rows were left unsold.  # Errors * `RootClaimTooHeavy`: More hotkeys or fund rows than one claim may walk."
         return Call('SubtensorModule', 'claim_root', {'subnets': subnets})
@@ -476,7 +481,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_null_weights(netuid: 'NetUid', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
-        "Set relative u32 weights on a null-consensus subnet. Each eligible validator's normalized row has equal influence on miner emissions."
+        'Retired: null mode pays equal emission and rejects all score submissions.'
         return Call('SubtensorModule', 'set_null_weights', {'netuid': netuid, 'dests': dests, 'weights': weights, 'version_key': version_key})
 
     @staticmethod

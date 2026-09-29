@@ -140,6 +140,8 @@ pub enum HyperparamValue {
     TaoBalance(Compact<TaoBalance>),
     I32F32(I32F32),
     U64F64(U64F64),
+    /// UTF-8 labels; appended to preserve existing SCALE variant indices.
+    Text(alloc::string::String),
 }
 
 /// One named hyperparameter and its typed value.
@@ -407,6 +409,7 @@ impl<T: Config> Pallet<T> {
         let liquid_alpha_enabled = Self::get_liquid_alpha_enabled(netuid);
         let (alpha_low, alpha_high): (u16, u16) = Self::get_alpha_values(netuid);
         let alpha_sigmoid_steepness = Self::get_alpha_sigmoid_steepness(netuid);
+        // V2 retains its frozen numeric SCALE layout; V3 exposes the null label.
         let yuma_version: u16 = if NullConsensus::<T>::get(netuid) {
             0
         } else if Self::get_yuma3_enabled(netuid) {
@@ -474,12 +477,14 @@ impl<T: Config> Pallet<T> {
         }
 
         let (alpha_low, alpha_high): (u16, u16) = Self::get_alpha_values(netuid);
-        let yuma_version: u16 = if NullConsensus::<T>::get(netuid) {
-            0
-        } else if Self::get_yuma3_enabled(netuid) {
-            3
+        let yuma_version = if NullConsensus::<T>::get(netuid) {
+            HyperparamValue::Text("Null_Consensus".into())
         } else {
-            2
+            HyperparamValue::U16(Compact(if Self::get_yuma3_enabled(netuid) {
+                3
+            } else {
+                2
+            }))
         };
 
         Some(alloc::vec![
@@ -600,7 +605,7 @@ impl<T: Config> Pallet<T> {
                 HyperparamValue::I32F32(Self::get_alpha_sigmoid_steepness(netuid)),
             )
                 .into(),
-            ("yuma_version", HyperparamValue::U16(Compact(yuma_version)),).into(),
+            ("yuma_version", yuma_version).into(),
             (
                 "null_consensus_enabled",
                 HyperparamValue::Bool(NullConsensus::<T>::get(netuid))

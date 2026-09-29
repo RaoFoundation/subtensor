@@ -101,123 +101,20 @@ fn submit(
 }
 
 #[test]
-fn fresh_hotkey_submits_scores_with_coldkey_fees_and_persistent_nonce() {
+fn retired_null_scores_cannot_charge_the_coldkey() {
     new_test_ext(true).execute_with(|| {
         let before = Balances::free_balance(coldkey());
-        let call = score_call(vec![1], vec![u32::MAX]);
-        assert_ok!(submit(0, call.clone()).expect("transaction admitted"));
         assert_eq!(
-            st::NullWeights::<Runtime>::get(NetUid::from(1), 0),
-            vec![(1, u32::MAX)]
+            submit(0, score_call(vec![1], vec![u32::MAX])),
+            Err(CustomTransactionError::BadRequest.into())
         );
-        assert!(Balances::free_balance(coldkey()) < before);
-        assert_eq!(Balances::free_balance(hotkey()), TaoBalance::new(0));
-        let account = frame_system::Account::<Runtime>::get(hotkey());
-        assert_eq!(
-            (account.nonce, account.providers, account.sufficients),
-            (1, 0, 1)
-        );
-        let after = Balances::free_balance(coldkey());
-        assert_eq!(
-            submit(1, call.clone()),
-            Err(CustomTransactionError::RateLimitExceeded.into())
-        );
-        assert_eq!(submit(0, call), Err(InvalidTransaction::Stale.into()));
-        assert_eq!(Balances::free_balance(coldkey()), after);
-        assert_eq!(System::account_nonce(hotkey()), 1);
+        assert_eq!(Balances::free_balance(coldkey()), before);
+        assert!(!frame_system::Account::<Runtime>::contains_key(hotkey()));
+        assert!(!st::NullWeights::<Runtime>::contains_key(
+            NetUid::from(1),
+            0
+        ));
     });
-}
-
-#[test]
-fn invalid_scores_are_rejected_before_fees_or_nonce_writes() {
-    for case in [
-        "missing_subnet",
-        "disabled",
-        "unregistered",
-        "low_stake",
-        "no_permit",
-        "version",
-        "rate_limit",
-        "reset",
-        "lengths",
-        "too_many",
-        "duplicate",
-        "destination",
-        "zero",
-        "minimum",
-        "row_cap",
-    ] {
-        new_test_ext(true).execute_with(|| {
-            let netuid = NetUid::from(1);
-            let mut dests = vec![1];
-            let mut weights = vec![u32::MAX];
-            let mut expected = CustomTransactionError::BadRequest;
-            match case {
-                "missing_subnet" => {
-                    st::NetworksAdded::<Runtime>::remove(netuid);
-                    expected = CustomTransactionError::SubnetNotExists;
-                }
-                "disabled" => st::NullConsensus::<Runtime>::insert(netuid, false),
-                "unregistered" => {
-                    st::Uids::<Runtime>::remove(netuid, hotkey());
-                    expected = CustomTransactionError::UidNotFound;
-                }
-                "low_stake" | "no_permit" => {
-                    st::SubnetOwnerHotkey::<Runtime>::insert(netuid, AccountId::new([9; 32]));
-                    Subtensor::<Runtime>::set_stake_threshold(if case == "low_stake" {
-                        1
-                    } else {
-                        0
-                    });
-                    if case == "low_stake" {
-                        expected = CustomTransactionError::StakeAmountTooLow;
-                    }
-                }
-                "version" => st::WeightsVersionKey::<Runtime>::insert(netuid, 1),
-                "rate_limit" => {
-                    st::NullLastUpdate::<Runtime>::insert(netuid, 0, 2);
-                    expected = CustomTransactionError::RateLimitExceeded;
-                }
-                "reset" => {
-                    st::NullWeightsResetAt::<Runtime>::insert(netuid, 2);
-                    expected = CustomTransactionError::RateLimitExceeded;
-                }
-                "lengths" => weights.clear(),
-                "too_many" => {
-                    dests = vec![0, 1, 2];
-                    weights = vec![1; 3];
-                }
-                "duplicate" => {
-                    dests = vec![1, 1];
-                    weights = vec![1; 2];
-                }
-                "destination" => dests = vec![2],
-                "zero" => weights = vec![0],
-                "minimum" => Subtensor::<Runtime>::set_min_allowed_weights(netuid, 2),
-                "row_cap" => {
-                    for uid in 1..=65 {
-                        st::NullWeights::<Runtime>::insert(netuid, uid, vec![(1, 1u32)]);
-                    }
-                }
-                _ => unreachable!(),
-            }
-            let before = Balances::free_balance(coldkey());
-            assert_eq!(
-                submit(0, score_call(dests, weights)),
-                Err(expected.into()),
-                "{case}"
-            );
-            assert_eq!(Balances::free_balance(coldkey()), before, "{case}");
-            assert!(
-                !frame_system::Account::<Runtime>::contains_key(hotkey()),
-                "{case}"
-            );
-            assert!(
-                !st::NullWeights::<Runtime>::contains_key(netuid, 0),
-                "{case}"
-            );
-        });
-    }
 }
 
 #[test]

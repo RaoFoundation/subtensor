@@ -23,7 +23,7 @@ def _parse_float_list(raw: str) -> list[float]:
     return [float(part.strip()) for part in raw.split(",") if part.strip()]
 
 
-@app.command("set-null")
+@app.command("set-null", hidden=True)
 @with_tx_globals
 def set_null_weights(
     ctx: typer.Context,
@@ -32,7 +32,7 @@ def set_null_weights(
     weights: str = typer.Option(..., "--weights", help="Comma-separated exact u32 scores."),
     version_key: int = typer.Option(0, "--version-key"),
 ):
-    """Set full-precision integer scores on a null-consensus subnet."""
+    """Retired: null mode pays all miners equally. Use btcli pow claim."""
     ctx_of(ctx).submit(
         SetNullWeights(
             netuid=netuid,

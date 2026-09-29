@@ -73,7 +73,7 @@ mod dispatches {
             version_key: u64,
         ) -> DispatchResult {
             if NullConsensus::<T>::get(netuid) {
-                Err(Error::<T>::NullConsensusRequiresU32Weights.into())
+                Err(Error::<T>::NullConsensusHasNoWeights.into())
             } else if Self::get_commit_reveal_weights_enabled(netuid) {
                 Err(Error::<T>::CommitRevealEnabled.into())
             } else {
@@ -136,7 +136,7 @@ mod dispatches {
             version_key: u64,
         ) -> DispatchResult {
             if NullConsensus::<T>::get(netuid) {
-                Err(Error::<T>::NullConsensusRequiresU32Weights.into())
+                Err(Error::<T>::NullConsensusHasNoWeights.into())
             } else if Self::get_commit_reveal_weights_enabled(netuid) {
                 Err(Error::<T>::CommitRevealEnabled.into())
             } else {
@@ -844,8 +844,7 @@ mod dispatches {
                 })
         }
 
-        /// Set relative u32 weights on a null-consensus subnet. Each eligible
-        /// validator's normalized row has equal influence on miner emissions.
+        /// Retired: null mode pays equal emission and rejects all score submissions.
         #[pallet::call_index(153)]
         #[pallet::weight(<T as Config>::WeightInfo::set_null_weights(dests.len() as u32))]
         pub fn set_null_weights(
@@ -856,6 +855,19 @@ mod dispatches {
             version_key: u64,
         ) -> DispatchResult {
             Self::do_set_null_weights(origin, netuid, dests, weights, version_key)
+        }
+
+        /// Claim equal null-miner emissions into a coldkey-owned staking position.
+        /// Claims remain available while the subnet has returned to Yuma.
+        #[pallet::call_index(154)]
+        #[pallet::weight(<T as Config>::WeightInfo::claim_null_rewards())]
+        pub fn claim_null_rewards(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            hotkey: T::AccountId,
+            stake_hotkey: T::AccountId,
+        ) -> DispatchResult {
+            Self::do_claim_null_rewards(origin, netuid, hotkey, stake_hotkey)
         }
 
         /// Register the hotkey to root network.

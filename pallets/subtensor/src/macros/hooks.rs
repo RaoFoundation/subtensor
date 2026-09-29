@@ -18,6 +18,17 @@ mod hooks {
         fn on_initialize(block_number: BlockNumberFor<T>) -> Weight {
             let hotkey_swap_clean_up_weight = Self::clean_up_hotkey_swap_records(block_number);
 
+            let subnets = Self::get_all_subnet_netuids();
+            let scan_weight = T::DbWeight::get()
+                .reads((subnets.len() as u64).saturating_mul(2).saturating_add(1));
+            let null_count = subnets
+                .into_iter()
+                .filter(|netuid| NullConsensus::<T>::get(netuid))
+                .count() as u64;
+            let null_weight =
+                <<T as Config>::WeightInfo as crate::weights::WeightInfo>::accrue_null_rewards()
+                    .saturating_mul(null_count)
+                    .saturating_add(scan_weight);
             let block_step_result = Self::block_step();
             // Advance the paged beta-index sweep right after the block step (deposit
             // queue drained), charging its bounded page into the hook weight.
@@ -27,6 +38,7 @@ mod hooks {
                     // --- If the block step was successful, return the weight.
                     log::debug!("Successfully ran block step.");
                     <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
+                        .saturating_add(null_weight)
                         .saturating_add(hotkey_swap_clean_up_weight)
                         .saturating_add(beta_index_sweep_weight)
                 }
@@ -34,6 +46,7 @@ mod hooks {
                     // --- If the block step was unsuccessful, return the weight anyway.
                     log::error!("Error while stepping block: {:?}", e);
                     <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
+                        .saturating_add(null_weight)
                         .saturating_add(hotkey_swap_clean_up_weight)
                         .saturating_add(beta_index_sweep_weight)
                 }

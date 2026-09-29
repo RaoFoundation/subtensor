@@ -1,9 +1,8 @@
-"""Null-consensus setup, low-difficulty registration, and full u32 scores."""
+"""Equal-emission null mining: cheap registration and lazy reward claims."""
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from dataclasses import dataclass, field
 from time import monotonic
 from typing import Any
@@ -12,23 +11,41 @@ from eth_utils import keccak
 
 from .._generated import calls
 from ..result import BittensorError
+from ..sp_core import ss58_decode
 from .base import Intent
 from .registry import register
 
 
-def pow_seal(block_hash: bytes, hotkey: bytes, nonce: int) -> bytes:
-    """Match runtime create_seal_hash, including little-endian nonce/difficulty."""
-    if len(block_hash) != 32 or len(hotkey) != 32:
-        raise BittensorError("PoW requires a 32-byte block hash and hotkey.")
+def pow_seal(
+    block_hash: bytes, hotkey: bytes, nonce: int, *, netuid: int, generation: int, coldkey: bytes
+) -> bytes:
+    """Match the runtime domain-separated SCALE seal; bind the payout recipient."""
+    if any(len(key) != 32 for key in (block_hash, hotkey, coldkey)):
+        raise BittensorError("PoW requires 32-byte block and account keys.")
     return keccak(
-        hashlib.sha256(nonce.to_bytes(8, "little") + keccak(block_hash + hotkey)).digest()
+        b"subtensor:null:equal:v1"
+        + netuid.to_bytes(2, "little")
+        + generation.to_bytes(8, "little")
+        + block_hash
+        + nonce.to_bytes(8, "little")
+        + hotkey
+        + coldkey
     )
 
 
-def _search_work(block_hash: bytes, hotkey: bytes, difficulty: int, start: int):
-    prefix = keccak(block_hash + hotkey)
+def _search_work(
+    block_hash: bytes,
+    hotkey: bytes,
+    difficulty: int,
+    start: int,
+    netuid: int,
+    generation: int,
+    coldkey: bytes,
+):
     for nonce in range(start, min(start + 4096, 1 << 64)):
-        seal = keccak(hashlib.sha256(nonce.to_bytes(8, "little") + prefix).digest())
+        seal = pow_seal(
+            block_hash, hotkey, nonce, netuid=netuid, generation=generation, coldkey=coldkey
+        )
         if int.from_bytes(seal, "little") * difficulty < 1 << 256:
             return nonce, seal
     return None
@@ -83,6 +100,15 @@ class PowRegister(Intent):
                     )
                 ),
             )
+            generation = int(
+                await substrate.query(
+                    "SubtensorModule",
+                    "RegisteredSubnetCounter",
+                    [self.netuid],
+                    block_hash=block_hash,
+                )
+                or 0
+            )
             nonce = 0
             while monotonic() < deadline:
                 solution = await asyncio.to_thread(
@@ -91,6 +117,9 @@ class PowRegister(Intent):
                     public_key,
                     difficulty,
                     nonce,
+                    self.netuid,
+                    generation,
+                    bytes(ss58_decode(self.coldkey_address(wallet))),
                 )
                 if await substrate.block_number() != block:
                     break
@@ -115,10 +144,9 @@ class PowRegister(Intent):
         return f"register wallet hotkey on netuid {self.netuid} with PoW (no burn or collateral)"
 
 
-@register
 @dataclass
 class SetNullWeights(Intent):
-    """Submit exact relative u32 scores for null consensus, without u16 quantization."""
+    """Retired scoring intent. Null mode pays every registered miner equally."""
 
     op = "set_null_weights"
     signer = "hotkey"
@@ -129,26 +157,44 @@ class SetNullWeights(Intent):
     version_key: int = field(default=0, metadata={"help": "Required subnet weights version."})
 
     def __post_init__(self):
-        if len(self.uids) != len(self.weights) or not 0 < len(self.uids) <= 32768:
-            raise BittensorError("Provide 1–32768 parallel UIDs and u32 weights.")
-        if any(type(u) is not int or not 0 <= u < 32768 for u in self.uids):
-            raise BittensorError("Null-consensus UIDs must be integers from 0 to 32767.")
-        if len(set(self.uids)) != len(self.uids):
-            raise BittensorError("UIDs must be distinct.")
-        if any(type(w) is not int or not 0 <= w <= 0xFFFFFFFF for w in self.weights):
-            raise BittensorError("Weights must be exact unsigned 32-bit integers.")
-        if not any(self.weights):
-            raise BittensorError("At least one weight must be positive.")
+        raise BittensorError(
+            "Null mode pays all miners equally and has no weights. "
+            "Use ClaimNullRewards or btcli pow claim."
+        )
 
     async def build(self, substrate, wallet: Any):
+        raise BittensorError("Null mode has no weights.")
+
+    def summary(self) -> str:
+        return "retired: null mode has no weights"
+
+
+@register
+@dataclass
+class ClaimNullRewards(Intent):
+    """Claim a miner's equal alpha rewards into the coldkey's staking position.
+
+    The destination hotkey must already be a staking account. The claiming coldkey
+    owns the resulting alpha; using one destination consolidates many mining keys.
+    Omit stake_hotkey to use the subnet owner's hotkey. Claims also work in Yuma mode.
+    """
+
+    op = "claim_null_rewards"
+    wraps = (("SubtensorModule", "claim_null_rewards"),)
+    netuid: int = field(metadata={"help": "Subnet whose equal-emission rewards to claim."})
+    stake_hotkey: str | None = field(
+        default=None, metadata={"help": "Existing staking hotkey; defaults to subnet owner hotkey."}
+    )
+
+    async def build(self, substrate, wallet: Any):
+        target = self.stake_hotkey or await substrate.query(
+            "SubtensorModule", "SubnetOwnerHotkey", [self.netuid]
+        )
         return await substrate.compose(
-            calls.SubtensorModule.set_null_weights(
-                netuid=self.netuid,
-                dests=self.uids,
-                weights=self.weights,
-                version_key=self.version_key,
+            calls.SubtensorModule.claim_null_rewards(
+                netuid=self.netuid, hotkey=self.hotkey_address(wallet), stake_hotkey=target
             )
         )
 
     def summary(self) -> str:
-        return f"set u32 null-consensus scores for {len(self.uids)} miners on netuid {self.netuid}"
+        return f"claim equal miner rewards on netuid {self.netuid}"

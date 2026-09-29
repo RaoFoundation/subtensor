@@ -1206,11 +1206,10 @@ fn null_consensus_admin_limits_and_pow_toggle() {
             netuid,
             true
         ));
-        assert_ok!(AdminUtils::sudo_set_max_allowed_uids(
-            RuntimeOrigin::root(),
-            netuid,
-            32768
-        ));
+        assert_noop!(
+            AdminUtils::sudo_set_max_allowed_uids(RuntimeOrigin::root(), netuid, 32768),
+            Error::<Test>::MaxAllowedUidsGreaterThanDefaultMaxAllowedUids
+        );
         assert!(
             AdminUtils::sudo_set_max_allowed_uids(RuntimeOrigin::root(), netuid, 32769).is_err()
         );
@@ -1225,10 +1224,11 @@ fn null_consensus_admin_limits_and_pow_toggle() {
             netuid,
             true
         ));
-        assert_noop!(
-            AdminUtils::sudo_set_max_allowed_validators(RuntimeOrigin::root(), netuid, 65),
-            pallet_subtensor::Error::<Test>::NullConsensusValidatorLimitExceeded
-        );
+        assert_ok!(AdminUtils::sudo_set_max_allowed_validators(
+            RuntimeOrigin::root(),
+            netuid,
+            65
+        ));
         assert_ok!(AdminUtils::sudo_set_commit_reveal_weights_enabled(
             RuntimeOrigin::root(),
             netuid,

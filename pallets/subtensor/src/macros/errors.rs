@@ -423,7 +423,7 @@ mod errors {
         /// Retired one-shot setup restriction; retained for error index stability.
         NullConsensusHasLegacyWeightsOrBonds,
         /// This operation requires null consensus. The subnet owner can enable the
-        /// null_consensus_enabled hyperparameter before using PoW or u32 scores.
+        /// null_consensus_enabled hyperparameter before registering with PoW.
         NullConsensusNotEnabled,
         /// Null-consensus subnets require proof-of-work registration. Use btcli pow register instead of burned registration or staking-driven registration.
         NullConsensusRequiresPowRegistration,
@@ -431,7 +431,7 @@ mod errors {
         NullConsensusRegistrationDisabled,
         /// PoW registration is paused on this null-consensus subnet. Ask the owner to enable NetworkPowRegistrationAllowed before retrying.
         NullConsensusPowRegistrationDisabled,
-        /// The null-consensus subnet has reached its UID capacity and does not prune miners. Ask the owner to raise MaxAllowedUids within the 32768 limit or choose another subnet.
+        /// The independent 64-bit null miner identifier space is exhausted.
         NullConsensusCapacityReached,
         /// The registration signer differs from the supplied coldkey. Sign with the coldkey specified in the registration call.
         PowSignerColdkeyMismatch,
@@ -439,18 +439,26 @@ mod errors {
         PowInvalidSealLength,
         /// This PoW seal has already been used. Solve fresh work with a new nonce or block before registering again.
         PowWorkAlreadyUsed,
-        /// Null-consensus subnets require u32 scores. Use set_null_weights or btcli misc weights set-null instead of the legacy u16 setter.
+        /// Retired scoring error. Equal-emission null mode no longer accepts weights.
         NullConsensusRequiresU32Weights,
-        /// The null-consensus score row contains no positive weights. Submit at least one positive u32 score.
+        /// Retired scoring error, retained for SCALE error compatibility.
         NullConsensusWeightsAllZero,
         /// Null-consensus UIDs are append-only and cannot be trimmed. Keep existing UIDs; choose another subnet if its capacity is exhausted.
         NullConsensusTrimmingDisabled,
-        /// Null consensus supports at most 64 stake-selected validators plus the owner. Lower MaxAllowedValidators or wait for the next null epoch to clear stale rows.
+        /// Retired validator-limit error, retained for SCALE error compatibility.
         NullConsensusValidatorLimitExceeded,
         /// Retired one-shot setup restriction; retained for error index stability.
         NullConsensusCommitRevealUnsupported,
-        /// Returning to Yuma requires both the UID count and MaxAllowedUids within
-        /// its normal limit. Lower unused capacity first; miners are never pruned by the toggle.
+        /// The initial Yuma metagraph exceeds its bounded import capacity. Independent
+        /// null miners never prevent disabling null mode.
         NullConsensusYumaCapacityExceeded,
+        /// Null mode pays every miner equally and does not accept weights.
+        NullConsensusHasNoWeights,
+        /// Equal-emission null mode has no validators or validator voting power.
+        NullConsensusHasNoValidators,
+        /// This mining identity has not registered in the null miner registry.
+        NullMinerNotRegistered,
+        /// No whole alpha rao is currently claimable; fractional rewards remain accrued.
+        NullRewardsNotAvailable,
     }
 }

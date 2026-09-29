@@ -629,24 +629,16 @@ pub mod pallet {
                 pallet_subtensor::Pallet::<T>::get_subnetwork_n(netuid) <= max_allowed_uids,
                 Error::<T>::MaxAllowedUIdsLessThanCurrentUIds
             );
-            let null = pallet_subtensor::NullConsensus::<T>::get(netuid);
             ensure!(
-                max_allowed_uids
-                    <= if null {
-                        pallet_subtensor::null_consensus::MAX_NULL_UIDS
-                    } else {
-                        DefaultMaxAllowedUids::<T>::get()
-                    },
+                max_allowed_uids <= DefaultMaxAllowedUids::<T>::get(),
                 Error::<T>::MaxAllowedUidsGreaterThanDefaultMaxAllowedUids
             );
-            // Prevent chain bloat: Require max UIDs to be limited
             let mechanism_count = pallet_subtensor::MechanismCountCurrent::<T>::get(netuid);
-            if !null {
-                pallet_subtensor::Pallet::<T>::ensure_max_uids_over_all_mechanisms(
-                    max_allowed_uids,
-                    mechanism_count.into(),
-                )?;
-            }
+            pallet_subtensor::Pallet::<T>::ensure_max_uids_over_all_mechanisms(
+                max_allowed_uids,
+                mechanism_count.into(),
+            )?;
+
             pallet_subtensor::Pallet::<T>::set_max_allowed_uids(netuid, max_allowed_uids);
             pallet_subtensor::Pallet::<T>::record_owner_rl(
                 maybe_owner,
@@ -959,12 +951,6 @@ pub mod pallet {
             netuid: NetUid,
             max_allowed_validators: u16,
         ) -> DispatchResult {
-            ensure!(
-                !pallet_subtensor::NullConsensus::<T>::get(netuid)
-                    || max_allowed_validators
-                        <= pallet_subtensor::null_consensus::MAX_NULL_VALIDATORS,
-                pallet_subtensor::Error::<T>::NullConsensusValidatorLimitExceeded
-            );
             ensure_root(origin)?;
             pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
             ensure!(
@@ -2671,7 +2657,8 @@ pub mod pallet {
         /// Enables or disables null consensus without changing other hyperparameters.
         /// New subnets start in Yuma 3; the owner/root may toggle populated subnets.
         #[pallet::call_index(111)]
-        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_null_consensus_enabled())]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_null_consensus_enabled()
+            .saturating_add(T::DbWeight::get().reads_writes(u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(7), u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(6))))]
         pub fn sudo_set_null_consensus_enabled(
             origin: OriginFor<T>,
             netuid: NetUid,

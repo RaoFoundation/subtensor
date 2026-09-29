@@ -4,9 +4,23 @@ from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
     "NullConsensusYumaCapacityExceeded": (
-        "Returning to Yuma requires both the UID count and MaxAllowedUids to fit the normal "
-        "Yuma limit. Lower capacity first; the toggle never removes miners. The existing "
-        "trim cannot process a subnet whose UID count already exceeds that limit."
+        "The initial Yuma metagraph exceeds its normal import bound. Null miner capacity is "
+        "independent; existing null miners never prevent switching back to Yuma."
+    ),
+    "NullConsensusHasNoWeights": (
+        "Null mode gives every miner equal emission. Do not submit weights; use btcli pow claim "
+        "to collect rewards."
+    ),
+    "NullConsensusHasNoValidators": (
+        "Null mode has no validators or validator voting power. Return to Yuma before enabling "
+        "validator tracking."
+    ),
+    "NullMinerNotRegistered": (
+        "Register this mining identity with btcli pow register before claiming rewards."
+    ),
+    "NullRewardsNotAvailable": (
+        "No whole alpha rao is claimable yet. Wait for more emission; fractional rewards remain "
+        "accrued."
     ),
     "NullConsensusOnRoot": ("Root cannot use null consensus. Select a non-root subnet."),
     "NullConsensusAlreadyEnabled": (
@@ -30,8 +44,8 @@ DESCRIPTIONS: dict[str, str] = {
         "null_consensus_enabled hyperparameter on existing subnets."
     ),
     "NullConsensusNotEnabled": (
-        "This operation requires null consensus. Ask the subnet owner to enable the "
-        "null_consensus_enabled hyperparameter before using PoW or u32 scores."
+        "PoW registration requires null mode. Ask the owner to enable null_consensus_enabled. "
+        "Existing reward claims also work while Yuma is active."
     ),
     "NullConsensusRequiresPowRegistration": (
         "Null-consensus subnets require proof-of-work registration. Use btcli pow register "
@@ -46,8 +60,8 @@ DESCRIPTIONS: dict[str, str] = {
         "NetworkPowRegistrationAllowed before retrying."
     ),
     "NullConsensusCapacityReached": (
-        "The null-consensus subnet has reached its UID capacity and does not prune miners. Ask "
-        "the owner to raise MaxAllowedUids within the 32768 limit or choose another subnet."
+        "The independent 64-bit null miner counter is exhausted. MaxAllowedUids controls only "
+        "the Yuma metagraph."
     ),
     "PowSignerColdkeyMismatch": (
         "The registration signer differs from the supplied coldkey. Sign with the coldkey "
@@ -62,21 +76,18 @@ DESCRIPTIONS: dict[str, str] = {
         "registering again."
     ),
     "NullConsensusRequiresU32Weights": (
-        "Null-consensus subnets require u32 scores. Use set_null_weights or btcli misc weights "
-        "set-null instead of the legacy u16 setter."
+        "Retired scoring error. Null consensus no longer accepts set_null_weights; every miner "
+        "receives equal emission."
     ),
     "NullConsensusWeightsAllZero": (
-        "The null-consensus score row contains no positive weights. Submit at least one "
-        "positive u32 score."
+        "Retired scoring error. Equal-emission null mode has no weights."
     ),
     "NullConsensusTrimmingDisabled": (
         "Null-consensus UIDs are append-only and cannot be trimmed. Keep existing UIDs; choose "
         "another subnet if its capacity is exhausted."
     ),
     "NullConsensusValidatorLimitExceeded": (
-        "Null consensus supports at most 64 stake-selected validators plus the owner exemption. "
-        "Set MaxAllowedValidators to 64 or less. If a new score row is rejected after switching "
-        "modes, wait for the next null epoch to remove stale rows."
+        "Retired scoring error. Equal-emission null mode has no validators."
     ),
     "NullConsensusCommitRevealUnsupported": (
         "Retired one-shot setup restriction. Current runtimes use the reversible "

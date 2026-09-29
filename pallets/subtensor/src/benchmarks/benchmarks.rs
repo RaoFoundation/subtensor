@@ -51,154 +51,106 @@ mod pallet_benchmarks {
 
     #[benchmark]
     fn set_null_weights(n: Linear<1, 32768>) {
-        let netuid = NetUid::from(1);
-        let owner: T::AccountId = account("null_owner", 0, 0);
-        Subtensor::<T>::init_new_network(netuid, 360);
-        SubnetOwner::<T>::insert(netuid, &owner);
-        SubnetOwnerHotkey::<T>::insert(netuid, &owner);
-        Subtensor::<T>::append_neuron(netuid, &owner, 1);
-        assert_ok!(Subtensor::<T>::do_set_null_consensus(netuid, true));
-        // Validation relies on contiguous UIDs; no per-destination database reads.
-        SubnetworkN::<T>::insert(netuid, n as u16);
-        LastUpdate::<T>::insert(NetUidStorageIndex::from(netuid), vec![1u64; n as usize]);
-        frame_system::Pallet::<T>::set_block_number(101u32.into());
-        let dests: Vec<u16> = (0..n as u16).collect();
-        let values = vec![u32::MAX; n as usize];
-        // Include the maximum cached-row admission scan before inserting the owner.
-        for uid in 1..=crate::null_consensus::MAX_NULL_VALIDATORS {
-            NullWeights::<T>::insert(netuid, uid, vec![(0, 1u32)]);
+        let caller: T::AccountId = whitelisted_caller();
+        #[block]
+        {
+            assert!(
+                Subtensor::<T>::do_set_null_weights(
+                    RawOrigin::Signed(caller).into(),
+                    1.into(),
+                    vec![0; n as usize],
+                    vec![1; n as usize],
+                    0
+                )
+                .is_err()
+            );
         }
-        #[extrinsic_call]
-        _(RawOrigin::Signed(owner), netuid, dests, values, 0);
-        assert_eq!(NullWeights::<T>::get(netuid, 0).len(), n as usize);
     }
 
     #[benchmark(extra)]
     fn null_pow_register() {
         let netuid = NetUid::from(1);
-        let owner: T::AccountId = account("null_owner", 0, 0);
+        let coldkey: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("null_miner", 0, 0);
         Subtensor::<T>::init_new_network(netuid, 360);
-        SubnetOwner::<T>::insert(netuid, &owner);
         assert_ok!(Subtensor::<T>::do_set_null_consensus(netuid, true));
-        Subtensor::<T>::set_max_allowed_uids(netuid, crate::null_consensus::MAX_NULL_UIDS);
+        NullMinerCount::<T>::insert(netuid, u64::MAX - 1);
         NetworkPowRegistrationAllowed::<T>::insert(netuid, true);
-        let n = crate::null_consensus::MAX_NULL_UIDS.saturating_sub(1);
-        SubnetworkN::<T>::insert(netuid, n);
-        Active::<T>::insert(netuid, vec![true; n as usize]);
-        Emission::<T>::insert(netuid, vec![AlphaBalance::ZERO; n as usize]);
-        Consensus::<T>::insert(netuid, vec![PerU16::zero(); n as usize]);
-        Incentive::<T>::insert(
-            NetUidStorageIndex::from(u16::from(netuid)),
-            vec![PerU16::zero(); n as usize],
-        );
-        LastUpdate::<T>::insert(
-            NetUidStorageIndex::from(u16::from(netuid)),
-            vec![1u64; n as usize],
-        );
-        Dividends::<T>::insert(netuid, vec![PerU16::zero(); n as usize]);
-        ValidatorTrust::<T>::insert(netuid, vec![PerU16::zero(); n as usize]);
-        ValidatorPermit::<T>::insert(netuid, vec![false; n as usize]);
         Subtensor::<T>::set_difficulty(netuid, 1);
         frame_system::Pallet::<T>::set_block_number(2u32.into());
-        let (nonce, work) = Subtensor::<T>::create_work_for_block_number(netuid, 1, 0, &hotkey);
+        let work = Subtensor::<T>::create_null_seal_hash(netuid, 1, 0, &hotkey, &coldkey)
+            .as_bytes()
+            .to_vec();
         #[extrinsic_call]
         register(
-            RawOrigin::Signed(owner.clone()),
+            RawOrigin::Signed(coldkey),
             netuid,
             1,
-            nonce,
+            0,
             work,
             hotkey.clone(),
-            owner.clone(),
+            whitelisted_caller(),
         );
-        assert_eq!(Uids::<T>::get(netuid, hotkey), Some(n));
+        assert!(NullMiners::<T>::contains_key(netuid, hotkey));
+        assert_eq!(NullMinerCount::<T>::get(netuid), u64::MAX);
     }
 
     #[benchmark]
     fn check_null_weights_extension(n: Linear<1, 32768>) {
-        let netuid = NetUid::from(1);
-        let owner: T::AccountId = account("null_owner", 0, 0);
-        Subtensor::<T>::init_new_network(netuid, 360);
-        SubnetOwner::<T>::insert(netuid, &owner);
-        SubnetOwnerHotkey::<T>::insert(netuid, &owner);
-        Subtensor::<T>::append_neuron(netuid, &owner, 1);
-        assert_ok!(Subtensor::<T>::do_set_null_consensus(netuid, true));
-        SubnetworkN::<T>::insert(netuid, n as u16);
-        for uid in 1..=crate::null_consensus::MAX_NULL_VALIDATORS {
-            NullWeights::<T>::insert(netuid, uid, vec![(0, 1u32)]);
-        }
-        frame_system::Pallet::<T>::set_block_number(101u32.into());
+        let caller: T::AccountId = whitelisted_caller();
         let call = Call::<T>::set_null_weights {
-            netuid,
-            dests: (0..n as u16).collect(),
-            weights: vec![u32::MAX; n as usize],
+            netuid: 1.into(),
+            dests: vec![0; n as usize],
+            weights: vec![1; n as usize],
             version_key: 0,
         };
         #[block]
         {
-            assert_ok!(CheckWeights::<T>::check(&owner, &call));
+            assert!(CheckWeights::<T>::check(&caller, &call).is_err());
         }
-        assert!(!NullWeights::<T>::contains_key(netuid, 0));
     }
 
-    /// Measure the complete null epoch, including miner account writes, at the
-    /// maximum scorer count. This is deliberately an extra release benchmark.
-    #[benchmark(extra)]
-    fn null_epoch(n: Linear<1, 32768>) {
+    #[benchmark]
+    fn accrue_null_rewards() {
         let netuid = NetUid::from(1);
-        let index = NetUidStorageIndex::from(netuid);
-        let owner: T::AccountId = account("null_owner", 0, 0);
-        Subtensor::<T>::init_new_network(netuid, 360);
-        SubnetOwner::<T>::insert(netuid, &owner);
-        SubnetOwnerHotkey::<T>::insert(netuid, &owner);
-        NullConsensus::<T>::insert(netuid, true);
-        SubnetworkN::<T>::insert(netuid, n as u16);
-        Subtensor::<T>::set_max_allowed_validators(
-            netuid,
-            crate::null_consensus::MAX_NULL_VALIDATORS,
-        );
-        Subtensor::<T>::set_stake_threshold(1);
-        frame_system::Pallet::<T>::set_block_number(3u32.into());
-        LastUpdate::<T>::insert(index, vec![2u64; n as usize]);
-        ValidatorPermit::<T>::insert(netuid, (0..n).map(|u| u <= 64).collect::<Vec<_>>());
-        let row: Vec<_> = (0..n as u16).map(|u| (u, u32::MAX)).collect();
-        for uid in 0..n as u16 {
-            let hotkey = if uid == 0 {
-                owner.clone()
-            } else {
-                account("null_miner", u32::from(uid), 0)
-            };
-            let coldkey: T::AccountId = account("null_cold", u32::from(uid), 0);
-            Owner::<T>::insert(&hotkey, &coldkey);
-            Keys::<T>::insert(netuid, uid, &hotkey);
-            Uids::<T>::insert(netuid, &hotkey, uid);
-            IsNetworkMember::<T>::insert(&hotkey, netuid, true);
-            BlockAtRegistration::<T>::insert(netuid, uid, 1);
-            if uid <= 64 {
-                NullWeights::<T>::insert(netuid, uid, &row);
-                NullLastUpdate::<T>::insert(netuid, uid, 2);
-                Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                    &hotkey,
-                    &coldkey,
-                    netuid,
-                    1_000_000_000.into(),
-                );
-            }
-        }
-        VotingPowerTrackingEnabled::<T>::insert(netuid, true);
-        SubnetAlphaOut::<T>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+        NullMinerCount::<T>::insert(netuid, u64::MAX);
         #[block]
         {
-            Subtensor::<T>::distribute_emission(
-                netuid,
-                1_000_000_000.into(),
-                1_000_000_000.into(),
-                1_000_000_000.into(),
-                0.into(),
-            );
+            Subtensor::<T>::accrue_null_rewards(netuid, u64::MAX.into());
         }
-        assert!(Bonds::<T>::iter_prefix(index).next().is_none());
+        assert_eq!(
+            NullRewardIndex::<T>::get(netuid),
+            sp_core::U256::one() << 64
+        );
+    }
+
+    #[benchmark]
+    fn claim_null_rewards() {
+        let netuid = NetUid::from(1);
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("null_miner", 0, 0);
+        let target: T::AccountId = account("null_staking", 0, 0);
+        Subtensor::<T>::init_new_network(netuid, 360);
+        Owner::<T>::insert(&target, &coldkey);
+        let first: T::AccountId = account("null_old_coldkey", 0, 0);
+        for i in 0..63u32 {
+            let old: T::AccountId = account("null_old_coldkey", i, 0);
+            let next = if i == 62 {
+                coldkey.clone()
+            } else {
+                account("null_old_coldkey", i + 1, 0)
+            };
+            NullColdkeySuccessor::<T>::insert(old, 0, (next, 0u128));
+        }
+        NullMiners::<T>::insert(netuid, &hotkey, (&first, sp_core::U256::zero()));
+        NullRewardIndex::<T>::insert(netuid, sp_core::U256::from(1_000_000_000u64) << 64);
+        NullUnclaimedAlpha::<T>::insert(netuid, AlphaBalance::from(1_000_000_000u64));
+        #[extrinsic_call]
+        _(RawOrigin::Signed(coldkey), netuid, hotkey, target.clone());
+        assert_eq!(
+            TotalHotkeyAlpha::<T>::get(target, netuid),
+            AlphaBalance::from(1_000_000_000u64)
+        );
     }
 
     #[benchmark]

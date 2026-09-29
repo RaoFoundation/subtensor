@@ -761,6 +761,7 @@ mod tests {
         assert_eq!(
             allowed_calls(ProxyType::Staking),
             expected(&[
+                "SubtensorModule::claim_null_rewards",
                 "SubtensorModule::add_collateral",
                 "SubtensorModule::add_stake",
                 "SubtensorModule::add_stake_limit",

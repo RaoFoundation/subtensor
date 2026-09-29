@@ -107,7 +107,7 @@ impl<T: Config> CheckWeights<T> {
 
     fn ensure_min_stake(who: &T::AccountId, netuid: NetUid) -> Result<(), Error<T>> {
         if crate::NullConsensus::<T>::get(netuid) {
-            return Err(Error::<T>::NullConsensusRequiresU32Weights);
+            return Err(Error::<T>::NullConsensusHasNoWeights);
         }
         if Pallet::<T>::check_weights_min_stake(who, netuid) {
             Ok(())

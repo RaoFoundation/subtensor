@@ -12,6 +12,7 @@ from ..._generated import storage
 from ...balance import Balance
 from ...intents import (
     BurnedRegister,
+    ClaimNullRewards,
     PowRegister,
     RegisterSubnet,
     RootRegister,
@@ -46,6 +47,17 @@ def pow_register(
 
 pow_app = typer.Typer(help="Proof-of-work miner registration.", no_args_is_help=True)
 pow_app.command("register")(pow_register)
+
+
+@pow_app.command("claim")
+@with_tx_globals
+def claim_null_rewards(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid"),
+    stake_hotkey: str | None = typer.Option(None, "--stake-hotkey"),
+):
+    """Claim equal miner emissions, owned by the wallet coldkey."""
+    ctx_of(ctx).submit(ClaimNullRewards(netuid=netuid, stake_hotkey=stake_hotkey))
 
 
 _NETUID_HELP = "Numeric identifier of the subnet."

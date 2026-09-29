@@ -745,6 +745,11 @@ mod benchmarks {
     fn sudo_set_null_consensus_enabled() {
         let netuid = NetUid::from(1);
         let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        for uid in 0..pallet_subtensor::DefaultMaxAllowedUids::<T>::get() {
+            let hotkey: T::AccountId = account("legacy_miner", uid.into(), 0);
+            pallet_subtensor::Owner::<T>::insert(&hotkey, &owner);
+            pallet_subtensor::Pallet::<T>::append_neuron(netuid, &hotkey, 1);
+        }
         #[extrinsic_call]
         _(RawOrigin::Signed(owner), netuid, true);
         assert!(pallet_subtensor::NullConsensus::<T>::get(netuid));

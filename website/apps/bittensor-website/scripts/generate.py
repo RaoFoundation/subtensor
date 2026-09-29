@@ -1114,6 +1114,7 @@ UNIT_LABELS = {
     "difficulty": "PoW difficulty (u64)",
     "fixed128": "multiplier (U64F64 bits / 2^64)",
     "int": "integer",
+    "consensus": "consensus label or version",
     "bool": "flag",
 }
 

@@ -63,6 +63,7 @@ def ratio_fraction(type_ident: Optional[str], raw: int) -> Optional[float]:
 #   fixed128     U64F64 fixed-point multiplier (bits / 2^64 = the real value)
 #   int          plain integer
 #   bool         flag
+#   consensus    derived numeric Yuma version or named null mode
 KINDS = (
     "u16",
     "u64",
@@ -74,6 +75,7 @@ KINDS = (
     "fixed128",
     "int",
     "bool",
+    "consensus",
 )
 
 # Scale of the U64F64 fixed-point kind (bits value / 2^64 = the real number).
@@ -341,8 +343,9 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "null_consensus_enabled": Hyperparam(
         "bool",
-        "Use miner-only mean scoring instead of Yuma. Other hyperparameters are preserved; "
-        "disabling resumes the configured Yuma version within its UID capacity.",
+        "Pay all registered null miners equally without scores or epochs. Other hyperparameters "
+        "are preserved; disabling resumes the existing Yuma metagraph regardless of "
+        "null miner count.",
         short="null consensus toggle",
     ),
     "yuma3_enabled": Hyperparam(
@@ -351,10 +354,10 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         short="yuma3 consensus variant toggle",
     ),
     "yuma_version": Hyperparam(
-        "int",
-        "Consensus variant the epoch runs: 0 for null consensus, otherwise 2 for classic "
-        "Yuma or 3 when yuma3_enabled is set. Derived from the mode flags.",
-        short="epoch consensus variant (0, 2, 3)",
+        "consensus",
+        "Active consensus: Null_Consensus in null mode, otherwise 2 for classic Yuma or 3 "
+        "when yuma3_enabled is set. V3 returns the null label as text; legacy V2 uses 0.",
+        short="active consensus (null, 2, 3)",
     ),
     "subnet_is_active": Hyperparam(
         "bool",

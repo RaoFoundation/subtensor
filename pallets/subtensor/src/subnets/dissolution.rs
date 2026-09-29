@@ -1,4 +1,5 @@
 use super::*;
+use crate::weights::WeightInfo;
 use frame_support::weights::WeightMeter;
 use pallet_alpha_assets::AlphaAssetsInterface;
 use subtensor_runtime_common::{NetUid, clear_prefix_with_meter};
@@ -169,6 +170,10 @@ impl<T: Config> Pallet<T> {
         let write_weight = T::DbWeight::get().writes(1);
 
         let result = clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            NullMinerOwnerGeneration::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            NullMinerKeys::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Keys::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Uids::<T>::clear_prefix(netuid, limit, None)
@@ -300,7 +305,7 @@ impl<T: Config> Pallet<T> {
     pub fn remove_network_parameters(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
         // Flat write charge for the `::remove(netuid)` list below. Bump this when
         // adding or removing entries from that list so the weight stays in step.
-        let removal_weight = T::DbWeight::get().writes(90);
+        let removal_weight = T::DbWeight::get().writes(94);
         if !weight_meter.can_consume(removal_weight) {
             return false;
         }
@@ -340,6 +345,10 @@ impl<T: Config> Pallet<T> {
         SubnetOwnerHotkey::<T>::remove(netuid);
         NetworkRegistrationAllowed::<T>::remove(netuid);
         NetworkPowRegistrationAllowed::<T>::remove(netuid);
+        NullMinerCount::<T>::remove(netuid);
+        NullRewardIndex::<T>::remove(netuid);
+        NullRewardRemainder::<T>::remove(netuid);
+        NullPausedYumaEmission::<T>::remove(netuid);
         NullConsensus::<T>::remove(netuid);
         NullIncentive::<T>::remove(netuid);
         NullWeightsResetAt::<T>::remove(netuid);
@@ -664,6 +673,35 @@ impl<T: Config> Pallet<T> {
     }
 
     // try use all weight available to clean up data for one dissolved network based on the status
+    fn settle_null_rewards_for_dissolution(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
+        let per_miner = <T as Config>::WeightInfo::claim_null_rewards();
+        let mut done = false;
+        while weight_meter.can_consume(per_miner) {
+            weight_meter.consume(per_miner);
+            if let Some((hotkey, (coldkey, checkpoint))) =
+                NullMiners::<T>::iter_prefix(netuid).next()
+            {
+                let (coldkey, resolved) =
+                    Self::refresh_null_miner_owner(netuid, &hotkey, coldkey, checkpoint);
+                if !resolved {
+                    continue;
+                }
+                let stake_hotkey = SubnetOwnerHotkey::<T>::get(netuid);
+                let amount =
+                    Self::settle_null_miner(netuid, &hotkey, &coldkey, checkpoint, &stake_hotkey);
+                // A capped i64 pool delta may require multiple bounded steps.
+                if amount.to_u64() < i64::MAX as u64 {
+                    NullMiners::<T>::remove(netuid, hotkey);
+                }
+            } else {
+                Self::recycle_subnet_alpha(netuid, NullUnclaimedAlpha::<T>::take(netuid));
+                done = true;
+                break;
+            }
+        }
+        done
+    }
+
     pub fn clean_up_data_for_one_dissolved_network(
         weight_meter: &mut WeightMeter,
         status: &mut DissolveCleanupStatus,
@@ -690,6 +728,9 @@ impl<T: Config> Pallet<T> {
 
             let done = match &status.phase {
                 DissolveCleanupPhase::SubnetBasketHoldingsToRoot => {
+                    if !Self::settle_null_rewards_for_dissolution(netuid, weight_meter) {
+                        break;
+                    }
                     let (done, new_key) = Self::convert_subnet_basket_holdings_to_root(
                         netuid,
                         weight_meter,

@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 
 from bittensor._generated.errors import ERRORS
-from bittensor.intents import PowRegister, SetHyperparameter, SetNullWeights
+from bittensor.intents import ClaimNullRewards, PowRegister, SetHyperparameter, SetNullWeights
 from bittensor.intents.null_consensus import pow_seal
 from bittensor.result import BittensorError, ErrorCode, chain_error_from_dispatch
 from tests.harness.fake_substrate import FakeSubstrate
@@ -14,7 +14,7 @@ from tests.harness.samples import dev_wallet
     "name, remedy",
     [
         ("NullConsensusRequiresPowRegistration", "btcli pow register"),
-        ("NullConsensusRequiresU32Weights", "set_null_weights"),
+        ("NullConsensusHasNoWeights", "equally"),
         ("NullConsensusPowRegistrationDisabled", "NetworkPowRegistrationAllowed"),
         ("PowWorkAlreadyUsed", "new nonce or block"),
     ],
@@ -41,7 +41,14 @@ async def test_pow_register_solves_runtime_seal_and_preserves_coldkey_signing():
     assert args["coldkey"] == wallet.coldkeypub.ss58_address
     assert len(args["work"]) == 32  # Signed nonempty work selects PoW-only admission.
     block_hash = bytes.fromhex((await fake.block_hash(args["block_number"]))[2:])
-    assert bytes(args["work"]) == pow_seal(block_hash, wallet.hotkey.public_key, args["nonce"])
+    assert bytes(args["work"]) == pow_seal(
+        block_hash,
+        wallet.hotkey.public_key,
+        args["nonce"],
+        netuid=1,
+        generation=0,
+        coldkey=wallet.coldkeypub.public_key,
+    )
 
 
 @pytest.mark.asyncio
@@ -80,14 +87,24 @@ async def test_pow_timeout_is_bounded():
         await PowRegister(netuid=1, timeout_seconds=1).build(fake, dev_wallet())
 
 
+def test_null_scores_are_rejected_locally():
+    with pytest.raises(BittensorError, match="equally"):
+        SetNullWeights(netuid=1, uids=[1, 2], weights=[0xFFFFFFFF, 1])
+
+
 @pytest.mark.asyncio
-async def test_u32_scores_are_never_requantized():
+async def test_claim_is_coldkey_signed_and_keeps_the_selected_destination():
     fake = FakeSubstrate()
-    _, _, params = await SetNullWeights(netuid=1, uids=[1, 2], weights=[0xFFFFFFFF, 1]).build(
-        fake, dev_wallet()
-    )
-    assert params["weights"] == [0xFFFFFFFF, 1]
-    assert params["dests"] == [1, 2]
+    wallet = dev_wallet()
+    intent = ClaimNullRewards(netuid=1, stake_hotkey=wallet.hotkey.ss58_address)
+    module, name, params = await intent.build(fake, wallet)
+    assert intent.signer == "coldkey"
+    assert (module, name) == ("SubtensorModule", "claim_null_rewards")
+    assert params == {
+        "netuid": 1,
+        "hotkey": wallet.hotkey.ss58_address,
+        "stake_hotkey": wallet.hotkey.ss58_address,
+    }
 
 
 @pytest.mark.asyncio

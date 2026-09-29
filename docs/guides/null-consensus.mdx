@@ -1,119 +1,79 @@
 ---
-title: "Null-consensus subnets"
-description: "Toggle miner-only mean scoring on an existing subnet without changing its hyperparameters."
+title: "Equal-emission null mode"
+description: "Register lightweight mining identities and claim equal emission without weights, bonds, or miner epochs."
 ---
 
-Subnets use the existing registration path and start with **Yuma 3** and
-`null_consensus_enabled = false`. There is no special null-subnet registration
-or permanent setup call. After registration, the owner or root can change the
-consensus mode, including on an active subnet with registered miners.
+Null mode gives every registered miner an equal share of the subnet's emission
+**after the owner cut**. It has no validator scores, consensus, bonds, or
+miner-processing epoch. New subnets still start with Yuma 3.
 
-## Toggle consensus
+## Enable or disable
 
-```bash
-btcli hparams set --netuid 123 --name null_consensus_enabled --value true
-btcli hparams set --netuid 123 --name null_consensus_enabled --value false
-```
+The owner uses the `null_consensus_enabled` hyperparameter through AdminUtils.
+The toggle preserves the subnet's other hyperparameters and Yuma metagraph.
+On first enable, its existing Yuma members are imported once into the independent
+null miner registry. Further miners register through PoW.
 
-These commands call `AdminUtils.sudo_set_null_consensus_enabled(netuid, enabled)`.
-The usual owner hyperparameter rate limit and admin freeze window apply. Setting
-the current value again is idempotent, subject to those guards.
-
-The toggle preserves the subnet's other hyperparameters: capacity, burn, PoW
-difficulty, registration flags, validator count, tempo, liquid alpha, and the
-stored commit-reveal setting. It also preserves miners, stakes, collateral,
-Yuma weights, and bonds. New subnets use Yuma 3; disabling null consensus resumes
-the configured Yuma version, including Yuma 2 if the owner selected it separately.
-
-In null mode, each eligible validator's u32 score row is normalized and the rows
-are averaged equally. All emission after the owner cut goes to miners, with no
-validator or root dividends. The chain skips Yuma and bonds entirely. Stored
-Yuma weights and bonds are dormant, not recalculated or paid in this mode.
-Null scores have their own timestamps, so submitting them cannot refresh old
-Yuma weights or bypass the Yuma weight rate limit. Legacy weight and commit/reveal
-calls are rejected while null consensus is active; their configuration is retained
-for when the subnet returns to Yuma.
-
-## Capacity and configuration
-
-Null consensus supports one mechanism and up to **32,768 UIDs**. The owner can
-raise `max_allowed_uids` using the existing hyperparameter setter after enabling
-null consensus. The existing validator stake/permit rules apply, with at most 64
-stake-selected scorers plus the owner exemption. Stake determines eligibility,
-not the relative influence of an accepted row.
-
-Returning to Yuma requires both the registered UID count and configured capacity
-to fit the runtime's normal Yuma limit (4,096 on the current runtime). Lower an
-unused enlarged capacity before disabling null consensus. The toggle never
-prunes miners or silently lowers capacity. **Once the registered population
-exceeds Yuma's limit, switching back is rejected**; the existing trim operation
-cannot downsize such a large null subnet. Keep capacity within the normal limit
-if you need unrestricted switching between modes.
-
-Burn, collateral, and difficulty settings are not rewritten by the toggle. PoW
-miner admission itself charges no burn or registration collateral. Use the
-existing hyperparameter controls, with their existing authorization, to tune
-registration flags, PoW difficulty, tempo, weight rate limits, and capacity.
+Disabling resumes Yuma using its original bounded metagraph. Null-only miners
+are retained in their separate registry; they do not become Yuma validators or
+expand Yuma matrices. They stop earning while Yuma is active and resume earning
+when null is re-enabled. Already-earned rewards remain claimable in either mode.
+Pending Yuma emission is paused and restored when Yuma resumes.
 
 ## Register miners
 
 ```bash
-btcli pow register --netuid 123
+btcli pow register --netuid 123 --wallet miner --wallet-hotkey device --yes
 ```
 
-`btcli subnets pow-register` is an alias. Both registration flags must be enabled.
-The command solves work for the wallet's hotkey and signs with its coldkey.
-The signed nonempty work selects PoW-only admission. If the subnet leaves null
-consensus before inclusion, the transaction fails instead of charging burn or
-collateral. Empty work retains the legacy paid registration alias on Yuma subnets.
+The coldkey signs; the seal binds the subnet generation, miner, coldkey, block,
+and nonce. No burn, collateral, or stake is required for null registration.
+Normal transaction fees and the subnet's PoW difficulty apply. Owners can set
+minimum burn to zero and choose low PoW difficulty. Registration flags and
+per-block admission limits remain effective. A signed PoW request cannot become
+paid registration if the owner changes mode before inclusion.
 
-Conviction-based ownership succession remains available even when public
-registration is paused or full. A qualifying successor is registered internally;
-at capacity it takes the outgoing owner's UID without evicting another miner.
-Null epochs also maintain validator voting power and finalize scheduled tracking
-disable operations using the same maintenance as Yuma.
-The runtime checks the seal, difficulty, account association, work age, replay,
-and per-block admission limit. Work must come from a completed block fewer than
-three blocks old. Retry if signing lets the work expire.
+The independent registry uses **64-bit IDs**, not Yuma's 16-bit UIDs.
+`MaxAllowedUids` continues to control only the Yuma metagraph. Query
+`NullMinerCount`, page through `NullMinerKeys`, or look up `NullMiners` by hotkey.
+A null mining identity is not a global staking hotkey: registering it does not
+append to a coldkey's global hotkey or staking vectors.
 
-Null-mode registration is append-only and rejects a full subnet without pruning
-another miner. Burned registration and staking-driven automatic registration
-cannot bypass PoW admission. Ordinary registration behavior resumes when null
-consensus is disabled.
-
-## Submit scores
+## Claim equal rewards
 
 ```bash
-btcli misc weights set-null --netuid 123 --uids 1,2 --weights 4294967295,1
+btcli pow claim --netuid 123 --wallet miner --wallet-hotkey device --yes
 ```
 
-Scores are exact relative integers from 0 to 4,294,967,295. They need not sum to a
-particular value. Duplicate or invalid UIDs, all-zero rows, and unauthorized
-scorers are rejected. Payments use wider integer arithmetic; the legacy u16
-incentive vector is informational only. `NullIncentive` exposes u32 proportions.
+The registered coldkey owns and signs for the reward. A claim credits alpha to
+that coldkey's staking position on the subnet owner's hotkey by default. Use
+`--stake-hotkey` to select another existing staking hotkey. The destination's
+operator does not own the claimant's alpha. Consolidating many mining identities
+into one staking position avoids growing a staking-hotkey vector per device.
 
-```python
-from bittensor.intents import SetHyperparameter, PowRegister, SetNullWeights
+Coldkey swaps carry the claim rights forward, including when an old address is
+reused. A history longer than 64 swaps is resolved in bounded steps; repeat the
+claim after `NullRewardOwnerResolutionAdvanced` until it pays.
 
-mode = SetHyperparameter(netuid=123, name="null_consensus_enabled", value=True)
-registration = PowRegister(netuid=123)
-scores = SetNullWeights(netuid=123, uids=[1, 2], weights=[4294967295, 1])
-resume_yuma = SetHyperparameter(netuid=123, name="null_consensus_enabled", value=False)
-```
+Emission advances one fixed-size reward counter per subnet per block. A miner's
+claim is the counter increase since registration or its previous claim, so a
+new miner cannot collect historical emission. Fractional rewards remain accrued
+between claims. There is no automatic transaction or payout loop for every miner.
+Subnets with no registered miners recycle their miner allocation until someone
+registers. Subnet dissolution settles outstanding claims in bounded cleanup
+steps before converting alpha holdings to TAO.
 
-Expired or ineligible rows do not count. Self scores are masked except for the
-owner exception, and scores predating a destination's registration are ignored.
-Previously submitted null scores may resume after toggling back if they are
-still valid. Disabling null consensus invalidates its cached scores because
-Yuma can replace or compact UIDs. Submit fresh scores after returning to null
-mode, in a block later than the last disable.
-Owner-associated miner emission follows the existing recycling/burning policy.
-Unallocated emission and rounding dust are recycled.
+## Cost and compatibility
 
-## Resource costs and release validation
+Registration stores a fixed amount of data per miner. Per-block reward accrual
+has fixed work independent of miner count. Claims pay normal transaction fees
+and use the existing staking-account path. Total stored state still grows with
+registrations; neither unlimited physical storage nor literally zero chain cost
+is promised.
 
-Removing Yuma and bonds saves their computation. Storage, validator selection,
-score aggregation, miner payments, and transaction fees still have costs.
-Reference-hardware benchmarking remains required before deployment. Benchmark
-fixtures are provided; interim admission weights use existing reference weights.
-No spec-version change is included.
+No score quantization is involved because there are no scores. The old
+`set_null_weights` call is retained only for wire compatibility and rejects with
+`NullConsensusHasNoWeights`, including at fee validation. Yuma weights and bonds
+are preserved for returning to Yuma and are not used by null mode. Validator
+voting power is cleared on entry; null mode has no validators. Existing voting
+tracking configuration is preserved, and a scheduled disable still completes.

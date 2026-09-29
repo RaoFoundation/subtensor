@@ -84,6 +84,7 @@ RAW_ONLY: dict[str, set[str]] = {
         # legacy / superseded weight paths (mechanism variants are wrapped;
         # reveal_weights is wrapped by the RevealWeights intent for salt commits)
         "set_weights",
+        "set_null_weights",  # retired: null mode has no scoring
         "commit_weights",
         "commit_mechanism_weights",
         "reveal_mechanism_weights",

@@ -45,7 +45,7 @@ from .multisig import (
     MultisigExecute,
     MultisigThreshold1,
 )
-from .null_consensus import PowRegister, SetNullWeights
+from .null_consensus import ClaimNullRewards, PowRegister, SetNullWeights
 from .plan import Plan, Policy
 from .proxy import (
     PROXY_TYPES,
@@ -102,6 +102,7 @@ __all__ = [
     "AssociateHotkey",
     "Batch",
     "BurnedRegister",
+    "ClaimNullRewards",
     "ClaimRoot",
     "ClaimRootWithHotkey",
     "ClearColdkeySwapAnnouncement",

@@ -26,6 +26,16 @@ impl<T: Config> Pallet<T> {
         if old_coldkey == new_coldkey {
             return;
         }
+        // Economic null-miner ownership uses generation-scoped redirects, not
+        // the advisory SS58 lineage (whose addresses can be reused). Each swap
+        // updates two fixed-size entries regardless of the miner population.
+        let generation = NullColdkeyGeneration::<T>::get(old_coldkey);
+        NullColdkeySuccessor::<T>::insert(
+            old_coldkey,
+            generation,
+            (new_coldkey, NullColdkeyGeneration::<T>::get(new_coldkey)),
+        );
+        NullColdkeyGeneration::<T>::insert(old_coldkey, generation.saturating_add(1));
         let root = Self::coldkey_root(old_coldkey);
         ColdkeySuccessor::<T>::remove(new_coldkey);
         ColdkeySuccessor::<T>::insert(old_coldkey, new_coldkey.clone());

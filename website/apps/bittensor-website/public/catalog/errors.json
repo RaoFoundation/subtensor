@@ -4207,7 +4207,7 @@
     },
     "NullConsensusCapacityReached": {
       "code": "limit_exceeded",
-      "description": "The null-consensus subnet has reached its UID capacity and does not prune miners. Ask the owner to raise MaxAllowedUids within the 32768 limit or choose another subnet.",
+      "description": "The independent 64-bit null miner counter is exhausted. MaxAllowedUids controls only the Yuma metagraph.",
       "docs_url": "/docs/errors/chain/NullConsensusCapacityReached",
       "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusCapacityReached/content.md",
       "pallets": [
@@ -4259,9 +4259,45 @@
         }
       ]
     },
+    "NullConsensusHasNoValidators": {
+      "code": "invalid_argument",
+      "description": "Null mode has no validators or validator voting power. Return to Yuma before enabling validator tracking.",
+      "docs_url": "/docs/errors/chain/NullConsensusHasNoValidators",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusHasNoValidators/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 458,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L458",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusHasNoWeights": {
+      "code": "invalid_argument",
+      "description": "Null mode gives every miner equal emission. Do not submit weights; use btcli pow claim to collect rewards.",
+      "docs_url": "/docs/errors/chain/NullConsensusHasNoWeights",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusHasNoWeights/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 456,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L456",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "NullConsensusNotEnabled": {
       "code": "disabled",
-      "description": "This operation requires null consensus. Ask the subnet owner to enable the null_consensus_enabled hyperparameter before using PoW or u32 scores.",
+      "description": "PoW registration requires null mode. Ask the owner to enable null_consensus_enabled. Existing reward claims also work while Yuma is active.",
       "docs_url": "/docs/errors/chain/NullConsensusNotEnabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusNotEnabled/content.md",
       "pallets": [
@@ -4387,7 +4423,7 @@
     },
     "NullConsensusRequiresU32Weights": {
       "code": "invalid_argument",
-      "description": "Null-consensus subnets require u32 scores. Use set_null_weights or btcli misc weights set-null instead of the legacy u16 setter.",
+      "description": "Retired scoring error. Null consensus no longer accepts set_null_weights; every miner receives equal emission.",
       "docs_url": "/docs/errors/chain/NullConsensusRequiresU32Weights",
       "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusRequiresU32Weights/content.md",
       "pallets": [
@@ -4441,7 +4477,7 @@
     },
     "NullConsensusValidatorLimitExceeded": {
       "code": "limit_exceeded",
-      "description": "Null consensus supports at most 64 stake-selected validators plus the owner exemption. Set MaxAllowedValidators to 64 or less. If a new score row is rejected after switching modes, wait for the next null epoch to remove stale rows.",
+      "description": "Retired scoring error. Equal-emission null mode has no validators.",
       "docs_url": "/docs/errors/chain/NullConsensusValidatorLimitExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusValidatorLimitExceeded/content.md",
       "pallets": [
@@ -4459,7 +4495,7 @@
     },
     "NullConsensusWeightsAllZero": {
       "code": "invalid_argument",
-      "description": "The null-consensus score row contains no positive weights. Submit at least one positive u32 score.",
+      "description": "Retired scoring error. Equal-emission null mode has no weights.",
       "docs_url": "/docs/errors/chain/NullConsensusWeightsAllZero",
       "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusWeightsAllZero/content.md",
       "pallets": [
@@ -4477,7 +4513,7 @@
     },
     "NullConsensusYumaCapacityExceeded": {
       "code": "limit_exceeded",
-      "description": "Returning to Yuma requires both the UID count and MaxAllowedUids to fit the normal Yuma limit. Lower capacity first; the toggle never removes miners. The existing trim cannot process a subnet whose UID count already exceeds that limit.",
+      "description": "The initial Yuma metagraph exceeds its normal import bound. Null miner capacity is independent; existing null miners never prevent switching back to Yuma.",
       "docs_url": "/docs/errors/chain/NullConsensusYumaCapacityExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusYumaCapacityExceeded/content.md",
       "pallets": [
@@ -4489,6 +4525,42 @@
           "path": "pallets/subtensor/src/macros/errors.rs",
           "line": 454,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L454",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullMinerNotRegistered": {
+      "code": "invalid_argument",
+      "description": "Register this mining identity with btcli pow register before claiming rewards.",
+      "docs_url": "/docs/errors/chain/NullMinerNotRegistered",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullMinerNotRegistered/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 460,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L460",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullRewardsNotAvailable": {
+      "code": "invalid_argument",
+      "description": "No whole alpha rao is claimable yet. Wait for more emission; fractional rewards remain accrued.",
+      "docs_url": "/docs/errors/chain/NullRewardsNotAvailable",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullRewardsNotAvailable/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 462,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L462",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]

@@ -303,6 +303,7 @@ call_filter_group!(
 call_filter_group!(
     StakeManagementCalls,
     [
+        RuntimeCall::SubtensorModule(SubtensorCall::claim_null_rewards),
         RuntimeCall::SubtensorModule(SubtensorCall::add_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::add_stake_limit),
         RuntimeCall::SubtensorModule(SubtensorCall::remove_stake),

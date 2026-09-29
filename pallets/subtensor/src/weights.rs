@@ -36,6 +36,11 @@ use core::marker::PhantomData;
 
 /// Weight functions needed for `pallet_subtensor`.
 pub trait WeightInfo {
+    // Existing reference bound covering staking-pool writes until CI measures
+    // the dedicated fixed-size claim benchmark. No local timing is substituted.
+    fn claim_null_rewards() -> Weight { Self::register() }
+    fn accrue_null_rewards() -> Weight { Self::set_weights() }
+
 	// Initial compositions of existing reference measurements. Dedicated
 	// benchmarks accompany these calls; regenerate on reference hardware before release.
 	fn set_null_weights(n: u32) -> Weight { Self::set_mechanism_weights(n).saturating_add(Self::set_weights()) }

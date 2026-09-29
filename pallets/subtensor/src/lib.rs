@@ -2392,11 +2392,62 @@ pub mod pallet {
     pub type NetworkPowRegistrationAllowed<T: Config> =
         StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultRegistrationAllowed<T>>;
 
-    /// Owner-toggleable miner-only arithmetic-mean consensus. New subnets default to false.
+    /// Owner-toggleable equal miner emission without consensus. New subnets default to false.
     #[pallet::storage]
     pub type NullConsensus<T> = StorageMap<_, Identity, NetUid, bool, ValueQuery>;
 
-    /// Full precision relative weights; never converted through the legacy u16 matrix.
+    /// Independent u64 miner population; never changes Yuma's metagraph size.
+    #[pallet::storage]
+    pub type NullMinerCount<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
+    /// Miner coldkey and Q64 reward checkpoint. Fixed-size state per identity.
+    #[pallet::storage]
+    pub type NullMiners<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        (T::AccountId, sp_core::U256),
+        OptionQuery,
+    >;
+    #[pallet::storage]
+    pub type NullMinerKeys<T: Config> =
+        StorageDoubleMap<_, Identity, NetUid, Identity, u64, T::AccountId, OptionQuery>;
+    #[pallet::storage]
+    pub type NullRewardIndex<T> = StorageMap<_, Identity, NetUid, sp_core::U256, ValueQuery>;
+    #[pallet::storage]
+    pub type NullRewardRemainder<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
+    #[pallet::storage]
+    pub type NullUnclaimedAlpha<T> = StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery>;
+    /// Coldkey generations distinguish a reused address from its former identity.
+    #[pallet::storage]
+    pub type NullColdkeyGeneration<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u128, ValueQuery>;
+    #[pallet::storage]
+    pub type NullColdkeySuccessor<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        u128,
+        (T::AccountId, u128),
+        OptionQuery,
+    >;
+    #[pallet::storage]
+    pub type NullMinerOwnerGeneration<T: Config> =
+        StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, u128, ValueQuery>;
+
+    /// Preserve already-earned Yuma budgets across a null interval.
+    #[pallet::storage]
+    pub type NullPausedYumaEmission<T> = StorageMap<
+        _,
+        Identity,
+        NetUid,
+        (AlphaBalance, AlphaBalance, AlphaBalance, AlphaBalance),
+        OptionQuery,
+    >;
+
+    /// Retired score storage, retained for cleanup and SCALE metadata compatibility.
     #[pallet::storage]
     pub type NullWeights<T> =
         StorageDoubleMap<_, Identity, NetUid, Identity, u16, Vec<(u16, u32)>, ValueQuery>;
