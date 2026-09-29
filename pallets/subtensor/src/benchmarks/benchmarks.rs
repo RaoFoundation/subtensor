@@ -115,6 +115,33 @@ mod pallet_benchmarks {
         assert_eq!(Uids::<T>::get(netuid, hotkey), Some(n));
     }
 
+    #[benchmark]
+    fn check_weights_v2_extension(n: Linear<1, 32768>) {
+        let netuid = NetUid::from(1);
+        let owner: T::AccountId = account("null_owner", 0, 0);
+        Subtensor::<T>::init_new_network(netuid, 360);
+        SubnetOwner::<T>::insert(netuid, &owner);
+        SubnetOwnerHotkey::<T>::insert(netuid, &owner);
+        Subtensor::<T>::append_neuron(netuid, &owner, 1);
+        assert_ok!(Subtensor::<T>::do_set_null_consensus(netuid, true));
+        SubnetworkN::<T>::insert(netuid, n as u16);
+        for uid in 1..=crate::null_consensus::MAX_NULL_VALIDATORS {
+            NullWeights::<T>::insert(netuid, uid, vec![(0, 1u32)]);
+        }
+        frame_system::Pallet::<T>::set_block_number(101u32.into());
+        let call = Call::<T>::set_weights_v2 {
+            netuid,
+            dests: (0..n as u16).collect(),
+            weights: vec![u32::MAX; n as usize],
+            version_key: 0,
+        };
+        #[block]
+        {
+            assert_ok!(CheckWeights::<T>::check(&owner, &call));
+        }
+        assert!(!NullWeights::<T>::contains_key(netuid, 0));
+    }
+
     /// Measure the complete null epoch, including miner account writes, at the
     /// maximum scorer count. This is deliberately an extra release benchmark.
     #[benchmark(extra)]

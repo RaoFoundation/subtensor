@@ -136,6 +136,28 @@ impl<T: Config> Pallet<T> {
         version_key: u64,
     ) -> DispatchResult {
         let hotkey = ensure_signed(origin)?;
+        let uid = Self::validate_weights_v2(&hotkey, netuid, &dests, &values, version_key)?;
+        let row: Vec<_> = dests
+            .into_iter()
+            .zip(values)
+            .filter(|(_, v)| *v != 0)
+            .collect();
+        let index = Self::get_mechanism_storage_index(netuid, MechId::MAIN);
+        let now = Self::get_current_block_as_u64();
+        NullWeights::<T>::insert(netuid, uid, row);
+        NullLastUpdate::<T>::insert(netuid, uid, now);
+        Self::deposit_event(Event::WeightsSet(index, uid));
+        Ok(())
+    }
+
+    /// Read-only admission shared by transaction validation and dispatch.
+    pub(crate) fn validate_weights_v2(
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+        dests: &[u16],
+        values: &[u32],
+        version_key: u64,
+    ) -> Result<u16, Error<T>> {
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(
             NullConsensus::<T>::get(netuid),
@@ -150,9 +172,10 @@ impl<T: Config> Pallet<T> {
             dests.len() <= usize::from(n.min(MAX_NULL_UIDS)),
             Error::<T>::UidsLengthExceedUidsInSubNet
         );
-        let uid = Self::get_uid_for_net_and_hotkey(netuid, &hotkey)?;
+        let uid = Uids::<T>::try_get(netuid, hotkey)
+            .map_err(|_| Error::<T>::HotKeyNotRegisteredInSubNet)?;
         ensure!(
-            Self::check_weights_min_stake(&hotkey, netuid),
+            Self::check_weights_min_stake(hotkey, netuid),
             Error::<T>::NotEnoughStakeToSetWeights
         );
         ensure!(
@@ -164,7 +187,6 @@ impl<T: Config> Pallet<T> {
             Self::check_version_key(netuid, version_key),
             Error::<T>::IncorrectWeightVersionKey
         );
-        let index = Self::get_mechanism_storage_index(netuid, MechId::MAIN);
         let now = Self::get_current_block_as_u64();
         ensure!(
             now > NullWeightsResetAt::<T>::get(netuid),
@@ -178,7 +200,7 @@ impl<T: Config> Pallet<T> {
         );
         // Contiguous UIDs let validation avoid a database read per destination.
         let mut seen = vec![false; usize::from(n)];
-        for &dest in &dests {
+        for &dest in dests {
             let cell = seen
                 .get_mut(usize::from(dest))
                 .ok_or(Error::<T>::UidVecContainInvalidOne)?;
@@ -198,11 +220,6 @@ impl<T: Config> Pallet<T> {
                 <= sum.saturating_mul(u64::from(Self::get_max_weight_limit(netuid))),
             Error::<T>::MaxWeightExceeded
         );
-        let row: Vec<_> = dests
-            .into_iter()
-            .zip(values)
-            .filter(|(_, v)| *v != 0)
-            .collect();
         // Yuma may have changed permits while this mode was disabled. Bound
         // cached rows even before the next null epoch removes revoked scorers.
         if !NullWeights::<T>::contains_key(netuid, uid) {
@@ -215,10 +232,7 @@ impl<T: Config> Pallet<T> {
                 Error::<T>::NullConsensusValidatorLimitExceeded
             );
         }
-        NullWeights::<T>::insert(netuid, uid, row);
-        NullLastUpdate::<T>::insert(netuid, uid, now);
-        Self::deposit_event(Event::WeightsSet(index, uid));
-        Ok(())
+        Ok(uid)
     }
 
     /// Linear score aggregation, with no consensus clipping or bond matrix. Each valid row

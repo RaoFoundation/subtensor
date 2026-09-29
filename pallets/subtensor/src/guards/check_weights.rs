@@ -31,6 +31,7 @@ impl<T: Config> CheckWeights<T> {
                 | Call::reveal_weights { .. }
                 | Call::reveal_mechanism_weights { .. }
                 | Call::set_weights { .. }
+                | Call::set_weights_v2 { .. }
                 | Call::set_mechanism_weights { .. }
                 | Call::commit_timelocked_weights { .. }
                 | Call::commit_timelocked_mechanism_weights { .. }
@@ -39,6 +40,16 @@ impl<T: Config> CheckWeights<T> {
     }
 
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
+        if let Call::set_weights_v2 {
+            netuid,
+            dests,
+            weights,
+            version_key,
+        } = call
+        {
+            return Pallet::<T>::validate_weights_v2(who, *netuid, dests, weights, *version_key)
+                .map(|_| ());
+        }
         Self::check_input_lengths(call)?;
         Self::check_batch_size(call)?;
         Self::check_min_stake(who, call)?;
@@ -274,7 +285,12 @@ where
 
     fn weight(call: &CallOf<T>) -> Weight {
         applicable_call(call, Self::applies_to)
-            .map(|_| <T as Config>::WeightInfo::check_weights_extension())
+            .map(|call| match call {
+                Call::set_weights_v2 { dests, .. } => {
+                    <T as Config>::WeightInfo::check_weights_v2_extension(dests.len() as u32)
+                }
+                _ => <T as Config>::WeightInfo::check_weights_extension(),
+            })
             .unwrap_or(Weight::zero())
     }
 
