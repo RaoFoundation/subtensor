@@ -131,7 +131,11 @@ impl<T: Config> Pallet<T> {
             Self::clear_auto_parent_for_root_validator(&old_hotkey);
         }
 
-        T::CommitmentsInterface::purge_neuron(netuid, &old_hotkey);
+        // Losing a Yuma UID does not revoke the hotkey's null registration.
+        let retains_null = NullMiners::<T>::contains_key(netuid, &old_hotkey);
+        if !retains_null {
+            T::CommitmentsInterface::purge_neuron(netuid, &old_hotkey);
+        }
 
         // 2. Remove previous set memberships.
         Uids::<T>::remove(netuid, old_hotkey.clone());
@@ -154,9 +158,11 @@ impl<T: Config> Pallet<T> {
         Self::clear_stale_hotkey_successor(netuid, new_hotkey);
 
         // 4. Clear neuron axons, certificates and prometheus info
-        Axons::<T>::remove(netuid, &old_hotkey);
-        NeuronCertificates::<T>::remove(netuid, &old_hotkey);
-        Prometheus::<T>::remove(netuid, &old_hotkey);
+        if !retains_null {
+            Axons::<T>::remove(netuid, &old_hotkey);
+            NeuronCertificates::<T>::remove(netuid, &old_hotkey);
+            Prometheus::<T>::remove(netuid, &old_hotkey);
+        }
 
         // 5. Reset new neuron's values.
         Self::clear_neuron(netuid, uid_to_replace);

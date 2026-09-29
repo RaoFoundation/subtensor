@@ -429,6 +429,7 @@ impl<T: Config> Pallet<T> {
             Owner::<T>::contains_key(&stake_hotkey),
             Error::<T>::HotKeyAccountNotExists
         );
+        Self::ensure_staking_hotkeys_can_grow(&coldkey, &stake_hotkey)?;
         let amount = Self::settle_null_miner(netuid, &hotkey, &coldkey, checkpoint, &stake_hotkey);
         ensure!(!amount.is_zero(), Error::<T>::NullRewardsNotAvailable);
         Self::deposit_event(Event::NullRewardsClaimed {

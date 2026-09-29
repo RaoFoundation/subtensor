@@ -79,6 +79,59 @@ fn null_equal_rewards_do_not_need_epochs_or_weights() {
     });
 }
 #[test]
+fn null_claims_respect_staking_hotkey_capacity_without_losing_rewards() {
+    for paused in [false, true] {
+        new_test_ext(1).execute_with(|| {
+            let net = setup(2);
+            let cold = U256::from(101);
+            let miner = U256::from(1);
+            let target = U256::zero();
+            for index in 0..MAX_STAKING_HOTKEYS - 1 {
+                let hotkey = U256::from(1000 + index);
+                SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey,
+                    &cold,
+                    net,
+                    100u64.into(),
+                );
+            }
+            if paused {
+                assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+            }
+            SubtensorModule::accrue_null_rewards(net, 200u64.into());
+            assert_ok!(claim(net, 1, 101));
+            assert_eq!(
+                StakingHotkeys::<Test>::get(cold).len(),
+                MAX_STAKING_HOTKEYS as usize
+            );
+            SubtensorModule::accrue_null_rewards(net, 200u64.into());
+            // The miner is a valid staking account but not yet a destination in this list.
+            assert_noop!(
+                SubtensorModule::do_claim_null_rewards(
+                    RuntimeOrigin::signed(cold),
+                    net,
+                    miner,
+                    miner,
+                ),
+                Error::<Test>::TooManyStakingHotkeys
+            );
+            assert_eq!(pending(net, 1), 100);
+            // Existing destinations remain usable at capacity, including after refusal.
+            assert_ok!(claim(net, 1, 101));
+            assert_eq!(pending(net, 1), 0);
+            assert_eq!(
+                StakingHotkeys::<Test>::get(cold).len(),
+                MAX_STAKING_HOTKEYS as usize
+            );
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&target, &cold, net),
+                AlphaBalance::from(200u64),
+            );
+        });
+    }
+}
+
+#[test]
 fn null_claims_settle_existing_collateral_before_staking_the_remainder() {
     for floor in [0u64, 120, 200] {
         for paused in [false, true] {
@@ -557,6 +610,34 @@ fn null_consensus_conviction_successor_registers_with_admission_paused_or_full()
             ));
             let now = ONE_YEAR + 1;
             System::set_block_number(now);
+            let outgoing = U256::zero();
+            assert_ok!(Commitments::set_commitment(
+                RuntimeOrigin::signed(outgoing),
+                net,
+                Box::new(pallet_commitments::CommitmentInfo {
+                    fields: vec![pallet_commitments::Data::TimelockEncrypted {
+                        encrypted: vec![1, 2, 3].try_into().unwrap(),
+                        reveal_round: u64::MAX,
+                    }]
+                    .try_into()
+                    .unwrap(),
+                }),
+            ));
+            Axons::<Test>::insert(net, outgoing, AxonInfoOf::default());
+            Prometheus::<Test>::insert(net, outgoing, PrometheusInfoOf::default());
+            NeuronCertificates::<Test>::insert(net, outgoing, NeuronCertificateOf::default());
+            let metadata = || {
+                (
+                    Commitments::commitment_of(net, outgoing),
+                    Commitments::last_commitment(net, outgoing),
+                    Commitments::timelocked_index(),
+                    Axons::<Test>::get(net, outgoing),
+                    Prometheus::<Test>::get(net, outgoing),
+                    NeuronCertificates::<Test>::get(net, outgoing),
+                )
+            };
+            let before = metadata();
+            assert!(Commitments::timelocked_index().contains(&(net, outgoing)));
             NetworkRegisteredAt::<Test>::insert(net, 1);
             SubnetAlphaOut::<Test>::insert(net, AlphaBalance::from(10_000u64));
             // Admission remains protocol-only and still requires qualifying conviction.
@@ -576,6 +657,10 @@ fn null_consensus_conviction_successor_registers_with_admission_paused_or_full()
             }
             assert_eq!(SubnetOwner::<Test>::get(net), cold);
             assert_eq!(SubnetOwnerHotkey::<Test>::get(net), successor);
+            assert!(NullMiners::<Test>::contains_key(net, outgoing));
+            assert_eq!(metadata(), before);
+            assert!(Commitments::commitment_of(net, successor).is_none());
+            assert!(!Axons::<Test>::contains_key(net, successor));
             let uid = if full { 0 } else { 2 };
             assert_eq!(Uids::<Test>::get(net, successor), Some(uid));
             assert_eq!(Keys::<Test>::get(net, uid), successor);

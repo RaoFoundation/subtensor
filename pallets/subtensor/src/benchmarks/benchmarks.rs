@@ -202,6 +202,12 @@ mod pallet_benchmarks {
         }
         index.try_push(hotkey.clone()).unwrap();
         ColdkeyCollateralHotkeys::<T>::insert(netuid, &coldkey, index);
+        // Exercise a full membership scan and admission of the final staking hotkey.
+        let mut staking_hotkeys = vec![hotkey.clone()];
+        for i in 0..MAX_STAKING_HOTKEYS.saturating_sub(2) {
+            staking_hotkeys.push(account("null_existing_stake", i, 0));
+        }
+        StakingHotkeys::<T>::insert(&coldkey, staking_hotkeys);
         #[extrinsic_call]
         _(
             RawOrigin::Signed(coldkey.clone()),
