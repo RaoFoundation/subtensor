@@ -762,6 +762,10 @@ mod benchmarks {
         for epoch in 0..pallet_subtensor::MAX_COMMIT_REVEAL_PEROIDS.saturating_add(2) {
             pallet_subtensor::TimelockedWeightCommits::<T>::insert(index, epoch, &commits);
         }
+        pallet_subtensor::MinerBurned::<T>::insert(
+            netuid,
+            substrate_fixed::types::U96F32::from_num(1),
+        );
         #[extrinsic_call]
         _(RawOrigin::Signed(owner), netuid, true);
         assert!(
@@ -769,6 +773,7 @@ mod benchmarks {
                 .next()
                 .is_none()
         );
+        assert!(!pallet_subtensor::MinerBurned::<T>::contains_key(netuid));
         assert!(pallet_subtensor::NullConsensus::<T>::get(netuid));
         assert_eq!(
             pallet_subtensor::NullMinerUids::<T>::iter_prefix(netuid).count(),

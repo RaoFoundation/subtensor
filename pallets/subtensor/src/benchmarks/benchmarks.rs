@@ -177,11 +177,47 @@ mod pallet_benchmarks {
         NullMiners::<T>::insert(netuid, &hotkey, (&first, sp_core::U256::zero()));
         NullRewardIndex::<T>::insert(netuid, sp_core::U256::from(1_000_000_000u64) << 64);
         NullUnclaimedAlpha::<T>::insert(netuid, AlphaBalance::from(1_000_000_000u64));
+        // Capture part of a legacy miner's reward into its collateral floor,
+        // exercising both the source and the selected destination stake pools.
+        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            netuid,
+            500_000_000u64.into(),
+        );
+        MinerCollateral::<T>::insert(
+            (netuid, &hotkey, &coldkey),
+            MinerCollateralState {
+                locked: 500_000_000u64.into(),
+                drain_ratio: U64F64::from_num(1),
+                min_locked: 1_000_000_000u64.into(),
+                earned: AlphaBalance::ZERO,
+            },
+        );
+        ColdkeyMinerCollateral::<T>::insert(netuid, &coldkey, AlphaBalance::from(500_000_000u64));
+        let mut index: BoundedVec<T::AccountId, ConstU32<MAX_COLDKEY_COLLATERAL_HOTKEYS>> =
+            BoundedVec::default();
+        for i in 0..MAX_COLDKEY_COLLATERAL_HOTKEYS.saturating_sub(1) {
+            index.try_push(account("collateral", i, 0)).unwrap();
+        }
+        index.try_push(hotkey.clone()).unwrap();
+        ColdkeyCollateralHotkeys::<T>::insert(netuid, &coldkey, index);
         #[extrinsic_call]
-        _(RawOrigin::Signed(coldkey), netuid, hotkey, target.clone());
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            netuid,
+            hotkey.clone(),
+            target.clone(),
+        );
+        assert_eq!(
+            MinerCollateral::<T>::get((netuid, &hotkey, &coldkey))
+                .unwrap()
+                .locked,
+            AlphaBalance::from(1_000_000_000u64)
+        );
         assert_eq!(
             TotalHotkeyAlpha::<T>::get(target, netuid),
-            AlphaBalance::from(1_000_000_000u64)
+            AlphaBalance::from(500_000_000u64)
         );
     }
 

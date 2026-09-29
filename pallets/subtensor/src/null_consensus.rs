@@ -48,6 +48,9 @@ impl<T: Config> Pallet<T> {
             // returning to Yuma must never replay these cancelled submissions.
             let index = Self::get_mechanism_storage_index(netuid, MechId::MAIN);
             let _ = TimelockedWeightCommits::<T>::clear_prefix(index, u32::MAX, None);
+            // This is a Yuma epoch result, not a subnet hyperparameter. Null
+            // emission has no withheld miner incentives to refresh it.
+            MinerBurned::<T>::remove(netuid);
             Self::update_voting_power_from_epoch(
                 netuid,
                 Keys::<T>::iter_prefix(netuid)
@@ -463,12 +466,18 @@ impl<T: Config> Pallet<T> {
             ),
         );
         NullUnclaimedAlpha::<T>::mutate(netuid, |value| *value = value.saturating_sub(amount));
-        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            stake_hotkey,
-            coldkey,
-            netuid,
-            amount,
-        );
+        // Existing Yuma collateral follows the miner that earned the reward,
+        // independently of where the claimant wants the liquid remainder staked.
+        let captured = Self::settle_miner_collateral(netuid, hotkey, coldkey, amount, amount);
+        let liquid = amount.saturating_sub(captured);
+        if !liquid.is_zero() {
+            Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                stake_hotkey,
+                coldkey,
+                netuid,
+                liquid,
+            );
+        }
         amount
     }
 

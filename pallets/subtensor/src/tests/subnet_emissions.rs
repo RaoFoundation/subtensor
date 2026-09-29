@@ -243,6 +243,37 @@ fn get_shares_full_miner_burn_gets_zero() {
 }
 
 #[test]
+fn enabling_null_clears_stale_yuma_burn_penalty() {
+    new_test_ext(1).execute_with(|| {
+        let hot = U256::from(92);
+        let cold = U256::from(93);
+        let null_net = add_dynamic_network(&hot, &cold);
+        let yuma_net = add_dynamic_network(&hot, &cold);
+        for net in [null_net, yuma_net] {
+            SubnetMovingPrice::<Test>::insert(net, i96f32(1.0));
+        }
+        MinerBurned::<Test>::insert(null_net, U96F32::from_num(1));
+        assert_eq!(
+            SubtensorModule::get_shares(&[null_net, yuma_net])[&null_net],
+            U64F64::from_num(0)
+        );
+        frame_support::assert_ok!(SubtensorModule::do_set_null_consensus(null_net, true));
+        assert!(!MinerBurned::<Test>::contains_key(null_net));
+        let shares = SubtensorModule::get_shares(&[null_net, yuma_net]);
+        assert_eq!(shares[&null_net], shares[&yuma_net]);
+        // Returning to Yuma does not resurrect the old result; its next
+        // distribution can set a fresh penalty normally.
+        frame_support::assert_ok!(SubtensorModule::do_set_null_consensus(null_net, false));
+        assert!(!MinerBurned::<Test>::contains_key(null_net));
+        MinerBurned::<Test>::insert(null_net, U96F32::from_num(1));
+        assert_eq!(
+            SubtensorModule::get_shares(&[null_net, yuma_net])[&null_net],
+            U64F64::from_num(0)
+        );
+    });
+}
+
+#[test]
 fn get_shares_all_full_miner_burn_falls_back_to_price_shares() {
     new_test_ext(1).execute_with(|| {
         let owner_hotkey = U256::from(94);

@@ -2661,10 +2661,10 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_null_consensus_enabled()
             // Reveal cleanup bounds retained buckets by the maximum reveal
             // period, plus the current epoch and its lookahead. Include the
-            // final prefix probe as well as each bucket deletion.
+            // final prefix probe, each bucket deletion, and the penalty reset.
             .saturating_add(T::DbWeight::get().reads_writes(
                 pallet_subtensor::MAX_COMMIT_REVEAL_PEROIDS.saturating_add(3),
-                pallet_subtensor::MAX_COMMIT_REVEAL_PEROIDS.saturating_add(2),
+                pallet_subtensor::MAX_COMMIT_REVEAL_PEROIDS.saturating_add(3),
             ))
             .saturating_add(T::DbWeight::get().reads_writes(u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(7), u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(7))))]
         pub fn sudo_set_null_consensus_enabled(

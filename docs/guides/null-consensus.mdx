@@ -12,7 +12,8 @@ miner-processing epoch. New subnets still start with Yuma 3.
 The owner uses the `null_consensus_enabled` hyperparameter through AdminUtils.
 The toggle preserves the subnet's other hyperparameters and Yuma metagraph.
 On first enable, its existing Yuma members are imported once into the independent
-null miner registry. Further miners register through PoW.
+null miner registry. Further miners register through PoW. Enabling also clears
+the last Yuma miner-burn penalty so it cannot suppress null-mode emission.
 
 Disabling resumes Yuma using its original bounded metagraph. Null-only miners
 are retained in their separate registry; they do not become Yuma validators or
@@ -51,6 +52,12 @@ that coldkey's staking position on the subnet owner's hotkey by default. Use
 operator does not own the claimant's alpha. Consolidating many mining identities
 into one staking position avoids growing a staking-hotkey vector per device.
 
+Existing registration collateral settles when rewards are claimed. Earned rewards
+release collateral at its stored drain ratio, subject to the miner's minimum lock.
+If the lock is below that minimum, rewards first replenish it on the mining hotkey;
+only the remainder goes to the selected staking destination. Null registration
+itself requires no new collateral.
+
 Coldkey swaps carry the claim rights forward, including when an old address is
 reused. A history longer than 64 swaps is resolved in bounded steps; repeat the
 claim after `NullRewardOwnerResolutionAdvanced` until it pays.
@@ -62,6 +69,10 @@ between claims. There is no automatic transaction or payout loop for every miner
 Subnets with no registered miners recycle their miner allocation until someone
 registers. Subnet dissolution settles outstanding claims in bounded cleanup
 steps before converting alpha holdings to TAO.
+
+Metadata commitments use null membership while null mode is active. Their space
+quota renews every `tempo + 1` blocks without running Yuma epochs. Switching back
+to Yuma restores Yuma membership checks; metadata cannot reset paused Yuma bonds.
 
 ## Cost and compatibility
 

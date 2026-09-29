@@ -79,6 +79,92 @@ fn null_equal_rewards_do_not_need_epochs_or_weights() {
     });
 }
 #[test]
+fn null_claims_settle_existing_collateral_before_staking_the_remainder() {
+    for floor in [0u64, 120, 200] {
+        for paused in [false, true] {
+            new_test_ext(1).execute_with(|| {
+                let net = setup(2);
+                let hot = U256::from(1);
+                let cold = U256::from(101);
+                let target = U256::zero();
+                assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+                SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hot,
+                    &cold,
+                    net,
+                    100u64.into(),
+                );
+                MinerCollateral::<Test>::insert(
+                    (net, hot, cold),
+                    MinerCollateralState {
+                        locked: 100u64.into(),
+                        drain_ratio: substrate_fixed::types::U64F64::from_num(2),
+                        min_locked: floor.into(),
+                        earned: AlphaBalance::ZERO,
+                    },
+                );
+                ColdkeyMinerCollateral::<Test>::insert(net, cold, AlphaBalance::from(100u64));
+                let index: frame_support::BoundedVec<
+                    _,
+                    frame_support::traits::ConstU32<MAX_COLDKEY_COLLATERAL_HOTKEYS>,
+                > = vec![hot].try_into().unwrap();
+                ColdkeyCollateralHotkeys::<Test>::insert(net, cold, index);
+                // Settlement must retain the registration's ratio snapshot.
+                CollateralDrainRatio::<Test>::insert(
+                    net,
+                    substrate_fixed::types::U64F64::from_num(9),
+                );
+                assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
+                SubtensorModule::accrue_null_rewards(net, 80u64.into());
+                if paused {
+                    assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+                }
+                assert_ok!(claim(net, 1, 101));
+                let captured = floor.saturating_sub(100).min(40);
+                let locked = if floor == 0 { 20 } else { 100 + captured };
+                let state = MinerCollateral::<Test>::get((net, hot, cold)).unwrap();
+                assert_eq!(state.locked, AlphaBalance::from(locked));
+                assert_eq!(state.earned, AlphaBalance::from(40u64));
+                assert_eq!(
+                    state.drain_ratio,
+                    substrate_fixed::types::U64F64::from_num(2)
+                );
+                assert_eq!(ColdkeyMinerCollateral::<Test>::get(net, cold), state.locked);
+                assert_eq!(
+                    SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hot, &cold, net),
+                    AlphaBalance::from(100 + captured)
+                );
+                assert_eq!(
+                    SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &target, &cold, net
+                    ),
+                    AlphaBalance::from(40 - captured)
+                );
+                assert_eq!(pending(net, 1), 0);
+                assert_eq!(
+                    NullUnclaimedAlpha::<Test>::get(net),
+                    AlphaBalance::from(40u64)
+                );
+                assert_noop!(claim(net, 1, 101), Error::<Test>::NullRewardsNotAvailable);
+                if floor == 0 {
+                    // The final drain removes the lock and both aggregate/index
+                    // entries; replaying a claim cannot drain it twice.
+                    SubtensorModule::accrue_null_rewards(net, 80u64.into());
+                    assert_ok!(claim(net, 1, 101));
+                    assert!(!MinerCollateral::<Test>::contains_key((net, hot, cold)));
+                    assert!(!ColdkeyMinerCollateral::<Test>::contains_key(net, cold));
+                    assert!(ColdkeyCollateralHotkeys::<Test>::get(net, cold).is_empty());
+                    assert_eq!(
+                        SubtensorModule::available_to_unstake_from_hotkey(&cold, &hot, net),
+                        AlphaBalance::from(100u64)
+                    );
+                }
+            });
+        }
+    }
+}
+
+#[test]
 fn null_pow_registration_has_no_population_sized_writes_or_historical_rewards() {
     new_test_ext(1).execute_with(|| {
         let net = setup(1);
