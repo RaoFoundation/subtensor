@@ -146,6 +146,7 @@ mod pallet_benchmarks {
             Owner::<T>::insert(&hotkey, &coldkey);
             Keys::<T>::insert(netuid, uid, &hotkey);
             Uids::<T>::insert(netuid, &hotkey, uid);
+            IsNetworkMember::<T>::insert(&hotkey, netuid, true);
             BlockAtRegistration::<T>::insert(netuid, uid, 1);
             if uid <= 64 {
                 NullWeights::<T>::insert(netuid, uid, &row);
@@ -158,6 +159,7 @@ mod pallet_benchmarks {
                 );
             }
         }
+        VotingPowerTrackingEnabled::<T>::insert(netuid, true);
         SubnetAlphaOut::<T>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
         #[block]
         {
@@ -184,19 +186,15 @@ mod pallet_benchmarks {
             "register_existing_cold",
         );
         fund_for_registration::<T>(netuid, &coldkey);
-        Subtensor::<T>::set_difficulty(netuid, 1);
-
         let block_number: u64 = Subtensor::<T>::get_current_block_as_u64();
-        let (nonce, work): (u64, Vec<u8>) =
-            Subtensor::<T>::create_work_for_block_number(netuid, block_number, 3, &hotkey);
 
         #[extrinsic_call]
         _(
             RawOrigin::Signed(coldkey.clone()),
             netuid,
             block_number,
-            nonce,
-            work,
+            0,
+            Vec::new(),
             hotkey.clone(),
             coldkey.clone(),
         );

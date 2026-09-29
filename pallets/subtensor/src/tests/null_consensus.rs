@@ -32,6 +32,134 @@ fn setup(n: u16) -> NetUid {
 }
 
 #[test]
+fn null_consensus_pow_request_rejects_a_mode_change_without_payment() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(1);
+        let cold = U256::from(900);
+        let hot = U256::from(901);
+        add_balance_to_coldkey_account(&cold, 10_000_000_000u64.into());
+        SubtensorModule::set_difficulty(net, 1);
+        let (nonce, work) = SubtensorModule::create_work_for_block_number(net, 1, 0, &hot);
+        SubtensorModule::set_max_allowed_uids(net, 16);
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+        CollateralLockShare::<Test>::insert(net, 32768);
+        for signed_work in [work, vec![1]] {
+            // Even malformed nonempty work cannot be interpreted as consent to pay.
+            assert_noop!(
+                SubtensorModule::register(
+                    RuntimeOrigin::signed(cold),
+                    net,
+                    1,
+                    nonce,
+                    signed_work,
+                    hot,
+                    cold
+                )
+                .map_err(|error| error.error),
+                Error::<Test>::NullConsensusNotEnabled
+            );
+        }
+    });
+}
+
+#[test]
+fn null_consensus_conviction_successor_registers_with_admission_paused_or_full() {
+    use crate::staking::lock::{LockState, ONE_YEAR};
+    use substrate_fixed::types::U64F64;
+
+    for full in [false, true] {
+        new_test_ext(1).execute_with(|| {
+            let net = setup(2);
+            SubtensorModule::set_max_allowed_uids(net, if full { 2 } else { 3 });
+            NetworkRegistrationAllowed::<Test>::insert(net, false);
+            NetworkPowRegistrationAllowed::<Test>::insert(net, false);
+            let cold = U256::from(900);
+            let successor = U256::from(901);
+            assert_ok!(SubtensorModule::create_account_if_non_existent(
+                &cold, &successor
+            ));
+            let now = ONE_YEAR + 1;
+            System::set_block_number(now);
+            NetworkRegisteredAt::<Test>::insert(net, 1);
+            SubnetAlphaOut::<Test>::insert(net, AlphaBalance::from(10_000u64));
+            // Admission remains protocol-only and still requires qualifying conviction.
+            for conviction in [100u64, 2000] {
+                let lock = LockState {
+                    locked_mass: conviction.into(),
+                    conviction: U64F64::from_num(conviction),
+                    last_update: now,
+                };
+                Lock::<Test>::insert((cold, net, successor), lock.clone());
+                HotkeyLock::<Test>::insert(net, successor, lock);
+                SubtensorModule::change_subnet_owner_if_needed(net);
+                if conviction == 100 {
+                    assert_eq!(SubnetOwner::<Test>::get(net), U256::from(100));
+                    assert!(!Uids::<Test>::contains_key(net, successor));
+                }
+            }
+            assert_eq!(SubnetOwner::<Test>::get(net), cold);
+            assert_eq!(SubnetOwnerHotkey::<Test>::get(net), successor);
+            let uid = if full { 0 } else { 2 };
+            assert_eq!(Uids::<Test>::get(net, successor), Some(uid));
+            assert_eq!(Keys::<Test>::get(net, uid), successor);
+            assert!(IsNetworkMember::<Test>::get(successor, net));
+            assert_eq!(SubnetworkN::<Test>::get(net), if full { 2 } else { 3 });
+            assert_eq!(Keys::<Test>::get(net, 1), U256::from(1));
+            if full {
+                assert!(!Uids::<Test>::contains_key(net, U256::zero()));
+                assert!(!IsNetworkMember::<Test>::get(U256::zero(), net));
+                assert_eq!(BlockAtRegistration::<Test>::get(net, uid), now);
+            }
+            assert_noop!(
+                SubtensorModule::register_neuron(net, &U256::from(999)),
+                Error::<Test>::NullConsensusRequiresPowRegistration
+            );
+        });
+    }
+}
+
+#[test]
+fn null_consensus_epochs_maintain_voting_power_and_complete_scheduled_disable() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(3);
+        let old = U256::from(1);
+        let new = U256::from(2);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &new,
+            &U256::from(902),
+            net,
+            200u64.into(),
+        );
+        VotingPowerTrackingEnabled::<Test>::insert(net, true);
+        VotingPowerEmaAlpha::<Test>::insert(net, 1_000_000_000_000_000_000u64);
+        VotingPower::<Test>::insert(net, old, 300);
+        TotalVotingPower::<Test>::insert(net, 300);
+        let epoch =
+            || SubtensorModule::distribute_emission(net, 0.into(), 0.into(), 0.into(), 0.into());
+        epoch();
+        assert_eq!(VotingPower::<Test>::get(net, old), 0);
+        assert_eq!(VotingPower::<Test>::get(net, new), 200);
+        assert_eq!(TotalVotingPower::<Test>::get(net), 200);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &new,
+            &U256::from(902),
+            net,
+            100u64.into(),
+        );
+        epoch();
+        assert_eq!(VotingPower::<Test>::get(net, new), 300);
+        assert_eq!(TotalVotingPower::<Test>::get(net), 300);
+        assert_ok!(SubtensorModule::do_disable_voting_power_tracking(net));
+        System::set_block_number(VotingPowerDisableAtBlock::<Test>::get(net));
+        epoch();
+        assert!(!VotingPowerTrackingEnabled::<Test>::get(net));
+        assert!(!VotingPowerDisableAtBlock::<Test>::contains_key(net));
+        assert!(VotingPower::<Test>::iter_prefix(net).next().is_none());
+        assert_eq!(TotalVotingPower::<Test>::get(net), 0);
+    });
+}
+
+#[test]
 fn null_consensus_profile_is_opt_in() {
     new_test_ext(1).execute_with(|| {
         let net = setup(1);

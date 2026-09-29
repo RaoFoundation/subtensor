@@ -15,7 +15,7 @@ for economics use `set_hyperparameter`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | SubtensorModule | [`SubtensorModule.set_subnet_identity`](/code/pallets/subtensor/src/macros/dispatches.rs#L1226-L1252) |
+| `coldkey` | subnet owner | SubtensorModule | [`SubtensorModule.set_subnet_identity`](/code/pallets/subtensor/src/macros/dispatches.rs#L1228-L1254) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("set_subnet_identity", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_subnet_identity` — [`pallets/subtensor/src/macros/dispatches.rs#L1228`](/code/pallets/subtensor/src/macros/dispatches.rs#L1226-L1252):
+`SubtensorModule.set_subnet_identity` — [`pallets/subtensor/src/macros/dispatches.rs#L1230`](/code/pallets/subtensor/src/macros/dispatches.rs#L1228-L1254):
 
 ```rust
 #[pallet::call_index(78)]

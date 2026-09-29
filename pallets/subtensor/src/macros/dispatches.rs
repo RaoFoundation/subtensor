@@ -814,7 +814,9 @@ mod dispatches {
             hotkey: T::AccountId,
             _coldkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
-            if NullConsensus::<T>::get(netuid) {
+            // Nonempty signed work selects PoW-only semantics, regardless of the
+            // mode at inclusion. A mode change must never turn work into a payment.
+            if !_work.is_empty() || NullConsensus::<T>::get(netuid) {
                 return Self::do_null_pow_register(
                     origin,
                     netuid,

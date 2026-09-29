@@ -324,6 +324,22 @@ impl<T: Config> Pallet<T> {
                 .map(|&s| scale(s, u64::from(u32::MAX)) as u32)
                 .collect::<Vec<_>>(),
         );
+        Self::update_voting_power_from_epoch(
+            netuid,
+            Keys::<T>::iter_prefix(netuid).map(|(uid, hotkey)| {
+                let uid = usize::from(uid);
+                (
+                    hotkey,
+                    permits.get(uid).copied().unwrap_or(false),
+                    stake
+                        .get(uid)
+                        .copied()
+                        .unwrap_or_default()
+                        .saturating_to_num::<u64>()
+                        .into(),
+                )
+            }),
+        );
         ValidatorPermit::<T>::insert(netuid, permits);
         Emission::<T>::insert(netuid, &emission);
         // Legacy incentive displays remain available; these values never drive payment.

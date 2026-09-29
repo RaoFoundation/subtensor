@@ -866,12 +866,6 @@ fn test_neuron_registration_disabled() {
         let tempo: u16 = 13;
         let hotkey_account_id: U256 = U256::from(1);
         let coldkey_account_id: U256 = U256::from(668);
-        let (nonce, work): (u64, Vec<u8>) = SubtensorModule::create_work_for_block_number(
-            netuid,
-            block_number,
-            0,
-            &hotkey_account_id,
-        );
 
         //add network
         add_network(netuid, tempo, 0);
@@ -881,8 +875,8 @@ fn test_neuron_registration_disabled() {
             <<Test as Config>::RuntimeOrigin>::signed(hotkey_account_id),
             netuid,
             block_number,
-            nonce,
-            work.clone(),
+            0,
+            vec![],
             hotkey_account_id,
             coldkey_account_id,
         );

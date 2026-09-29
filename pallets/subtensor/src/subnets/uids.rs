@@ -90,6 +90,38 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
+        Self::replace_neuron_inner(netuid, uid_to_replace, old_hotkey, new_hotkey, block_number);
+    }
+
+    /// Protocol-only admission after the conviction succession checks passed.
+    /// At null capacity, transfer the outgoing owner's slot without a prune search.
+    pub(crate) fn register_subnet_owner_neuron(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+    ) -> Result<u16, DispatchError> {
+        if !NullConsensus::<T>::get(netuid) {
+            return Self::register_neuron(netuid, hotkey);
+        }
+        let now = Self::get_current_block_as_u64();
+        let n = Self::get_subnetwork_n(netuid);
+        if n < Self::get_max_allowed_uids(netuid).min(crate::null_consensus::MAX_NULL_UIDS) {
+            Self::append_neuron(netuid, hotkey, now);
+            return Ok(n);
+        }
+        let uid = Self::get_owner_uid(netuid).ok_or(Error::<T>::NoNeuronIdAvailable)?;
+        ensure!(uid < n, Error::<T>::NoNeuronIdAvailable);
+        let old_hotkey = Keys::<T>::get(netuid, uid);
+        Self::replace_neuron_inner(netuid, uid, old_hotkey, hotkey, now);
+        Ok(uid)
+    }
+
+    fn replace_neuron_inner(
+        netuid: NetUid,
+        uid_to_replace: u16,
+        old_hotkey: T::AccountId,
+        new_hotkey: &T::AccountId,
+        block_number: u64,
+    ) {
         // Root churn: settle flushable pending basket credits while the hotkey is still
         // on root (earned dividends must deposit, not recycle). After membership drops,
         // a second flush recycles leftover sub-threshold dust the hotkey can no longer

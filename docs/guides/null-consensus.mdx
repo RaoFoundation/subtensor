@@ -63,6 +63,15 @@ btcli pow register --netuid 123
 
 `btcli subnets pow-register` is an alias. Both registration flags must be enabled.
 The command solves work for the wallet's hotkey and signs with its coldkey.
+The signed nonempty work selects PoW-only admission. If the subnet leaves null
+consensus before inclusion, the transaction fails instead of charging burn or
+collateral. Empty work retains the legacy paid registration alias on Yuma subnets.
+
+Conviction-based ownership succession remains available even when public
+registration is paused or full. A qualifying successor is registered internally;
+at capacity it takes the outgoing owner's UID without evicting another miner.
+Null epochs also maintain validator voting power and finalize scheduled tracking
+disable operations using the same maintenance as Yuma.
 The runtime checks the seal, difficulty, account association, work age, replay,
 and per-block admission limit. Work must come from a completed block fewer than
 three blocks old. Retry if signing lets the work expire.

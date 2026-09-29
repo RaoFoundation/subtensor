@@ -41,6 +41,8 @@ class PowRegister(Intent):
 
     Signed by the coldkey; no burn or collateral is charged. Normal transaction
     fees apply. Work is refreshed as the head advances, with a bounded timeout.
+    Signed nonempty work binds PoW-only admission: disabling null consensus before
+    inclusion rejects the request instead of converting it to paid registration.
     If signing takes longer than the chain's three-block work window, retry.
     """
 

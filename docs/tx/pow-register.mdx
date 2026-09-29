@@ -7,11 +7,13 @@ description: "Solve fresh PoW and register the wallet hotkey on a null subnet."
 
 Signed by the coldkey; no burn or collateral is charged. Normal transaction
 fees apply. Work is refreshed as the head advances, with a bounded timeout.
+Signed nonempty work binds PoW-only admission: disabling null consensus before
+inclusion rejects the request instead of converting it to paid registration.
 If signing takes longer than the chain's three-block work window, retry.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.register`](/code/pallets/subtensor/src/macros/dispatches.rs#L806-L843) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.register`](/code/pallets/subtensor/src/macros/dispatches.rs#L806-L845) |
 
 ## Parameters
 
@@ -61,7 +63,7 @@ result = sub.execute_tool("pow_register", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.register` — [`pallets/subtensor/src/macros/dispatches.rs#L808`](/code/pallets/subtensor/src/macros/dispatches.rs#L806-L843):
+`SubtensorModule.register` — [`pallets/subtensor/src/macros/dispatches.rs#L808`](/code/pallets/subtensor/src/macros/dispatches.rs#L806-L845):
 
 ```rust
 #[pallet::call_index(6)]
@@ -75,7 +77,9 @@ pub fn register(
     hotkey: T::AccountId,
     _coldkey: T::AccountId,
 ) -> DispatchResultWithPostInfo {
-    if NullConsensus::<T>::get(netuid) {
+    // Nonempty signed work selects PoW-only semantics, regardless of the
+    // mode at inclusion. A mode change must never turn work into a payment.
+    if !_work.is_empty() || NullConsensus::<T>::get(netuid) {
         return Self::do_null_pow_register(
             origin,
             netuid,

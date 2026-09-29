@@ -1028,7 +1028,7 @@ fn test_bonds() {
                 &U256::from(key),
                 max_stake + ExistentialDeposit::get() + SubtensorModule::get_network_min_lock()
             );
-			let (nonce, work): (u64, Vec<u8>) = SubtensorModule::create_work_for_block_number( netuid, block_number, key * 1_000_000, &U256::from(key));
+			let (nonce, work): (u64, Vec<u8>) = (0, Vec::new()); // Legacy paid registration.
 			assert_ok!(SubtensorModule::register(<<Test as frame_system::Config>::RuntimeOrigin>::signed(U256::from(key)), netuid, block_number, nonce, work, U256::from(key), U256::from(key)));
 			SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet( &U256::from(key), &U256::from(key), netuid, stakes[key as usize].into() );
 		}
@@ -1374,12 +1374,7 @@ fn test_active_stake() {
                 &U256::from(key),
                 stake + ExistentialDeposit::get() + SubtensorModule::get_network_min_lock(),
             );
-            let (nonce, work): (u64, Vec<u8>) = SubtensorModule::create_work_for_block_number(
-                netuid,
-                block_number,
-                key * 1_000_000,
-                &U256::from(key),
-            );
+            let (nonce, work): (u64, Vec<u8>) = (0, Vec::new()); // Legacy paid registration.
             assert_ok!(SubtensorModule::register(
                 RuntimeOrigin::signed(U256::from(key)),
                 netuid,
@@ -1597,12 +1592,7 @@ fn test_outdated_weights() {
                     + ExistentialDeposit::get()
                     + (SubtensorModule::get_network_min_lock() * 2.into()),
             );
-            let (nonce, work): (u64, Vec<u8>) = SubtensorModule::create_work_for_block_number(
-                netuid,
-                block_number,
-                key * 1_000_000,
-                &U256::from(key),
-            );
+            let (nonce, work): (u64, Vec<u8>) = (0, Vec::new()); // Legacy paid registration.
             assert_ok!(SubtensorModule::register(
                 RuntimeOrigin::signed(U256::from(key)),
                 netuid,
@@ -1690,12 +1680,7 @@ fn test_outdated_weights() {
                 + ExistentialDeposit::get()
                 + (SubtensorModule::get_network_min_lock() * 2.into()),
         );
-        let (nonce, work): (u64, Vec<u8>) = SubtensorModule::create_work_for_block_number(
-            netuid,
-            block_number,
-            0,
-            &U256::from(new_key),
-        );
+        let (nonce, work): (u64, Vec<u8>) = (0, Vec::new()); // Legacy paid registration.
         assert_eq!(System::block_number(), block_number);
         assert_eq!(SubtensorModule::get_max_registrations_per_block(netuid), n);
         assert_eq!(SubtensorModule::get_registrations_this_block(netuid), 0);
@@ -1793,12 +1778,7 @@ fn test_zero_weights() {
                 &U256::from(key),
                 ExistentialDeposit::get() + (SubtensorModule::get_network_min_lock() * 2.into()),
             );
-            let (nonce, work): (u64, Vec<u8>) = SubtensorModule::create_work_for_block_number(
-                netuid,
-                block_number,
-                key * 1_000_000,
-                &U256::from(key),
-            );
+            let (nonce, work): (u64, Vec<u8>) = (0, Vec::new()); // Legacy paid registration.
             assert_ok!(SubtensorModule::register(
                 RuntimeOrigin::signed(U256::from(key)),
                 netuid,
@@ -1906,12 +1886,7 @@ fn test_zero_weights() {
                 &U256::from(new_key),
                 ExistentialDeposit::get() + (SubtensorModule::get_network_min_lock() * 2.into()),
             );
-            let (nonce, work): (u64, Vec<u8>) = SubtensorModule::create_work_for_block_number(
-                netuid,
-                block_number,
-                new_key as u64 * 1_000_000,
-                &(U256::from(new_key)),
-            );
+            let (nonce, work): (u64, Vec<u8>) = (0, Vec::new()); // Legacy paid registration.
             assert_ok!(SubtensorModule::register(
                 RuntimeOrigin::signed(U256::from(new_key)),
                 netuid,
@@ -2008,12 +1983,7 @@ fn test_deregistered_miner_bonds() {
                     + ExistentialDeposit::get()
                     + (SubtensorModule::get_network_min_lock() * 2.into()),
             );
-            let (nonce, work): (u64, Vec<u8>) = SubtensorModule::create_work_for_block_number(
-                netuid,
-                block_number,
-                key * 1_000_000,
-                &U256::from(key),
-            );
+            let (nonce, work): (u64, Vec<u8>) = (0, Vec::new()); // Legacy paid registration.
             assert_ok!(SubtensorModule::register(
                 RuntimeOrigin::signed(U256::from(key)),
                 netuid,
@@ -2092,12 +2062,7 @@ fn test_deregistered_miner_bonds() {
                 + ExistentialDeposit::get()
                 + (SubtensorModule::get_network_min_lock() * 2.into()),
         );
-        let (nonce, work): (u64, Vec<u8>) = SubtensorModule::create_work_for_block_number(
-            netuid,
-            block_number,
-            0,
-            &U256::from(new_key),
-        );
+        let (nonce, work): (u64, Vec<u8>) = (0, Vec::new()); // Legacy paid registration.
         assert_eq!(SubtensorModule::get_max_registrations_per_block(netuid), n);
         assert_eq!(SubtensorModule::get_registrations_this_block(netuid), 0);
         assert_ok!(SubtensorModule::register(
@@ -2212,13 +2177,7 @@ fn test_validator_permits() {
                                 + ExistentialDeposit::get()
                                 + SubtensorModule::get_network_min_lock(),
                         );
-                        let (nonce, work): (u64, Vec<u8>) =
-                            SubtensorModule::create_work_for_block_number(
-                                netuid,
-                                block_number,
-                                key * 1_000_000,
-                                &U256::from(key),
-                            );
+                        let (nonce, work): (u64, Vec<u8>) = (0, Vec::new()); // Legacy paid registration.
                         assert_ok!(SubtensorModule::register(
                             RuntimeOrigin::signed(U256::from(key)),
                             netuid,
@@ -2772,12 +2731,7 @@ fn setup_yuma_3_scenario(netuid: NetUid, n: u16, sparse: bool, max_stake: u64, s
                 + ExistentialDeposit::get()
                 + SubtensorModule::get_network_min_lock(),
         );
-        let (nonce, work): (u64, Vec<u8>) = SubtensorModule::create_work_for_block_number(
-            netuid,
-            block_number,
-            key * 1_000_000,
-            &U256::from(key),
-        );
+        let (nonce, work): (u64, Vec<u8>) = (0, Vec::new()); // Legacy paid registration.
         assert_ok!(SubtensorModule::register(
             <<Test as frame_system::Config>::RuntimeOrigin>::signed(U256::from(key)),
             netuid,

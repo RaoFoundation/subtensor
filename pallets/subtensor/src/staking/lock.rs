@@ -1247,7 +1247,7 @@ impl<T: Config> Pallet<T> {
 
         // Register new owner as a neuron if not yet registered.
         if Self::get_uid_for_net_and_hotkey(netuid, &king_hotkey).is_err()
-            && Self::register_neuron(netuid, &king_hotkey).is_err()
+            && Self::register_subnet_owner_neuron(netuid, &king_hotkey).is_err()
         {
             return;
         }

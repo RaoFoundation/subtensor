@@ -9,7 +9,7 @@ description: "Submit exact relative u32 scores for null consensus, without u16 q
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_weights_v2`](/code/pallets/subtensor/src/macros/dispatches.rs#L847-L857) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_weights_v2`](/code/pallets/subtensor/src/macros/dispatches.rs#L849-L859) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("set_weights_v2", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_weights_v2` — [`pallets/subtensor/src/macros/dispatches.rs#L849`](/code/pallets/subtensor/src/macros/dispatches.rs#L847-L857):
+`SubtensorModule.set_weights_v2` — [`pallets/subtensor/src/macros/dispatches.rs#L851`](/code/pallets/subtensor/src/macros/dispatches.rs#L849-L859):
 
 ```rust
 #[pallet::call_index(153)]

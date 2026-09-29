@@ -39,6 +39,7 @@ async def test_pow_register_solves_runtime_seal_and_preserves_coldkey_signing():
     assert (module, name) == ("SubtensorModule", "register")
     assert args["hotkey"] == wallet.hotkey.ss58_address
     assert args["coldkey"] == wallet.coldkeypub.ss58_address
+    assert len(args["work"]) == 32  # Signed nonempty work selects PoW-only admission.
     block_hash = bytes.fromhex((await fake.block_hash(args["block_number"]))[2:])
     assert bytes(args["work"]) == pow_seal(block_hash, wallet.hotkey.public_key, args["nonce"])
 
