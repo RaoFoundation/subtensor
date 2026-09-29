@@ -45,7 +45,7 @@ from .multisig import (
     MultisigExecute,
     MultisigThreshold1,
 )
-from .null_consensus import PowRegister, SetWeightsV2
+from .null_consensus import PowRegister, SetNullWeights
 from .plan import Plan, Policy
 from .proxy import (
     PROXY_TYPES,
@@ -154,6 +154,7 @@ __all__ = [
     "SetIdentity",
     "SetMechanismCount",
     "SetMinCollateral",
+    "SetNullWeights",
     "SetPerpetualLock",
     "SetRejectLockedAlpha",
     "SetRootClaimThreshold",
@@ -161,7 +162,6 @@ __all__ = [
     "SetSubnetIdentity",
     "SetTake",
     "SetWeights",
-    "SetWeightsV2",
     "Spend",
     "StakeBurn",
     "StakeIntoBasket",

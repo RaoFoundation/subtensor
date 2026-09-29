@@ -1,5 +1,5 @@
 ---
-title: "set-weights-v2"
+title: "set-null-weights"
 description: "Submit exact relative u32 scores for null consensus, without u16 quantization."
 ---
 
@@ -9,7 +9,7 @@ description: "Submit exact relative u32 scores for null consensus, without u16 q
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_weights_v2`](/code/pallets/subtensor/src/macros/dispatches.rs#L849-L859) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_null_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L849-L859) |
 
 ## Parameters
 
@@ -29,11 +29,11 @@ Preview with `--dry-run` (shows fee, effects, and policy result without
 submitting), then submit:
 
 ```bash
-btcli tx set-weights-v2 \
+btcli tx set-null-weights \
   --netuid <int> \
   --uids <a,b,c> \
   --weights <a,b,c> --dry-run
-btcli tx set-weights-v2 \
+btcli tx set-null-weights \
   --netuid <int> \
   --uids <a,b,c> \
   --weights <a,b,c> -w my_coldkey
@@ -46,7 +46,7 @@ import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = bt.SetWeightsV2(netuid=1, uids=[...], weights=[...])
+intent = bt.SetNullWeights(netuid=1, uids=[...], weights=[...])
 
 sub = bt.Subtensor()
 plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
@@ -60,27 +60,27 @@ if not result.success:
 an agent would:
 
 ```python
-result = sub.execute_tool("set_weights_v2", {...}, wallet)
+result = sub.execute_tool("set_null_weights", {...}, wallet)
 ```
 
 ## On-chain implementation
 
-`SubtensorModule.set_weights_v2` — [`pallets/subtensor/src/macros/dispatches.rs#L851`](/code/pallets/subtensor/src/macros/dispatches.rs#L849-L859):
+`SubtensorModule.set_null_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L851`](/code/pallets/subtensor/src/macros/dispatches.rs#L849-L859):
 
 ```rust
 #[pallet::call_index(153)]
-#[pallet::weight(<T as Config>::WeightInfo::set_weights_v2(dests.len() as u32))]
-pub fn set_weights_v2(
+#[pallet::weight(<T as Config>::WeightInfo::set_null_weights(dests.len() as u32))]
+pub fn set_null_weights(
     origin: OriginFor<T>,
     netuid: NetUid,
     dests: Vec<u16>,
     weights: Vec<u32>,
     version_key: u64,
 ) -> DispatchResult {
-    Self::do_set_weights_v2(origin, netuid, dests, weights, version_key)
+    Self::do_set_null_weights(origin, netuid, dests, weights, version_key)
 }
 ```
 
-Delegates to [`do_set_weights_v2`](/code/pallets/subtensor/src/null_consensus.rs#L131).
+Delegates to [`do_set_null_weights`](/code/pallets/subtensor/src/null_consensus.rs#L131).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

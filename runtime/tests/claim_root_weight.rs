@@ -74,7 +74,7 @@ fn null_consensus_calls_at_capacity_fit_normal_extrinsic_limit() {
         let netuid = NetUid::from(1);
         let n = pallet_subtensor::null_consensus::MAX_NULL_UIDS;
         assert_call_fits_normal_limit(RuntimeCall::SubtensorModule(
-            pallet_subtensor::Call::set_weights_v2 {
+            pallet_subtensor::Call::set_null_weights {
                 netuid,
                 dests: (0..n).collect(),
                 weights: vec![u32::MAX; usize::from(n)],

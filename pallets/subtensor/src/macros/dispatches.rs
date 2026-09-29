@@ -847,15 +847,15 @@ mod dispatches {
         /// Set relative u32 weights on a null-consensus subnet. Each eligible
         /// validator's normalized row has equal influence on miner emissions.
         #[pallet::call_index(153)]
-        #[pallet::weight(<T as Config>::WeightInfo::set_weights_v2(dests.len() as u32))]
-        pub fn set_weights_v2(
+        #[pallet::weight(<T as Config>::WeightInfo::set_null_weights(dests.len() as u32))]
+        pub fn set_null_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
             dests: Vec<u16>,
             weights: Vec<u32>,
             version_key: u64,
         ) -> DispatchResult {
-            Self::do_set_weights_v2(origin, netuid, dests, weights, version_key)
+            Self::do_set_null_weights(origin, netuid, dests, weights, version_key)
         }
 
         /// Register the hotkey to root network.

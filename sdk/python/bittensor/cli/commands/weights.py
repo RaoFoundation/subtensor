@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from ...intents import CommitWeights, RevealWeights, SetWeights, SetWeightsV2
+from ...intents import CommitWeights, RevealWeights, SetNullWeights, SetWeights
 from ...settings import guide_docs_url
 from ..context import AppContext, ctx_of
 from ..globals import with_tx_globals
@@ -23,9 +23,9 @@ def _parse_float_list(raw: str) -> list[float]:
     return [float(part.strip()) for part in raw.split(",") if part.strip()]
 
 
-@app.command("set-v2")
+@app.command("set-null")
 @with_tx_globals
-def set_weights_v2(
+def set_null_weights(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid"),
     uids: str = typer.Option(..., "--uids", help="Comma-separated miner UIDs."),
@@ -34,7 +34,7 @@ def set_weights_v2(
 ):
     """Set full-precision integer scores on a null-consensus subnet."""
     ctx_of(ctx).submit(
-        SetWeightsV2(
+        SetNullWeights(
             netuid=netuid,
             uids=_parse_int_list(uids),
             weights=_parse_int_list(weights),

@@ -229,7 +229,7 @@ fn null_consensus_toggle_preserves_live_yuma_state_and_hyperparameters() {
         }
         assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
         System::set_block_number(4);
-        assert_ok!(SubtensorModule::set_weights_v2(
+        assert_ok!(SubtensorModule::set_null_weights(
             RuntimeOrigin::signed(U256::zero()),
             net,
             vec![2],
@@ -242,7 +242,7 @@ fn null_consensus_toggle_preserves_live_yuma_state_and_hyperparameters() {
         assert_eq!(Bonds::<Test>::get(index, 0), vec![(1, 123)]);
         assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
         assert_noop!(
-            SubtensorModule::set_weights_v2(
+            SubtensorModule::set_null_weights(
                 RuntimeOrigin::signed(U256::zero()),
                 net,
                 vec![2],
@@ -284,7 +284,7 @@ fn null_consensus_caps_cached_rows_across_mode_changes() {
             NullLastUpdate::<Test>::insert(net, uid, 2);
         }
         assert_noop!(
-            SubtensorModule::set_weights_v2(
+            SubtensorModule::set_null_weights(
                 RuntimeOrigin::signed(U256::zero()),
                 net,
                 vec![1],
@@ -295,7 +295,7 @@ fn null_consensus_caps_cached_rows_across_mode_changes() {
         );
         // The first null epoch clears rows from former Yuma permit holders.
         SubtensorModule::null_epoch(net, 1000.into());
-        assert_ok!(SubtensorModule::set_weights_v2(
+        assert_ok!(SubtensorModule::set_null_weights(
             RuntimeOrigin::signed(U256::zero()),
             net,
             vec![1],
@@ -313,7 +313,7 @@ fn null_consensus_trimming_discards_scores_before_uid_reuse() {
         MinAllowedUids::<Test>::insert(net, 1);
         ImmunityPeriod::<Test>::insert(net, 0);
         System::set_block_number(10000);
-        assert_ok!(SubtensorModule::set_weights_v2(
+        assert_ok!(SubtensorModule::set_null_weights(
             RuntimeOrigin::signed(U256::zero()),
             net,
             vec![3],
@@ -327,7 +327,7 @@ fn null_consensus_trimming_discards_scores_before_uid_reuse() {
         assert!(SubtensorModule::null_epoch(net, 1000.into()).is_empty());
         assert!(NullWeights::<Test>::iter_prefix(net).next().is_none());
         System::set_block_number(10001);
-        assert_ok!(SubtensorModule::set_weights_v2(
+        assert_ok!(SubtensorModule::set_null_weights(
             RuntimeOrigin::signed(U256::zero()),
             net,
             vec![1],
@@ -389,14 +389,14 @@ fn null_consensus_averages_rows_not_stake_or_integer_scale() {
             1_000_000_000.into(),
         );
         SubtensorModule::set_validator_permit_for_uid(net, 1, true);
-        assert_ok!(SubtensorModule::set_weights_v2(
+        assert_ok!(SubtensorModule::set_null_weights(
             RuntimeOrigin::signed(U256::from(0)),
             net,
             vec![2, 3],
             vec![1, 3],
             0
         ));
-        assert_ok!(SubtensorModule::set_weights_v2(
+        assert_ok!(SubtensorModule::set_null_weights(
             RuntimeOrigin::signed(U256::from(1)),
             net,
             vec![2, 3],
@@ -420,7 +420,7 @@ fn null_consensus_averages_rows_not_stake_or_integer_scale() {
 fn null_consensus_preserves_scores_below_u16_precision() {
     new_test_ext(1).execute_with(|| {
         let net = setup(3);
-        assert_ok!(SubtensorModule::set_weights_v2(
+        assert_ok!(SubtensorModule::set_null_weights(
             RuntimeOrigin::signed(U256::zero()),
             net,
             vec![1, 2],
@@ -440,23 +440,23 @@ fn null_consensus_rejects_bad_rows_without_writes() {
         let net = setup(3);
         let origin = RuntimeOrigin::signed(U256::zero());
         assert_noop!(
-            SubtensorModule::set_weights_v2(origin.clone(), net, vec![1, 1], vec![1, 1], 0),
+            SubtensorModule::set_null_weights(origin.clone(), net, vec![1, 1], vec![1, 1], 0),
             Error::<Test>::DuplicateUids
         );
         assert_noop!(
-            SubtensorModule::set_weights_v2(origin.clone(), net, vec![3], vec![1], 0),
+            SubtensorModule::set_null_weights(origin.clone(), net, vec![3], vec![1], 0),
             Error::<Test>::UidVecContainInvalidOne
         );
         assert_noop!(
-            SubtensorModule::set_weights_v2(origin.clone(), net, vec![1], vec![0], 0),
+            SubtensorModule::set_null_weights(origin.clone(), net, vec![1], vec![0], 0),
             Error::<Test>::NullConsensusWeightsAllZero
         );
         assert_noop!(
-            SubtensorModule::set_weights_v2(origin, net, vec![1], vec![], 0),
+            SubtensorModule::set_null_weights(origin, net, vec![1], vec![], 0),
             Error::<Test>::WeightVecNotEqualSize
         );
         assert_noop!(
-            SubtensorModule::set_weights_v2(
+            SubtensorModule::set_null_weights(
                 RuntimeOrigin::signed(U256::from(1)),
                 net,
                 vec![1],
@@ -472,7 +472,7 @@ fn null_consensus_rejects_bad_rows_without_writes() {
 fn null_consensus_masks_stale_scores_and_reused_uids() {
     new_test_ext(1).execute_with(|| {
         let net = setup(3);
-        assert_ok!(SubtensorModule::set_weights_v2(
+        assert_ok!(SubtensorModule::set_null_weights(
             RuntimeOrigin::signed(U256::zero()),
             net,
             vec![1, 2],
@@ -584,7 +584,7 @@ fn null_consensus_full_32768_uid_vector_pays_every_scored_miner() {
             BlockAtRegistration::<Test>::insert(net, uid, 1);
         }
         SubnetworkN::<Test>::insert(net, n);
-        assert_ok!(SubtensorModule::set_weights_v2(
+        assert_ok!(SubtensorModule::set_null_weights(
             RuntimeOrigin::signed(U256::zero()),
             net,
             (1..n).collect(),
@@ -604,7 +604,7 @@ fn null_consensus_distributes_all_emission_to_miners_and_preserves_owner_cut() {
         let net = setup(2);
         Owner::<Test>::insert(U256::from(1), U256::from(101));
         SubnetAlphaOut::<Test>::insert(net, AlphaBalance::from(650));
-        assert_ok!(SubtensorModule::set_weights_v2(
+        assert_ok!(SubtensorModule::set_null_weights(
             RuntimeOrigin::signed(U256::zero()),
             net,
             vec![1],

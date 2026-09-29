@@ -475,6 +475,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_min_collateral', {'netuid': netuid, 'hotkey': hotkey, 'min_locked': min_locked})
 
     @staticmethod
+    def set_null_weights(netuid: 'NetUid', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
+        "Set relative u32 weights on a null-consensus subnet. Each eligible validator's normalized row has equal influence on miner emissions."
+        return Call('SubtensorModule', 'set_null_weights', {'netuid': netuid, 'dests': dests, 'weights': weights, 'version_key': version_key})
+
+    @staticmethod
     def set_pending_childkey_cooldown(cooldown: 'u64') -> Call:
         'Sets the pending childkey cooldown (in blocks). Root only.'
         return Call('SubtensorModule', 'set_pending_childkey_cooldown', {'cooldown': cooldown})
@@ -503,11 +508,6 @@ class SubtensorModule:
     def set_weights(netuid: 'NetUid', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
         'Sets the caller weights for the incentive mechanism. The call can be made from the hotkey account so is potentially insecure, however, the damage of changing weights is minimal if caught early. This function includes all the checks that the passed weights meet the requirements. Stored weights are u16s max-upscaled by the pallet, so the largest non-zero supplied weight is stored as `u16::MAX`. The weights determine how inflation propagates outward from this peer.  # Note Input weights are relative. They do not need to sum to a particular value before submission.  # Arguments * `origin`: The caller, a hotkey who wishes to set their weights.  * `netuid`: The network uid we are setting these weights on.  * `dests`: The edge endpoint for the weight, i.e. j for w_ij.  * `weights`: Relative u16-encoded weights, max-upscaled by the pallet before storage.  * `version_key`: The network version key to check if the validator is up to date.  # Events * `WeightsSet`: On successfully setting the weights on chain.  # Errors * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.  * `NotRegistered`: Attempting to set weights from a non registered account.  * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.  * `DuplicateUids`: Attempting to set weights with duplicate uids.  * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.  * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.  * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.  * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.'
         return Call('SubtensorModule', 'set_weights', {'netuid': netuid, 'dests': dests, 'weights': weights, 'version_key': version_key})
-
-    @staticmethod
-    def set_weights_v2(netuid: 'NetUid', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
-        "Set relative u32 weights on a null-consensus subnet. Each eligible validator's normalized row has equal influence on miner emissions."
-        return Call('SubtensorModule', 'set_weights_v2', {'netuid': netuid, 'dests': dests, 'weights': weights, 'version_key': version_key})
 
     @staticmethod
     def stake_into_basket(hotkey: 'AccountId32', amount_staked: 'TaoBalance') -> Call:

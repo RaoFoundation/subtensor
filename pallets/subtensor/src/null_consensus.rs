@@ -128,7 +128,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn do_set_weights_v2(
+    pub fn do_set_null_weights(
         origin: OriginFor<T>,
         netuid: NetUid,
         dests: Vec<u16>,
@@ -136,7 +136,7 @@ impl<T: Config> Pallet<T> {
         version_key: u64,
     ) -> DispatchResult {
         let hotkey = ensure_signed(origin)?;
-        let uid = Self::validate_weights_v2(&hotkey, netuid, &dests, &values, version_key)?;
+        let uid = Self::validate_null_weights(&hotkey, netuid, &dests, &values, version_key)?;
         let row: Vec<_> = dests
             .into_iter()
             .zip(values)
@@ -151,7 +151,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Read-only admission shared by transaction validation and dispatch.
-    pub(crate) fn validate_weights_v2(
+    pub(crate) fn validate_null_weights(
         hotkey: &T::AccountId,
         netuid: NetUid,
         dests: &[u16],

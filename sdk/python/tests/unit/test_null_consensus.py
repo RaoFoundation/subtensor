@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 
 from bittensor._generated.errors import ERRORS
-from bittensor.intents import PowRegister, SetHyperparameter, SetWeightsV2
+from bittensor.intents import PowRegister, SetHyperparameter, SetNullWeights
 from bittensor.intents.null_consensus import pow_seal
 from bittensor.result import BittensorError, ErrorCode, chain_error_from_dispatch
 from tests.harness.fake_substrate import FakeSubstrate
@@ -14,7 +14,7 @@ from tests.harness.samples import dev_wallet
     "name, remedy",
     [
         ("NullConsensusRequiresPowRegistration", "btcli pow register"),
-        ("NullConsensusRequiresU32Weights", "set_weights_v2"),
+        ("NullConsensusRequiresU32Weights", "set_null_weights"),
         ("NullConsensusPowRegistrationDisabled", "NetworkPowRegistrationAllowed"),
         ("PowWorkAlreadyUsed", "new nonce or block"),
     ],
@@ -83,7 +83,7 @@ async def test_pow_timeout_is_bounded():
 @pytest.mark.asyncio
 async def test_u32_scores_are_never_requantized():
     fake = FakeSubstrate()
-    _, _, params = await SetWeightsV2(netuid=1, uids=[1, 2], weights=[0xFFFFFFFF, 1]).build(
+    _, _, params = await SetNullWeights(netuid=1, uids=[1, 2], weights=[0xFFFFFFFF, 1]).build(
         fake, dev_wallet()
     )
     assert params["weights"] == [0xFFFFFFFF, 1]
@@ -116,4 +116,4 @@ async def test_consensus_toggle_uses_the_normal_hyperparameter_setter(enabled):
 )
 def test_invalid_u32_scores_fail_locally(uids, weights):
     with pytest.raises(BittensorError):
-        SetWeightsV2(netuid=1, uids=uids, weights=weights)
+        SetNullWeights(netuid=1, uids=uids, weights=weights)

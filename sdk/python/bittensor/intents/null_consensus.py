@@ -117,12 +117,12 @@ class PowRegister(Intent):
 
 @register
 @dataclass
-class SetWeightsV2(Intent):
+class SetNullWeights(Intent):
     """Submit exact relative u32 scores for null consensus, without u16 quantization."""
 
-    op = "set_weights_v2"
+    op = "set_null_weights"
     signer = "hotkey"
-    wraps = (("SubtensorModule", "set_weights_v2"),)
+    wraps = (("SubtensorModule", "set_null_weights"),)
     netuid: int = field(metadata={"help": "Null-consensus subnet to score."})
     uids: list[int] = field(metadata={"help": "Distinct miner UIDs, parallel to weights."})
     weights: list[int] = field(metadata={"help": "Exact relative integers from 0 to 4294967295."})
@@ -142,7 +142,7 @@ class SetWeightsV2(Intent):
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
-            calls.SubtensorModule.set_weights_v2(
+            calls.SubtensorModule.set_null_weights(
                 netuid=self.netuid,
                 dests=self.uids,
                 weights=self.weights,

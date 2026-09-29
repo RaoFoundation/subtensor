@@ -3545,6 +3545,68 @@
     ]
   },
   {
+    "name": "set_null_weights",
+    "summary": "Submit exact relative u32 scores for null consensus, without u16 quantization.",
+    "description": "Submit exact relative u32 scores for null consensus, without u16 quantization.",
+    "signer": "hotkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_null_weights"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-null-weights",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Null-consensus subnet to score."
+        },
+        "uids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Distinct miner UIDs, parallel to weights."
+        },
+        "weights": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Exact relative integers from 0 to 4294967295."
+        },
+        "version_key": {
+          "type": "integer",
+          "description": "Required subnet weights version."
+        }
+      },
+      "required": [
+        "netuid",
+        "uids",
+        "weights"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-null-weights --netuid <int> --uids <a,b,c> --weights <a,b,c>",
+    "python_class": "SetNullWeights",
+    "markdown_url": "/llms.mdx/docs/tx/set-null-weights/content.md",
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "set_null_weights",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 851,
+        "end_line": 859,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L849-L859",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
     "name": "set_perpetual_lock",
     "summary": "Enable or disable perpetual lock mode for a coldkey on a subnet.",
     "description": "Enable or disable perpetual lock mode for a coldkey on a subnet.\n\nSwitches how the signing coldkey's stake lock on the subnet behaves over\ntime: perpetual mode keeps the lock (and its conviction) in force\nindefinitely, while decaying mode lets it wind down over time so the\nstake eventually becomes liquid again. A per-coldkey, per-subnet setting\nthat moves no funds by itself \u2014 it changes the behavior of locks created\nwith `lock_stake`. Enabling perpetual mode means the locked stake stays\nilliquid until you switch back to decaying and the lock runs off.",
@@ -3953,68 +4015,6 @@
         "line": 2071,
         "end_line": 2087,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2069-L2087",
-        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
-      }
-    ]
-  },
-  {
-    "name": "set_weights_v2",
-    "summary": "Submit exact relative u32 scores for null consensus, without u16 quantization.",
-    "description": "Submit exact relative u32 scores for null consensus, without u16 quantization.",
-    "signer": "hotkey",
-    "origin": "signed",
-    "verify": null,
-    "wraps": [
-      [
-        "SubtensorModule",
-        "set_weights_v2"
-      ]
-    ],
-    "docs_url": "/docs/tx/set-weights-v2",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "netuid": {
-          "type": "integer",
-          "description": "Null-consensus subnet to score."
-        },
-        "uids": {
-          "type": "array",
-          "items": {
-            "type": "integer"
-          },
-          "description": "Distinct miner UIDs, parallel to weights."
-        },
-        "weights": {
-          "type": "array",
-          "items": {
-            "type": "integer"
-          },
-          "description": "Exact relative integers from 0 to 4294967295."
-        },
-        "version_key": {
-          "type": "integer",
-          "description": "Required subnet weights version."
-        }
-      },
-      "required": [
-        "netuid",
-        "uids",
-        "weights"
-      ],
-      "additionalProperties": false
-    },
-    "cli": "btcli tx set-weights-v2 --netuid <int> --uids <a,b,c> --weights <a,b,c>",
-    "python_class": "SetWeightsV2",
-    "markdown_url": "/llms.mdx/docs/tx/set-weights-v2/content.md",
-    "sources": [
-      {
-        "pallet": "SubtensorModule",
-        "call": "set_weights_v2",
-        "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 851,
-        "end_line": 859,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L849-L859",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]

@@ -12,7 +12,7 @@ from typing import Any, Iterator
 COLDKEY_PAYS_FEE_CALLS: frozenset[tuple[str, str]] = frozenset(
     {
         ("SubtensorModule", "set_weights"),
-        ("SubtensorModule", "set_weights_v2"),
+        ("SubtensorModule", "set_null_weights"),
         ("SubtensorModule", "set_mechanism_weights"),
         ("SubtensorModule", "batch_set_weights"),
         ("SubtensorModule", "commit_weights"),

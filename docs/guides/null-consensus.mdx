@@ -84,7 +84,7 @@ consensus is disabled.
 ## Submit scores
 
 ```bash
-btcli misc weights set-v2 --netuid 123 --uids 1,2 --weights 4294967295,1
+btcli misc weights set-null --netuid 123 --uids 1,2 --weights 4294967295,1
 ```
 
 Scores are exact relative integers from 0 to 4,294,967,295. They need not sum to a
@@ -93,11 +93,11 @@ scorers are rejected. Payments use wider integer arithmetic; the legacy u16
 incentive vector is informational only. `NullIncentive` exposes u32 proportions.
 
 ```python
-from bittensor.intents import SetHyperparameter, PowRegister, SetWeightsV2
+from bittensor.intents import SetHyperparameter, PowRegister, SetNullWeights
 
 mode = SetHyperparameter(netuid=123, name="null_consensus_enabled", value=True)
 registration = PowRegister(netuid=123)
-scores = SetWeightsV2(netuid=123, uids=[1, 2], weights=[4294967295, 1])
+scores = SetNullWeights(netuid=123, uids=[1, 2], weights=[4294967295, 1])
 resume_yuma = SetHyperparameter(netuid=123, name="null_consensus_enabled", value=False)
 ```
 

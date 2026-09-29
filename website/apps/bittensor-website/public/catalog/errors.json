@@ -4387,7 +4387,7 @@
     },
     "NullConsensusRequiresU32Weights": {
       "code": "invalid_argument",
-      "description": "Null-consensus subnets require u32 scores. Use set_weights_v2 or btcli misc weights set-v2 instead of the legacy u16 setter.",
+      "description": "Null-consensus subnets require u32 scores. Use set_null_weights or btcli misc weights set-null instead of the legacy u16 setter.",
       "docs_url": "/docs/errors/chain/NullConsensusRequiresU32Weights",
       "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusRequiresU32Weights/content.md",
       "pallets": [

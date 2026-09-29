@@ -439,7 +439,7 @@ mod errors {
         PowInvalidSealLength,
         /// This PoW seal has already been used. Solve fresh work with a new nonce or block before registering again.
         PowWorkAlreadyUsed,
-        /// Null-consensus subnets require u32 scores. Use set_weights_v2 or btcli misc weights set-v2 instead of the legacy u16 setter.
+        /// Null-consensus subnets require u32 scores. Use set_null_weights or btcli misc weights set-null instead of the legacy u16 setter.
         NullConsensusRequiresU32Weights,
         /// The null-consensus score row contains no positive weights. Submit at least one positive u32 score.
         NullConsensusWeightsAllZero,

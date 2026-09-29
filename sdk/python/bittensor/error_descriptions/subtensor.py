@@ -62,8 +62,8 @@ DESCRIPTIONS: dict[str, str] = {
         "registering again."
     ),
     "NullConsensusRequiresU32Weights": (
-        "Null-consensus subnets require u32 scores. Use set_weights_v2 or btcli misc weights "
-        "set-v2 instead of the legacy u16 setter."
+        "Null-consensus subnets require u32 scores. Use set_null_weights or btcli misc weights "
+        "set-null instead of the legacy u16 setter."
     ),
     "NullConsensusWeightsAllZero": (
         "The null-consensus score row contains no positive weights. Submit at least one "

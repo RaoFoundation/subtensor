@@ -50,7 +50,7 @@ mod pallet_benchmarks {
     use super::*;
 
     #[benchmark]
-    fn set_weights_v2(n: Linear<1, 32768>) {
+    fn set_null_weights(n: Linear<1, 32768>) {
         let netuid = NetUid::from(1);
         let owner: T::AccountId = account("null_owner", 0, 0);
         Subtensor::<T>::init_new_network(netuid, 360);
@@ -116,7 +116,7 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
-    fn check_weights_v2_extension(n: Linear<1, 32768>) {
+    fn check_null_weights_extension(n: Linear<1, 32768>) {
         let netuid = NetUid::from(1);
         let owner: T::AccountId = account("null_owner", 0, 0);
         Subtensor::<T>::init_new_network(netuid, 360);
@@ -129,7 +129,7 @@ mod pallet_benchmarks {
             NullWeights::<T>::insert(netuid, uid, vec![(0, 1u32)]);
         }
         frame_system::Pallet::<T>::set_block_number(101u32.into());
-        let call = Call::<T>::set_weights_v2 {
+        let call = Call::<T>::set_null_weights {
             netuid,
             dests: (0..n as u16).collect(),
             weights: vec![u32::MAX; n as usize],

@@ -38,8 +38,8 @@ use core::marker::PhantomData;
 pub trait WeightInfo {
 	// Initial compositions of existing reference measurements. Dedicated
 	// benchmarks accompany these calls; regenerate on reference hardware before release.
-	fn set_weights_v2(n: u32) -> Weight { Self::set_mechanism_weights(n).saturating_add(Self::set_weights()) }
-	fn check_weights_v2_extension(n: u32) -> Weight;
+	fn set_null_weights(n: u32) -> Weight { Self::set_mechanism_weights(n).saturating_add(Self::set_weights()) }
+	fn check_null_weights_extension(n: u32) -> Weight;
 	fn register() -> Weight;
 	fn set_weights() -> Weight;
 	fn add_stake() -> Weight;
@@ -143,8 +143,8 @@ pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	// Keep the reference setter's CPU/proof bound, excluding its per-destination
 	// database reads: u32 admission validates contiguous UIDs entirely in memory.
-	fn check_weights_v2_extension(n: u32) -> Weight {
-		Self::set_weights_v2(n).saturating_sub(T::DbWeight::get().reads(n.into()))
+	fn check_null_weights_extension(n: u32) -> Weight {
+		Self::set_null_weights(n).saturating_sub(T::DbWeight::get().reads(n.into()))
 	}
 
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
@@ -4457,8 +4457,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
-	fn check_weights_v2_extension(n: u32) -> Weight {
-		Self::set_weights_v2(n).saturating_sub(RocksDbWeight::get().reads(n.into()))
+	fn check_null_weights_extension(n: u32) -> Weight {
+		Self::set_null_weights(n).saturating_sub(RocksDbWeight::get().reads(n.into()))
 	}
 
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)

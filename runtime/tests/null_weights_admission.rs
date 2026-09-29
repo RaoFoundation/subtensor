@@ -75,7 +75,7 @@ fn extension(nonce: u32) -> TxExtension {
 }
 
 fn score_call(dests: Vec<u16>, weights: Vec<u32>) -> RuntimeCall {
-    RuntimeCall::SubtensorModule(st::Call::set_weights_v2 {
+    RuntimeCall::SubtensorModule(st::Call::set_null_weights {
         netuid: NetUid::from(1),
         dests,
         weights,
