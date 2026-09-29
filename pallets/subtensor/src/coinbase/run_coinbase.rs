@@ -724,6 +724,10 @@ impl<T: Config> Pallet<T> {
 
     pub fn distribute_owner_cut(netuid: NetUid, owner_cut: AlphaBalance) {
         if owner_cut.is_zero() {
+            // Previously earned dividends and deferred payments still need servicing.
+            if let Some(lease_id) = SubnetUidToLeaseId::<T>::get(netuid) {
+                Self::distribute_leased_network_dividends(lease_id, owner_cut);
+            }
             return;
         }
         // Distribute the owner cut.

@@ -3,11 +3,13 @@ from unittest.mock import patch
 import pytest
 
 from bittensor._generated.errors import ERRORS
+from bittensor.client import Client
 from bittensor.intents import ClaimNullRewards, PowRegister, SetHyperparameter, SetNullWeights
 from bittensor.intents.null_consensus import pow_seal
 from bittensor.result import BittensorError, ErrorCode, chain_error_from_dispatch
+from bittensor.sp_core import ss58_decode
 from tests.harness.fake_substrate import FakeSubstrate
-from tests.harness.samples import dev_wallet
+from tests.harness.samples import ALICE_HOT, BOB, BOB_HOT, dev_wallet
 
 
 @pytest.mark.parametrize(
@@ -104,6 +106,68 @@ async def test_claim_is_coldkey_signed_and_keeps_the_selected_destination():
         "netuid": 1,
         "hotkey": wallet.hotkey.ss58_address,
         "stake_hotkey": wallet.hotkey.ss58_address,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("proxied", [False, True])
+async def test_pow_hotkey_override_binds_work_to_the_effective_coldkey(proxied):
+    fake = FakeSubstrate()
+    for name in ("NullConsensus", "NetworkRegistrationAllowed", "NetworkPowRegistrationAllowed"):
+        fake.seed("SubtensorModule", name, [1], True)
+    fake.seed("SubtensorModule", "Difficulty", [1], 1)
+    fake.seed("SubtensorModule", "RegisteredSubnetCounter", [1], 7)
+    wallet = dev_wallet()
+    result = await Client("local", substrate=fake).execute(
+        PowRegister(netuid=1, hotkey_ss58=BOB_HOT),
+        wallet,
+        proxy_for=BOB if proxied else None,
+    )
+    assert result.success
+    call, signer, _ = fake.submissions[-1]
+    assert signer == wallet.coldkey.ss58_address
+    if proxied:
+        assert (call.module, call.function) == ("Proxy", "proxy")
+        assert call.params["real"] == BOB
+        call = call.params["call"]
+    assert (call.module, call.function) == ("SubtensorModule", "register")
+    args = call.params
+    coldkey = BOB if proxied else wallet.coldkeypub.ss58_address
+    assert args["hotkey"] == BOB_HOT
+    assert args["coldkey"] == coldkey
+    block_hash = bytes.fromhex((await fake.block_hash(args["block_number"]))[2:])
+    assert bytes(args["work"]) == pow_seal(
+        block_hash,
+        bytes(ss58_decode(BOB_HOT)),
+        args["nonce"],
+        netuid=1,
+        generation=7,
+        coldkey=bytes(ss58_decode(coldkey)),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stake_hotkey", [None, ALICE_HOT])
+async def test_proxy_claim_keeps_miner_and_staking_destination_separate(stake_hotkey):
+    fake = FakeSubstrate()
+    fake.seed("SubtensorModule", "SubnetOwnerHotkey", [1], BOB)
+    wallet = dev_wallet()
+    result = await Client("local", substrate=fake).execute(
+        ClaimNullRewards(netuid=1, stake_hotkey=stake_hotkey, hotkey_ss58=BOB_HOT),
+        wallet,
+        proxy_for=BOB,
+    )
+    assert result.success
+    call, signer, _ = fake.submissions[-1]
+    assert signer == wallet.coldkey.ss58_address
+    assert (call.module, call.function) == ("Proxy", "proxy")
+    assert call.params["real"] == BOB
+    inner = call.params["call"]
+    assert (inner.module, inner.function) == ("SubtensorModule", "claim_null_rewards")
+    assert inner.params == {
+        "netuid": 1,
+        "hotkey": BOB_HOT,
+        "stake_hotkey": stake_hotkey or BOB,
     }
 
 

@@ -54,19 +54,24 @@ def _search_work(
 @register
 @dataclass
 class PowRegister(Intent):
-    """Solve fresh PoW and register the wallet hotkey on a null subnet.
+    """Solve fresh PoW and register a miner hotkey on a null subnet.
 
     Signed by the coldkey; no burn or collateral is charged. Normal transaction
     fees apply. Work is refreshed as the head advances, with a bounded timeout.
     Signed nonempty work binds PoW-only admission: disabling null consensus before
     inclusion rejects the request instead of converting it to paid registration.
     If signing takes longer than the chain's three-block work window, retry.
+    Pass hotkey_ss58 when using a proxy or an account without a wallet hotkey.
     """
 
     op = "pow_register"
     wraps = (("SubtensorModule", "register"),)
     netuid: int = field(metadata={"help": "Null-consensus subnet to join."})
     timeout_seconds: int = field(default=120, metadata={"help": "Maximum time to solve work."})
+    hotkey_ss58: str | None = field(
+        default=None,
+        metadata={"help": "Miner hotkey; defaults to wallet hotkey. Required for proxy calls."},
+    )
 
     async def build(self, substrate, wallet: Any):
         if self.timeout_seconds <= 0:
@@ -87,7 +92,9 @@ class PowRegister(Intent):
                 "PoW registration is paused; ask the owner to enable NetworkPowRegistrationAllowed."
             )
         deadline = monotonic() + self.timeout_seconds
-        public_key = self.hotkey_public_key(wallet)
+        hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
+        public_key = bytes(ss58_decode(hotkey))
+        coldkey = self.coldkey_address(wallet)
         while monotonic() < deadline:
             # The runtime only has hashes for completed blocks when dispatching.
             block = await substrate.block_number()
@@ -119,7 +126,7 @@ class PowRegister(Intent):
                     nonce,
                     self.netuid,
                     generation,
-                    bytes(ss58_decode(self.coldkey_address(wallet))),
+                    bytes(ss58_decode(coldkey)),
                 )
                 if await substrate.block_number() != block:
                     break
@@ -131,8 +138,8 @@ class PowRegister(Intent):
                             block_number=block,
                             nonce=nonce,
                             work=list(work),
-                            hotkey=self.hotkey_address(wallet),
-                            coldkey=self.coldkey_address(wallet),
+                            hotkey=hotkey,
+                            coldkey=coldkey,
                         )
                     )
                 nonce += 4096
@@ -141,7 +148,8 @@ class PowRegister(Intent):
         raise BittensorError("PoW registration timed out; try again or check subnet difficulty.")
 
     def summary(self) -> str:
-        return f"register wallet hotkey on netuid {self.netuid} with PoW (no burn or collateral)"
+        hotkey = self.hotkey_ss58 or "wallet hotkey"
+        return f"register {hotkey} on netuid {self.netuid} with PoW (no burn or collateral)"
 
 
 @dataclass
@@ -177,6 +185,7 @@ class ClaimNullRewards(Intent):
     The destination hotkey must already be a staking account. The claiming coldkey
     owns the resulting alpha; using one destination consolidates many mining keys.
     Omit stake_hotkey to use the subnet owner's hotkey. Claims also work in Yuma mode.
+    Pass hotkey_ss58 when using a proxy or an account without a wallet hotkey.
     """
 
     op = "claim_null_rewards"
@@ -185,6 +194,10 @@ class ClaimNullRewards(Intent):
     stake_hotkey: str | None = field(
         default=None, metadata={"help": "Existing staking hotkey; defaults to subnet owner hotkey."}
     )
+    hotkey_ss58: str | None = field(
+        default=None,
+        metadata={"help": "Miner hotkey; defaults to wallet hotkey. Required for proxy calls."},
+    )
 
     async def build(self, substrate, wallet: Any):
         target = self.stake_hotkey or await substrate.query(
@@ -192,7 +205,9 @@ class ClaimNullRewards(Intent):
         )
         return await substrate.compose(
             calls.SubtensorModule.claim_null_rewards(
-                netuid=self.netuid, hotkey=self.hotkey_address(wallet), stake_hotkey=target
+                netuid=self.netuid,
+                hotkey=self.hotkey_address(wallet, self.hotkey_ss58),
+                stake_hotkey=target,
             )
         )
 

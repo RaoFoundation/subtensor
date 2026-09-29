@@ -8,6 +8,7 @@ description: "Claim a miner's equal alpha rewards into the coldkey's staking pos
 The destination hotkey must already be a staking account. The claiming coldkey
 owns the resulting alpha; using one destination consolidates many mining keys.
 Omit stake_hotkey to use the subnet owner's hotkey. Claims also work in Yuma mode.
+Pass hotkey_ss58 when using a proxy or an account without a wallet hotkey.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
@@ -19,6 +20,7 @@ Omit stake_hotkey to use the subnet owner's hotkey. Claims also work in Yuma mod
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet whose equal-emission rewards to claim. |
 | `stake_hotkey` | string | no | Existing staking hotkey; defaults to subnet owner hotkey. |
+| `hotkey_ss58` | string | no | Miner hotkey; defaults to wallet hotkey. Required for proxy calls. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.

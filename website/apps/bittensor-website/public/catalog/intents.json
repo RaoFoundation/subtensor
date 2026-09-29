@@ -513,7 +513,7 @@
   {
     "name": "claim_null_rewards",
     "summary": "Claim a miner's equal alpha rewards into the coldkey's staking position.",
-    "description": "Claim a miner's equal alpha rewards into the coldkey's staking position.\n\nThe destination hotkey must already be a staking account. The claiming coldkey\nowns the resulting alpha; using one destination consolidates many mining keys.\nOmit stake_hotkey to use the subnet owner's hotkey. Claims also work in Yuma mode.",
+    "description": "Claim a miner's equal alpha rewards into the coldkey's staking position.\n\nThe destination hotkey must already be a staking account. The claiming coldkey\nowns the resulting alpha; using one destination consolidates many mining keys.\nOmit stake_hotkey to use the subnet owner's hotkey. Claims also work in Yuma mode.\nPass hotkey_ss58 when using a proxy or an account without a wallet hotkey.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -534,6 +534,10 @@
         "stake_hotkey": {
           "type": "string",
           "description": "Existing staking hotkey; defaults to subnet owner hotkey."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Miner hotkey; defaults to wallet hotkey. Required for proxy calls."
         }
       },
       "required": [
@@ -1924,8 +1928,8 @@
   },
   {
     "name": "pow_register",
-    "summary": "Solve fresh PoW and register the wallet hotkey on a null subnet.",
-    "description": "Solve fresh PoW and register the wallet hotkey on a null subnet.\n\nSigned by the coldkey; no burn or collateral is charged. Normal transaction\nfees apply. Work is refreshed as the head advances, with a bounded timeout.\nSigned nonempty work binds PoW-only admission: disabling null consensus before\ninclusion rejects the request instead of converting it to paid registration.\nIf signing takes longer than the chain's three-block work window, retry.",
+    "summary": "Solve fresh PoW and register a miner hotkey on a null subnet.",
+    "description": "Solve fresh PoW and register a miner hotkey on a null subnet.\n\nSigned by the coldkey; no burn or collateral is charged. Normal transaction\nfees apply. Work is refreshed as the head advances, with a bounded timeout.\nSigned nonempty work binds PoW-only admission: disabling null consensus before\ninclusion rejects the request instead of converting it to paid registration.\nIf signing takes longer than the chain's three-block work window, retry.\nPass hotkey_ss58 when using a proxy or an account without a wallet hotkey.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1946,6 +1950,10 @@
         "timeout_seconds": {
           "type": "integer",
           "description": "Maximum time to solve work."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Miner hotkey; defaults to wallet hotkey. Required for proxy calls."
         }
       },
       "required": [
