@@ -237,6 +237,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 194): ErrorInfo('SubtensorModule', 'NullConsensusHasNoValidators', 'Equal-emission null mode has no validators or validator voting power.'),
     (7, 195): ErrorInfo('SubtensorModule', 'NullMinerNotRegistered', 'This mining identity has not registered in the null miner registry.'),
     (7, 196): ErrorInfo('SubtensorModule', 'NullRewardsNotAvailable', 'No whole alpha rao is currently claimable; fractional rewards remain accrued.'),
+    (7, 197): ErrorInfo('SubtensorModule', 'NullConsensusPendingWeightCommits', 'Pending encrypted Yuma submissions must reveal before enabling null consensus.'),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),

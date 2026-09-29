@@ -706,3 +706,222 @@ fn null_hotkey_swap_follows_coldkey_lineage() {
         assert_ok!(claim(net, 902, 903));
     });
 }
+
+#[test]
+fn null_rotation_does_not_depend_on_global_staking_ownership() {
+    for all_subnets in [false, true] {
+        for squatted in [false, true] {
+            for paused in [false, true] {
+                new_test_ext(1).execute_with(|| {
+                    let net = setup(1);
+                    let old = U256::from(900);
+                    let new = U256::from(902);
+                    let cold = U256::from(901);
+                    let third_party = U256::from(999);
+                    assert_ok!(register(net, 900, 901));
+                    assert!(!Owner::<Test>::contains_key(old));
+                    assert!(OwnedHotkeys::<Test>::get(cold).is_empty());
+                    if squatted {
+                        assert_ok!(SubtensorModule::do_try_associate_hotkey(&third_party, &old));
+                        assert_ok!(SubtensorModule::do_try_associate_hotkey(&third_party, &new));
+                        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                            &old,
+                            &third_party,
+                            net,
+                            10u64.into(),
+                        );
+                        // A third party's Yuma association cannot confer null serving rights.
+                        SubtensorModule::append_neuron(net, &old, 1);
+                    }
+                    let ownership = (
+                        Owner::<Test>::get(old),
+                        Owner::<Test>::get(new),
+                        OwnedHotkeys::<Test>::get(third_party),
+                        StakingHotkeys::<Test>::get(third_party),
+                    );
+                    let stake = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &old,
+                        &third_party,
+                        net,
+                    );
+                    ServingRateLimit::<Test>::insert(net, 0);
+                    let serve = |hotkey| {
+                        SubtensorModule::do_serve_axon(
+                            RuntimeOrigin::signed(hotkey),
+                            net,
+                            1,
+                            0x08080808,
+                            8080,
+                            4,
+                            0,
+                            0,
+                            0,
+                            Some(b"CERT".to_vec()),
+                        )
+                    };
+                    assert_ok!(serve(old));
+                    let old_axon = Axons::<Test>::get(net, old);
+                    SubtensorModule::accrue_null_rewards(net, 200u64.into());
+                    if paused {
+                        assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+                    }
+                    add_balance_to_coldkey_account(&cold, 1_000_000_000_000u64.into());
+                    assert_ok!(SubtensorModule::do_swap_hotkey(
+                        RuntimeOrigin::signed(cold),
+                        &old,
+                        &new,
+                        if all_subnets { None } else { Some(net) },
+                        false,
+                    ));
+                    assert_eq!(
+                        ownership,
+                        (
+                            Owner::<Test>::get(old),
+                            Owner::<Test>::get(new),
+                            OwnedHotkeys::<Test>::get(third_party),
+                            StakingHotkeys::<Test>::get(third_party)
+                        )
+                    );
+                    assert_eq!(
+                        SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                            &old,
+                            &third_party,
+                            net
+                        ),
+                        stake
+                    );
+                    if squatted {
+                        assert_eq!(Axons::<Test>::get(net, old), old_axon);
+                    }
+                    assert_eq!(NullMinerCount::<Test>::get(net), 2);
+                    assert_eq!(NullMinerKeys::<Test>::get(net, 1), Some(new));
+                    assert!(!NullMiners::<Test>::contains_key(net, old));
+                    assert!(NeuronCertificates::<Test>::contains_key(net, new));
+                    assert_eq!(pending(net, 902), 100);
+                    assert_ok!(claim(net, 902, 901));
+                    assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
+                    assert_noop!(serve(old), Error::<Test>::HotKeyNotRegisteredInNetwork);
+                    assert_ok!(serve(new));
+                });
+            }
+        }
+    }
+}
+
+#[test]
+fn null_rotation_after_coldkey_swap_needs_no_global_association() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(1);
+        assert_ok!(register(net, 900, 901));
+        let successor = U256::from(903);
+        SubtensorModule::record_coldkey_swap_lineage(&U256::from(901), &successor);
+        assert_ok!(SubtensorModule::do_try_associate_hotkey(
+            &U256::from(999),
+            &U256::from(900)
+        ));
+        add_balance_to_coldkey_account(&successor, 1_000_000_000_000u64.into());
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(successor),
+            &U256::from(900),
+            &U256::from(902),
+            Some(net),
+            true
+        ));
+        assert_eq!(
+            NullMiners::<Test>::get(net, U256::from(902)).unwrap().0,
+            successor
+        );
+    });
+}
+
+#[test]
+fn null_rotation_rolls_back_all_subnets_when_one_belongs_to_another_owner() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(1);
+        assert_ok!(register(net, 900, 901));
+        let other = NetUid::from(2);
+        let old = U256::from(900);
+        let cold = U256::from(901);
+        SubtensorModule::init_new_network(other, 360);
+        assert_ok!(SubtensorModule::do_set_null_consensus(other, true));
+        assert_ok!(SubtensorModule::enroll_null_miner(
+            other,
+            &old,
+            &U256::from(999)
+        ));
+        add_balance_to_coldkey_account(&cold, 1_000_000_000_000u64.into());
+        assert_noop!(
+            SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(cold),
+                &old,
+                &U256::from(902),
+                None,
+                false
+            ),
+            Error::<Test>::NonAssociatedColdKey
+        );
+    });
+}
+
+#[test]
+fn null_mode_does_not_consume_preexisting_encrypted_queues() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(1);
+        let index = SubtensorModule::get_mechanism_storage_index(net, 0.into());
+        let commits = std::collections::VecDeque::from([(
+            U256::from(1),
+            1,
+            vec![1, 2, 3].try_into().unwrap(),
+            1000,
+        )]);
+        TimelockedWeightCommits::<Test>::insert(index, 0, &commits);
+        System::set_block_number(100_000);
+        assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(net));
+        assert_eq!(TimelockedWeightCommits::<Test>::get(index, 0), commits);
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+        assert_noop!(
+            SubtensorModule::do_set_null_consensus(net, true),
+            Error::<Test>::NullConsensusPendingWeightCommits
+        );
+    });
+}
+
+#[test]
+fn null_rotation_cannot_overwrite_a_yuma_destination() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(1);
+        assert_ok!(register(net, 900, 901));
+        let new = U256::from(902);
+        SubtensorModule::append_neuron(net, &new, 1);
+        let cold = U256::from(901);
+        add_balance_to_coldkey_account(&cold, 1_000_000_000_000u64.into());
+        assert_noop!(
+            SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(cold),
+                &U256::from(900),
+                &new,
+                Some(net),
+                false
+            ),
+            Error::<Test>::HotKeyAlreadyRegisteredInSubNet
+        );
+    });
+}
+
+#[test]
+fn null_rotation_without_swap_funds_rolls_back_registry_and_endpoints() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(1);
+        assert_ok!(register(net, 900, 901));
+        assert_noop!(
+            SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(U256::from(901)),
+                &U256::from(900),
+                &U256::from(902),
+                Some(net),
+                false
+            ),
+            Error::<Test>::NotEnoughBalanceToPaySwapHotKey
+        );
+    });
+}

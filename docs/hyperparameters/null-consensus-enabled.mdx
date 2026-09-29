@@ -1,23 +1,28 @@
 ---
 title: "null_consensus_enabled"
-description: "Switch an existing subnet between Yuma and miner-only mean scoring."
+description: "Switch an existing subnet between Yuma and equal miner emissions without epochs."
 ---
 
 New subnets start with Yuma 3 and this flag disabled. The owner or root can toggle
 `null_consensus_enabled` through `AdminUtils.sudo_set_null_consensus_enabled`.
-Other hyperparameters and registered miners are preserved.
+Other hyperparameters and both miner registries are preserved.
 
 ```bash
 btcli hparams set --netuid 123 --name null_consensus_enabled --value true
 btcli hparams set --netuid 123 --name null_consensus_enabled --value false
 ```
 
-Null consensus uses equally averaged normalized u32 scores and pays miners only
-after the owner cut. Yuma weights, bonds, and commit-reveal configuration remain
-stored but are unused while null consensus is active. Disabling resumes the
-configured Yuma version. The usual admin freeze and owner rate limits apply.
+Null consensus pays every registered null miner equally after the owner cut,
+without weights, bonds, or epochs. Yuma weights and commit-reveal configuration
+remain stored. Disabling null mode resumes the configured Yuma version.
+Owner rate limits apply in both modes; the epoch freeze window applies only in Yuma.
 
-Null consensus requires one mechanism. Disabling requires the registered UID
-count and `max_allowed_uids` to fit Yuma's normal capacity; no miners are pruned
-by the toggle. See [null-consensus subnets](/guides/null-consensus) for capacity
-limits, PoW miner admission, score submission, and configuration details.
+Enabling requires one mechanism and no pending encrypted Yuma submissions.
+`NullConsensusPendingWeightCommits` means those submissions must finish revealing
+first. If validators keep replenishing the queue, disable
+`commit_reveal_weights_enabled`, wait for outstanding reveals, and retry the
+null toggle. The toggle itself never changes that hyperparameter.
+
+The initial Yuma metagraph import must fit its normal capacity. The independent
+null registry uses `u64` identifiers, and its population does not prevent
+switching back to Yuma. See [null-consensus subnets](/guides/null-consensus).

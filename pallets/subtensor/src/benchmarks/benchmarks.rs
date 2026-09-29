@@ -3084,6 +3084,35 @@ mod pallet_benchmarks {
         );
     }
 
+    #[benchmark(extra)]
+    fn swap_null_hotkey() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let old: T::AccountId = account("null_old", 0, 0);
+        let new: T::AccountId = account("null_new", 0, 0);
+        let squatter: T::AccountId = account("squatter", 0, 0);
+        Owner::<T>::insert(&old, squatter);
+        for n in 1..=GLOBAL_MAX_SUBNET_COUNT {
+            let netuid = NetUid::from(n);
+            Subtensor::<T>::init_new_network(netuid, 360);
+            seed_null_swap_miner::<T>(netuid, &old, &coldkey);
+        }
+        let cost = Subtensor::<T>::get_key_swap_cost();
+        add_balance_to_coldkey_account::<T>(
+            &coldkey,
+            cost + <T as pallet_balances::Config>::ExistentialDeposit::get(),
+        );
+        #[extrinsic_call]
+        swap_hotkey_v2(
+            RawOrigin::Signed(coldkey),
+            old.clone(),
+            new.clone(),
+            None,
+            false,
+        );
+        assert!(!NullMiners::<T>::contains_key(NetUid::from(1), old));
+        assert!(NullMiners::<T>::contains_key(NetUid::from(1), new));
+    }
+
     #[benchmark]
     fn swap_hotkey_v2() {
         let coldkey: T::AccountId = whitelisted_caller();

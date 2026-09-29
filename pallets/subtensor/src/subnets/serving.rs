@@ -273,9 +273,11 @@ impl<T: Config> Pallet<T> {
     ) -> Result<(), Error<T>> {
         // Ensure the hotkey is registered on the subnet it is serving.
         ensure!(
-            (Self::is_hotkey_registered_on_network(netuid, hotkey_id)
-                || (NullConsensus::<T>::get(netuid)
-                    && NullMiners::<T>::contains_key(netuid, hotkey_id))),
+            if NullConsensus::<T>::get(netuid) {
+                NullMiners::<T>::contains_key(netuid, hotkey_id)
+            } else {
+                Self::is_hotkey_registered_on_network(netuid, hotkey_id)
+            },
             Error::<T>::HotKeyNotRegisteredInNetwork
         );
 
@@ -330,9 +332,11 @@ impl<T: Config> Pallet<T> {
         );
 
         ensure!(
-            (Self::is_hotkey_registered_on_network(netuid, hotkey_id)
-                || (NullConsensus::<T>::get(netuid)
-                    && NullMiners::<T>::contains_key(netuid, hotkey_id))),
+            if NullConsensus::<T>::get(netuid) {
+                NullMiners::<T>::contains_key(netuid, hotkey_id)
+            } else {
+                Self::is_hotkey_registered_on_network(netuid, hotkey_id)
+            },
             Error::<T>::HotKeyNotRegisteredInNetwork
         );
 

@@ -460,5 +460,7 @@ mod errors {
         NullMinerNotRegistered,
         /// No whole alpha rao is currently claimable; fractional rewards remain accrued.
         NullRewardsNotAvailable,
+        /// Pending encrypted Yuma submissions must reveal before enabling null consensus.
+        NullConsensusPendingWeightCommits,
     }
 }

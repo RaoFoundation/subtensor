@@ -37,6 +37,11 @@ pub struct LegacyWeightsTlockPayload {
 impl<T: Config> Pallet<T> {
     /// The `reveal_crv3_commits` function is run at the very beginning of epoch `n`,
     pub fn reveal_crv3_commits_for_subnet(netuid: NetUid) -> dispatch::DispatchResult {
+        // Null mode has no Yuma epochs. Do not consume paused submissions,
+        // including any retained by a runtime predating the transition guard.
+        if NullConsensus::<T>::get(netuid) {
+            return Ok(());
+        }
         let reveal_period = Self::get_reveal_period(netuid);
         // If the subnet is deferred past this block the
         // commits are taken once here and the later block(s) become no-ops.

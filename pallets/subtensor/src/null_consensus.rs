@@ -28,6 +28,16 @@ impl<T: Config> Pallet<T> {
                 MechanismCountCurrent::<T>::get(netuid) == MechId::from(1),
                 Error::<T>::NullConsensusRequiresSingleMechanism
             );
+            // Accepted encrypted submissions must finish in Yuma before its
+            // epoch clock stops. Otherwise they can be discarded or outlive
+            // drand pulse retention while the subnet is paused.
+            let index = Self::get_mechanism_storage_index(netuid, MechId::MAIN);
+            ensure!(
+                TimelockedWeightCommits::<T>::iter_key_prefix(index)
+                    .next()
+                    .is_none(),
+                Error::<T>::NullConsensusPendingWeightCommits
+            );
             // Import the bounded Yuma metagraph once. Subsequent toggles never
             // enumerate the independent, potentially enormous miner registry.
             if !NullMinerCount::<T>::contains_key(netuid) {
@@ -106,6 +116,136 @@ impl<T: Config> Pallet<T> {
             coldkey: coldkey.clone(),
         });
         Ok(())
+    }
+
+    /// Rotate only null identities when the caller has no global staking
+    /// association. Never touch another coldkey's staking ownership or balances.
+    #[frame_support::transactional]
+    pub(crate) fn swap_null_hotkey(
+        coldkey: &T::AccountId,
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+        netuid: Option<NetUid>,
+    ) -> DispatchResult {
+        ensure!(old_hotkey != new_hotkey, Error::<T>::NewHotKeyIsSameWithOld);
+        ensure!(
+            Self::is_subnet_account_id(new_hotkey).is_none(),
+            Error::<T>::CannotUseSystemAccount
+        );
+        let subnets = if let Some(netuid) = netuid {
+            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+            vec![netuid]
+        } else {
+            Self::get_all_subnet_netuids()
+                .into_iter()
+                .filter(|netuid| NullMiners::<T>::contains_key(netuid, old_hotkey))
+                .collect()
+        };
+        ensure!(!subnets.is_empty(), Error::<T>::NonAssociatedColdKey);
+        let block = Self::get_current_block_as_u64();
+        let mut weight = Weight::zero();
+        for subnet in subnets {
+            let last = LastHotkeySwapOnNetuid::<T>::get(subnet, coldkey);
+            ensure!(
+                last == 0 || last.saturating_add(T::HotkeySwapOnSubnetInterval::get()) < block,
+                Error::<T>::HotKeySwapOnSubnetIntervalNotPassed
+            );
+            ensure!(
+                Self::swap_null_miner(subnet, old_hotkey, new_hotkey, coldkey, true, &mut weight)?,
+                Error::<T>::NonAssociatedColdKey
+            );
+            Self::record_hotkey_swap_on_netuid(
+                subnet,
+                coldkey,
+                old_hotkey,
+                new_hotkey,
+                block,
+                &mut weight,
+            );
+        }
+        let cost = if netuid.is_some() {
+            T::KeySwapOnSubnetCost::get()
+        } else {
+            Self::get_key_swap_cost().into()
+        };
+        ensure!(
+            Self::can_remove_balance_from_coldkey_account(coldkey, cost),
+            Error::<T>::NotEnoughBalanceToPaySwapHotKey
+        );
+        Self::recycle_tao(coldkey, cost)?;
+        if let Some(netuid) = netuid {
+            Self::deposit_event(Event::HotkeySwappedOnSubnet {
+                coldkey: coldkey.clone(),
+                old_hotkey: old_hotkey.clone(),
+                new_hotkey: new_hotkey.clone(),
+                netuid,
+            });
+        } else {
+            Self::deposit_event(Event::HotkeySwapped {
+                coldkey: coldkey.clone(),
+                old_hotkey: old_hotkey.clone(),
+                new_hotkey: new_hotkey.clone(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Move one null identity and its endpoints, with bounded owner resolution.
+    /// The caller must wrap this in a storage transaction.
+    pub(crate) fn swap_null_miner(
+        netuid: NetUid,
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        preserve_yuma: bool,
+        weight: &mut Weight,
+    ) -> Result<bool, DispatchError> {
+        weight.saturating_accrue(T::DbWeight::get().reads(1));
+        let Some((owner, checkpoint)) = NullMiners::<T>::get(netuid, old_hotkey) else {
+            return Ok(false);
+        };
+        ensure!(
+            !NullMiners::<T>::contains_key(netuid, new_hotkey)
+                && !Self::is_hotkey_registered_on_network(netuid, new_hotkey),
+            Error::<T>::HotKeyAlreadyRegisteredInSubNet
+        );
+        let uid = NullMinerUids::<T>::get(netuid, old_hotkey)
+            .ok_or(Error::<T>::NullMinerNotRegistered)?;
+        let (owner, resolved) =
+            Self::refresh_null_miner_owner(netuid, old_hotkey, owner, checkpoint);
+        ensure!(
+            resolved && owner == *coldkey,
+            Error::<T>::NonAssociatedColdKey
+        );
+        let generation = NullMinerOwnerGeneration::<T>::take(netuid, old_hotkey);
+        NullMiners::<T>::remove(netuid, old_hotkey);
+        NullMiners::<T>::insert(netuid, new_hotkey, (owner, checkpoint));
+        NullMinerUids::<T>::remove(netuid, old_hotkey);
+        NullMinerUids::<T>::insert(netuid, new_hotkey, uid);
+        NullMinerKeys::<T>::insert(netuid, uid, new_hotkey);
+        NullMinerOwnerGeneration::<T>::insert(netuid, new_hotkey, generation);
+        weight.saturating_accrue(T::DbWeight::get().reads_writes(68, 9));
+        // A null-only rotation must preserve another staking identity's Yuma
+        // endpoints. Copy them in that case; only null membership changes.
+        let retains_yuma =
+            preserve_yuma && Self::is_hotkey_registered_on_network(netuid, old_hotkey);
+        weight.saturating_accrue(T::DbWeight::get().reads(5));
+        if let Some(value) = Axons::<T>::get(netuid, old_hotkey) {
+            Axons::<T>::insert(netuid, new_hotkey, value);
+        }
+        if let Some(value) = Prometheus::<T>::get(netuid, old_hotkey) {
+            Prometheus::<T>::insert(netuid, new_hotkey, value);
+        }
+        if let Some(value) = NeuronCertificates::<T>::get(netuid, old_hotkey) {
+            NeuronCertificates::<T>::insert(netuid, new_hotkey, value);
+        }
+        if !retains_yuma {
+            Axons::<T>::remove(netuid, old_hotkey);
+            Prometheus::<T>::remove(netuid, old_hotkey);
+            NeuronCertificates::<T>::remove(netuid, old_hotkey);
+        }
+        weight.saturating_accrue(T::DbWeight::get().writes(6));
+        Ok(true)
     }
 
     /// Domain-separate work by subnet generation and recipient. A mempool observer

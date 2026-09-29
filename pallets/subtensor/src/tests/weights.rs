@@ -6052,6 +6052,20 @@ fn test_reveal_crv3_commits_legacy_payload_success() {
             SubtensorModule::get_commit_reveal_weights_version()
         ));
 
+        // Switching must not strand or discard this accepted encrypted submission.
+        let queued = TimelockedWeightCommits::<Test>::iter_prefix(NetUidStorageIndex::from(netuid))
+            .collect::<Vec<_>>();
+        frame_support::assert_noop!(
+            SubtensorModule::do_set_null_consensus(netuid, true),
+            Error::<Test>::NullConsensusPendingWeightCommits
+        );
+        assert!(!NullConsensus::<Test>::get(netuid));
+        assert_eq!(
+            TimelockedWeightCommits::<Test>::iter_prefix(NetUidStorageIndex::from(netuid))
+                .collect::<Vec<_>>(),
+            queued
+        );
+
         // insert pulse so reveal can succeed the first time
         let sig_bytes = hex::decode(
             "b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e3\
@@ -6096,6 +6110,14 @@ fn test_reveal_crv3_commits_legacy_payload_success() {
             TimelockedWeightCommits::<Test>::get(NetUidStorageIndex::from(netuid), commit_epoch)
                 .is_empty(),
             "commit storage should be cleaned after reveal"
+        );
+        let revealed = Weights::<Test>::get(NetUidStorageIndex::from(netuid), uid1);
+        assert_ok!(SubtensorModule::do_set_null_consensus(netuid, true));
+        step_block(100);
+        assert_ok!(SubtensorModule::do_set_null_consensus(netuid, false));
+        assert_eq!(
+            Weights::<Test>::get(NetUidStorageIndex::from(netuid), uid1),
+            revealed
         );
     });
 }
