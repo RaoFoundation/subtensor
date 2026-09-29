@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
-    "NullConsensusPendingWeightCommits": (
-        "Wait for pending encrypted Yuma submissions to reveal before enabling null consensus. "
-        "To drain a continuously replenished queue, disable commit_reveal_weights_enabled first."
-    ),
     "NullConsensusYumaCapacityExceeded": (
         "The initial Yuma metagraph exceeds its normal import bound. Null miner capacity is "
         "independent; existing null miners never prevent switching back to Yuma."

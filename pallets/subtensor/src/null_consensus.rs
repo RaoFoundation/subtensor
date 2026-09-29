@@ -28,16 +28,6 @@ impl<T: Config> Pallet<T> {
                 MechanismCountCurrent::<T>::get(netuid) == MechId::from(1),
                 Error::<T>::NullConsensusRequiresSingleMechanism
             );
-            // Accepted encrypted submissions must finish in Yuma before its
-            // epoch clock stops. Otherwise they can be discarded or outlive
-            // drand pulse retention while the subnet is paused.
-            let index = Self::get_mechanism_storage_index(netuid, MechId::MAIN);
-            ensure!(
-                TimelockedWeightCommits::<T>::iter_key_prefix(index)
-                    .next()
-                    .is_none(),
-                Error::<T>::NullConsensusPendingWeightCommits
-            );
             // Import the bounded Yuma metagraph once. Subsequent toggles never
             // enumerate the independent, potentially enormous miner registry.
             if !NullMinerCount::<T>::contains_key(netuid) {
@@ -53,6 +43,11 @@ impl<T: Config> Pallet<T> {
             }
         }
         if enabled {
+            // Cancel pending encrypted Yuma submissions only after enable checks
+            // succeed. Delete epoch buckets without decoding their ciphertexts;
+            // returning to Yuma must never replay these cancelled submissions.
+            let index = Self::get_mechanism_storage_index(netuid, MechId::MAIN);
+            let _ = TimelockedWeightCommits::<T>::clear_prefix(index, u32::MAX, None);
             Self::update_voting_power_from_epoch(
                 netuid,
                 Keys::<T>::iter_prefix(netuid)
@@ -132,13 +127,17 @@ impl<T: Config> Pallet<T> {
             Self::is_subnet_account_id(new_hotkey).is_none(),
             Error::<T>::CannotUseSystemAccount
         );
+        // As with a Yuma swap, a foreign staking owner reserves the destination.
+        if let Ok(owner) = Owner::<T>::try_get(new_hotkey) {
+            ensure!(owner == *coldkey, Error::<T>::NonAssociatedColdKey);
+        }
         let subnets = if let Some(netuid) = netuid {
             ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
             vec![netuid]
         } else {
             Self::get_all_subnet_netuids()
                 .into_iter()
-                .filter(|netuid| NullMiners::<T>::contains_key(netuid, old_hotkey))
+                .filter(|netuid| Self::owns_null_miner(*netuid, old_hotkey, coldkey))
                 .collect()
         };
         ensure!(!subnets.is_empty(), Error::<T>::NonAssociatedColdKey);
@@ -204,6 +203,14 @@ impl<T: Config> Pallet<T> {
         let Some((owner, checkpoint)) = NullMiners::<T>::get(netuid, old_hotkey) else {
             return Ok(false);
         };
+        // Independent null registrations can belong to different coldkeys.
+        // A foreign row must neither move nor veto the staking owner's swap.
+        let (owner, generation, resolved) =
+            Self::resolve_null_miner_owner(netuid, old_hotkey, owner);
+        weight.saturating_accrue(T::DbWeight::get().reads(65));
+        if !resolved || owner != *coldkey {
+            return Ok(false);
+        }
         ensure!(
             !NullMiners::<T>::contains_key(netuid, new_hotkey)
                 && !Self::is_hotkey_registered_on_network(netuid, new_hotkey),
@@ -211,20 +218,14 @@ impl<T: Config> Pallet<T> {
         );
         let uid = NullMinerUids::<T>::get(netuid, old_hotkey)
             .ok_or(Error::<T>::NullMinerNotRegistered)?;
-        let (owner, resolved) =
-            Self::refresh_null_miner_owner(netuid, old_hotkey, owner, checkpoint);
-        ensure!(
-            resolved && owner == *coldkey,
-            Error::<T>::NonAssociatedColdKey
-        );
-        let generation = NullMinerOwnerGeneration::<T>::take(netuid, old_hotkey);
+        NullMinerOwnerGeneration::<T>::remove(netuid, old_hotkey);
         NullMiners::<T>::remove(netuid, old_hotkey);
         NullMiners::<T>::insert(netuid, new_hotkey, (owner, checkpoint));
         NullMinerUids::<T>::remove(netuid, old_hotkey);
         NullMinerUids::<T>::insert(netuid, new_hotkey, uid);
         NullMinerKeys::<T>::insert(netuid, uid, new_hotkey);
         NullMinerOwnerGeneration::<T>::insert(netuid, new_hotkey, generation);
-        weight.saturating_accrue(T::DbWeight::get().reads_writes(68, 9));
+        weight.saturating_accrue(T::DbWeight::get().reads_writes(3, 7));
         // A null-only rotation must preserve another staking identity's Yuma
         // endpoints. Copy them in that case; only null membership changes.
         let retains_yuma =
@@ -355,28 +356,47 @@ impl<T: Config> Pallet<T> {
         NullUnclaimedAlpha::<T>::mutate(netuid, |value| *value = value.saturating_add(budget));
     }
 
+    /// Read-only ownership check, including bounded coldkey succession.
+    pub(crate) fn owns_null_miner(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) -> bool {
+        NullMiners::<T>::get(netuid, hotkey).is_some_and(|(owner, _)| {
+            let (owner, _, resolved) = Self::resolve_null_miner_owner(netuid, hotkey, owner);
+            resolved && owner == *coldkey
+        })
+    }
+
+    fn resolve_null_miner_owner(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        mut owner: T::AccountId,
+    ) -> (T::AccountId, u128, bool) {
+        let mut generation = NullMinerOwnerGeneration::<T>::get(netuid, hotkey);
+        for _ in 0..64 {
+            let Some((next, next_generation)) = NullColdkeySuccessor::<T>::get(&owner, generation)
+            else {
+                return (owner, generation, true);
+            };
+            owner = next;
+            generation = next_generation;
+        }
+        (owner, generation, false)
+    }
+
     /// Resolve at most 64 coldkey swaps. Longer histories are advanced by
     /// repeated calls, never by an unbounded walk or a population-wide rewrite.
     pub(crate) fn refresh_null_miner_owner(
         netuid: NetUid,
         hotkey: &T::AccountId,
-        mut owner: T::AccountId,
+        owner: T::AccountId,
         checkpoint: U256,
     ) -> (T::AccountId, bool) {
-        let mut generation = NullMinerOwnerGeneration::<T>::get(netuid, hotkey);
-        for _ in 0..64 {
-            let Some((next, next_generation)) = NullColdkeySuccessor::<T>::get(&owner, generation)
-            else {
-                NullMiners::<T>::insert(netuid, hotkey, (&owner, checkpoint));
-                NullMinerOwnerGeneration::<T>::insert(netuid, hotkey, generation);
-                return (owner, true);
-            };
-            owner = next;
-            generation = next_generation;
-        }
+        let (owner, generation, resolved) = Self::resolve_null_miner_owner(netuid, hotkey, owner);
         NullMiners::<T>::insert(netuid, hotkey, (&owner, checkpoint));
         NullMinerOwnerGeneration::<T>::insert(netuid, hotkey, generation);
-        (owner, false)
+        (owner, resolved)
     }
 
     #[frame_support::transactional]

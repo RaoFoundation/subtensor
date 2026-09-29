@@ -1213,7 +1213,7 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_null_consensus_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
-        'Enables or disables null consensus without changing other hyperparameters. New subnets start in Yuma 3; the owner/root may toggle populated subnets.'
+        'Enables or disables null consensus without changing other hyperparameters. New subnets start in Yuma 3; the owner/root may toggle populated subnets. Enabling cancels pending encrypted Yuma submissions.'
         return Call('AdminUtils', 'sudo_set_null_consensus_enabled', {'netuid': netuid, 'enabled': enabled})
 
     @staticmethod

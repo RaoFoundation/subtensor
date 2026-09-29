@@ -4331,24 +4331,6 @@
         }
       ]
     },
-    "NullConsensusPendingWeightCommits": {
-      "code": "too_early",
-      "description": "Wait for pending encrypted Yuma submissions to reveal before enabling null consensus. To drain a continuously replenished queue, disable commit_reveal_weights_enabled first.",
-      "docs_url": "/docs/errors/chain/NullConsensusPendingWeightCommits",
-      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusPendingWeightCommits/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 464,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L464",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
     "NullConsensusPowRegistrationDisabled": {
       "code": "disabled",
       "description": "PoW registration is paused on this null-consensus subnet. Ask the owner to enable NetworkPowRegistrationAllowed before retrying.",

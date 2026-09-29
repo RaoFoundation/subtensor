@@ -108,7 +108,6 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidWorkBlock": _C.INVALID_ARGUMENT,
     "InvalidDifficulty": _C.INVALID_ARGUMENT,
     "NullConsensusYumaCapacityExceeded": _C.LIMIT_EXCEEDED,
-    "NullConsensusPendingWeightCommits": _C.TOO_EARLY,
     "NullConsensusHasNoWeights": _C.INVALID_ARGUMENT,
     "NullConsensusHasNoValidators": _C.INVALID_ARGUMENT,
     "NullMinerNotRegistered": _C.INVALID_ARGUMENT,

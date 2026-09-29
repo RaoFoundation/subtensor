@@ -17,11 +17,11 @@ without weights, bonds, or epochs. Yuma weights and commit-reveal configuration
 remain stored. Disabling null mode resumes the configured Yuma version.
 Owner rate limits apply in both modes; the epoch freeze window applies only in Yuma.
 
-Enabling requires one mechanism and no pending encrypted Yuma submissions.
-`NullConsensusPendingWeightCommits` means those submissions must finish revealing
-first. If validators keep replenishing the queue, disable
-`commit_reveal_weights_enabled`, wait for outstanding reveals, and retry the
-null toggle. The toggle itself never changes that hyperparameter.
+Enabling requires one mechanism and deletes all pending encrypted Yuma
+submissions for the subnet. These submissions are not restored when null mode
+is disabled; validators must submit new weights after returning to Yuma.
+Already published weights and the `commit_reveal_weights_enabled` hyperparameter
+remain unchanged.
 
 The initial Yuma metagraph import must fit its normal capacity. The independent
 null registry uses `u64` identifiers, and its population does not prevent

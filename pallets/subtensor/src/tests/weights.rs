@@ -5958,6 +5958,15 @@ fn test_reveal_crv3_commits_retry_on_missing_pulse() {
 
 #[test]
 fn test_reveal_crv3_commits_legacy_payload_success() {
+    check_legacy_payload_reveal(false);
+}
+
+#[test]
+fn test_null_toggle_cancels_encrypted_payload_before_reveal() {
+    check_legacy_payload_reveal(true);
+}
+
+fn check_legacy_payload_reveal(cancel: bool) {
     new_test_ext(100).execute_with(|| {
         // ─────────────────────────────────────
         // 1 ▸ network + neurons
@@ -6052,19 +6061,21 @@ fn test_reveal_crv3_commits_legacy_payload_success() {
             SubtensorModule::get_commit_reveal_weights_version()
         ));
 
-        // Switching must not strand or discard this accepted encrypted submission.
-        let queued = TimelockedWeightCommits::<Test>::iter_prefix(NetUidStorageIndex::from(netuid))
-            .collect::<Vec<_>>();
-        frame_support::assert_noop!(
-            SubtensorModule::do_set_null_consensus(netuid, true),
-            Error::<Test>::NullConsensusPendingWeightCommits
-        );
-        assert!(!NullConsensus::<Test>::get(netuid));
-        assert_eq!(
-            TimelockedWeightCommits::<Test>::iter_prefix(NetUidStorageIndex::from(netuid))
-                .collect::<Vec<_>>(),
-            queued
-        );
+        if cancel {
+            assert!(
+                TimelockedWeightCommits::<Test>::iter_key_prefix(NetUidStorageIndex::from(netuid))
+                    .next()
+                    .is_some()
+            );
+            assert_ok!(SubtensorModule::do_set_null_consensus(netuid, true));
+            assert!(
+                TimelockedWeightCommits::<Test>::iter_key_prefix(NetUidStorageIndex::from(netuid))
+                    .next()
+                    .is_none()
+            );
+            step_block(100);
+            assert_ok!(SubtensorModule::do_set_null_consensus(netuid, false));
+        }
 
         // insert pulse so reveal can succeed the first time
         let sig_bytes = hex::decode(
@@ -6097,6 +6108,15 @@ fn test_reveal_crv3_commits_legacy_payload_success() {
             .get(uid1 as usize)
             .cloned()
             .unwrap_or_default();
+        if cancel {
+            assert!(w1.is_empty(), "cancelled weights must never be published");
+            assert!(
+                TimelockedWeightCommits::<Test>::iter_key_prefix(NetUidStorageIndex::from(netuid))
+                    .next()
+                    .is_none()
+            );
+            return;
+        }
         assert!(!w1.is_empty(), "weights must be set for uid1");
 
         // find raw values for uid1 & uid2

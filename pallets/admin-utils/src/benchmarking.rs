@@ -750,8 +750,25 @@ mod benchmarks {
             pallet_subtensor::Owner::<T>::insert(&hotkey, &owner);
             pallet_subtensor::Pallet::<T>::append_neuron(netuid, &hotkey, 1);
         }
+        let index = pallet_subtensor::Pallet::<T>::get_mechanism_storage_index(netuid, 0.into());
+        let commits = alloc::collections::VecDeque::from([(
+            owner.clone(),
+            1,
+            vec![0; pallet_subtensor::MAX_CRV3_COMMIT_SIZE_BYTES as usize]
+                .try_into()
+                .unwrap(),
+            1000,
+        )]);
+        for epoch in 0..pallet_subtensor::MAX_COMMIT_REVEAL_PEROIDS.saturating_add(2) {
+            pallet_subtensor::TimelockedWeightCommits::<T>::insert(index, epoch, &commits);
+        }
         #[extrinsic_call]
         _(RawOrigin::Signed(owner), netuid, true);
+        assert!(
+            pallet_subtensor::TimelockedWeightCommits::<T>::iter_key_prefix(index)
+                .next()
+                .is_none()
+        );
         assert!(pallet_subtensor::NullConsensus::<T>::get(netuid));
         assert_eq!(
             pallet_subtensor::NullMinerUids::<T>::iter_prefix(netuid).count(),

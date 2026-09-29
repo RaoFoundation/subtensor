@@ -33,13 +33,15 @@ impl<T: Config> Pallet<T> {
         };
         // Reserve null-registry checks/moves and the three endpoint records even
         // for miners outside the Yuma metagraph, including at most 64 coldkey
-        // lineage reads. Work scales with subnets, never with miner population.
+        // lineage reads per resolution. Global selection and single-subnet
+        // authorization each add a read-only resolution before moving a row.
+        // Work scales with subnets, never with miner population.
         let null_weight = match netuid {
-            Some(_) => T::DbWeight::get().reads_writes(81, 15),
+            Some(_) => T::DbWeight::get().reads_writes(148, 15),
             None => {
                 let count = Self::get_all_subnet_netuids().len() as u64;
                 T::DbWeight::get().reads_writes(
-                    count.saturating_mul(82).saturating_add(3),
+                    count.saturating_mul(148).saturating_add(4),
                     count.saturating_mul(15),
                 )
             }
@@ -89,8 +91,9 @@ impl<T: Config> Pallet<T> {
     /// collateral row and one membership row (eight reads at most), and for root the
     /// clean-root state — seed state, `BasketRate`, `BasketShares`, the root stake,
     /// `RootClaimable` and the first `RootClaimed` row (six more) — a fixed set of single
-    /// reads priced at twenty, plus the basket row count taken twice on a root swap (once
-    /// by the declaration, once here). Nothing is written before they pass, so a refused
+    /// reads priced at twenty, plus 67 for bounded null ownership checks and the
+    /// basket row count taken twice on a root swap (once by the declaration,
+    /// once here). Nothing is written before they pass, so a refused
     /// swap does not pay the benchmarked stake-moving envelope. All-subnet refusals are
     /// not priced here: their checks walk the subnet list and the membership prefix, which
     /// no stored count bounds, so they keep the declaration.
@@ -104,7 +107,7 @@ impl<T: Config> Pallet<T> {
             }
             _ => 0,
         };
-        T::DbWeight::get().reads(basket_rows.saturating_add(20))
+        T::DbWeight::get().reads(basket_rows.saturating_add(87))
     }
 
     /// Read and merge the old hotkey's V1/V2 stake rows once. V2 keeps the
@@ -249,6 +252,13 @@ impl<T: Config> Pallet<T> {
         match netuid {
             // 8. Ensure the hotkey is not registered on the network before, if netuid is provided
             Some(netuid) => {
+                // An explicitly targeted null identity still requires its owner.
+                weight.saturating_accrue(T::DbWeight::get().reads(67));
+                ensure!(
+                    !NullMiners::<T>::contains_key(netuid, old_hotkey)
+                        || Self::owns_null_miner(netuid, old_hotkey, &coldkey),
+                    Error::<T>::NonAssociatedColdKey
+                );
                 ensure!(
                     !Self::is_hotkey_registered_on_specific_network(new_hotkey, netuid)
                         && !NullMiners::<T>::contains_key(netuid, new_hotkey),
@@ -401,7 +411,7 @@ impl<T: Config> Pallet<T> {
                 weight.saturating_accrue(
                     T::DbWeight::get().reads(
                         (all_netuids.len() as u64)
-                            .saturating_mul(3)
+                            .saturating_mul(68)
                             .saturating_add(1),
                     ),
                 );
@@ -409,7 +419,7 @@ impl<T: Config> Pallet<T> {
                 let mut residual_collateral_netuids: Vec<NetUid> = Vec::new();
                 for netuid in all_netuids {
                     let in_cooldown = IsNetworkMember::<T>::get(old_hotkey, netuid)
-                        || NullMiners::<T>::contains_key(netuid, old_hotkey)
+                        || Self::owns_null_miner(netuid, old_hotkey, &coldkey)
                         || !ChildKeys::<T>::get(old_hotkey, netuid).is_empty();
                     if in_cooldown {
                         cooldown_netuids.push(netuid);

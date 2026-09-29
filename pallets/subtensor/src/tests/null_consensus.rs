@@ -7,6 +7,7 @@ use super::mock::*;
 use crate::*;
 use frame_support::{assert_noop, assert_ok};
 use sp_core::U256;
+use subtensor_runtime_common::MechId;
 
 fn setup(n: u16) -> NetUid {
     let net = NetUid::from(1);
@@ -723,7 +724,6 @@ fn null_rotation_does_not_depend_on_global_staking_ownership() {
                     assert!(OwnedHotkeys::<Test>::get(cold).is_empty());
                     if squatted {
                         assert_ok!(SubtensorModule::do_try_associate_hotkey(&third_party, &old));
-                        assert_ok!(SubtensorModule::do_try_associate_hotkey(&third_party, &new));
                         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
                             &old,
                             &third_party,
@@ -835,53 +835,183 @@ fn null_rotation_after_coldkey_swap_needs_no_global_association() {
 }
 
 #[test]
-fn null_rotation_rolls_back_all_subnets_when_one_belongs_to_another_owner() {
-    new_test_ext(1).execute_with(|| {
-        let net = setup(1);
-        assert_ok!(register(net, 900, 901));
-        let other = NetUid::from(2);
-        let old = U256::from(900);
-        let cold = U256::from(901);
-        SubtensorModule::init_new_network(other, 360);
-        assert_ok!(SubtensorModule::do_set_null_consensus(other, true));
-        assert_ok!(SubtensorModule::enroll_null_miner(
-            other,
-            &old,
-            &U256::from(999)
-        ));
-        add_balance_to_coldkey_account(&cold, 1_000_000_000_000u64.into());
-        assert_noop!(
-            SubtensorModule::do_swap_hotkey(
-                RuntimeOrigin::signed(cold),
-                &old,
-                &U256::from(902),
+fn null_rotation_rejects_a_destination_owned_by_another_coldkey() {
+    for netuid in [Some(NetUid::from(1)), None] {
+        new_test_ext(1).execute_with(|| {
+            let net = setup(1);
+            assert_ok!(register(net, 900, 901));
+            let victim = U256::from(902);
+            let victim_owner = U256::from(903);
+            assert_ok!(SubtensorModule::create_account_if_non_existent(
+                &victim_owner,
+                &victim
+            ));
+            add_balance_to_coldkey_account(&U256::from(901), 1_000_000_000_000u64.into());
+            assert_noop!(
+                SubtensorModule::do_swap_hotkey(
+                    RuntimeOrigin::signed(U256::from(901)),
+                    &U256::from(900),
+                    &victim,
+                    netuid,
+                    false,
+                ),
+                Error::<Test>::NonAssociatedColdKey
+            );
+            // The failed attachment leaves the victim free to rotate globally.
+            add_balance_to_coldkey_account(&victim_owner, 1_000_000_000_000u64.into());
+            assert_ok!(SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(victim_owner),
+                &victim,
+                &U256::from(904),
                 None,
-                false
-            ),
-            Error::<Test>::NonAssociatedColdKey
-        );
-    });
+                false,
+            ));
+            assert_eq!(Owner::<Test>::get(U256::from(904)), victim_owner);
+        });
+    }
 }
 
 #[test]
-fn null_mode_does_not_consume_preexisting_encrypted_queues() {
+fn global_rotation_ignores_foreign_null_registrations_and_their_cooldowns() {
+    for staking_owner in [false, true] {
+        for paused in [false, true] {
+            new_test_ext(1).execute_with(|| {
+                let net = setup(1);
+                assert_ok!(register(net, 900, 901));
+                let other = NetUid::from(2);
+                let old = U256::from(900);
+                let new = U256::from(902);
+                let cold = U256::from(903);
+                // Both identities have lazy coldkey succession to exercise
+                // ownership resolution without rewriting a foreign record.
+                SubtensorModule::record_coldkey_swap_lineage(&U256::from(901), &cold);
+                SubtensorModule::init_new_network(other, 360);
+                assert_ok!(SubtensorModule::do_set_null_consensus(other, true));
+                assert_ok!(SubtensorModule::enroll_null_miner(
+                    other,
+                    &old,
+                    &U256::from(999)
+                ));
+                SubtensorModule::record_coldkey_swap_lineage(&U256::from(999), &U256::from(998));
+                let certificate = NeuronCertificateOf::try_from(b"FOREIGN".to_vec()).unwrap();
+                NeuronCertificates::<Test>::insert(other, old, &certificate);
+                SubtensorModule::accrue_null_rewards(other, 20u64.into());
+                let foreign = NullMiners::<Test>::get(other, old);
+                let generation = NullMinerOwnerGeneration::<Test>::get(other, old);
+                let last = SubtensorModule::get_current_block_as_u64();
+                LastHotkeySwapOnNetuid::<Test>::insert(other, cold, last);
+                if staking_owner {
+                    assert_ok!(SubtensorModule::create_account_if_non_existent(&cold, &old));
+                    SubtensorModule::append_neuron(net, &old, 1);
+                }
+                if paused {
+                    assert_ok!(SubtensorModule::do_set_null_consensus(other, false));
+                }
+                add_balance_to_coldkey_account(&cold, 1_000_000_000_000u64.into());
+                assert_ok!(SubtensorModule::do_swap_hotkey(
+                    RuntimeOrigin::signed(cold),
+                    &old,
+                    &new,
+                    None,
+                    false,
+                ));
+                assert!(!NullMiners::<Test>::contains_key(net, old));
+                assert_eq!(NullMiners::<Test>::get(net, new).unwrap().0, cold);
+                assert_eq!(NullMiners::<Test>::get(other, old), foreign);
+                assert!(!NullMiners::<Test>::contains_key(other, new));
+                assert_eq!(
+                    NullMinerOwnerGeneration::<Test>::get(other, old),
+                    generation
+                );
+                assert_eq!(NullMinerKeys::<Test>::get(other, 0), Some(old));
+                assert_eq!(NullMinerUids::<Test>::get(other, old), Some(0));
+                assert_eq!(LastHotkeySwapOnNetuid::<Test>::get(other, cold), last);
+                assert_eq!(
+                    NeuronCertificates::<Test>::get(other, old),
+                    Some(certificate)
+                );
+                assert!(!NeuronCertificates::<Test>::contains_key(other, new));
+                if staking_owner {
+                    assert_eq!(Owner::<Test>::get(new), cold);
+                    assert!(SubtensorModule::is_hotkey_registered_on_network(net, &new));
+                }
+                assert_ok!(claim(other, 900, 998));
+            });
+        }
+    }
+}
+
+#[test]
+fn enabling_null_clears_only_its_pending_encrypted_submissions() {
     new_test_ext(1).execute_with(|| {
         let net = setup(1);
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
         let index = SubtensorModule::get_mechanism_storage_index(net, 0.into());
+        let other = NetUid::from(2);
+        SubtensorModule::init_new_network(other, 360);
+        let other_index = SubtensorModule::get_mechanism_storage_index(other, 0.into());
         let commits = std::collections::VecDeque::from([(
             U256::from(1),
             1,
             vec![1, 2, 3].try_into().unwrap(),
             1000,
         )]);
-        TimelockedWeightCommits::<Test>::insert(index, 0, &commits);
-        System::set_block_number(100_000);
+        // Cover every retained epoch bucket, including same-block writes.
+        for epoch in 0..MAX_COMMIT_REVEAL_PEROIDS + 2 {
+            TimelockedWeightCommits::<Test>::insert(index, epoch, &commits);
+        }
+        TimelockedWeightCommits::<Test>::insert(other_index, 0, &commits);
+        Weights::<Test>::insert(index, 0, vec![(0, u16::MAX)]);
+        SubtensorModule::set_commit_reveal_weights_enabled(net, true);
+
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
+        assert!(
+            TimelockedWeightCommits::<Test>::iter_key_prefix(index)
+                .next()
+                .is_none()
+        );
+        assert_eq!(
+            TimelockedWeightCommits::<Test>::get(other_index, 0),
+            commits
+        );
         assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(net));
-        assert_eq!(TimelockedWeightCommits::<Test>::get(index, 0), commits);
         assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+        assert_eq!(Weights::<Test>::get(index, 0), vec![(0, u16::MAX)]);
+        assert!(SubtensorModule::get_commit_reveal_weights_enabled(net));
+        assert!(
+            TimelockedWeightCommits::<Test>::iter_key_prefix(index)
+                .next()
+                .is_none()
+        );
+    });
+}
+
+#[test]
+fn failed_null_enable_preserves_pending_encrypted_submissions() {
+    new_test_ext(1).execute_with(|| {
+        let net = NetUid::from(1);
+        SubtensorModule::init_new_network(net, 360);
+        let index = SubtensorModule::get_mechanism_storage_index(net, 0.into());
+        TimelockedWeightCommits::<Test>::insert(
+            index,
+            0,
+            std::collections::VecDeque::from([(
+                U256::from(1),
+                1,
+                vec![1, 2, 3].try_into().unwrap(),
+                1000,
+            )]),
+        );
+        MechanismCountCurrent::<Test>::insert(net, MechId::from(2));
         assert_noop!(
             SubtensorModule::do_set_null_consensus(net, true),
-            Error::<Test>::NullConsensusPendingWeightCommits
+            Error::<Test>::NullConsensusRequiresSingleMechanism
+        );
+        MechanismCountCurrent::<Test>::insert(net, MechId::from(1));
+        SubnetworkN::<Test>::insert(net, DefaultMaxAllowedUids::<Test>::get() + 1);
+        assert_noop!(
+            SubtensorModule::do_set_null_consensus(net, true),
+            Error::<Test>::NullConsensusYumaCapacityExceeded
         );
     });
 }

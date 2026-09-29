@@ -269,7 +269,6 @@
     "NullConsensusHasNoWeights",
     "NullConsensusNotEnabled",
     "NullConsensusOnRoot",
-    "NullConsensusPendingWeightCommits",
     "NullConsensusPowRegistrationDisabled",
     "NullConsensusRegistrationDisabled",
     "NullConsensusRequiresEmptySubnet",

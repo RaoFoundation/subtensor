@@ -3365,9 +3365,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_null_consensus_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2663,
-        "end_line": 2682,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2659-L2682",
+        "line": 2670,
+        "end_line": 2689,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2660-L2689",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {

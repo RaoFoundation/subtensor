@@ -15,7 +15,6 @@ from tests.harness.samples import dev_wallet
     [
         ("NullConsensusRequiresPowRegistration", "btcli pow register"),
         ("NullConsensusHasNoWeights", "equally"),
-        ("NullConsensusPendingWeightCommits", "must reveal before enabling null consensus"),
         ("NullConsensusPowRegistrationDisabled", "NetworkPowRegistrationAllowed"),
         ("PowWorkAlreadyUsed", "new nonce or block"),
     ],

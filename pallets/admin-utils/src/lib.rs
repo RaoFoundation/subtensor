@@ -2656,9 +2656,16 @@ pub mod pallet {
 
         /// Enables or disables null consensus without changing other hyperparameters.
         /// New subnets start in Yuma 3; the owner/root may toggle populated subnets.
+        /// Enabling cancels pending encrypted Yuma submissions.
         #[pallet::call_index(111)]
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_null_consensus_enabled()
-            .saturating_add(T::DbWeight::get().reads(1))
+            // Reveal cleanup bounds retained buckets by the maximum reveal
+            // period, plus the current epoch and its lookahead. Include the
+            // final prefix probe as well as each bucket deletion.
+            .saturating_add(T::DbWeight::get().reads_writes(
+                pallet_subtensor::MAX_COMMIT_REVEAL_PEROIDS.saturating_add(3),
+                pallet_subtensor::MAX_COMMIT_REVEAL_PEROIDS.saturating_add(2),
+            ))
             .saturating_add(T::DbWeight::get().reads_writes(u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(7), u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(7))))]
         pub fn sudo_set_null_consensus_enabled(
             origin: OriginFor<T>,
