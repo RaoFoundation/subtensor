@@ -174,6 +174,8 @@ impl<T: Config> Pallet<T> {
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             NullMinerKeys::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            NullMinerUids::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Keys::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Uids::<T>::clear_prefix(netuid, limit, None)

@@ -14,7 +14,7 @@ const FRACTION_BITS: usize = 64;
 
 impl<T: Config> Pallet<T> {
     pub fn pow_register_weight(_netuid: NetUid) -> frame_support::weights::Weight {
-        <T as Config>::WeightInfo::register()
+        <T as Config>::WeightInfo::register().saturating_add(T::DbWeight::get().writes(1))
     }
 
     pub fn do_set_null_consensus(netuid: NetUid, enabled: bool) -> DispatchResult {
@@ -97,6 +97,7 @@ impl<T: Config> Pallet<T> {
             NullColdkeyGeneration::<T>::get(coldkey),
         );
         NullMinerKeys::<T>::insert(netuid, uid, hotkey);
+        NullMinerUids::<T>::insert(netuid, hotkey, uid);
         NullMinerCount::<T>::insert(netuid, next);
         Self::deposit_event(Event::NullMinerRegistered {
             netuid,

@@ -1189,8 +1189,15 @@ fn null_consensus_toggle_uses_owner_authorization_rate_limit_and_admin_window() 
             true
         ));
         SubtensorModule::set_admin_freeze_window(u16::MAX);
+        // No weight-submission window exists while null consensus is active.
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::root(),
+            netuid,
+            false
+        ));
+        // The normal Yuma freeze still applies after disabling null mode.
         assert_noop!(
-            AdminUtils::sudo_set_null_consensus_enabled(RuntimeOrigin::root(), netuid, false),
+            AdminUtils::sudo_set_null_consensus_enabled(RuntimeOrigin::root(), netuid, true),
             pallet_subtensor::Error::<Test>::AdminActionProhibitedDuringWeightsWindow
         );
     });
@@ -3877,5 +3884,49 @@ fn test_sudo_set_basket_claim_dust() {
         assert_eq!(pallet_subtensor::BasketClaimRowDustBps::<Test>::get(), 0);
         assert_eq!(pallet_subtensor::BasketClaimSliceDustTao::<Test>::get(), 0);
         assert_eq!(pallet_subtensor::BasketClaimForfeitCapTao::<Test>::get(), 0);
+    });
+}
+
+#[test]
+fn null_consensus_administration_remains_open_after_many_tempos() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(100);
+        System::set_block_number(1);
+        SubtensorModule::init_new_network(netuid, 360);
+        SubtensorModule::set_owner_hyperparam_rate_limit(0);
+        pallet_subtensor::SubnetOwner::<Test>::insert(netuid, owner);
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            true
+        ));
+        let anchor = pallet_subtensor::LastEpochBlock::<Test>::get(netuid);
+        System::set_block_number(10_000);
+        SubtensorModule::drain_pending(&[netuid], 10_000);
+        assert_eq!(
+            pallet_subtensor::LastEpochBlock::<Test>::get(netuid),
+            anchor
+        );
+        assert!(pallet_subtensor::AdminFreezeWindow::<Test>::get() > 0);
+        // Even an old/manual pending epoch cannot freeze an epoch-free mode.
+        pallet_subtensor::PendingEpochAt::<Test>::insert(netuid, 10_010);
+        assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            false
+        ));
+        assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            true
+        ));
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            false
+        ));
+        assert!(!pallet_subtensor::NullConsensus::<Test>::get(netuid));
+        assert!(SubtensorModule::is_in_admin_freeze_window(netuid, 10_000));
     });
 }

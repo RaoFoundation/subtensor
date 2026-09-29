@@ -35,6 +35,36 @@ use subtensor_swap_interface::SwapHandler;
 
 mod helpers;
 
+// Exercise the full bounded coldkey-history lookup during hotkey rotation.
+fn seed_null_swap_miner<T: Config>(netuid: NetUid, hotkey: &T::AccountId, owner: &T::AccountId) {
+    let first: T::AccountId = account("null_swap_owner", 0, 0);
+    for i in 0..63u32 {
+        let old: T::AccountId = account("null_swap_owner", i, 0);
+        let next = if i == 62 {
+            owner.clone()
+        } else {
+            account("null_swap_owner", i + 1, 0)
+        };
+        NullColdkeySuccessor::<T>::insert(old, 0, (next, 0u128));
+    }
+    assert_ok!(Subtensor::<T>::enroll_null_miner(netuid, hotkey, &first));
+    Axons::<T>::insert(
+        netuid,
+        hotkey,
+        Subtensor::<T>::get_axon_info(netuid, hotkey),
+    );
+    Prometheus::<T>::insert(
+        netuid,
+        hotkey,
+        Subtensor::<T>::get_prometheus_info(netuid, hotkey),
+    );
+    NeuronCertificates::<T>::insert(
+        netuid,
+        hotkey,
+        NeuronCertificateOf::try_from(vec![0, 1]).unwrap(),
+    );
+}
+
 #[benchmarks(
     where
         T: pallet_balances::Config + pallet_shield::Config,
@@ -91,7 +121,8 @@ mod pallet_benchmarks {
             hotkey.clone(),
             whitelisted_caller(),
         );
-        assert!(NullMiners::<T>::contains_key(netuid, hotkey));
+        assert!(NullMiners::<T>::contains_key(netuid, &hotkey));
+        assert_eq!(NullMinerUids::<T>::get(netuid, &hotkey), Some(u64::MAX - 1));
         assert_eq!(NullMinerCount::<T>::get(netuid), u64::MAX);
     }
 
@@ -1794,6 +1825,7 @@ mod pallet_benchmarks {
             seed_swap_reserves::<T>(netuid);
             SubnetAlphaOut::<T>::insert(netuid, subnet_alpha);
             Subtensor::<T>::append_neuron(netuid, &old, 0);
+            seed_null_swap_miner::<T>(netuid, &old, &coldkey);
         }
 
         // Use distinct coldkeys so execution performs the reduced number
@@ -3072,6 +3104,8 @@ mod pallet_benchmarks {
                 netuid,
                 old_hotkey.clone(),
             ));
+
+            seed_null_swap_miner::<T>(netuid, &old_hotkey, &coldkey);
 
             let alpha_amount = AlphaBalance::from(1_000_000_u64);
             SubnetAlphaOut::<T>::insert(netuid, alpha_amount * 2.into());

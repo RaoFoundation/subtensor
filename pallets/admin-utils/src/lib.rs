@@ -2658,7 +2658,7 @@ pub mod pallet {
         /// New subnets start in Yuma 3; the owner/root may toggle populated subnets.
         #[pallet::call_index(111)]
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_null_consensus_enabled()
-            .saturating_add(T::DbWeight::get().reads_writes(u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(7), u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(6))))]
+            .saturating_add(T::DbWeight::get().reads_writes(u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(7), u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(7))))]
         pub fn sudo_set_null_consensus_enabled(
             origin: OriginFor<T>,
             netuid: NetUid,

@@ -31,7 +31,21 @@ impl<T: Config> Pallet<T> {
                 .saturating_add(T::DbWeight::get().reads(53_u64))
                 .saturating_add(T::DbWeight::get().writes(39_u64))
         };
+        // Reserve null-registry checks/moves and the three endpoint records even
+        // for miners outside the Yuma metagraph, including at most 64 coldkey
+        // lineage reads. Work scales with subnets, never with miner population.
+        let null_weight = match netuid {
+            Some(_) => T::DbWeight::get().reads_writes(76, 15),
+            None => {
+                let count = Self::get_all_subnet_netuids().len() as u64;
+                T::DbWeight::get().reads_writes(
+                    count.saturating_mul(78).saturating_add(1),
+                    count.saturating_mul(15),
+                )
+            }
+        };
         base.saturating_add(Self::basket_claimed_swap_weight(old_hotkey, netuid))
+            .saturating_add(null_weight)
     }
 
     /// Pre-dispatch weight for moving basket rows on a root-touching hotkey swap.
@@ -222,14 +236,19 @@ impl<T: Config> Pallet<T> {
             // 8. Ensure the hotkey is not registered on the network before, if netuid is provided
             Some(netuid) => {
                 ensure!(
-                    !Self::is_hotkey_registered_on_specific_network(new_hotkey, netuid),
+                    !Self::is_hotkey_registered_on_specific_network(new_hotkey, netuid)
+                        && !NullMiners::<T>::contains_key(netuid, new_hotkey),
                     Error::<T>::HotKeyAlreadyRegisteredInSubNet
                 );
+                weight.saturating_accrue(T::DbWeight::get().reads(1));
             }
             // 8.1 Ensure the new hotkey is not already registered on any network, only if netuid is none
             None => {
                 ensure!(
-                    !Self::is_hotkey_registered_on_any_network(new_hotkey),
+                    !Self::is_hotkey_registered_on_any_network(new_hotkey)
+                        && !Self::get_all_subnet_netuids()
+                            .into_iter()
+                            .any(|netuid| { NullMiners::<T>::contains_key(netuid, new_hotkey) }),
                     Error::<T>::HotKeyAlreadyRegisteredInSubNet
                 );
             }
@@ -368,7 +387,7 @@ impl<T: Config> Pallet<T> {
                 weight.saturating_accrue(
                     T::DbWeight::get().reads(
                         (all_netuids.len() as u64)
-                            .saturating_mul(2)
+                            .saturating_mul(3)
                             .saturating_add(1),
                     ),
                 );
@@ -376,6 +395,7 @@ impl<T: Config> Pallet<T> {
                 let mut residual_collateral_netuids: Vec<NetUid> = Vec::new();
                 for netuid in all_netuids {
                     let in_cooldown = IsNetworkMember::<T>::get(old_hotkey, netuid)
+                        || NullMiners::<T>::contains_key(netuid, old_hotkey)
                         || !ChildKeys::<T>::get(old_hotkey, netuid).is_empty();
                     if in_cooldown {
                         cooldown_netuids.push(netuid);
@@ -659,11 +679,12 @@ impl<T: Config> Pallet<T> {
 
         // 2. Ensure the hotkey not registered on the network before.
         ensure!(
-            !Self::is_hotkey_registered_on_specific_network(new_hotkey, netuid),
+            !Self::is_hotkey_registered_on_specific_network(new_hotkey, netuid)
+                && !NullMiners::<T>::contains_key(netuid, new_hotkey),
             Error::<T>::HotKeyAlreadyRegisteredInSubNet
         );
 
-        weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 0));
+        weight.saturating_accrue(T::DbWeight::get().reads_writes(2, 0));
 
         // 3. Get the cost for swapping the key on the subnet
         let swap_cost = T::KeySwapOnSubnetCost::get();
@@ -782,7 +803,37 @@ impl<T: Config> Pallet<T> {
         keep_stake: bool,
         stake_coldkeys: &[T::AccountId],
     ) -> DispatchResult {
-        // 3. Swap all subnet specific info.
+        // Move null membership even while Yuma is active: toggles preserve this
+        // registry and its earned rewards. Never enumerate the miner population.
+        let null_miner = NullMiners::<T>::get(netuid, old_hotkey);
+        let is_null_miner = null_miner.is_some();
+        weight.saturating_accrue(T::DbWeight::get().reads(1));
+        if let Some((owner, checkpoint)) = null_miner {
+            ensure!(
+                !NullMiners::<T>::contains_key(netuid, new_hotkey),
+                Error::<T>::HotKeyAlreadyRegisteredInSubNet
+            );
+            let uid = NullMinerUids::<T>::get(netuid, old_hotkey)
+                .ok_or(Error::<T>::NullMinerNotRegistered)?;
+            // Null PoW membership does not create a global Owner row. An
+            // independently associated staking account must not take somebody
+            // else's null identity. Resolve its bounded coldkey lineage first.
+            let (owner, resolved) =
+                Self::refresh_null_miner_owner(netuid, old_hotkey, owner, checkpoint);
+            ensure!(
+                resolved && owner == Owner::<T>::get(new_hotkey),
+                Error::<T>::NonAssociatedColdKey
+            );
+            weight.saturating_accrue(T::DbWeight::get().reads_writes(66, 2));
+            NullMiners::<T>::remove(netuid, old_hotkey);
+            NullMiners::<T>::insert(netuid, new_hotkey, (owner, checkpoint));
+            NullMinerUids::<T>::remove(netuid, old_hotkey);
+            NullMinerUids::<T>::insert(netuid, new_hotkey, uid);
+            NullMinerKeys::<T>::insert(netuid, uid, new_hotkey);
+            let generation = NullMinerOwnerGeneration::<T>::take(netuid, old_hotkey);
+            NullMinerOwnerGeneration::<T>::insert(netuid, new_hotkey, generation);
+            weight.saturating_accrue(T::DbWeight::get().reads_writes(3, 7));
+        }
 
         // 3.1 Remove the previous hotkey and insert the new hotkey from membership.
         // IsNetworkMember( hotkey, netuid ) -> bool -- is the hotkey a subnet member.
@@ -809,7 +860,7 @@ impl<T: Config> Pallet<T> {
 
         // 3.3 Swap Prometheus.
         // Prometheus( netuid, hotkey ) -> prometheus -- the prometheus data that a hotkey has in the network.
-        if is_network_member
+        if (is_network_member || is_null_miner)
             && let Ok(old_prometheus_info) = Prometheus::<T>::try_get(netuid, old_hotkey)
         {
             Prometheus::<T>::remove(netuid, old_hotkey);
@@ -819,7 +870,9 @@ impl<T: Config> Pallet<T> {
 
         // 3.4. Swap axons.
         // Axons( netuid, hotkey ) -> axon -- the axon that the hotkey has.
-        if is_network_member && let Ok(old_axon_info) = Axons::<T>::try_get(netuid, old_hotkey) {
+        if (is_network_member || is_null_miner)
+            && let Ok(old_axon_info) = Axons::<T>::try_get(netuid, old_hotkey)
+        {
             Axons::<T>::remove(netuid, old_hotkey);
             Axons::<T>::insert(netuid, new_hotkey, old_axon_info);
             weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
@@ -856,7 +909,7 @@ impl<T: Config> Pallet<T> {
 
         // 3.7. Swap neuron TLS certificates.
         // NeuronCertificates( netuid, hotkey ) -> Vec<u8> -- the neuron certificate for the hotkey.
-        if is_network_member
+        if (is_network_member || is_null_miner)
             && let Ok(old_neuron_certificates) =
                 NeuronCertificates::<T>::try_get(netuid, old_hotkey)
         {

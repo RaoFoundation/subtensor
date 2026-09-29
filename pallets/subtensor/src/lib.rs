@@ -2413,6 +2413,10 @@ pub mod pallet {
     #[pallet::storage]
     pub type NullMinerKeys<T: Config> =
         StorageDoubleMap<_, Identity, NetUid, Identity, u64, T::AccountId, OptionQuery>;
+    /// Reverse index for constant-work hotkey rotation, independent of miner count.
+    #[pallet::storage]
+    pub type NullMinerUids<T: Config> =
+        StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, u64, OptionQuery>;
     #[pallet::storage]
     pub type NullRewardIndex<T> = StorageMap<_, Identity, NetUid, sp_core::U256, ValueQuery>;
     #[pallet::storage]

@@ -200,6 +200,7 @@ class SubtensorModule:
     NullMinerCount = Item('SubtensorModule', 'NullMinerCount', 'u64')
     NullMiners = Item('SubtensorModule', 'NullMiners', '(AccountId32, U256)')
     NullMinerKeys = Item('SubtensorModule', 'NullMinerKeys', 'AccountId32')
+    NullMinerUids = Item('SubtensorModule', 'NullMinerUids', 'u64')
     NullRewardIndex = Item('SubtensorModule', 'NullRewardIndex', 'U256')
     NullRewardRemainder = Item('SubtensorModule', 'NullRewardRemainder', 'u64')
     NullUnclaimedAlpha = Item('SubtensorModule', 'NullUnclaimedAlpha', 'AlphaBalance')

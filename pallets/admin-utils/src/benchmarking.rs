@@ -753,6 +753,10 @@ mod benchmarks {
         #[extrinsic_call]
         _(RawOrigin::Signed(owner), netuid, true);
         assert!(pallet_subtensor::NullConsensus::<T>::get(netuid));
+        assert_eq!(
+            pallet_subtensor::NullMinerUids::<T>::iter_prefix(netuid).count(),
+            usize::from(pallet_subtensor::DefaultMaxAllowedUids::<T>::get())
+        );
     }
 
     #[benchmark(extra)]
