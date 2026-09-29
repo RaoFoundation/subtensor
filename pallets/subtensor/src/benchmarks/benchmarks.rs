@@ -631,20 +631,11 @@ mod pallet_benchmarks {
         Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
         seed_swap_reserves::<T>(netuid);
         fund_for_registration::<T>(netuid, &old_coldkey);
-        Subtensor::<T>::set_difficulty(netuid, 1);
 
-        let block_number = Subtensor::<T>::get_current_block_as_u64();
-        let (nonce, work) =
-            Subtensor::<T>::create_work_for_block_number(netuid, block_number, 3, &hotkey1);
-
-        assert_ok!(Subtensor::<T>::register(
+        assert_ok!(Subtensor::<T>::burned_register(
             RawOrigin::Signed(old_coldkey.clone()).into(),
             netuid,
-            block_number,
-            nonce,
-            work.clone(),
             hotkey1.clone(),
-            old_coldkey.clone(),
         ));
 
         // Worst case: migrate the full bounded collateral-hotkey index plus
