@@ -111,6 +111,13 @@ impl<T: Config> Pallet<T> {
     /// Set the desired value of mechanism count for a subnet identified
     /// by netuid
     pub fn do_set_mechanism_count(netuid: NetUid, mechanism_count: MechId) -> DispatchResult {
+        if NullConsensus::<T>::get(netuid) {
+            ensure!(
+                mechanism_count == MechId::from(1),
+                Error::<T>::NullConsensusRequiresSingleMechanism
+            );
+            return Ok(());
+        }
         // Make sure the subnet exists
         ensure!(
             Self::if_subnet_exist(netuid),

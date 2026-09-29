@@ -10,7 +10,13 @@ import typer
 
 from ..._generated import storage
 from ...balance import Balance
-from ...intents import BurnedRegister, RegisterSubnet, RootRegister
+from ...intents import (
+    BurnedRegister,
+    EnableNullConsensus,
+    PowRegister,
+    RegisterSubnet,
+    RootRegister,
+)
 from ...settings import BLOCKTIME, guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
@@ -26,6 +32,36 @@ app = typer.Typer(
 
 PANEL_INSPECT = "Inspect"
 PANEL_REGISTER = "Registration"
+
+
+@app.command("pow-register", rich_help_panel=PANEL_REGISTER)
+@with_tx_globals
+def pow_register(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", help="Null-consensus subnet to join."),
+    timeout_seconds: int = typer.Option(120, "--timeout-seconds", min=1),
+):
+    """Solve PoW and register the wallet hotkey; only transaction fees apply."""
+    ctx_of(ctx).submit(PowRegister(netuid=netuid, timeout_seconds=timeout_seconds))
+
+
+pow_app = typer.Typer(help="Proof-of-work miner registration.", no_args_is_help=True)
+pow_app.command("register")(pow_register)
+
+
+@app.command("enable-null-consensus", rich_help_panel=PANEL_REGISTER)
+@with_tx_globals
+def enable_null_consensus(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", help="Unstarted subnet owned by this wallet."),
+):
+    """Select miner-only mean scoring and apply the low-cost subnet profile.
+
+    Run before registering miners or starting emissions. Mode selection lasts
+    for the subnet's lifetime.
+    """
+    ctx_of(ctx).submit(EnableNullConsensus(netuid=netuid))
+
 
 _NETUID_HELP = "Numeric identifier of the subnet."
 

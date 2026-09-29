@@ -622,16 +622,24 @@ pub mod pallet {
                 pallet_subtensor::Pallet::<T>::get_subnetwork_n(netuid) <= max_allowed_uids,
                 Error::<T>::MaxAllowedUIdsLessThanCurrentUIds
             );
+            let null = pallet_subtensor::NullConsensus::<T>::get(netuid);
             ensure!(
-                max_allowed_uids <= DefaultMaxAllowedUids::<T>::get(),
+                max_allowed_uids
+                    <= if null {
+                        pallet_subtensor::null_consensus::MAX_NULL_UIDS
+                    } else {
+                        DefaultMaxAllowedUids::<T>::get()
+                    },
                 Error::<T>::MaxAllowedUidsGreaterThanDefaultMaxAllowedUids
             );
             // Prevent chain bloat: Require max UIDs to be limited
             let mechanism_count = pallet_subtensor::MechanismCountCurrent::<T>::get(netuid);
-            pallet_subtensor::Pallet::<T>::ensure_max_uids_over_all_mechanisms(
-                max_allowed_uids,
-                mechanism_count.into(),
-            )?;
+            if !null {
+                pallet_subtensor::Pallet::<T>::ensure_max_uids_over_all_mechanisms(
+                    max_allowed_uids,
+                    mechanism_count.into(),
+                )?;
+            }
             pallet_subtensor::Pallet::<T>::set_max_allowed_uids(netuid, max_allowed_uids);
             pallet_subtensor::Pallet::<T>::record_owner_rl(
                 maybe_owner,
@@ -779,13 +787,33 @@ pub mod pallet {
         /// It is only callable by the root account or subnet owner.
         /// The extrinsic will call the Subtensor pallet to set the network PoW registration allowed.
         #[pallet::call_index(20)]
-        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_network_pow_registration_allowed())]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_network_pow_registration_allowed()
+            .saturating_add(<T as Config>::WeightInfo::sudo_set_network_registration_allowed()))]
         pub fn sudo_set_network_pow_registration_allowed(
-            _origin: OriginFor<T>,
-            _netuid: NetUid,
-            _registration_allowed: bool,
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            registration_allowed: bool,
         ) -> DispatchResult {
-            Err(Error::<T>::POWRegistrationDisabled.into())
+            ensure!(
+                pallet_subtensor::NullConsensus::<T>::get(netuid),
+                Error::<T>::POWRegistrationDisabled
+            );
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::PowRegistrationAllowed.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            pallet_subtensor::Pallet::<T>::set_network_pow_registration_allowed(
+                netuid,
+                registration_allowed,
+            );
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::PowRegistrationAllowed.into()],
+            );
+            Ok(())
         }
 
         /// The extrinsic sets the target registrations per interval for a subnet.
@@ -924,6 +952,12 @@ pub mod pallet {
             netuid: NetUid,
             max_allowed_validators: u16,
         ) -> DispatchResult {
+            ensure!(
+                !pallet_subtensor::NullConsensus::<T>::get(netuid)
+                    || max_allowed_validators
+                        <= pallet_subtensor::null_consensus::MAX_NULL_VALIDATORS,
+                pallet_subtensor::Error::<T>::NullConsensusValidatorLimitExceeded
+            );
             ensure_root(origin)?;
             pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
             ensure!(
@@ -1301,6 +1335,10 @@ pub mod pallet {
             netuid: NetUid,
             enabled: bool,
         ) -> DispatchResult {
+            ensure!(
+                !enabled || !pallet_subtensor::NullConsensus::<T>::get(netuid),
+                pallet_subtensor::Error::<T>::NullConsensusCommitRevealUnsupported
+            );
             let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
                 origin,
                 netuid,

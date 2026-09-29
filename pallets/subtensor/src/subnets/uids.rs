@@ -21,6 +21,7 @@ impl<T: Config> Pallet<T> {
     /// Resets the emission, consensus, incentives, dividends, bonds, and weights of
     /// the neuron to default
     pub fn clear_neuron(netuid: NetUid, neuron_uid: u16) {
+        NullWeights::<T>::remove(netuid, neuron_uid);
         let neuron_index: usize = neuron_uid.into();
         Emission::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0.into()));
         Consensus::<T>::mutate(netuid, |v| {
@@ -169,6 +170,11 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn trim_to_max_allowed_uids(netuid: NetUid, max_n: u16) -> DispatchResult {
+        // Null UIDs are append-only; compaction would retarget existing score rows.
+        ensure!(
+            !NullConsensus::<T>::get(netuid),
+            Error::<T>::NullConsensusTrimmingDisabled
+        );
         // Reasonable limits
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(

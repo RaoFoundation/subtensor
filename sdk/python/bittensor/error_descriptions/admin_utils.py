@@ -64,9 +64,8 @@ DESCRIPTIONS: dict[str, str] = {
         "the root network. Check that the `netuid` argument is not the root netuid 0."
     ),
     "POWRegistrationDisabled": (
-        "`sudo_set_network_pow_registration_allowed` unconditionally fails because "
-        "proof-of-work registration is deprecated and its toggle can no longer be changed. "
-        "Nothing to check; the call is permanently disabled."
+        "Proof-of-work registration is available only on null-consensus subnets. "
+        "Select null consensus before subnet activation to use this toggle."
     ),
     "SubnetDoesNotExist": (
         "The admin-utils call targets a netuid with no registered subnet. Verify the `netuid` "

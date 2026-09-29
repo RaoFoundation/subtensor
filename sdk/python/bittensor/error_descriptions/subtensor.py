@@ -3,6 +3,79 @@
 from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
+    "NullConsensusOnRoot": ("Root cannot use null consensus. Select a non-root subnet."),
+    "NullConsensusAlreadyEnabled": (
+        "Null consensus is already enabled for this subnet. Continue with registration or "
+        "weight submission; mode selection cannot be repeated."
+    ),
+    "NullConsensusRequiresUnstartedSubnet": (
+        "Null consensus must be selected before subnet activation. Create a new subnet and "
+        "enable the mode before starting emissions."
+    ),
+    "NullConsensusRequiresEmptySubnet": (
+        "Null consensus must be selected before admitting miners. Only the owner UID may exist; "
+        "configure a new subnet before registering miners."
+    ),
+    "NullConsensusRequiresSingleMechanism": (
+        "Null consensus supports exactly one mechanism. Set the mechanism count to 1 before "
+        "enabling the mode and keep it at 1 afterward."
+    ),
+    "NullConsensusHasLegacyWeightsOrBonds": (
+        "The subnet has legacy weight or bond rows. Enable null consensus on a fresh subnet "
+        "before submitting weights."
+    ),
+    "NullConsensusNotEnabled": (
+        "This operation requires null consensus. Select a null-consensus subnet; its owner can "
+        "enable the mode only before activation and miner registration."
+    ),
+    "NullConsensusRequiresPowRegistration": (
+        "Null-consensus subnets require proof-of-work registration. Use btcli pow register "
+        "instead of burned registration or staking-driven registration."
+    ),
+    "NullConsensusRegistrationDisabled": (
+        "Registration is paused on this null-consensus subnet. Ask the owner to enable "
+        "NetworkRegistrationAllowed before retrying."
+    ),
+    "NullConsensusPowRegistrationDisabled": (
+        "PoW registration is paused on this null-consensus subnet. Ask the owner to enable "
+        "NetworkPowRegistrationAllowed before retrying."
+    ),
+    "NullConsensusCapacityReached": (
+        "The null-consensus subnet has reached its UID capacity and does not prune miners. Ask "
+        "the owner to raise MaxAllowedUids within the 32768 limit or choose another subnet."
+    ),
+    "PowSignerColdkeyMismatch": (
+        "The registration signer differs from the supplied coldkey. Sign with the coldkey "
+        "specified in the registration call."
+    ),
+    "PowInvalidSealLength": (
+        "The PoW seal must contain exactly 32 bytes. Solve fresh work with btcli pow register "
+        "and submit the complete seal."
+    ),
+    "PowWorkAlreadyUsed": (
+        "This PoW seal has already been used. Solve fresh work with a new nonce or block before "
+        "registering again."
+    ),
+    "NullConsensusRequiresU32Weights": (
+        "Null-consensus subnets require u32 scores. Use set_weights_v2 or btcli misc weights "
+        "set-v2 instead of the legacy u16 setter."
+    ),
+    "NullConsensusWeightsAllZero": (
+        "The null-consensus score row contains no positive weights. Submit at least one "
+        "positive u32 score."
+    ),
+    "NullConsensusTrimmingDisabled": (
+        "Null-consensus UIDs are append-only and cannot be trimmed. Keep existing UIDs; choose "
+        "another subnet if its capacity is exhausted."
+    ),
+    "NullConsensusValidatorLimitExceeded": (
+        "Null consensus supports at most 64 stake-selected validators plus the owner exemption. "
+        "Set MaxAllowedValidators to 64 or less."
+    ),
+    "NullConsensusCommitRevealUnsupported": (
+        "Null consensus does not support commit-reveal. Keep commit-reveal disabled and submit "
+        "scores directly with set_weights_v2."
+    ),
     "AccountRejectsLockedAlpha": (
         "Locked alpha was being transferred to a coldkey whose `AccountFlags` do not have the "
         "accept-locked-alpha bit set, e.g. during a lock transfer or coldkey swap of locks. "

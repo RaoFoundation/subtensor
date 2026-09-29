@@ -4187,6 +4187,294 @@
         "System"
       ]
     },
+    "NullConsensusAlreadyEnabled": {
+      "code": "already_exists",
+      "description": "Null consensus is already enabled for this subnet. Continue with registration or weight submission; mode selection cannot be repeated.",
+      "docs_url": "/docs/errors/chain/NullConsensusAlreadyEnabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusAlreadyEnabled/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 416,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L416",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusCapacityReached": {
+      "code": "limit_exceeded",
+      "description": "The null-consensus subnet has reached its UID capacity and does not prune miners. Ask the owner to raise MaxAllowedUids within the 32768 limit or choose another subnet.",
+      "docs_url": "/docs/errors/chain/NullConsensusCapacityReached",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusCapacityReached/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 434,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L434",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusCommitRevealUnsupported": {
+      "code": "invalid_argument",
+      "description": "Null consensus does not support commit-reveal. Keep commit-reveal disabled and submit scores directly with set_weights_v2.",
+      "docs_url": "/docs/errors/chain/NullConsensusCommitRevealUnsupported",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusCommitRevealUnsupported/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 450,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L450",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusHasLegacyWeightsOrBonds": {
+      "code": "invalid_argument",
+      "description": "The subnet has legacy weight or bond rows. Enable null consensus on a fresh subnet before submitting weights.",
+      "docs_url": "/docs/errors/chain/NullConsensusHasLegacyWeightsOrBonds",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusHasLegacyWeightsOrBonds/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 424,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L424",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusNotEnabled": {
+      "code": "disabled",
+      "description": "This operation requires null consensus. Select a null-consensus subnet; its owner can enable the mode only before activation and miner registration.",
+      "docs_url": "/docs/errors/chain/NullConsensusNotEnabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusNotEnabled/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 426,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L426",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusOnRoot": {
+      "code": "invalid_argument",
+      "description": "Root cannot use null consensus. Select a non-root subnet.",
+      "docs_url": "/docs/errors/chain/NullConsensusOnRoot",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusOnRoot/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 414,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L414",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusPowRegistrationDisabled": {
+      "code": "disabled",
+      "description": "PoW registration is paused on this null-consensus subnet. Ask the owner to enable NetworkPowRegistrationAllowed before retrying.",
+      "docs_url": "/docs/errors/chain/NullConsensusPowRegistrationDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusPowRegistrationDisabled/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 432,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L432",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusRegistrationDisabled": {
+      "code": "disabled",
+      "description": "Registration is paused on this null-consensus subnet. Ask the owner to enable NetworkRegistrationAllowed before retrying.",
+      "docs_url": "/docs/errors/chain/NullConsensusRegistrationDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusRegistrationDisabled/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 430,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L430",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusRequiresEmptySubnet": {
+      "code": "invalid_argument",
+      "description": "Null consensus must be selected before admitting miners. Only the owner UID may exist; configure a new subnet before registering miners.",
+      "docs_url": "/docs/errors/chain/NullConsensusRequiresEmptySubnet",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusRequiresEmptySubnet/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 420,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L420",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusRequiresPowRegistration": {
+      "code": "invalid_argument",
+      "description": "Null-consensus subnets require proof-of-work registration. Use btcli pow register instead of burned registration or staking-driven registration.",
+      "docs_url": "/docs/errors/chain/NullConsensusRequiresPowRegistration",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusRequiresPowRegistration/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 428,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L428",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusRequiresSingleMechanism": {
+      "code": "invalid_argument",
+      "description": "Null consensus supports exactly one mechanism. Set the mechanism count to 1 before enabling the mode and keep it at 1 afterward.",
+      "docs_url": "/docs/errors/chain/NullConsensusRequiresSingleMechanism",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusRequiresSingleMechanism/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 422,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L422",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusRequiresU32Weights": {
+      "code": "invalid_argument",
+      "description": "Null-consensus subnets require u32 scores. Use set_weights_v2 or btcli misc weights set-v2 instead of the legacy u16 setter.",
+      "docs_url": "/docs/errors/chain/NullConsensusRequiresU32Weights",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusRequiresU32Weights/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 442,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L442",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusRequiresUnstartedSubnet": {
+      "code": "invalid_argument",
+      "description": "Null consensus must be selected before subnet activation. Create a new subnet and enable the mode before starting emissions.",
+      "docs_url": "/docs/errors/chain/NullConsensusRequiresUnstartedSubnet",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusRequiresUnstartedSubnet/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 418,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L418",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusTrimmingDisabled": {
+      "code": "disabled",
+      "description": "Null-consensus UIDs are append-only and cannot be trimmed. Keep existing UIDs; choose another subnet if its capacity is exhausted.",
+      "docs_url": "/docs/errors/chain/NullConsensusTrimmingDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusTrimmingDisabled/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 446,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L446",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusValidatorLimitExceeded": {
+      "code": "limit_exceeded",
+      "description": "Null consensus supports at most 64 stake-selected validators plus the owner exemption. Set MaxAllowedValidators to 64 or less.",
+      "docs_url": "/docs/errors/chain/NullConsensusValidatorLimitExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusValidatorLimitExceeded/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 448,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L448",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusWeightsAllZero": {
+      "code": "invalid_argument",
+      "description": "The null-consensus score row contains no positive weights. Submit at least one positive u32 score.",
+      "docs_url": "/docs/errors/chain/NullConsensusWeightsAllZero",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusWeightsAllZero/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 444,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L444",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "OrderAlreadyProcessed": {
       "code": "already_exists",
       "description": "The order id already has a terminal status: execution found it fulfilled, or `cancel_order` found any existing status for it. Check the `Orders` storage map under the blake2-256 hash of the SCALE-encoded `VersionedOrder`.",
@@ -4341,7 +4629,7 @@
     },
     "POWRegistrationDisabled": {
       "code": "disabled",
-      "description": "`sudo_set_network_pow_registration_allowed` unconditionally fails because proof-of-work registration is deprecated and its toggle can no longer be changed. Nothing to check; the call is permanently disabled.",
+      "description": "Proof-of-work registration is available only on null-consensus subnets. Select null consensus before subnet activation to use this toggle.",
       "docs_url": "/docs/errors/chain/POWRegistrationDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/POWRegistrationDisabled/content.md",
       "pallets": [
@@ -4445,6 +4733,60 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/PaymentOverflow/content.md",
       "pallets": [
         "EVM"
+      ]
+    },
+    "PowInvalidSealLength": {
+      "code": "invalid_argument",
+      "description": "The PoW seal must contain exactly 32 bytes. Solve fresh work with btcli pow register and submit the complete seal.",
+      "docs_url": "/docs/errors/chain/PowInvalidSealLength",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PowInvalidSealLength/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 438,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L438",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "PowSignerColdkeyMismatch": {
+      "code": "not_authorized",
+      "description": "The registration signer differs from the supplied coldkey. Sign with the coldkey specified in the registration call.",
+      "docs_url": "/docs/errors/chain/PowSignerColdkeyMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PowSignerColdkeyMismatch/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 436,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L436",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "PowWorkAlreadyUsed": {
+      "code": "invalid_argument",
+      "description": "This PoW seal has already been used. Solve fresh work with a new nonce or block before registering again.",
+      "docs_url": "/docs/errors/chain/PowWorkAlreadyUsed",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PowWorkAlreadyUsed/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 440,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L440",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
       ]
     },
     "PreLogExists": {

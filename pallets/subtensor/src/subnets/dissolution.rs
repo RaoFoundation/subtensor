@@ -243,6 +243,8 @@ impl<T: Config> Pallet<T> {
                 Bonds::<T>::clear_prefix(netuid_index, limit, None)
             }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
                 Weights::<T>::clear_prefix(netuid_index, limit, None)
+            }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+                NullWeights::<T>::clear_prefix(netuid, limit, None)
             });
 
             if !result {
@@ -296,7 +298,7 @@ impl<T: Config> Pallet<T> {
     pub fn remove_network_parameters(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
         // Flat write charge for the `::remove(netuid)` list below. Bump this when
         // adding or removing entries from that list so the weight stays in step.
-        let removal_weight = T::DbWeight::get().writes(87);
+        let removal_weight = T::DbWeight::get().writes(89);
         if !weight_meter.can_consume(removal_weight) {
             return false;
         }
@@ -336,6 +338,8 @@ impl<T: Config> Pallet<T> {
         SubnetOwnerHotkey::<T>::remove(netuid);
         NetworkRegistrationAllowed::<T>::remove(netuid);
         NetworkPowRegistrationAllowed::<T>::remove(netuid);
+        NullConsensus::<T>::remove(netuid);
+        NullIncentive::<T>::remove(netuid);
         TransferToggle::<T>::remove(netuid);
         SubnetLocked::<T>::remove(netuid);
         LargestLocked::<T>::remove(netuid);

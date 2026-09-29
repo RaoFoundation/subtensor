@@ -800,7 +800,7 @@ mod dispatches {
         /// * `InvalidSeal`: The seal is incorrect.
         ///
         #[pallet::call_index(6)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register())]
+        #[pallet::weight(Pallet::<T>::pow_register_weight(*netuid))]
         pub fn register(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -810,7 +810,54 @@ mod dispatches {
             hotkey: T::AccountId,
             _coldkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
+            if NullConsensus::<T>::get(netuid) {
+                return Self::do_null_pow_register(
+                    origin,
+                    netuid,
+                    _block_number,
+                    _nonce,
+                    _work,
+                    hotkey,
+                    _coldkey,
+                )
+                .map(|_| ().into())
+                .map_err(Into::into);
+            }
+            // Preserve the legacy alias's final fee while reserving enough for
+            // either mode, even if an earlier batch item enables null consensus.
             Self::do_register_with_post_info(origin, netuid, hotkey)
+                .map(|mut post| {
+                    post.actual_weight = Some(<T as Config>::WeightInfo::register());
+                    post
+                })
+                .map_err(|mut error| {
+                    if error.post_info.actual_weight.is_none() {
+                        error.post_info.actual_weight = Some(<T as Config>::WeightInfo::register());
+                    }
+                    error
+                })
+        }
+
+        /// Select miner-only arithmetic-mean consensus before subnet activation.
+        /// Applies the low-cost profile, including zero burn/collateral and PoW.
+        #[pallet::call_index(152)]
+        #[pallet::weight(<T as Config>::WeightInfo::enable_null_consensus())]
+        pub fn enable_null_consensus(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
+            Self::do_enable_null_consensus(origin, netuid)
+        }
+
+        /// Set relative u32 weights on a null-consensus subnet. Each eligible
+        /// validator's normalized row has equal influence on miner emissions.
+        #[pallet::call_index(153)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_weights_v2(dests.len() as u32))]
+        pub fn set_weights_v2(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            dests: Vec<u16>,
+            weights: Vec<u32>,
+            version_key: u64,
+        ) -> DispatchResult {
+            Self::do_set_weights_v2(origin, netuid, dests, weights, version_key)
         }
 
         /// Register the hotkey to root network.

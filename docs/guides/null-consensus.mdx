@@ -1,0 +1,108 @@
+---
+title: "Null-consensus subnets"
+description: "Configure miner-only mean scoring, PoW admission, and 32-bit weights on a new subnet."
+---
+
+Null consensus is an opt-in mode for subnets that do not need Yuma consensus or
+bonds. Each eligible validator's row is normalized independently, and those rows
+are averaged equally. Stake determines validator eligibility, not the influence
+of an accepted row. All emission after the owner cut goes to miners; there are
+no validator or root dividends from this mode.
+
+The initial implementation supports **32,768 UIDs**, including the subnet owner.
+It uses the existing UID type and separate **u32 score storage**. Payments use
+wider integer arithmetic, so small scores are never truncated through a u16
+weight or incentive vector. `NullIncentive` exposes u32 proportions; the legacy
+`Incentive` vector remains a lower-precision display only.
+
+## Configure a subnet
+
+Select the mode after creating the subnet, before starting emissions or admitting
+miners. At most the owner's UID may exist, with no legacy weight or bond rows.
+Mode selection lasts for the subnet's lifetime. Existing active subnets require
+a separate migration; this call does not migrate their economic state.
+
+```bash
+btcli subnets enable-null-consensus --netuid 123
+btcli hparams start --netuid 123
+```
+
+The setup call applies this profile:
+
+| Parameter | Initial value |
+| --- | --- |
+| UID capacity | 32,768 |
+| Registration burn / minimum burn | 0 |
+| Registration collateral share | 0 |
+| PoW registration | Enabled |
+| PoW difficulty / minimum difficulty | 10,000 / 1 |
+| Registrations per block | 1 |
+| Tempo | 360 blocks |
+| Weight submission rate limit | 100 blocks |
+| Minimum nonzero scores | 1 |
+| Stake-selected validators | 1, plus the existing owner exemption |
+| Commit-reveal / liquid alpha | Disabled |
+| Mechanisms | Exactly 1 |
+
+Normal hyperparameter authorization still applies. Root can raise the validator
+cap to 64 plus the owner exemption, and capacity can be lowered
+without removing existing UIDs. Multiple mechanisms and commit-reveal cannot be
+enabled. The existing global validator stake threshold is unchanged; the owner
+can score without staking.
+
+## Register miners
+
+```bash
+btcli pow register --netuid 123
+```
+
+`btcli subnets pow-register` is an alias. This solves fresh work for the wallet's hotkey and signs registration with its
+coldkey. The work binds the block hash, hotkey, and nonce. The runtime checks the
+seal, difficulty, account association, age, and per-block admission limit.
+Work must come from a completed block fewer than three blocks old. If a slow
+signing step lets it expire, retry the command.
+
+Registration charges no burn or collateral; normal transaction fees still apply.
+UIDs are append-only: reaching capacity rejects registrations without pruning an
+existing miner. Burned registration, registration-limit aliases, staking-driven
+automatic registration, and UID trimming cannot bypass this admission policy.
+The legacy `register` call keeps its existing burn behavior on ordinary subnets.
+
+## Submit scores
+
+```bash
+btcli misc weights set-v2 --netuid 123 --uids 1,2 --weights 4294967295,1
+```
+
+Scores are exact relative integers from 0 to 4,294,967,295. They need not sum to a
+particular number. Submit a complete replacement row; duplicate UIDs, invalid
+UIDs, all-zero rows, and unauthorized scorers are rejected. The ordinary version
+and rate-limit checks apply. The legacy u16 setter is unavailable in this mode.
+
+```python
+from bittensor.intents import EnableNullConsensus, PowRegister, SetWeightsV2
+
+# Pass these intents to the client's normal execution API with the wallet.
+setup = EnableNullConsensus(netuid=123)
+registration = PowRegister(netuid=123)
+scores = SetWeightsV2(netuid=123, uids=[1, 2], weights=[4294967295, 1])
+```
+
+Expired or ineligible validator rows do not count. Self scores are masked except
+for the existing owner exception, and scores predating a destination's
+registration are ignored. Miner emission directed to owner-associated keys still
+follows the existing recycling/burning policy. Unallocated emission, including
+integer rounding dust and epochs without valid scores, is recycled.
+
+## Resource costs and release validation
+
+Removing consensus clipping and bonds eliminates their matrix processing, but
+on-chain storage, validator selection, score aggregation, and miner payments
+still cost resources. This is a bounded large subnet, not infinite free storage.
+Registration continues to update existing metagraph vectors, and every rewarded
+miner still requires account writes.
+
+Reference-hardware benchmarking of the largest epoch and registration state is
+required before deployment. New dispatch benchmarks are provided; interim call
+admission uses compositions of existing reference weights. No new locally
+measured weight values or spec-version change is included in this implementation.

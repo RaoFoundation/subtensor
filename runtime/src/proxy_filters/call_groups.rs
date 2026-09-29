@@ -447,7 +447,10 @@ call_filter_group!(
 // Starting a subnet's emission schedule (start_call).
 call_filter_group!(
     SubnetActivationCalls,
-    [RuntimeCall::SubtensorModule(SubtensorCall::start_call),]
+    [
+        RuntimeCall::SubtensorModule(SubtensorCall::start_call),
+        RuntimeCall::SubtensorModule(SubtensorCall::enable_null_consensus),
+    ]
 );
 
 // pallet-subtensor calls that spend, lock or destroy the signer's TAO or alpha
@@ -477,6 +480,7 @@ call_filter_group!(
     SubtensorCommonCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::set_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_weights_v2),
         RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::commit_weights),

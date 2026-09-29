@@ -1139,6 +1139,45 @@ fn test_sudo_set_network_pow_registration_allowed() {
     });
 }
 
+#[test]
+fn null_consensus_admin_limits_and_pow_toggle() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        SubtensorModule::init_new_network(netuid, 10);
+        assert_ok!(SubtensorModule::enable_null_consensus(
+            RuntimeOrigin::root(),
+            netuid
+        ));
+        assert_ok!(AdminUtils::sudo_set_max_allowed_uids(
+            RuntimeOrigin::root(),
+            netuid,
+            32768
+        ));
+        assert!(
+            AdminUtils::sudo_set_max_allowed_uids(RuntimeOrigin::root(), netuid, 32769).is_err()
+        );
+        assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
+            RuntimeOrigin::root(),
+            netuid,
+            false
+        ));
+        assert!(!pallet_subtensor::NetworkPowRegistrationAllowed::<Test>::get(netuid));
+        assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
+            RuntimeOrigin::root(),
+            netuid,
+            true
+        ));
+        assert_noop!(
+            AdminUtils::sudo_set_max_allowed_validators(RuntimeOrigin::root(), netuid, 65),
+            pallet_subtensor::Error::<Test>::NullConsensusValidatorLimitExceeded
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_commit_reveal_weights_enabled(RuntimeOrigin::root(), netuid, true),
+            pallet_subtensor::Error::<Test>::NullConsensusCommitRevealUnsupported
+        );
+    });
+}
+
 mod sudo_set_nominator_min_required_stake {
     use super::*;
 

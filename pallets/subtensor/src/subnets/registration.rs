@@ -21,6 +21,10 @@ enum RegistrationRefusal {
 
 impl<T: Config> Pallet<T> {
     pub fn register_neuron(netuid: NetUid, hotkey: &T::AccountId) -> Result<u16, DispatchError> {
+        ensure!(
+            !NullConsensus::<T>::get(netuid),
+            Error::<T>::NullConsensusRequiresPowRegistration
+        );
         let block_number: u64 = Self::get_current_block_as_u64();
         let current_subnetwork_n: u16 = Self::get_subnetwork_n(netuid);
 
@@ -121,6 +125,12 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         hotkey: &T::AccountId,
     ) -> Result<(TaoBalance, TaoBalance), DispatchError> {
+        // Null subnets require work even though their burn is zero; otherwise the
+        // legacy burned-register/limit aliases would bypass admission entirely.
+        ensure!(
+            !NullConsensus::<T>::get(netuid),
+            Error::<T>::NullConsensusRequiresPowRegistration
+        );
         // 2) network validity
         ensure!(
             !netuid.is_root(),

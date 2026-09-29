@@ -136,6 +136,9 @@ def _seed_tx_preview(substrate: FakeSubstrate) -> None:
 def fake(isolated_cli, monkeypatch) -> FakeSubstrate:
     substrate = FakeSubstrate()
     _seed_tx_preview(substrate)
+    for name in ("NullConsensus", "NetworkRegistrationAllowed", "NetworkPowRegistrationAllowed"):
+        substrate.seed("SubtensorModule", name, [99], True)
+    substrate.seed("SubtensorModule", "Difficulty", [99], 1)
 
     def make_client(network, **kwargs):
         return Client(network, substrate=substrate)

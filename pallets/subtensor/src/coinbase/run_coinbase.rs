@@ -955,6 +955,23 @@ impl<T: Config> Pallet<T> {
             .saturating_add(pending_validator_alpha)
             .saturating_add(pending_root_alpha);
 
+        if NullConsensus::<T>::get(netuid) {
+            let incentives = Self::null_epoch(netuid, total_alpha_minus_owner_cut);
+            let paid = incentives
+                .values()
+                .fold(AlphaBalance::ZERO, |sum, v| sum.saturating_add(*v));
+            // Empty/stale rows and integer rounding cannot strand issued alpha.
+            Self::recycle_subnet_alpha(netuid, total_alpha_minus_owner_cut.saturating_sub(paid));
+            Self::distribute_dividends_and_incentives(
+                netuid,
+                pending_owner_cut,
+                incentives,
+                BTreeMap::new(),
+                BTreeMap::new(),
+            );
+            return;
+        }
+
         // Run the epoch, using the alpha going to both the servers and the validators.
         let hotkey_emission: Vec<(T::AccountId, AlphaBalance, AlphaBalance)> =
             Self::epoch_with_mechanisms(netuid, total_alpha_minus_owner_cut);

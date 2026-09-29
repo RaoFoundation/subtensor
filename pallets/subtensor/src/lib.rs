@@ -39,6 +39,7 @@ pub mod extensions;
 pub mod guards;
 pub mod macros;
 pub mod migrations;
+pub mod null_consensus;
 pub mod rpc_info;
 pub mod staking;
 pub mod subnets;
@@ -2390,6 +2391,19 @@ pub mod pallet {
     #[pallet::storage]
     pub type NetworkPowRegistrationAllowed<T: Config> =
         StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultRegistrationAllowed<T>>;
+
+    /// Opt-in, miner-only arithmetic-mean consensus. Selected before subnet activation.
+    #[pallet::storage]
+    pub type NullConsensus<T> = StorageMap<_, Identity, NetUid, bool, ValueQuery>;
+
+    /// Full precision relative weights; never converted through the legacy u16 matrix.
+    #[pallet::storage]
+    pub type NullWeights<T> =
+        StorageDoubleMap<_, Identity, NetUid, Identity, u16, Vec<(u16, u32)>, ValueQuery>;
+
+    /// Informational u32 incentive proportions. Payments use wider integer arithmetic.
+    #[pallet::storage]
+    pub type NullIncentive<T> = StorageMap<_, Identity, NetUid, Vec<u32>, ValueQuery>;
 
     /// MAP ( netuid ) --> block_created
     #[pallet::storage]

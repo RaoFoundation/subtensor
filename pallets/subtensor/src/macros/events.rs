@@ -879,5 +879,7 @@ mod events {
             /// Estimated TAO value of the claimant's slices of those rows, left in the fund.
             forfeited_tao_est: TaoBalance,
         },
+        /// The subnet selected arithmetic-mean, miner-only consensus.
+        NullConsensusEnabled(NetUid),
     }
 }

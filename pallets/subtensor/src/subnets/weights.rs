@@ -756,6 +756,10 @@ impl<T: Config> Pallet<T> {
         values: Vec<u16>,
         version_key: u64,
     ) -> dispatch::DispatchResult {
+        ensure!(
+            !NullConsensus::<T>::get(netuid),
+            Error::<T>::NullConsensusRequiresU32Weights
+        );
         // Calculate subnet storage index
         let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
 

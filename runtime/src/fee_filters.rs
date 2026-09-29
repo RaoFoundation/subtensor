@@ -15,6 +15,7 @@ call_filter_group!(
     ColdkeyPaysFeeCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::set_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_weights_v2),
         RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::commit_weights),

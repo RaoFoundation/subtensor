@@ -752,17 +752,11 @@ mod benchmarks {
 
     #[benchmark]
     fn sudo_set_network_pow_registration_allowed() {
-        #[block]
-        {
-            assert!(
-                AdminUtils::<T>::sudo_set_network_pow_registration_allowed(
-                    RawOrigin::Root.into(),
-                    NetUid::from(u16::MAX),
-                    true,
-                )
-                .is_err()
-            );
-        }
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        pallet_subtensor::NullConsensus::<T>::insert(netuid, true);
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, true);
     }
 
     #[benchmark]
