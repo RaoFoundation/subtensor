@@ -277,6 +277,7 @@
     "NullConsensusTrimmingDisabled",
     "NullConsensusValidatorLimitExceeded",
     "NullConsensusWeightsAllZero",
+    "NullConsensusYumaCapacityExceeded",
     "OrderAlreadyProcessed",
     "OrderCancelled",
     "OrderExpired",

@@ -45,7 +45,7 @@ from .multisig import (
     MultisigExecute,
     MultisigThreshold1,
 )
-from .null_consensus import EnableNullConsensus, PowRegister, SetWeightsV2
+from .null_consensus import PowRegister, SetWeightsV2
 from .plan import Plan, Policy
 from .proxy import (
     PROXY_TYPES,
@@ -112,7 +112,6 @@ __all__ = [
     "DecreaseTake",
     "DisputeColdkeySwap",
     "DissolveCrowdloan",
-    "EnableNullConsensus",
     "EvmWithdraw",
     "ExecuteProxyAnnounced",
     "FinalizeCrowdloan",

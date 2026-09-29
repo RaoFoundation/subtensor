@@ -50,7 +50,6 @@
     "commit-weights",
     "decrease-take",
     "dispute-coldkey-swap",
-    "enable-null-consensus",
     "increase-take",
     "lock-stake",
     "move-lock",

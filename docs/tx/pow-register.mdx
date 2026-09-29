@@ -11,7 +11,7 @@ If signing takes longer than the chain's three-block work window, retry.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.register`](/code/pallets/subtensor/src/macros/dispatches.rs#L802-L839) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.register`](/code/pallets/subtensor/src/macros/dispatches.rs#L806-L843) |
 
 ## Parameters
 
@@ -61,7 +61,7 @@ result = sub.execute_tool("pow_register", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.register` — [`pallets/subtensor/src/macros/dispatches.rs#L804`](/code/pallets/subtensor/src/macros/dispatches.rs#L802-L839):
+`SubtensorModule.register` — [`pallets/subtensor/src/macros/dispatches.rs#L808`](/code/pallets/subtensor/src/macros/dispatches.rs#L806-L843):
 
 ```rust
 #[pallet::call_index(6)]
@@ -104,6 +104,6 @@ pub fn register(
 }
 ```
 
-Delegates to [`do_null_pow_register`](/code/pallets/subtensor/src/null_consensus.rs#L83), [`do_register_with_post_info`](/code/pallets/subtensor/src/subnets/registration.rs#L74).
+Delegates to [`do_null_pow_register`](/code/pallets/subtensor/src/null_consensus.rs#L63), [`do_register_with_post_info`](/code/pallets/subtensor/src/subnets/registration.rs#L74).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

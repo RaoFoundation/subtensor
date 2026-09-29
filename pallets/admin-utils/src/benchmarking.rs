@@ -742,6 +742,27 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_null_consensus_enabled() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, true);
+        assert!(pallet_subtensor::NullConsensus::<T>::get(netuid));
+    }
+
+    #[benchmark(extra)]
+    fn disable_null_consensus() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        frame_support::assert_ok!(pallet_subtensor::Pallet::<T>::do_set_null_consensus(
+            netuid, true
+        ));
+        #[extrinsic_call]
+        sudo_set_null_consensus_enabled(RawOrigin::Signed(owner), netuid, false);
+        assert!(!pallet_subtensor::NullConsensus::<T>::get(netuid));
+    }
+
+    #[benchmark]
     fn sudo_set_adjustment_alpha() {
         let netuid = NetUid::from(1);
         let owner = setup_worst_case_admin_subnet::<T>(netuid);

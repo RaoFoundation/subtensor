@@ -412,17 +412,18 @@ mod errors {
         BasketSwapBatchEmpty,
         /// Root cannot use null consensus. Select a non-root subnet.
         NullConsensusOnRoot,
-        /// Null consensus is already enabled for this subnet. Continue with registration or weight submission; mode selection cannot be repeated.
+        /// Retired one-shot setup restriction; retained for error index stability.
         NullConsensusAlreadyEnabled,
-        /// Null consensus must be selected before subnet activation. Create a new subnet and enable the mode before starting emissions.
+        /// Retired one-shot setup restriction; retained for error index stability.
         NullConsensusRequiresUnstartedSubnet,
-        /// Null consensus must be selected before admitting miners. Only the owner UID may exist; configure a new subnet before registering miners.
+        /// Retired one-shot setup restriction; retained for error index stability.
         NullConsensusRequiresEmptySubnet,
         /// Null consensus supports exactly one mechanism. Set the mechanism count to 1 before enabling the mode and keep it at 1 afterward.
         NullConsensusRequiresSingleMechanism,
-        /// The subnet has legacy weight or bond rows. Enable null consensus on a fresh subnet before submitting weights.
+        /// Retired one-shot setup restriction; retained for error index stability.
         NullConsensusHasLegacyWeightsOrBonds,
-        /// This operation requires null consensus. Select a null-consensus subnet; its owner can enable the mode only before activation and miner registration.
+        /// This operation requires null consensus. The subnet owner can enable the
+        /// null_consensus_enabled hyperparameter before using PoW or u32 scores.
         NullConsensusNotEnabled,
         /// Null-consensus subnets require proof-of-work registration. Use btcli pow register instead of burned registration or staking-driven registration.
         NullConsensusRequiresPowRegistration,
@@ -444,9 +445,12 @@ mod errors {
         NullConsensusWeightsAllZero,
         /// Null-consensus UIDs are append-only and cannot be trimmed. Keep existing UIDs; choose another subnet if its capacity is exhausted.
         NullConsensusTrimmingDisabled,
-        /// Null consensus supports at most 64 stake-selected validators plus the owner exemption. Set MaxAllowedValidators to 64 or less.
+        /// Null consensus supports at most 64 stake-selected validators plus the owner. Lower MaxAllowedValidators or wait for the next null epoch to clear stale rows.
         NullConsensusValidatorLimitExceeded,
-        /// Null consensus does not support commit-reveal. Keep commit-reveal disabled and submit scores directly with set_weights_v2.
+        /// Retired one-shot setup restriction; retained for error index stability.
         NullConsensusCommitRevealUnsupported,
+        /// Returning to Yuma requires both the UID count and MaxAllowedUids within
+        /// its normal limit. Lower unused capacity first; miners are never pruned by the toggle.
+        NullConsensusYumaCapacityExceeded,
     }
 }

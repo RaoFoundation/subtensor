@@ -39,6 +39,7 @@ const EXPECTED_V3_NAMES: &[&[u8]] = &[
     b"liquid_alpha_enabled",
     b"alpha_sigmoid_steepness",
     b"yuma_version",
+    b"null_consensus_enabled",
     b"subnet_is_active",
     b"transfers_enabled",
     b"bonds_reset_enabled",
@@ -56,6 +57,26 @@ fn find<'a>(params: &'a [HyperparamEntry], name: &[u8]) -> &'a HyperparamValue {
         .find(|e| e.name == name)
         .unwrap_or_else(|| panic!("missing hyperparam {:?}", std::str::from_utf8(name)))
         .value
+}
+
+#[test]
+fn test_subnet_hyperparams_v3_reports_null_consensus_toggle() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        SubtensorModule::init_new_network(netuid, 360);
+        for enabled in [false, true, false] {
+            frame_support::assert_ok!(SubtensorModule::do_set_null_consensus(netuid, enabled));
+            let params = SubtensorModule::get_subnet_hyperparams_v3(netuid).unwrap();
+            assert_eq!(
+                find(&params, b"null_consensus_enabled"),
+                &HyperparamValue::Bool(enabled)
+            );
+            assert_eq!(
+                find(&params, b"yuma_version"),
+                &HyperparamValue::U16(Compact(if enabled { 0 } else { 3 }))
+            );
+        }
+    });
 }
 
 #[test]

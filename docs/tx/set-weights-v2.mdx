@@ -9,7 +9,7 @@ description: "Submit exact relative u32 scores for null consensus, without u16 q
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_weights_v2`](/code/pallets/subtensor/src/macros/dispatches.rs#L851-L861) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_weights_v2`](/code/pallets/subtensor/src/macros/dispatches.rs#L847-L857) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("set_weights_v2", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_weights_v2` — [`pallets/subtensor/src/macros/dispatches.rs#L853`](/code/pallets/subtensor/src/macros/dispatches.rs#L851-L861):
+`SubtensorModule.set_weights_v2` — [`pallets/subtensor/src/macros/dispatches.rs#L849`](/code/pallets/subtensor/src/macros/dispatches.rs#L847-L857):
 
 ```rust
 #[pallet::call_index(153)]
@@ -81,6 +81,6 @@ pub fn set_weights_v2(
 }
 ```
 
-Delegates to [`do_set_weights_v2`](/code/pallets/subtensor/src/null_consensus.rs#L151).
+Delegates to [`do_set_weights_v2`](/code/pallets/subtensor/src/null_consensus.rs#L131).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

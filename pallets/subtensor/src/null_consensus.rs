@@ -26,54 +26,34 @@ impl<T: Config> Pallet<T> {
             .saturating_add(T::DbWeight::get().reads(1))
     }
 
-    /// Choose this mode before activation and before admitting miners. This avoids
-    /// an unbounded live migration of legacy bond/weight matrices and collateral.
-    pub fn do_enable_null_consensus(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
-        Self::ensure_subnet_owner_or_root(origin, netuid)?;
+    /// Select the epoch algorithm without rewriting the subnet's hyperparameters.
+    /// AdminUtils authorizes the owner/root and applies the normal admin guards.
+    pub fn do_set_null_consensus(netuid: NetUid, enabled: bool) -> DispatchResult {
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(!netuid.is_root(), Error::<T>::NullConsensusOnRoot);
-        ensure!(
-            !NullConsensus::<T>::get(netuid),
-            Error::<T>::NullConsensusAlreadyEnabled
-        );
-        ensure!(
-            FirstEmissionBlockNumber::<T>::get(netuid).is_none(),
-            Error::<T>::NullConsensusRequiresUnstartedSubnet
-        );
-        ensure!(
-            Self::get_subnetwork_n(netuid) <= 1,
-            Error::<T>::NullConsensusRequiresEmptySubnet
-        );
-        ensure!(
-            MechanismCountCurrent::<T>::get(netuid) == MechId::from(1),
-            Error::<T>::NullConsensusRequiresSingleMechanism
-        );
-        let index = Self::get_mechanism_storage_index(netuid, MechId::MAIN);
-        ensure!(
-            Weights::<T>::iter_prefix(index).next().is_none()
-                && Bonds::<T>::iter_prefix(index).next().is_none(),
-            Error::<T>::NullConsensusHasLegacyWeightsOrBonds
-        );
-
-        NullConsensus::<T>::insert(netuid, true);
-        Self::set_max_allowed_uids(netuid, MAX_NULL_UIDS);
-        // One scorer plus the owner exemption by default; root can raise the
-        // cap up to MAX_NULL_VALIDATORS, retaining normal stake rules.
-        Self::set_max_allowed_validators(netuid, 1);
-        Self::set_min_allowed_weights(netuid, 1);
-        Self::set_weights_set_rate_limit(netuid, 100);
-        Self::apply_tempo_with_cycle_reset(netuid, 360);
-        Self::set_commit_reveal_weights_enabled(netuid, false);
-        LiquidAlphaOn::<T>::insert(netuid, false);
-        Self::set_burn(netuid, TaoBalance::ZERO);
-        Self::set_min_burn(netuid, TaoBalance::ZERO);
-        CollateralLockShare::<T>::insert(netuid, 0);
-        Self::set_difficulty(netuid, 10_000);
-        Self::set_min_difficulty(netuid, 1);
-        NetworkRegistrationAllowed::<T>::insert(netuid, true);
-        NetworkPowRegistrationAllowed::<T>::insert(netuid, true);
-        MaxRegistrationsPerBlock::<T>::insert(netuid, 1);
-        Self::deposit_event(Event::NullConsensusEnabled(netuid));
+        if NullConsensus::<T>::get(netuid) == enabled {
+            return Ok(());
+        }
+        if enabled {
+            ensure!(
+                MechanismCountCurrent::<T>::get(netuid) == MechId::from(1),
+                Error::<T>::NullConsensusRequiresSingleMechanism
+            );
+        } else {
+            // Never run Yuma's matrices at the enlarged null-consensus capacity.
+            // The owner must explicitly downsize before disabling, without losing
+            // miners as a side effect of changing consensus.
+            let limit = DefaultMaxAllowedUids::<T>::get();
+            ensure!(
+                Self::get_subnetwork_n(netuid) <= limit
+                    && Self::get_max_allowed_uids(netuid) <= limit,
+                Error::<T>::NullConsensusYumaCapacityExceeded
+            );
+            // Yuma can replace or compact UIDs while this mode is off. Require
+            // fresh null scores on return instead of reusing their old mapping.
+            NullWeightsResetAt::<T>::insert(netuid, Self::get_current_block_as_u64());
+        }
+        NullConsensus::<T>::insert(netuid, enabled);
         Ok(())
     }
 
@@ -187,7 +167,13 @@ impl<T: Config> Pallet<T> {
         let index = Self::get_mechanism_storage_index(netuid, MechId::MAIN);
         let now = Self::get_current_block_as_u64();
         ensure!(
-            Self::check_rate_limit(index, uid, now),
+            now > NullWeightsResetAt::<T>::get(netuid),
+            Error::<T>::SettingWeightsTooFast
+        );
+        ensure!(
+            NullLastUpdate::<T>::get(netuid, uid) == 0
+                || now.saturating_sub(NullLastUpdate::<T>::get(netuid, uid))
+                    >= Self::get_weights_set_rate_limit(netuid),
             Error::<T>::SettingWeightsTooFast
         );
         // Contiguous UIDs let validation avoid a database read per destination.
@@ -217,8 +203,20 @@ impl<T: Config> Pallet<T> {
             .zip(values)
             .filter(|(_, v)| *v != 0)
             .collect();
+        // Yuma may have changed permits while this mode was disabled. Bound
+        // cached rows even before the next null epoch removes revoked scorers.
+        if !NullWeights::<T>::contains_key(netuid, uid) {
+            let row_limit = usize::from(MAX_NULL_VALIDATORS).saturating_add(1);
+            ensure!(
+                NullWeights::<T>::iter_key_prefix(netuid)
+                    .take(row_limit)
+                    .count()
+                    < row_limit,
+                Error::<T>::NullConsensusValidatorLimitExceeded
+            );
+        }
         NullWeights::<T>::insert(netuid, uid, row);
-        Self::set_last_update_for_uid(index, uid, now);
+        NullLastUpdate::<T>::insert(netuid, uid, now);
         Self::deposit_event(Event::WeightsSet(index, uid));
         Ok(())
     }
@@ -233,8 +231,8 @@ impl<T: Config> Pallet<T> {
         let owner = Self::get_owner_uid(netuid);
         let now = Self::get_current_block_as_u64();
         let cutoff = Self::get_activity_cutoff_blocks(netuid);
+        let reset_at = NullWeightsResetAt::<T>::get(netuid);
         let index = Self::get_mechanism_storage_index(netuid, MechId::MAIN);
-        let updated = LastUpdate::<T>::get(index);
         let registered = Self::get_block_at_registration(netuid);
         let old_permits = ValidatorPermit::<T>::get(netuid);
 
@@ -264,14 +262,16 @@ impl<T: Config> Pallet<T> {
         // or revoked rows are removed so historical permits cannot grow the matrix.
         for (uid, row) in NullWeights::<T>::iter_prefix(netuid) {
             let i = usize::from(uid);
-            let last = updated.get(i).copied().unwrap_or_default();
+            let last = NullLastUpdate::<T>::get(netuid, uid);
             let allowed = old_permits.get(i).copied().unwrap_or(false) || owner == Some(uid);
             if !allowed
                 || !permits.get(i).copied().unwrap_or(false)
+                || last <= reset_at
                 || last.saturating_add(cutoff) < now
                 || last <= registered.get(i).copied().unwrap_or_default()
             {
                 NullWeights::<T>::remove(netuid, uid);
+                NullLastUpdate::<T>::remove(netuid, uid);
                 continue;
             }
             let valid = |dest: u16| {

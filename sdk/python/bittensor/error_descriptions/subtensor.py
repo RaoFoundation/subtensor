@@ -3,30 +3,35 @@
 from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
+    "NullConsensusYumaCapacityExceeded": (
+        "Returning to Yuma requires both the UID count and MaxAllowedUids to fit the normal "
+        "Yuma limit. Lower capacity first; the toggle never removes miners. The existing "
+        "trim cannot process a subnet whose UID count already exceeds that limit."
+    ),
     "NullConsensusOnRoot": ("Root cannot use null consensus. Select a non-root subnet."),
     "NullConsensusAlreadyEnabled": (
-        "Null consensus is already enabled for this subnet. Continue with registration or "
-        "weight submission; mode selection cannot be repeated."
+        "Retired one-shot setup restriction. Current runtimes use the reversible "
+        "null_consensus_enabled hyperparameter on existing subnets."
     ),
     "NullConsensusRequiresUnstartedSubnet": (
-        "Null consensus must be selected before subnet activation. Create a new subnet and "
-        "enable the mode before starting emissions."
+        "Retired one-shot setup restriction. Current runtimes use the reversible "
+        "null_consensus_enabled hyperparameter on existing subnets."
     ),
     "NullConsensusRequiresEmptySubnet": (
-        "Null consensus must be selected before admitting miners. Only the owner UID may exist; "
-        "configure a new subnet before registering miners."
+        "Retired one-shot setup restriction. Current runtimes use the reversible "
+        "null_consensus_enabled hyperparameter on existing subnets."
     ),
     "NullConsensusRequiresSingleMechanism": (
         "Null consensus supports exactly one mechanism. Set the mechanism count to 1 before "
         "enabling the mode and keep it at 1 afterward."
     ),
     "NullConsensusHasLegacyWeightsOrBonds": (
-        "The subnet has legacy weight or bond rows. Enable null consensus on a fresh subnet "
-        "before submitting weights."
+        "Retired one-shot setup restriction. Current runtimes use the reversible "
+        "null_consensus_enabled hyperparameter on existing subnets."
     ),
     "NullConsensusNotEnabled": (
-        "This operation requires null consensus. Select a null-consensus subnet; its owner can "
-        "enable the mode only before activation and miner registration."
+        "This operation requires null consensus. Ask the subnet owner to enable the "
+        "null_consensus_enabled hyperparameter before using PoW or u32 scores."
     ),
     "NullConsensusRequiresPowRegistration": (
         "Null-consensus subnets require proof-of-work registration. Use btcli pow register "
@@ -70,11 +75,12 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "NullConsensusValidatorLimitExceeded": (
         "Null consensus supports at most 64 stake-selected validators plus the owner exemption. "
-        "Set MaxAllowedValidators to 64 or less."
+        "Set MaxAllowedValidators to 64 or less. If a new score row is rejected after switching "
+        "modes, wait for the next null epoch to remove stale rows."
     ),
     "NullConsensusCommitRevealUnsupported": (
-        "Null consensus does not support commit-reveal. Keep commit-reveal disabled and submit "
-        "scores directly with set_weights_v2."
+        "Retired one-shot setup restriction. Current runtimes use the reversible "
+        "null_consensus_enabled hyperparameter on existing subnets."
     ),
     "AccountRejectsLockedAlpha": (
         "Locked alpha was being transferred to a coldkey whose `AccountFlags` do not have the "

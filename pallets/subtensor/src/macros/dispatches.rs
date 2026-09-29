@@ -72,7 +72,9 @@ mod dispatches {
             weights: Vec<u16>,
             version_key: u64,
         ) -> DispatchResult {
-            if Self::get_commit_reveal_weights_enabled(netuid) {
+            if NullConsensus::<T>::get(netuid) {
+                Err(Error::<T>::NullConsensusRequiresU32Weights.into())
+            } else if Self::get_commit_reveal_weights_enabled(netuid) {
                 Err(Error::<T>::CommitRevealEnabled.into())
             } else {
                 Self::do_set_weights(origin, netuid, dests, weights, version_key)
@@ -133,7 +135,9 @@ mod dispatches {
             weights: Vec<u16>,
             version_key: u64,
         ) -> DispatchResult {
-            if Self::get_commit_reveal_weights_enabled(netuid) {
+            if NullConsensus::<T>::get(netuid) {
+                Err(Error::<T>::NullConsensusRequiresU32Weights.into())
+            } else if Self::get_commit_reveal_weights_enabled(netuid) {
                 Err(Error::<T>::CommitRevealEnabled.into())
             } else {
                 Self::do_set_mechanism_weights(origin, netuid, mecid, dests, weights, version_key)
@@ -836,14 +840,6 @@ mod dispatches {
                     }
                     error
                 })
-        }
-
-        /// Select miner-only arithmetic-mean consensus before subnet activation.
-        /// Applies the low-cost profile, including zero burn/collateral and PoW.
-        #[pallet::call_index(152)]
-        #[pallet::weight(<T as Config>::WeightInfo::enable_null_consensus())]
-        pub fn enable_null_consensus(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
-            Self::do_enable_null_consensus(origin, netuid)
         }
 
         /// Set relative u32 weights on a null-consensus subnet. Each eligible

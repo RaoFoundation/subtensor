@@ -407,9 +407,12 @@ impl<T: Config> Pallet<T> {
         let liquid_alpha_enabled = Self::get_liquid_alpha_enabled(netuid);
         let (alpha_low, alpha_high): (u16, u16) = Self::get_alpha_values(netuid);
         let alpha_sigmoid_steepness = Self::get_alpha_sigmoid_steepness(netuid);
-        let yuma_version: u16 = match Self::get_yuma3_enabled(netuid) {
-            true => 3u16,
-            false => 2u16,
+        let yuma_version: u16 = if NullConsensus::<T>::get(netuid) {
+            0
+        } else if Self::get_yuma3_enabled(netuid) {
+            3
+        } else {
+            2
         };
         let subnet_token_enabled = Self::get_subtoken_enabled(netuid);
         let transfers_enabled = Self::get_transfer_toggle(netuid);
@@ -471,7 +474,9 @@ impl<T: Config> Pallet<T> {
         }
 
         let (alpha_low, alpha_high): (u16, u16) = Self::get_alpha_values(netuid);
-        let yuma_version: u16 = if Self::get_yuma3_enabled(netuid) {
+        let yuma_version: u16 = if NullConsensus::<T>::get(netuid) {
+            0
+        } else if Self::get_yuma3_enabled(netuid) {
             3
         } else {
             2
@@ -596,6 +601,11 @@ impl<T: Config> Pallet<T> {
             )
                 .into(),
             ("yuma_version", HyperparamValue::U16(Compact(yuma_version)),).into(),
+            (
+                "null_consensus_enabled",
+                HyperparamValue::Bool(NullConsensus::<T>::get(netuid))
+            )
+                .into(),
             (
                 "subnet_is_active",
                 HyperparamValue::Bool(Self::get_subtoken_enabled(netuid)),

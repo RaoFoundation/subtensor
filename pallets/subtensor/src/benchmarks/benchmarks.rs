@@ -50,17 +50,6 @@ mod pallet_benchmarks {
     use super::*;
 
     #[benchmark]
-    fn enable_null_consensus() {
-        let netuid = NetUid::from(1);
-        let owner: T::AccountId = account("null_owner", 0, 0);
-        Subtensor::<T>::init_new_network(netuid, 360);
-        SubnetOwner::<T>::insert(netuid, &owner);
-        #[extrinsic_call]
-        _(RawOrigin::Signed(owner), netuid);
-        assert!(NullConsensus::<T>::get(netuid));
-    }
-
-    #[benchmark]
     fn set_weights_v2(n: Linear<1, 32768>) {
         let netuid = NetUid::from(1);
         let owner: T::AccountId = account("null_owner", 0, 0);
@@ -68,16 +57,17 @@ mod pallet_benchmarks {
         SubnetOwner::<T>::insert(netuid, &owner);
         SubnetOwnerHotkey::<T>::insert(netuid, &owner);
         Subtensor::<T>::append_neuron(netuid, &owner, 1);
-        assert_ok!(Subtensor::<T>::enable_null_consensus(
-            RawOrigin::Signed(owner.clone()).into(),
-            netuid
-        ));
+        assert_ok!(Subtensor::<T>::do_set_null_consensus(netuid, true));
         // Validation relies on contiguous UIDs; no per-destination database reads.
         SubnetworkN::<T>::insert(netuid, n as u16);
         LastUpdate::<T>::insert(NetUidStorageIndex::from(netuid), vec![1u64; n as usize]);
         frame_system::Pallet::<T>::set_block_number(101u32.into());
         let dests: Vec<u16> = (0..n as u16).collect();
         let values = vec![u32::MAX; n as usize];
+        // Include the maximum cached-row admission scan before inserting the owner.
+        for uid in 1..=crate::null_consensus::MAX_NULL_VALIDATORS {
+            NullWeights::<T>::insert(netuid, uid, vec![(0, 1u32)]);
+        }
         #[extrinsic_call]
         _(RawOrigin::Signed(owner), netuid, dests, values, 0);
         assert_eq!(NullWeights::<T>::get(netuid, 0).len(), n as usize);
@@ -90,10 +80,9 @@ mod pallet_benchmarks {
         let hotkey: T::AccountId = account("null_miner", 0, 0);
         Subtensor::<T>::init_new_network(netuid, 360);
         SubnetOwner::<T>::insert(netuid, &owner);
-        assert_ok!(Subtensor::<T>::enable_null_consensus(
-            RawOrigin::Signed(owner.clone()).into(),
-            netuid
-        ));
+        assert_ok!(Subtensor::<T>::do_set_null_consensus(netuid, true));
+        Subtensor::<T>::set_max_allowed_uids(netuid, crate::null_consensus::MAX_NULL_UIDS);
+        NetworkPowRegistrationAllowed::<T>::insert(netuid, true);
         let n = crate::null_consensus::MAX_NULL_UIDS.saturating_sub(1);
         SubnetworkN::<T>::insert(netuid, n);
         Active::<T>::insert(netuid, vec![true; n as usize]);
@@ -160,6 +149,7 @@ mod pallet_benchmarks {
             BlockAtRegistration::<T>::insert(netuid, uid, 1);
             if uid <= 64 {
                 NullWeights::<T>::insert(netuid, uid, &row);
+                NullLastUpdate::<T>::insert(netuid, uid, 2);
                 Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
                     &hotkey,
                     &coldkey,

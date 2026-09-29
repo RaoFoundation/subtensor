@@ -182,6 +182,13 @@ pub mod pallet {
             /// Largest slice, in rao, either rule may leave unsold (`0` = every skip off).
             forfeit_cap_rao: u64,
         },
+        /// The subnet owner or root changed the active consensus algorithm.
+        NullConsensusToggled {
+            /// Subnet whose consensus mode changed.
+            netuid: NetUid,
+            /// Whether miner-only mean scoring is active.
+            enabled: bool,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -1335,10 +1342,6 @@ pub mod pallet {
             netuid: NetUid,
             enabled: bool,
         ) -> DispatchResult {
-            ensure!(
-                !enabled || !pallet_subtensor::NullConsensus::<T>::get(netuid),
-                pallet_subtensor::Error::<T>::NullConsensusCommitRevealUnsupported
-            );
             let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
                 origin,
                 netuid,
@@ -2661,6 +2664,31 @@ pub mod pallet {
             });
             log::debug!(
                 "BasketClaimDustSet( row_cap_rao: {row_cap_rao:?}, row_bps: {row_bps:?}, slice_rao: {slice_rao:?}, forfeit_cap_rao: {forfeit_cap_rao:?} )"
+            );
+            Ok(())
+        }
+
+        /// Enables or disables null consensus without changing other hyperparameters.
+        /// New subnets start in Yuma 3; the owner/root may toggle populated subnets.
+        #[pallet::call_index(111)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_null_consensus_enabled())]
+        pub fn sudo_set_null_consensus_enabled(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            enabled: bool,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::NullConsensusEnabled.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            pallet_subtensor::Pallet::<T>::do_set_null_consensus(netuid, enabled)?;
+            Self::deposit_event(Event::NullConsensusToggled { netuid, enabled });
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::NullConsensusEnabled.into()],
             );
             Ok(())
         }

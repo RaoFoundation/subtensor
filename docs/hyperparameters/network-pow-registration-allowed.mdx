@@ -17,7 +17,8 @@ account association, capacity, and the per-block registration limit.
 On ordinary Yuma subnets, PoW remains unavailable: the toggle returns
 `POWRegistrationDisabled`, and the legacy `register` call retains its burn-based
 behavior. Setting this flag does not convert an existing subnet to null consensus.
-Choose the mode before activation using `btcli subnets enable-null-consensus`.
+Toggle `null_consensus_enabled` through the normal hyperparameter setter:
+`btcli hparams set --netuid N --name null_consensus_enabled --value true`.
 
 ## Related
 

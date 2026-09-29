@@ -2392,7 +2392,7 @@ pub mod pallet {
     pub type NetworkPowRegistrationAllowed<T: Config> =
         StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultRegistrationAllowed<T>>;
 
-    /// Opt-in, miner-only arithmetic-mean consensus. Selected before subnet activation.
+    /// Owner-toggleable miner-only arithmetic-mean consensus. New subnets default to false.
     #[pallet::storage]
     pub type NullConsensus<T> = StorageMap<_, Identity, NetUid, bool, ValueQuery>;
 
@@ -2400,6 +2400,16 @@ pub mod pallet {
     #[pallet::storage]
     pub type NullWeights<T> =
         StorageDoubleMap<_, Identity, NetUid, Identity, u16, Vec<(u16, u32)>, ValueQuery>;
+
+    /// Null-score timestamps are separate from Yuma's LastUpdate so toggling modes
+    /// cannot refresh old Yuma weights or bypass either weight submission rate limit.
+    #[pallet::storage]
+    pub type NullLastUpdate<T> =
+        StorageDoubleMap<_, Identity, NetUid, Identity, u16, u64, ValueQuery>;
+
+    /// Last switch away from null consensus; resumed scores must be newer than this block.
+    #[pallet::storage]
+    pub type NullWeightsResetAt<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
 
     /// Informational u32 incentive proportions. Payments use wider integer arithmetic.
     #[pallet::storage]

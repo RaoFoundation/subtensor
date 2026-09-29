@@ -315,11 +315,6 @@ class SubtensorModule:
         return Call('SubtensorModule', 'dissolve_network', {'coldkey': coldkey, 'netuid': netuid})
 
     @staticmethod
-    def enable_null_consensus(netuid: 'NetUid') -> Call:
-        'Select miner-only arithmetic-mean consensus before subnet activation. Applies the low-cost profile, including zero burn/collateral and PoW.'
-        return Call('SubtensorModule', 'enable_null_consensus', {'netuid': netuid})
-
-    @staticmethod
     def enable_voting_power_tracking(netuid: 'NetUid') -> Call:
         'Enables voting power tracking for a subnet.  This function can be called by the subnet owner or root. When enabled, voting power EMA is updated every epoch for all validators. Voting power starts at 0 and increases over epochs.  # Arguments * `origin`: The origin of the call, must be subnet owner or root. * `netuid`: The subnet to enable voting power tracking for.  # Errors * `SubnetNotExist`: If the subnet does not exist. * `NotSubnetOwner`: If the caller is not the subnet owner or root.'
         return Call('SubtensorModule', 'enable_voting_power_tracking', {'netuid': netuid})
@@ -1210,6 +1205,11 @@ class AdminUtils:
     def sudo_set_nominator_min_required_stake(min_stake: 'u64') -> Call:
         'The extrinsic sets the minimum stake required for nominators. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the minimum stake required for nominators.'
         return Call('AdminUtils', 'sudo_set_nominator_min_required_stake', {'min_stake': min_stake})
+
+    @staticmethod
+    def sudo_set_null_consensus_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
+        'Enables or disables null consensus without changing other hyperparameters. New subnets start in Yuma 3; the owner/root may toggle populated subnets.'
+        return Call('AdminUtils', 'sudo_set_null_consensus_enabled', {'netuid': netuid, 'enabled': enabled})
 
     @staticmethod
     def sudo_set_owner_cut_auto_lock_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:

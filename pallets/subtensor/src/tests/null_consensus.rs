@@ -17,10 +17,11 @@ fn setup(n: u16) -> NetUid {
     SubnetOwner::<Test>::insert(net, U256::from(100));
     SubnetOwnerHotkey::<Test>::insert(net, U256::from(0));
     SubtensorModule::append_neuron(net, &U256::from(0), 1);
-    assert_ok!(SubtensorModule::enable_null_consensus(
-        RuntimeOrigin::signed(U256::from(100)),
-        net
-    ));
+    assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
+    SubtensorModule::set_max_allowed_uids(net, 32768);
+    SubtensorModule::set_max_allowed_validators(net, 1);
+    MaxRegistrationsPerBlock::<Test>::insert(net, 1);
+    NetworkPowRegistrationAllowed::<Test>::insert(net, true);
     for uid in 1..n {
         SubtensorModule::append_neuron(net, &U256::from(uid), 1);
     }
@@ -31,19 +32,14 @@ fn setup(n: u16) -> NetUid {
 }
 
 #[test]
-fn null_consensus_profile_is_opt_in_and_owner_gated() {
+fn null_consensus_profile_is_opt_in() {
     new_test_ext(1).execute_with(|| {
         let net = setup(1);
         assert!(NullConsensus::<Test>::get(net));
         assert_eq!(MaxAllowedUids::<Test>::get(net), 32768);
-        assert_eq!(Burn::<Test>::get(net), TaoBalance::ZERO);
-        assert_eq!(CollateralLockShare::<Test>::get(net), 0);
-        assert!(!CommitRevealWeightsEnabled::<Test>::get(net));
+        assert!(Yuma3On::<Test>::get(net));
+        assert!(CommitRevealWeightsEnabled::<Test>::get(net));
         assert!(!NullConsensus::<Test>::get(NetUid::from(2)));
-        assert!(
-            SubtensorModule::enable_null_consensus(RuntimeOrigin::signed(U256::from(101)), net)
-                .is_err()
-        );
         assert_noop!(
             SubtensorModule::burned_register(
                 RuntimeOrigin::signed(U256::from(100)),
@@ -61,47 +57,155 @@ fn null_consensus_profile_is_opt_in_and_owner_gated() {
 }
 
 #[test]
-fn null_consensus_setup_errors_identify_the_failed_precondition() {
+fn null_consensus_toggle_preserves_live_yuma_state_and_hyperparameters() {
     new_test_ext(1).execute_with(|| {
-        let net = setup(1);
-        assert_noop!(
-            SubtensorModule::enable_null_consensus(RuntimeOrigin::root(), net),
-            Error::<Test>::NullConsensusAlreadyEnabled
-        );
-        NullConsensus::<Test>::remove(net);
+        let net = NetUid::from(1);
+        SubtensorModule::init_new_network(net, 360);
+        assert!(Yuma3On::<Test>::get(net));
+        assert!(!NullConsensus::<Test>::get(net));
+        SubnetOwner::<Test>::insert(net, U256::from(100));
+        SubnetOwnerHotkey::<Test>::insert(net, U256::zero());
+        for uid in 0..3 {
+            SubtensorModule::append_neuron(net, &U256::from(uid), 1);
+        }
         FirstEmissionBlockNumber::<Test>::insert(net, 1);
-        assert_noop!(
-            SubtensorModule::enable_null_consensus(RuntimeOrigin::root(), net),
-            Error::<Test>::NullConsensusRequiresUnstartedSubnet
-        );
-        FirstEmissionBlockNumber::<Test>::remove(net);
-        SubnetworkN::<Test>::insert(net, 2);
-        assert_noop!(
-            SubtensorModule::enable_null_consensus(RuntimeOrigin::root(), net),
-            Error::<Test>::NullConsensusRequiresEmptySubnet
-        );
-        SubnetworkN::<Test>::insert(net, 1);
-        MechanismCountCurrent::<Test>::insert(net, MechId::from(2));
-        assert_noop!(
-            SubtensorModule::enable_null_consensus(RuntimeOrigin::root(), net),
-            Error::<Test>::NullConsensusRequiresSingleMechanism
-        );
-        MechanismCountCurrent::<Test>::insert(net, MechId::from(1));
-        Weights::<Test>::insert(NetUidStorageIndex::from(net), 0, vec![(0, 1)]);
-        assert_noop!(
-            SubtensorModule::enable_null_consensus(RuntimeOrigin::root(), net),
-            Error::<Test>::NullConsensusHasLegacyWeightsOrBonds
-        );
+        let index = NetUidStorageIndex::from(net);
+        Weights::<Test>::insert(index, 0, vec![(1, u16::MAX)]);
+        Bonds::<Test>::insert(index, 0, vec![(1, 123)]);
+        let config = || {
+            (
+                MaxAllowedUids::<Test>::get(net),
+                MaxAllowedValidators::<Test>::get(net),
+                Tempo::<Test>::get(net),
+                Burn::<Test>::get(net),
+                MinBurn::<Test>::get(net),
+                Difficulty::<Test>::get(net),
+                CollateralLockShare::<Test>::get(net),
+                CommitRevealWeightsEnabled::<Test>::get(net),
+                LiquidAlphaOn::<Test>::get(net),
+                WeightsSetRateLimit::<Test>::get(net),
+                NetworkPowRegistrationAllowed::<Test>::get(net),
+            )
+        };
+        let original = config();
+        let last_update = LastUpdate::<Test>::get(index);
+        System::set_block_number(3);
+        for _ in 0..2 {
+            assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
+            assert_eq!(config(), original);
+            assert!(Yuma3On::<Test>::get(net));
+            assert_ok!(SubtensorModule::do_set_null_consensus(net, true)); // idempotent
+            assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+            assert!(!NullConsensus::<Test>::get(net));
+            assert_eq!(config(), original);
+        }
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
+        System::set_block_number(4);
+        assert_ok!(SubtensorModule::set_weights_v2(
+            RuntimeOrigin::signed(U256::zero()),
+            net,
+            vec![2],
+            vec![u32::MAX],
+            0
+        ));
+        assert_eq!(NullLastUpdate::<Test>::get(net, 0), 4);
+        assert_eq!(LastUpdate::<Test>::get(index), last_update);
+        assert_eq!(Weights::<Test>::get(index, 0), vec![(1, u16::MAX)]);
+        assert_eq!(Bonds::<Test>::get(index, 0), vec![(1, 123)]);
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
         assert_noop!(
             SubtensorModule::set_weights_v2(
                 RuntimeOrigin::signed(U256::zero()),
                 net,
-                vec![0],
+                vec![2],
                 vec![1],
                 0
             ),
             Error::<Test>::NullConsensusNotEnabled
         );
+        assert_eq!(LastUpdate::<Test>::get(index), last_update);
+        assert_eq!(Weights::<Test>::get(index, 0), vec![(1, u16::MAX)]);
+        assert_eq!(Bonds::<Test>::get(index, 0), vec![(1, 123)]);
+    });
+}
+
+#[test]
+fn null_consensus_toggle_rejects_unsupported_capacity_without_mutation() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(3);
+        assert_noop!(
+            SubtensorModule::do_set_null_consensus(net, false),
+            Error::<Test>::NullConsensusYumaCapacityExceeded
+        );
+        MaxAllowedUids::<Test>::insert(net, DefaultMaxAllowedUids::<Test>::get());
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+        MechanismCountCurrent::<Test>::insert(net, MechId::from(2));
+        assert_noop!(
+            SubtensorModule::do_set_null_consensus(net, true),
+            Error::<Test>::NullConsensusRequiresSingleMechanism
+        );
+    });
+}
+
+#[test]
+fn null_consensus_caps_cached_rows_across_mode_changes() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(66);
+        for uid in 1..=65 {
+            NullWeights::<Test>::insert(net, uid, vec![(0, 1u32)]);
+            NullLastUpdate::<Test>::insert(net, uid, 2);
+        }
+        assert_noop!(
+            SubtensorModule::set_weights_v2(
+                RuntimeOrigin::signed(U256::zero()),
+                net,
+                vec![1],
+                vec![1],
+                0
+            ),
+            Error::<Test>::NullConsensusValidatorLimitExceeded
+        );
+        // The first null epoch clears rows from former Yuma permit holders.
+        SubtensorModule::null_epoch(net, 1000.into());
+        assert_ok!(SubtensorModule::set_weights_v2(
+            RuntimeOrigin::signed(U256::zero()),
+            net,
+            vec![1],
+            vec![1],
+            0
+        ));
+        assert_eq!(NullWeights::<Test>::iter_key_prefix(net).count(), 1);
+    });
+}
+
+#[test]
+fn null_consensus_trimming_discards_scores_before_uid_reuse() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(4);
+        MinAllowedUids::<Test>::insert(net, 1);
+        ImmunityPeriod::<Test>::insert(net, 0);
+        System::set_block_number(10000);
+        assert_ok!(SubtensorModule::set_weights_v2(
+            RuntimeOrigin::signed(U256::zero()),
+            net,
+            vec![3],
+            vec![1],
+            0
+        ));
+        SubtensorModule::set_max_allowed_uids(net, 4);
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+        assert_ok!(SubtensorModule::trim_to_max_allowed_uids(net, 3));
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
+        assert!(SubtensorModule::null_epoch(net, 1000.into()).is_empty());
+        assert!(NullWeights::<Test>::iter_prefix(net).next().is_none());
+        System::set_block_number(10001);
+        assert_ok!(SubtensorModule::set_weights_v2(
+            RuntimeOrigin::signed(U256::zero()),
+            net,
+            vec![1],
+            vec![1],
+            0
+        ));
     });
 }
 
@@ -112,10 +216,6 @@ fn null_consensus_admission_errors_distinguish_required_work_and_paused_flags() 
         assert_noop!(
             SubtensorModule::register_neuron(net, &U256::from(8)),
             Error::<Test>::NullConsensusRequiresPowRegistration
-        );
-        assert_noop!(
-            SubtensorModule::trim_to_max_allowed_uids(net, 1),
-            Error::<Test>::NullConsensusTrimmingDisabled
         );
         assert_noop!(
             SubtensorModule::set_weights(
@@ -340,7 +440,7 @@ fn null_consensus_pow_validates_seal_owner_age_and_limits() {
             ),
             Error::<Test>::TooManyRegistrationsThisBlock
         );
-        assert_eq!(Burn::<Test>::get(net), TaoBalance::ZERO);
+        assert_eq!(Burn::<Test>::get(net), DefaultNeuronBurnCost::<Test>::get());
     });
 }
 
@@ -417,10 +517,7 @@ fn null_consensus_used_work_cannot_follow_a_hotkey_to_another_subnet() {
         let net = setup(1);
         let other = NetUid::from(2);
         SubtensorModule::init_new_network(other, 360);
-        assert_ok!(SubtensorModule::enable_null_consensus(
-            RuntimeOrigin::root(),
-            other
-        ));
+        assert_ok!(SubtensorModule::do_set_null_consensus(other, true));
         SubtensorModule::set_difficulty(net, 1);
         SubtensorModule::set_difficulty(other, 1);
         let hotkey = U256::from(8);

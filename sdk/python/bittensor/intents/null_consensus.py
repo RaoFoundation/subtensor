@@ -36,31 +36,6 @@ def _search_work(block_hash: bytes, hotkey: bytes, difficulty: int, start: int):
 
 @register
 @dataclass
-class EnableNullConsensus(Intent):
-    """Select null consensus before activation and before registering miners.
-
-    Applies zero burn/collateral, PoW difficulty 10,000, 32,768 UID capacity,
-    a 360-block tempo, one stake-selected validator plus the owner exemption,
-    and a 100-block weight rate limit. Disables commit-reveal and liquid alpha.
-    Mode selection lasts for the subnet's lifetime.
-    """
-
-    op = "enable_null_consensus"
-    origin = "subnet_owner"
-    wraps = (("SubtensorModule", "enable_null_consensus"),)
-    netuid: int = field(metadata={"help": "Unstarted subnet to configure."})
-
-    async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.enable_null_consensus(netuid=self.netuid)
-        )
-
-    def summary(self) -> str:
-        return f"enable miner-only null consensus and the low-cost profile on netuid {self.netuid}"
-
-
-@register
-@dataclass
 class PowRegister(Intent):
     """Solve fresh PoW and register the wallet hotkey on a null subnet.
 

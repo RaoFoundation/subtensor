@@ -107,6 +107,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "NewHotKeyNotCleanForRootSwap": _C.INVALID_ARGUMENT,
     "InvalidWorkBlock": _C.INVALID_ARGUMENT,
     "InvalidDifficulty": _C.INVALID_ARGUMENT,
+    "NullConsensusYumaCapacityExceeded": _C.LIMIT_EXCEEDED,
     "NullConsensusOnRoot": _C.INVALID_ARGUMENT,
     "NullConsensusAlreadyEnabled": _C.ALREADY_EXISTS,
     "NullConsensusRequiresUnstartedSubnet": _C.INVALID_ARGUMENT,

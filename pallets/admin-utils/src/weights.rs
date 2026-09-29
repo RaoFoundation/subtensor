@@ -36,6 +36,7 @@ use core::marker::PhantomData;
 
 /// Weight functions needed for `pallet_admin_utils`.
 pub trait WeightInfo {
+	fn sudo_set_null_consensus_enabled() -> Weight;
 	fn swap_authorities(a: u32, ) -> Weight;
 	fn schedule_grandpa_change(a: u32, ) -> Weight;
 	fn sudo_set_default_take() -> Weight;
@@ -134,6 +135,11 @@ pub trait WeightInfo {
 /// Weights for `pallet_admin_utils` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
+	// Existing reference bound until the dedicated admin benchmark is measured.
+	fn sudo_set_null_consensus_enabled() -> Weight {
+		Self::sudo_set_yuma3_enabled().saturating_add(Self::sudo_set_max_allowed_uids())
+	}
+
 	/// Storage: `Aura::Authorities` (r:0 w:1)
 	/// Proof: `Aura::Authorities` (`max_values`: Some(1), `max_size`: Some(1025), added: 1520, mode: `MaxEncodedLen`)
 	/// The range of component `a` is `[0, 32]`.
@@ -1582,6 +1588,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
+	// Existing reference bound until the dedicated admin benchmark is measured.
+	fn sudo_set_null_consensus_enabled() -> Weight {
+		Self::sudo_set_yuma3_enabled().saturating_add(Self::sudo_set_max_allowed_uids())
+	}
+
 	/// Storage: `Aura::Authorities` (r:0 w:1)
 	/// Proof: `Aura::Authorities` (`max_values`: Some(1), `max_size`: Some(1025), added: 1520, mode: `MaxEncodedLen`)
 	/// The range of component `a` is `[0, 32]`.

@@ -22,6 +22,7 @@ impl<T: Config> Pallet<T> {
     /// the neuron to default
     pub fn clear_neuron(netuid: NetUid, neuron_uid: u16) {
         NullWeights::<T>::remove(netuid, neuron_uid);
+        NullLastUpdate::<T>::remove(netuid, neuron_uid);
         let neuron_index: usize = neuron_uid.into();
         Emission::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0.into()));
         Consensus::<T>::mutate(netuid, |v| {
@@ -170,7 +171,8 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn trim_to_max_allowed_uids(netuid: NetUid, max_n: u16) -> DispatchResult {
-        // Null UIDs are append-only; compaction would retarget existing score rows.
+        // Large null subnets retain append-only UIDs. Within Yuma's capacity,
+        // owners may disable null consensus before explicitly trimming miners.
         ensure!(
             !NullConsensus::<T>::get(netuid),
             Error::<T>::NullConsensusTrimmingDisabled

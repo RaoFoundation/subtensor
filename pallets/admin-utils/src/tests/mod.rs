@@ -1140,13 +1140,71 @@ fn test_sudo_set_network_pow_registration_allowed() {
 }
 
 #[test]
+fn null_consensus_toggle_uses_owner_authorization_rate_limit_and_admin_window() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(100);
+        System::set_block_number(1);
+        SubtensorModule::init_new_network(netuid, 360);
+        SubtensorModule::set_admin_freeze_window(0);
+        SubtensorModule::set_owner_hyperparam_rate_limit(1);
+        pallet_subtensor::SubnetOwner::<Test>::insert(netuid, owner);
+        assert!(pallet_subtensor::Yuma3On::<Test>::get(netuid));
+        assert!(!pallet_subtensor::NullConsensus::<Test>::get(netuid));
+        assert_noop!(
+            AdminUtils::sudo_set_null_consensus_enabled(RuntimeOrigin::none(), netuid, true),
+            DispatchError::BadOrigin
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_null_consensus_enabled(
+                RuntimeOrigin::signed(U256::from(101)),
+                netuid,
+                true
+            ),
+            DispatchError::BadOrigin
+        );
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            true
+        ));
+        assert_noop!(
+            AdminUtils::sudo_set_null_consensus_enabled(
+                RuntimeOrigin::signed(owner),
+                netuid,
+                false
+            ),
+            pallet_subtensor::Error::<Test>::TxRateLimitExceeded
+        );
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::root(),
+            netuid,
+            false
+        ));
+        assert!(!pallet_subtensor::NullConsensus::<Test>::get(netuid));
+        System::set_block_number(362);
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            true
+        ));
+        SubtensorModule::set_admin_freeze_window(u16::MAX);
+        assert_noop!(
+            AdminUtils::sudo_set_null_consensus_enabled(RuntimeOrigin::root(), netuid, false),
+            pallet_subtensor::Error::<Test>::AdminActionProhibitedDuringWeightsWindow
+        );
+    });
+}
+
+#[test]
 fn null_consensus_admin_limits_and_pow_toggle() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
         SubtensorModule::init_new_network(netuid, 10);
-        assert_ok!(SubtensorModule::enable_null_consensus(
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
             RuntimeOrigin::root(),
-            netuid
+            netuid,
+            true
         ));
         assert_ok!(AdminUtils::sudo_set_max_allowed_uids(
             RuntimeOrigin::root(),
@@ -1171,10 +1229,14 @@ fn null_consensus_admin_limits_and_pow_toggle() {
             AdminUtils::sudo_set_max_allowed_validators(RuntimeOrigin::root(), netuid, 65),
             pallet_subtensor::Error::<Test>::NullConsensusValidatorLimitExceeded
         );
-        assert_noop!(
-            AdminUtils::sudo_set_commit_reveal_weights_enabled(RuntimeOrigin::root(), netuid, true),
-            pallet_subtensor::Error::<Test>::NullConsensusCommitRevealUnsupported
-        );
+        assert_ok!(AdminUtils::sudo_set_commit_reveal_weights_enabled(
+            RuntimeOrigin::root(),
+            netuid,
+            true
+        ));
+        assert!(pallet_subtensor::CommitRevealWeightsEnabled::<Test>::get(
+            netuid
+        ));
     });
 }
 

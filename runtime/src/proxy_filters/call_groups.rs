@@ -447,10 +447,7 @@ call_filter_group!(
 // Starting a subnet's emission schedule (start_call).
 call_filter_group!(
     SubnetActivationCalls,
-    [
-        RuntimeCall::SubtensorModule(SubtensorCall::start_call),
-        RuntimeCall::SubtensorModule(SubtensorCall::enable_null_consensus),
-    ]
+    [RuntimeCall::SubtensorModule(SubtensorCall::start_call),]
 );
 
 // pallet-subtensor calls that spend, lock or destroy the signer's TAO or alpha
@@ -522,6 +519,7 @@ call_filter_group!(
 call_filter_group!(
     SubnetManagementCalls,
     [
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_null_consensus_enabled),
         RuntimeCall::SubtensorModule(SubtensorCall::set_tempo),
         RuntimeCall::SubtensorModule(SubtensorCall::set_activity_cutoff_factor),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_serving_rate_limit),

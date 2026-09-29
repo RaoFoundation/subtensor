@@ -1,0 +1,23 @@
+---
+title: "null_consensus_enabled"
+description: "Switch an existing subnet between Yuma and miner-only mean scoring."
+---
+
+New subnets start with Yuma 3 and this flag disabled. The owner or root can toggle
+`null_consensus_enabled` through `AdminUtils.sudo_set_null_consensus_enabled`.
+Other hyperparameters and registered miners are preserved.
+
+```bash
+btcli hparams set --netuid 123 --name null_consensus_enabled --value true
+btcli hparams set --netuid 123 --name null_consensus_enabled --value false
+```
+
+Null consensus uses equally averaged normalized u32 scores and pays miners only
+after the owner cut. Yuma weights, bonds, and commit-reveal configuration remain
+stored but are unused while null consensus is active. Disabling resumes the
+configured Yuma version. The usual admin freeze and owner rate limits apply.
+
+Null consensus requires one mechanism. Disabling requires the registered UID
+count and `max_allowed_uids` to fit Yuma's normal capacity; no miners are pruned
+by the toggle. See [null-consensus subnets](/guides/null-consensus) for capacity
+limits, PoW miner admission, score submission, and configuration details.

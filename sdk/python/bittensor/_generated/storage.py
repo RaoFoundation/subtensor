@@ -198,6 +198,8 @@ class SubtensorModule:
     NetworkPowRegistrationAllowed = Item('SubtensorModule', 'NetworkPowRegistrationAllowed', 'bool')
     NullConsensus = Item('SubtensorModule', 'NullConsensus', 'bool')
     NullWeights = Item('SubtensorModule', 'NullWeights', 'Vec<(u16, u32)>')
+    NullLastUpdate = Item('SubtensorModule', 'NullLastUpdate', 'u64')
+    NullWeightsResetAt = Item('SubtensorModule', 'NullWeightsResetAt', 'u64')
     NullIncentive = Item('SubtensorModule', 'NullIncentive', 'Vec<u32>')
     NetworkRegisteredAt = Item('SubtensorModule', 'NetworkRegisteredAt', 'u64')
     RegisteredSubnetCounter = Item('SubtensorModule', 'RegisteredSubnetCounter', 'u64')

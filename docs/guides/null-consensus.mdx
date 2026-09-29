@@ -1,54 +1,59 @@
 ---
 title: "Null-consensus subnets"
-description: "Configure miner-only mean scoring, PoW admission, and 32-bit weights on a new subnet."
+description: "Toggle miner-only mean scoring on an existing subnet without changing its hyperparameters."
 ---
 
-Null consensus is an opt-in mode for subnets that do not need Yuma consensus or
-bonds. Each eligible validator's row is normalized independently, and those rows
-are averaged equally. Stake determines validator eligibility, not the influence
-of an accepted row. All emission after the owner cut goes to miners; there are
-no validator or root dividends from this mode.
+Subnets use the existing registration path and start with **Yuma 3** and
+`null_consensus_enabled = false`. There is no special null-subnet registration
+or permanent setup call. After registration, the owner or root can change the
+consensus mode, including on an active subnet with registered miners.
 
-The initial implementation supports **32,768 UIDs**, including the subnet owner.
-It uses the existing UID type and separate **u32 score storage**. Payments use
-wider integer arithmetic, so small scores are never truncated through a u16
-weight or incentive vector. `NullIncentive` exposes u32 proportions; the legacy
-`Incentive` vector remains a lower-precision display only.
-
-## Configure a subnet
-
-Select the mode after creating the subnet, before starting emissions or admitting
-miners. At most the owner's UID may exist, with no legacy weight or bond rows.
-Mode selection lasts for the subnet's lifetime. Existing active subnets require
-a separate migration; this call does not migrate their economic state.
+## Toggle consensus
 
 ```bash
-btcli subnets enable-null-consensus --netuid 123
-btcli hparams start --netuid 123
+btcli hparams set --netuid 123 --name null_consensus_enabled --value true
+btcli hparams set --netuid 123 --name null_consensus_enabled --value false
 ```
 
-The setup call applies this profile:
+These commands call `AdminUtils.sudo_set_null_consensus_enabled(netuid, enabled)`.
+The usual owner hyperparameter rate limit and admin freeze window apply. Setting
+the current value again is idempotent, subject to those guards.
 
-| Parameter | Initial value |
-| --- | --- |
-| UID capacity | 32,768 |
-| Registration burn / minimum burn | 0 |
-| Registration collateral share | 0 |
-| PoW registration | Enabled |
-| PoW difficulty / minimum difficulty | 10,000 / 1 |
-| Registrations per block | 1 |
-| Tempo | 360 blocks |
-| Weight submission rate limit | 100 blocks |
-| Minimum nonzero scores | 1 |
-| Stake-selected validators | 1, plus the existing owner exemption |
-| Commit-reveal / liquid alpha | Disabled |
-| Mechanisms | Exactly 1 |
+The toggle preserves the subnet's other hyperparameters: capacity, burn, PoW
+difficulty, registration flags, validator count, tempo, liquid alpha, and the
+stored commit-reveal setting. It also preserves miners, stakes, collateral,
+Yuma weights, and bonds. New subnets use Yuma 3; disabling null consensus resumes
+the configured Yuma version, including Yuma 2 if the owner selected it separately.
 
-Normal hyperparameter authorization still applies. Root can raise the validator
-cap to 64 plus the owner exemption, and capacity can be lowered
-without removing existing UIDs. Multiple mechanisms and commit-reveal cannot be
-enabled. The existing global validator stake threshold is unchanged; the owner
-can score without staking.
+In null mode, each eligible validator's u32 score row is normalized and the rows
+are averaged equally. All emission after the owner cut goes to miners, with no
+validator or root dividends. The chain skips Yuma and bonds entirely. Stored
+Yuma weights and bonds are dormant, not recalculated or paid in this mode.
+Null scores have their own timestamps, so submitting them cannot refresh old
+Yuma weights or bypass the Yuma weight rate limit. Legacy weight and commit/reveal
+calls are rejected while null consensus is active; their configuration is retained
+for when the subnet returns to Yuma.
+
+## Capacity and configuration
+
+Null consensus supports one mechanism and up to **32,768 UIDs**. The owner can
+raise `max_allowed_uids` using the existing hyperparameter setter after enabling
+null consensus. The existing validator stake/permit rules apply, with at most 64
+stake-selected scorers plus the owner exemption. Stake determines eligibility,
+not the relative influence of an accepted row.
+
+Returning to Yuma requires both the registered UID count and configured capacity
+to fit the runtime's normal Yuma limit (4,096 on the current runtime). Lower an
+unused enlarged capacity before disabling null consensus. The toggle never
+prunes miners or silently lowers capacity. **Once the registered population
+exceeds Yuma's limit, switching back is rejected**; the existing trim operation
+cannot downsize such a large null subnet. Keep capacity within the normal limit
+if you need unrestricted switching between modes.
+
+Burn, collateral, and difficulty settings are not rewritten by the toggle. PoW
+miner admission itself charges no burn or registration collateral. Use the
+existing hyperparameter controls, with their existing authorization, to tune
+registration flags, PoW difficulty, tempo, weight rate limits, and capacity.
 
 ## Register miners
 
@@ -56,17 +61,16 @@ can score without staking.
 btcli pow register --netuid 123
 ```
 
-`btcli subnets pow-register` is an alias. This solves fresh work for the wallet's hotkey and signs registration with its
-coldkey. The work binds the block hash, hotkey, and nonce. The runtime checks the
-seal, difficulty, account association, age, and per-block admission limit.
-Work must come from a completed block fewer than three blocks old. If a slow
-signing step lets it expire, retry the command.
+`btcli subnets pow-register` is an alias. Both registration flags must be enabled.
+The command solves work for the wallet's hotkey and signs with its coldkey.
+The runtime checks the seal, difficulty, account association, work age, replay,
+and per-block admission limit. Work must come from a completed block fewer than
+three blocks old. Retry if signing lets the work expire.
 
-Registration charges no burn or collateral; normal transaction fees still apply.
-UIDs are append-only: reaching capacity rejects registrations without pruning an
-existing miner. Burned registration, registration-limit aliases, staking-driven
-automatic registration, and UID trimming cannot bypass this admission policy.
-The legacy `register` call keeps its existing burn behavior on ordinary subnets.
+Null-mode registration is append-only and rejects a full subnet without pruning
+another miner. Burned registration and staking-driven automatic registration
+cannot bypass PoW admission. Ordinary registration behavior resumes when null
+consensus is disabled.
 
 ## Submit scores
 
@@ -75,34 +79,32 @@ btcli misc weights set-v2 --netuid 123 --uids 1,2 --weights 4294967295,1
 ```
 
 Scores are exact relative integers from 0 to 4,294,967,295. They need not sum to a
-particular number. Submit a complete replacement row; duplicate UIDs, invalid
-UIDs, all-zero rows, and unauthorized scorers are rejected. The ordinary version
-and rate-limit checks apply. The legacy u16 setter is unavailable in this mode.
+particular value. Duplicate or invalid UIDs, all-zero rows, and unauthorized
+scorers are rejected. Payments use wider integer arithmetic; the legacy u16
+incentive vector is informational only. `NullIncentive` exposes u32 proportions.
 
 ```python
-from bittensor.intents import EnableNullConsensus, PowRegister, SetWeightsV2
+from bittensor.intents import SetHyperparameter, PowRegister, SetWeightsV2
 
-# Pass these intents to the client's normal execution API with the wallet.
-setup = EnableNullConsensus(netuid=123)
+mode = SetHyperparameter(netuid=123, name="null_consensus_enabled", value=True)
 registration = PowRegister(netuid=123)
 scores = SetWeightsV2(netuid=123, uids=[1, 2], weights=[4294967295, 1])
+resume_yuma = SetHyperparameter(netuid=123, name="null_consensus_enabled", value=False)
 ```
 
-Expired or ineligible validator rows do not count. Self scores are masked except
-for the existing owner exception, and scores predating a destination's
-registration are ignored. Miner emission directed to owner-associated keys still
-follows the existing recycling/burning policy. Unallocated emission, including
-integer rounding dust and epochs without valid scores, is recycled.
+Expired or ineligible rows do not count. Self scores are masked except for the
+owner exception, and scores predating a destination's registration are ignored.
+Previously submitted null scores may resume after toggling back if they are
+still valid. Disabling null consensus invalidates its cached scores because
+Yuma can replace or compact UIDs. Submit fresh scores after returning to null
+mode, in a block later than the last disable.
+Owner-associated miner emission follows the existing recycling/burning policy.
+Unallocated emission and rounding dust are recycled.
 
 ## Resource costs and release validation
 
-Removing consensus clipping and bonds eliminates their matrix processing, but
-on-chain storage, validator selection, score aggregation, and miner payments
-still cost resources. This is a bounded large subnet, not infinite free storage.
-Registration continues to update existing metagraph vectors, and every rewarded
-miner still requires account writes.
-
-Reference-hardware benchmarking of the largest epoch and registration state is
-required before deployment. New dispatch benchmarks are provided; interim call
-admission uses compositions of existing reference weights. No new locally
-measured weight values or spec-version change is included in this implementation.
+Removing Yuma and bonds saves their computation. Storage, validator selection,
+score aggregation, miner payments, and transaction fees still have costs.
+Reference-hardware benchmarking remains required before deployment. Benchmark
+fixtures are provided; interim admission weights use existing reference weights.
+No spec-version change is included.

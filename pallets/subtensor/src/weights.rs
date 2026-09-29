@@ -38,7 +38,6 @@ use core::marker::PhantomData;
 pub trait WeightInfo {
 	// Initial compositions of existing reference measurements. Dedicated
 	// benchmarks accompany these calls; regenerate on reference hardware before release.
-	fn enable_null_consensus() -> Weight { Self::register_network() }
 	fn set_weights_v2(n: u32) -> Weight { Self::set_mechanism_weights(n).saturating_add(Self::set_weights()) }
 	fn register() -> Weight;
 	fn set_weights() -> Weight;

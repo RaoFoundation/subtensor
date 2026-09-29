@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 
 from bittensor._generated.errors import ERRORS
-from bittensor.intents import EnableNullConsensus, PowRegister, SetWeightsV2
+from bittensor.intents import PowRegister, SetHyperparameter, SetWeightsV2
 from bittensor.intents.null_consensus import pow_seal
 from bittensor.result import BittensorError, ErrorCode, chain_error_from_dispatch
 from tests.harness.fake_substrate import FakeSubstrate
@@ -87,9 +87,18 @@ async def test_u32_scores_are_never_requantized():
     )
     assert params["weights"] == [0xFFFFFFFF, 1]
     assert params["dests"] == [1, 2]
-    call = await EnableNullConsensus(netuid=1).build(fake, dev_wallet())
-    _, name, _ = call
-    assert name == "enable_null_consensus"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_consensus_toggle_uses_the_normal_hyperparameter_setter(enabled):
+    fake = FakeSubstrate()
+    call = await SetHyperparameter(netuid=1, name="null_consensus_enabled", value=enabled).build(
+        fake, dev_wallet()
+    )
+    module, name, params = call
+    assert (module, name) == ("AdminUtils", "sudo_set_null_consensus_enabled")
+    assert params == {"netuid": 1, "enabled": enabled}
 
 
 @pytest.mark.parametrize(

@@ -12,7 +12,6 @@ from ..._generated import storage
 from ...balance import Balance
 from ...intents import (
     BurnedRegister,
-    EnableNullConsensus,
     PowRegister,
     RegisterSubnet,
     RootRegister,
@@ -47,20 +46,6 @@ def pow_register(
 
 pow_app = typer.Typer(help="Proof-of-work miner registration.", no_args_is_help=True)
 pow_app.command("register")(pow_register)
-
-
-@app.command("enable-null-consensus", rich_help_panel=PANEL_REGISTER)
-@with_tx_globals
-def enable_null_consensus(
-    ctx: typer.Context,
-    netuid: int = typer.Option(..., "--netuid", help="Unstarted subnet owned by this wallet."),
-):
-    """Select miner-only mean scoring and apply the low-cost subnet profile.
-
-    Run before registering miners or starting emissions. Mode selection lasts
-    for the subnet's lifetime.
-    """
-    ctx_of(ctx).submit(EnableNullConsensus(netuid=netuid))
 
 
 _NETUID_HELP = "Numeric identifier of the subnet."

@@ -33,7 +33,6 @@ def dev_wallet(cold: str = "//Alice", hot: str = "//Alice//hot") -> SimpleNamesp
 # Args that compose+plan every registered intent. Values are chosen to pass
 # client-side validation; they are not meaningful amounts.
 INTENT_SAMPLES: dict[str, dict] = {
-    "enable_null_consensus": {"netuid": 99},
     "pow_register": {"netuid": 99},
     "set_weights_v2": {"netuid": 99, "uids": [1, 2], "weights": [4294967295, 1]},
     "add_stake": {"hotkey_ss58": BOB_HOT, "netuid": 1, "amount_tao": 1.0},

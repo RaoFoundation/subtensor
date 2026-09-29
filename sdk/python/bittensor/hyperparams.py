@@ -339,6 +339,12 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         minimum=1,
         maximum=10 * FIXED128_ONE,
     ),
+    "null_consensus_enabled": Hyperparam(
+        "bool",
+        "Use miner-only mean scoring instead of Yuma. Other hyperparameters are preserved; "
+        "disabling resumes the configured Yuma version within its UID capacity.",
+        short="null consensus toggle",
+    ),
     "yuma3_enabled": Hyperparam(
         "bool",
         "Whether the Yuma3 consensus variant is enabled for this subnet.",
@@ -346,9 +352,9 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "yuma_version": Hyperparam(
         "int",
-        "Consensus variant the epoch runs: 2 for classic Yuma, 3 when "
-        "yuma3_enabled is set. Derived from that flag, not stored on chain.",
-        short="epoch consensus variant (2 or 3)",
+        "Consensus variant the epoch runs: 0 for null consensus, otherwise 2 for classic "
+        "Yuma or 3 when yuma3_enabled is set. Derived from the mode flags.",
+        short="epoch consensus variant (0, 2, 3)",
     ),
     "subnet_is_active": Hyperparam(
         "bool",
@@ -439,6 +445,7 @@ STORAGE_ITEMS: dict[str, st.Item] = {
     # is regenerated against spec >= 435.
     "collateral_lock_share": st.Item("SubtensorModule", "CollateralLockShare", "u16"),
     "collateral_drain_ratio": st.Item("SubtensorModule", "CollateralDrainRatio", "U64F64"),
+    "null_consensus_enabled": st.SubtensorModule.NullConsensus,
     "yuma3_enabled": st.SubtensorModule.Yuma3On,
     "subnet_emission_enabled": st.SubtensorModule.SubnetEmissionEnabled,
     "bonds_reset_enabled": st.SubtensorModule.BondsResetOn,

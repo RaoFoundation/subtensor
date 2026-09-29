@@ -22,7 +22,7 @@ unless you specifically need to force one path.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L126-L141), [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2071-L2089) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L128-L145), [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2067-L2085) |
 
 ## Parameters
 
@@ -75,7 +75,7 @@ result = sub.execute_tool("set_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L128`](/code/pallets/subtensor/src/macros/dispatches.rs#L126-L141):
+`SubtensorModule.set_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L130`](/code/pallets/subtensor/src/macros/dispatches.rs#L128-L145):
 
 ```rust
 #[pallet::call_index(119)]
@@ -88,7 +88,9 @@ pub fn set_mechanism_weights(
     weights: Vec<u16>,
     version_key: u64,
 ) -> DispatchResult {
-    if Self::get_commit_reveal_weights_enabled(netuid) {
+    if NullConsensus::<T>::get(netuid) {
+        Err(Error::<T>::NullConsensusRequiresU32Weights.into())
+    } else if Self::get_commit_reveal_weights_enabled(netuid) {
         Err(Error::<T>::CommitRevealEnabled.into())
     } else {
         Self::do_set_mechanism_weights(origin, netuid, mecid, dests, weights, version_key)
@@ -96,9 +98,9 @@ pub fn set_mechanism_weights(
 }
 ```
 
-Delegates to [`get_commit_reveal_weights_enabled`](/code/pallets/subtensor/src/utils/misc.rs#L607), [`do_set_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L960).
+Delegates to [`get_commit_reveal_weights_enabled`](/code/pallets/subtensor/src/utils/misc.rs#L607), [`do_set_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L976).
 
-`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L2073`](/code/pallets/subtensor/src/macros/dispatches.rs#L2071-L2089):
+`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L2069`](/code/pallets/subtensor/src/macros/dispatches.rs#L2067-L2085):
 
 ```rust
 #[pallet::call_index(118)]
@@ -122,6 +124,6 @@ pub fn commit_timelocked_mechanism_weights(
 }
 ```
 
-Delegates to [`do_commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L303).
+Delegates to [`do_commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L307).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
