@@ -117,10 +117,11 @@ mod pallet_benchmarks {
             netuid,
             1,
             0,
-            work,
+            work.clone(),
             hotkey.clone(),
             whitelisted_caller(),
         );
+        assert_eq!(UsedWork::<T>::get(&work), 2);
         assert!(NullMiners::<T>::contains_key(netuid, &hotkey));
         assert_eq!(NullMinerUids::<T>::get(netuid, &hotkey), Some(u64::MAX - 1));
         assert_eq!(NullMinerCount::<T>::get(netuid), u64::MAX);

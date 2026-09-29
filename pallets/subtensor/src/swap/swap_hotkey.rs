@@ -37,11 +37,11 @@ impl<T: Config> Pallet<T> {
         // authorization each add a read-only resolution before moving a row.
         // Work scales with subnets, never with miner population.
         let null_weight = match netuid {
-            Some(_) => T::DbWeight::get().reads_writes(148, 15),
+            Some(_) => T::DbWeight::get().reads_writes(149, 15),
             None => {
                 let count = Self::get_all_subnet_netuids().len() as u64;
                 T::DbWeight::get().reads_writes(
-                    count.saturating_mul(148).saturating_add(4),
+                    count.saturating_mul(149).saturating_add(4),
                     count.saturating_mul(15),
                 )
             }
@@ -830,6 +830,10 @@ impl<T: Config> Pallet<T> {
         let coldkey = Owner::<T>::get(new_hotkey);
         weight.saturating_accrue(T::DbWeight::get().reads(1));
         Self::swap_null_miner(netuid, old_hotkey, new_hotkey, &coldkey, false, weight)?;
+        // A foreign null identity can retain this hotkey while Yuma moves.
+        // Its shared endpoints must remain available on the old key as well.
+        let retains_null = NullMiners::<T>::contains_key(netuid, old_hotkey);
+        weight.saturating_accrue(T::DbWeight::get().reads(1));
 
         // 3.1 Remove the previous hotkey and insert the new hotkey from membership.
         // IsNetworkMember( hotkey, netuid ) -> bool -- is the hotkey a subnet member.
@@ -859,7 +863,9 @@ impl<T: Config> Pallet<T> {
         if is_network_member
             && let Ok(old_prometheus_info) = Prometheus::<T>::try_get(netuid, old_hotkey)
         {
-            Prometheus::<T>::remove(netuid, old_hotkey);
+            if !retains_null {
+                Prometheus::<T>::remove(netuid, old_hotkey);
+            }
             Prometheus::<T>::insert(netuid, new_hotkey, old_prometheus_info);
             weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
         }
@@ -867,7 +873,9 @@ impl<T: Config> Pallet<T> {
         // 3.4. Swap axons.
         // Axons( netuid, hotkey ) -> axon -- the axon that the hotkey has.
         if is_network_member && let Ok(old_axon_info) = Axons::<T>::try_get(netuid, old_hotkey) {
-            Axons::<T>::remove(netuid, old_hotkey);
+            if !retains_null {
+                Axons::<T>::remove(netuid, old_hotkey);
+            }
             Axons::<T>::insert(netuid, new_hotkey, old_axon_info);
             weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
         }
@@ -907,7 +915,9 @@ impl<T: Config> Pallet<T> {
             && let Ok(old_neuron_certificates) =
                 NeuronCertificates::<T>::try_get(netuid, old_hotkey)
         {
-            NeuronCertificates::<T>::remove(netuid, old_hotkey);
+            if !retains_null {
+                NeuronCertificates::<T>::remove(netuid, old_hotkey);
+            }
             NeuronCertificates::<T>::insert(netuid, new_hotkey, old_neuron_certificates);
             weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
         }

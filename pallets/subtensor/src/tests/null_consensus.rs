@@ -229,6 +229,75 @@ fn null_pow_is_bound_to_recipient_subnet_generation_and_mode() {
     });
 }
 #[test]
+fn null_pow_cannot_be_replayed_after_hotkey_rotation() {
+    for all_subnets in [false, true] {
+        for staking_owner in [false, true] {
+            new_test_ext(1).execute_with(|| {
+                let net = setup(1);
+                let old = U256::from(900);
+                let new = U256::from(902);
+                let cold = U256::from(901);
+                assert_ok!(register(net, 900, 901));
+                let work = SubtensorModule::create_null_seal_hash(net, 1, 0, &old, &cold)
+                    .as_bytes()
+                    .to_vec();
+                assert_eq!(UsedWork::<Test>::get(&work), 2);
+                if staking_owner {
+                    assert_ok!(SubtensorModule::create_account_if_non_existent(&cold, &old));
+                }
+                add_balance_to_coldkey_account(&cold, 1_000_000_000_000u64.into());
+                assert_ok!(SubtensorModule::do_swap_hotkey(
+                    RuntimeOrigin::signed(cold),
+                    &old,
+                    &new,
+                    if all_subnets { None } else { Some(net) },
+                    false,
+                ));
+                // Both blocks remain inside the seal's validity window.
+                for block in [2, 3] {
+                    System::set_block_number(block);
+                    assert_noop!(register(net, 900, 901), Error::<Test>::PowWorkAlreadyUsed);
+                    assert_eq!(NullMinerCount::<Test>::get(net), 2);
+                    assert!(!NullMiners::<Test>::contains_key(net, old));
+                    assert!(NullMiners::<Test>::contains_key(net, new));
+                }
+                // A fresh nonce is new work and may create one more share.
+                let fresh = SubtensorModule::create_null_seal_hash(net, 1, 1, &old, &cold)
+                    .as_bytes()
+                    .to_vec();
+                assert_ok!(SubtensorModule::do_null_pow_register(
+                    RuntimeOrigin::signed(cold),
+                    net,
+                    1,
+                    1,
+                    fresh.clone(),
+                    old,
+                    cold,
+                ));
+                assert_eq!(NullMinerCount::<Test>::get(net), 3);
+                assert_eq!(UsedWork::<Test>::get(&fresh), 3);
+                assert_eq!(UsedWork::<Test>::get(&work), 2);
+            });
+        }
+    }
+}
+
+#[test]
+fn failed_null_registration_does_not_consume_work() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(1);
+        let count = NullMinerCount::<Test>::get(net);
+        NullMinerCount::<Test>::insert(net, u64::MAX);
+        assert_noop!(
+            register(net, 900, 901),
+            Error::<Test>::NullConsensusCapacityReached
+        );
+        NullMinerCount::<Test>::insert(net, count);
+        assert_ok!(register(net, 900, 901));
+    });
+}
+
+#[test]
 fn null_registration_errors_and_reward_free_scores_are_explicit() {
     new_test_ext(1).execute_with(|| {
         let net = setup(1);
@@ -936,6 +1005,94 @@ fn global_rotation_ignores_foreign_null_registrations_and_their_cooldowns() {
                     assert!(SubtensorModule::is_hotkey_registered_on_network(net, &new));
                 }
                 assert_ok!(claim(other, 900, 998));
+            });
+        }
+    }
+}
+
+#[test]
+fn global_yuma_rotation_preserves_retained_null_endpoints() {
+    for paused in [false, true] {
+        for keep_stake in [false, true] {
+            new_test_ext(1).execute_with(|| {
+                let net = setup(1);
+                let old = U256::from(900);
+                let new = U256::from(902);
+                let cold = U256::from(901);
+                assert_ok!(register(net, 900, 999));
+                SubtensorModule::record_coldkey_swap_lineage(&U256::from(999), &U256::from(998));
+                assert_ok!(SubtensorModule::create_account_if_non_existent(&cold, &old));
+                SubtensorModule::append_neuron(net, &old, 1);
+                let uid = SubtensorModule::get_uid_for_net_and_hotkey(net, &old).unwrap();
+                ServingRateLimit::<Test>::insert(net, 0);
+                let serve_axon = |hotkey| {
+                    SubtensorModule::do_serve_axon(
+                        RuntimeOrigin::signed(hotkey),
+                        net,
+                        1,
+                        0x08080808,
+                        8080,
+                        4,
+                        0,
+                        0,
+                        0,
+                        Some(b"FOREIGN".to_vec()),
+                    )
+                };
+                let serve_prometheus = |hotkey| {
+                    SubtensorModule::do_serve_prometheus(
+                        RuntimeOrigin::signed(hotkey),
+                        net,
+                        1,
+                        0x08080808,
+                        9090,
+                        4,
+                    )
+                };
+                assert_ok!(serve_axon(old));
+                assert_ok!(serve_prometheus(old));
+                let endpoints = |hotkey| {
+                    (
+                        Axons::<Test>::get(net, hotkey),
+                        Prometheus::<Test>::get(net, hotkey),
+                        NeuronCertificates::<Test>::get(net, hotkey),
+                    )
+                };
+                let before = endpoints(old);
+                assert!(before.0.is_some() && before.1.is_some() && before.2.is_some());
+                let miner = NullMiners::<Test>::get(net, old);
+                SubtensorModule::accrue_null_rewards(net, 20u64.into());
+                if paused {
+                    assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+                }
+                add_balance_to_coldkey_account(&cold, 1_000_000_000_000u64.into());
+                assert_ok!(SubtensorModule::do_swap_hotkey(
+                    RuntimeOrigin::signed(cold),
+                    &old,
+                    &new,
+                    None,
+                    keep_stake,
+                ));
+                assert_eq!(endpoints(old), before);
+                assert_eq!(endpoints(new), before);
+                assert_eq!(NullMiners::<Test>::get(net, old), miner);
+                assert!(!NullMiners::<Test>::contains_key(net, new));
+                assert_eq!(NullMinerKeys::<Test>::get(net, 1), Some(old));
+                assert_eq!(NullMinerUids::<Test>::get(net, old), Some(1));
+                assert_eq!(
+                    SubtensorModule::get_uid_for_net_and_hotkey(net, &new),
+                    Ok(uid)
+                );
+                assert!(!SubtensorModule::is_hotkey_registered_on_network(net, &old));
+                assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
+                assert_ok!(serve_axon(old));
+                assert_ok!(serve_prometheus(old));
+                assert_noop!(serve_axon(new), Error::<Test>::HotKeyNotRegisteredInNetwork);
+                assert_noop!(
+                    serve_prometheus(new),
+                    Error::<Test>::HotKeyNotRegisteredInNetwork
+                );
+                assert_ok!(claim(net, 900, 998));
             });
         }
     }

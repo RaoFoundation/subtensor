@@ -14,7 +14,7 @@ const FRACTION_BITS: usize = 64;
 
 impl<T: Config> Pallet<T> {
     pub fn pow_register_weight(_netuid: NetUid) -> frame_support::weights::Weight {
-        <T as Config>::WeightInfo::register().saturating_add(T::DbWeight::get().writes(1))
+        <T as Config>::WeightInfo::register().saturating_add(T::DbWeight::get().reads_writes(1, 2))
     }
 
     pub fn do_set_null_consensus(netuid: NetUid, enabled: bool) -> DispatchResult {
@@ -326,9 +326,15 @@ impl<T: Config> Pallet<T> {
             Self::hash_meets_difficulty(&hash, Self::get_difficulty(netuid).max(U256::one())),
             Error::<T>::InvalidDifficulty
         );
+        // Membership moves during hotkey rotation; consumed work must not.
+        ensure!(
+            !UsedWork::<T>::contains_key(&work),
+            Error::<T>::PowWorkAlreadyUsed
+        );
         // Deliberately do not append to Yuma vectors, OwnedHotkeys, StakingHotkeys,
         // or the global Owner map. Null mining does not create a staking account.
         Self::enroll_null_miner(netuid, &hotkey, &coldkey)?;
+        UsedWork::<T>::insert(work, now);
         RegistrationsThisBlock::<T>::mutate(netuid, |n| *n = n.saturating_add(1));
         Ok(())
     }
