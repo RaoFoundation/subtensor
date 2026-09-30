@@ -49,10 +49,6 @@ impl<T: Config> Pallet<T> {
     /// Enable voting power tracking for a subnet.
     pub fn do_enable_voting_power_tracking(netuid: NetUid) -> DispatchResult {
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
-        ensure!(
-            !NullConsensus::<T>::get(netuid),
-            Error::<T>::NullConsensusHasNoValidators
-        );
         // Enable tracking
         VotingPowerTrackingEnabled::<T>::insert(netuid, true);
 
@@ -118,7 +114,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Null mode has no validators. Only a pending disable deadline needs work.
+    /// Complete a pending tracking disable even between null scoring epochs.
     pub(crate) fn maintain_null_voting_disable(netuid: NetUid, now: u64) {
         let deadline = VotingPowerDisableAtBlock::<T>::get(netuid);
         if deadline != 0 && now >= deadline {

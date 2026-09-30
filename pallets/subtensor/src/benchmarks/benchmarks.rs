@@ -65,6 +65,26 @@ fn seed_null_swap_miner<T: Config>(netuid: NetUid, hotkey: &T::AccountId, owner:
     );
 }
 
+fn seed_null_scores<T: Config>(n: u32) -> (NetUid, T::AccountId) {
+    let netuid = NetUid::from(1);
+    let owner: T::AccountId = account("null_scorer", 0, 0);
+    Subtensor::<T>::init_new_network(netuid, 360);
+    SubnetOwner::<T>::insert(netuid, &owner);
+    SubnetOwnerHotkey::<T>::insert(netuid, &owner);
+    Owner::<T>::insert(&owner, &owner);
+    Subtensor::<T>::append_neuron(netuid, &owner, 1);
+    assert_ok!(Subtensor::<T>::do_set_null_consensus(netuid, true));
+    NullMinerCount::<T>::insert(netuid, u64::from(n));
+    for uid in 0..u64::from(n) {
+        let hotkey: T::AccountId = account("null_destination", uid as u32, 0);
+        NullMinerKeys::<T>::insert(netuid, uid, hotkey);
+    }
+    MinAllowedWeights::<T>::insert(netuid, 1);
+    MaxWeightsLimit::<T>::insert(netuid, u16::MAX);
+    frame_system::Pallet::<T>::set_block_number(101u32.into());
+    (netuid, owner)
+}
+
 #[benchmarks(
     where
         T: pallet_balances::Config + pallet_shield::Config,
@@ -80,21 +100,20 @@ mod pallet_benchmarks {
     use super::*;
 
     #[benchmark]
-    fn set_null_weights(n: Linear<1, 32768>) {
-        let caller: T::AccountId = whitelisted_caller();
-        #[block]
-        {
-            assert!(
-                Subtensor::<T>::do_set_null_weights(
-                    RawOrigin::Signed(caller).into(),
-                    1.into(),
-                    vec![0; n as usize],
-                    vec![1; n as usize],
-                    0
-                )
-                .is_err()
-            );
-        }
+    fn set_null_weights(n: Linear<1, 8192>) {
+        let (netuid, caller) = seed_null_scores::<T>(n);
+        let dests: Vec<u64> = (0..u64::from(n)).collect();
+        let values = vec![u32::MAX; n as usize];
+        NullWeights::<T>::insert(
+            netuid,
+            0,
+            dests.iter().map(|&uid| (uid, 1u32)).collect::<Vec<_>>(),
+        );
+        NullWeightEntries::<T>::insert(netuid, n);
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller), netuid, dests, values, 0);
+        assert_eq!(NullWeights::<T>::get(netuid, 0).len(), n as usize);
+        assert_eq!(NullWeightEntries::<T>::get(netuid), n);
     }
 
     #[benchmark(extra)]
@@ -129,32 +148,39 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
-    fn check_null_weights_extension(n: Linear<1, 32768>) {
-        let caller: T::AccountId = whitelisted_caller();
+    fn check_null_weights_extension(n: Linear<1, 8192>) {
+        let (netuid, caller) = seed_null_scores::<T>(n);
         let call = Call::<T>::set_null_weights {
-            netuid: 1.into(),
-            dests: vec![0; n as usize],
-            weights: vec![1; n as usize],
+            netuid,
+            dests: (0..u64::from(n)).collect(),
+            weights: vec![u32::MAX; n as usize],
             version_key: 0,
         };
         #[block]
         {
-            assert!(CheckWeights::<T>::check(&caller, &call).is_err());
+            assert_ok!(CheckWeights::<T>::check(&caller, &call));
         }
     }
 
     #[benchmark]
     fn accrue_null_rewards() {
-        let netuid = NetUid::from(1);
-        NullMinerCount::<T>::insert(netuid, u64::MAX);
+        let n = crate::null_consensus::MAX_NULL_WEIGHT_ENTRIES;
+        let (netuid, _) = seed_null_scores::<T>(n);
+        NullWeights::<T>::insert(
+            netuid,
+            0,
+            (0..u64::from(n))
+                .map(|uid| (uid, u32::MAX))
+                .collect::<Vec<_>>(),
+        );
+        NullLastUpdate::<T>::insert(netuid, 0, 101);
+        NullWeightEntries::<T>::insert(netuid, n);
         #[block]
         {
             Subtensor::<T>::accrue_null_rewards(netuid, u64::MAX.into());
         }
-        assert_eq!(
-            NullRewardIndex::<T>::get(netuid),
-            sp_core::U256::one() << 64
-        );
+        assert!(NullRewardIndex::<T>::get(netuid, 0) > sp_core::U256::zero());
+        assert!(NullRewardIndex::<T>::get(netuid, u64::from(n) - 1) > sp_core::U256::zero());
     }
 
     #[benchmark]
@@ -176,7 +202,8 @@ mod pallet_benchmarks {
             NullColdkeySuccessor::<T>::insert(old, 0, (next, 0u128));
         }
         NullMiners::<T>::insert(netuid, &hotkey, (&first, sp_core::U256::zero()));
-        NullRewardIndex::<T>::insert(netuid, sp_core::U256::from(1_000_000_000u64) << 64);
+        NullMinerUids::<T>::insert(netuid, &hotkey, 0);
+        NullRewardIndex::<T>::insert(netuid, 0, sp_core::U256::from(1_000_000_000u64) << 64);
         NullUnclaimedAlpha::<T>::insert(netuid, AlphaBalance::from(1_000_000_000u64));
         // Capture part of a legacy miner's reward into its collateral floor,
         // exercising both the source and the selected destination stake pools.

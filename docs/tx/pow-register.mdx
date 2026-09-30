@@ -69,7 +69,7 @@ result = sub.execute_tool("pow_register", {...}, wallet)
 
 ```rust
 #[pallet::call_index(6)]
-#[pallet::weight(Pallet::<T>::pow_register_weight(*netuid))]
+#[pallet::weight(Pallet::<T>::pow_register_weight())]
 pub fn register(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -110,6 +110,6 @@ pub fn register(
 }
 ```
 
-Delegates to [`do_null_pow_register`](/code/pallets/subtensor/src/null_consensus.rs#L287), [`do_register_with_post_info`](/code/pallets/subtensor/src/subnets/registration.rs#L74).
+Delegates to [`do_null_pow_register`](/code/pallets/subtensor/src/null_consensus.rs#L314), [`do_register_with_post_info`](/code/pallets/subtensor/src/subnets/registration.rs#L74).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -73,7 +73,7 @@ mod dispatches {
             version_key: u64,
         ) -> DispatchResult {
             if NullConsensus::<T>::get(netuid) {
-                Err(Error::<T>::NullConsensusHasNoWeights.into())
+                Err(Error::<T>::NullConsensusRequiresU32Weights.into())
             } else if Self::get_commit_reveal_weights_enabled(netuid) {
                 Err(Error::<T>::CommitRevealEnabled.into())
             } else {
@@ -136,7 +136,7 @@ mod dispatches {
             version_key: u64,
         ) -> DispatchResult {
             if NullConsensus::<T>::get(netuid) {
-                Err(Error::<T>::NullConsensusHasNoWeights.into())
+                Err(Error::<T>::NullConsensusRequiresU32Weights.into())
             } else if Self::get_commit_reveal_weights_enabled(netuid) {
                 Err(Error::<T>::CommitRevealEnabled.into())
             } else {
@@ -804,7 +804,7 @@ mod dispatches {
         /// * `InvalidSeal`: The seal is incorrect.
         ///
         #[pallet::call_index(6)]
-        #[pallet::weight(Pallet::<T>::pow_register_weight(*netuid))]
+        #[pallet::weight(Pallet::<T>::pow_register_weight())]
         pub fn register(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -844,20 +844,20 @@ mod dispatches {
                 })
         }
 
-        /// Retired: null mode pays equal emission and rejects all score submissions.
+        /// Submit u32 relative scores for u64 null miner IDs. Eligible rows are averaged equally.
         #[pallet::call_index(153)]
-        #[pallet::weight(<T as Config>::WeightInfo::set_null_weights(dests.len() as u32))]
+        #[pallet::weight(Pallet::<T>::null_weights_weight(dests.len() as u32))]
         pub fn set_null_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
-            dests: Vec<u16>,
+            dests: Vec<u64>,
             weights: Vec<u32>,
             version_key: u64,
         ) -> DispatchResult {
             Self::do_set_null_weights(origin, netuid, dests, weights, version_key)
         }
 
-        /// Claim equal null-miner emissions into a coldkey-owned staking position.
+        /// Claim scored null-miner emissions into a coldkey-owned staking position.
         /// Claims remain available while the subnet has returned to Yuma.
         #[pallet::call_index(154)]
         #[pallet::weight(<T as Config>::WeightInfo::claim_null_rewards())]

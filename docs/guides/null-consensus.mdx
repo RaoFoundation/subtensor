@@ -1,11 +1,17 @@
 ---
-title: "Equal-emission null mode"
-description: "Register lightweight mining identities and claim equal emission without weights, bonds, or miner epochs."
+title: "Averaged-weight null consensus"
+description: "Register lightweight miners with PoW and distribute emission by averaging high-precision validator scores without Yuma or bonds."
 ---
 
-Null mode gives every registered miner an equal share of the subnet's emission
-**after the owner cut**. It has no validator scores, consensus, bonds, or
-miner-processing epoch. New subnets still start with Yuma 3.
+Null consensus normalizes each eligible validator's weight row and averages the
+rows equally. That average is the miner emission vector **after the owner cut**.
+There is no stake weighting of votes, Yuma consensus clipping, bond calculation,
+or validator dividend. New subnets still start with Yuma 3.
+
+For example, rows `[3, 1]` and `[100, 100]` normalize to `[0.75, 0.25]` and
+`[0.5, 0.5]`. Their average pays the two miners 62.5% and 37.5%, respectively.
+An unscored miner earns nothing. PoW establishes membership; it is not a
+permanent entitlement to an equal share.
 
 ## Enable or disable
 
@@ -17,8 +23,8 @@ the last Yuma miner-burn penalty so it cannot suppress null-mode emission.
 
 Disabling resumes Yuma using its original bounded metagraph. Null-only miners
 are retained in their separate registry; they do not become Yuma validators or
-expand Yuma matrices. They stop earning while Yuma is active and resume earning
-when null is re-enabled. Already-earned rewards remain claimable in either mode.
+expand Yuma matrices. They stop earning while Yuma is active. Fresh null weights are required
+after re-enabling; old null scores are cleared when switching modes. Already-earned rewards remain claimable in either mode.
 Pending Yuma emission is paused and restored when Yuma resumes.
 
 ## Register miners
@@ -43,7 +49,28 @@ below the existing population, and never trims miners. Query
 A null mining identity is not a global staking hotkey: registering it does not
 append to a coldkey's global hotkey or staking vectors.
 
-## Claim equal rewards
+## Submit weights
+
+```bash
+btcli misc weights set-null --netuid 123 --uids 10,70000 --weights 4294967295,1
+```
+
+`set_null_weights` accepts exact **u32 scores** and **u64 miner IDs**. It does not
+quantize through Yuma's u16 weights. The subnet owner hotkey and eligible
+validators in the retained Yuma metagraph may score miners. PoW-only miners do
+not automatically become validators. Stake determines eligibility, not the
+relative influence of an eligible row. Existing minimum stake, version,
+submission rate, minimum weight count, maximum relative weight, and activity
+cutoff checks apply. Null weight timestamps are separate from Yuma timestamps.
+
+Scoring runs at the subnet's configured tempo and shares the epoch scheduler's
+per-block limit. At most 64 validators plus the owner and **8,192 nonzero score
+entries across all rows** are stored. This is a scoring-work bound, distinct
+from the owner-configured miner registration cap. Only scored IDs are processed;
+the full miner registry is never scanned. Expired or no-longer-eligible rows are
+removed. Without an eligible nonzero row, the miner budget is recycled.
+
+## Claim miner rewards
 
 ```bash
 btcli pow claim --netuid 123 --wallet miner --wallet-hotkey device --yes
@@ -65,13 +92,15 @@ Coldkey swaps carry the claim rights forward, including when an old address is
 reused. A history longer than 64 swaps is resolved in bounded steps; repeat the
 claim after `NullRewardOwnerResolutionAdvanced` until it pays.
 
-Emission advances one fixed-size reward counter per subnet per block. A miner's
-claim is the counter increase since registration or its previous claim, so a
-new miner cannot collect historical emission. Fractional rewards remain accrued
-between claims. There is no automatic transaction or payout loop for every miner.
-Subnets with no registered miners recycle their miner allocation until someone
-registers. Subnet dissolution settles outstanding claims in bounded cleanup
-steps before converting alpha holdings to TAO.
+Each scoring pass credits every scored miner in the same block, using per-miner
+Q64 accounting. Rewards are immediately claimable; no payout work is deferred to
+idle hooks or later blocks. Claims keep fractional entitlement for later; tiny
+rounding residue remains reserved until subnet dissolution. Disabling null
+consensus settles its pending budget immediately, and earned rewards remain claimable.
+
+Subnet dissolution completes pending reward settlement before converting alpha
+holdings to TAO. Registration alone never receives earlier emission, and hotkey
+rotation preserves the miner's ID, scores, and earned rewards.
 
 Metadata commitments use null membership while null mode is active. Their space
 quota renews every `tempo + 1` blocks without running Yuma epochs. Switching back
@@ -79,15 +108,12 @@ to Yuma restores Yuma membership checks; metadata cannot reset paused Yuma bonds
 
 ## Cost and compatibility
 
-Registration stores a fixed amount of data per miner. Per-block reward accrual
-has fixed work independent of miner count. Claims pay normal transaction fees
-and use the existing staking-account path. Total stored state still grows with
-registrations; neither unlimited physical storage nor literally zero chain cost
-is promised.
+Registration and claims touch one miner, independent of the total population.
+Between scoring passes the chain only accumulates the pending emission budget.
+Scoring work scales with submitted entries and the bounded validator metagraph,
+not all registered miners. Reward writes are metered across blocks. Storage and
+transactions still have costs; this is not literally free chain execution.
 
-No score quantization is involved because there are no scores. The old
-`set_null_weights` call is retained only for wire compatibility and rejects with
-`NullConsensusHasNoWeights`, including at fee validation. Yuma weights and bonds
-are preserved for returning to Yuma and are not used by null mode. Validator
-voting power is cleared on entry; null mode has no validators. Existing voting
-tracking configuration is preserved, and a scheduled disable still completes.
+Yuma weights and bonds are preserved for returning to Yuma and are not used by
+null scoring. Validator voting-power maintenance uses null eligibility and stake,
+and a scheduled tracking disable still completes.

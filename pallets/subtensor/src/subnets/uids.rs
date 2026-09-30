@@ -21,7 +21,7 @@ impl<T: Config> Pallet<T> {
     /// Resets the emission, consensus, incentives, dividends, bonds, and weights of
     /// the neuron to default
     pub fn clear_neuron(netuid: NetUid, neuron_uid: u16) {
-        NullWeights::<T>::remove(netuid, neuron_uid);
+        Self::remove_null_weights(netuid, neuron_uid);
         NullLastUpdate::<T>::remove(netuid, neuron_uid);
         let neuron_index: usize = neuron_uid.into();
         Emission::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0.into()));

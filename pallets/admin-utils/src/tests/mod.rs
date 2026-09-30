@@ -3901,15 +3901,14 @@ fn null_consensus_administration_remains_open_after_many_tempos() {
             netuid,
             true
         ));
-        let anchor = pallet_subtensor::LastEpochBlock::<Test>::get(netuid);
         System::set_block_number(10_000);
         SubtensorModule::drain_pending(&[netuid], 10_000);
         assert_eq!(
             pallet_subtensor::LastEpochBlock::<Test>::get(netuid),
-            anchor
+            10_000
         );
         assert!(pallet_subtensor::AdminFreezeWindow::<Test>::get() > 0);
-        // Even an old/manual pending epoch cannot freeze an epoch-free mode.
+        // Null scoring never reads Yuma bonds, so the Yuma freeze window does not apply.
         pallet_subtensor::PendingEpochAt::<Test>::insert(netuid, 10_010);
         assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
             RuntimeOrigin::signed(owner),

@@ -253,6 +253,8 @@ impl<T: Config> Pallet<T> {
             }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
                 NullWeights::<T>::clear_prefix(netuid, limit, None)
             }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+                NullRewardIndex::<T>::clear_prefix(netuid, limit, None)
+            }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
                 NullLastUpdate::<T>::clear_prefix(netuid, limit, None)
             });
 
@@ -349,11 +351,9 @@ impl<T: Config> Pallet<T> {
         NetworkPowRegistrationAllowed::<T>::remove(netuid);
         NullMinerCount::<T>::remove(netuid);
         NullMaxAllowedUids::<T>::remove(netuid);
-        NullRewardIndex::<T>::remove(netuid);
-        NullRewardRemainder::<T>::remove(netuid);
+        NullWeightEntries::<T>::remove(netuid);
         NullPausedYumaEmission::<T>::remove(netuid);
         NullConsensus::<T>::remove(netuid);
-        NullIncentive::<T>::remove(netuid);
         NullWeightsResetAt::<T>::remove(netuid);
         TransferToggle::<T>::remove(netuid);
         SubnetLocked::<T>::remove(netuid);
@@ -677,6 +677,14 @@ impl<T: Config> Pallet<T> {
 
     // try use all weight available to clean up data for one dissolved network based on the status
     fn settle_null_rewards_for_dissolution(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
+        if NullConsensus::<T>::get(netuid) && !PendingServerEmission::<T>::get(netuid).is_zero() {
+            let weight = Self::null_epoch_weight(netuid);
+            if !weight_meter.can_consume(weight) {
+                return false;
+            }
+            weight_meter.consume(weight);
+            Self::accrue_null_rewards(netuid, PendingServerEmission::<T>::take(netuid));
+        }
         let per_miner = <T as Config>::WeightInfo::claim_null_rewards();
         let mut done = false;
         while weight_meter.can_consume(per_miner) {

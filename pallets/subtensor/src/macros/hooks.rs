@@ -20,15 +20,22 @@ mod hooks {
 
             let subnets = Self::get_all_subnet_netuids();
             let scan_weight = T::DbWeight::get()
-                .reads((subnets.len() as u64).saturating_mul(2).saturating_add(1));
-            let null_count = subnets
+                .reads((subnets.len() as u64).saturating_mul(6).saturating_add(1));
+            let now = Self::get_current_block_as_u64();
+            let mut null_weights: Vec<_> = subnets
                 .into_iter()
-                .filter(|netuid| NullConsensus::<T>::get(netuid))
-                .count() as u64;
-            let null_weight =
-                <<T as Config>::WeightInfo as crate::weights::WeightInfo>::accrue_null_rewards()
-                    .saturating_mul(null_count)
-                    .saturating_add(scan_weight);
+                .filter(|netuid| {
+                    NullConsensus::<T>::get(netuid) && Self::should_run_epoch(*netuid, now)
+                })
+                .map(Self::null_epoch_weight)
+                .collect();
+            // The shared scheduler executes at most this many passes. Reserve
+            // the largest eligible null passes, not every deferred subnet.
+            null_weights.sort_by_key(|weight| core::cmp::Reverse(weight.ref_time()));
+            let null_weight = null_weights
+                .into_iter()
+                .take(Self::get_max_epochs_per_block() as usize)
+                .fold(scan_weight, |weight, next| weight.saturating_add(next));
             let block_step_result = Self::block_step();
             // Advance the paged beta-index sweep right after the block step (deposit
             // queue drained), charging its bounded page into the hook weight.

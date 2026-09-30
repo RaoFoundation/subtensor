@@ -76,7 +76,7 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`associate-evm-key`](/docs/tx/associate-evm-key) | hotkey | signed account (pallet role may apply) | Associate an EVM key with a hotkey on a subnet. |
 | [`associate-hotkey`](/docs/tx/associate-hotkey) | coldkey | signed account (pallet role may apply) | Associate a hotkey with the signing coldkey. |
 | [`burned-register`](/docs/tx/burned-register) | coldkey | signed account (pallet role may apply) | Register a hotkey on a subnet by paying the registration cost. |
-| [`claim-null-rewards`](/docs/tx/claim-null-rewards) | coldkey | signed account (pallet role may apply) | Claim a miner's equal alpha rewards into the coldkey's staking position. |
+| [`claim-null-rewards`](/docs/tx/claim-null-rewards) | coldkey | signed account (pallet role may apply) | Claim a miner's scored alpha rewards into the coldkey's staking position. |
 | [`claim-root`](/docs/tx/claim-root) | coldkey | signed account (pallet role may apply) | Redeem accrued root dividends across every validator for the coldkey. |
 | [`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) | coldkey | signed account (pallet role may apply) | Redeem accrued root dividends (basket shares) for one validator. |
 | [`clear-coldkey-swap-announcement`](/docs/tx/clear-coldkey-swap-announcement) | coldkey | signed account (pallet role may apply) | Cancel a pending coldkey swap announcement (after the reannouncement delay). |
@@ -104,6 +104,7 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`set-children`](/docs/tx/set-children) | coldkey | signed account (pallet role may apply) | Assign child hotkeys with stake-weight proportions on a subnet. |
 | [`set-identity`](/docs/tx/set-identity) | coldkey | signed account (pallet role may apply) | Publish an on-chain identity (name, links, description) for the coldkey. |
 | [`set-min-collateral`](/docs/tx/set-min-collateral) | coldkey | signed account (pallet role may apply) | Set the self-maintaining collateral floor for your hotkey on a subnet. |
+| [`set-null-weights`](/docs/tx/set-null-weights) | hotkey | signed account (pallet role may apply) | Submit exact u32 scores for u64 miners; eligible rows are averaged equally. |
 | [`set-perpetual-lock`](/docs/tx/set-perpetual-lock) | coldkey | signed account (pallet role may apply) | Enable or disable perpetual lock mode for a coldkey on a subnet. |
 | [`set-reject-locked-alpha`](/docs/tx/set-reject-locked-alpha) | coldkey | signed account (pallet role may apply) | Opt the signing coldkey in or out of receiving locked alpha. |
 | [`set-root-claim-threshold`](/docs/tx/set-root-claim-threshold) | coldkey | root (chain sudo) | Set the minimum TAO payout for a root dividend claim (root only). |

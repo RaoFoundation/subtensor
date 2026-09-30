@@ -41,6 +41,7 @@ fn new_test_ext(fund_coldkey: bool) -> sp_io::TestExternalities {
         Subtensor::<Runtime>::append_neuron(netuid, &AccountId::new([9; 32]), 1);
         assert_ok!(Subtensor::<Runtime>::do_set_null_consensus(netuid, true));
         Subtensor::<Runtime>::set_weights_set_rate_limit(netuid, 100);
+        System::set_block_number(3);
         if fund_coldkey {
             assert_ok!(Balances::mint_into(
                 &coldkey(),
@@ -74,7 +75,7 @@ fn extension(nonce: u32) -> TxExtension {
     )
 }
 
-fn score_call(dests: Vec<u16>, weights: Vec<u32>) -> RuntimeCall {
+fn score_call(dests: Vec<u64>, weights: Vec<u32>) -> RuntimeCall {
     RuntimeCall::SubtensorModule(st::Call::set_null_weights {
         netuid: NetUid::from(1),
         dests,
@@ -101,11 +102,11 @@ fn submit(
 }
 
 #[test]
-fn retired_null_scores_cannot_charge_the_coldkey() {
+fn invalid_null_scores_cannot_charge_the_coldkey() {
     new_test_ext(true).execute_with(|| {
         let before = Balances::free_balance(coldkey());
         assert_eq!(
-            submit(0, score_call(vec![1], vec![u32::MAX])),
+            submit(0, score_call(vec![u64::MAX], vec![u32::MAX])),
             Err(CustomTransactionError::BadRequest.into())
         );
         assert_eq!(Balances::free_balance(coldkey()), before);
@@ -139,5 +140,55 @@ fn unrelated_calls_cannot_use_the_coldkeys_balance_for_nonce_admission() {
         let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
         assert_eq!(submit(0, call), Err(InvalidTransaction::Payment.into()));
         assert!(!frame_system::Account::<Runtime>::contains_key(hotkey()));
+    });
+}
+
+#[test]
+fn valid_null_scores_use_a_funded_coldkey_without_a_hotkey_account() {
+    new_test_ext(true).execute_with(|| {
+        let before = Balances::free_balance(coldkey());
+        assert_ok!(submit(0, score_call(vec![1], vec![u32::MAX])).unwrap());
+        assert!(Balances::free_balance(coldkey()) < before);
+        assert_eq!(
+            st::NullWeights::<Runtime>::get(NetUid::from(1), 0),
+            vec![(1, u32::MAX)]
+        );
+        let after = Balances::free_balance(coldkey());
+        assert_eq!(
+            submit(1, score_call(vec![1], vec![1])),
+            Err(CustomTransactionError::RateLimitExceeded.into())
+        );
+        assert_eq!(Balances::free_balance(coldkey()), after);
+    });
+}
+
+#[test]
+fn synchronous_null_scoring_fits_production_block_and_extrinsic_limits() {
+    use frame_support::{dispatch::DispatchClass, traits::Get};
+    use st::weights::WeightInfo;
+    type Weights = <Runtime as st::Config>::WeightInfo;
+
+    new_test_ext(true).execute_with(|| {
+        let scoring =
+            Subtensor::<Runtime>::null_scoring_weight(st::null_consensus::MAX_NULL_WEIGHT_ENTRIES);
+        let block = Weights::block_step().saturating_add(scoring.saturating_mul(2));
+        let limits = <Runtime as frame_system::Config>::BlockWeights::get();
+        assert!(
+            block.all_lt(limits.max_block),
+            "two full null epochs: {block:?}"
+        );
+        let call =
+            RuntimeCall::AdminUtils(pallet_admin_utils::Call::sudo_set_null_consensus_enabled {
+                netuid: NetUid::from(1),
+                enabled: false,
+            });
+        let weight = call.get_dispatch_info().call_weight;
+        assert!(
+            weight.all_lte(limits.get(DispatchClass::Normal).max_extrinsic.unwrap()),
+            "synchronous toggle: {weight:?}"
+        );
+        println!(
+            "null scoring={scoring:?}; two passes plus block step={block:?}; toggle={weight:?}"
+        );
     });
 }

@@ -879,11 +879,9 @@ mod events {
             /// Estimated TAO value of the claimant's slices of those rows, left in the fund.
             forfeited_tao_est: TaoBalance,
         },
-        /// Retired one-shot setup event. Mode changes now emit AdminUtils::NullConsensusToggled.
-        NullConsensusEnabled(NetUid),
         /// A long coldkey-swap history was advanced; repeat the reward claim.
         NullRewardOwnerResolutionAdvanced(NetUid, T::AccountId),
-        /// A fixed-size equal-emission mining identity was registered.
+        /// A lightweight null mining identity was registered.
         NullMinerRegistered {
             /// Subnet identifier.
             netuid: NetUid,

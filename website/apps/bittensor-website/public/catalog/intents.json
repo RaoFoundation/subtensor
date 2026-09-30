@@ -512,8 +512,8 @@
   },
   {
     "name": "claim_null_rewards",
-    "summary": "Claim a miner's equal alpha rewards into the coldkey's staking position.",
-    "description": "Claim a miner's equal alpha rewards into the coldkey's staking position.\n\nThe destination hotkey must already be a staking account. The claiming coldkey\nowns the resulting alpha; using one destination consolidates many mining keys.\nOmit stake_hotkey to use the subnet owner's hotkey. Claims also work in Yuma mode.\nPass hotkey_ss58 when using a proxy or an account without a wallet hotkey.",
+    "summary": "Claim a miner's scored alpha rewards into the coldkey's staking position.",
+    "description": "Claim a miner's scored alpha rewards into the coldkey's staking position.\n\nThe destination hotkey must already be a staking account. The claiming coldkey\nowns the resulting alpha; using one destination consolidates many mining keys.\nOmit stake_hotkey to use the subnet owner's hotkey. Claims also work in Yuma mode.\nPass hotkey_ss58 when using a proxy or an account without a wallet hotkey.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -529,7 +529,7 @@
       "properties": {
         "netuid": {
           "type": "integer",
-          "description": "Subnet whose equal-emission rewards to claim."
+          "description": "Subnet whose miner rewards to claim."
         },
         "stake_hotkey": {
           "type": "string",
@@ -3377,18 +3377,18 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_null_consensus_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2680,
-        "end_line": 2699,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2669-L2699",
+        "line": 2681,
+        "end_line": 2700,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2669-L2700",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_null_max_allowed_uids",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2706,
-        "end_line": 2741,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2704-L2741",
+        "line": 2707,
+        "end_line": 2742,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2705-L2742",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
@@ -3607,6 +3607,68 @@
         "line": 2951,
         "end_line": 2958,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2949-L2958",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "set_null_weights",
+    "summary": "Submit exact u32 scores for u64 miners; eligible rows are averaged equally.",
+    "description": "Submit exact u32 scores for u64 miners; eligible rows are averaged equally.",
+    "signer": "hotkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_null_weights"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-null-weights",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Null-consensus subnet to score."
+        },
+        "uids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Distinct miner UIDs, parallel to weights."
+        },
+        "weights": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Exact relative integers from 0 to 4294967295."
+        },
+        "version_key": {
+          "type": "integer",
+          "description": "Required subnet weights version."
+        }
+      },
+      "required": [
+        "netuid",
+        "uids",
+        "weights"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-null-weights --netuid <int> --uids <a,b,c> --weights <a,b,c>",
+    "python_class": "SetNullWeights",
+    "markdown_url": "/llms.mdx/docs/tx/set-null-weights/content.md",
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "set_null_weights",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 850,
+        "end_line": 858,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L848-L858",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]

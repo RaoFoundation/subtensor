@@ -7,14 +7,6 @@ DESCRIPTIONS: dict[str, str] = {
         "The initial Yuma metagraph exceeds its normal import bound. Null miner capacity is "
         "independent; existing null miners never prevent switching back to Yuma."
     ),
-    "NullConsensusHasNoWeights": (
-        "Null mode gives every miner equal emission. Do not submit weights; use btcli pow claim "
-        "to collect rewards."
-    ),
-    "NullConsensusHasNoValidators": (
-        "Null mode has no validators or validator voting power. Return to Yuma before enabling "
-        "validator tracking."
-    ),
     "NullMinerNotRegistered": (
         "Register this mining identity with btcli pow register before claiming rewards."
     ),
@@ -23,28 +15,13 @@ DESCRIPTIONS: dict[str, str] = {
         "accrued."
     ),
     "NullConsensusOnRoot": ("Root cannot use null consensus. Select a non-root subnet."),
-    "NullConsensusAlreadyEnabled": (
-        "Retired one-shot setup restriction. Current runtimes use the reversible "
-        "null_consensus_enabled hyperparameter on existing subnets."
-    ),
-    "NullConsensusRequiresUnstartedSubnet": (
-        "Retired one-shot setup restriction. Current runtimes use the reversible "
-        "null_consensus_enabled hyperparameter on existing subnets."
-    ),
-    "NullConsensusRequiresEmptySubnet": (
-        "Retired one-shot setup restriction. Current runtimes use the reversible "
-        "null_consensus_enabled hyperparameter on existing subnets."
-    ),
     "NullConsensusRequiresSingleMechanism": (
         "Null consensus supports exactly one mechanism. Set the mechanism count to 1 before "
         "enabling the mode and keep it at 1 afterward."
     ),
-    "NullConsensusHasLegacyWeightsOrBonds": (
-        "Retired one-shot setup restriction. Current runtimes use the reversible "
-        "null_consensus_enabled hyperparameter on existing subnets."
-    ),
     "NullConsensusNotEnabled": (
-        "PoW registration requires null mode. Ask the owner to enable null_consensus_enabled. "
+        "PoW registration and null weights require null mode. "
+        "Ask the owner to enable null_consensus_enabled. "
         "Existing reward claims also work while Yuma is active."
     ),
     "NullConsensusRequiresPowRegistration": (
@@ -77,22 +54,19 @@ DESCRIPTIONS: dict[str, str] = {
         "registering again."
     ),
     "NullConsensusRequiresU32Weights": (
-        "Retired scoring error. Null consensus no longer accepts set_null_weights; every miner "
-        "receives equal emission."
+        "Use set_null_weights or btcli misc weights set-null with u32 scores and u64 miner IDs."
     ),
-    "NullConsensusWeightsAllZero": (
-        "Retired scoring error. Equal-emission null mode has no weights."
+    "NullConsensusWeightsAllZero": "At least one null score must be nonzero.",
+    "NullConsensusWeightLimitExceeded": (
+        "The subnet permits at most 8192 stored nonzero score entries across all validators. "
+        "Submit a sparser row."
     ),
     "NullConsensusTrimmingDisabled": (
         "Null-consensus UIDs are append-only and cannot be trimmed. Keep existing UIDs; choose "
         "another subnet if its capacity is exhausted."
     ),
     "NullConsensusValidatorLimitExceeded": (
-        "Retired scoring error. Equal-emission null mode has no validators."
-    ),
-    "NullConsensusCommitRevealUnsupported": (
-        "Retired one-shot setup restriction. Current runtimes use the reversible "
-        "null_consensus_enabled hyperparameter on existing subnets."
+        "At most 64 validators plus the subnet owner may store null score rows."
     ),
     "AccountRejectsLockedAlpha": (
         "Locked alpha was being transferred to a coldkey whose `AccountFlags` do not have the "

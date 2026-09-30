@@ -2668,6 +2668,7 @@ pub mod pallet {
         /// Enabling cancels pending encrypted Yuma submissions.
         #[pallet::call_index(111)]
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_null_consensus_enabled()
+            .saturating_add(pallet_subtensor::Pallet::<T>::null_scoring_weight(pallet_subtensor::null_consensus::MAX_NULL_WEIGHT_ENTRIES))
             // Reveal cleanup bounds retained buckets by the maximum reveal
             // period, plus the current epoch and its lookahead. Include the
             // final prefix probe, each bucket deletion, and the penalty reset.

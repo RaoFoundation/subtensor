@@ -305,7 +305,9 @@ impl<T: Config> Pallet<T> {
                 } else {
                     AlphaBalance::ZERO
                 };
-                Self::accrue_null_rewards(*netuid_i, alpha_created.saturating_sub(owner_cut));
+                PendingServerEmission::<T>::mutate(*netuid_i, |total| {
+                    *total = total.saturating_add(alpha_created.saturating_sub(owner_cut));
+                });
                 Self::distribute_owner_cut(*netuid_i, owner_cut);
                 continue;
             }
@@ -372,11 +374,6 @@ impl<T: Config> Pallet<T> {
         let mut epochs_run_this_block: u32 = 0;
 
         for &netuid in subnets.iter() {
-            if NullConsensus::<T>::get(netuid) {
-                // Null subnets have no epoch slot; maintenance belongs in drain_pending.
-                continue;
-            }
-
             if !Self::should_run_epoch(netuid, current_block) {
                 continue;
             }
@@ -385,7 +382,7 @@ impl<T: Config> Pallet<T> {
                 deferred.insert(netuid);
                 continue;
             }
-            if Self::is_epoch_input_state_consistent(netuid) {
+            if NullConsensus::<T>::get(netuid) || Self::is_epoch_input_state_consistent(netuid) {
                 epochs_run_this_block = epochs_run_this_block.saturating_add(1);
             }
         }
@@ -408,13 +405,6 @@ impl<T: Config> Pallet<T> {
         for &netuid in subnets.iter() {
             if NullConsensus::<T>::get(netuid) {
                 Self::maintain_null_voting_disable(netuid, current_block);
-                // No null epochs, miner enumeration, scoring, or payout loop.
-                // Preserve protocol ownership maintenance on its existing cadence.
-                let tempo = u64::from(Self::get_tempo(netuid)).saturating_add(1);
-                if current_block.is_multiple_of(tempo) {
-                    Self::change_subnet_owner_if_needed(netuid);
-                }
-                continue;
             }
 
             // Keep the scheduler age bounded per subnet. `tempo + 1` is enough to
@@ -443,7 +433,7 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            if Self::is_epoch_input_state_consistent(netuid) {
+            if NullConsensus::<T>::get(netuid) || Self::is_epoch_input_state_consistent(netuid) {
                 // Reset blocks-since counter; LastMechansimStepBlock is written
                 // post-distribute (see the caller), so bonds masking can read the
                 // previous successful run.
@@ -517,7 +507,10 @@ impl<T: Config> Pallet<T> {
                 pending_root_alpha,
                 pending_owner_cut,
             );
-            LastMechansimStepBlock::<T>::insert(netuid, current_block);
+            if !NullConsensus::<T>::get(netuid) {
+                // Null scoring must not advance the anchor used to mask Yuma bonds.
+                LastMechansimStepBlock::<T>::insert(netuid, current_block);
+            }
         }
     }
 

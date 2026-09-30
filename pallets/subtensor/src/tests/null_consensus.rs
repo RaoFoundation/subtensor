@@ -50,14 +50,33 @@ fn claim(net: NetUid, hot: u64, cold: u64) -> DispatchResult {
 }
 fn pending(net: NetUid, hot: u64) -> u64 {
     let (_, checkpoint) = NullMiners::<Test>::get(net, U256::from(hot)).unwrap();
-    ((NullRewardIndex::<Test>::get(net) - checkpoint) >> 64).low_u64()
+    ((SubtensorModule::null_miner_reward_index(net, &U256::from(hot)) - checkpoint) >> 64).low_u64()
 }
+// Reward-lifecycle fixtures use an explicitly uniform score row. Admission and
+// unequal averaging are exercised separately below.
+fn accrue_uniform_rewards(net: NetUid, budget: AlphaBalance) {
+    let owner = SubnetOwnerHotkey::<Test>::get(net);
+    SubnetOwnerHotkey::<Test>::insert(net, owner);
+    if !Uids::<Test>::contains_key(net, owner) {
+        SubtensorModule::append_neuron(net, &owner, 1);
+    }
+    let uid = Uids::<Test>::get(net, owner).unwrap();
+    let row: Vec<_> = NullMinerKeys::<Test>::iter_key_prefix(net)
+        .map(|u| (u, 1u32))
+        .collect();
+    NullWeightEntries::<Test>::insert(net, row.len() as u32);
+    NullWeights::<Test>::insert(net, uid, row);
+    NullLastUpdate::<Test>::insert(net, uid, System::block_number());
+    NullWeightsResetAt::<Test>::remove(net);
+    SubtensorModule::accrue_null_rewards(net, budget);
+}
+
 #[test]
-fn null_equal_rewards_do_not_need_epochs_or_weights() {
+fn null_uniform_scores_distribute_equal_rewards() {
     new_test_ext(1).execute_with(|| {
         let net = setup(3);
         SubnetAlphaOut::<Test>::insert(net, AlphaBalance::from(900u64));
-        SubtensorModule::accrue_null_rewards(net, 900u64.into());
+        accrue_uniform_rewards(net, 900u64.into());
         assert_eq!(
             (pending(net, 0), pending(net, 1), pending(net, 2)),
             (300, 300, 300)
@@ -98,13 +117,13 @@ fn null_claims_respect_staking_hotkey_capacity_without_losing_rewards() {
             if paused {
                 assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
             }
-            SubtensorModule::accrue_null_rewards(net, 200u64.into());
+            accrue_uniform_rewards(net, 200u64.into());
             assert_ok!(claim(net, 1, 101));
             assert_eq!(
                 StakingHotkeys::<Test>::get(cold).len(),
                 MAX_STAKING_HOTKEYS as usize
             );
-            SubtensorModule::accrue_null_rewards(net, 200u64.into());
+            accrue_uniform_rewards(net, 200u64.into());
             // The miner is a valid staking account but not yet a destination in this list.
             assert_noop!(
                 SubtensorModule::do_claim_null_rewards(
@@ -168,7 +187,7 @@ fn null_claims_settle_existing_collateral_before_staking_the_remainder() {
                     substrate_fixed::types::U64F64::from_num(9),
                 );
                 assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
-                SubtensorModule::accrue_null_rewards(net, 80u64.into());
+                accrue_uniform_rewards(net, 80u64.into());
                 if paused {
                     assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
                 }
@@ -202,7 +221,7 @@ fn null_claims_settle_existing_collateral_before_staking_the_remainder() {
                 if floor == 0 {
                     // The final drain removes the lock and both aggregate/index
                     // entries; replaying a claim cannot drain it twice.
-                    SubtensorModule::accrue_null_rewards(net, 80u64.into());
+                    accrue_uniform_rewards(net, 80u64.into());
                     assert_ok!(claim(net, 1, 101));
                     assert!(!MinerCollateral::<Test>::contains_key((net, hot, cold)));
                     assert!(!ColdkeyMinerCollateral::<Test>::contains_key(net, cold));
@@ -221,7 +240,7 @@ fn null_claims_settle_existing_collateral_before_staking_the_remainder() {
 fn null_pow_registration_has_no_population_sized_writes_or_historical_rewards() {
     new_test_ext(1).execute_with(|| {
         let net = setup(1);
-        SubtensorModule::accrue_null_rewards(net, 100u64.into());
+        accrue_uniform_rewards(net, 100u64.into());
         let legacy = (
             SubnetworkN::<Test>::get(net),
             ValidatorPermit::<Test>::get(net),
@@ -247,7 +266,7 @@ fn null_pow_registration_has_no_population_sized_writes_or_historical_rewards() 
             U256::from(900),
             U256::from(901)
         )));
-        SubtensorModule::accrue_null_rewards(net, 100u64.into());
+        accrue_uniform_rewards(net, 100u64.into());
         assert_eq!((pending(net, 0), pending(net, 900)), (150, 50));
     });
 }
@@ -268,8 +287,8 @@ fn null_u64_population_can_switch_modes_without_changing_yuma_capacity() {
         assert_eq!(MaxAllowedUids::<Test>::get(net), capacity);
         assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
         assert_eq!(NullMinerCount::<Test>::get(net), (1u64 << 40) + 1);
-        SubtensorModule::accrue_null_rewards(net, ((1u64 << 40) + 1).into());
-        assert_eq!(pending(net, 900), 1);
+        accrue_uniform_rewards(net, ((1u64 << 40) + 1).into());
+        assert_eq!(pending(net, 900), (1u64 << 40).div_ceil(2));
     });
 }
 #[test]
@@ -277,7 +296,7 @@ fn null_fractional_rewards_and_claims_conserve_the_budget() {
     new_test_ext(1).execute_with(|| {
         let net = setup(3);
         for _ in 0..100 {
-            SubtensorModule::accrue_null_rewards(net, 1u64.into());
+            accrue_uniform_rewards(net, 1u64.into());
         }
         for uid in 0..3 {
             assert_eq!(pending(net, uid), 33);
@@ -287,14 +306,17 @@ fn null_fractional_rewards_and_claims_conserve_the_budget() {
             NullUnclaimedAlpha::<Test>::get(net),
             AlphaBalance::from(1u64)
         );
-        for _ in 0..2 {
-            SubtensorModule::accrue_null_rewards(net, 1u64.into());
+        for _ in 0..3 {
+            accrue_uniform_rewards(net, 1u64.into());
         }
         for uid in 0..3 {
             assert_eq!(pending(net, uid), 1);
             assert_ok!(claim(net, uid, 100 + uid));
         }
-        assert_eq!(NullUnclaimedAlpha::<Test>::get(net), AlphaBalance::ZERO);
+        assert_eq!(
+            NullUnclaimedAlpha::<Test>::get(net),
+            AlphaBalance::from(1u64)
+        );
         assert_eq!(
             TotalHotkeyAlpha::<Test>::get(U256::zero(), net),
             AlphaBalance::from(102u64)
@@ -305,7 +327,7 @@ fn null_fractional_rewards_and_claims_conserve_the_budget() {
 fn null_claims_survive_mode_changes_and_do_not_consume_paused_yuma_emission() {
     new_test_ext(1).execute_with(|| {
         let net = setup(1);
-        SubtensorModule::accrue_null_rewards(net, 100u64.into());
+        accrue_uniform_rewards(net, 100u64.into());
         assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
         PendingServerEmission::<Test>::insert(net, AlphaBalance::from(50u64));
         assert_ok!(claim(net, 0, 100));
@@ -452,29 +474,25 @@ fn null_registration_errors_and_reward_free_scores_are_explicit() {
             register(net, 900, 901),
             Error::<Test>::NullConsensusRegistrationDisabled
         );
-        assert_noop!(
-            SubtensorModule::set_null_weights(
-                RuntimeOrigin::signed(U256::zero()),
-                net,
-                vec![0],
-                vec![u32::MAX],
-                0
-            ),
-            Error::<Test>::NullConsensusHasNoWeights
-        );
-        assert_noop!(
-            SubtensorModule::do_enable_voting_power_tracking(net),
-            Error::<Test>::NullConsensusHasNoValidators
-        );
+        assert_ok!(SubtensorModule::set_null_weights(
+            RuntimeOrigin::signed(U256::zero()),
+            net,
+            vec![0],
+            vec![u32::MAX],
+            0,
+        ));
+        assert_ok!(SubtensorModule::do_enable_voting_power_tracking(net));
     });
 }
 #[test]
-fn null_never_enters_the_epoch_scheduler_even_when_triggered() {
+fn null_scoring_uses_the_epoch_scheduler_without_yuma() {
     new_test_ext(1).execute_with(|| {
         let net = setup(1);
         PendingEpochAt::<Test>::insert(net, 2);
-        assert!(SubtensorModule::drain_pending(&[net], 2).is_empty());
-        assert_eq!(LastEpochBlock::<Test>::get(net), 0);
+        PendingServerEmission::<Test>::insert(net, AlphaBalance::from(100u64));
+        let emissions = SubtensorModule::drain_pending(&[net], 2);
+        assert_eq!(emissions.get(&net).unwrap().0, AlphaBalance::from(100u64));
+        assert_eq!(LastEpochBlock::<Test>::get(net), 2);
         assert!(NullWeights::<Test>::iter_prefix(net).next().is_none());
     });
 }
@@ -504,7 +522,7 @@ fn null_low_root_price_cannot_recycle_the_miners_budget() {
         let owner = TotalHotkeyAlpha::<Test>::get(U256::zero(), net).saturating_sub(owner_before);
         assert!(owner > AlphaBalance::ZERO);
         assert_eq!(
-            NullUnclaimedAlpha::<Test>::get(net).saturating_add(owner),
+            PendingServerEmission::<Test>::get(net).saturating_add(owner),
             SubnetAlphaOutEmission::<Test>::get(net)
         );
         assert_eq!(PendingRootAlphaDivs::<Test>::get(net), AlphaBalance::ZERO);
@@ -522,9 +540,10 @@ fn null_dissolution_settles_rewards_in_bounded_steps_before_stake_conversion() {
     use frame_support::weights::WeightMeter;
     new_test_ext(1).execute_with(|| {
         let net = setup(3);
-        SubtensorModule::accrue_null_rewards(net, 300u64.into());
+        accrue_uniform_rewards(net, 300u64.into());
         let mut status = DissolveCleanupStatus::new(net);
-        let bound = <Test as Config>::WeightInfo::claim_null_rewards();
+        let bound = <Test as Config>::WeightInfo::claim_null_rewards()
+            .saturating_add(<Test as frame_system::Config>::DbWeight::get().reads(2));
         for remaining in [2, 1, 0] {
             let mut meter = WeightMeter::with_limit(bound);
             let (done, _) =
@@ -549,13 +568,13 @@ fn null_claims_follow_coldkey_swaps_without_confusing_reused_addresses() {
     new_test_ext(1).execute_with(|| {
         let net = setup(1);
         assert_ok!(register(net, 900, 901));
-        SubtensorModule::accrue_null_rewards(net, 100u64.into());
+        accrue_uniform_rewards(net, 100u64.into());
         SubtensorModule::record_coldkey_swap_lineage(&U256::from(901), &U256::from(902));
         assert_noop!(claim(net, 900, 901), Error::<Test>::NonAssociatedColdKey);
         assert_ok!(claim(net, 900, 902));
         // Reuse the old coldkey for a different miner; it owns the new generation.
         assert_ok!(register(net, 903, 901));
-        SubtensorModule::accrue_null_rewards(net, 300u64.into());
+        accrue_uniform_rewards(net, 300u64.into());
         assert_noop!(claim(net, 903, 902), Error::<Test>::NonAssociatedColdKey);
         assert_ok!(claim(net, 903, 901));
         assert_ok!(claim(net, 900, 902));
@@ -658,7 +677,8 @@ fn null_consensus_conviction_successor_registers_with_admission_paused_or_full()
                     sp_io::storage::root(sp_runtime::StateVersion::V1),
                     state_before
                 );
-                assert!(SubtensorModule::drain_pending(&[net], now).is_empty());
+                PendingEpochAt::<Test>::insert(net, now);
+                assert!(!SubtensorModule::drain_pending(&[net], now).is_empty());
                 if conviction == 100 {
                     assert_eq!(SubnetOwner::<Test>::get(net), U256::from(100));
                     assert!(!Uids::<Test>::contains_key(net, successor));
@@ -694,7 +714,7 @@ fn null_long_coldkey_history_resolves_in_bounded_claim_steps() {
     new_test_ext(1).execute_with(|| {
         let net = setup(1);
         assert_ok!(register(net, 900, 901));
-        SubtensorModule::accrue_null_rewards(net, 100u64.into());
+        accrue_uniform_rewards(net, 100u64.into());
         for cold in 901..971 {
             SubtensorModule::record_coldkey_swap_lineage(&U256::from(cold), &U256::from(cold + 1));
         }
@@ -714,7 +734,7 @@ fn null_long_coldkey_history_resolves_in_bounded_claim_steps() {
 }
 
 #[test]
-fn null_clears_validator_power_and_completes_a_scheduled_disable_without_epochs() {
+fn null_preserves_tracking_and_completes_a_scheduled_disable() {
     new_test_ext(1).execute_with(|| {
         let net = setup(2);
         assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
@@ -724,8 +744,7 @@ fn null_clears_validator_power_and_completes_a_scheduled_disable_without_epochs(
         assert_ok!(SubtensorModule::do_disable_voting_power_tracking(net));
         let deadline = VotingPowerDisableAtBlock::<Test>::get(net);
         assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
-        assert_eq!(TotalVotingPower::<Test>::get(net), 0);
-        assert!(VotingPower::<Test>::iter_prefix(net).next().is_none());
+        assert_eq!(TotalVotingPower::<Test>::get(net), 100);
         assert!(VotingPowerTrackingEnabled::<Test>::get(net));
         System::set_block_number(deadline);
         // Reveal preflight must leave the due disable (and its event) to coinbase.
@@ -735,7 +754,7 @@ fn null_clears_validator_power_and_completes_a_scheduled_disable_without_epochs(
             sp_io::storage::root(sp_runtime::StateVersion::V1),
             state_before
         );
-        assert!(SubtensorModule::drain_pending(&[net], deadline).is_empty());
+        SubtensorModule::drain_pending(&[net], deadline);
         assert!(!VotingPowerTrackingEnabled::<Test>::get(net));
         assert_eq!(VotingPowerDisableAtBlock::<Test>::get(net), 0);
     });
@@ -793,7 +812,7 @@ fn null_hotkey_swap_moves_registry_rewards_and_endpoints() {
                         let cert = NeuronCertificates::<Test>::get(net, old);
                         assert!(cert.is_some());
                         NullMinerOwnerGeneration::<Test>::insert(net, old, 7);
-                        SubtensorModule::accrue_null_rewards(net, 200u64.into());
+                        accrue_uniform_rewards(net, 200u64.into());
                         let miner = NullMiners::<Test>::get(net, old);
                         let uid = NullMinerUids::<Test>::get(net, old).unwrap();
                         assert_ok!(SubtensorModule::do_set_null_consensus(net, null_enabled));
@@ -953,7 +972,7 @@ fn null_hotkey_swap_follows_coldkey_lineage() {
             &U256::from(900)
         ));
         add_balance_to_coldkey_account(&successor, 1_000_000_000_000u64.into());
-        SubtensorModule::accrue_null_rewards(net, 200u64.into());
+        accrue_uniform_rewards(net, 200u64.into());
         assert_ok!(SubtensorModule::do_swap_hotkey(
             RuntimeOrigin::signed(successor),
             &U256::from(900),
@@ -1022,7 +1041,7 @@ fn null_rotation_does_not_depend_on_global_staking_ownership() {
                     };
                     assert_ok!(serve(old));
                     let old_axon = Axons::<Test>::get(net, old);
-                    SubtensorModule::accrue_null_rewards(net, 200u64.into());
+                    accrue_uniform_rewards(net, 200u64.into());
                     if paused {
                         assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
                     }
@@ -1156,7 +1175,7 @@ fn global_rotation_ignores_foreign_null_registrations_and_their_cooldowns() {
                 SubtensorModule::record_coldkey_swap_lineage(&U256::from(999), &U256::from(998));
                 let certificate = NeuronCertificateOf::try_from(b"FOREIGN".to_vec()).unwrap();
                 NeuronCertificates::<Test>::insert(other, old, &certificate);
-                SubtensorModule::accrue_null_rewards(other, 20u64.into());
+                accrue_uniform_rewards(other, 20u64.into());
                 let foreign = NullMiners::<Test>::get(other, old);
                 let generation = NullMinerOwnerGeneration::<Test>::get(other, old);
                 let last = SubtensorModule::get_current_block_as_u64();
@@ -1253,7 +1272,7 @@ fn global_yuma_rotation_preserves_retained_null_endpoints() {
                 let before = endpoints(old);
                 assert!(before.0.is_some() && before.1.is_some() && before.2.is_some());
                 let miner = NullMiners::<Test>::get(net, old);
-                SubtensorModule::accrue_null_rewards(net, 20u64.into());
+                accrue_uniform_rewards(net, 20u64.into());
                 if paused {
                     assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
                 }
@@ -1411,7 +1430,7 @@ fn null_admission_cap_rejects_without_consuming_work_or_rewards() {
         let net = setup(1);
         assert_eq!(NullMaxAllowedUids::<Test>::get(net), 1024);
         NullMaxAllowedUids::<Test>::insert(net, 1);
-        SubtensorModule::accrue_null_rewards(net, 100u64.into());
+        accrue_uniform_rewards(net, 100u64.into());
         assert_noop!(
             register(net, 900, 901),
             Error::<Test>::NullConsensusCapacityReached
@@ -1482,5 +1501,212 @@ fn null_initial_import_checks_capacity_before_changing_state() {
         NullMaxAllowedUids::<Test>::insert(net, 2);
         assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
         assert_eq!(NullMinerCount::<Test>::get(net), 2);
+    });
+}
+
+fn scores(net: NetUid, validator: u64, dests: Vec<u64>, weights: Vec<u32>) -> DispatchResult {
+    SubtensorModule::set_null_weights(
+        RuntimeOrigin::signed(U256::from(validator)),
+        net,
+        dests,
+        weights,
+        0,
+    )
+}
+
+#[test]
+fn null_averages_normalized_rows_equally_without_bonds_or_dividends() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(4);
+        SubtensorModule::set_weights_set_rate_limit(net, 0);
+        ValidatorPermit::<Test>::insert(net, vec![false, true, false, false]);
+        TotalHotkeyAlpha::<Test>::insert(U256::from(1), net, AlphaBalance::from(1_000_000u64));
+        let index = SubtensorModule::get_mechanism_storage_index(net, MechId::MAIN);
+        Bonds::<Test>::insert(index, 1, vec![(2, 123u16)]);
+        Weights::<Test>::insert(index, 1, vec![(3, 456u16)]);
+        assert_ok!(scores(net, 0, vec![2, 3], vec![3, 1]));
+        assert_ok!(scores(net, 1, vec![2, 3], vec![100, 100]));
+        LastMechansimStepBlock::<Test>::insert(net, 1);
+        SubtensorModule::distribute_emissions_to_subnets(&alloc::collections::BTreeMap::from([(
+            net,
+            (
+                160u64.into(),
+                AlphaBalance::ZERO,
+                AlphaBalance::ZERO,
+                AlphaBalance::ZERO,
+            ),
+        )]));
+        assert_eq!(LastMechansimStepBlock::<Test>::get(net), 1);
+        assert_eq!(
+            (
+                pending(net, 0),
+                pending(net, 1),
+                pending(net, 2),
+                pending(net, 3)
+            ),
+            (0, 0, 100, 60)
+        );
+        assert_eq!(Bonds::<Test>::get(index, 1), vec![(2, 123)]);
+        assert_eq!(Weights::<Test>::get(index, 1), vec![(3, 456)]);
+        assert!(
+            AlphaDividendsPerSubnet::<Test>::iter_prefix(net)
+                .next()
+                .is_none()
+        );
+        assert_ok!(claim(net, 2, 102));
+        assert_ok!(claim(net, 3, 103));
+        assert_eq!(NullUnclaimedAlpha::<Test>::get(net), AlphaBalance::ZERO);
+        // Absolute row scale and stake do not increase a validator's vote.
+        assert_ok!(scores(net, 0, vec![2, 3], vec![3000, 1000]));
+        SubtensorModule::accrue_null_rewards(net, 160u64.into());
+        assert_eq!((pending(net, 2), pending(net, 3)), (100, 60));
+    });
+}
+
+#[test]
+fn null_scores_preserve_u32_precision_and_u64_miner_ids() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(1);
+        NullMinerCount::<Test>::insert(net, 1u64 << 40);
+        NullMaxAllowedUids::<Test>::insert(net, u64::MAX);
+        assert_ok!(register(net, 900, 901));
+        assert_ok!(scores(net, 0, vec![0, 1u64 << 40], vec![u32::MAX, 1]));
+        SubtensorModule::accrue_null_rewards(net, (1u64 << 32).into());
+        assert_eq!(pending(net, 0), u64::from(u32::MAX));
+        assert_eq!(pending(net, 900), 1);
+        assert_ok!(claim(net, 900, 901));
+        assert_eq!(pending(net, 900), 0);
+    });
+}
+
+#[test]
+fn null_registration_does_not_entitle_an_unscored_miner_to_emission() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(1);
+        assert_ok!(scores(net, 0, vec![0], vec![1]));
+        assert_ok!(register(net, 900, 901));
+        SubtensorModule::accrue_null_rewards(net, 100u64.into());
+        assert_eq!((pending(net, 0), pending(net, 900)), (100, 0));
+        assert_noop!(claim(net, 900, 901), Error::<Test>::NullRewardsNotAvailable);
+    });
+}
+
+#[test]
+fn null_expired_revoked_and_paused_scores_cannot_earn_new_rewards() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(3);
+        SubtensorModule::set_weights_set_rate_limit(net, 0);
+        TotalHotkeyAlpha::<Test>::insert(U256::from(1), net, AlphaBalance::from(100u64));
+        ValidatorPermit::<Test>::insert(net, vec![false, true, false]);
+        assert_ok!(scores(net, 0, vec![0], vec![1]));
+        assert_ok!(scores(net, 1, vec![2], vec![1]));
+        TotalHotkeyAlpha::<Test>::remove(U256::from(1), net);
+        SubtensorModule::accrue_null_rewards(net, 100u64.into());
+        assert_eq!((pending(net, 0), pending(net, 2)), (100, 0));
+        assert!(!NullWeights::<Test>::contains_key(net, 1));
+        assert_eq!(NullWeightEntries::<Test>::get(net), 1);
+        System::set_block_number(3 + SubtensorModule::get_activity_cutoff_blocks(net));
+        SubtensorModule::accrue_null_rewards(net, 100u64.into());
+        assert_eq!(pending(net, 0), 100);
+        assert_eq!(NullWeightEntries::<Test>::get(net), 0);
+        assert_ok!(scores(net, 0, vec![2], vec![1]));
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
+        SubtensorModule::accrue_null_rewards(net, 100u64.into());
+        assert_eq!(pending(net, 2), 0);
+        assert_ok!(claim(net, 0, 100));
+    });
+}
+
+#[test]
+fn null_weight_admission_is_bounded_and_does_not_write_on_failure() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(2);
+        for (dests, values, error) in [
+            (vec![0], vec![], Error::<Test>::WeightVecNotEqualSize),
+            (vec![0, 0], vec![1, 1], Error::<Test>::DuplicateUids),
+            (
+                vec![u64::MAX],
+                vec![1],
+                Error::<Test>::UidVecContainInvalidOne,
+            ),
+            (vec![0], vec![0], Error::<Test>::NullConsensusWeightsAllZero),
+        ] {
+            assert_noop!(scores(net, 0, dests, values), error);
+        }
+        assert_noop!(
+            scores(net, 1, vec![0], vec![1]),
+            Error::<Test>::NeuronNoValidatorPermit
+        );
+        NullWeightEntries::<Test>::insert(net, crate::null_consensus::MAX_NULL_WEIGHT_ENTRIES);
+        assert_noop!(
+            scores(net, 0, vec![0], vec![1]),
+            Error::<Test>::NullConsensusWeightLimitExceeded
+        );
+    });
+}
+
+#[test]
+fn null_maximum_scores_settle_in_the_scoring_block() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(1);
+        let n = u64::from(crate::null_consensus::MAX_NULL_WEIGHT_ENTRIES);
+        NullMaxAllowedUids::<Test>::insert(net, n);
+        SubtensorModule::set_weights_set_rate_limit(net, 0);
+        for uid in 1..n {
+            assert_ok!(SubtensorModule::enroll_null_miner(
+                net,
+                &U256::from(uid),
+                &U256::from(100)
+            ));
+        }
+        assert_ok!(scores(net, 0, (0..n).collect(), vec![1; n as usize]));
+        let index = SubtensorModule::get_mechanism_storage_index(net, MechId::MAIN);
+        Bonds::<Test>::insert(index, 0, vec![(0, 123u16)]);
+        PendingEpochAt::<Test>::insert(net, 2);
+        PendingServerEmission::<Test>::insert(net, AlphaBalance::from(n));
+        let emissions = SubtensorModule::drain_pending(&[net], 2);
+        SubtensorModule::distribute_emissions_to_subnets(&emissions);
+        assert_eq!(System::block_number(), 2);
+        assert_eq!(LastEpochBlock::<Test>::get(net), 2);
+        assert_eq!(PendingServerEmission::<Test>::get(net), AlphaBalance::ZERO);
+        assert_eq!(pending(net, 0), 1);
+        for uid in 0..n {
+            assert_eq!(pending(net, uid), 1);
+        }
+        // A mode toggle also settles its entire outstanding budget before
+        // returning, without an idle hook or advancing the block.
+        PendingServerEmission::<Test>::insert(net, AlphaBalance::from(n));
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+        assert_eq!(System::block_number(), 2);
+        for uid in 0..n {
+            assert_eq!(pending(net, uid), 2);
+        }
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
+        System::set_block_number(3);
+        // Replacing scores cannot change already-earned rewards.
+        assert_ok!(scores(net, 0, vec![n - 1], vec![u32::MAX]));
+        let cold = U256::from(100);
+        add_balance_to_coldkey_account(&cold, 1_000_000_000_000u64.into());
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(cold),
+            &U256::from(n - 1),
+            &U256::from(999_999),
+            Some(net),
+            false
+        ));
+        assert_eq!(pending(net, 999_999), 2);
+        assert_eq!(
+            NullRewardIndex::<Test>::iter_prefix(net).count(),
+            n as usize
+        );
+        assert_ok!(claim(net, 999_999, 100));
+        SubtensorModule::accrue_null_rewards(net, 100u64.into());
+        assert_eq!(pending(net, 999_999), 100);
+        assert_eq!(pending(net, 0), 2);
+        assert_eq!(Bonds::<Test>::get(index, 0), vec![(0, 123)]);
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+        assert_eq!(pending(net, 999_999), 100);
+        assert_ok!(claim(net, 999_999, 100));
     });
 }

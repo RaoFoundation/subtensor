@@ -69,7 +69,7 @@ def claim_null_rewards(
         None, address_cli_name("hotkey_ss58"), help=ClaimNullRewards.field_help("hotkey_ss58")
     ),
 ):
-    """Claim equal miner emissions for the signing or proxied coldkey."""
+    """Claim scored miner emissions for the signing or proxied coldkey."""
     app_ctx = ctx_of(ctx)
     app_ctx.submit(
         ClaimNullRewards(

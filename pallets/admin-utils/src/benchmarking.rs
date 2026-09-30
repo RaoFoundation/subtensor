@@ -804,12 +804,37 @@ mod benchmarks {
     fn disable_null_consensus() {
         let netuid = NetUid::from(1);
         let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        pallet_subtensor::SubnetOwnerHotkey::<T>::insert(netuid, &owner);
+        pallet_subtensor::Owner::<T>::insert(&owner, &owner);
+        pallet_subtensor::Pallet::<T>::append_neuron(netuid, &owner, 1);
         frame_support::assert_ok!(pallet_subtensor::Pallet::<T>::do_set_null_consensus(
             netuid, true
         ));
+        let n = pallet_subtensor::null_consensus::MAX_NULL_WEIGHT_ENTRIES;
+        pallet_subtensor::NullMinerCount::<T>::insert(netuid, u64::from(n));
+        pallet_subtensor::NullWeightEntries::<T>::insert(netuid, n);
+        pallet_subtensor::NullWeights::<T>::insert(
+            netuid,
+            0,
+            (0..u64::from(n)).map(|uid| (uid, 1u32)).collect::<Vec<_>>(),
+        );
+        pallet_subtensor::NullLastUpdate::<T>::insert(netuid, 0, 101);
+        frame_system::Pallet::<T>::set_block_number(101u32.into());
+        pallet_subtensor::PendingServerEmission::<T>::insert(
+            netuid,
+            subtensor_runtime_common::AlphaBalance::from(u64::from(n)),
+        );
         #[extrinsic_call]
         sudo_set_null_consensus_enabled(RawOrigin::Signed(owner), netuid, false);
         assert!(!pallet_subtensor::NullConsensus::<T>::get(netuid));
+        assert_eq!(
+            pallet_subtensor::NullRewardIndex::<T>::get(netuid, u64::from(n) - 1),
+            (1u128 << 64).into()
+        );
+        assert_eq!(
+            pallet_subtensor::PendingServerEmission::<T>::get(netuid),
+            subtensor_runtime_common::AlphaBalance::from(0u64)
+        );
     }
 
     #[benchmark]

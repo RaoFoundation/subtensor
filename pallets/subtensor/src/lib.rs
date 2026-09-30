@@ -2392,7 +2392,7 @@ pub mod pallet {
     pub type NetworkPowRegistrationAllowed<T: Config> =
         StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultRegistrationAllowed<T>>;
 
-    /// Owner-toggleable equal miner emission without consensus. New subnets default to false.
+    /// Owner-toggleable averaged miner scores without Yuma or bonds. New subnets default to false.
     #[pallet::storage]
     pub type NullConsensus<T> = StorageMap<_, Identity, NetUid, bool, ValueQuery>;
 
@@ -2429,9 +2429,11 @@ pub mod pallet {
     pub type NullMinerUids<T: Config> =
         StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, u64, OptionQuery>;
     #[pallet::storage]
-    pub type NullRewardIndex<T> = StorageMap<_, Identity, NetUid, sp_core::U256, ValueQuery>;
+    pub type NullRewardIndex<T> =
+        StorageDoubleMap<_, Identity, NetUid, Identity, u64, sp_core::U256, ValueQuery>;
+    /// Total stored score entries, bounded independently of miner population.
     #[pallet::storage]
-    pub type NullRewardRemainder<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
+    pub type NullWeightEntries<T> = StorageMap<_, Identity, NetUid, u32, ValueQuery>;
     #[pallet::storage]
     pub type NullUnclaimedAlpha<T> = StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery>;
     /// Coldkey generations distinguish a reused address from its former identity.
@@ -2462,10 +2464,10 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// Retired score storage, retained for cleanup and SCALE metadata compatibility.
+    /// Sparse u32 scores from bounded Yuma validators to independent u64 miner IDs.
     #[pallet::storage]
     pub type NullWeights<T> =
-        StorageDoubleMap<_, Identity, NetUid, Identity, u16, Vec<(u16, u32)>, ValueQuery>;
+        StorageDoubleMap<_, Identity, NetUid, Identity, u16, Vec<(u64, u32)>, ValueQuery>;
 
     /// Null-score timestamps are separate from Yuma's LastUpdate so toggling modes
     /// cannot refresh old Yuma weights or bypass either weight submission rate limit.
@@ -2476,10 +2478,6 @@ pub mod pallet {
     /// Last switch away from null consensus; resumed scores must be newer than this block.
     #[pallet::storage]
     pub type NullWeightsResetAt<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
-
-    /// Informational u32 incentive proportions. Payments use wider integer arithmetic.
-    #[pallet::storage]
-    pub type NullIncentive<T> = StorageMap<_, Identity, NetUid, Vec<u32>, ValueQuery>;
 
     /// MAP ( netuid ) --> block_created
     #[pallet::storage]

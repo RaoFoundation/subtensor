@@ -256,7 +256,7 @@ class SubtensorModule:
 
     @staticmethod
     def claim_null_rewards(netuid: 'NetUid', hotkey: 'AccountId32', stake_hotkey: 'AccountId32') -> Call:
-        'Claim equal null-miner emissions into a coldkey-owned staking position. Claims remain available while the subnet has returned to Yuma.'
+        'Claim scored null-miner emissions into a coldkey-owned staking position. Claims remain available while the subnet has returned to Yuma.'
         return Call('SubtensorModule', 'claim_null_rewards', {'netuid': netuid, 'hotkey': hotkey, 'stake_hotkey': stake_hotkey})
 
     @staticmethod
@@ -481,7 +481,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_null_weights(netuid: 'NetUid', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
-        'Retired: null mode pays equal emission and rejects all score submissions.'
+        'Submit u32 relative scores for u64 null miner IDs. Eligible rows are averaged equally.'
         return Call('SubtensorModule', 'set_null_weights', {'netuid': netuid, 'dests': dests, 'weights': weights, 'version_key': version_key})
 
     @staticmethod

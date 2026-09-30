@@ -110,7 +110,7 @@ impl<T: Config> Pallet<T> {
         // 2. Ensure commit-reveal is enabled.
         ensure!(
             !NullConsensus::<T>::get(netuid),
-            Error::<T>::NullConsensusHasNoWeights
+            Error::<T>::NullConsensusRequiresU32Weights
         );
         ensure!(
             Self::get_commit_reveal_weights_enabled(netuid),
@@ -344,7 +344,7 @@ impl<T: Config> Pallet<T> {
         // 2. Ensure commit-reveal is enabled.
         ensure!(
             !NullConsensus::<T>::get(netuid),
-            Error::<T>::NullConsensusHasNoWeights
+            Error::<T>::NullConsensusRequiresU32Weights
         );
         ensure!(
             Self::get_commit_reveal_weights_enabled(netuid),
@@ -490,7 +490,7 @@ impl<T: Config> Pallet<T> {
         // --- 2. Ensure commit-reveal is enabled for the network.
         ensure!(
             !NullConsensus::<T>::get(netuid),
-            Error::<T>::NullConsensusHasNoWeights
+            Error::<T>::NullConsensusRequiresU32Weights
         );
         ensure!(
             Self::get_commit_reveal_weights_enabled(netuid),
@@ -645,7 +645,7 @@ impl<T: Config> Pallet<T> {
         // --- 3. Ensure commit-reveal is enabled for the network.
         ensure!(
             !NullConsensus::<T>::get(netuid),
-            Error::<T>::NullConsensusHasNoWeights
+            Error::<T>::NullConsensusRequiresU32Weights
         );
         ensure!(
             Self::get_commit_reveal_weights_enabled(netuid),
@@ -774,7 +774,7 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         ensure!(
             !NullConsensus::<T>::get(netuid),
-            Error::<T>::NullConsensusHasNoWeights
+            Error::<T>::NullConsensusRequiresU32Weights
         );
         // Calculate subnet storage index
         let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
@@ -1031,7 +1031,10 @@ impl<T: Config> Pallet<T> {
                 let netuid: NetUid = netuid.into();
 
                 if NullConsensus::<T>::get(netuid) {
-                    return (netuid, Err(Error::<T>::NullConsensusHasNoWeights.into()));
+                    return (
+                        netuid,
+                        Err(Error::<T>::NullConsensusRequiresU32Weights.into()),
+                    );
                 }
                 if Self::get_commit_reveal_weights_enabled(netuid) {
                     return (netuid, Err(Error::<T>::CommitRevealEnabled.into()));

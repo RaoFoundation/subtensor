@@ -4187,24 +4187,6 @@
         "System"
       ]
     },
-    "NullConsensusAlreadyEnabled": {
-      "code": "already_exists",
-      "description": "Retired one-shot setup restriction. Current runtimes use the reversible null_consensus_enabled hyperparameter on existing subnets.",
-      "docs_url": "/docs/errors/chain/NullConsensusAlreadyEnabled",
-      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusAlreadyEnabled/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 416,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L416",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
     "NullConsensusCapacityReached": {
       "code": "limit_exceeded",
       "description": "The null miner admission cap has been reached. The subnet owner can raise null_max_allowed_uids if it is below u64::MAX. MaxAllowedUids controls only the Yuma metagraph.",
@@ -4217,87 +4199,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 435,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L435",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "NullConsensusCommitRevealUnsupported": {
-      "code": "invalid_argument",
-      "description": "Retired one-shot setup restriction. Current runtimes use the reversible null_consensus_enabled hyperparameter on existing subnets.",
-      "docs_url": "/docs/errors/chain/NullConsensusCommitRevealUnsupported",
-      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusCommitRevealUnsupported/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 451,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L451",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "NullConsensusHasLegacyWeightsOrBonds": {
-      "code": "invalid_argument",
-      "description": "Retired one-shot setup restriction. Current runtimes use the reversible null_consensus_enabled hyperparameter on existing subnets.",
-      "docs_url": "/docs/errors/chain/NullConsensusHasLegacyWeightsOrBonds",
-      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusHasLegacyWeightsOrBonds/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 424,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L424",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "NullConsensusHasNoValidators": {
-      "code": "invalid_argument",
-      "description": "Null mode has no validators or validator voting power. Return to Yuma before enabling validator tracking.",
-      "docs_url": "/docs/errors/chain/NullConsensusHasNoValidators",
-      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusHasNoValidators/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 458,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L458",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "NullConsensusHasNoWeights": {
-      "code": "invalid_argument",
-      "description": "Null mode gives every miner equal emission. Do not submit weights; use btcli pow claim to collect rewards.",
-      "docs_url": "/docs/errors/chain/NullConsensusHasNoWeights",
-      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusHasNoWeights/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 456,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L456",
+          "line": 427,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L427",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
     "NullConsensusNotEnabled": {
       "code": "disabled",
-      "description": "PoW registration requires null mode. Ask the owner to enable null_consensus_enabled. Existing reward claims also work while Yuma is active.",
+      "description": "PoW registration and null weights require null mode. Ask the owner to enable null_consensus_enabled. Existing reward claims also work while Yuma is active.",
       "docs_url": "/docs/errors/chain/NullConsensusNotEnabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusNotEnabled/content.md",
       "pallets": [
@@ -4307,8 +4217,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 427,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L427",
+          "line": 419,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L419",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4343,8 +4253,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 433,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L433",
+          "line": 425,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L425",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4361,26 +4271,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 431,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L431",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "NullConsensusRequiresEmptySubnet": {
-      "code": "invalid_argument",
-      "description": "Retired one-shot setup restriction. Current runtimes use the reversible null_consensus_enabled hyperparameter on existing subnets.",
-      "docs_url": "/docs/errors/chain/NullConsensusRequiresEmptySubnet",
-      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusRequiresEmptySubnet/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 420,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L420",
+          "line": 423,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L423",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4397,8 +4289,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 429,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L429",
+          "line": 421,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L421",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4415,15 +4307,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 422,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L422",
+          "line": 416,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L416",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
     "NullConsensusRequiresU32Weights": {
       "code": "invalid_argument",
-      "description": "Retired scoring error. Null consensus no longer accepts set_null_weights; every miner receives equal emission.",
+      "description": "Use set_null_weights or btcli misc weights set-null with u32 scores and u64 miner IDs.",
       "docs_url": "/docs/errors/chain/NullConsensusRequiresU32Weights",
       "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusRequiresU32Weights/content.md",
       "pallets": [
@@ -4433,26 +4325,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 443,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L443",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "NullConsensusRequiresUnstartedSubnet": {
-      "code": "invalid_argument",
-      "description": "Retired one-shot setup restriction. Current runtimes use the reversible null_consensus_enabled hyperparameter on existing subnets.",
-      "docs_url": "/docs/errors/chain/NullConsensusRequiresUnstartedSubnet",
-      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusRequiresUnstartedSubnet/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 418,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L418",
+          "line": 435,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L435",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4469,15 +4343,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 447,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L447",
+          "line": 439,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L439",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
     "NullConsensusValidatorLimitExceeded": {
       "code": "limit_exceeded",
-      "description": "Retired scoring error. Equal-emission null mode has no validators.",
+      "description": "At most 64 validators plus the subnet owner may store null score rows.",
       "docs_url": "/docs/errors/chain/NullConsensusValidatorLimitExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusValidatorLimitExceeded/content.md",
       "pallets": [
@@ -4487,15 +4361,33 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 449,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L449",
+          "line": 441,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L441",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NullConsensusWeightLimitExceeded": {
+      "code": "limit_exceeded",
+      "description": "The subnet permits at most 8192 stored nonzero score entries across all validators. Submit a sparser row.",
+      "docs_url": "/docs/errors/chain/NullConsensusWeightLimitExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusWeightLimitExceeded/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 450,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L450",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
     "NullConsensusWeightsAllZero": {
       "code": "invalid_argument",
-      "description": "Retired scoring error. Equal-emission null mode has no weights.",
+      "description": "At least one null score must be nonzero.",
       "docs_url": "/docs/errors/chain/NullConsensusWeightsAllZero",
       "markdown_url": "/llms.mdx/docs/errors/chain/NullConsensusWeightsAllZero/content.md",
       "pallets": [
@@ -4505,8 +4397,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 445,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L445",
+          "line": 437,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L437",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4523,8 +4415,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 454,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L454",
+          "line": 444,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L444",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4559,8 +4451,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 460,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L460",
+          "line": 446,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L446",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4577,8 +4469,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 462,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L462",
+          "line": 448,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L448",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4855,8 +4747,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 439,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L439",
+          "line": 431,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L431",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4873,8 +4765,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 437,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L437",
+          "line": 429,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L429",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4891,8 +4783,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 441,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L441",
+          "line": 433,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L433",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]

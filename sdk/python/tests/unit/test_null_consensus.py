@@ -16,7 +16,7 @@ from tests.harness.samples import ALICE_HOT, BOB, BOB_HOT, dev_wallet
     "name, remedy",
     [
         ("NullConsensusRequiresPowRegistration", "btcli pow register"),
-        ("NullConsensusHasNoWeights", "equally"),
+        ("NullConsensusRequiresU32Weights", "set_null_weights"),
         ("NullConsensusPowRegistrationDisabled", "NetworkPowRegistrationAllowed"),
         ("PowWorkAlreadyUsed", "new nonce or block"),
     ],
@@ -89,9 +89,37 @@ async def test_pow_timeout_is_bounded():
         await PowRegister(netuid=1, timeout_seconds=1).build(fake, dev_wallet())
 
 
-def test_null_scores_are_rejected_locally():
-    with pytest.raises(BittensorError, match="equally"):
-        SetNullWeights(netuid=1, uids=[1, 2], weights=[0xFFFFFFFF, 1])
+@pytest.mark.asyncio
+async def test_null_scores_preserve_u64_ids_and_u32_precision():
+    fake = FakeSubstrate()
+    fake.seed("SubtensorModule", "NullConsensus", [1], True)
+    intent = SetNullWeights(netuid=1, uids=[1, 1 << 40], weights=[0xFFFFFFFF, 1])
+    module, name, params = await intent.build(fake, dev_wallet())
+    assert (module, name) == ("SubtensorModule", "set_null_weights")
+    assert params == {
+        "netuid": 1,
+        "dests": [1, 1 << 40],
+        "weights": [0xFFFFFFFF, 1],
+        "version_key": 0,
+    }
+    assert intent.signer == "hotkey"
+
+
+@pytest.mark.parametrize(
+    "uids,weights",
+    [
+        ([1], []),
+        ([1, 1], [1, 1]),
+        ([-1], [1]),
+        ([1 << 64], [1]),
+        ([1], [1 << 32]),
+        ([1], [0]),
+        ([1], [1.5]),
+    ],
+)
+def test_null_scores_reject_invalid_input(uids, weights):
+    with pytest.raises(BittensorError):
+        SetNullWeights(netuid=1, uids=uids, weights=weights)
 
 
 @pytest.mark.asyncio
@@ -189,7 +217,7 @@ async def test_consensus_toggle_uses_the_normal_hyperparameter_setter(enabled):
         ([1, 1], [1, 1]),
         ([1], [-1]),
         ([1], [1 << 32]),
-        ([32768], [1]),
+        ([1 << 64], [1]),
         ([1], [1.5]),
         ([1], [0]),
         ([1], []),
@@ -216,3 +244,9 @@ async def test_null_miner_cap_uses_a_separate_u64_setter(cap):
 def test_null_miner_cap_rejects_out_of_range_values(cap):
     with pytest.raises(ValueError):
         SetHyperparameter(netuid=1, name="null_max_allowed_uids", value=cap)
+
+
+def test_null_scores_respect_synchronous_work_bound():
+    SetNullWeights(netuid=1, uids=list(range(8192)), weights=[1] * 8192)
+    with pytest.raises(BittensorError, match="8192"):
+        SetNullWeights(netuid=1, uids=list(range(8193)), weights=[1] * 8193)

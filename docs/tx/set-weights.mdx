@@ -89,7 +89,7 @@ pub fn set_mechanism_weights(
     version_key: u64,
 ) -> DispatchResult {
     if NullConsensus::<T>::get(netuid) {
-        Err(Error::<T>::NullConsensusHasNoWeights.into())
+        Err(Error::<T>::NullConsensusRequiresU32Weights.into())
     } else if Self::get_commit_reveal_weights_enabled(netuid) {
         Err(Error::<T>::CommitRevealEnabled.into())
     } else {

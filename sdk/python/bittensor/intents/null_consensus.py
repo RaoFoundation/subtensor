@@ -1,4 +1,4 @@
-"""Equal-emission null mining: cheap registration and lazy reward claims."""
+"""Null mining: PoW admission, averaged validator scores, and reward claims."""
 
 from __future__ import annotations
 
@@ -152,9 +152,10 @@ class PowRegister(Intent):
         return f"register {hotkey} on netuid {self.netuid} with PoW (no burn or collateral)"
 
 
+@register
 @dataclass
 class SetNullWeights(Intent):
-    """Retired scoring intent. Null mode pays every registered miner equally."""
+    """Submit exact u32 scores for u64 miners; eligible rows are averaged equally."""
 
     op = "set_null_weights"
     signer = "hotkey"
@@ -165,22 +166,37 @@ class SetNullWeights(Intent):
     version_key: int = field(default=0, metadata={"help": "Required subnet weights version."})
 
     def __post_init__(self):
-        raise BittensorError(
-            "Null mode pays all miners equally and has no weights. "
-            "Use ClaimNullRewards or btcli pow claim."
-        )
+        if len(self.uids) != len(self.weights) or not 1 <= len(self.uids) <= 8192:
+            raise BittensorError("Supply 1 to 8192 miner UIDs with one score per UID.")
+        if len(set(self.uids)) != len(self.uids):
+            raise BittensorError("Miner UIDs must be distinct.")
+        if any(type(uid) is not int or not 0 <= uid < 1 << 64 for uid in self.uids):
+            raise BittensorError("Miner UIDs must be u64 integers.")
+        if any(type(weight) is not int or not 0 <= weight < 1 << 32 for weight in self.weights):
+            raise BittensorError("Scores must be u32 integers.")
+        if not any(self.weights):
+            raise BittensorError("At least one score must be nonzero.")
 
     async def build(self, substrate, wallet: Any):
-        raise BittensorError("Null mode has no weights.")
+        if not await substrate.query("SubtensorModule", "NullConsensus", [self.netuid]):
+            raise BittensorError("Enable null consensus before submitting null weights.")
+        return await substrate.compose(
+            calls.SubtensorModule.set_null_weights(
+                netuid=self.netuid,
+                dests=self.uids,
+                weights=self.weights,
+                version_key=self.version_key,
+            )
+        )
 
     def summary(self) -> str:
-        return "retired: null mode has no weights"
+        return f"set null weights for {len(self.uids)} miners on netuid {self.netuid}"
 
 
 @register
 @dataclass
 class ClaimNullRewards(Intent):
-    """Claim a miner's equal alpha rewards into the coldkey's staking position.
+    """Claim a miner's scored alpha rewards into the coldkey's staking position.
 
     The destination hotkey must already be a staking account. The claiming coldkey
     owns the resulting alpha; using one destination consolidates many mining keys.
@@ -190,7 +206,7 @@ class ClaimNullRewards(Intent):
 
     op = "claim_null_rewards"
     wraps = (("SubtensorModule", "claim_null_rewards"),)
-    netuid: int = field(metadata={"help": "Subnet whose equal-emission rewards to claim."})
+    netuid: int = field(metadata={"help": "Subnet whose miner rewards to claim."})
     stake_hotkey: str | None = field(
         default=None, metadata={"help": "Existing staking hotkey; defaults to subnet owner hotkey."}
     )
@@ -212,4 +228,4 @@ class ClaimNullRewards(Intent):
         )
 
     def summary(self) -> str:
-        return f"claim equal miner rewards on netuid {self.netuid}"
+        return f"claim scored miner rewards on netuid {self.netuid}"

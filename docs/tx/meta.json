@@ -72,6 +72,7 @@
     "set-children",
     "set-identity",
     "set-min-collateral",
+    "set-null-weights",
     "set-perpetual-lock",
     "set-reject-locked-alpha",
     "set-root-claim-threshold",

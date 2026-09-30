@@ -1,20 +1,46 @@
-//! Equal emission without scoring, bonds, validator selection, or miner epochs.
+//! Equal averaging of normalized validator scores, without Yuma or bonds.
 //!
-//! Mining identities live outside Yuma's u16 metagraph. One fixed-size reward
-//! index advances per emitting subnet; registration and claims touch one miner.
+//! Mining identities live outside Yuma's u16 metagraph. Sparse score processing
+//! touches only submitted destinations; registration and claims touch one miner.
 use crate::weights::WeightInfo;
 use crate::*;
+use alloc::collections::{BTreeMap, BTreeSet};
 use sp_core::{H256, U256};
+use substrate_fixed::types::I64F64;
 use subtensor_runtime_common::MechId;
 
-// Retained for legacy metadata/benchmarks. These do not cap null membership.
+// Bound scoring work independently of the u64 miner population.
 pub const MAX_NULL_UIDS: u16 = 32_768;
 pub const MAX_NULL_VALIDATORS: u16 = 64;
+// Bound synchronous reward writes as well as scoring. Two maximum passes
+// must fit the production block budget alongside the normal block step.
+pub const MAX_NULL_WEIGHT_ENTRIES: u32 = 8_192;
 const FRACTION_BITS: usize = 64;
+const ROW_UNIT: u128 = 1u128 << FRACTION_BITS;
 
 impl<T: Config> Pallet<T> {
-    pub fn pow_register_weight(_netuid: NetUid) -> frame_support::weights::Weight {
+    pub fn pow_register_weight() -> frame_support::weights::Weight {
         <T as Config>::WeightInfo::register().saturating_add(T::DbWeight::get().reads_writes(2, 2))
+    }
+
+    /// Compose existing reference bounds for sparse scoring and its database work.
+    /// Dedicated benchmarks exercise these paths for reference-hardware regeneration.
+    pub fn null_weights_weight(n: u32) -> Weight {
+        <T as Config>::WeightInfo::set_null_weights(n.saturating_mul(2))
+            .saturating_add(T::DbWeight::get().reads_writes(70, 4))
+    }
+
+    pub fn null_epoch_weight(netuid: NetUid) -> Weight {
+        Self::null_scoring_weight(NullWeightEntries::<T>::get(netuid))
+    }
+
+    pub fn null_scoring_weight(entries: u32) -> Weight {
+        <T as Config>::WeightInfo::check_null_weights_extension(entries.saturating_mul(2))
+            .saturating_add(<T as Config>::WeightInfo::accrue_null_rewards())
+            .saturating_add(T::DbWeight::get().reads_writes(
+                1024u64.saturating_add(u64::from(entries)),
+                256u64.saturating_add(u64::from(entries)),
+            ))
     }
 
     pub fn do_set_null_consensus(netuid: NetUid, enabled: bool) -> DispatchResult {
@@ -56,11 +82,6 @@ impl<T: Config> Pallet<T> {
             // This is a Yuma epoch result, not a subnet hyperparameter. Null
             // emission has no withheld miner incentives to refresh it.
             MinerBurned::<T>::remove(netuid);
-            Self::update_voting_power_from_epoch(
-                netuid,
-                Keys::<T>::iter_prefix(netuid)
-                    .map(|(_, hotkey)| (hotkey, false, AlphaBalance::ZERO)),
-            );
         }
         // Settle the old mode's pending budget before switching. Null claims
         // remain available while Yuma is active; neither registry is destroyed.
@@ -85,6 +106,11 @@ impl<T: Config> Pallet<T> {
             PendingRootAlphaDivs::<T>::insert(netuid, r);
             PendingOwnerCut::<T>::insert(netuid, o);
         }
+        // Scores refer to the bounded validator metagraph, which can change in
+        // Yuma. Require fresh submissions on every enable without touching miners.
+        let _ = NullWeights::<T>::clear_prefix(netuid, u32::MAX, None);
+        NullWeightEntries::<T>::remove(netuid);
+        NullWeightsResetAt::<T>::insert(netuid, Self::get_current_block_as_u64());
         NullConsensus::<T>::insert(netuid, enabled);
         Ok(())
     }
@@ -106,7 +132,8 @@ impl<T: Config> Pallet<T> {
         let next = uid
             .checked_add(1)
             .ok_or(Error::<T>::NullConsensusCapacityReached)?;
-        let index = NullRewardIndex::<T>::get(netuid);
+        // IDs are never reused: a newly admitted miner has no previous rewards.
+        let index = U256::zero();
         NullMiners::<T>::insert(netuid, hotkey, (coldkey, index));
         NullMinerOwnerGeneration::<T>::insert(
             netuid,
@@ -262,7 +289,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Domain-separate work by subnet generation and recipient. A mempool observer
-    /// cannot reuse another coldkey's seal to steal a miner's equal reward share.
+    /// cannot reuse another coldkey's seal to claim its miner registration.
     pub fn create_null_seal_hash(
         netuid: NetUid,
         block: u64,
@@ -351,27 +378,103 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Budget is already minted into alpha-out. This reserves it, never mints it
-    /// again. Q64 remainder is carried so small per-block rewards are not lost.
-    // A u64 shifted by 64 fits U256; division follows the nonzero count check.
+    /// Budget is already minted into alpha-out. Average normalized eligible
+    /// rows equally, then credit only scored u64 miner IDs. No miner scan, Yuma
+    /// clipping, bonds, stake-weighted averaging, or validator dividends.
     #[allow(clippy::arithmetic_side_effects)]
     pub fn accrue_null_rewards(netuid: NetUid, budget: AlphaBalance) {
-        if budget.is_zero() {
-            return;
+        let now = Self::get_current_block_as_u64();
+        let owner = Self::get_owner_uid(netuid);
+        let reset = NullWeightsResetAt::<T>::get(netuid);
+        let cutoff = Self::get_activity_cutoff_blocks(netuid);
+        let (stake, _, _) = Self::get_stake_weights_for_network(netuid);
+        let threshold = I64F64::saturating_from_num(Self::get_stake_threshold());
+        let mut candidates: Vec<_> = stake
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| **s >= threshold && **s > I64F64::from_num(0))
+            .map(|(uid, s)| (uid, *s))
+            .collect();
+        candidates.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        let mut permits = vec![false; stake.len()];
+        for (uid, _) in candidates.into_iter().take(usize::from(
+            Self::get_max_allowed_validators(netuid).min(MAX_NULL_VALIDATORS),
+        )) {
+            if let Some(p) = permits.get_mut(uid) {
+                *p = true;
+            }
         }
-        let count = NullMinerCount::<T>::get(netuid);
-        if count == 0 {
+        if let Some(permit) = owner.and_then(|uid| permits.get_mut(usize::from(uid))) {
+            *permit = true;
+        }
+        let mut scores = BTreeMap::<u64, u128>::new();
+        for (uid, row) in NullWeights::<T>::iter_prefix(netuid) {
+            let last = NullLastUpdate::<T>::get(netuid, uid);
+            let hotkey = Keys::<T>::get(netuid, uid);
+            if (owner != Some(uid) && !permits.get(usize::from(uid)).copied().unwrap_or(false))
+                || last <= reset
+                || last.saturating_add(cutoff) < now
+                || !Self::check_weights_min_stake(&hotkey, netuid)
+            {
+                Self::remove_null_weights(netuid, uid);
+                continue;
+            }
+            let sum: u128 = row.iter().map(|(_, value)| u128::from(*value)).sum();
+            if sum == 0 {
+                continue;
+            }
+            for (dest, value) in row {
+                let score = scores.entry(dest).or_default();
+                *score = score.saturating_add(u128::from(value) * ROW_UNIT / sum);
+            }
+        }
+        Self::update_voting_power_from_epoch(
+            netuid,
+            Keys::<T>::iter_prefix(netuid).map(|(uid, hotkey)| {
+                let i = usize::from(uid);
+                (
+                    hotkey,
+                    permits.get(i).copied().unwrap_or(false),
+                    stake
+                        .get(i)
+                        .copied()
+                        .unwrap_or_default()
+                        .saturating_to_num::<u64>()
+                        .into(),
+                )
+            }),
+        );
+        ValidatorPermit::<T>::insert(netuid, permits);
+        let total: u128 = scores.values().copied().sum();
+        if total == 0 {
             Self::recycle_subnet_alpha(netuid, budget);
             return;
         }
-        let scaled = (U256::from(budget.to_u64()) << FRACTION_BITS)
-            .saturating_add(U256::from(NullRewardRemainder::<T>::get(netuid)));
-        let divisor = U256::from(count);
-        NullRewardIndex::<T>::mutate(netuid, |index| {
-            *index = index.saturating_add(scaled / divisor)
-        });
-        NullRewardRemainder::<T>::insert(netuid, (scaled % divisor).low_u64());
+        let scaled = U256::from(budget.to_u64()) << FRACTION_BITS;
+        if budget.is_zero() {
+            return;
+        }
+        // Credit every scored miner before returning. No reward queue or idle
+        // work: all entitlements from this pass are immediately claimable.
+        for (uid, score) in scores {
+            let reward = scaled * U256::from(score) / U256::from(total);
+            NullRewardIndex::<T>::mutate(netuid, uid, |index| {
+                *index = index.saturating_add(reward);
+            });
+        }
         NullUnclaimedAlpha::<T>::mutate(netuid, |value| *value = value.saturating_add(budget));
+    }
+
+    pub(crate) fn remove_null_weights(netuid: NetUid, uid: u16) {
+        let count = NullWeights::<T>::decode_len(netuid, uid).unwrap_or(0) as u32;
+        NullWeightEntries::<T>::mutate(netuid, |n| *n = n.saturating_sub(count));
+        NullWeights::<T>::remove(netuid, uid);
+    }
+
+    pub(crate) fn null_miner_reward_index(netuid: NetUid, hotkey: &T::AccountId) -> U256 {
+        NullMinerUids::<T>::get(netuid, hotkey)
+            .map(|uid| NullRewardIndex::<T>::get(netuid, uid))
+            .unwrap_or_default()
     }
 
     /// Read-only ownership check, including bounded coldkey succession.
@@ -460,7 +563,8 @@ impl<T: Config> Pallet<T> {
         checkpoint: U256,
         stake_hotkey: &T::AccountId,
     ) -> AlphaBalance {
-        let earned = NullRewardIndex::<T>::get(netuid).saturating_sub(checkpoint) >> FRACTION_BITS;
+        let earned = Self::null_miner_reward_index(netuid, hotkey).saturating_sub(checkpoint)
+            >> FRACTION_BITS;
         // Share-pool deltas use i64. Leave excess and fractional entitlement for
         // another claim rather than truncating it or wrapping the pool update.
         let amount: AlphaBalance = earned.min(U256::from(i64::MAX as u64)).low_u64().into();
@@ -491,25 +595,115 @@ impl<T: Config> Pallet<T> {
         amount
     }
 
-    // Keep the previous call's SCALE discriminant reserved. Validation rejects
-    // it before any coldkey fee; null mode has no scores or scoring permissions.
     pub fn do_set_null_weights(
         origin: OriginFor<T>,
-        _netuid: NetUid,
-        _dests: Vec<u16>,
-        _values: Vec<u32>,
-        _version_key: u64,
+        netuid: NetUid,
+        dests: Vec<u64>,
+        values: Vec<u32>,
+        version_key: u64,
     ) -> DispatchResult {
-        ensure_signed(origin)?;
-        Err(Error::<T>::NullConsensusHasNoWeights.into())
+        let hotkey = ensure_signed(origin)?;
+        let uid = Self::validate_null_weights(&hotkey, netuid, &dests, &values, version_key)?;
+        let row: Vec<_> = dests
+            .into_iter()
+            .zip(values)
+            .filter(|(_, v)| *v != 0)
+            .collect();
+        Self::remove_null_weights(netuid, uid);
+        NullWeightEntries::<T>::mutate(netuid, |n| *n = n.saturating_add(row.len() as u32));
+        NullWeights::<T>::insert(netuid, uid, row);
+        NullLastUpdate::<T>::insert(netuid, uid, Self::get_current_block_as_u64());
+        Self::deposit_event(Event::WeightsSet(
+            Self::get_mechanism_storage_index(netuid, MechId::MAIN),
+            uid,
+        ));
+        Ok(())
     }
+
+    /// Shared read-only admission protects the coldkey from fees for invalid hotkey calls.
     pub(crate) fn validate_null_weights(
-        _hotkey: &T::AccountId,
-        _netuid: NetUid,
-        _dests: &[u16],
-        _values: &[u32],
-        _version_key: u64,
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+        dests: &[u64],
+        values: &[u32],
+        version_key: u64,
     ) -> Result<u16, Error<T>> {
-        Err(Error::<T>::NullConsensusHasNoWeights)
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(
+            NullConsensus::<T>::get(netuid),
+            Error::<T>::NullConsensusNotEnabled
+        );
+        ensure!(
+            dests.len() == values.len(),
+            Error::<T>::WeightVecNotEqualSize
+        );
+        ensure!(
+            dests.len() <= MAX_NULL_WEIGHT_ENTRIES as usize,
+            Error::<T>::NullConsensusWeightLimitExceeded
+        );
+        let uid = Uids::<T>::try_get(netuid, hotkey)
+            .map_err(|_| Error::<T>::HotKeyNotRegisteredInSubNet)?;
+        ensure!(
+            Self::check_weights_min_stake(hotkey, netuid),
+            Error::<T>::NotEnoughStakeToSetWeights
+        );
+        ensure!(
+            Self::get_owner_uid(netuid) == Some(uid)
+                || Self::get_validator_permit_for_uid(netuid, uid),
+            Error::<T>::NeuronNoValidatorPermit
+        );
+        ensure!(
+            Self::check_version_key(netuid, version_key),
+            Error::<T>::IncorrectWeightVersionKey
+        );
+        let now = Self::get_current_block_as_u64();
+        let last = NullLastUpdate::<T>::get(netuid, uid);
+        ensure!(
+            now > NullWeightsResetAt::<T>::get(netuid)
+                && (last == 0
+                    || now.saturating_sub(last) >= Self::get_weights_set_rate_limit(netuid)),
+            Error::<T>::SettingWeightsTooFast
+        );
+        // Null IDs are append-only and contiguous. Rotation preserves IDs;
+        // validating their range avoids a database lookup for every destination.
+        let miner_count = NullMinerCount::<T>::get(netuid);
+        let mut seen = BTreeSet::new();
+        for &dest in dests {
+            ensure!(seen.insert(dest), Error::<T>::DuplicateUids);
+            ensure!(dest < miner_count, Error::<T>::UidVecContainInvalidOne);
+        }
+        let sum: u64 = values.iter().map(|&v| u64::from(v)).sum();
+        ensure!(sum != 0, Error::<T>::NullConsensusWeightsAllZero);
+        let nonzero = values.iter().filter(|&&v| v != 0).count();
+        ensure!(
+            nonzero as u64
+                >= u64::from(Self::get_min_allowed_weights(netuid))
+                    .min(NullMinerCount::<T>::get(netuid)),
+            Error::<T>::WeightVecLengthIsLow
+        );
+        let max = u64::from(values.iter().copied().max().unwrap_or_default());
+        ensure!(
+            max.saturating_mul(u64::from(u16::MAX))
+                <= sum.saturating_mul(u64::from(Self::get_max_weight_limit(netuid))),
+            Error::<T>::MaxWeightExceeded
+        );
+        let previous = NullWeights::<T>::decode_len(netuid, uid).unwrap_or(0) as u32;
+        ensure!(
+            NullWeightEntries::<T>::get(netuid)
+                .saturating_sub(previous)
+                .saturating_add(nonzero as u32)
+                <= MAX_NULL_WEIGHT_ENTRIES,
+            Error::<T>::NullConsensusWeightLimitExceeded
+        );
+        if !NullWeights::<T>::contains_key(netuid, uid) {
+            ensure!(
+                NullWeights::<T>::iter_key_prefix(netuid)
+                    .take(usize::from(MAX_NULL_VALIDATORS).saturating_add(1))
+                    .count()
+                    <= usize::from(MAX_NULL_VALIDATORS),
+                Error::<T>::NullConsensusValidatorLimitExceeded
+            );
+        }
+        Ok(uid)
     }
 }
