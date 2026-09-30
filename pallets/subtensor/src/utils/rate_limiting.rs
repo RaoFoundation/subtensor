@@ -216,6 +216,7 @@ pub enum Hyperparameter {
     CollateralDrainRatio = 33,
     LiquidAlphaConsensusMode = 34,
     NullConsensusEnabled = 35,
+    NullMaxAllowedUids = 36,
 }
 
 impl<T: Config> Pallet<T> {

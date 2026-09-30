@@ -742,6 +742,25 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_null_max_allowed_uids() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        // Exercise the first-enable fallback as well as owner rate-limit storage.
+        pallet_subtensor::SubnetworkN::<T>::insert(netuid, 1);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, u64::MAX);
+
+        assert_eq!(
+            pallet_subtensor::NullMaxAllowedUids::<T>::get(netuid),
+            u64::MAX
+        );
+        assert!(pallet_subtensor::NullMaxAllowedUids::<T>::contains_key(
+            netuid
+        ));
+    }
+
+    #[benchmark]
     fn sudo_set_null_consensus_enabled() {
         let netuid = NetUid::from(1);
         let owner = setup_worst_case_admin_subnet::<T>(netuid);

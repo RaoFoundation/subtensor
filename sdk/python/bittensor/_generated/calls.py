@@ -1217,6 +1217,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_null_consensus_enabled', {'netuid': netuid, 'enabled': enabled})
 
     @staticmethod
+    def sudo_set_null_max_allowed_uids(netuid: 'NetUid', max_allowed_uids: 'u64') -> Call:
+        "Sets the null miner admission cap without changing Yuma's UID limit. Defaults to 1024. Cannot evict miners or go below the population that is already registered (or will be imported on first enable)."
+        return Call('AdminUtils', 'sudo_set_null_max_allowed_uids', {'netuid': netuid, 'max_allowed_uids': max_allowed_uids})
+
+    @staticmethod
     def sudo_set_owner_cut_auto_lock_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
         'Set whether subnet owner cut is auto-locked for a subnet. It is only callable by root and subnet owner.'
         return Call('AdminUtils', 'sudo_set_owner_cut_auto_lock_enabled', {'netuid': netuid, 'enabled': enabled})

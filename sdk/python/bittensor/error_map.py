@@ -356,6 +356,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "CollateralLockShareTooHigh": _C.INVALID_ARGUMENT,
     "CollateralDrainRatioOutOfBounds": _C.INVALID_ARGUMENT,
     "GrandpaChangeDelayMustBeZero": _C.INVALID_ARGUMENT,
+    "NullMaxAllowedUidsLessThanCurrentMiners": _C.INVALID_ARGUMENT,
     # ── SafeMode ────────────────────────────────────────────────────────
     "Entered": _C.ALREADY_EXISTS,
     "Exited": _C.ALREADY_EXISTS,

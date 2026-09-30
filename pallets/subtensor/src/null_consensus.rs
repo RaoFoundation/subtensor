@@ -14,7 +14,7 @@ const FRACTION_BITS: usize = 64;
 
 impl<T: Config> Pallet<T> {
     pub fn pow_register_weight(_netuid: NetUid) -> frame_support::weights::Weight {
-        <T as Config>::WeightInfo::register().saturating_add(T::DbWeight::get().reads_writes(1, 2))
+        <T as Config>::WeightInfo::register().saturating_add(T::DbWeight::get().reads_writes(2, 2))
     }
 
     pub fn do_set_null_consensus(netuid: NetUid, enabled: bool) -> DispatchResult {
@@ -35,8 +35,13 @@ impl<T: Config> Pallet<T> {
                     Self::get_subnetwork_n(netuid) <= DefaultMaxAllowedUids::<T>::get(),
                     Error::<T>::NullConsensusYumaCapacityExceeded
                 );
+                let miners: Vec<_> = Keys::<T>::iter_prefix(netuid).collect();
+                ensure!(
+                    miners.len() as u64 <= NullMaxAllowedUids::<T>::get(netuid),
+                    Error::<T>::NullConsensusCapacityReached
+                );
                 NullMinerCount::<T>::insert(netuid, 0);
-                for (_, hotkey) in Keys::<T>::iter_prefix(netuid) {
+                for (_, hotkey) in miners {
                     let coldkey = Owner::<T>::get(&hotkey);
                     Self::enroll_null_miner(netuid, &hotkey, &coldkey)?;
                 }
@@ -94,6 +99,10 @@ impl<T: Config> Pallet<T> {
             Error::<T>::HotKeyAlreadyRegisteredInSubNet
         );
         let uid = NullMinerCount::<T>::get(netuid);
+        ensure!(
+            uid < NullMaxAllowedUids::<T>::get(netuid),
+            Error::<T>::NullConsensusCapacityReached
+        );
         let next = uid
             .checked_add(1)
             .ok_or(Error::<T>::NullConsensusCapacityReached)?;

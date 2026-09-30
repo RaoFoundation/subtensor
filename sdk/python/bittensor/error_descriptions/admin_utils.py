@@ -34,6 +34,11 @@ DESCRIPTIONS: dict[str, str] = {
         "`sudo_set_max_allowed_uids` was given a value above the chain-wide ceiling. Compare "
         "the `max_allowed_uids` argument against the `DefaultMaxAllowedUids` storage value."
     ),
+    "NullMaxAllowedUidsLessThanCurrentMiners": (
+        "The null miner cap is below the registered population, or below the Yuma "
+        "population that would be imported on first enable. Choose a cap at least "
+        "as large as that population; this setter does not remove miners."
+    ),
     "MaxAllowedUidsLessThanMinAllowedUids": (
         "`sudo_set_max_allowed_uids` was given a value below the subnet's configured minimum. "
         "Compare the `max_allowed_uids` argument against `MinAllowedUids` for that netuid."

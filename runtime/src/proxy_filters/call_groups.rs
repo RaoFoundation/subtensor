@@ -521,6 +521,7 @@ call_filter_group!(
     SubnetManagementCalls,
     [
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_null_consensus_enabled),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_null_max_allowed_uids),
         RuntimeCall::SubtensorModule(SubtensorCall::set_tempo),
         RuntimeCall::SubtensorModule(SubtensorCall::set_activity_cutoff_factor),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_serving_rate_limit),

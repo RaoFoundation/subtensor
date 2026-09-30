@@ -35,7 +35,10 @@ per-block admission limits remain effective. A signed PoW request cannot become
 paid registration if the owner changes mode before inclusion.
 
 The independent registry uses **64-bit IDs**, not Yuma's 16-bit UIDs.
-`MaxAllowedUids` continues to control only the Yuma metagraph. Query
+`MaxAllowedUids` continues to control only the Yuma metagraph. Owners can set
+[`null_max_allowed_uids`](/hyperparameters/null-max-allowed-uids) through AdminUtils
+to cap null admissions independently. It defaults to **1,024**, cannot be set
+below the existing population, and never trims miners. Query
 `NullMinerCount`, page through `NullMinerKeys`, or look up `NullMiners` by hotkey.
 A null mining identity is not a global staking hotkey: registering it does not
 append to a coldkey's global hotkey or staking vectors.

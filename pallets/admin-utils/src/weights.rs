@@ -37,6 +37,10 @@ use core::marker::PhantomData;
 /// Weight functions needed for `pallet_admin_utils`.
 pub trait WeightInfo {
 	fn sudo_set_null_consensus_enabled() -> Weight;
+	// Conservative existing reference bound until the dedicated benchmark is measured.
+	fn sudo_set_null_max_allowed_uids() -> Weight {
+		Self::sudo_set_yuma3_enabled().saturating_add(Self::sudo_set_max_allowed_uids())
+	}
 	fn swap_authorities(a: u32, ) -> Weight;
 	fn schedule_grandpa_change(a: u32, ) -> Weight;
 	fn sudo_set_default_take() -> Weight;

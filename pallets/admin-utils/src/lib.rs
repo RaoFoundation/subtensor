@@ -189,6 +189,13 @@ pub mod pallet {
             /// Whether miner-only mean scoring is active.
             enabled: bool,
         },
+        /// The subnet owner or root changed the null miner admission cap.
+        NullMaxAllowedUidsSet {
+            /// Subnet whose admission cap changed.
+            netuid: NetUid,
+            /// Maximum number of registered null miners.
+            max_allowed_uids: u64,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -228,6 +235,8 @@ pub mod pallet {
         CollateralDrainRatioOutOfBounds,
         /// GRANDPA changes must take effect at the end of the current block.
         GrandpaChangeDelayMustBeZero,
+        /// The null miner cap cannot be lower than the current or initial imported population.
+        NullMaxAllowedUidsLessThanCurrentMiners,
     }
     /// Enum for specifying the type of precompile operation.
     #[derive(
@@ -2666,6 +2675,7 @@ pub mod pallet {
                 pallet_subtensor::MAX_COMMIT_REVEAL_PEROIDS.saturating_add(3),
                 pallet_subtensor::MAX_COMMIT_REVEAL_PEROIDS.saturating_add(3),
             ))
+            .saturating_add(T::DbWeight::get().reads(u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_add(1)))
             .saturating_add(T::DbWeight::get().reads_writes(u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(7), u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(7))))]
         pub fn sudo_set_null_consensus_enabled(
             origin: OriginFor<T>,
@@ -2684,6 +2694,48 @@ pub mod pallet {
                 maybe_owner,
                 netuid,
                 &[Hyperparameter::NullConsensusEnabled.into()],
+            );
+            Ok(())
+        }
+
+        /// Sets the null miner admission cap without changing Yuma's UID limit.
+        /// Defaults to 1024. Cannot evict miners or go below the population
+        /// that is already registered (or will be imported on first enable).
+        #[pallet::call_index(112)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_null_max_allowed_uids())]
+        pub fn sudo_set_null_max_allowed_uids(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            max_allowed_uids: u64,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::NullMaxAllowedUids.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            ensure!(
+                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                Error::<T>::SubnetDoesNotExist
+            );
+            ensure!(!netuid.is_root(), Error::<T>::NotPermittedOnRootSubnet);
+            let population =
+                pallet_subtensor::NullMinerCount::<T>::try_get(netuid).unwrap_or_else(|_| {
+                    u64::from(pallet_subtensor::Pallet::<T>::get_subnetwork_n(netuid))
+                });
+            ensure!(
+                max_allowed_uids >= population,
+                Error::<T>::NullMaxAllowedUidsLessThanCurrentMiners
+            );
+            pallet_subtensor::NullMaxAllowedUids::<T>::insert(netuid, max_allowed_uids);
+            Self::deposit_event(Event::NullMaxAllowedUidsSet {
+                netuid,
+                max_allowed_uids,
+            });
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::NullMaxAllowedUids.into()],
             );
             Ok(())
         }

@@ -256,6 +256,7 @@ fn null_u64_population_can_switch_modes_without_changing_yuma_capacity() {
     new_test_ext(1).execute_with(|| {
         let net = setup(1);
         let capacity = MaxAllowedUids::<Test>::get(net);
+        NullMaxAllowedUids::<Test>::insert(net, u64::MAX);
         NullMinerCount::<Test>::insert(net, 1u64 << 40);
         assert_ok!(register(net, 900, 901));
         assert_eq!(
@@ -858,6 +859,7 @@ fn null_hotkey_swap_preserves_u64_uid_without_scanning_miners() {
     new_test_ext(1).execute_with(|| {
         let net = setup(1);
         let uid = 1u64 << 40;
+        NullMaxAllowedUids::<Test>::insert(net, u64::MAX);
         NullMinerCount::<Test>::insert(net, uid);
         assert_ok!(register(net, 900, 901));
         let cold = U256::from(901);
@@ -883,11 +885,15 @@ fn null_hotkey_swap_preserves_u64_uid_without_scanning_miners() {
 fn null_uid_indexes_are_removed_during_subnet_cleanup() {
     new_test_ext(1).execute_with(|| {
         let net = setup(1);
+        NullMaxAllowedUids::<Test>::insert(net, 10);
         assert_ok!(register(net, 900, 901));
         let mut meter = frame_support::weights::WeightMeter::new();
         assert!(SubtensorModule::remove_network_map_parameters(
             net, &mut meter
         ));
+        assert!(SubtensorModule::remove_network_parameters(net, &mut meter));
+        assert!(!NullMaxAllowedUids::<Test>::contains_key(net));
+        assert_eq!(NullMaxAllowedUids::<Test>::get(net), 1024);
         assert_eq!(NullMinerKeys::<Test>::iter_prefix(net).count(), 0);
         assert_eq!(NullMinerUids::<Test>::iter_prefix(net).count(), 0);
     });
@@ -1381,5 +1387,85 @@ fn null_rotation_without_swap_funds_rolls_back_registry_and_endpoints() {
             ),
             Error::<Test>::NotEnoughBalanceToPaySwapHotKey
         );
+    });
+}
+
+#[test]
+fn null_admission_cap_rejects_without_consuming_work_or_rewards() {
+    new_test_ext(1).execute_with(|| {
+        let net = setup(1);
+        assert_eq!(NullMaxAllowedUids::<Test>::get(net), 1024);
+        NullMaxAllowedUids::<Test>::insert(net, 1);
+        SubtensorModule::accrue_null_rewards(net, 100u64.into());
+        assert_noop!(
+            register(net, 900, 901),
+            Error::<Test>::NullConsensusCapacityReached
+        );
+        assert_eq!(pending(net, 0), 100);
+        assert_ok!(claim(net, 0, 100));
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, false));
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
+        assert_eq!(NullMaxAllowedUids::<Test>::get(net), 1);
+        assert_noop!(
+            register(net, 900, 901),
+            Error::<Test>::NullConsensusCapacityReached
+        );
+        NullMaxAllowedUids::<Test>::insert(net, 2);
+        // The rejected PoW is still usable once capacity becomes available.
+        assert_ok!(register(net, 900, 901));
+        assert_eq!(NullMinerCount::<Test>::get(net), 2);
+        assert_eq!(pending(net, 900), 0);
+        assert_noop!(
+            register(net, 902, 903),
+            Error::<Test>::NullConsensusCapacityReached
+        );
+    });
+}
+
+#[test]
+fn null_admission_cap_uses_the_full_u64_range() {
+    for cap in [1024, u64::from(u16::MAX) + 1, u64::MAX] {
+        new_test_ext(1).execute_with(|| {
+            let net = setup(1);
+            NullMinerCount::<Test>::insert(net, cap - 1);
+            if cap != 1024 {
+                NullMaxAllowedUids::<Test>::insert(net, cap);
+            }
+            assert_eq!(NullMaxAllowedUids::<Test>::get(net), cap);
+            assert_ok!(register(net, 900, 901));
+            assert_eq!(NullMinerCount::<Test>::get(net), cap);
+            assert_eq!(
+                NullMinerUids::<Test>::get(net, U256::from(900)),
+                Some(cap - 1)
+            );
+            assert_noop!(
+                register(net, 902, 903),
+                Error::<Test>::NullConsensusCapacityReached
+            );
+        });
+    }
+}
+
+#[test]
+fn null_initial_import_checks_capacity_before_changing_state() {
+    new_test_ext(1).execute_with(|| {
+        let net = NetUid::from(1);
+        SubtensorModule::init_new_network(net, 360);
+        NullMaxAllowedUids::<Test>::insert(net, 1);
+        // Yuma may grow after its owner preconfigures the null limit.
+        for uid in 0..2 {
+            let hot = U256::from(uid);
+            Owner::<Test>::insert(hot, U256::from(100 + uid));
+            SubtensorModule::append_neuron(net, &hot, 1);
+        }
+        assert_noop!(
+            SubtensorModule::do_set_null_consensus(net, true),
+            Error::<Test>::NullConsensusCapacityReached
+        );
+        assert!(!NullMinerCount::<Test>::contains_key(net));
+        assert!(!NullConsensus::<Test>::get(net));
+        NullMaxAllowedUids::<Test>::insert(net, 2);
+        assert_ok!(SubtensorModule::do_set_null_consensus(net, true));
+        assert_eq!(NullMinerCount::<Test>::get(net), 2);
     });
 }

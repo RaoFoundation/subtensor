@@ -431,7 +431,7 @@ mod errors {
         NullConsensusRegistrationDisabled,
         /// PoW registration is paused on this null-consensus subnet. Ask the owner to enable NetworkPowRegistrationAllowed before retrying.
         NullConsensusPowRegistrationDisabled,
-        /// The independent 64-bit null miner identifier space is exhausted.
+        /// The null miner admission cap or the u64 identifier limit has been reached.
         NullConsensusCapacityReached,
         /// The registration signer differs from the supplied coldkey. Sign with the coldkey specified in the registration call.
         PowSignerColdkeyMismatch,

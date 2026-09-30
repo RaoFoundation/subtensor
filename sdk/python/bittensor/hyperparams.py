@@ -341,6 +341,15 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         minimum=1,
         maximum=10 * FIXED128_ONE,
     ),
+    "null_max_allowed_uids": Hyperparam(
+        "int",
+        "Maximum registered null miners, independent of Yuma's UID limit. Defaults to "
+        "1024. Cannot be lower than the current population; reaching the cap blocks "
+        "new registrations without pruning miners.",
+        short="null miner admission cap",
+        minimum=0,
+        maximum=U64_MAX,
+    ),
     "null_consensus_enabled": Hyperparam(
         "bool",
         "Pay all registered null miners equally without scores or epochs. Other hyperparameters "
@@ -449,6 +458,7 @@ STORAGE_ITEMS: dict[str, st.Item] = {
     "collateral_lock_share": st.Item("SubtensorModule", "CollateralLockShare", "u16"),
     "collateral_drain_ratio": st.Item("SubtensorModule", "CollateralDrainRatio", "U64F64"),
     "null_consensus_enabled": st.SubtensorModule.NullConsensus,
+    "null_max_allowed_uids": st.SubtensorModule.NullMaxAllowedUids,
     "yuma3_enabled": st.SubtensorModule.Yuma3On,
     "subnet_emission_enabled": st.SubtensorModule.SubnetEmissionEnabled,
     "bonds_reset_enabled": st.SubtensorModule.BondsResetOn,

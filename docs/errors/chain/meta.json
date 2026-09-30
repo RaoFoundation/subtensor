@@ -280,6 +280,7 @@
     "NullConsensusValidatorLimitExceeded",
     "NullConsensusWeightsAllZero",
     "NullConsensusYumaCapacityExceeded",
+    "NullMaxAllowedUidsLessThanCurrentMiners",
     "NullMinerNotRegistered",
     "NullRewardsNotAvailable",
     "OrderAlreadyProcessed",

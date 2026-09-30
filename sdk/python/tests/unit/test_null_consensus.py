@@ -198,3 +198,21 @@ async def test_consensus_toggle_uses_the_normal_hyperparameter_setter(enabled):
 def test_invalid_u32_scores_fail_locally(uids, weights):
     with pytest.raises(BittensorError):
         SetNullWeights(netuid=1, uids=uids, weights=weights)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cap", [0, 65536, (1 << 64) - 1])
+async def test_null_miner_cap_uses_a_separate_u64_setter(cap):
+    fake = FakeSubstrate()
+    call = await SetHyperparameter(netuid=1, name="null_max_allowed_uids", value=cap).build(
+        fake, dev_wallet()
+    )
+    module, name, params = call
+    assert (module, name) == ("AdminUtils", "sudo_set_null_max_allowed_uids")
+    assert params == {"netuid": 1, "max_allowed_uids": cap}
+
+
+@pytest.mark.parametrize("cap", [-1, 1 << 64])
+def test_null_miner_cap_rejects_out_of_range_values(cap):
+    with pytest.raises(ValueError):
+        SetHyperparameter(netuid=1, name="null_max_allowed_uids", value=cap)

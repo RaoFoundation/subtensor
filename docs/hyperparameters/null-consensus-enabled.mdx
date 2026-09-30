@@ -23,6 +23,7 @@ is disabled; validators must submit new weights after returning to Yuma.
 Already published weights and the `commit_reveal_weights_enabled` hyperparameter
 remain unchanged.
 
-The initial Yuma metagraph import must fit its normal capacity. The independent
+The initial Yuma metagraph import must fit its normal capacity and the configured
+[`null_max_allowed_uids`](/hyperparameters/null-max-allowed-uids) admission cap. The independent
 null registry uses `u64` identifiers, and its population does not prevent
 switching back to Yuma. See [null-consensus subnets](/guides/null-consensus).

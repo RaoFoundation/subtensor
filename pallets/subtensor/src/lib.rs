@@ -2396,6 +2396,17 @@ pub mod pallet {
     #[pallet::storage]
     pub type NullConsensus<T> = StorageMap<_, Identity, NetUid, bool, ValueQuery>;
 
+    /// Default null miner admission cap, configurable by the subnet owner.
+    #[pallet::type_value]
+    pub fn DefaultNullMaxAllowedUids() -> u64 {
+        1024
+    }
+
+    /// Admission cap for the independent null miner registry. Does not prune miners.
+    #[pallet::storage]
+    pub type NullMaxAllowedUids<T> =
+        StorageMap<_, Identity, NetUid, u64, ValueQuery, DefaultNullMaxAllowedUids>;
+
     /// Independent u64 miner population; never changes Yuma's metagraph size.
     #[pallet::storage]
     pub type NullMinerCount<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;

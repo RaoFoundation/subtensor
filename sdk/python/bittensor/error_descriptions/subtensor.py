@@ -60,7 +60,8 @@ DESCRIPTIONS: dict[str, str] = {
         "NetworkPowRegistrationAllowed before retrying."
     ),
     "NullConsensusCapacityReached": (
-        "The independent 64-bit null miner counter is exhausted. MaxAllowedUids controls only "
+        "The null miner admission cap has been reached. The subnet owner can raise "
+        "null_max_allowed_uids if it is below u64::MAX. MaxAllowedUids controls only "
         "the Yuma metagraph."
     ),
     "PowSignerColdkeyMismatch": (

@@ -105,6 +105,7 @@ mod pallet_benchmarks {
         Subtensor::<T>::init_new_network(netuid, 360);
         assert_ok!(Subtensor::<T>::do_set_null_consensus(netuid, true));
         NullMinerCount::<T>::insert(netuid, u64::MAX - 1);
+        NullMaxAllowedUids::<T>::insert(netuid, u64::MAX);
         NetworkPowRegistrationAllowed::<T>::insert(netuid, true);
         Subtensor::<T>::set_difficulty(netuid, 1);
         frame_system::Pallet::<T>::set_block_number(2u32.into());

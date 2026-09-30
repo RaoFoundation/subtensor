@@ -197,6 +197,7 @@ class SubtensorModule:
     NetworkRegistrationAllowed = Item('SubtensorModule', 'NetworkRegistrationAllowed', 'bool')
     NetworkPowRegistrationAllowed = Item('SubtensorModule', 'NetworkPowRegistrationAllowed', 'bool')
     NullConsensus = Item('SubtensorModule', 'NullConsensus', 'bool')
+    NullMaxAllowedUids = Item('SubtensorModule', 'NullMaxAllowedUids', 'u64')
     NullMinerCount = Item('SubtensorModule', 'NullMinerCount', 'u64')
     NullMiners = Item('SubtensorModule', 'NullMiners', '(AccountId32, U256)')
     NullMinerKeys = Item('SubtensorModule', 'NullMinerKeys', 'AccountId32')

@@ -607,6 +607,11 @@ impl<T: Config> Pallet<T> {
                 .into(),
             ("yuma_version", yuma_version).into(),
             (
+                "null_max_allowed_uids",
+                HyperparamValue::U64(NullMaxAllowedUids::<T>::get(netuid).into()),
+            )
+                .into(),
+            (
                 "null_consensus_enabled",
                 HyperparamValue::Bool(NullConsensus::<T>::get(netuid))
             )

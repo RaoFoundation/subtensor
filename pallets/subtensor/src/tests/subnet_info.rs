@@ -40,6 +40,7 @@ const EXPECTED_V3_NAMES: &[&[u8]] = &[
     b"alpha_sigmoid_steepness",
     b"yuma_version",
     b"null_consensus_enabled",
+    b"null_max_allowed_uids",
     b"subnet_is_active",
     b"transfers_enabled",
     b"bonds_reset_enabled",
@@ -331,4 +332,20 @@ fn test_hyperparam_value_variants_round_trip() {
             .expect("HyperparamValue variant must round-trip");
         assert_eq!(original, &decoded);
     }
+}
+
+#[test]
+fn test_subnet_hyperparams_v3_reports_null_u64_cap() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        SubtensorModule::init_new_network(netuid, 360);
+        for cap in [u64::MAX, 65536, 0] {
+            crate::NullMaxAllowedUids::<Test>::insert(netuid, cap);
+            let params = SubtensorModule::get_subnet_hyperparams_v3(netuid).unwrap();
+            assert_eq!(
+                find(&params, b"null_max_allowed_uids"),
+                &HyperparamValue::U64(Compact(cap))
+            );
+        }
+    });
 }
