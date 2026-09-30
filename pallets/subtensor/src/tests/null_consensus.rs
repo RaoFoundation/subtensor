@@ -609,7 +609,8 @@ fn null_consensus_conviction_successor_registers_with_admission_paused_or_full()
             assert_ok!(SubtensorModule::create_account_if_non_existent(
                 &cold, &successor
             ));
-            let now = ONE_YEAR + 1;
+            let cadence = u64::from(SubtensorModule::get_tempo(net)) + 1;
+            let now = (ONE_YEAR / cadence + 1) * cadence;
             System::set_block_number(now);
             let outgoing = U256::zero();
             assert_ok!(Commitments::set_commitment(
@@ -650,7 +651,14 @@ fn null_consensus_conviction_successor_registers_with_admission_paused_or_full()
                 };
                 Lock::<Test>::insert((cold, net, successor), lock.clone());
                 HotkeyLock::<Test>::insert(net, successor, lock);
-                SubtensorModule::change_subnet_owner_if_needed(net);
+                // Scheduling must not perform even a qualifying ownership transfer.
+                let state_before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+                assert!(SubtensorModule::epochs_deferred_this_block(&[net], now).is_empty());
+                assert_eq!(
+                    sp_io::storage::root(sp_runtime::StateVersion::V1),
+                    state_before
+                );
+                assert!(SubtensorModule::drain_pending(&[net], now).is_empty());
                 if conviction == 100 {
                     assert_eq!(SubnetOwner::<Test>::get(net), U256::from(100));
                     assert!(!Uids::<Test>::contains_key(net, successor));
@@ -720,6 +728,13 @@ fn null_clears_validator_power_and_completes_a_scheduled_disable_without_epochs(
         assert!(VotingPower::<Test>::iter_prefix(net).next().is_none());
         assert!(VotingPowerTrackingEnabled::<Test>::get(net));
         System::set_block_number(deadline);
+        // Reveal preflight must leave the due disable (and its event) to coinbase.
+        let state_before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert!(SubtensorModule::epochs_deferred_this_block(&[net], deadline).is_empty());
+        assert_eq!(
+            sp_io::storage::root(sp_runtime::StateVersion::V1),
+            state_before
+        );
         assert!(SubtensorModule::drain_pending(&[net], deadline).is_empty());
         assert!(!VotingPowerTrackingEnabled::<Test>::get(net));
         assert_eq!(VotingPowerDisableAtBlock::<Test>::get(net), 0);

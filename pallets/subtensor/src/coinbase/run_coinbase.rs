@@ -373,13 +373,7 @@ impl<T: Config> Pallet<T> {
 
         for &netuid in subnets.iter() {
             if NullConsensus::<T>::get(netuid) {
-                Self::maintain_null_voting_disable(netuid, current_block);
-                // No null epochs, miner enumeration, scoring, or payout loop.
-                // Preserve protocol ownership maintenance on its existing cadence.
-                let tempo = u64::from(Self::get_tempo(netuid)).saturating_add(1);
-                if current_block.is_multiple_of(tempo) {
-                    Self::change_subnet_owner_if_needed(netuid);
-                }
+                // Null subnets have no epoch slot; maintenance belongs in drain_pending.
                 continue;
             }
 
