@@ -828,7 +828,12 @@ impl CanCommit<AccountId> for AllowCommitments {
         if !SubtensorModule::if_subnet_exist(netuid) {
             return Err(pallet_subtensor::Error::<Runtime>::SubnetNotExists);
         }
-        if !SubtensorModule::is_hotkey_registered_on_network(netuid, address) {
+        let registered = if pallet_subtensor::NullConsensus::<Runtime>::get(netuid) {
+            pallet_subtensor::NullMiners::<Runtime>::contains_key(netuid, address)
+        } else {
+            SubtensorModule::is_hotkey_registered_on_network(netuid, address)
+        };
+        if !registered {
             return Err(pallet_subtensor::Error::<Runtime>::HotKeyNotRegisteredInSubNet);
         }
         Ok(())
@@ -842,7 +847,9 @@ impl CanCommit<AccountId> for AllowCommitments {
     fn validation_weight() -> frame_support::weights::Weight {
         #[cfg(not(feature = "runtime-benchmarks"))]
         {
-            <Runtime as frame_system::Config>::DbWeight::get().reads(2)
+            // Existence, mode, membership, plus the additional quota-clock and
+            // bond-reset mode reads relative to the commitment benchmark.
+            <Runtime as frame_system::Config>::DbWeight::get().reads(5)
         }
 
         #[cfg(feature = "runtime-benchmarks")]
@@ -856,6 +863,9 @@ pub struct ResetBondsOnCommit;
 impl OnMetadataCommitment<AccountId> for ResetBondsOnCommit {
     #[cfg(not(feature = "runtime-benchmarks"))]
     fn on_metadata_commitment(netuid: NetUid, address: &AccountId) {
+        if pallet_subtensor::NullConsensus::<Runtime>::get(netuid) {
+            return;
+        }
         // Reset bonds for each mechanism of this subnet
         let mechanism_count = SubtensorModule::get_current_mechanism_count(netuid);
         for mecid in 0..<u8 as From<MechId>>::from(mechanism_count) {
@@ -891,13 +901,25 @@ impl pallet_commitments::Config for Runtime {
 pub struct TempoInterface;
 impl pallet_commitments::GetTempoInterface for TempoInterface {
     fn get_epoch_index(netuid: NetUid, cur_block: u64) -> u64 {
-        SubtensorModule::get_epoch_index(netuid, cur_block)
+        if pallet_subtensor::NullConsensus::<Runtime>::get(netuid) {
+            // Null mode has no epochs. Renew metadata quotas from block time
+            // using the configured tempo, without running consensus work.
+            cur_block
+                .checked_div(
+                    <u64 as From<u16>>::from(SubtensorModule::get_tempo(netuid)).saturating_add(1),
+                )
+                .unwrap_or_default()
+        } else {
+            SubtensorModule::get_epoch_index(netuid, cur_block)
+        }
     }
 }
 
 impl pallet_commitments::GetTempoInterface for Runtime {
     fn get_epoch_index(netuid: NetUid, cur_block: u64) -> u64 {
-        SubtensorModule::get_epoch_index(netuid, cur_block)
+        <TempoInterface as pallet_commitments::GetTempoInterface>::get_epoch_index(
+            netuid, cur_block,
+        )
     }
 }
 

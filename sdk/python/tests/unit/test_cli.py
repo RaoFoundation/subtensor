@@ -876,6 +876,27 @@ class TestResolveHotkeySs58:
         wallets.new_hotkey(name=_WALLET_NAME, hotkey="hotkey1", path=wallet_dir, overwrite=True)
         return wallets.open_wallet(_WALLET_NAME, "hotkey1", wallet_dir).hotkey.ss58_address
 
+    @pytest.mark.parametrize(
+        "command, op",
+        [
+            (("pow", "register"), "pow_register"),
+            (("subnets", "pow-register"), "pow_register"),
+            (("pow", "claim"), "claim_null_rewards"),
+        ],
+    )
+    def test_null_commands_resolve_explicit_miner_hotkey(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str, command, op
+    ):
+        captured = []
+        monkeypatch.setattr(
+            cli_context.AppContext, "submit", lambda self, intent: captured.append(intent)
+        )
+        result = invoke(*command, "--netuid", "18", "--hotkey", "hotkey1")
+        assert result.exit_code == 0, result.output
+        assert len(captured) == 1
+        assert captured[0].op == op
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
     def test_subnets_register_resolves_local_hotkey_name(
         self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
     ):

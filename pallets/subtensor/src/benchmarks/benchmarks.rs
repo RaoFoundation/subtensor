@@ -35,6 +35,56 @@ use subtensor_swap_interface::SwapHandler;
 
 mod helpers;
 
+// Exercise the full bounded coldkey-history lookup during hotkey rotation.
+fn seed_null_swap_miner<T: Config>(netuid: NetUid, hotkey: &T::AccountId, owner: &T::AccountId) {
+    let first: T::AccountId = account("null_swap_owner", 0, 0);
+    for i in 0..63u32 {
+        let old: T::AccountId = account("null_swap_owner", i, 0);
+        let next = if i == 62 {
+            owner.clone()
+        } else {
+            account("null_swap_owner", i + 1, 0)
+        };
+        NullColdkeySuccessor::<T>::insert(old, 0, (next, 0u128));
+    }
+    assert_ok!(Subtensor::<T>::enroll_null_miner(netuid, hotkey, &first));
+    Axons::<T>::insert(
+        netuid,
+        hotkey,
+        Subtensor::<T>::get_axon_info(netuid, hotkey),
+    );
+    Prometheus::<T>::insert(
+        netuid,
+        hotkey,
+        Subtensor::<T>::get_prometheus_info(netuid, hotkey),
+    );
+    NeuronCertificates::<T>::insert(
+        netuid,
+        hotkey,
+        NeuronCertificateOf::try_from(vec![0, 1]).unwrap(),
+    );
+}
+
+fn seed_null_scores<T: Config>(n: u32) -> (NetUid, T::AccountId) {
+    let netuid = NetUid::from(1);
+    let owner: T::AccountId = account("null_scorer", 0, 0);
+    Subtensor::<T>::init_new_network(netuid, 360);
+    SubnetOwner::<T>::insert(netuid, &owner);
+    SubnetOwnerHotkey::<T>::insert(netuid, &owner);
+    Owner::<T>::insert(&owner, &owner);
+    Subtensor::<T>::append_neuron(netuid, &owner, 1);
+    assert_ok!(Subtensor::<T>::do_set_null_consensus(netuid, true));
+    NullMinerCount::<T>::insert(netuid, u64::from(n));
+    for uid in 0..u64::from(n) {
+        let hotkey: T::AccountId = account("null_destination", uid as u32, 0);
+        NullMinerKeys::<T>::insert(netuid, uid, hotkey);
+    }
+    MinAllowedWeights::<T>::insert(netuid, 1);
+    MaxWeightsLimit::<T>::insert(netuid, u16::MAX);
+    frame_system::Pallet::<T>::set_block_number(101u32.into());
+    (netuid, owner)
+}
+
 #[benchmarks(
     where
         T: pallet_balances::Config + pallet_shield::Config,
@@ -50,6 +100,162 @@ mod pallet_benchmarks {
     use super::*;
 
     #[benchmark]
+    fn set_null_weights(n: Linear<1, 8192>) {
+        let (netuid, caller) = seed_null_scores::<T>(n);
+        let dests: Vec<u64> = (0..u64::from(n)).collect();
+        let values = vec![u32::MAX; n as usize];
+        NullWeights::<T>::insert(
+            netuid,
+            0,
+            dests.iter().map(|&uid| (uid, 1u32)).collect::<Vec<_>>(),
+        );
+        NullWeightEntries::<T>::insert(netuid, n);
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller), netuid, dests, values, 0);
+        assert_eq!(NullWeights::<T>::get(netuid, 0).len(), n as usize);
+        assert_eq!(NullWeightEntries::<T>::get(netuid), n);
+    }
+
+    #[benchmark(extra)]
+    fn null_pow_register() {
+        let netuid = NetUid::from(1);
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("null_miner", 0, 0);
+        Subtensor::<T>::init_new_network(netuid, 360);
+        assert_ok!(Subtensor::<T>::do_set_null_consensus(netuid, true));
+        NullMinerCount::<T>::insert(netuid, u64::MAX - 1);
+        NullMaxAllowedUids::<T>::insert(netuid, u64::MAX);
+        NetworkPowRegistrationAllowed::<T>::insert(netuid, true);
+        Subtensor::<T>::set_difficulty(netuid, 1);
+        frame_system::Pallet::<T>::set_block_number(2u32.into());
+        let work = Subtensor::<T>::create_null_seal_hash(netuid, 1, 0, &hotkey, &coldkey)
+            .as_bytes()
+            .to_vec();
+        #[extrinsic_call]
+        register(
+            RawOrigin::Signed(coldkey),
+            netuid,
+            1,
+            0,
+            work.clone(),
+            hotkey.clone(),
+            whitelisted_caller(),
+        );
+        assert_eq!(UsedWork::<T>::get(&work), 2);
+        assert!(NullMiners::<T>::contains_key(netuid, &hotkey));
+        assert_eq!(NullMinerUids::<T>::get(netuid, &hotkey), Some(u64::MAX - 1));
+        assert_eq!(NullMinerCount::<T>::get(netuid), u64::MAX);
+    }
+
+    #[benchmark]
+    fn check_null_weights_extension(n: Linear<1, 8192>) {
+        let (netuid, caller) = seed_null_scores::<T>(n);
+        let call = Call::<T>::set_null_weights {
+            netuid,
+            dests: (0..u64::from(n)).collect(),
+            weights: vec![u32::MAX; n as usize],
+            version_key: 0,
+        };
+        #[block]
+        {
+            assert_ok!(CheckWeights::<T>::check(&caller, &call));
+        }
+    }
+
+    #[benchmark]
+    fn accrue_null_rewards() {
+        let n = crate::null_consensus::MAX_NULL_WEIGHT_ENTRIES;
+        let (netuid, _) = seed_null_scores::<T>(n);
+        NullWeights::<T>::insert(
+            netuid,
+            0,
+            (0..u64::from(n))
+                .map(|uid| (uid, u32::MAX))
+                .collect::<Vec<_>>(),
+        );
+        NullLastUpdate::<T>::insert(netuid, 0, 101);
+        NullWeightEntries::<T>::insert(netuid, n);
+        #[block]
+        {
+            Subtensor::<T>::accrue_null_rewards(netuid, u64::MAX.into());
+        }
+        assert!(NullRewardIndex::<T>::get(netuid, 0) > sp_core::U256::zero());
+        assert!(NullRewardIndex::<T>::get(netuid, u64::from(n) - 1) > sp_core::U256::zero());
+    }
+
+    #[benchmark]
+    fn claim_null_rewards() {
+        let netuid = NetUid::from(1);
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("null_miner", 0, 0);
+        let target: T::AccountId = account("null_staking", 0, 0);
+        Subtensor::<T>::init_new_network(netuid, 360);
+        Owner::<T>::insert(&target, &coldkey);
+        let first: T::AccountId = account("null_old_coldkey", 0, 0);
+        for i in 0..63u32 {
+            let old: T::AccountId = account("null_old_coldkey", i, 0);
+            let next = if i == 62 {
+                coldkey.clone()
+            } else {
+                account("null_old_coldkey", i + 1, 0)
+            };
+            NullColdkeySuccessor::<T>::insert(old, 0, (next, 0u128));
+        }
+        NullMiners::<T>::insert(netuid, &hotkey, (&first, sp_core::U256::zero()));
+        NullMinerUids::<T>::insert(netuid, &hotkey, 0);
+        NullRewardIndex::<T>::insert(netuid, 0, sp_core::U256::from(1_000_000_000u64) << 64);
+        NullUnclaimedAlpha::<T>::insert(netuid, AlphaBalance::from(1_000_000_000u64));
+        // Capture part of a legacy miner's reward into its collateral floor,
+        // exercising both the source and the selected destination stake pools.
+        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            netuid,
+            500_000_000u64.into(),
+        );
+        MinerCollateral::<T>::insert(
+            (netuid, &hotkey, &coldkey),
+            MinerCollateralState {
+                locked: 500_000_000u64.into(),
+                drain_ratio: U64F64::from_num(1),
+                min_locked: 1_000_000_000u64.into(),
+                earned: AlphaBalance::ZERO,
+            },
+        );
+        ColdkeyMinerCollateral::<T>::insert(netuid, &coldkey, AlphaBalance::from(500_000_000u64));
+        let mut index: BoundedVec<T::AccountId, ConstU32<MAX_COLDKEY_COLLATERAL_HOTKEYS>> =
+            BoundedVec::default();
+        for i in 0..MAX_COLDKEY_COLLATERAL_HOTKEYS.saturating_sub(1) {
+            index.try_push(account("collateral", i, 0)).unwrap();
+        }
+        index.try_push(hotkey.clone()).unwrap();
+        ColdkeyCollateralHotkeys::<T>::insert(netuid, &coldkey, index);
+        // Exercise a full membership scan and admission of the final staking hotkey.
+        let mut staking_hotkeys = vec![hotkey.clone()];
+        for i in 0..MAX_STAKING_HOTKEYS.saturating_sub(2) {
+            staking_hotkeys.push(account("null_existing_stake", i, 0));
+        }
+        StakingHotkeys::<T>::insert(&coldkey, staking_hotkeys);
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            netuid,
+            hotkey.clone(),
+            target.clone(),
+        );
+        assert_eq!(
+            MinerCollateral::<T>::get((netuid, &hotkey, &coldkey))
+                .unwrap()
+                .locked,
+            AlphaBalance::from(1_000_000_000u64)
+        );
+        assert_eq!(
+            TotalHotkeyAlpha::<T>::get(target, netuid),
+            AlphaBalance::from(500_000_000u64)
+        );
+    }
+
+    #[benchmark]
     fn register() {
         let netuid = NetUid::from(1);
         let hotkey: T::AccountId = account("register_hot", 0, 1);
@@ -61,19 +267,15 @@ mod pallet_benchmarks {
             "register_existing_cold",
         );
         fund_for_registration::<T>(netuid, &coldkey);
-        Subtensor::<T>::set_difficulty(netuid, 1);
-
         let block_number: u64 = Subtensor::<T>::get_current_block_as_u64();
-        let (nonce, work): (u64, Vec<u8>) =
-            Subtensor::<T>::create_work_for_block_number(netuid, block_number, 3, &hotkey);
 
         #[extrinsic_call]
         _(
             RawOrigin::Signed(coldkey.clone()),
             netuid,
             block_number,
-            nonce,
-            work,
+            0,
+            Vec::new(),
             hotkey.clone(),
             coldkey.clone(),
         );
@@ -483,20 +685,11 @@ mod pallet_benchmarks {
         Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
         seed_swap_reserves::<T>(netuid);
         fund_for_registration::<T>(netuid, &old_coldkey);
-        Subtensor::<T>::set_difficulty(netuid, 1);
 
-        let block_number = Subtensor::<T>::get_current_block_as_u64();
-        let (nonce, work) =
-            Subtensor::<T>::create_work_for_block_number(netuid, block_number, 3, &hotkey1);
-
-        assert_ok!(Subtensor::<T>::register(
+        assert_ok!(Subtensor::<T>::burned_register(
             RawOrigin::Signed(old_coldkey.clone()).into(),
             netuid,
-            block_number,
-            nonce,
-            work.clone(),
             hotkey1.clone(),
-            old_coldkey.clone(),
         ));
 
         // Worst case: migrate the full bounded collateral-hotkey index plus
@@ -1703,6 +1896,7 @@ mod pallet_benchmarks {
             seed_swap_reserves::<T>(netuid);
             SubnetAlphaOut::<T>::insert(netuid, subnet_alpha);
             Subtensor::<T>::append_neuron(netuid, &old, 0);
+            seed_null_swap_miner::<T>(netuid, &old, &coldkey);
         }
 
         // Use distinct coldkeys so execution performs the reduced number
@@ -2961,6 +3155,35 @@ mod pallet_benchmarks {
         );
     }
 
+    #[benchmark(extra)]
+    fn swap_null_hotkey() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let old: T::AccountId = account("null_old", 0, 0);
+        let new: T::AccountId = account("null_new", 0, 0);
+        let squatter: T::AccountId = account("squatter", 0, 0);
+        Owner::<T>::insert(&old, squatter);
+        for n in 1..=GLOBAL_MAX_SUBNET_COUNT {
+            let netuid = NetUid::from(n);
+            Subtensor::<T>::init_new_network(netuid, 360);
+            seed_null_swap_miner::<T>(netuid, &old, &coldkey);
+        }
+        let cost = Subtensor::<T>::get_key_swap_cost();
+        add_balance_to_coldkey_account::<T>(
+            &coldkey,
+            cost + <T as pallet_balances::Config>::ExistentialDeposit::get(),
+        );
+        #[extrinsic_call]
+        swap_hotkey_v2(
+            RawOrigin::Signed(coldkey),
+            old.clone(),
+            new.clone(),
+            None,
+            false,
+        );
+        assert!(!NullMiners::<T>::contains_key(NetUid::from(1), old));
+        assert!(NullMiners::<T>::contains_key(NetUid::from(1), new));
+    }
+
     #[benchmark]
     fn swap_hotkey_v2() {
         let coldkey: T::AccountId = whitelisted_caller();
@@ -2981,6 +3204,8 @@ mod pallet_benchmarks {
                 netuid,
                 old_hotkey.clone(),
             ));
+
+            seed_null_swap_miner::<T>(netuid, &old_hotkey, &coldkey);
 
             let alpha_amount = AlphaBalance::from(1_000_000_u64);
             SubnetAlphaOut::<T>::insert(netuid, alpha_amount * 2.into());

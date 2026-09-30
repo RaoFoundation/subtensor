@@ -135,3 +135,15 @@ class TestReadSemantics:
         substrate.seed_constant("Aura", "SlotDuration", 250)
         assert await client.read("block_time") == 0.25
         assert await client.read("is_fast_blocks") is True
+
+
+@pytest.mark.parametrize("tag,value", [("U16", 2), ("U16", 3), ("Text", "Null_Consensus")])
+@pytest.mark.asyncio
+async def test_hyperparameters_preserve_consensus_label(client, substrate, tag, value):
+    substrate.seed_runtime(
+        "SubnetInfoRuntimeApi",
+        "get_subnet_hyperparams_v3",
+        [{"name": "yuma_version", "value": {tag: value}}],
+    )
+    result = await client.read("subnet_hyperparameters", netuid=1)
+    assert result == {"yuma_version": value}

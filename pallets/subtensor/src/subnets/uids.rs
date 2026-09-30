@@ -21,6 +21,8 @@ impl<T: Config> Pallet<T> {
     /// Resets the emission, consensus, incentives, dividends, bonds, and weights of
     /// the neuron to default
     pub fn clear_neuron(netuid: NetUid, neuron_uid: u16) {
+        Self::remove_null_weights(netuid, neuron_uid);
+        NullLastUpdate::<T>::remove(netuid, neuron_uid);
         let neuron_index: usize = neuron_uid.into();
         Emission::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0.into()));
         Consensus::<T>::mutate(netuid, |v| {
@@ -88,6 +90,38 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
+        Self::replace_neuron_inner(netuid, uid_to_replace, old_hotkey, new_hotkey, block_number);
+    }
+
+    /// Protocol-only admission after the conviction succession checks passed.
+    /// At null capacity, transfer the outgoing owner's slot without a prune search.
+    pub(crate) fn register_subnet_owner_neuron(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+    ) -> Result<u16, DispatchError> {
+        if !NullConsensus::<T>::get(netuid) {
+            return Self::register_neuron(netuid, hotkey);
+        }
+        let now = Self::get_current_block_as_u64();
+        let n = Self::get_subnetwork_n(netuid);
+        if n < Self::get_max_allowed_uids(netuid).min(crate::null_consensus::MAX_NULL_UIDS) {
+            Self::append_neuron(netuid, hotkey, now);
+            return Ok(n);
+        }
+        let uid = Self::get_owner_uid(netuid).ok_or(Error::<T>::NoNeuronIdAvailable)?;
+        ensure!(uid < n, Error::<T>::NoNeuronIdAvailable);
+        let old_hotkey = Keys::<T>::get(netuid, uid);
+        Self::replace_neuron_inner(netuid, uid, old_hotkey, hotkey, now);
+        Ok(uid)
+    }
+
+    fn replace_neuron_inner(
+        netuid: NetUid,
+        uid_to_replace: u16,
+        old_hotkey: T::AccountId,
+        new_hotkey: &T::AccountId,
+        block_number: u64,
+    ) {
         // Root churn: settle flushable pending basket credits while the hotkey is still
         // on root (earned dividends must deposit, not recycle). After membership drops,
         // a second flush recycles leftover sub-threshold dust the hotkey can no longer
@@ -97,7 +131,11 @@ impl<T: Config> Pallet<T> {
             Self::clear_auto_parent_for_root_validator(&old_hotkey);
         }
 
-        T::CommitmentsInterface::purge_neuron(netuid, &old_hotkey);
+        // Losing a Yuma UID does not revoke the hotkey's null registration.
+        let retains_null = NullMiners::<T>::contains_key(netuid, &old_hotkey);
+        if !retains_null {
+            T::CommitmentsInterface::purge_neuron(netuid, &old_hotkey);
+        }
 
         // 2. Remove previous set memberships.
         Uids::<T>::remove(netuid, old_hotkey.clone());
@@ -120,9 +158,11 @@ impl<T: Config> Pallet<T> {
         Self::clear_stale_hotkey_successor(netuid, new_hotkey);
 
         // 4. Clear neuron axons, certificates and prometheus info
-        Axons::<T>::remove(netuid, &old_hotkey);
-        NeuronCertificates::<T>::remove(netuid, &old_hotkey);
-        Prometheus::<T>::remove(netuid, &old_hotkey);
+        if !retains_null {
+            Axons::<T>::remove(netuid, &old_hotkey);
+            NeuronCertificates::<T>::remove(netuid, &old_hotkey);
+            Prometheus::<T>::remove(netuid, &old_hotkey);
+        }
 
         // 5. Reset new neuron's values.
         Self::clear_neuron(netuid, uid_to_replace);
@@ -169,6 +209,12 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn trim_to_max_allowed_uids(netuid: NetUid, max_n: u16) -> DispatchResult {
+        // Large null subnets retain append-only UIDs. Within Yuma's capacity,
+        // owners may disable null consensus before explicitly trimming miners.
+        ensure!(
+            !NullConsensus::<T>::get(netuid),
+            Error::<T>::NullConsensusTrimmingDisabled
+        );
         // Reasonable limits
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(

@@ -879,5 +879,31 @@ mod events {
             /// Estimated TAO value of the claimant's slices of those rows, left in the fund.
             forfeited_tao_est: TaoBalance,
         },
+        /// A long coldkey-swap history was advanced; repeat the reward claim.
+        NullRewardOwnerResolutionAdvanced(NetUid, T::AccountId),
+        /// A lightweight null mining identity was registered.
+        NullMinerRegistered {
+            /// Subnet identifier.
+            netuid: NetUid,
+            /// Independent 64-bit mining identifier.
+            uid: u64,
+            /// Mining identity.
+            hotkey: T::AccountId,
+            /// Reward owner.
+            coldkey: T::AccountId,
+        },
+        /// Accrued miner alpha was credited to the coldkey's staking position.
+        NullRewardsClaimed {
+            /// Subnet identifier.
+            netuid: NetUid,
+            /// Mining identity whose rewards were claimed.
+            hotkey: T::AccountId,
+            /// Owner of the credited alpha.
+            coldkey: T::AccountId,
+            /// Destination staking hotkey.
+            stake_hotkey: T::AccountId,
+            /// Alpha credited, without minting again.
+            amount: AlphaBalance,
+        },
     }
 }

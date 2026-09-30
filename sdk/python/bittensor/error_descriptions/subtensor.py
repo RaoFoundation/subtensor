@@ -3,6 +3,71 @@
 from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
+    "NullConsensusYumaCapacityExceeded": (
+        "The initial Yuma metagraph exceeds its normal import bound. Null miner capacity is "
+        "independent; existing null miners never prevent switching back to Yuma."
+    ),
+    "NullMinerNotRegistered": (
+        "Register this mining identity with btcli pow register before claiming rewards."
+    ),
+    "NullRewardsNotAvailable": (
+        "No whole alpha rao is claimable yet. Wait for more emission; fractional rewards remain "
+        "accrued."
+    ),
+    "NullConsensusOnRoot": ("Root cannot use null consensus. Select a non-root subnet."),
+    "NullConsensusRequiresSingleMechanism": (
+        "Null consensus supports exactly one mechanism. Set the mechanism count to 1 before "
+        "enabling the mode and keep it at 1 afterward."
+    ),
+    "NullConsensusNotEnabled": (
+        "PoW registration and null weights require null mode. "
+        "Ask the owner to enable null_consensus_enabled. "
+        "Existing reward claims also work while Yuma is active."
+    ),
+    "NullConsensusRequiresPowRegistration": (
+        "Null-consensus subnets require proof-of-work registration. Use btcli pow register "
+        "instead of burned registration or staking-driven registration."
+    ),
+    "NullConsensusRegistrationDisabled": (
+        "Registration is paused on this null-consensus subnet. Ask the owner to enable "
+        "NetworkRegistrationAllowed before retrying."
+    ),
+    "NullConsensusPowRegistrationDisabled": (
+        "PoW registration is paused on this null-consensus subnet. Ask the owner to enable "
+        "NetworkPowRegistrationAllowed before retrying."
+    ),
+    "NullConsensusCapacityReached": (
+        "The null miner admission cap has been reached. The subnet owner can raise "
+        "null_max_allowed_uids if it is below u64::MAX. MaxAllowedUids controls only "
+        "the Yuma metagraph."
+    ),
+    "PowSignerColdkeyMismatch": (
+        "The registration signer differs from the supplied coldkey. Sign with the coldkey "
+        "specified in the registration call."
+    ),
+    "PowInvalidSealLength": (
+        "The PoW seal must contain exactly 32 bytes. Solve fresh work with btcli pow register "
+        "and submit the complete seal."
+    ),
+    "PowWorkAlreadyUsed": (
+        "This PoW seal has already been used. Solve fresh work with a new nonce or block before "
+        "registering again."
+    ),
+    "NullConsensusRequiresU32Weights": (
+        "Use set_null_weights or btcli misc weights set-null with u32 scores and u64 miner IDs."
+    ),
+    "NullConsensusWeightsAllZero": "At least one null score must be nonzero.",
+    "NullConsensusWeightLimitExceeded": (
+        "The subnet permits at most 8192 stored nonzero score entries across all validators. "
+        "Submit a sparser row."
+    ),
+    "NullConsensusTrimmingDisabled": (
+        "Null-consensus UIDs are append-only and cannot be trimmed. Keep existing UIDs; choose "
+        "another subnet if its capacity is exhausted."
+    ),
+    "NullConsensusValidatorLimitExceeded": (
+        "At most 64 validators plus the subnet owner may store null score rows."
+    ),
     "AccountRejectsLockedAlpha": (
         "Locked alpha was being transferred to a coldkey whose `AccountFlags` do not have the "
         "accept-locked-alpha bit set, e.g. during a lock transfer or coldkey swap of locks. "

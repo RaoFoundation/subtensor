@@ -10,7 +10,13 @@ import typer
 
 from ..._generated import storage
 from ...balance import Balance
-from ...intents import BurnedRegister, RegisterSubnet, RootRegister
+from ...intents import (
+    BurnedRegister,
+    ClaimNullRewards,
+    PowRegister,
+    RegisterSubnet,
+    RootRegister,
+)
 from ...settings import BLOCKTIME, guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
@@ -26,6 +32,53 @@ app = typer.Typer(
 
 PANEL_INSPECT = "Inspect"
 PANEL_REGISTER = "Registration"
+
+
+@app.command("pow-register", rich_help_panel=PANEL_REGISTER)
+@with_tx_globals
+def pow_register(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", help="Null-consensus subnet to join."),
+    timeout_seconds: int = typer.Option(120, "--timeout-seconds", min=1),
+    hotkey_ss58: str | None = typer.Option(
+        None, address_cli_name("hotkey_ss58"), help=PowRegister.field_help("hotkey_ss58")
+    ),
+):
+    """Solve PoW and register a miner hotkey; only transaction fees apply."""
+    app_ctx = ctx_of(ctx)
+    app_ctx.submit(
+        PowRegister(
+            netuid=netuid,
+            timeout_seconds=timeout_seconds,
+            hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", hotkey_ss58),
+        )
+    )
+
+
+pow_app = typer.Typer(help="Proof-of-work miner registration.", no_args_is_help=True)
+pow_app.command("register")(pow_register)
+
+
+@pow_app.command("claim")
+@with_tx_globals
+def claim_null_rewards(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid"),
+    stake_hotkey: str | None = typer.Option(None, "--stake-hotkey"),
+    hotkey_ss58: str | None = typer.Option(
+        None, address_cli_name("hotkey_ss58"), help=ClaimNullRewards.field_help("hotkey_ss58")
+    ),
+):
+    """Claim scored miner emissions for the signing or proxied coldkey."""
+    app_ctx = ctx_of(ctx)
+    app_ctx.submit(
+        ClaimNullRewards(
+            netuid=netuid,
+            stake_hotkey=stake_hotkey,
+            hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", hotkey_ss58),
+        )
+    )
+
 
 _NETUID_HELP = "Numeric identifier of the subnet."
 

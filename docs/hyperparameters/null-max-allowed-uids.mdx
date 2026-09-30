@@ -1,0 +1,25 @@
+---
+title: "null_max_allowed_uids"
+description: "Set the independent u64 admission cap for null-consensus miners."
+---
+
+The subnet owner or root sets this cap through
+`AdminUtils.sudo_set_null_max_allowed_uids(netuid, max_allowed_uids)`.
+It accepts integers from **0 to 18,446,744,073,709,551,615** (`u64::MAX`) and defaults
+to **1,024**. Yuma's `max_allowed_uids` remains separate and unchanged.
+
+```bash
+btcli hparams set --netuid 123 --name null_max_allowed_uids --value 1000000
+```
+
+The cap cannot be lower than the registered null population. Before the first
+activation, it cannot be lower than the Yuma population that will be imported.
+If Yuma grows beyond a preconfigured cap, enabling null consensus fails until
+the cap is raised. Zero closes admission on an empty subnet.
+
+At capacity, PoW registration fails with `NullConsensusCapacityReached`. Raising
+the cap reopens admission. Lowering the cap never trims miners or changes earned
+rewards. The cap survives disabling and re-enabling null consensus.
+
+Owner hyperparameter rate limits apply. The administration freeze window applies
+while Yuma is active; null consensus has no epoch freeze window.

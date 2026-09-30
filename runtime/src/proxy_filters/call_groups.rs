@@ -303,6 +303,7 @@ call_filter_group!(
 call_filter_group!(
     StakeManagementCalls,
     [
+        RuntimeCall::SubtensorModule(SubtensorCall::claim_null_rewards),
         RuntimeCall::SubtensorModule(SubtensorCall::add_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::add_stake_limit),
         RuntimeCall::SubtensorModule(SubtensorCall::remove_stake),
@@ -477,6 +478,7 @@ call_filter_group!(
     SubtensorCommonCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::set_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_null_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::commit_weights),
@@ -518,6 +520,8 @@ call_filter_group!(
 call_filter_group!(
     SubnetManagementCalls,
     [
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_null_consensus_enabled),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_null_max_allowed_uids),
         RuntimeCall::SubtensorModule(SubtensorCall::set_tempo),
         RuntimeCall::SubtensorModule(SubtensorCall::set_activity_cutoff_factor),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_serving_rate_limit),

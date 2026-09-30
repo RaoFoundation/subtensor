@@ -742,6 +742,102 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_null_max_allowed_uids() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        // Exercise the first-enable fallback as well as owner rate-limit storage.
+        pallet_subtensor::SubnetworkN::<T>::insert(netuid, 1);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, u64::MAX);
+
+        assert_eq!(
+            pallet_subtensor::NullMaxAllowedUids::<T>::get(netuid),
+            u64::MAX
+        );
+        assert!(pallet_subtensor::NullMaxAllowedUids::<T>::contains_key(
+            netuid
+        ));
+    }
+
+    #[benchmark]
+    fn sudo_set_null_consensus_enabled() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        for uid in 0..pallet_subtensor::DefaultMaxAllowedUids::<T>::get() {
+            let hotkey: T::AccountId = account("legacy_miner", uid.into(), 0);
+            pallet_subtensor::Owner::<T>::insert(&hotkey, &owner);
+            pallet_subtensor::Pallet::<T>::append_neuron(netuid, &hotkey, 1);
+        }
+        let index = pallet_subtensor::Pallet::<T>::get_mechanism_storage_index(netuid, 0.into());
+        let commits = alloc::collections::VecDeque::from([(
+            owner.clone(),
+            1,
+            vec![0; pallet_subtensor::MAX_CRV3_COMMIT_SIZE_BYTES as usize]
+                .try_into()
+                .unwrap(),
+            1000,
+        )]);
+        for epoch in 0..pallet_subtensor::MAX_COMMIT_REVEAL_PEROIDS.saturating_add(2) {
+            pallet_subtensor::TimelockedWeightCommits::<T>::insert(index, epoch, &commits);
+        }
+        pallet_subtensor::MinerBurned::<T>::insert(
+            netuid,
+            substrate_fixed::types::U96F32::from_num(1),
+        );
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, true);
+        assert!(
+            pallet_subtensor::TimelockedWeightCommits::<T>::iter_key_prefix(index)
+                .next()
+                .is_none()
+        );
+        assert!(!pallet_subtensor::MinerBurned::<T>::contains_key(netuid));
+        assert!(pallet_subtensor::NullConsensus::<T>::get(netuid));
+        assert_eq!(
+            pallet_subtensor::NullMinerUids::<T>::iter_prefix(netuid).count(),
+            usize::from(pallet_subtensor::DefaultMaxAllowedUids::<T>::get())
+        );
+    }
+
+    #[benchmark(extra)]
+    fn disable_null_consensus() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        pallet_subtensor::SubnetOwnerHotkey::<T>::insert(netuid, &owner);
+        pallet_subtensor::Owner::<T>::insert(&owner, &owner);
+        pallet_subtensor::Pallet::<T>::append_neuron(netuid, &owner, 1);
+        frame_support::assert_ok!(pallet_subtensor::Pallet::<T>::do_set_null_consensus(
+            netuid, true
+        ));
+        let n = pallet_subtensor::null_consensus::MAX_NULL_WEIGHT_ENTRIES;
+        pallet_subtensor::NullMinerCount::<T>::insert(netuid, u64::from(n));
+        pallet_subtensor::NullWeightEntries::<T>::insert(netuid, n);
+        pallet_subtensor::NullWeights::<T>::insert(
+            netuid,
+            0,
+            (0..u64::from(n)).map(|uid| (uid, 1u32)).collect::<Vec<_>>(),
+        );
+        pallet_subtensor::NullLastUpdate::<T>::insert(netuid, 0, 101);
+        frame_system::Pallet::<T>::set_block_number(101u32.into());
+        pallet_subtensor::PendingServerEmission::<T>::insert(
+            netuid,
+            subtensor_runtime_common::AlphaBalance::from(u64::from(n)),
+        );
+        #[extrinsic_call]
+        sudo_set_null_consensus_enabled(RawOrigin::Signed(owner), netuid, false);
+        assert!(!pallet_subtensor::NullConsensus::<T>::get(netuid));
+        assert_eq!(
+            pallet_subtensor::NullRewardIndex::<T>::get(netuid, u64::from(n) - 1),
+            (1u128 << 64).into()
+        );
+        assert_eq!(
+            pallet_subtensor::PendingServerEmission::<T>::get(netuid),
+            subtensor_runtime_common::AlphaBalance::from(0u64)
+        );
+    }
+
+    #[benchmark]
     fn sudo_set_adjustment_alpha() {
         let netuid = NetUid::from(1);
         let owner = setup_worst_case_admin_subnet::<T>(netuid);
@@ -752,17 +848,11 @@ mod benchmarks {
 
     #[benchmark]
     fn sudo_set_network_pow_registration_allowed() {
-        #[block]
-        {
-            assert!(
-                AdminUtils::<T>::sudo_set_network_pow_registration_allowed(
-                    RawOrigin::Root.into(),
-                    NetUid::from(u16::MAX),
-                    true,
-                )
-                .is_err()
-            );
-        }
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        pallet_subtensor::NullConsensus::<T>::insert(netuid, true);
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, true);
     }
 
     #[benchmark]

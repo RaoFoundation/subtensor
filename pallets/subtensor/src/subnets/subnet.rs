@@ -498,6 +498,7 @@ impl<T: Config> Pallet<T> {
         Self::set_min_allowed_weights(netuid, 1);
         Self::set_immunity_period(netuid, 5000);
         Self::set_yuma3_enabled(netuid, true);
+        NullConsensus::<T>::insert(netuid, false);
         Self::set_burn(netuid, DefaultNeuronBurnCost::<T>::get());
 
         // New subnets should never inherit a prior subnet owner's disabled state

@@ -182,6 +182,20 @@ pub mod pallet {
             /// Largest slice, in rao, either rule may leave unsold (`0` = every skip off).
             forfeit_cap_rao: u64,
         },
+        /// The subnet owner or root changed the active consensus algorithm.
+        NullConsensusToggled {
+            /// Subnet whose consensus mode changed.
+            netuid: NetUid,
+            /// Whether miner-only mean scoring is active.
+            enabled: bool,
+        },
+        /// The subnet owner or root changed the null miner admission cap.
+        NullMaxAllowedUidsSet {
+            /// Subnet whose admission cap changed.
+            netuid: NetUid,
+            /// Maximum number of registered null miners.
+            max_allowed_uids: u64,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -221,6 +235,8 @@ pub mod pallet {
         CollateralDrainRatioOutOfBounds,
         /// GRANDPA changes must take effect at the end of the current block.
         GrandpaChangeDelayMustBeZero,
+        /// The null miner cap cannot be lower than the current or initial imported population.
+        NullMaxAllowedUidsLessThanCurrentMiners,
     }
     /// Enum for specifying the type of precompile operation.
     #[derive(
@@ -626,12 +642,12 @@ pub mod pallet {
                 max_allowed_uids <= DefaultMaxAllowedUids::<T>::get(),
                 Error::<T>::MaxAllowedUidsGreaterThanDefaultMaxAllowedUids
             );
-            // Prevent chain bloat: Require max UIDs to be limited
             let mechanism_count = pallet_subtensor::MechanismCountCurrent::<T>::get(netuid);
             pallet_subtensor::Pallet::<T>::ensure_max_uids_over_all_mechanisms(
                 max_allowed_uids,
                 mechanism_count.into(),
             )?;
+
             pallet_subtensor::Pallet::<T>::set_max_allowed_uids(netuid, max_allowed_uids);
             pallet_subtensor::Pallet::<T>::record_owner_rl(
                 maybe_owner,
@@ -779,13 +795,33 @@ pub mod pallet {
         /// It is only callable by the root account or subnet owner.
         /// The extrinsic will call the Subtensor pallet to set the network PoW registration allowed.
         #[pallet::call_index(20)]
-        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_network_pow_registration_allowed())]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_network_pow_registration_allowed()
+            .saturating_add(<T as Config>::WeightInfo::sudo_set_network_registration_allowed()))]
         pub fn sudo_set_network_pow_registration_allowed(
-            _origin: OriginFor<T>,
-            _netuid: NetUid,
-            _registration_allowed: bool,
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            registration_allowed: bool,
         ) -> DispatchResult {
-            Err(Error::<T>::POWRegistrationDisabled.into())
+            ensure!(
+                pallet_subtensor::NullConsensus::<T>::get(netuid),
+                Error::<T>::POWRegistrationDisabled
+            );
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::PowRegistrationAllowed.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            pallet_subtensor::Pallet::<T>::set_network_pow_registration_allowed(
+                netuid,
+                registration_allowed,
+            );
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::PowRegistrationAllowed.into()],
+            );
+            Ok(())
         }
 
         /// The extrinsic sets the target registrations per interval for a subnet.
@@ -2623,6 +2659,84 @@ pub mod pallet {
             });
             log::debug!(
                 "BasketClaimDustSet( row_cap_rao: {row_cap_rao:?}, row_bps: {row_bps:?}, slice_rao: {slice_rao:?}, forfeit_cap_rao: {forfeit_cap_rao:?} )"
+            );
+            Ok(())
+        }
+
+        /// Enables or disables null consensus without changing other hyperparameters.
+        /// New subnets start in Yuma 3; the owner/root may toggle populated subnets.
+        /// Enabling cancels pending encrypted Yuma submissions.
+        #[pallet::call_index(111)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_null_consensus_enabled()
+            .saturating_add(pallet_subtensor::Pallet::<T>::null_scoring_weight(pallet_subtensor::null_consensus::MAX_NULL_WEIGHT_ENTRIES))
+            // Reveal cleanup bounds retained buckets by the maximum reveal
+            // period, plus the current epoch and its lookahead. Include the
+            // final prefix probe, each bucket deletion, and the penalty reset.
+            .saturating_add(T::DbWeight::get().reads_writes(
+                pallet_subtensor::MAX_COMMIT_REVEAL_PEROIDS.saturating_add(3),
+                pallet_subtensor::MAX_COMMIT_REVEAL_PEROIDS.saturating_add(3),
+            ))
+            .saturating_add(T::DbWeight::get().reads(u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_add(1)))
+            .saturating_add(T::DbWeight::get().reads_writes(u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(7), u64::from(DefaultMaxAllowedUids::<T>::get()).saturating_mul(7))))]
+        pub fn sudo_set_null_consensus_enabled(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            enabled: bool,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::NullConsensusEnabled.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            pallet_subtensor::Pallet::<T>::do_set_null_consensus(netuid, enabled)?;
+            Self::deposit_event(Event::NullConsensusToggled { netuid, enabled });
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::NullConsensusEnabled.into()],
+            );
+            Ok(())
+        }
+
+        /// Sets the null miner admission cap without changing Yuma's UID limit.
+        /// Defaults to 1024. Cannot evict miners or go below the population
+        /// that is already registered (or will be imported on first enable).
+        #[pallet::call_index(112)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_null_max_allowed_uids())]
+        pub fn sudo_set_null_max_allowed_uids(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            max_allowed_uids: u64,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::NullMaxAllowedUids.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            ensure!(
+                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                Error::<T>::SubnetDoesNotExist
+            );
+            ensure!(!netuid.is_root(), Error::<T>::NotPermittedOnRootSubnet);
+            let population =
+                pallet_subtensor::NullMinerCount::<T>::try_get(netuid).unwrap_or_else(|_| {
+                    u64::from(pallet_subtensor::Pallet::<T>::get_subnetwork_n(netuid))
+                });
+            ensure!(
+                max_allowed_uids >= population,
+                Error::<T>::NullMaxAllowedUidsLessThanCurrentMiners
+            );
+            pallet_subtensor::NullMaxAllowedUids::<T>::insert(netuid, max_allowed_uids);
+            Self::deposit_event(Event::NullMaxAllowedUidsSet {
+                netuid,
+                max_allowed_uids,
+            });
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::NullMaxAllowedUids.into()],
             );
             Ok(())
         }

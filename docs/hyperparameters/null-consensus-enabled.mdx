@@ -1,0 +1,30 @@
+---
+title: "null_consensus_enabled"
+description: "Switch an existing subnet between Yuma and averaged validator scores without bonds."
+---
+
+New subnets start with Yuma 3 and this flag disabled. The owner or root can toggle
+`null_consensus_enabled` through `AdminUtils.sudo_set_null_consensus_enabled`.
+Other hyperparameters and both miner registries are preserved.
+
+```bash
+btcli hparams set --netuid 123 --name null_consensus_enabled --value true
+btcli hparams set --netuid 123 --name null_consensus_enabled --value false
+```
+
+Null consensus averages normalized validator weight rows to distribute miner
+emission after the owner cut, without Yuma consensus, bonds, or validator dividends. Yuma weights and commit-reveal configuration
+remain stored. Disabling null mode resumes the configured Yuma version.
+Disabling settles the pending null budget in the same call. Null score rows are cleared
+on mode changes; earned rewards remain claimable. Owner rate limits apply in both modes; the epoch freeze window applies only in Yuma.
+
+Enabling requires one mechanism and deletes all pending encrypted Yuma
+submissions for the subnet. These submissions are not restored when null mode
+is disabled; validators must submit new weights after returning to Yuma.
+Already published weights and the `commit_reveal_weights_enabled` hyperparameter
+remain unchanged.
+
+The initial Yuma metagraph import must fit its normal capacity and the configured
+[`null_max_allowed_uids`](/hyperparameters/null-max-allowed-uids) admission cap. The independent
+null registry uses `u64` identifiers, and its population does not prevent
+switching back to Yuma. See [null-consensus subnets](/guides/null-consensus).

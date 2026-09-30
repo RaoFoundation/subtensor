@@ -41,14 +41,9 @@ fn test_registration_ok() {
         add_balance_to_coldkey_account(&coldkey_account_id, TaoBalance::from(reserve));
         add_balance_to_coldkey_account(&hotkey_account_id, TaoBalance::from(reserve));
 
-        let (nonce, work): (u64, Vec<u8>) = SubtensorModule::create_work_for_block_number(
-            netuid,
-            block_number,
-            129123813,
-            &hotkey_account_id,
-        );
+        let (nonce, work): (u64, Vec<u8>) = (0, Vec::new());
 
-        // PoW register should succeed.
+        // The legacy paid alias is selected explicitly by empty work.
         assert_ok!(SubtensorModule::register(
             <<Test as Config>::RuntimeOrigin>::signed(hotkey_account_id),
             netuid,

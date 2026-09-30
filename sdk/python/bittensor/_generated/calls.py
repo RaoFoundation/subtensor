@@ -255,6 +255,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'burned_register', {'netuid': netuid, 'hotkey': hotkey})
 
     @staticmethod
+    def claim_null_rewards(netuid: 'NetUid', hotkey: 'AccountId32', stake_hotkey: 'AccountId32') -> Call:
+        'Claim scored null-miner emissions into a coldkey-owned staking position. Claims remain available while the subnet has returned to Yuma.'
+        return Call('SubtensorModule', 'claim_null_rewards', {'netuid': netuid, 'hotkey': hotkey, 'stake_hotkey': stake_hotkey})
+
+    @staticmethod
     def claim_root(subnets: 'BTreeSet') -> Call:
         "Claims the root emissions for a coldkey across every validator it root-stakes to.  Redemption is fund-level: for each validator, the staker's accrued entitlement is paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on root. The corresponding alpha fraction is sold; any concavity surplus over the NAV-priced entitlement remains in the basket as root TAO for the other holders. The `subnets` argument is retained for call-data compatibility with pre-basket clients; it is ignored — baskets have no per-subnet claim selection.  Prefer [`Pallet::claim_root_with_hotkey`] to claim a single validator.  Dust rows are not sold (see [`Pallet::claim_root_with_hotkey`]); the claimant's slice of them stays in the fund. A claim that is admitted and then fails is charged the work it did, not the declared envelope; a claim refused at admission keeps the envelope.  # Arguments * `origin`: The signature of the caller's coldkey. * `subnets`: Ignored. Kept so old clients' encoded call data still decodes.  # Events * `RootClaimed`: On successfully claiming the root emissions for a coldkey. * `BasketClaimDustSkipped`: Per fund whose dust rows were left unsold.  # Errors * `RootClaimTooHeavy`: More hotkeys or fund rows than one claim may walk."
         return Call('SubtensorModule', 'claim_root', {'subnets': subnets})
@@ -473,6 +478,11 @@ class SubtensorModule:
     def set_min_collateral(netuid: 'NetUid', hotkey: 'AccountId32', min_locked: 'AlphaBalance') -> Call:
         "Sets the self-maintaining collateral floor for the signer's hotkey on a subnet.  The drain never releases the lock below the floor, and while the lock is under it, earned emission is captured into the lock until the floor is met — so a miner tracking a validator-published collateral requirement does not need to keep re-locking drained funds. Zero clears the floor and restores pure drain behavior.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey`. * `netuid`: The subnet the floor applies to. * `hotkey`: The miner hotkey the floor applies to. * `min_locked`: The floor, in alpha; zero clears it.  # Errors * `RegistrationNotPermittedOnRootSubnet`: `netuid` is the root network. * `SubnetNotExists`: The subnet does not exist. * `HotKeyAccountNotExists`: The hotkey account does not exist. * `NonAssociatedColdKey`: The signer does not own `hotkey`.  # Events Emits `MinCollateralSet` on success."
         return Call('SubtensorModule', 'set_min_collateral', {'netuid': netuid, 'hotkey': hotkey, 'min_locked': min_locked})
+
+    @staticmethod
+    def set_null_weights(netuid: 'NetUid', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
+        'Submit u32 relative scores for u64 null miner IDs. Eligible rows are averaged equally.'
+        return Call('SubtensorModule', 'set_null_weights', {'netuid': netuid, 'dests': dests, 'weights': weights, 'version_key': version_key})
 
     @staticmethod
     def set_pending_childkey_cooldown(cooldown: 'u64') -> Call:
@@ -1200,6 +1210,16 @@ class AdminUtils:
     def sudo_set_nominator_min_required_stake(min_stake: 'u64') -> Call:
         'The extrinsic sets the minimum stake required for nominators. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the minimum stake required for nominators.'
         return Call('AdminUtils', 'sudo_set_nominator_min_required_stake', {'min_stake': min_stake})
+
+    @staticmethod
+    def sudo_set_null_consensus_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
+        'Enables or disables null consensus without changing other hyperparameters. New subnets start in Yuma 3; the owner/root may toggle populated subnets. Enabling cancels pending encrypted Yuma submissions.'
+        return Call('AdminUtils', 'sudo_set_null_consensus_enabled', {'netuid': netuid, 'enabled': enabled})
+
+    @staticmethod
+    def sudo_set_null_max_allowed_uids(netuid: 'NetUid', max_allowed_uids: 'u64') -> Call:
+        "Sets the null miner admission cap without changing Yuma's UID limit. Defaults to 1024. Cannot evict miners or go below the population that is already registered (or will be imported on first enable)."
+        return Call('AdminUtils', 'sudo_set_null_max_allowed_uids', {'netuid': netuid, 'max_allowed_uids': max_allowed_uids})
 
     @staticmethod
     def sudo_set_owner_cut_auto_lock_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:

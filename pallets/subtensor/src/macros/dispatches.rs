@@ -72,7 +72,9 @@ mod dispatches {
             weights: Vec<u16>,
             version_key: u64,
         ) -> DispatchResult {
-            if Self::get_commit_reveal_weights_enabled(netuid) {
+            if NullConsensus::<T>::get(netuid) {
+                Err(Error::<T>::NullConsensusRequiresU32Weights.into())
+            } else if Self::get_commit_reveal_weights_enabled(netuid) {
                 Err(Error::<T>::CommitRevealEnabled.into())
             } else {
                 Self::do_set_weights(origin, netuid, dests, weights, version_key)
@@ -133,7 +135,9 @@ mod dispatches {
             weights: Vec<u16>,
             version_key: u64,
         ) -> DispatchResult {
-            if Self::get_commit_reveal_weights_enabled(netuid) {
+            if NullConsensus::<T>::get(netuid) {
+                Err(Error::<T>::NullConsensusRequiresU32Weights.into())
+            } else if Self::get_commit_reveal_weights_enabled(netuid) {
                 Err(Error::<T>::CommitRevealEnabled.into())
             } else {
                 Self::do_set_mechanism_weights(origin, netuid, mecid, dests, weights, version_key)
@@ -800,7 +804,7 @@ mod dispatches {
         /// * `InvalidSeal`: The seal is incorrect.
         ///
         #[pallet::call_index(6)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register())]
+        #[pallet::weight(Pallet::<T>::pow_register_weight())]
         pub fn register(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -810,7 +814,60 @@ mod dispatches {
             hotkey: T::AccountId,
             _coldkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
+            // Nonempty signed work selects PoW-only semantics, regardless of the
+            // mode at inclusion. A mode change must never turn work into a payment.
+            if !_work.is_empty() || NullConsensus::<T>::get(netuid) {
+                return Self::do_null_pow_register(
+                    origin,
+                    netuid,
+                    _block_number,
+                    _nonce,
+                    _work,
+                    hotkey,
+                    _coldkey,
+                )
+                .map(|_| ().into())
+                .map_err(Into::into);
+            }
+            // Preserve the legacy alias's final fee while reserving enough for
+            // either mode, even if an earlier batch item enables null consensus.
             Self::do_register_with_post_info(origin, netuid, hotkey)
+                .map(|mut post| {
+                    post.actual_weight = Some(<T as Config>::WeightInfo::register());
+                    post
+                })
+                .map_err(|mut error| {
+                    if error.post_info.actual_weight.is_none() {
+                        error.post_info.actual_weight = Some(<T as Config>::WeightInfo::register());
+                    }
+                    error
+                })
+        }
+
+        /// Submit u32 relative scores for u64 null miner IDs. Eligible rows are averaged equally.
+        #[pallet::call_index(153)]
+        #[pallet::weight(Pallet::<T>::null_weights_weight(dests.len() as u32))]
+        pub fn set_null_weights(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            dests: Vec<u64>,
+            weights: Vec<u32>,
+            version_key: u64,
+        ) -> DispatchResult {
+            Self::do_set_null_weights(origin, netuid, dests, weights, version_key)
+        }
+
+        /// Claim scored null-miner emissions into a coldkey-owned staking position.
+        /// Claims remain available while the subnet has returned to Yuma.
+        #[pallet::call_index(154)]
+        #[pallet::weight(<T as Config>::WeightInfo::claim_null_rewards())]
+        pub fn claim_null_rewards(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            hotkey: T::AccountId,
+            stake_hotkey: T::AccountId,
+        ) -> DispatchResult {
+            Self::do_claim_null_rewards(origin, netuid, hotkey, stake_hotkey)
         }
 
         /// Register the hotkey to root network.

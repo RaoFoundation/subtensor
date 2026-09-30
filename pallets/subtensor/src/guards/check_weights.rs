@@ -31,6 +31,7 @@ impl<T: Config> CheckWeights<T> {
                 | Call::reveal_weights { .. }
                 | Call::reveal_mechanism_weights { .. }
                 | Call::set_weights { .. }
+                | Call::set_null_weights { .. }
                 | Call::set_mechanism_weights { .. }
                 | Call::commit_timelocked_weights { .. }
                 | Call::commit_timelocked_mechanism_weights { .. }
@@ -39,6 +40,16 @@ impl<T: Config> CheckWeights<T> {
     }
 
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
+        if let Call::set_null_weights {
+            netuid,
+            dests,
+            weights,
+            version_key,
+        } = call
+        {
+            return Pallet::<T>::validate_null_weights(who, *netuid, dests, weights, *version_key)
+                .map(|_| ());
+        }
         Self::check_input_lengths(call)?;
         Self::check_batch_size(call)?;
         Self::check_min_stake(who, call)?;
@@ -95,6 +106,9 @@ impl<T: Config> CheckWeights<T> {
     }
 
     fn ensure_min_stake(who: &T::AccountId, netuid: NetUid) -> Result<(), Error<T>> {
+        if crate::NullConsensus::<T>::get(netuid) {
+            return Err(Error::<T>::NullConsensusRequiresU32Weights);
+        }
         if Pallet::<T>::check_weights_min_stake(who, netuid) {
             Ok(())
         } else {
@@ -271,7 +285,15 @@ where
 
     fn weight(call: &CallOf<T>) -> Weight {
         applicable_call(call, Self::applies_to)
-            .map(|_| <T as Config>::WeightInfo::check_weights_extension())
+            .map(|call| match call {
+                Call::set_null_weights { dests, .. } => {
+                    <T as Config>::WeightInfo::check_null_weights_extension(
+                        (dests.len() as u32).saturating_mul(2),
+                    )
+                    .saturating_add(T::DbWeight::get().reads(70))
+                }
+                _ => <T as Config>::WeightInfo::check_weights_extension(),
+            })
             .unwrap_or(Weight::zero())
     }
 

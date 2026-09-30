@@ -57,6 +57,10 @@ impl<T: Config> Pallet<T> {
     /// validator weight submissions. Engages immediately on a pending manual trigger (so the trigger
     /// arms the freeze for the entire countdown to `PendingEpochAt`).
     pub fn is_in_admin_freeze_window(netuid: NetUid, current_block: u64) -> bool {
+        // Null mode has no epoch or validator weight-submission window.
+        if NullConsensus::<T>::get(netuid) {
+            return false;
+        }
         let tempo = Self::get_tempo(netuid);
         if tempo == 0 {
             return false;

@@ -299,6 +299,19 @@ impl<T: Config> Pallet<T> {
             // Mint and resolve outstanding alpha
             Self::resolve_to_alpha_out(Self::mint_alpha(*netuid_i, alpha_created));
 
+            if NullConsensus::<T>::get(*netuid_i) {
+                let owner_cut = if Self::get_owner_cut_enabled(*netuid_i) {
+                    AlphaBalance::from(tou64!(alpha_out_i.saturating_mul(cut_percent)))
+                } else {
+                    AlphaBalance::ZERO
+                };
+                PendingServerEmission::<T>::mutate(*netuid_i, |total| {
+                    *total = total.saturating_add(alpha_created.saturating_sub(owner_cut));
+                });
+                Self::distribute_owner_cut(*netuid_i, owner_cut);
+                continue;
+            }
+
             // Calculate the owner cut.
             if Self::get_owner_cut_enabled(*netuid_i) {
                 let owner_cut_i: U96F32 = alpha_out_i.saturating_mul(cut_percent);
@@ -369,7 +382,7 @@ impl<T: Config> Pallet<T> {
                 deferred.insert(netuid);
                 continue;
             }
-            if Self::is_epoch_input_state_consistent(netuid) {
+            if NullConsensus::<T>::get(netuid) || Self::is_epoch_input_state_consistent(netuid) {
                 epochs_run_this_block = epochs_run_this_block.saturating_add(1);
             }
         }
@@ -390,6 +403,10 @@ impl<T: Config> Pallet<T> {
         let max_epochs_per_block = Self::get_max_epochs_per_block() as u32;
         let mut epochs_run_this_block: u32 = 0;
         for &netuid in subnets.iter() {
+            if NullConsensus::<T>::get(netuid) {
+                Self::maintain_null_voting_disable(netuid, current_block);
+            }
+
             // Keep the scheduler age bounded per subnet. `tempo + 1` is enough to
             // record that a due epoch missed its slot while avoiding an unbounded
             // public counter when the epoch is repeatedly deferred or its input
@@ -416,7 +433,7 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            if Self::is_epoch_input_state_consistent(netuid) {
+            if NullConsensus::<T>::get(netuid) || Self::is_epoch_input_state_consistent(netuid) {
                 // Reset blocks-since counter; LastMechansimStepBlock is written
                 // post-distribute (see the caller), so bonds masking can read the
                 // previous successful run.
@@ -490,7 +507,10 @@ impl<T: Config> Pallet<T> {
                 pending_root_alpha,
                 pending_owner_cut,
             );
-            LastMechansimStepBlock::<T>::insert(netuid, current_block);
+            if !NullConsensus::<T>::get(netuid) {
+                // Null scoring must not advance the anchor used to mask Yuma bonds.
+                LastMechansimStepBlock::<T>::insert(netuid, current_block);
+            }
         }
     }
 
@@ -689,13 +709,14 @@ impl<T: Config> Pallet<T> {
         owner_hotkeys
     }
 
-    pub fn distribute_dividends_and_incentives(
-        netuid: NetUid,
-        owner_cut: AlphaBalance,
-        incentives: BTreeMap<T::AccountId, AlphaBalance>,
-        alpha_dividends: BTreeMap<T::AccountId, U96F32>,
-        root_alpha_dividends: BTreeMap<T::AccountId, U96F32>,
-    ) {
+    pub fn distribute_owner_cut(netuid: NetUid, owner_cut: AlphaBalance) {
+        if owner_cut.is_zero() {
+            // Previously earned dividends and deferred payments still need servicing.
+            if let Some(lease_id) = SubnetUidToLeaseId::<T>::get(netuid) {
+                Self::distribute_leased_network_dividends(lease_id, owner_cut);
+            }
+            return;
+        }
         // Distribute the owner cut.
         if let Ok(owner_coldkey) = SubnetOwner::<T>::try_get(netuid)
             && let Ok(owner_hotkey) = SubnetOwnerHotkey::<T>::try_get(netuid)
@@ -723,6 +744,16 @@ impl<T: Config> Pallet<T> {
             // Auto-lock owner's cut
             Self::auto_lock_owner_cut(netuid, retained_cut);
         }
+    }
+
+    pub fn distribute_dividends_and_incentives(
+        netuid: NetUid,
+        owner_cut: AlphaBalance,
+        incentives: BTreeMap<T::AccountId, AlphaBalance>,
+        alpha_dividends: BTreeMap<T::AccountId, U96F32>,
+        root_alpha_dividends: BTreeMap<T::AccountId, U96F32>,
+    ) {
+        Self::distribute_owner_cut(netuid, owner_cut);
 
         // Distribute mining incentives.
         let subnet_owner_coldkey = SubnetOwner::<T>::get(netuid);
@@ -954,6 +985,12 @@ impl<T: Config> Pallet<T> {
         let total_alpha_minus_owner_cut = pending_server_alpha
             .saturating_add(pending_validator_alpha)
             .saturating_add(pending_root_alpha);
+
+        if NullConsensus::<T>::get(netuid) {
+            Self::accrue_null_rewards(netuid, total_alpha_minus_owner_cut);
+            Self::distribute_owner_cut(netuid, pending_owner_cut);
+            return;
+        }
 
         // Run the epoch, using the alpha going to both the servers and the validators.
         let hotkey_emission: Vec<(T::AccountId, AlphaBalance, AlphaBalance)> =

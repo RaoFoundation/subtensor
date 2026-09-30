@@ -18,6 +18,24 @@ mod hooks {
         fn on_initialize(block_number: BlockNumberFor<T>) -> Weight {
             let hotkey_swap_clean_up_weight = Self::clean_up_hotkey_swap_records(block_number);
 
+            let subnets = Self::get_all_subnet_netuids();
+            let scan_weight = T::DbWeight::get()
+                .reads((subnets.len() as u64).saturating_mul(6).saturating_add(1));
+            let now = Self::get_current_block_as_u64();
+            let mut null_weights: Vec<_> = subnets
+                .into_iter()
+                .filter(|netuid| {
+                    NullConsensus::<T>::get(netuid) && Self::should_run_epoch(*netuid, now)
+                })
+                .map(Self::null_epoch_weight)
+                .collect();
+            // The shared scheduler executes at most this many passes. Reserve
+            // the largest eligible null passes, not every deferred subnet.
+            null_weights.sort_by_key(|weight| core::cmp::Reverse(weight.ref_time()));
+            let null_weight = null_weights
+                .into_iter()
+                .take(Self::get_max_epochs_per_block() as usize)
+                .fold(scan_weight, |weight, next| weight.saturating_add(next));
             let block_step_result = Self::block_step();
             // Advance the paged beta-index sweep right after the block step (deposit
             // queue drained), charging its bounded page into the hook weight.
@@ -27,6 +45,7 @@ mod hooks {
                     // --- If the block step was successful, return the weight.
                     log::debug!("Successfully ran block step.");
                     <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
+                        .saturating_add(null_weight)
                         .saturating_add(hotkey_swap_clean_up_weight)
                         .saturating_add(beta_index_sweep_weight)
                 }
@@ -34,6 +53,7 @@ mod hooks {
                     // --- If the block step was unsuccessful, return the weight anyway.
                     log::error!("Error while stepping block: {:?}", e);
                     <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
+                        .saturating_add(null_weight)
                         .saturating_add(hotkey_swap_clean_up_weight)
                         .saturating_add(beta_index_sweep_weight)
                 }

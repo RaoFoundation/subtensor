@@ -1139,6 +1139,114 @@ fn test_sudo_set_network_pow_registration_allowed() {
     });
 }
 
+#[test]
+fn null_consensus_toggle_uses_owner_authorization_rate_limit_and_admin_window() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(100);
+        System::set_block_number(1);
+        SubtensorModule::init_new_network(netuid, 360);
+        SubtensorModule::set_admin_freeze_window(0);
+        SubtensorModule::set_owner_hyperparam_rate_limit(1);
+        pallet_subtensor::SubnetOwner::<Test>::insert(netuid, owner);
+        assert!(pallet_subtensor::Yuma3On::<Test>::get(netuid));
+        assert!(!pallet_subtensor::NullConsensus::<Test>::get(netuid));
+        assert_noop!(
+            AdminUtils::sudo_set_null_consensus_enabled(RuntimeOrigin::none(), netuid, true),
+            DispatchError::BadOrigin
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_null_consensus_enabled(
+                RuntimeOrigin::signed(U256::from(101)),
+                netuid,
+                true
+            ),
+            DispatchError::BadOrigin
+        );
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            true
+        ));
+        assert_noop!(
+            AdminUtils::sudo_set_null_consensus_enabled(
+                RuntimeOrigin::signed(owner),
+                netuid,
+                false
+            ),
+            pallet_subtensor::Error::<Test>::TxRateLimitExceeded
+        );
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::root(),
+            netuid,
+            false
+        ));
+        assert!(!pallet_subtensor::NullConsensus::<Test>::get(netuid));
+        System::set_block_number(362);
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            true
+        ));
+        SubtensorModule::set_admin_freeze_window(u16::MAX);
+        // No weight-submission window exists while null consensus is active.
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::root(),
+            netuid,
+            false
+        ));
+        // The normal Yuma freeze still applies after disabling null mode.
+        assert_noop!(
+            AdminUtils::sudo_set_null_consensus_enabled(RuntimeOrigin::root(), netuid, true),
+            pallet_subtensor::Error::<Test>::AdminActionProhibitedDuringWeightsWindow
+        );
+    });
+}
+
+#[test]
+fn null_consensus_admin_limits_and_pow_toggle() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        SubtensorModule::init_new_network(netuid, 10);
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::root(),
+            netuid,
+            true
+        ));
+        assert_noop!(
+            AdminUtils::sudo_set_max_allowed_uids(RuntimeOrigin::root(), netuid, 32768),
+            Error::<Test>::MaxAllowedUidsGreaterThanDefaultMaxAllowedUids
+        );
+        assert!(
+            AdminUtils::sudo_set_max_allowed_uids(RuntimeOrigin::root(), netuid, 32769).is_err()
+        );
+        assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
+            RuntimeOrigin::root(),
+            netuid,
+            false
+        ));
+        assert!(!pallet_subtensor::NetworkPowRegistrationAllowed::<Test>::get(netuid));
+        assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
+            RuntimeOrigin::root(),
+            netuid,
+            true
+        ));
+        assert_ok!(AdminUtils::sudo_set_max_allowed_validators(
+            RuntimeOrigin::root(),
+            netuid,
+            65
+        ));
+        assert_ok!(AdminUtils::sudo_set_commit_reveal_weights_enabled(
+            RuntimeOrigin::root(),
+            netuid,
+            true
+        ));
+        assert!(pallet_subtensor::CommitRevealWeightsEnabled::<Test>::get(
+            netuid
+        ));
+    });
+}
+
 mod sudo_set_nominator_min_required_stake {
     use super::*;
 
@@ -3776,5 +3884,174 @@ fn test_sudo_set_basket_claim_dust() {
         assert_eq!(pallet_subtensor::BasketClaimRowDustBps::<Test>::get(), 0);
         assert_eq!(pallet_subtensor::BasketClaimSliceDustTao::<Test>::get(), 0);
         assert_eq!(pallet_subtensor::BasketClaimForfeitCapTao::<Test>::get(), 0);
+    });
+}
+
+#[test]
+fn null_consensus_administration_remains_open_after_many_tempos() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(100);
+        System::set_block_number(1);
+        SubtensorModule::init_new_network(netuid, 360);
+        SubtensorModule::set_owner_hyperparam_rate_limit(0);
+        pallet_subtensor::SubnetOwner::<Test>::insert(netuid, owner);
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            true
+        ));
+        System::set_block_number(10_000);
+        SubtensorModule::drain_pending(&[netuid], 10_000);
+        assert_eq!(
+            pallet_subtensor::LastEpochBlock::<Test>::get(netuid),
+            10_000
+        );
+        assert!(pallet_subtensor::AdminFreezeWindow::<Test>::get() > 0);
+        // Null scoring never reads Yuma bonds, so the Yuma freeze window does not apply.
+        pallet_subtensor::PendingEpochAt::<Test>::insert(netuid, 10_010);
+        assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            false
+        ));
+        assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            true
+        ));
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            false
+        ));
+        assert!(!pallet_subtensor::NullConsensus::<Test>::get(netuid));
+        assert!(SubtensorModule::is_in_admin_freeze_window(netuid, 10_000));
+    });
+}
+
+#[test]
+fn null_max_allowed_uids_enforces_ownership_limits_and_preserves_yuma() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(100);
+        System::set_block_number(1);
+        SubtensorModule::init_new_network(netuid, 360);
+        SubtensorModule::set_admin_freeze_window(0);
+        SubtensorModule::set_owner_hyperparam_rate_limit(1);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        let yuma_limit = MaxAllowedUids::<Test>::get(netuid);
+        assert_eq!(NullMaxAllowedUids::<Test>::get(netuid), 1024);
+        assert_noop!(
+            AdminUtils::sudo_set_null_max_allowed_uids(RuntimeOrigin::none(), netuid, 0),
+            DispatchError::BadOrigin
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_null_max_allowed_uids(
+                RuntimeOrigin::signed(U256::from(101)),
+                netuid,
+                0
+            ),
+            DispatchError::BadOrigin
+        );
+        // Empty subnets can close admission before the first activation.
+        assert_ok!(AdminUtils::sudo_set_null_max_allowed_uids(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            0
+        ));
+        assert_noop!(
+            AdminUtils::sudo_set_null_max_allowed_uids(RuntimeOrigin::signed(owner), netuid, 1),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+        // Consensus toggling has its own independent rate limit.
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            true
+        ));
+        assert_ok!(AdminUtils::sudo_set_null_max_allowed_uids(
+            RuntimeOrigin::root(),
+            netuid,
+            u64::MAX
+        ));
+        NullMinerCount::<Test>::insert(netuid, 1u64 << 40);
+        assert_noop!(
+            AdminUtils::sudo_set_null_max_allowed_uids(
+                RuntimeOrigin::root(),
+                netuid,
+                (1u64 << 40) - 1
+            ),
+            Error::<Test>::NullMaxAllowedUidsLessThanCurrentMiners
+        );
+        assert_ok!(AdminUtils::sudo_set_null_max_allowed_uids(
+            RuntimeOrigin::root(),
+            netuid,
+            1u64 << 40
+        ));
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::root(),
+            netuid,
+            false
+        ));
+        // Retained null membership is authoritative even while Yuma is active.
+        assert_noop!(
+            AdminUtils::sudo_set_null_max_allowed_uids(RuntimeOrigin::root(), netuid, 0),
+            Error::<Test>::NullMaxAllowedUidsLessThanCurrentMiners
+        );
+        System::set_block_number(362);
+        SubtensorModule::set_admin_freeze_window(u16::MAX);
+        assert_noop!(
+            AdminUtils::sudo_set_null_max_allowed_uids(RuntimeOrigin::root(), netuid, u64::MAX),
+            SubtensorError::<Test>::AdminActionProhibitedDuringWeightsWindow
+        );
+        SubtensorModule::set_admin_freeze_window(0);
+        assert_ok!(AdminUtils::sudo_set_null_max_allowed_uids(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            u64::MAX
+        ));
+        assert_eq!(MaxAllowedUids::<Test>::get(netuid), yuma_limit);
+        System::assert_last_event(
+            crate::Event::<Test>::NullMaxAllowedUidsSet {
+                netuid,
+                max_allowed_uids: u64::MAX,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn null_max_allowed_uids_checks_subnet_and_initial_population() {
+    new_test_ext().execute_with(|| {
+        SubtensorModule::set_admin_freeze_window(0);
+        let netuid = NetUid::from(1);
+        assert_noop!(
+            AdminUtils::sudo_set_null_max_allowed_uids(RuntimeOrigin::root(), netuid, 1),
+            Error::<Test>::SubnetDoesNotExist
+        );
+        SubtensorModule::init_new_network(NetUid::from(0), 360);
+        assert_noop!(
+            AdminUtils::sudo_set_null_max_allowed_uids(RuntimeOrigin::root(), NetUid::from(0), 1),
+            Error::<Test>::NotPermittedOnRootSubnet
+        );
+        SubtensorModule::init_new_network(netuid, 360);
+        SubtensorModule::append_neuron(netuid, &U256::from(100), 1);
+        assert_noop!(
+            AdminUtils::sudo_set_null_max_allowed_uids(RuntimeOrigin::root(), netuid, 0),
+            Error::<Test>::NullMaxAllowedUidsLessThanCurrentMiners
+        );
+        assert_ok!(AdminUtils::sudo_set_null_max_allowed_uids(
+            RuntimeOrigin::root(),
+            netuid,
+            1
+        ));
+        assert_ok!(AdminUtils::sudo_set_null_consensus_enabled(
+            RuntimeOrigin::root(),
+            netuid,
+            true
+        ));
+        assert_eq!(NullMinerCount::<Test>::get(netuid), 1);
     });
 }

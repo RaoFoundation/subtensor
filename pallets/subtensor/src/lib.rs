@@ -39,6 +39,7 @@ pub mod extensions;
 pub mod guards;
 pub mod macros;
 pub mod migrations;
+pub mod null_consensus;
 pub mod rpc_info;
 pub mod staking;
 pub mod subnets;
@@ -2390,6 +2391,93 @@ pub mod pallet {
     #[pallet::storage]
     pub type NetworkPowRegistrationAllowed<T: Config> =
         StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultRegistrationAllowed<T>>;
+
+    /// Owner-toggleable averaged miner scores without Yuma or bonds. New subnets default to false.
+    #[pallet::storage]
+    pub type NullConsensus<T> = StorageMap<_, Identity, NetUid, bool, ValueQuery>;
+
+    /// Default null miner admission cap, configurable by the subnet owner.
+    #[pallet::type_value]
+    pub fn DefaultNullMaxAllowedUids() -> u64 {
+        1024
+    }
+
+    /// Admission cap for the independent null miner registry. Does not prune miners.
+    #[pallet::storage]
+    pub type NullMaxAllowedUids<T> =
+        StorageMap<_, Identity, NetUid, u64, ValueQuery, DefaultNullMaxAllowedUids>;
+
+    /// Independent u64 miner population; never changes Yuma's metagraph size.
+    #[pallet::storage]
+    pub type NullMinerCount<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
+    /// Miner coldkey and Q64 reward checkpoint. Fixed-size state per identity.
+    #[pallet::storage]
+    pub type NullMiners<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        (T::AccountId, sp_core::U256),
+        OptionQuery,
+    >;
+    #[pallet::storage]
+    pub type NullMinerKeys<T: Config> =
+        StorageDoubleMap<_, Identity, NetUid, Identity, u64, T::AccountId, OptionQuery>;
+    /// Reverse index for constant-work hotkey rotation, independent of miner count.
+    #[pallet::storage]
+    pub type NullMinerUids<T: Config> =
+        StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, u64, OptionQuery>;
+    #[pallet::storage]
+    pub type NullRewardIndex<T> =
+        StorageDoubleMap<_, Identity, NetUid, Identity, u64, sp_core::U256, ValueQuery>;
+    /// Total stored score entries, bounded independently of miner population.
+    #[pallet::storage]
+    pub type NullWeightEntries<T> = StorageMap<_, Identity, NetUid, u32, ValueQuery>;
+    #[pallet::storage]
+    pub type NullUnclaimedAlpha<T> = StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery>;
+    /// Coldkey generations distinguish a reused address from its former identity.
+    #[pallet::storage]
+    pub type NullColdkeyGeneration<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u128, ValueQuery>;
+    #[pallet::storage]
+    pub type NullColdkeySuccessor<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        u128,
+        (T::AccountId, u128),
+        OptionQuery,
+    >;
+    #[pallet::storage]
+    pub type NullMinerOwnerGeneration<T: Config> =
+        StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, u128, ValueQuery>;
+
+    /// Preserve already-earned Yuma budgets across a null interval.
+    #[pallet::storage]
+    pub type NullPausedYumaEmission<T> = StorageMap<
+        _,
+        Identity,
+        NetUid,
+        (AlphaBalance, AlphaBalance, AlphaBalance, AlphaBalance),
+        OptionQuery,
+    >;
+
+    /// Sparse u32 scores from bounded Yuma validators to independent u64 miner IDs.
+    #[pallet::storage]
+    pub type NullWeights<T> =
+        StorageDoubleMap<_, Identity, NetUid, Identity, u16, Vec<(u64, u32)>, ValueQuery>;
+
+    /// Null-score timestamps are separate from Yuma's LastUpdate so toggling modes
+    /// cannot refresh old Yuma weights or bypass either weight submission rate limit.
+    #[pallet::storage]
+    pub type NullLastUpdate<T> =
+        StorageDoubleMap<_, Identity, NetUid, Identity, u16, u64, ValueQuery>;
+
+    /// Last switch away from null consensus; resumed scores must be newer than this block.
+    #[pallet::storage]
+    pub type NullWeightsResetAt<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
 
     /// MAP ( netuid ) --> block_created
     #[pallet::storage]

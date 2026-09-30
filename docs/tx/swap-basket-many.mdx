@@ -14,7 +14,7 @@ alpha unit (TAO for netuid 0).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket_many`](/code/pallets/subtensor/src/macros/dispatches.rs#L2310-L2321) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket_many`](/code/pallets/subtensor/src/macros/dispatches.rs#L2367-L2378) |
 
 ## Parameters
 
@@ -66,7 +66,7 @@ result = sub.execute_tool("swap_basket_many", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_basket_many` — [`pallets/subtensor/src/macros/dispatches.rs#L2312`](/code/pallets/subtensor/src/macros/dispatches.rs#L2310-L2321):
+`SubtensorModule.swap_basket_many` — [`pallets/subtensor/src/macros/dispatches.rs#L2369`](/code/pallets/subtensor/src/macros/dispatches.rs#L2367-L2378):
 
 ```rust
 #[pallet::call_index(151)]

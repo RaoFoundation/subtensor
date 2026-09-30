@@ -18,7 +18,7 @@ salt-based commits — the timelocked path used by `set_weights` and
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.reveal_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L273-L284) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.reveal_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L277-L288) |
 
 ## Parameters
 
@@ -77,7 +77,7 @@ result = sub.execute_tool("reveal_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.reveal_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L275`](/code/pallets/subtensor/src/macros/dispatches.rs#L273-L284):
+`SubtensorModule.reveal_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L279`](/code/pallets/subtensor/src/macros/dispatches.rs#L277-L288):
 
 ```rust
 #[pallet::call_index(97)]
@@ -94,6 +94,6 @@ pub fn reveal_weights(
 }
 ```
 
-Delegates to [`do_reveal_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L433).
+Delegates to [`do_reveal_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L441).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

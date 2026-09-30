@@ -69,6 +69,32 @@ fn assert_call_fits_normal_limit(call: RuntimeCall) {
 }
 
 #[test]
+fn null_consensus_calls_at_capacity_fit_normal_extrinsic_limit() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let n = pallet_subtensor::null_consensus::MAX_NULL_UIDS;
+        assert_call_fits_normal_limit(RuntimeCall::SubtensorModule(
+            pallet_subtensor::Call::set_null_weights {
+                netuid,
+                dests: (0..n).collect(),
+                weights: vec![u32::MAX; usize::from(n)],
+                version_key: 0,
+            },
+        ));
+        assert_call_fits_normal_limit(RuntimeCall::SubtensorModule(
+            pallet_subtensor::Call::register {
+                netuid,
+                block_number: 1,
+                nonce: 0,
+                work: vec![0; 32],
+                hotkey: AccountId::new([1; 32]),
+                coldkey: AccountId::new([2; 32]),
+            },
+        ));
+    });
+}
+
+#[test]
 fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
     new_test_ext().execute_with(|| {
         let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root {

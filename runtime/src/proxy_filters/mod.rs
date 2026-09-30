@@ -702,6 +702,8 @@ mod tests {
         // Owner-settable subnet params + subnet identity.
         assert!(owner.contains("AdminUtils::sudo_set_serving_rate_limit"));
         assert!(owner.contains("AdminUtils::sudo_set_max_difficulty"));
+        assert!(owner.contains("AdminUtils::sudo_set_null_consensus_enabled"));
+        assert!(owner.contains("AdminUtils::sudo_set_null_max_allowed_uids"));
         assert!(owner.contains("SubtensorModule::set_subnet_identity"));
         // Canonical owner-or-root tempo control lives in AdminUtils; deprecated
         // Subtensor entry points remain available for encoded-call compatibility.
@@ -760,6 +762,7 @@ mod tests {
         assert_eq!(
             allowed_calls(ProxyType::Staking),
             expected(&[
+                "SubtensorModule::claim_null_rewards",
                 "SubtensorModule::add_collateral",
                 "SubtensorModule::add_stake",
                 "SubtensorModule::add_stake_limit",

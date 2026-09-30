@@ -101,6 +101,7 @@ pub enum Pre {
 impl<T: Config + pallet_subtensor::Config> TransactionExtension<<T as Config>::RuntimeCall>
     for CheckNonce<T>
 where
+    T: crate::transaction_payment_wrapper::ColdkeyFeeCallFilter<<T as Config>::RuntimeCall>,
     <T as Config>::RuntimeCall: Dispatchable<Info = DispatchInfo>,
     <<T as Config>::RuntimeCall as Dispatchable>::RuntimeOrigin:
         AsSystemOriginSigner<<T as Config>::AccountId> + Clone,
@@ -137,9 +138,12 @@ where
         if info.pays_fee == Pays::Yes
             && account.providers.is_zero()
             && account.sufficients.is_zero()
+            && !T::charges_coldkey(call)
             && !Self::holds_alpha_stake(who)
         {
-            // Nonce storage not paid for
+            // Coldkey-paid calls proceed to the fee extension, which verifies the
+            // actual payer can pay before preparation writes the signer's nonce.
+            // Other reference-less signers must be able to pay from alpha stake.
             return Err(InvalidTransaction::Payment.into());
         }
         if self.0 < account.nonce {
@@ -189,7 +193,7 @@ where
         frame_system::Account::<T>::mutate(&who, |account| {
             if account.providers.is_zero() && account.sufficients.is_zero() {
                 // A signer admitted without a provider reference (`Pays::No` call or
-                // alpha-paid fee) would otherwise hold its nonce in an account that any
+                // alpha/coldkey-paid fee) would otherwise hold its nonce in an account that any
                 // balance write can remove, resetting the nonce and making its earlier
                 // signed extrinsics valid again. Hold a self-sufficient reference so the
                 // account, and with it the nonce, survives every balance change.

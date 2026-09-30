@@ -43,7 +43,7 @@ pre-checks and the valuation sweep it did, never the envelope.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2273-L2299) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2330-L2356) |
 
 ## Parameters
 
@@ -102,7 +102,7 @@ result = sub.execute_tool("swap_basket", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2280`](/code/pallets/subtensor/src/macros/dispatches.rs#L2273-L2299):
+`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2337`](/code/pallets/subtensor/src/macros/dispatches.rs#L2330-L2356):
 
 ```rust
 #[pallet::call_index(150)]

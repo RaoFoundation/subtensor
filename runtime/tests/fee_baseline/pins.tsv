@@ -170,7 +170,8 @@ AdminUtils.sudo_set_rho	131101000100	106076
 AdminUtils.sudo_set_activity_cutoff	131201000100	113290
 AdminUtils.sudo_set_activity_cutoff_factor	1361010001000000	68927
 AdminUtils.sudo_set_network_registration_allowed	1313010000	68880
-AdminUtils.sudo_set_network_pow_registration_allowed	1314010000	42567
+# Restored null-subnet PoW toggle now executes authorization and state writes.
+AdminUtils.sudo_set_network_pow_registration_allowed	1314010000	69358
 AdminUtils.sudo_set_target_registrations_per_interval	131501000100	106887
 AdminUtils.sudo_set_min_burn	131601000100000000000000	113966
 AdminUtils.sudo_set_max_burn	131701000100000000000000	113833

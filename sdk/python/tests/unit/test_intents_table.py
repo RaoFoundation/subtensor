@@ -27,6 +27,9 @@ from tests.harness.samples import ALICE, ALICE_HOT, BOB, BOB_HOT, INTENT_SAMPLES
 @pytest.fixture()
 def substrate() -> FakeSubstrate:
     fake = FakeSubstrate()
+    for name in ("NullConsensus", "NetworkRegistrationAllowed", "NetworkPowRegistrationAllowed"):
+        fake.seed("SubtensorModule", name, [99], True)
+    fake.seed("SubtensorModule", "Difficulty", [99], 1)
     fake.seed_runtime("StakeInfoRuntimeApi", "get_stake_info_for_coldkey", [])
     return fake
 

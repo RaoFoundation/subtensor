@@ -114,6 +114,14 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Complete a pending tracking disable even between null scoring epochs.
+    pub(crate) fn maintain_null_voting_disable(netuid: NetUid, now: u64) {
+        let deadline = VotingPowerDisableAtBlock::<T>::get(netuid);
+        if deadline != 0 && now >= deadline {
+            Self::finalize_voting_power_disable(netuid);
+        }
+    }
+
     // ========================
     // === Epoch Processing ===
     // ========================
@@ -122,6 +130,19 @@ impl<T: Config> Pallet<T> {
     pub fn update_voting_power_for_subnet(
         netuid: NetUid,
         epoch_output: &BTreeMap<T::AccountId, EpochTerms>,
+    ) {
+        Self::update_voting_power_from_epoch(
+            netuid,
+            epoch_output
+                .iter()
+                .map(|(hotkey, terms)| (hotkey.clone(), terms.new_validator_permit, terms.stake)),
+        );
+    }
+
+    /// Shared maintenance for Yuma and null epochs; consumes their actual permits and stake.
+    pub(crate) fn update_voting_power_from_epoch(
+        netuid: NetUid,
+        validators: impl IntoIterator<Item = (T::AccountId, bool, AlphaBalance)>,
     ) {
         // Early exit if tracking not enabled
         if !Self::get_voting_power_tracking_enabled(netuid) {
@@ -146,14 +167,14 @@ impl<T: Config> Pallet<T> {
         let min_stake = Self::get_stake_threshold();
 
         // Iterate over epoch output using pre-calculated values
-        for (hotkey, terms) in epoch_output.iter() {
+        for (hotkey, new_validator_permit, stake) in validators {
             // Only validators (with vpermit) get voting power, not miners
-            if terms.new_validator_permit {
+            if new_validator_permit {
                 // Use the subnet-specific stake from epoch calculation
-                Self::update_voting_power_for_hotkey(netuid, hotkey, terms.stake, alpha, min_stake);
+                Self::update_voting_power_for_hotkey(netuid, &hotkey, stake, alpha, min_stake);
             } else {
                 // Miner without vpermit - remove any existing voting power
-                Self::remove_voting_power(netuid, hotkey);
+                Self::remove_voting_power(netuid, &hotkey);
             }
         }
 

@@ -109,6 +109,10 @@ impl<T: Config> Pallet<T> {
 
         // 2. Ensure commit-reveal is enabled.
         ensure!(
+            !NullConsensus::<T>::get(netuid),
+            Error::<T>::NullConsensusRequiresU32Weights
+        );
+        ensure!(
             Self::get_commit_reveal_weights_enabled(netuid),
             Error::<T>::CommitRevealDisabled
         );
@@ -339,6 +343,10 @@ impl<T: Config> Pallet<T> {
 
         // 2. Ensure commit-reveal is enabled.
         ensure!(
+            !NullConsensus::<T>::get(netuid),
+            Error::<T>::NullConsensusRequiresU32Weights
+        );
+        ensure!(
             Self::get_commit_reveal_weights_enabled(netuid),
             Error::<T>::CommitRevealDisabled
         );
@@ -480,6 +488,10 @@ impl<T: Config> Pallet<T> {
         log::debug!("do_reveal_weights( hotkey:{who:?} netuid:{netuid:?})");
 
         // --- 2. Ensure commit-reveal is enabled for the network.
+        ensure!(
+            !NullConsensus::<T>::get(netuid),
+            Error::<T>::NullConsensusRequiresU32Weights
+        );
         ensure!(
             Self::get_commit_reveal_weights_enabled(netuid),
             Error::<T>::CommitRevealDisabled
@@ -632,6 +644,10 @@ impl<T: Config> Pallet<T> {
 
         // --- 3. Ensure commit-reveal is enabled for the network.
         ensure!(
+            !NullConsensus::<T>::get(netuid),
+            Error::<T>::NullConsensusRequiresU32Weights
+        );
+        ensure!(
             Self::get_commit_reveal_weights_enabled(netuid),
             Error::<T>::CommitRevealDisabled
         );
@@ -756,6 +772,10 @@ impl<T: Config> Pallet<T> {
         values: Vec<u16>,
         version_key: u64,
     ) -> dispatch::DispatchResult {
+        ensure!(
+            !NullConsensus::<T>::get(netuid),
+            Error::<T>::NullConsensusRequiresU32Weights
+        );
         // Calculate subnet storage index
         let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
 
@@ -1010,6 +1030,12 @@ impl<T: Config> Pallet<T> {
                 let origin_cloned = origin.clone();
                 let netuid: NetUid = netuid.into();
 
+                if NullConsensus::<T>::get(netuid) {
+                    return (
+                        netuid,
+                        Err(Error::<T>::NullConsensusRequiresU32Weights.into()),
+                    );
+                }
                 if Self::get_commit_reveal_weights_enabled(netuid) {
                     return (netuid, Err(Error::<T>::CommitRevealEnabled.into()));
                 }
