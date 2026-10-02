@@ -895,8 +895,11 @@ fn test_remove_stake_edge_alpha() {
         assert_ok!(result);
 
         // Lower Alpha price to 0.0001 so that there is not enough alpha to cover tx fees
-        SubnetTAO::<Test>::insert(sn.subnets[0].netuid, TaoBalance::from(1_000_000));
-        SubnetAlphaIn::<Test>::insert(sn.subnets[0].netuid, AlphaBalance::from(10_000_000_000_u64));
+        setup_reserves(
+            sn.subnets[0].netuid,
+            TaoBalance::from(1_000_000),
+            AlphaBalance::from(10_000_000_000_u64),
+        );
 
         let result_low_alpha_price = ext.validate(
             RuntimeOrigin::signed(sn.coldkey).into(),

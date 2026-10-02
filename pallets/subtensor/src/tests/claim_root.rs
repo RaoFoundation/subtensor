@@ -3471,9 +3471,9 @@ fn test_root_basket_claim_writes_off_only_claimants_terminal_garbage_slice() {
     });
 }
 
-/// A finite ellipse cannot realize an entire holding beyond its endpoint. Both the
-/// ordinary simulation path and the oversized chunk path must reject a partial-only
-/// liquidation, preserving the holding and shareholder entitlement for a later retry.
+/// A finite ellipse values executable proceeds without mutating the holding.
+/// A redemption that cannot execute its complete slice still rolls back, preserving
+/// both the holding and the shareholder entitlement.
 #[test]
 fn test_root_basket_claim_preserves_endpoint_blocked_holding() {
     for multiple in [2u64, 1_100u64] {
@@ -3519,11 +3519,7 @@ fn test_root_basket_claim_preserves_endpoint_blocked_holding() {
             let tao_before = SubnetTAO::<Test>::get(netuid);
             let alpha_before = SubnetAlphaIn::<Test>::get(netuid);
             let events_before = System::events();
-            let expected_error: DispatchError = if multiple > 1_000 {
-                Error::<Test>::AmountTooLow.into()
-            } else {
-                Error::<Test>::SlippageTooHigh.into()
-            };
+            let expected_error: DispatchError = Error::<Test>::AmountTooLow.into();
             if multiple > 1_000 {
                 // Retain coverage of the engine's hard input guard independently of
                 // the basket's chunked attempt to realize the full holding.
@@ -3538,10 +3534,11 @@ fn test_root_basket_claim_preserves_endpoint_blocked_holding() {
                 );
             }
             assert_storage_noop!({
-                assert_err!(
-                    SubtensorModule::try_realizable_tao_for_alpha(netuid, oversized),
-                    expected_error
-                );
+                let value = SubtensorModule::try_realizable_tao_for_alpha(netuid, oversized)
+                    .unwrap()
+                    .unwrap();
+                assert!(value > 0);
+                assert!(value <= tao_before.to_u64());
             });
             let root_before = root_stake_of(&hotkey, &coldkey);
             assert_err_ignore_postinfo!(
@@ -4199,5 +4196,65 @@ fn test_root_register_skips_immune_when_pruning() {
         );
         assert!(Uids::<Test>::contains_key(NetUid::ROOT, staked_hotkey));
         assert!(Uids::<Test>::contains_key(NetUid::ROOT, incoming_hotkey));
+    });
+}
+
+/// An endpoint-blocked full holding must not pin a smaller executable claim
+/// or its share of root cash. The unredeemed alpha and shares remain owned.
+#[test]
+fn test_root_basket_small_claim_with_endpoint_blocked_holding_and_cash() {
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(7001);
+        let hotkey = U256::from(7002);
+        let claimant = U256::from(7003);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        remove_owner_registration_stake(netuid);
+        setup_reserves(
+            netuid,
+            1_000_000_000_000_000u64.into(),
+            1_000_000_000u64.into(),
+        );
+        let account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&account, 1_000_000_000_000_000u64.into());
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &claimant,
+            NetUid::ROOT,
+            1u64.into(),
+        );
+        register_on_root(&hotkey, 0);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid,
+            2_000_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            NetUid::ROOT,
+            100_000u64.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, 20);
+        BasketRate::<Test>::insert(hotkey, I96F32::from_num(1));
+        let nav = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        let root_before = root_stake_of(&hotkey, &claimant);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(claimant),
+            hotkey,
+        ));
+        let paid = root_stake_of(&hotkey, &claimant) - root_before;
+        assert!(paid >= 5_000);
+        assert!(paid <= nav / 20);
+        assert_eq!(escrow_alpha(&hotkey, netuid), 1_900_000_000);
+        assert_eq!(fund_shares(&hotkey), 19);
+        assert_eq!(
+            SubtensorModule::get_basket_owed_shares(&hotkey, &claimant),
+            0
+        );
+        assert!(SubnetTAO::<Test>::get(netuid).to_u64() > 0);
     });
 }

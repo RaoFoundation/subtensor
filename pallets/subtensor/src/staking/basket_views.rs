@@ -12,8 +12,8 @@ use sp_runtime::DispatchError;
 use subtensor_swap_interface::{Order, SwapHandler};
 
 impl<T: Config> Pallet<T> {
-    /// Realizable TAO value of `alpha` on `netuid`: the slippage-aware quote a full basket
-    /// redemption would fetch right now, using the same fee-free protocol swap as the
+    /// Realizable TAO value of `alpha` on `netuid`: the slippage-aware proceeds currently
+    /// executable (possibly endpoint-limited), using the same fee-free protocol swap as the
     /// money-moving claim path, not the marked spot value `price * amount`. On a thin pool a
     /// tiny buy can push spot arbitrarily high, letting a marked NAV grow without bound (and
     /// saturate to `u64::MAX`); the realizable quote is bounded by the pool's TAO reserve, so
@@ -53,19 +53,13 @@ impl<T: Config> Pallet<T> {
                 true,
                 true,
             )
-            .and_then(|result| {
-                // An ellipse endpoint may permit only a partial sale. It is not
-                // a full-holding realizable quote, and must not enter fund NAV
-                // as though the entire escrow holding could be redeemed.
-                frame_support::ensure!(
-                    result.amount_paid_in.to_u64() == alpha,
-                    Error::<T>::SlippageTooHigh
-                );
-                Ok(result.amount_paid_out)
-            })
+            // Value only the executable proceeds. Unsold alpha stays owned by
+            // the fund; a partial quote must not prevent valuation of other
+            // rows or a claimant whose proportional sale fits the endpoint.
+            .map(|result| result.amount_paid_out)
         } else {
             with_transaction(|| {
-                TransactionOutcome::Rollback(Self::swap_basket_alpha_for_tao_chunks(
+                TransactionOutcome::Rollback(Self::quote_basket_alpha_for_tao_chunks(
                     netuid,
                     alpha.into(),
                 ))

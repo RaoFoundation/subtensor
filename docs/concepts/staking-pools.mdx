@@ -166,6 +166,13 @@ Some actual reserves can remain unreachable through swaps under a fixed
 curve. They remain protocol assets and are included in subnet dissolution
 accounting.
 
+Basket NAV counts only the TAO a holding can actually realize, including
+an endpoint-limited quote. The unsold alpha remains owned by the fund.
+Smaller proportional claims and recovery trades can still execute; a
+redemption whose requested slice cannot fill rolls back without burning
+its shares. During dissolution, fallback pro-rata proceeds go into each
+fund's root cash position, preserving shareholder access to that value.
+
 ## Reading the pool
 
 ```bash

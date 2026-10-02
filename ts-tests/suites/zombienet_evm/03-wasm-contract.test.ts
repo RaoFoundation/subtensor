@@ -127,18 +127,6 @@ describeSuite({
             inkClient = getInkClient(contracts.bittensor);
             faucet = generateKeyringPair("sr25519");
             await forceSetBalance(api, convertPublicKeyToSs58(faucet.publicKey), tao(1e9));
-
-            hotkey = generateKeyringPair("sr25519");
-            coldkey = generateKeyringPair("sr25519");
-            await fundAccount(api, faucet, convertPublicKeyToSs58(coldkey.publicKey));
-            await fundAccount(api, faucet, convertPublicKeyToSs58(hotkey.publicKey));
-
-            netuid = await addNewSubnetwork(api, hotkey, coldkey);
-            await startCall(api, netuid, coldkey);
-            await addNewSubnetwork(api, hotkey, coldkey);
-            await startCall(api, netuid + 1, coldkey);
-            await setTargetRegistrationsPerInterval(api, netuid);
-            await waitForFinalizedBlocks(api, 1);
         }, 900000);
 
         beforeEach(async () => {
@@ -146,6 +134,14 @@ describeSuite({
             coldkey = generateKeyringPair("sr25519");
             await fundAccount(api, faucet, convertPublicKeyToSs58(coldkey.publicKey));
             await fundAccount(api, faucet, convertPublicKeyToSs58(hotkey.publicKey));
+            // Each test gets fresh curves: repeated buys/burns otherwise push
+            // shared pools to finite endpoints and can block later registrations.
+            const ownerHotkey = generateKeyringPair("sr25519");
+            netuid = await addNewSubnetwork(api, ownerHotkey, faucet);
+            await startCall(api, netuid, faucet);
+            await addNewSubnetwork(api, ownerHotkey, faucet);
+            await startCall(api, netuid + 1, faucet);
+            await setTargetRegistrationsPerInterval(api, netuid);
             await burnedRegister(api, netuid, convertPublicKeyToSs58(hotkey.publicKey), coldkey);
         }, 300000);
 

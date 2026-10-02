@@ -682,6 +682,8 @@ pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
 }
 
 pub(crate) fn setup_reserves(netuid: NetUid, tao: TaoBalance, alpha: AlphaBalance) {
+    // Direct fixture reserve resets need a fresh calibration as well.
+    pallet_subtensor_swap::SwapSuperellipse::<Test>::remove(netuid);
     SubnetTAO::<Test>::set(netuid, tao);
     SubnetAlphaIn::<Test>::set(netuid, alpha);
 }

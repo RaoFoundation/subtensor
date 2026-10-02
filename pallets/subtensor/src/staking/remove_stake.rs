@@ -803,6 +803,7 @@ impl<T: Config> Pallet<T> {
         let r = T::DbWeight::get().reads(1);
         let w = T::DbWeight::get().writes(1);
         let weight_for_tansfer_tao = T::DbWeight::get().reads_writes(11, 3);
+        let escrow = Self::get_beta_escrow_account_id();
         let mut read_all = true;
 
         let mut stakers: Vec<(T::AccountId, T::AccountId, u128)> = Vec::new();
@@ -875,6 +876,14 @@ impl<T: Config> Pallet<T> {
 
                 if val_u64 > 0 {
                     let mut need_to_consume_weight = w;
+                    if cold == escrow {
+                        // A failed full basket liquidation is settled into this
+                        // fund's root slot, not the shared escrow free balance.
+                        // Budget the same transfer/root-credit work as the
+                        // preceding basket conversion phase, for every fund.
+                        need_to_consume_weight = need_to_consume_weight
+                            .saturating_add(T::DbWeight::get().reads_writes(25, 20));
+                    }
 
                     // if the coldkey is not in the set, we need to consume the weight for the transfer_tao_from_subnet function call
                     if !coldkeys.contains(&cold) {
@@ -908,7 +917,7 @@ impl<T: Config> Pallet<T> {
         let pot_u64: u64 = pot_tao.into();
 
         struct Portion<A, C> {
-            _hot: A,
+            hot: A,
             cold: C,
             share: u64, // TAO to credit to coldkey balance
             rem: u128,  // remainder for largest‑remainder method
@@ -932,7 +941,7 @@ impl<T: Config> Pallet<T> {
                 let rem: u128 = prod.checked_rem(total_alpha_value_u128).unwrap_or_default();
                 total_rem = total_rem.saturating_add(rem);
                 portions.push(Portion {
-                    _hot: hot.clone(),
+                    hot: hot.clone(),
                     cold: cold.clone(),
                     share: share_u64,
                     rem,
@@ -958,6 +967,22 @@ impl<T: Config> Pallet<T> {
             // Aggregate the transfer amount for each coldkey
             let mut transfer_map = BTreeMap::<T::AccountId, TaoBalance>::new();
             for p in portions {
+                if p.cold == escrow {
+                    if let Some(root_account) = Self::get_subnet_account_id(NetUid::ROOT)
+                        && Self::transfer_tao_from_subnet(netuid, &root_account, p.share.into())
+                            .is_ok()
+                    {
+                        Self::credit_root_slot(&p.hot, &escrow, p.share.into());
+                        distributed_tao_value_u128 =
+                            distributed_tao_value_u128.saturating_add(u128::from(p.share));
+                        Self::deposit_event(Event::BasketHoldingConverted {
+                            hotkey: p.hot,
+                            netuid,
+                            tao: p.share.into(),
+                        });
+                    }
+                    continue;
+                }
                 if transfer_map.contains_key(&p.cold) {
                     transfer_map.insert(
                         p.cold.clone(),

@@ -4204,3 +4204,67 @@ fn process_network_registration_queue_unlocks_funds_and_charges_coldkey() {
         assert_eq!(SubnetLocked::<Test>::get(new_netuid), queued_lock);
     });
 }
+
+/// Failed full AMM liquidation falls back to pro-rata dissolution settlement.
+/// Each validator's proceeds must remain attributable through its root slot.
+#[test]
+fn dissolve_endpoint_blocked_basket_settlement_preserves_fund_ownership() {
+    new_test_ext(1).execute_with(|| {
+        let first = U256::from(8001);
+        let second = U256::from(8002);
+        let net = add_dynamic_network(&first, &U256::from(8003));
+        remove_owner_registration_stake(net);
+        setup_reserves(net, 1_000_000u64.into(), 1_000_000u64.into());
+        assert_ok!(Swap::maybe_initialize_palswap(net, None));
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        for (hotkey, alpha) in [(first, 2_000_000u64), (second, 4_000_000u64)] {
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                net,
+                alpha.into(),
+            );
+            BasketShares::<Test>::insert(hotkey, 10);
+        }
+        let root_account = SubtensorModule::get_subnet_account_id(NetUid::ROOT).unwrap();
+        let escrow_before = SubtensorModule::get_coldkey_balance(&escrow);
+        let root_before = SubtensorModule::get_coldkey_balance(&root_account);
+        let total_before = TotalStake::<Test>::get();
+        assert_ok!(SubtensorModule::do_dissolve_network(net));
+        run_block_idle();
+        let first_root = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &first,
+            &escrow,
+            NetUid::ROOT,
+        )
+        .to_u64();
+        let second_root = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &second,
+            &escrow,
+            NetUid::ROOT,
+        )
+        .to_u64();
+        assert!(first_root > 0);
+        assert!(second_root >= first_root);
+        assert!(first_root + second_root <= 1_000_000);
+        assert_eq!(SubtensorModule::get_coldkey_balance(&escrow), escrow_before);
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&root_account) - root_before,
+            TaoBalance::from(first_root + second_root)
+        );
+        assert_eq!(
+            TotalStake::<Test>::get(),
+            total_before
+                .saturating_sub(1_000_000u64.into())
+                .saturating_add((first_root + second_root).into())
+        );
+        for hotkey in [first, second] {
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, net,),
+                AlphaBalance::ZERO
+            );
+            assert_eq!(BasketShares::<Test>::get(hotkey), 10);
+        }
+        assert!(!NetworksAdded::<Test>::contains_key(net));
+    });
+}

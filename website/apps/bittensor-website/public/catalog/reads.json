@@ -2664,9 +2664,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket",
         "path": "pallets/subtensor/src/staking/basket_views.rs",
-        "line": 176,
-        "end_line": 184,
-        "url": "/code/pallets/subtensor/src/staking/basket_views.rs#L176-L184",
+        "line": 170,
+        "end_line": 178,
+        "url": "/code/pallets/subtensor/src/staking/basket_views.rs#L170-L178",
         "raw_url": "/code/raw/pallets/subtensor/src/staking/basket_views.rs"
       }
     ]
