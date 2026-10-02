@@ -52,11 +52,14 @@ pub trait SwapHandler {
     fn current_alpha_price(netuid: NetUid) -> U64F64;
     fn max_price<C: Token>() -> C;
     fn min_price<C: Token>() -> C;
+    /// Prepare price-neutral protocol liquidity. Rejection must leave pool
+    /// parameters and buffers unchanged; callers refund any current TAO credit
+    /// and must not mint current alpha when this returns an error.
     fn adjust_protocol_liquidity(
         netuid: NetUid,
         tao_delta: TaoBalance,
         alpha_delta: AlphaBalance,
-    ) -> (TaoBalance, AlphaBalance);
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError>;
     fn protocol_alpha_reservoir(netuid: NetUid) -> AlphaBalance;
     fn protocol_tao_reservoir(netuid: NetUid) -> TaoBalance;
     fn clear_protocol_liquidity_reservoirs(netuid: NetUid);

@@ -53,7 +53,16 @@ impl<T: Config> Pallet<T> {
                 true,
                 true,
             )
-            .map(|result| result.amount_paid_out)
+            .and_then(|result| {
+                // An ellipse endpoint may permit only a partial sale. It is not
+                // a full-holding realizable quote, and must not enter fund NAV
+                // as though the entire escrow holding could be redeemed.
+                frame_support::ensure!(
+                    result.amount_paid_in.to_u64() == alpha,
+                    Error::<T>::SlippageTooHigh
+                );
+                Ok(result.amount_paid_out)
+            })
         } else {
             with_transaction(|| {
                 TransactionOutcome::Rollback(Self::swap_basket_alpha_for_tao_chunks(

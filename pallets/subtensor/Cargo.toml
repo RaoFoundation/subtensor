@@ -79,6 +79,7 @@ pallet-shield = { workspace = true, features = ["std"] }
 
 [features]
 try-runtime = [
+	"pallet-subtensor-swap/try-runtime",
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"pallet-balances/try-runtime",

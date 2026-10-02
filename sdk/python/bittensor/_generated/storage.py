@@ -429,6 +429,7 @@ class Crowdloan:
 class Swap:
     FeeRate = Item('Swap', 'FeeRate', 'u16')
     SwapBalancer = Item('Swap', 'SwapBalancer', 'Balancer')
+    SwapSuperellipse = Item('Swap', 'SwapSuperellipse', 'Superellipse')
     PalSwapInitialized = Item('Swap', 'PalSwapInitialized', 'bool')
     BalancerTaoReservoir = Item('Swap', 'BalancerTaoReservoir', 'TaoBalance')
     BalancerAlphaReservoir = Item('Swap', 'BalancerAlphaReservoir', 'AlphaBalance')

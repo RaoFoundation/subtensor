@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use frame_support::ensure;
+use frame_support::{ensure, traits::Get};
 use safe_math::*;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token, TokenReserve};
@@ -34,6 +34,7 @@ where
     requested_delta_out: PaidOut,
     final_price: U64F64,
     fee: PaidIn,
+    endpoint_clamped: bool,
 
     _phantom: PhantomData<(T, PaidIn, PaidOut)>,
 }
@@ -51,19 +52,34 @@ where
         amount_remaining: PaidIn,
         limit_price: U64F64,
         drop_fees: bool,
-    ) -> Self {
+    ) -> Result<Self, Error<T>> {
         let fee = Pallet::<T>::calculate_fee_amount(netuid, amount_remaining, drop_fees);
-        let requested_delta_in = amount_remaining.saturating_sub(fee);
+        let net_requested = amount_remaining.saturating_sub(fee);
+        let mut requested_delta_in = net_requested.min(Self::max_input(netuid)?);
+        let mut endpoint_clamped = requested_delta_in < net_requested;
 
-        // Full-fill output amount (one bignum pow), shared by the target-price
+        // Full-fill output amount (one integer square root), shared by target-price
         // computation here and the execution in `process_swap`.
-        let requested_delta_out = Self::convert_deltas(netuid, requested_delta_in);
+        let mut requested_delta_out = Self::convert_deltas(netuid, requested_delta_in)?;
 
         // Target and current prices
-        let target_price = Self::price_target(netuid, requested_delta_in, requested_delta_out);
-        let current_price = Pallet::<T>::current_price(netuid);
+        let current_price = Self::price_target(netuid, PaidIn::ZERO, PaidOut::ZERO)?;
+        let target_price = match Self::price_target(netuid, requested_delta_in, requested_delta_out)
+        {
+            Ok(price) => price,
+            Err(_) => {
+                // A near-endpoint full buy can exceed the price type's range.
+                // Solve a representable partial fill before pricing that input;
+                // errors on the reduced fill still propagate normally.
+                requested_delta_in =
+                    requested_delta_in.min(Self::delta_in(netuid, current_price, limit_price)?);
+                requested_delta_out = Self::convert_deltas(netuid, requested_delta_in)?;
+                endpoint_clamped = true;
+                Self::price_target(netuid, requested_delta_in, requested_delta_out)?
+            }
+        };
 
-        Self {
+        Ok(Self {
             netuid,
             drop_fees,
             requested_delta_in,
@@ -74,19 +90,20 @@ where
             requested_delta_out,
             final_price: target_price,
             fee,
+            endpoint_clamped,
             _phantom: PhantomData,
-        }
+        })
     }
 
     /// Execute the swap step and return the result
     pub(crate) fn execute(&mut self) -> Result<SwapStepResult<PaidIn, PaidOut>, Error<T>> {
-        self.determine_action();
+        self.determine_action()?;
         self.process_swap()
     }
 
     /// Determine the appropriate action for this swap step
-    fn determine_action(&mut self) {
-        let mut recalculate_fee = false;
+    fn determine_action(&mut self) -> Result<(), Error<T>> {
+        let mut recalculate_fee = self.endpoint_clamped;
 
         // Calculate the stopping price: The price at which we either reach the limit price,
         // or exchange the full amount.
@@ -97,7 +114,8 @@ where
         } else {
             // Case 2. lim_quantity is the lowest
             self.final_price = self.limit_price;
-            self.delta_in = Self::delta_in(self.netuid, self.current_price, self.limit_price);
+            self.delta_in = Self::delta_in(self.netuid, self.current_price, self.limit_price)?
+                .min(self.requested_delta_in);
             recalculate_fee = true;
         }
 
@@ -121,6 +139,7 @@ where
                 .saturating_to_num::<u64>()
                 .into();
         }
+        Ok(())
     }
 
     /// Process a single step of a swap
@@ -131,7 +150,7 @@ where
         let delta_out = if self.delta_in == self.requested_delta_in {
             self.requested_delta_out
         } else {
-            Self::convert_deltas(self.netuid, self.delta_in)
+            Self::convert_deltas(self.netuid, self.delta_in)?
         };
         log::trace!("\tDelta Out        : {delta_out}");
         let mut fee_to_block_author = 0.into();
@@ -154,88 +173,123 @@ where
 impl<T: Config> SwapStep<T, TaoBalance, AlphaBalance>
     for BasicSwapStep<T, TaoBalance, AlphaBalance>
 {
-    fn delta_in(netuid: NetUid, price_curr: U64F64, price_target: U64F64) -> TaoBalance {
-        let tao_reserve = T::TaoReserve::reserve(netuid.into());
-        let balancer = SwapBalancer::<T>::get(netuid);
-        TaoBalance::from(balancer.calculate_quote_delta_in(
-            price_curr,
-            price_target,
-            tao_reserve.into(),
-        ))
+    fn max_input(netuid: NetUid) -> Result<TaoBalance, Error<T>> {
+        let curve = Pallet::<T>::superellipse(netuid)?;
+        curve
+            .max_buy_input_with_reserve_floor(
+                T::AlphaReserve::reserve(netuid).into(),
+                T::TaoReserve::reserve(netuid).into(),
+                T::MinimumReserve::get().get(),
+            )
+            .map(TaoBalance::from)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)
     }
 
-    fn price_target(netuid: NetUid, delta_in: TaoBalance, delta_out: AlphaBalance) -> U64F64 {
-        let tao_reserve = T::TaoReserve::reserve(netuid.into());
-        let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
-        let balancer = SwapBalancer::<T>::get(netuid);
-        let dy = delta_in;
-        let dx = delta_out;
-        balancer.calculate_price(
-            u64::from(alpha_reserve.saturating_sub(dx)),
-            u64::from(tao_reserve.saturating_add(dy)),
-        )
+    fn delta_in(
+        netuid: NetUid,
+        _price_curr: U64F64,
+        target: U64F64,
+    ) -> Result<TaoBalance, Error<T>> {
+        Pallet::<T>::superellipse(netuid)?
+            .quote_delta_to_price(
+                T::AlphaReserve::reserve(netuid).into(),
+                T::TaoReserve::reserve(netuid).into(),
+                target,
+            )
+            .map(TaoBalance::from)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)
+    }
+
+    fn price_target(
+        netuid: NetUid,
+        delta_in: TaoBalance,
+        delta_out: AlphaBalance,
+    ) -> Result<U64F64, Error<T>> {
+        let alpha = u64::from(T::AlphaReserve::reserve(netuid))
+            .checked_sub(delta_out.into())
+            .ok_or(Error::<T>::InsufficientLiquidity)?;
+        let tao = u64::from(T::TaoReserve::reserve(netuid))
+            .checked_add(delta_in.into())
+            .ok_or(Error::<T>::ReservesOutOfBalance)?;
+        Pallet::<T>::superellipse(netuid)?
+            .calculate_price(alpha, tao)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)
     }
 
     fn price_is_closer(price1: &U64F64, price2: &U64F64) -> bool {
         price1 <= price2
     }
 
-    fn convert_deltas(netuid: NetUid, delta_in: TaoBalance) -> AlphaBalance {
-        let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
-        let tao_reserve = T::TaoReserve::reserve(netuid.into());
-        let balancer = SwapBalancer::<T>::get(netuid);
-        let e = balancer.exp_quote_base(tao_reserve.into(), delta_in.into());
-        let one = U64F64::from_num(1);
-        let alpha_reserve_fixed = U64F64::from_num(alpha_reserve);
-        AlphaBalance::from(
-            alpha_reserve_fixed
-                .saturating_mul(one.saturating_sub(e))
-                .saturating_to_num::<u64>(),
-        )
+    fn convert_deltas(netuid: NetUid, input: TaoBalance) -> Result<AlphaBalance, Error<T>> {
+        Pallet::<T>::superellipse(netuid)?
+            .buy_output(
+                T::AlphaReserve::reserve(netuid).into(),
+                T::TaoReserve::reserve(netuid).into(),
+                input.into(),
+            )
+            .map(AlphaBalance::from)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)
     }
 }
 
 impl<T: Config> SwapStep<T, AlphaBalance, TaoBalance>
     for BasicSwapStep<T, AlphaBalance, TaoBalance>
 {
-    fn delta_in(netuid: NetUid, price_curr: U64F64, price_target: U64F64) -> AlphaBalance {
-        let alpha_reserve = T::AlphaReserve::reserve(netuid);
-        let balancer = SwapBalancer::<T>::get(netuid);
-        AlphaBalance::from(balancer.calculate_base_delta_in(
-            price_curr,
-            price_target,
-            alpha_reserve.into(),
-        ))
+    fn max_input(netuid: NetUid) -> Result<AlphaBalance, Error<T>> {
+        Pallet::<T>::superellipse(netuid)?
+            .max_sell_input_with_reserve_floor(
+                T::AlphaReserve::reserve(netuid).into(),
+                T::TaoReserve::reserve(netuid).into(),
+                T::MinimumReserve::get().get(),
+            )
+            .map(AlphaBalance::from)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)
     }
 
-    fn price_target(netuid: NetUid, delta_in: AlphaBalance, delta_out: TaoBalance) -> U64F64 {
-        let tao_reserve = T::TaoReserve::reserve(netuid.into());
-        let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
-        let balancer = SwapBalancer::<T>::get(netuid);
-        let dx = delta_in;
-        let dy = delta_out;
-        balancer.calculate_price(
-            u64::from(alpha_reserve.saturating_add(dx)),
-            u64::from(tao_reserve.saturating_sub(dy)),
-        )
+    fn delta_in(
+        netuid: NetUid,
+        _price_curr: U64F64,
+        target: U64F64,
+    ) -> Result<AlphaBalance, Error<T>> {
+        Pallet::<T>::superellipse(netuid)?
+            .base_delta_to_price(
+                T::AlphaReserve::reserve(netuid).into(),
+                T::TaoReserve::reserve(netuid).into(),
+                target,
+            )
+            .map(AlphaBalance::from)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)
+    }
+
+    fn price_target(
+        netuid: NetUid,
+        delta_in: AlphaBalance,
+        delta_out: TaoBalance,
+    ) -> Result<U64F64, Error<T>> {
+        let alpha = u64::from(T::AlphaReserve::reserve(netuid))
+            .checked_add(delta_in.into())
+            .ok_or(Error::<T>::ReservesOutOfBalance)?;
+        let tao = u64::from(T::TaoReserve::reserve(netuid))
+            .checked_sub(delta_out.into())
+            .ok_or(Error::<T>::InsufficientLiquidity)?;
+        Pallet::<T>::superellipse(netuid)?
+            .calculate_price(alpha, tao)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)
     }
 
     fn price_is_closer(price1: &U64F64, price2: &U64F64) -> bool {
         price1 >= price2
     }
 
-    fn convert_deltas(netuid: NetUid, delta_in: AlphaBalance) -> TaoBalance {
-        let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
-        let tao_reserve = T::TaoReserve::reserve(netuid.into());
-        let balancer = SwapBalancer::<T>::get(netuid);
-        let e = balancer.exp_base_quote(alpha_reserve.into(), delta_in.into());
-        let one = U64F64::from_num(1);
-        let tao_reserve_fixed = U64F64::from_num(u64::from(tao_reserve));
-        TaoBalance::from(
-            tao_reserve_fixed
-                .saturating_mul(one.saturating_sub(e))
-                .saturating_to_num::<u64>(),
-        )
+    fn convert_deltas(netuid: NetUid, input: AlphaBalance) -> Result<TaoBalance, Error<T>> {
+        Pallet::<T>::superellipse(netuid)?
+            .sell_output(
+                T::AlphaReserve::reserve(netuid).into(),
+                T::TaoReserve::reserve(netuid).into(),
+                input.into(),
+            )
+            .map(TaoBalance::from)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)
     }
 }
 
@@ -245,13 +299,24 @@ where
     PaidIn: Token,
     PaidOut: Token,
 {
+    /// Largest input supported by the current curve branch and real reserves.
+    fn max_input(netuid: NetUid) -> Result<PaidIn, Error<T>>;
+
     /// Get the input amount needed to reach the target price
-    fn delta_in(netuid: NetUid, price_curr: U64F64, price_target: U64F64) -> PaidIn;
+    fn delta_in(
+        netuid: NetUid,
+        price_curr: U64F64,
+        price_target: U64F64,
+    ) -> Result<PaidIn, Error<T>>;
 
     /// Get the target price based on the input amount and its precomputed output
     /// (`delta_out` must be `Self::convert_deltas(netuid, delta_in)`; it is passed in so
     /// the expensive conversion is computed once and shared with swap execution)
-    fn price_target(netuid: NetUid, delta_in: PaidIn, delta_out: PaidOut) -> U64F64;
+    fn price_target(
+        netuid: NetUid,
+        delta_in: PaidIn,
+        delta_out: PaidOut,
+    ) -> Result<U64F64, Error<T>>;
 
     /// Returns True if price1 is closer to the current price than price2
     ///    For buying:  price1 <= price2
@@ -262,7 +327,7 @@ where
     ///
     /// This is the core method of the swap that tells how much output token is given for an
     /// amount of input token within one price tick.
-    fn convert_deltas(netuid: NetUid, delta_in: PaidIn) -> PaidOut;
+    fn convert_deltas(netuid: NetUid, delta_in: PaidIn) -> Result<PaidOut, Error<T>>;
 }
 
 #[derive(Debug, PartialEq)]

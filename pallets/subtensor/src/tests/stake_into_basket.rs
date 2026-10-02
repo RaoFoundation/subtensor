@@ -615,9 +615,8 @@ fn test_stake_into_basket_sell_deposit_claim_buyback_cannot_profit() {
         let unit = 1_000_000_000u64;
 
         // Reviewer reproduction: a 1,000 TAO / 1,000 alpha pool and a basket holding
-        // 1,000 alpha plus 100 TAO cash, with 600 shares outstanding at its 600 TAO NAV.
-        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000 * unit));
-        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000 * unit));
+        // 400 alpha plus 100 TAO cash, with shares outstanding at realizable NAV.
+        setup_reserves(netuid, TaoBalance::from(1_000 * unit), AlphaBalance::from(1_000 * unit));
         register_on_root(&hotkey, 0);
         add_balance_to_coldkey_account(&existing_holder, TaoBalance::from(200 * unit));
         assert_ok!(SubtensorModule::do_stake_into_basket(
@@ -629,12 +628,16 @@ fn test_stake_into_basket_sell_deposit_claim_buyback_cannot_profit() {
             &hotkey,
             &escrow,
             netuid,
-            AlphaBalance::from(1_000 * unit),
+            AlphaBalance::from(400 * unit),
         );
-        BasketShares::<Test>::insert(hotkey, 600 * unit);
+        let initial_nav = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        BasketShares::<Test>::insert(hotkey, initial_nav);
         let basket_nav_before =
             SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
-        assert_abs_diff_eq!(basket_nav_before, 600 * unit, epsilon = ROUNDING_EPS);
+        // A 400-alpha holding remains inside the finite branch after the attack. The
+        // ellipse pays sqrt(2*1000² - 600²)-1000, plus 100 TAO cash.
+        let expected_nav = ((1_640_000f64.sqrt() - 1_000.0) * unit as f64) as u64 + 100 * unit;
+        assert_abs_diff_eq!(basket_nav_before, expected_nav, epsilon = ROUNDING_EPS);
 
         // The attacker depresses the alpha price, then deposits into the basket at that mark.
         let alpha_sold = 500 * unit;
@@ -884,7 +887,11 @@ fn test_stake_into_basket_skips_unpriceable_holding_and_rejects_zero_slices() {
             200_000_000_000u64.into(),
         );
         let current_before = escrow_alpha(&hotkey, current_netuid);
-        SubnetTAO::<Test>::insert(stale_netuid, TaoBalance::ZERO);
+        setup_reserves(
+            stale_netuid,
+            TaoBalance::ZERO,
+            SubnetAlphaIn::<Test>::get(stale_netuid),
+        );
         assert_eq!(
             SubtensorModule::realizable_tao_for_alpha(
                 stale_netuid,
@@ -920,10 +927,16 @@ fn test_stake_into_basket_skips_unpriceable_holding_and_rejects_zero_slices() {
             current_netuid,
             escrow_alpha(&hotkey, current_netuid),
         );
-        let stale_value = [100_000u64, 1_000_000, 10_000_000, 100_000_000]
+        // The default sell floor is 1e-6 TAO/alpha. Choose a low but
+        // executable mark above that floor whose proportional slice is dust.
+        let stale_value = [2_000_000u64, 3_000_000, 5_000_000, 10_000_000]
             .into_iter()
             .find_map(|tao_reserve| {
-                SubnetTAO::<Test>::insert(stale_netuid, TaoBalance::from(tao_reserve));
+                setup_reserves(
+                    stale_netuid,
+                    TaoBalance::from(tao_reserve),
+                    SubnetAlphaIn::<Test>::get(stale_netuid),
+                );
                 let value = SubtensorModule::realizable_tao_for_alpha(
                     stale_netuid,
                     escrow_alpha(&hotkey, stale_netuid),

@@ -61,420 +61,157 @@ mod dispatchables {
         });
     }
 
-    fn perquintill_to_f64(p: Perquintill) -> f64 {
-        let parts = p.deconstruct() as f64;
-        parts / 1_000_000_000_000_000_000_f64
-    }
-
-    /// cargo test --package pallet-subtensor-swap --lib -- pallet::tests::dispatchables::test_adjust_protocol_liquidity_happy --exact --nocapture
     #[test]
-    fn test_adjust_protocol_liquidity_happy() {
-        // test case: tao_delta, alpha_delta
-        [
-            (0_u64, 0_u64),
-            (0_u64, 1_u64),
-            (1_u64, 0_u64),
-            (1_u64, 1_u64),
-            (0_u64, 10_u64),
-            (10_u64, 0_u64),
-            (10_u64, 10_u64),
-            (0_u64, 100_u64),
-            (100_u64, 0_u64),
-            (100_u64, 100_u64),
-            (0_u64, 1_000_u64),
-            (1_000_u64, 0_u64),
-            (1_000_u64, 1_000_u64),
-            (1_000_000_u64, 0_u64),
-            (0_u64, 1_000_000_u64),
-            (1_000_000_u64, 1_000_000_u64),
-            (1_000_000_000_u64, 0_u64),
-            (0_u64, 1_000_000_000_u64),
-            (1_000_000_000_u64, 1_000_000_000_u64),
-            (1_000_000_000_000_u64, 0_u64),
-            (0_u64, 1_000_000_000_000_u64),
-            (1_000_000_000_000_u64, 1_000_000_000_000_u64),
-            (1_u64, 2_u64),
-            (2_u64, 1_u64),
-            (10_u64, 20_u64),
-            (20_u64, 10_u64),
-            (100_u64, 200_u64),
-            (200_u64, 100_u64),
-            (1_000_u64, 2_000_u64),
-            (2_000_u64, 1_000_u64),
-            (1_000_000_u64, 2_000_000_u64),
-            (2_000_000_u64, 1_000_000_u64),
-            (1_000_000_000_u64, 2_000_000_000_u64),
-            (2_000_000_000_u64, 1_000_000_000_u64),
-            (1_000_000_000_000_u64, 2_000_000_000_000_u64),
-            (2_000_000_000_000_u64, 1_000_000_000_000_u64),
-            (1_234_567_u64, 2_432_765_u64),
-            (1_234_567_u64, 2_432_765_890_u64),
-        ]
-        .into_iter()
-        .for_each(|(tao_delta, alpha_delta)| {
+    fn test_adjust_protocol_liquidity_preserves_price_and_curve_scale() {
+        for (tao_delta, alpha_delta) in [
+            (0, 0),
+            (1, 0),
+            (0, 1),
+            (200_000, 1_000),
+            (1_000, 200_000),
+            (1_000_000_000_000, 2_000_000_000_000),
+        ] {
             new_test_ext().execute_with(|| {
                 let netuid = NetUid::from(1);
-                let tao_delta = TaoBalance::from(tao_delta);
-                let alpha_delta = AlphaBalance::from(alpha_delta);
-
-                // Initialize reserves and price
-                let tao = TaoBalance::from(1_000_000_000_000_u64);
-                let alpha = AlphaBalance::from(4_000_000_000_000_u64);
-                TaoReserve::set_mock_reserve(netuid, tao);
-                AlphaReserve::set_mock_reserve(netuid, alpha);
-                let price_before = Swap::current_price(netuid);
-
-                // Adjust reserves
-                Swap::adjust_protocol_liquidity(netuid, tao_delta, alpha_delta);
-                TaoReserve::set_mock_reserve(netuid, tao + tao_delta);
-                AlphaReserve::set_mock_reserve(netuid, alpha + alpha_delta);
-
-                // Check that price didn't change
-                let price_after = Swap::current_price(netuid);
-                assert_abs_diff_eq!(
-                    price_before.to_num::<f64>(),
-                    price_after.to_num::<f64>(),
-                    epsilon = price_before.to_num::<f64>() / 1_000_000_000_000.
+                let tao = 1_000_000_000_000u64;
+                let alpha = 4_000_000_000_000u64;
+                TaoReserve::set_mock_reserve(netuid, tao.into());
+                AlphaReserve::set_mock_reserve(netuid, alpha.into());
+                assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+                let price = Swap::current_price(netuid);
+                let before = SwapSuperellipse::<Test>::get(netuid).unwrap();
+                let accepted =
+                    Swap::adjust_protocol_liquidity(netuid, tao_delta.into(), alpha_delta.into())
+                        .unwrap();
+                assert_eq!(
+                    accepted,
+                    (TaoBalance::from(tao_delta), AlphaBalance::from(alpha_delta))
                 );
-
-                // Check that reserve weight was properly updated
-                let new_tao = u64::from(tao + tao_delta) as f64;
-                let new_alpha = u64::from(alpha + alpha_delta) as f64;
-                let expected_quote_weight =
-                    new_tao / (new_alpha * price_before.to_num::<f64>() + new_tao);
-                let expected_quote_weight_delta = expected_quote_weight - 0.5;
-                let res_weights = SwapBalancer::<Test>::get(netuid);
-                let actual_quote_weight_delta =
-                    perquintill_to_f64(res_weights.get_quote_weight()) - 0.5;
-                let eps = expected_quote_weight / 1_000_000_000_000.;
+                TaoReserve::set_mock_reserve(netuid, (tao + tao_delta).into());
+                AlphaReserve::set_mock_reserve(netuid, (alpha + alpha_delta).into());
                 assert_abs_diff_eq!(
-                    expected_quote_weight_delta,
-                    actual_quote_weight_delta,
-                    epsilon = eps
+                    Swap::current_price(netuid).to_num::<f64>(),
+                    price.to_num::<f64>(),
+                    epsilon = 1e-12
                 );
+                let after = SwapSuperellipse::<Test>::get(netuid).unwrap();
+                // Translating back reproduces the exact original fixed curve.
+                // Verify finite-trade quotes are unchanged by one-sided injections.
+                let expected = before.buy_output(alpha, tao, 1_000_000).unwrap();
+                let actual = after
+                    .buy_output(alpha + alpha_delta, tao + tao_delta, 1_000_000)
+                    .unwrap();
+                assert_eq!(actual, expected);
             });
-        });
+        }
     }
 
     #[test]
-    fn test_adjust_protocol_liquidity_materializes_tao_when_reservoiring_tao() {
+    fn test_adjust_protocol_liquidity_activates_pending_reservoirs() {
         new_test_ext().execute_with(|| {
             let netuid = NetUid::from(1);
-
-            let tao = TaoBalance::from(1_000_u64);
-            let alpha = AlphaBalance::from(1_000_u64);
-            TaoReserve::set_mock_reserve(netuid, tao);
-            AlphaReserve::set_mock_reserve(netuid, alpha);
-
-            let (price_active_tao, price_active_alpha) = Swap::adjust_protocol_liquidity(
-                netuid,
-                TaoBalance::from(200_000_u64),
-                AlphaBalance::from(1_000_u64),
-            );
-
-            assert_eq!(price_active_tao, TaoBalance::ZERO);
-            assert_eq!(price_active_alpha, AlphaBalance::from(1_000_u64));
+            TaoReserve::set_mock_reserve(netuid, 1_000_000u64.into());
+            AlphaReserve::set_mock_reserve(netuid, 1_000_000u64.into());
+            assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+            let price = Swap::current_price(netuid);
+            BalancerTaoReservoir::<Test>::insert(netuid, TaoBalance::from(200_000));
+            BalancerAlphaReservoir::<Test>::insert(netuid, AlphaBalance::from(20_000));
+            let accepted =
+                Swap::adjust_protocol_liquidity(netuid, 300u64.into(), 400u64.into()).unwrap();
             assert_eq!(
-                BalancerTaoReservoir::<Test>::get(netuid),
-                TaoBalance::from(200_000_u64)
-            );
-            assert_eq!(
-                BalancerAlphaReservoir::<Test>::get(netuid),
-                AlphaBalance::ZERO
-            );
-            assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
-        });
-    }
-
-    #[test]
-    fn test_adjust_protocol_liquidity_materializes_alpha_when_reservoiring_alpha() {
-        new_test_ext().execute_with(|| {
-            let netuid = NetUid::from(1);
-
-            let tao = TaoBalance::from(1_000_u64);
-            let alpha = AlphaBalance::from(1_000_u64);
-            TaoReserve::set_mock_reserve(netuid, tao);
-            AlphaReserve::set_mock_reserve(netuid, alpha);
-
-            let (price_active_tao, price_active_alpha) = Swap::adjust_protocol_liquidity(
-                netuid,
-                TaoBalance::from(1_000_u64),
-                AlphaBalance::from(200_000_u64),
-            );
-
-            assert_eq!(price_active_tao, TaoBalance::from(1_000_u64));
-            assert_eq!(price_active_alpha, AlphaBalance::ZERO);
-            assert_eq!(BalancerTaoReservoir::<Test>::get(netuid), TaoBalance::ZERO);
-            assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
-            assert_eq!(
-                BalancerAlphaReservoir::<Test>::get(netuid),
-                AlphaBalance::from(200_000_u64)
-            );
-        });
-    }
-
-    #[test]
-    fn test_adjust_protocol_liquidity_retries_reservoir_with_new_injection() {
-        new_test_ext().execute_with(|| {
-            let netuid = NetUid::from(1);
-
-            let mut tao = TaoBalance::from(1_000_u64);
-            let mut alpha = AlphaBalance::from(1_000_u64);
-            TaoReserve::set_mock_reserve(netuid, tao);
-            AlphaReserve::set_mock_reserve(netuid, alpha);
-
-            let (price_active_tao, price_active_alpha) = Swap::adjust_protocol_liquidity(
-                netuid,
-                TaoBalance::from(200_000_u64),
-                AlphaBalance::from(1_000_u64),
-            );
-            assert_eq!(price_active_tao, TaoBalance::ZERO);
-            assert_eq!(price_active_alpha, AlphaBalance::from(1_000_u64));
-            tao += price_active_tao;
-            alpha += price_active_alpha;
-            TaoReserve::set_mock_reserve(netuid, tao);
-            AlphaReserve::set_mock_reserve(netuid, alpha);
-
-            let (price_active_tao, price_active_alpha) = Swap::adjust_protocol_liquidity(
-                netuid,
-                TaoBalance::from(1_000_u64),
-                AlphaBalance::from(200_000_u64),
-            );
-
-            assert!(price_active_tao >= TaoBalance::from(1_000_u64));
-            assert!(price_active_alpha >= AlphaBalance::from(200_000_u64));
-            assert_eq!(BalancerTaoReservoir::<Test>::get(netuid), TaoBalance::ZERO);
-            assert_eq!(
-                BalancerAlphaReservoir::<Test>::get(netuid),
-                AlphaBalance::ZERO
+                accepted,
+                (TaoBalance::from(200_300), AlphaBalance::from(20_400))
             );
             assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
             assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
-        });
-    }
-
-    #[test]
-    fn test_adjust_protocol_liquidity_activates_reservoir_amounts() {
-        new_test_ext().execute_with(|| {
-            let netuid = NetUid::from(1);
-
-            TaoReserve::set_mock_reserve(netuid, TaoBalance::from(1_000_000_u64));
-            AlphaReserve::set_mock_reserve(netuid, AlphaBalance::from(1_000_000_u64));
-            BalancerTaoReservoir::<Test>::insert(netuid, TaoBalance::from(10_000_u64));
-            BalancerAlphaReservoir::<Test>::insert(netuid, AlphaBalance::from(20_000_u64));
-
-            let tao_delta = TaoBalance::from(300_u64);
-            let alpha_delta = AlphaBalance::from(400_u64);
-            let (price_active_tao, price_active_alpha) =
-                Swap::adjust_protocol_liquidity(netuid, tao_delta, alpha_delta);
-
-            assert_eq!(price_active_tao, TaoBalance::from(10_300_u64));
-            assert_eq!(price_active_alpha, AlphaBalance::from(20_400_u64));
-            assert_eq!(BalancerTaoReservoir::<Test>::get(netuid), TaoBalance::ZERO);
-            assert_eq!(
-                BalancerAlphaReservoir::<Test>::get(netuid),
-                AlphaBalance::ZERO
+            TaoReserve::set_mock_reserve(netuid, 1_200_300u64.into());
+            AlphaReserve::set_mock_reserve(netuid, 1_020_400u64.into());
+            assert_abs_diff_eq!(
+                Swap::current_price(netuid).to_num::<f64>(),
+                price.to_num::<f64>(),
+                epsilon = 1e-9
             );
-            assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
-            assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
         });
     }
 
-    /// This test case verifies that small gradual injections (like emissions in every block)
-    /// in the worst case
-    ///   - Do not cause price to change
-    ///   - Result in the same weight change as one large injection
-    ///
-    /// This is a long test that only tests validity of weights math. Run again if changing
-    /// Balancer::update_weights_for_added_liquidity
-    ///
-    /// cargo test --package pallet-subtensor-swap --lib -- pallet::tests::dispatchables::test_adjust_protocol_liquidity_deltas --exact --nocapture
-    #[ignore]
     #[test]
-    fn test_adjust_protocol_liquidity_deltas() {
-        // The number of times (blocks) over which gradual injections will be made
-        // One year price drift due to precision is under 1e-6
-        const ITERATIONS: u64 = 2_700_000;
-        const PRICE_PRECISION: f64 = 0.000_001;
-        const PREC_LARGE_DELTA: f64 = 0.001;
-        const WEIGHT_PRECISION: f64 = 0.000_000_000_000_000_001;
-
-        let initial_tao_reserve = TaoBalance::from(1_000_000_000_000_000_u64);
-        let initial_alpha_reserve = AlphaBalance::from(10_000_000_000_000_000_u64);
-
-        // test case: tao_delta, alpha_delta, price_precision
-        [
-            (0_u64, 0_u64, PRICE_PRECISION),
-            (0_u64, 1_u64, PRICE_PRECISION),
-            (1_u64, 0_u64, PRICE_PRECISION),
-            (1_u64, 1_u64, PRICE_PRECISION),
-            (0_u64, 10_u64, PRICE_PRECISION),
-            (10_u64, 0_u64, PRICE_PRECISION),
-            (10_u64, 10_u64, PRICE_PRECISION),
-            (0_u64, 100_u64, PRICE_PRECISION),
-            (100_u64, 0_u64, PRICE_PRECISION),
-            (100_u64, 100_u64, PRICE_PRECISION),
-            (0_u64, 987_u64, PRICE_PRECISION),
-            (987_u64, 0_u64, PRICE_PRECISION),
-            (876_u64, 987_u64, PRICE_PRECISION),
-            (0_u64, 1_000_u64, PRICE_PRECISION),
-            (1_000_u64, 0_u64, PRICE_PRECISION),
-            (1_000_u64, 1_000_u64, PRICE_PRECISION),
-            (0_u64, 1_234_u64, PRICE_PRECISION),
-            (1_234_u64, 0_u64, PRICE_PRECISION),
-            (1_234_u64, 4_321_u64, PRICE_PRECISION),
-            (1_234_000_u64, 4_321_000_u64, PREC_LARGE_DELTA),
-            (1_234_u64, 4_321_000_u64, PREC_LARGE_DELTA),
-        ]
-        .into_iter()
-        .for_each(|(tao_delta, alpha_delta, price_precision)| {
-            new_test_ext().execute_with(|| {
-                let netuid1 = NetUid::from(1);
-
-                let tao_delta = TaoBalance::from(tao_delta);
-                let alpha_delta = AlphaBalance::from(alpha_delta);
-
-                // Initialize realistically large reserves
-                let mut tao = initial_tao_reserve;
-                let mut alpha = initial_alpha_reserve;
-                TaoReserve::set_mock_reserve(netuid1, tao);
-                AlphaReserve::set_mock_reserve(netuid1, alpha);
-                let price_before = Swap::current_price(netuid1);
-
-                // Adjust reserves gradually
-                for _ in 0..ITERATIONS {
-                    Swap::adjust_protocol_liquidity(netuid1, tao_delta, alpha_delta);
-                    tao += tao_delta;
-                    alpha += alpha_delta;
-                    TaoReserve::set_mock_reserve(netuid1, tao);
-                    AlphaReserve::set_mock_reserve(netuid1, alpha);
-                }
-                // Check that price didn't change
-                let price_after = Swap::current_price(netuid1);
-                assert_abs_diff_eq!(
-                    price_before.to_num::<f64>(),
-                    price_after.to_num::<f64>(),
-                    epsilon = price_precision
-                );
-
-                /////////////////////////
-                // Now do one-time big injection with another netuid and compare weights
-                let netuid2 = NetUid::from(2);
-
-                // Initialize same large reserves
-                TaoReserve::set_mock_reserve(netuid2, initial_tao_reserve);
-                AlphaReserve::set_mock_reserve(netuid2, initial_alpha_reserve);
-
-                // Adjust reserves by one large amount at once
-                let tao_delta_once = TaoBalance::from(ITERATIONS * u64::from(tao_delta));
-                let alpha_delta_once = AlphaBalance::from(ITERATIONS * u64::from(alpha_delta));
-                Swap::adjust_protocol_liquidity(netuid2, tao_delta_once, alpha_delta_once);
-                TaoReserve::set_mock_reserve(netuid2, initial_tao_reserve + tao_delta_once);
-                AlphaReserve::set_mock_reserve(netuid2, initial_alpha_reserve + alpha_delta_once);
-
-                // Compare reserve weights for netuid 1 and 2
-                let res_weights1 = SwapBalancer::<Test>::get(netuid1);
-                let res_weights2 = SwapBalancer::<Test>::get(netuid2);
-                let actual_quote_weight1 = perquintill_to_f64(res_weights1.get_quote_weight());
-                let actual_quote_weight2 = perquintill_to_f64(res_weights2.get_quote_weight());
-                assert_abs_diff_eq!(
-                    actual_quote_weight1,
-                    actual_quote_weight2,
-                    epsilon = WEIGHT_PRECISION
-                );
-            });
-        });
-    }
-
-    /// Should work ok when initial alpha is zero
-    /// cargo test --package pallet-subtensor-swap --lib -- pallet::tests::dispatchables::test_adjust_protocol_liquidity_zero_alpha --exact --nocapture
-    #[test]
-    fn test_adjust_protocol_liquidity_zero_alpha() {
-        // test case: tao_delta, alpha_delta
-        [
-            (0_u64, 0_u64),
-            (0_u64, 1_u64),
-            (1_u64, 0_u64),
-            (1_u64, 1_u64),
-            (0_u64, 10_u64),
-            (10_u64, 0_u64),
-            (10_u64, 10_u64),
-            (0_u64, 100_u64),
-            (100_u64, 0_u64),
-            (100_u64, 100_u64),
-            (0_u64, 1_000_u64),
-            (1_000_u64, 0_u64),
-            (1_000_u64, 1_000_u64),
-            (1_000_000_u64, 0_u64),
-            (0_u64, 1_000_000_u64),
-            (1_000_000_u64, 1_000_000_u64),
-            (1_000_000_000_u64, 0_u64),
-            (0_u64, 1_000_000_000_u64),
-            (1_000_000_000_u64, 1_000_000_000_u64),
-            (1_000_000_000_000_u64, 0_u64),
-            (0_u64, 1_000_000_000_000_u64),
-            (1_000_000_000_000_u64, 1_000_000_000_000_u64),
-            (1_u64, 2_u64),
-            (2_u64, 1_u64),
-            (10_u64, 20_u64),
-            (20_u64, 10_u64),
-            (100_u64, 200_u64),
-            (200_u64, 100_u64),
-            (1_000_u64, 2_000_u64),
-            (2_000_u64, 1_000_u64),
-            (1_000_000_u64, 2_000_000_u64),
-            (2_000_000_u64, 1_000_000_u64),
-            (1_000_000_000_u64, 2_000_000_000_u64),
-            (2_000_000_000_u64, 1_000_000_000_u64),
-            (1_000_000_000_000_u64, 2_000_000_000_000_u64),
-            (2_000_000_000_000_u64, 1_000_000_000_000_u64),
-            (1_234_567_u64, 2_432_765_u64),
-            (1_234_567_u64, 2_432_765_890_u64),
-        ]
-        .into_iter()
-        .for_each(|(tao_delta, alpha_delta)| {
+    fn test_liquidity_translation_errors_preserve_all_storage() {
+        for (tao, alpha, pending_tao, pending_alpha, tao_delta, alpha_delta) in [
+            // Overflow combining already materialized pending liquidity with emissions.
+            (1_000_000, 4_000_000, u64::MAX, 0, 1, 0),
+            (1_000_000, 4_000_000, 0, u64::MAX, 0, 1),
+            // The new physical reserve cannot be represented, in either token.
+            (u64::MAX - 1, 4_000_000, 0, 0, 2, 0),
+            (1_000_000, u64::MAX - 1, 0, 0, 0, 2),
+        ] {
             new_test_ext().execute_with(|| {
                 let netuid = NetUid::from(1);
-
-                let tao_delta = TaoBalance::from(tao_delta);
-                let alpha_delta = AlphaBalance::from(alpha_delta);
-
-                // Initialize reserves and price
-                // broken state: Zero price because of zero alpha reserve
-                let tao = TaoBalance::from(1_000_000_000_000_u64);
-                let alpha = AlphaBalance::from(0_u64);
-                TaoReserve::set_mock_reserve(netuid, tao);
-                AlphaReserve::set_mock_reserve(netuid, alpha);
-                let price_before = Swap::current_price(netuid);
-                assert_eq!(price_before, U64F64::from_num(0));
-                let new_tao = u64::from(tao + tao_delta) as f64;
-                let new_alpha = u64::from(alpha + alpha_delta) as f64;
-
-                // Adjust reserves
-                Swap::adjust_protocol_liquidity(netuid, tao_delta, alpha_delta);
-                TaoReserve::set_mock_reserve(netuid, tao + tao_delta);
-                AlphaReserve::set_mock_reserve(netuid, alpha + alpha_delta);
-
-                let res_weights = SwapBalancer::<Test>::get(netuid);
-                let actual_quote_weight = perquintill_to_f64(res_weights.get_quote_weight());
-
-                // Check that price didn't change
-                let price_after = Swap::current_price(netuid);
-                if new_alpha == 0. {
-                    // If the pool state is still broken (∆x = 0), no change
-                    assert_eq!(actual_quote_weight, 0.5);
-                    assert_eq!(price_after, U64F64::from_num(0));
-                } else {
-                    // Price got fixed
-                    let expected_price = new_tao / new_alpha;
-                    assert_abs_diff_eq!(
-                        expected_price,
-                        price_after.to_num::<f64>(),
-                        epsilon = price_before.to_num::<f64>() / 1_000_000_000_000.
-                    );
-                    assert_eq!(actual_quote_weight, 0.5);
-                }
+                TaoReserve::set_mock_reserve(netuid, TaoBalance::from(tao));
+                AlphaReserve::set_mock_reserve(netuid, AlphaBalance::from(alpha));
+                assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+                BalancerTaoReservoir::<Test>::insert(netuid, TaoBalance::from(pending_tao));
+                BalancerAlphaReservoir::<Test>::insert(netuid, AlphaBalance::from(pending_alpha));
+                let curve = SwapSuperellipse::<Test>::get(netuid).unwrap();
+                let storage_before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+                assert!(
+                    Swap::adjust_protocol_liquidity(netuid, tao_delta.into(), alpha_delta.into())
+                        .is_err()
+                );
+                assert_eq!(
+                    sp_io::storage::root(sp_runtime::StateVersion::V1),
+                    storage_before
+                );
+                assert_eq!(SwapSuperellipse::<Test>::get(netuid).unwrap(), curve);
+                assert_eq!(
+                    u64::from(BalancerTaoReservoir::<Test>::get(netuid)),
+                    pending_tao
+                );
+                assert_eq!(
+                    u64::from(BalancerAlphaReservoir::<Test>::get(netuid)),
+                    pending_alpha
+                );
             });
+        }
+    }
+
+    #[test]
+    fn test_invalid_existing_curve_rejects_injection_without_mutation() {
+        new_test_ext().execute_with(|| {
+            let netuid = NetUid::from(1);
+            TaoReserve::set_mock_reserve(netuid, 1_000u64.into());
+            AlphaReserve::set_mock_reserve(netuid, 4_000u64.into());
+            assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+            // Corrupt physical accounting beyond the anchored positive branch.
+            TaoReserve::set_mock_reserve(netuid, 10_000u64.into());
+            let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+            assert!(Swap::adjust_protocol_liquidity(netuid, 100u64.into(), 100u64.into()).is_err());
+            assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+        });
+    }
+
+    #[test]
+    fn test_empty_pool_initializes_after_funding() {
+        new_test_ext().execute_with(|| {
+            let netuid = NetUid::from(1);
+            TaoReserve::set_mock_reserve(netuid, 0u64.into());
+            AlphaReserve::set_mock_reserve(netuid, 0u64.into());
+            assert_eq!(Swap::current_price(netuid), U64F64::from_num(0));
+            let accepted =
+                Swap::adjust_protocol_liquidity(netuid, 1_000_000u64.into(), 4_000_000u64.into())
+                    .unwrap();
+            assert_eq!(
+                accepted,
+                (TaoBalance::from(1_000_000), AlphaBalance::from(4_000_000))
+            );
+            TaoReserve::set_mock_reserve(netuid, accepted.0);
+            AlphaReserve::set_mock_reserve(netuid, accepted.1);
+            assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+            assert!(SwapSuperellipse::<Test>::contains_key(netuid));
+            assert_abs_diff_eq!(
+                Swap::current_price(netuid).to_num::<f64>(),
+                0.25,
+                epsilon = 1e-9
+            );
         });
     }
 }
@@ -502,7 +239,8 @@ fn test_swap_initialization() {
             epsilon = 0.000000001
         );
 
-        // Verify that swap reserve weight is initialized
+        assert!(SwapSuperellipse::<Test>::contains_key(netuid));
+        // Archived Balancer calibration remains available.
         let reserve_weight = SwapBalancer::<Test>::get(netuid);
         assert_eq!(
             reserve_weight.get_quote_weight(),
@@ -562,6 +300,8 @@ fn test_swap_basic() {
             let initial_alpha_reserve = AlphaBalance::from(4_000_000_000_u64);
             TaoReserve::set_mock_reserve(netuid, initial_tao_reserve);
             AlphaReserve::set_mock_reserve(netuid, initial_alpha_reserve);
+            SwapSuperellipse::<Test>::remove(netuid);
+            PalSwapInitialized::<Test>::remove(netuid);
             assert_ok!(Pallet::<Test>::maybe_initialize_palswap(netuid, None));
 
             // Get current price
@@ -581,9 +321,9 @@ fn test_swap_basic() {
             let x = alpha_reserve as f64;
             let y = tao_reserve as f64;
             let expected_output_amount = if price_should_grow {
-                x * (1.0 - y / (y + (swap_amount - expected_fee) as f64))
+                ellipse_output(x as u64, y as u64, 0.5, swap_amount - expected_fee, true) as f64
             } else {
-                y * (1.0 - x / (x + (swap_amount - expected_fee) as f64))
+                ellipse_output(x as u64, y as u64, 0.5, swap_amount - expected_fee, false) as f64
             };
 
             // Swap
@@ -664,13 +404,13 @@ fn test_swap_basic() {
         );
         perform_test(
             3.into(),
-            GetAlphaForTao::with_amount(1_000_000_000),
+            GetAlphaForTao::with_amount(10_000_000),
             1000.0,
             true,
         );
         perform_test(
             3.into(),
-            GetAlphaForTao::with_amount(10_000_000_000_u64),
+            GetAlphaForTao::with_amount(100_000_000_u64),
             1000.0,
             true,
         );
@@ -708,114 +448,52 @@ fn test_swap_precision_edge_case() {
     });
 }
 
+/// Independent floating-point reference for the migration-calibrated ellipse.
+fn ellipse_output(alpha: u64, tao: u64, weight: f64, input: u64, buy: bool) -> u64 {
+    let a = 2.0 * weight * alpha as f64;
+    let b = 2.0 * (1.0 - weight) * tao as f64;
+    let q = input as f64;
+    if buy {
+        (a * (2.0 - (1.0 - q / b).powi(2)).sqrt() - a) as u64
+    } else {
+        (b * (2.0 - (1.0 - q / a).powi(2)).sqrt() - b) as u64
+    }
+}
+
 #[test]
-fn test_convert_deltas() {
+fn test_convert_deltas_matches_independent_ellipse_reference() {
     new_test_ext().execute_with(|| {
-        for (tao, alpha, w_quote, delta_in) in [
-            (1500, 1000, 0.5, 1),
-            (1500, 1000, 0.5, 10000),
-            (1500, 1000, 0.5, 1000000),
-            (1500, 1000, 0.5, u64::MAX),
-            (1, 1000000, 0.5, 1),
-            (1, 1000000, 0.5, 10000),
-            (1, 1000000, 0.5, 1000000),
-            (1, 1000000, 0.5, u64::MAX),
-            (1000000, 1, 0.5, 1),
-            (1000000, 1, 0.5, 10000),
-            (1000000, 1, 0.5, 1000000),
-            (1000000, 1, 0.5, u64::MAX),
-            (1500, 1000, 0.50000001, 1),
-            (1500, 1000, 0.50000001, 10000),
-            (1500, 1000, 0.50000001, 1000000),
-            (1500, 1000, 0.50000001, u64::MAX),
-            (1, 1000000, 0.50000001, 1),
-            (1, 1000000, 0.50000001, 10000),
-            (1, 1000000, 0.50000001, 1000000),
-            (1, 1000000, 0.50000001, u64::MAX),
-            (1000000, 1, 0.50000001, 1),
-            (1000000, 1, 0.50000001, 10000),
-            (1000000, 1, 0.50000001, 1000000),
-            (1000000, 1, 0.50000001, u64::MAX),
-            (1500, 1000, 0.49999999, 1),
-            (1500, 1000, 0.49999999, 10000),
-            (1500, 1000, 0.49999999, 1000000),
-            (1500, 1000, 0.49999999, u64::MAX),
-            (1, 1000000, 0.49999999, 1),
-            (1, 1000000, 0.49999999, 10000),
-            (1, 1000000, 0.49999999, 1000000),
-            (1, 1000000, 0.49999999, u64::MAX),
-            (1000000, 1, 0.49999999, 1),
-            (1000000, 1, 0.49999999, 10000),
-            (1000000, 1, 0.49999999, 1000000),
-            (1000000, 1, 0.49999999, u64::MAX),
-            // Low quote weight
-            (1500, 1000, 0.1, 1),
-            (1500, 1000, 0.1, 10000),
-            (1500, 1000, 0.1, 1000000),
-            (1500, 1000, 0.1, u64::MAX),
-            (1, 1000000, 0.1, 1),
-            (1, 1000000, 0.1, 10000),
-            (1, 1000000, 0.1, 1000000),
-            (1, 1000000, 0.1, u64::MAX),
-            (1000000, 1, 0.1, 1),
-            (1000000, 1, 0.1, 10000),
-            (1000000, 1, 0.1, 1000000),
-            (1000000, 1, 0.1, u64::MAX),
-            // High quote weight
-            (1500, 1000, 0.9, 1),
-            (1500, 1000, 0.9, 10000),
-            (1500, 1000, 0.9, 1000000),
-            (1500, 1000, 0.9, u64::MAX),
-            (1, 1000000, 0.9, 1),
-            (1, 1000000, 0.9, 10000),
-            (1, 1000000, 0.9, 1000000),
-            (1, 1000000, 0.9, u64::MAX),
-            (1000000, 1, 0.9, 1),
-            (1000000, 1, 0.9, 10000),
-            (1000000, 1, 0.9, 1000000),
-            (1000000, 1, 0.9, u64::MAX),
+        for (tao, alpha) in [
+            (1_000_000, 1_500_000),
+            (1_000_000_000, 4_000_000_000),
+            (500_000_000_000_000, 10_000_000_000_000_000),
         ] {
-            // Initialize reserves and weights
-            let netuid = NetUid::from(1);
-            TaoReserve::set_mock_reserve(netuid, TaoBalance::from(tao));
-            AlphaReserve::set_mock_reserve(netuid, AlphaBalance::from(alpha));
-            assert_ok!(Pallet::<Test>::maybe_initialize_palswap(netuid, None));
-
-            let w_accuracy = 1_000_000_000_f64;
-            let w_quote_pt =
-                Perquintill::from_rational((w_quote * w_accuracy) as u128, w_accuracy as u128);
-            let bal = Balancer::new(w_quote_pt).unwrap();
-            SwapBalancer::<Test>::insert(netuid, bal);
-
-            // Calculate expected swap results (buy and sell) using f64 math
-            let y = tao as f64;
-            let x = alpha as f64;
-            let d = delta_in as f64;
-            let w1_div_w2 = (1. - w_quote) / w_quote;
-            let w2_div_w1 = w_quote / (1. - w_quote);
-            let expected_sell = y * (1. - (x / (x + d)).powf(w1_div_w2));
-            let expected_buy = x * (1. - (y / (y + d)).powf(w2_div_w1));
-
-            assert_abs_diff_eq!(
-                u64::from(
-                    BasicSwapStep::<Test, AlphaBalance, TaoBalance>::convert_deltas(
+            for weight in [0.1, 0.49999999, 0.5, 0.50000001, 0.9] {
+                let netuid = NetUid::from(1);
+                TaoReserve::set_mock_reserve(netuid, TaoBalance::from(tao));
+                AlphaReserve::set_mock_reserve(netuid, AlphaBalance::from(alpha));
+                let quote = Perquintill::from_rational((weight * 1e9) as u128, 1_000_000_000u128);
+                let curve = superellipse::Superellipse::from_balancer(alpha, tao, quote).unwrap();
+                SwapSuperellipse::<Test>::insert(netuid, curve);
+                for input in [1, 100, tao / 100, tao / 20] {
+                    let actual = BasicSwapStep::<Test, TaoBalance, AlphaBalance>::convert_deltas(
                         netuid,
-                        delta_in.into()
+                        input.into(),
                     )
-                ),
-                expected_sell as u64,
-                epsilon = 2u64
-            );
-            assert_abs_diff_eq!(
-                u64::from(
-                    BasicSwapStep::<Test, TaoBalance, AlphaBalance>::convert_deltas(
+                    .unwrap();
+                    let expected = ellipse_output(alpha, tao, weight, input, true);
+                    assert_abs_diff_eq!(u64::from(actual), expected, epsilon = 16);
+                }
+                for input in [1, 100, alpha / 100, alpha / 20] {
+                    let actual = BasicSwapStep::<Test, AlphaBalance, TaoBalance>::convert_deltas(
                         netuid,
-                        delta_in.into()
+                        input.into(),
                     )
-                ),
-                expected_buy as u64,
-                epsilon = 2u64
-            );
+                    .unwrap();
+                    let expected = ellipse_output(alpha, tao, weight, input, false);
+                    assert_abs_diff_eq!(u64::from(actual), expected, epsilon = 16);
+                }
+            }
         }
     });
 }
@@ -918,6 +596,176 @@ fn test_swap_allows_input_at_1000x_input_reserve() {
     });
 }
 
+#[test]
+fn test_oversized_orders_partial_fill_before_curve_endpoint() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        TaoReserve::set_mock_reserve(netuid, 1_000_000u64.into());
+        AlphaReserve::set_mock_reserve(netuid, 4_000_000u64.into());
+        assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+        let curve = SwapSuperellipse::<Test>::get(netuid).unwrap();
+        let buy = Swap::do_swap(
+            netuid,
+            GetAlphaForTao::with_amount(10_000_000),
+            get_max_price(),
+            true,
+            false,
+        )
+        .unwrap();
+        assert!(buy.amount_paid_in > TaoBalance::ZERO);
+        assert!(u64::from(buy.amount_paid_in) < 1_000_000);
+        assert!(buy.amount_paid_out > AlphaBalance::ZERO);
+        assert!(u64::from(buy.amount_paid_out) < 4_000_000);
+        assert!(
+            curve
+                .calculate_price(
+                    4_000_000 - u64::from(buy.amount_paid_out),
+                    1_000_000 + u64::from(buy.amount_paid_in)
+                )
+                .is_ok()
+        );
+        let sell = Swap::do_swap(
+            netuid,
+            GetTaoForAlpha::with_amount(40_000_000),
+            get_min_price(),
+            true,
+            false,
+        )
+        .unwrap();
+        assert!(sell.amount_paid_in > AlphaBalance::ZERO);
+        assert!(u64::from(sell.amount_paid_in) < 4_000_000);
+        assert!(sell.amount_paid_out > TaoBalance::ZERO);
+        assert!(u64::from(sell.amount_paid_out) < 1_000_000);
+        assert!(
+            curve
+                .calculate_price(
+                    4_000_000 + u64::from(sell.amount_paid_in),
+                    1_000_000 - u64::from(sell.amount_paid_out)
+                )
+                .is_ok()
+        );
+        assert_eq!(SwapSuperellipse::<Test>::get(netuid).unwrap(), curve);
+    });
+}
+
+#[test]
+fn test_large_full_target_price_does_not_prevent_finite_limit_fill() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let tao = u64::MAX / 2;
+        let alpha = 10u64;
+        TaoReserve::set_mock_reserve(netuid, tao.into());
+        AlphaReserve::set_mock_reserve(netuid, alpha.into());
+        assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+        let limit = Swap::current_price(netuid) * U64F64::from_num(2);
+        let curve = SwapSuperellipse::<Test>::get(netuid).unwrap();
+        let result =
+            Swap::do_swap(netuid, GetAlphaForTao::with_amount(tao), limit, true, false).unwrap();
+        assert!(result.amount_paid_out > AlphaBalance::ZERO);
+        assert!(u64::from(result.amount_paid_in) < tao);
+        let final_price = curve
+            .calculate_price(
+                alpha - u64::from(result.amount_paid_out),
+                tao + u64::from(result.amount_paid_in),
+            )
+            .unwrap();
+        assert!(final_price <= limit);
+    });
+}
+
+#[test]
+fn test_partial_fill_respects_buy_and_sell_price_limits_and_fees() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let tao = 1_000_000_000u64;
+        let alpha = 4_000_000_000u64;
+        TaoReserve::set_mock_reserve(netuid, tao.into());
+        AlphaReserve::set_mock_reserve(netuid, alpha.into());
+        assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+        FeeRate::<Test>::insert(netuid, 1_000);
+        let before = SwapSuperellipse::<Test>::get(netuid).unwrap();
+        let buy = Swap::do_swap(
+            netuid,
+            GetAlphaForTao::with_amount(500_000_000),
+            U64F64::from_num(0.3),
+            false,
+            false,
+        )
+        .unwrap();
+        assert!(buy.amount_paid_in > TaoBalance::ZERO);
+        assert!(u64::from(buy.amount_paid_in) + u64::from(buy.fee_paid) < 500_000_000);
+        assert_eq!(buy.fee_paid, buy.fee_to_block_author);
+        let buy_price = before
+            .calculate_price(
+                alpha - u64::from(buy.amount_paid_out),
+                tao + u64::from(buy.amount_paid_in),
+            )
+            .unwrap();
+        assert!(buy_price <= U64F64::from_num(0.3));
+        assert_abs_diff_eq!(buy_price.to_num::<f64>(), 0.3, epsilon = 1e-8);
+        // The reserve abstraction is updated by the caller, so this sell starts
+        // from the same initial balances and independently tests the other direction.
+        let sell = Swap::do_swap(
+            netuid,
+            GetTaoForAlpha::with_amount(2_000_000_000),
+            U64F64::from_num(0.2),
+            false,
+            false,
+        )
+        .unwrap();
+        assert!(sell.amount_paid_in > AlphaBalance::ZERO);
+        assert!(u64::from(sell.amount_paid_in) + u64::from(sell.fee_paid) < 2_000_000_000);
+        assert_eq!(sell.fee_paid, sell.fee_to_block_author);
+        let sell_price = before
+            .calculate_price(
+                alpha + u64::from(sell.amount_paid_in),
+                tao - u64::from(sell.amount_paid_out),
+            )
+            .unwrap();
+        assert!(sell_price >= U64F64::from_num(0.2));
+        assert_abs_diff_eq!(sell_price.to_num::<f64>(), 0.2, epsilon = 1e-8);
+        let rate = 1_000.0 / (u16::MAX as f64 - 1_000.0);
+        assert_abs_diff_eq!(
+            u64::from(buy.fee_paid),
+            (u64::from(buy.amount_paid_in) as f64 * rate) as u64,
+            epsilon = 1
+        );
+        assert_abs_diff_eq!(
+            u64::from(sell.fee_paid),
+            (u64::from(sell.amount_paid_in) as f64 * rate) as u64,
+            epsilon = 1
+        );
+    });
+}
+
+#[test]
+fn test_simulation_does_not_initialize_or_mutate_curve() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        TaoReserve::set_mock_reserve(netuid, 1_000_000_000u64.into());
+        AlphaReserve::set_mock_reserve(netuid, 4_000_000_000u64.into());
+        let state_before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        let quote = Swap::sim_swap(netuid, GetAlphaForTao::with_amount(1_000_000)).unwrap();
+        assert!(quote.amount_paid_out > AlphaBalance::ZERO);
+        assert_eq!(
+            sp_io::storage::root(sp_runtime::StateVersion::V1),
+            state_before
+        );
+        assert!(!SwapSuperellipse::<Test>::contains_key(netuid));
+        assert!(!PalSwapInitialized::<Test>::get(netuid));
+        assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+        let state_before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert_eq!(
+            Swap::sim_swap(netuid, GetAlphaForTao::with_amount(1_000_000)).unwrap(),
+            quote
+        );
+        assert_eq!(
+            sp_io::storage::root(sp_runtime::StateVersion::V1),
+            state_before
+        );
+    });
+}
+
 #[allow(dead_code)]
 fn bbox(t: U64F64, a: U64F64, b: U64F64) -> U64F64 {
     if t < a {
@@ -950,8 +798,17 @@ fn test_clear_protocol_liquidity_clears_nonzero_reservoirs() {
         let w_quote_pt = Perquintill::from_rational(1u128, 2u128);
         let bal = Balancer::new(w_quote_pt).unwrap();
         SwapBalancer::<Test>::insert(netuid, bal);
+        SwapSuperellipse::<Test>::insert(
+            netuid,
+            superellipse::Superellipse::from_balancer(
+                4_000_000_000_000,
+                1_000_000_000_000,
+                w_quote_pt,
+            )
+            .unwrap(),
+        );
 
-        // Sanity: PalSwap is not initialized
+        // Sanity: PalSwap is initialized
         assert!(PalSwapInitialized::<Test>::get(netuid));
 
         // ACT
@@ -963,6 +820,7 @@ fn test_clear_protocol_liquidity_clears_nonzero_reservoirs() {
         assert!(!FeeRate::<Test>::contains_key(netuid));
         assert!(!PalSwapInitialized::<Test>::contains_key(netuid));
         assert!(!SwapBalancer::<Test>::contains_key(netuid));
+        assert!(!SwapSuperellipse::<Test>::contains_key(netuid));
         assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
         assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
     });

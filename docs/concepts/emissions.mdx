@@ -130,17 +130,25 @@ price feeding the EMA is capped at 1.0.
 
 ## Pools and price
 
-Pools are Balancer-style weighted pools, and the spot alpha price is
-`(w_alpha / w_tao) × (TAO reserve / alpha reserve)` (read it with
-[`alpha-price`](/docs/query/alpha-price)). The two weights start at 0.5/0.5
-— where the price reduces to the plain reserve ratio and the math to
-constant-product — and are bounded to \[0.01, 0.99\]. Per-block liquidity
-injections shift the weights instead of the price, so emission does not move
-the market, but it does nudge the weights slightly off 0.5/0.5 — so the
-price is the weighted ratio, not exactly `TAO / alpha`. Pool liquidity is
-protocol-owned by default: the chain has a user-liquidity feature (per-subnet
-`user_liquidity_enabled` toggle, off by default) but with it off there are no
-user LP positions or LP tokens.
+Dynamic pools use a translated exponent-two superellipse. With actual
+alpha and TAO reserves $x,y$, centers $c_x,c_y$, and scales $a,b$, define
+$X=c_x-x$ and $Y=c_y-y$. The spot alpha price is
+$b^2X/(a^2Y)$ (read it with [`alpha-price`](/docs/query/alpha-price)).
+It is generally different from the reserve ratio.
+
+Per-block liquidity injections translate the centers by the amounts added
+to the reserves. This leaves the curve coordinates, spot price, and scales
+unchanged: injections do not automatically deepen the price response.
+Legacy pending protocol reservoirs remain included in issuance and are
+released when they can be represented safely. Pool liquidity is
+protocol-owned; the usable trading branch has finite endpoints and some
+reserves can remain unreachable through ordinary swaps. See
+[staking and pools](/docs/concepts/staking-pools) for payouts, migration
+calibration, and partial fills.
+
+The legacy `getSwapState` weights are archived Balancer calibration data;
+they no longer determine the live price. Current prices and swap quotes
+come from the superellipse curve.
 
 ## The per-tempo split
 

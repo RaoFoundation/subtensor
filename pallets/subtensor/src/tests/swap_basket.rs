@@ -1035,8 +1035,11 @@ fn test_swap_basket_buy_refused_when_own_impact_exceeds_band() {
 fn test_swap_basket_sell_refused_when_own_impact_exceeds_band() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        SubnetTAO::<Test>::insert(fund.netuid_a, TaoBalance::from(10_000_000u64));
-        SubnetAlphaIn::<Test>::insert(fund.netuid_a, AlphaBalance::from(10_000_000u64));
+        setup_reserves(
+            fund.netuid_a,
+            TaoBalance::from(30_000_000_000u64),
+            AlphaBalance::from(30_000_000_000u64),
+        );
         crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SlippageTooHigh

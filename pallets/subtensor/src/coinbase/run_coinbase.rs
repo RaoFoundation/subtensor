@@ -89,6 +89,7 @@ impl<T: Config> Pallet<T> {
                 // disabled this block does not display stale values from an earlier block.
                 SubnetExcessTao::<T>::insert(*netuid_i, TaoBalance::ZERO);
                 SubnetTaoInEmission::<T>::insert(*netuid_i, TaoBalance::ZERO);
+                SubnetAlphaInEmission::<T>::insert(*netuid_i, AlphaBalance::ZERO);
 
                 if tao_to_swap_with > TaoBalance::ZERO {
                     // Turn excess_tao portion of credit into TaoBalance on subnet account
@@ -113,6 +114,25 @@ impl<T: Config> Pallet<T> {
                                     // Record actual excess TAO that entered pool.
                                     let actual_excess: TaoBalance =
                                         buy_swap_result_ok.amount_paid_in;
+                                    // The ellipse can stop at its branch/price limit.
+                                    // Only the consumed input belongs to pool reserves;
+                                    // return the unspent credited TAO to coinbase.
+                                    let unspent = tao_to_swap_with.saturating_sub(actual_excess);
+                                    if !unspent.is_zero() {
+                                        match Self::withdraw_tao_as_credit(
+                                            &subnet_account_id,
+                                            unspent,
+                                        ) {
+                                            Ok(refund) => {
+                                                remaining_credit = remaining_credit.merge(refund);
+                                            }
+                                            Err(error) => {
+                                                log::error!(
+                                                    "Failed to refund partial protocol buy: netuid={netuid_i:?}, unspent={unspent:?}, error={error:?}"
+                                                );
+                                            }
+                                        }
+                                    }
                                     SubnetExcessTao::<T>::insert(*netuid_i, actual_excess);
                                     Self::record_protocol_inflow(*netuid_i, actual_excess);
                                 }
@@ -144,7 +164,7 @@ impl<T: Config> Pallet<T> {
                     }
                 }
 
-                // Materialize this block's TAO before updating balancer reservoir
+                // Materialize this block's TAO before updating protocol reservoir
                 // state. If spending fails, do not let the swap pallet consume
                 // reservoir state as if this block's TAO arrived.
                 let materialized_tao_delta = if tao_in_i.is_zero() {
@@ -166,15 +186,36 @@ impl<T: Config> Pallet<T> {
                     }
                 };
 
-                // Decide which current/reservoir liquidity can become price-active
-                // without pushing balancer weights out of range. Only already
+                // Translate the curve by representable current/reservoir liquidity,
+                // preserving spot price and fixed scales. Only already
                 // materialized current TAO is offered to the swap pallet.
                 let (price_active_tao, price_active_alpha) =
-                    T::SwapInterface::adjust_protocol_liquidity(
+                    match T::SwapInterface::adjust_protocol_liquidity(
                         *netuid_i,
                         materialized_tao_delta,
                         alpha_in_i,
-                    );
+                    ) {
+                        Ok(deltas) => deltas,
+                        Err(error) => {
+                            // No curve/reservoir writes occurred on rejection. Revert
+                            // the current TAO credit, and leave alpha unminted.
+                            if !materialized_tao_delta.is_zero() {
+                                match Self::withdraw_tao_as_credit(
+                                    &subnet_account_id,
+                                    materialized_tao_delta,
+                                ) {
+                                    Ok(refund) => remaining_credit = remaining_credit.merge(refund),
+                                    Err(refund_error) => log::error!(
+                                        "Failed to refund rejected protocol injection: netuid={netuid_i:?}, error={refund_error:?}"
+                                    ),
+                                }
+                            }
+                            log::error!(
+                                "Protocol injection rejected: netuid={netuid_i:?}, error={error:?}"
+                            );
+                            continue;
+                        }
+                    };
 
                 // Materialize this block's alpha emission, then add only the
                 // price-active portion to the pool reserve. The price-active
