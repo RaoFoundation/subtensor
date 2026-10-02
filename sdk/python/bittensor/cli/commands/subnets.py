@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from enum import Enum
 from typing import Optional
 
 import typer
@@ -527,6 +528,12 @@ def subnet_conviction(
         )
 
 
+class PowBackend(str, Enum):
+    auto = "auto"
+    gpu = "gpu"
+    cpu = "cpu"
+
+
 @app.command("register", rich_help_panel=PANEL_REGISTER)
 @with_tx_globals
 def register_subnet(
@@ -535,10 +542,34 @@ def register_subnet(
     hotkey_ss58: Optional[str] = typer.Option(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
     ),
+    pow: bool = typer.Option(
+        False, "--pow", help="Mine an owner-enabled proof instead of paying TAO."
+    ),
+    pow_workers: int = typer.Option(
+        4, "--pow-workers", min=1, max=32, help="CPU mining workers for --pow."
+    ),
+    pow_backend: PowBackend = typer.Option(
+        PowBackend.auto,
+        "--pow-backend",
+        help="Use all discovered GPUs automatically, require GPU, or use CPU.",
+    ),
+    pow_device: Optional[list[int]] = typer.Option(
+        None,
+        "--pow-device",
+        min=0,
+        help="GPU device id; repeat to select devices. Default: all GPUs.",
+    ),
+    pow_timeout: float = typer.Option(
+        300, "--pow-timeout", min=1, max=3600, help="Maximum mining time in seconds."
+    ),
 ):
     """Register a hotkey on a subnet by paying the registration cost.
 
-    Pays the subnet's current floating registration cost from the wallet
+    With --pow, mine an owner-enabled proof instead: direct submission with
+    zero tip requires no TAO, registration burn or initial collateral purchase.
+    Mining uses public addresses; signing uses the normal coldkey workflow.
+
+    Otherwise pays the subnet's current floating registration cost from the wallet
     coldkey for a neuron slot (UID). When the subnet's collateral lock
     share is zero the full cost is burned/recycled; when it is positive,
     that share is staked and locked as miner collateral (released only
@@ -552,6 +583,25 @@ def register_subnet(
     """
     app_ctx: AppContext = ctx_of(ctx)
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+    if pow:
+        if netuid == 0:
+            app_ctx.output.error("PoW registration is unavailable on root")
+            raise typer.Exit(2)
+        coldkey = app_ctx.resolve_dispatch_proxy() or app_ctx.resolve_address("coldkey_ss58", None)
+        with app_ctx.output.activity("mining a fresh registration proof…"):
+            intent = app_ctx.run(
+                lambda client: client.mine_pow_registration(
+                    netuid,
+                    hotkey,
+                    coldkey,
+                    workers=pow_workers,
+                    max_seconds=pow_timeout,
+                    backend=pow_backend.value,
+                    device_ids=pow_device,
+                )
+            )
+        app_ctx.submit(intent)
+        return
     if netuid == 0:
         app_ctx.submit(RootRegister(hotkey_ss58=hotkey))
     else:

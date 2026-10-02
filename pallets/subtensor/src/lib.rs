@@ -59,7 +59,13 @@ extern crate alloc;
 
 pub type OriginFor<T> = <T as frame_system::Config>::RuntimeOrigin;
 
-pub const MAX_CRV3_COMMIT_SIZE_BYTES: u32 = 5000;
+/// SCALE bound includes room for a full 4,096-entry encrypted weight row.
+pub const MAX_CRV3_COMMIT_SIZE_BYTES: u32 = 32 * 1024;
+pub const YUMA_COMMIT_SIZE_BYTES: u32 = 5000;
+/// Bound ciphertext storage and decryption work per Null subnet epoch,
+/// shared across all emission mechanisms.
+pub const NULL_COMMIT_QUEUE_BYTES: usize = 64 * 1024;
+pub const NULL_COMMIT_QUEUE_COUNT: usize = 64;
 
 pub const ALPHA_MAP_BATCH_SIZE: usize = 30;
 
@@ -480,6 +486,30 @@ pub mod pallet {
         Burn,
         /// Recycle the miner emission sent to the recycle UID
         Recycle,
+    }
+
+    /// Selects the subnet's epoch reward algorithm.
+    #[derive(
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        Default,
+        TypeInfo,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Debug,
+        MaxEncodedLen,
+    )]
+    pub enum EpochConsensus {
+        /// Run the configured Yuma algorithm.
+        #[default]
+        #[codec(index = 0)]
+        Yuma,
+        /// Use the largest-stake validator's weights and stake-proportional dividends.
+        #[codec(index = 1)]
+        Null,
     }
 
     /// Selects which consensus values liquid alpha uses.
@@ -2389,7 +2419,13 @@ pub mod pallet {
     /// MAP ( netuid ) --> network_pow_allowed
     #[pallet::storage]
     pub type NetworkPowRegistrationAllowed<T: Config> =
-        StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultRegistrationAllowed<T>>;
+        StorageMap<_, Identity, NetUid, bool, ValueQuery>;
+
+    /// Last accepted PoW challenge block per hotkey. Keeping one watermark
+    /// prevents recent proof replay without an ever-growing used-seal list.
+    #[pallet::storage]
+    pub type LastPowRegistrationBlock<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, OptionQuery>;
 
     /// MAP ( netuid ) --> block_created
     #[pallet::storage]
@@ -2451,6 +2487,18 @@ pub mod pallet {
     #[pallet::storage]
     pub type LastMechansimStepBlock<T> =
         StorageMap<_, Identity, NetUid, u64, ValueQuery, DefaultLastMechanismStepBlock<T>>;
+
+    /// Last epoch that actually updated bonds. Frozen while Null consensus runs.
+    #[pallet::storage]
+    pub type LastYumaStepBlock<T> = StorageMap<_, Identity, NetUid, u64, OptionQuery>;
+
+    /// Explicit Null pruning continuation. Every completed batch leaves a usable subnet.
+    #[pallet::storage]
+    pub type NullPruningTarget<T> = StorageMap<_, Identity, NetUid, u16, OptionQuery>;
+
+    /// Restore the Yuma validator capacity when leaving sole-permit Null mode.
+    #[pallet::storage]
+    pub type SavedYumaMaxAllowedValidators<T> = StorageMap<_, Identity, NetUid, u16, OptionQuery>;
 
     /// MAP ( netuid ) --> subnet_owner
     #[pallet::storage]
@@ -2687,6 +2735,10 @@ pub mod pallet {
     #[pallet::storage]
     pub type LiquidAlphaConsensusMode<T> =
         StorageMap<_, Identity, NetUid, ConsensusMode, ValueQuery, DefaultConsensusMode<T>>;
+
+    /// Epoch reward algorithm per subnet. Existing and new subnets default to Yuma.
+    #[pallet::storage]
+    pub type SubnetEpochConsensus<T> = StorageMap<_, Identity, NetUid, EpochConsensus, ValueQuery>;
 
     /// MAP ( netuid ) --> If subtoken trading enabled
     #[pallet::storage]

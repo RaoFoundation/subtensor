@@ -13,9 +13,9 @@ should be throttled by price.
 The burn price moves in two ways, and both are clamped into
 `[min_burn, max_burn]` in `pallets/subtensor/src/subnets/registration.rs`:
 
-- Each successful registration multiplies the price by
+- Each successful burn registration multiplies the price by
   [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult)
-  ([`bump_registration_price_after_registration`](/code/pallets/subtensor/src/subnets/registration.rs#L517-L541)).
+  ([`bump_registration_price_after_registration`](/code/pallets/subtensor/src/subnets/registration.rs)).
   Once the product exceeds
   `max_burn`, the price is pinned at `max_burn` — further registrations in the
   same burst cost exactly `max_burn` each.

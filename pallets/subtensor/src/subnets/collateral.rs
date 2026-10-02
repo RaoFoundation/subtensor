@@ -95,14 +95,15 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
     ) -> Result<(), Error<T>> {
-        ColdkeyCollateralHotkeys::<T>::try_mutate(netuid, coldkey, |hotkeys| {
-            if hotkeys.contains(hotkey) {
-                return Ok(());
-            }
-            hotkeys
-                .try_push(hotkey.clone())
-                .map_err(|_| Error::<T>::ColdkeyCollateralPositionsFull)
-        })
+        let mut hotkeys = ColdkeyCollateralHotkeys::<T>::get(netuid, coldkey);
+        if hotkeys.contains(hotkey) {
+            return Ok(());
+        }
+        hotkeys
+            .try_push(hotkey.clone())
+            .map_err(|_| Error::<T>::ColdkeyCollateralPositionsFull)?;
+        ColdkeyCollateralHotkeys::<T>::insert(netuid, coldkey, hotkeys);
+        Ok(())
     }
 
     /// Drop `hotkey` from [`ColdkeyCollateralHotkeys`] when its collateral row
@@ -502,7 +503,13 @@ impl<T: Config> Pallet<T> {
         if emission.is_zero() {
             return AlphaBalance::ZERO;
         }
-        let old_locked = Self::get_miner_collateral_locked(netuid, hotkey, owner);
+        let Some(previous) = MinerCollateral::<T>::get((netuid, hotkey, owner)) else {
+            // Do not issue a storage delete for every ordinary miner without
+            // collateral. Still repair a stale reverse index if one exists.
+            Self::deindex_coldkey_collateral_hotkey(netuid, owner, hotkey);
+            return AlphaBalance::ZERO;
+        };
+        let old_locked = previous.locked;
         let captured =
             MinerCollateral::<T>::mutate_exists((netuid, hotkey, owner), |maybe_state| {
                 let Some(state) = maybe_state else {
@@ -517,9 +524,7 @@ impl<T: Config> Pallet<T> {
                     if captured.is_zero() {
                         return AlphaBalance::ZERO;
                     }
-                    Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                        hotkey, owner, netuid, captured,
-                    );
+                    Self::credit_epoch_owner_emission(hotkey, owner, netuid, captured);
                     state.locked = state.locked.saturating_add(captured);
                     return captured;
                 }

@@ -3,43 +3,49 @@ title: difficulty
 description: Current PoW registration difficulty; u64::MAX means PoW registration is effectively disabled.
 ---
 
-`difficulty` is the proof-of-work target a miner's registration nonce must
-beat to claim a UID via PoW registration. It is a raw u64: finding a valid
-nonce takes about `difficulty` hash attempts on average, so the value is a
-direct price in compute. Miners planning PoW registration care about it;
-`u64::MAX` is the sentinel for "no nonce can ever pass" — PoW registration
-effectively disabled, burned registration only.
+`difficulty` is the current compute price of PoW subnet registration. A value
+of `D` takes roughly `D` hash attempts on average. Direct zero-tip PoW pays no
+TAO burn, transaction fee or initial collateral purchase.
 
 ## How it works
 
-A PoW registration submits a seal built from a recent block hash, the
-hotkey, and a nonce
-([`create_seal_hash`](/code/pallets/subtensor/src/subnets/registration.rs#L426-L446)
-in `pallets/subtensor/src/subnets/registration.rs`). The check is
-[`hash_meets_difficulty`](/code/pallets/subtensor/src/subnets/registration.rs#L362-L372):
-the seal hash times `difficulty` must not overflow
-a 256-bit integer, which passes with probability roughly 1 in `difficulty`.
-At `u64::MAX` essentially nothing passes.
+PoW and burn have independent demand signals. A successful PoW registration
+multiplies only PoW difficulty by
+[`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult); a burn registration
+increases only burn cost. Both reuse the same multiplier and
+[`burn_half_life`](/docs/hyperparameters/burn-half-life) setting, while each price
+decays toward its own minimum each block:
 
-On the current runtime this check no longer gates subnet registration: the
-[`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814)
-extrinsic (`pallets/subtensor/src/macros/dispatches.rs`, call
-index 6) accepts the work arguments but ignores them and routes to the
-burned-registration path
-([`do_register`](/code/pallets/subtensor/src/subnets/registration.rs#L38-L132)).
-No controller adjusts `difficulty`
-anymore either — the per-block price update
-([`update_registration_prices_for_networks`](/code/pallets/subtensor/src/subnets/registration.rs#L473-L515))
-only decays the burn cost. The
-value stays on-chain, is reported in the metagraph, and root can still
-change it. The seal check itself survives in the testnet faucet
-([`do_faucet`](/code/pallets/subtensor/src/subnets/registration.rs#L165-L214),
-fixed difficulty 1,000,000).
+```text
+after PoW registration: D = clamp(floor(D × multiplier), min_difficulty, max_difficulty)
+after each block:   D = clamp(floor(D × 2^(-1 / half_life)), min_difficulty, max_difficulty)
+```
 
-Historically, `difficulty` walked between its floor and ceiling as the
-chain steered registrations toward a target rate:
+The chain uses the same fixed-point rounding as burn pricing. The two prices
+have different units and their own bounds: burn is measured in rao, difficulty
+in expected hash attempts. `MinDifficulty` remains root/governance controlled;
+an owner-controlled maximum below this minimum cannot bypass the minimum.
+The effective floor is at least one. Existing stored difficulty values bootstrap
+the controller; no reset or new price storage is introduced.
 
-<HyperparamPowDifficulty focus="difficulty" />
+Defaults are a multiplier of 1.26 and half-life of 360 blocks. Away from bounds
+and rounding, one PoW registration per `half_life × log2(multiplier)` blocks balances
+the decay (approximately 120 blocks with defaults). More PoW registrations
+increase difficulty; quiet PoW demand lets it fall toward its floor, even while
+miners continue registering through burn.
+Updates continue when PoW admission is disabled, so toggling it does not reset
+accumulated demand. Root remains burn-only; faucet work is separate.
+
+The subnet owner enables PoW with `network_pow_registration_allowed`. Burn
+registration has its own `registration_allowed` toggle; owners may enable either
+method or both, and must leave at least one enabled.
+The current proof binds subnet, block hash, hotkey, coldkey and nonce. The SDK
+and CLI check current difficulty and refresh work invalidated by a price bump.
+
+Historically, PoW and burn also shared their pricing parameters, using an
+interval/target-rate controller. This implementation uses today's burn controller:
+immediate registration bumps and per-block decay, rather than restoring the
+retired interval controller.
 
 ## Reading and setting
 

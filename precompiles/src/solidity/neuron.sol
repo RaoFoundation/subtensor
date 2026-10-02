@@ -387,4 +387,14 @@ interface INeuron {
         uint16 netuid,
         uint64 epoch
     ) external view returns (uint32);
+    /// Large-row variant, bounded to the runtime Null UID budget (4,096).
+    /// Existing setMechanismWeights retains its original 4,096-entry bound.
+    function setMechanismWeightsV2(
+        uint16 netuid, uint8 mecid, uint16[] memory dests, uint16[] memory weights, uint64 versionKey
+    ) external;
+    /// Null ciphertexts may occupy up to 32 KiB; Yuma retains its 5,000-byte limit.
+    /// Existing timelocked selectors retain their original 5,000-byte ABI bound.
+    function commitTimelockedMechanismWeightsV2(
+        uint16 netuid, uint8 mecid, bytes memory commit, uint64 revealRound, uint16 commitRevealVersion
+    ) external;
 }

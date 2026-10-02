@@ -75,6 +75,8 @@
     "ColdkeySwapTooHeavy",
     "CollateralDrainRatioOutOfBounds",
     "CollateralLockShareTooHigh",
+    "CommitPayloadTooLarge",
+    "CommitQueueFull",
     "CommitRevealDisabled",
     "CommitRevealEnabled",
     "CommittingWeightsTooFast",

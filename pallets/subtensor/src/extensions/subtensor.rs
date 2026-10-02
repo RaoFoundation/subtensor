@@ -1,3 +1,4 @@
+use crate::weights::WeightInfo as _;
 use crate::{
     Call, CheckColdkeySwap, CheckDelegateTake, CheckEvmKeyAssociation, CheckRateLimits,
     CheckServingEndpoints, CheckWeights, Config, Error, Pallet, guards::applicable_call,
@@ -102,6 +103,17 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
 
         CheckColdkeySwap::<T>::check(who, call)?;
         Self::check_basket_calls(who, call)?;
+
+        if let Some(Call::pow_register {
+            netuid,
+            work_block,
+            nonce,
+            work,
+            hotkey,
+        }) = call.is_sub_type()
+        {
+            Pallet::<T>::check_pow_registration(who, *netuid, *work_block, *nonce, work, hotkey)?;
+        }
 
         let commitment_call: Option<&pallet_commitments::Call<T>> = call.is_sub_type();
         if let Some(pallet_commitments::Call::set_commitment { netuid, .. }) = commitment_call {
@@ -336,6 +348,11 @@ where
 
     fn weight(&self, call: &CallOf<T>) -> Weight {
         use DispatchExtension as DE;
+        let pow_weight = if matches!(call.is_sub_type(), Some(Call::<T>::pow_register { .. })) {
+            <T as Config>::WeightInfo::check_pow_registration()
+        } else {
+            Weight::zero()
+        };
         <CheckColdkeySwap<T> as DE<CallOf<T>>>::weight(call)
             .saturating_add(<CheckWeights<T> as DE<CallOf<T>>>::weight(call))
             .saturating_add(<CheckRateLimits<T> as DE<CallOf<T>>>::weight(call))
@@ -344,6 +361,7 @@ where
             .saturating_add(<CheckEvmKeyAssociation<T> as DE<CallOf<T>>>::weight(call))
             .saturating_add(Self::commitment_weight(call))
             .saturating_add(Self::basket_trade_weight(call))
+            .saturating_add(pow_weight)
     }
 
     fn validate(
@@ -359,6 +377,19 @@ where
         Self::check(&origin, call)
             .map(|()| {
                 let mut validity = ValidTransaction::default();
+                if let Some(Call::<T>::pow_register {
+                    work_block, hotkey, ..
+                }) = call.is_sub_type()
+                {
+                    validity.longevity = crate::subnets::registration::POW_MAX_WORK_AGE_BLOCKS
+                        .saturating_sub(
+                            Pallet::<T>::get_current_block_as_u64().saturating_sub(*work_block),
+                        )
+                        .saturating_add(1);
+                    validity
+                        .provides
+                        .push((b"pow-registration", hotkey, work_block).encode());
+                }
                 if let Some(who) = origin.as_signer()
                     && let Some(call) = applicable_call(call, CheckRateLimits::<T>::applies_to)
                 {
@@ -586,49 +617,52 @@ mod tests {
     // work they run instead of a constant.
     #[test]
     fn batched_weight_calls_declare_per_item_weight() {
-        let netuid = NetUid::from(1);
-        let one_item = |items: usize| {
-            RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights {
-                netuids: vec![codec::Compact(netuid); items],
-                weights: vec![vec![(codec::Compact(0_u16), codec::Compact(1_u16))]; items],
-                version_keys: vec![codec::Compact(0_u64); items],
-            })
-            .get_dispatch_info()
-            .call_weight
-        };
-        let per_item = <Test as crate::Config>::WeightInfo::set_mechanism_weights(1);
-        assert!(one_item(1).all_gte(per_item));
-        assert!(one_item(8).all_gte(one_item(1).saturating_add(per_item.saturating_mul(7))));
+        new_test_ext(0).execute_with(|| {
+            let netuid = NetUid::from(1);
+            let one_item = |items: usize| {
+                RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights {
+                    netuids: vec![codec::Compact(netuid); items],
+                    weights: vec![vec![(codec::Compact(0_u16), codec::Compact(1_u16))]; items],
+                    version_keys: vec![codec::Compact(0_u64); items],
+                })
+                .get_dispatch_info()
+                .call_weight
+            };
+            let per_item = <Test as crate::Config>::WeightInfo::set_mechanism_weights(1);
+            assert!(one_item(1).all_gte(per_item));
+            assert!(one_item(8).all_gte(one_item(1).saturating_add(per_item.saturating_mul(7))));
 
-        let commit_batch = |items: usize| {
-            RuntimeCall::SubtensorModule(SubtensorCall::batch_commit_weights {
-                netuids: vec![codec::Compact(netuid); items],
-                commit_hashes: vec![sp_core::H256::zero(); items],
-            })
-            .get_dispatch_info()
-            .call_weight
-        };
-        let per_commit = <Test as crate::Config>::WeightInfo::commit_weights();
-        assert!(
-            commit_batch(8).all_gte(commit_batch(1).saturating_add(per_commit.saturating_mul(7)))
-        );
+            let commit_batch = |items: usize| {
+                RuntimeCall::SubtensorModule(SubtensorCall::batch_commit_weights {
+                    netuids: vec![codec::Compact(netuid); items],
+                    commit_hashes: vec![sp_core::H256::zero(); items],
+                })
+                .get_dispatch_info()
+                .call_weight
+            };
+            let per_commit = <Test as crate::Config>::WeightInfo::commit_weights();
+            assert!(
+                commit_batch(8)
+                    .all_gte(commit_batch(1).saturating_add(per_commit.saturating_mul(7)))
+            );
 
-        let reveal = |uids: usize| {
-            RuntimeCall::SubtensorModule(SubtensorCall::reveal_weights {
-                netuid,
-                uids: vec![0; uids],
-                values: vec![1; uids],
-                salt: vec![1],
-                version_key: 0,
-            })
-            .get_dispatch_info()
-            .call_weight
-        };
-        assert!(
-            reveal(4096)
-                .all_gte(<Test as crate::Config>::WeightInfo::reveal_mechanism_weights(4096))
-        );
-        assert!(reveal(4096).all_gt(reveal(1)));
+            let reveal = |uids: usize| {
+                RuntimeCall::SubtensorModule(SubtensorCall::reveal_weights {
+                    netuid,
+                    uids: vec![0; uids],
+                    values: vec![1; uids],
+                    salt: vec![1],
+                    version_key: 0,
+                })
+                .get_dispatch_info()
+                .call_weight
+            };
+            assert!(
+                reveal(4096)
+                    .all_gte(<Test as crate::Config>::WeightInfo::reveal_mechanism_weights(4096))
+            );
+            assert!(reveal(4096).all_gt(reveal(1)));
+        });
     }
 
     #[test]

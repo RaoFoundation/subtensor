@@ -22,18 +22,28 @@ mod hooks {
             // Advance the paged beta-index sweep right after the block step (deposit
             // queue drained), charging its bounded page into the hook weight.
             let beta_index_sweep_weight = Self::advance_beta_index_sweep_weight();
+            // Reserve the larger measured hook envelope once per block. The
+            // existing MaxEpochsPerBlock scheduler bounds both consensus modes.
+            let null_weight =
+                <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step();
+            let yuma_weight =
+                <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step_yuma();
+            let block_step_weight = Weight::from_parts(
+                null_weight.ref_time().max(yuma_weight.ref_time()),
+                null_weight.proof_size().max(yuma_weight.proof_size()),
+            );
             match block_step_result {
                 Ok(_) => {
                     // --- If the block step was successful, return the weight.
                     log::debug!("Successfully ran block step.");
-                    <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
+                    block_step_weight
                         .saturating_add(hotkey_swap_clean_up_weight)
                         .saturating_add(beta_index_sweep_weight)
                 }
                 Err(e) => {
                     // --- If the block step was unsuccessful, return the weight anyway.
                     log::error!("Error while stepping block: {:?}", e);
-                    <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
+                    block_step_weight
                         .saturating_add(hotkey_swap_clean_up_weight)
                         .saturating_add(beta_index_sweep_weight)
                 }

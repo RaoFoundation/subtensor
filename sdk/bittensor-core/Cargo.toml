@@ -31,6 +31,8 @@ fernet = { version = "=0.2.1", optional = true }
 # Homebrew-pathed on macOS runners (broken wheel for anyone without it).
 openssl = { version = "0.10", features = ["vendored"], optional = true }
 hex = "0.4.3"
+# OpenCL is loaded only when GPU mining is requested; wheels need no GPU SDK.
+libloading = { version = "0.8.9", optional = true }
 pbkdf2 = { version = "0.12.2", optional = true }
 schnorrkel = "0.11.5"
 scrypt = { version = "0.11.0", optional = true }
@@ -112,6 +114,7 @@ default = ["host"]
 host = [
     "dep:ansible-vault",
     "dep:fernet",
+    "dep:libloading",
     "dep:openssl",
     "dep:pbkdf2",
     "dep:rayon",

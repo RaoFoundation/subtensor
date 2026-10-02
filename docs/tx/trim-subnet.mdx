@@ -19,9 +19,12 @@ before shrinking a live subnet. To simply cap future growth without
 evicting anyone, set the `max_allowed_uids` hyperparameter to a value
 at or above the current UID count instead.
 
+For Null consensus, this legacy atomic operation can remove at most one
+pruning batch. Use `TrimNullSubnetBatch` repeatedly for a larger shrink.
+
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_trim_to_max_allowed_uids`](/code/pallets/admin-utils/src/lib.rs#L2011-L2033) |
+| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_trim_to_max_allowed_uids`](/code/pallets/admin-utils/src/lib.rs#L2105-L2131) |
 
 ## Parameters
 
@@ -54,7 +57,7 @@ import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = bt.TrimSubnet(netuid=1, max_n=0)
+intent = bt.TrimSubnet(netuid=1, max_n=64)
 
 sub = bt.Subtensor()
 plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
@@ -73,11 +76,15 @@ result = sub.execute_tool("trim_subnet", {...}, wallet)
 
 ## On-chain implementation
 
-`AdminUtils.sudo_trim_to_max_allowed_uids` — [`pallets/admin-utils/src/lib.rs#L2013`](/code/pallets/admin-utils/src/lib.rs#L2011-L2033):
+`AdminUtils.sudo_trim_to_max_allowed_uids` — [`pallets/admin-utils/src/lib.rs#L2111`](/code/pallets/admin-utils/src/lib.rs#L2105-L2131):
 
 ```rust
 #[pallet::call_index(78)]
-#[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_trim_to_max_allowed_uids())]
+#[pallet::weight(if pallet_subtensor::Pallet::<T>::get_epoch_consensus(*netuid) == pallet_subtensor::EpochConsensus::Null {
+    <T as pallet::Config>::WeightInfo::sudo_trim_null_uids_batch().max(<T as pallet::Config>::WeightInfo::sudo_trim_null_uids_batch_many_mechanisms())
+} else {
+    <T as pallet::Config>::WeightInfo::sudo_trim_to_max_allowed_uids()
+}.saturating_add(T::DbWeight::get().reads(1)))]
 pub fn sudo_trim_to_max_allowed_uids(
     origin: OriginFor<T>,
     netuid: NetUid,

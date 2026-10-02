@@ -347,6 +347,9 @@ impl<T: Config> Pallet<T> {
         MinerBurned::<T>::remove(netuid);
         BlocksSinceLastStep::<T>::remove(netuid);
         LastMechansimStepBlock::<T>::remove(netuid);
+        LastYumaStepBlock::<T>::remove(netuid);
+        NullPruningTarget::<T>::remove(netuid);
+        SavedYumaMaxAllowedValidators::<T>::remove(netuid);
         LastAdjustmentBlock::<T>::remove(netuid);
         ServingRateLimit::<T>::remove(netuid);
         Rho::<T>::remove(netuid);
@@ -378,6 +381,7 @@ impl<T: Config> Pallet<T> {
         Yuma3On::<T>::remove(netuid);
         AlphaValues::<T>::remove(netuid);
         LiquidAlphaConsensusMode::<T>::remove(netuid);
+        SubnetEpochConsensus::<T>::remove(netuid);
         SubtokenEnabled::<T>::remove(netuid);
         SubnetFastMovingPrice::<T>::remove(netuid);
         OwnerCutAutoLockEnabled::<T>::remove(netuid);

@@ -7094,3 +7094,297 @@ fn test_sharepool_dataops_try_get_value_returns_err_on_non_existing_v2() {
         assert!(maybe_actual_value.is_err());
     });
 }
+
+#[test]
+fn null_miner_credit_keeps_sole_owner_shares_and_total_stake_in_sync() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, u16::MAX - 1, 0);
+        SubtensorModule::set_epoch_consensus(netuid, EpochConsensus::Null);
+        let hotkey = U256::from(80_001);
+        let owner = U256::from(80_002);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner,
+            netuid,
+            1_000_000u64.into(),
+        );
+        let shares = AlphaV2::<Test>::get((hotkey, owner, netuid));
+        let denominator = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
+        let stamp = AlphaShareEpoch::<Test>::get((hotkey, owner, netuid));
+        let subnet_total = TotalAlphaStaked::<Test>::get(netuid);
+        SubtensorModule::credit_epoch_owner_emission(&hotkey, &owner, netuid, 137u64.into());
+        assert_eq!(AlphaV2::<Test>::get((hotkey, owner, netuid)), shares);
+        assert_eq!(
+            TotalHotkeySharesV2::<Test>::get(hotkey, netuid),
+            denominator
+        );
+        assert_eq!(AlphaShareEpoch::<Test>::get((hotkey, owner, netuid)), stamp);
+        assert_eq!(
+            TotalAlphaStaked::<Test>::get(netuid),
+            subnet_total.saturating_add(137u64.into())
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &owner, netuid),
+            1_000_137u64.into()
+        );
+        assert_eq!(
+            SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &owner,
+                netuid,
+                1_000_137u64.into()
+            ),
+            1_000_137u64.into()
+        );
+        assert!(TotalHotkeySharesV2::<Test>::get(hotkey, netuid).is_zero());
+        let newcomer = U256::from(80_003);
+        SubtensorModule::credit_epoch_owner_emission(&hotkey, &newcomer, netuid, 17u64.into());
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &owner, netuid),
+            0u64.into()
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &newcomer, netuid),
+            17u64.into()
+        );
+        assert!(StakingHotkeys::<Test>::get(newcomer).contains(&hotkey));
+    });
+}
+
+#[test]
+fn null_miner_credit_shared_pool_does_not_pay_nominators() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, u16::MAX - 1, 0);
+        SubtensorModule::set_epoch_consensus(netuid, EpochConsensus::Null);
+        let hotkey = U256::from(81_001);
+        let owner = U256::from(81_002);
+        let nominator = U256::from(81_003);
+        for coldkey in [owner, nominator] {
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                netuid,
+                1_000_000u64.into(),
+            );
+        }
+        let previous_denominator = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
+        SubtensorModule::credit_epoch_owner_emission(&hotkey, &owner, netuid, 137u64.into());
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &nominator, netuid
+            ),
+            1_000_000u64.into()
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &owner, netuid),
+            1_000_137u64.into()
+        );
+        assert_ne!(
+            TotalHotkeySharesV2::<Test>::get(hotkey, netuid),
+            previous_denominator
+        );
+    });
+}
+
+#[test]
+fn null_miner_credit_preserves_collateral_capture_and_release() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, u16::MAX - 1, 0);
+        SubtensorModule::set_epoch_consensus(netuid, EpochConsensus::Null);
+        let hotkey = U256::from(82_001);
+        let owner = U256::from(82_002);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner,
+            netuid,
+            1_000_000u64.into(),
+        );
+        let denominator = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
+        MinerCollateral::<Test>::insert(
+            (netuid, hotkey, owner),
+            MinerCollateralState {
+                locked: 100u64.into(),
+                min_locked: 200u64.into(),
+                drain_ratio: U64F64::from_num(1),
+                earned: 0u64.into(),
+            },
+        );
+        ColdkeyMinerCollateral::<Test>::insert(netuid, owner, AlphaBalance::from(100u64));
+        let captured = SubtensorModule::settle_miner_collateral(
+            netuid,
+            &hotkey,
+            &owner,
+            50u64.into(),
+            50u64.into(),
+        );
+        assert_eq!(captured, 50u64.into());
+        assert_eq!(
+            TotalHotkeySharesV2::<Test>::get(hotkey, netuid),
+            denominator
+        );
+        let state = MinerCollateral::<Test>::get((netuid, hotkey, owner)).unwrap();
+        assert_eq!(state.locked, 150u64.into());
+        assert_eq!(state.earned, 50u64.into());
+        assert_eq!(
+            ColdkeyMinerCollateral::<Test>::get(netuid, owner),
+            150u64.into()
+        );
+        assert!(ColdkeyCollateralHotkeys::<Test>::get(netuid, owner).contains(&hotkey));
+        MinerCollateral::<Test>::mutate((netuid, hotkey, owner), |state| {
+            state.as_mut().unwrap().min_locked = 100u64.into()
+        });
+        assert_eq!(
+            SubtensorModule::settle_miner_collateral(
+                netuid,
+                &hotkey,
+                &owner,
+                17u64.into(),
+                17u64.into()
+            ),
+            0u64.into()
+        );
+        let state = MinerCollateral::<Test>::get((netuid, hotkey, owner)).unwrap();
+        assert_eq!(state.locked, 133u64.into());
+        assert_eq!(state.earned, 67u64.into());
+        assert_eq!(
+            ColdkeyMinerCollateral::<Test>::get(netuid, owner),
+            133u64.into()
+        );
+    });
+}
+
+#[test]
+fn null_miner_credit_legacy_positions_still_migrate_on_deposit() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, u16::MAX - 1, 0);
+        SubtensorModule::set_epoch_consensus(netuid, EpochConsensus::Null);
+        let hotkey = U256::from(83_001);
+        let owner = U256::from(83_002);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner,
+            netuid,
+            1_000_000u64.into(),
+        );
+        AlphaV2::<Test>::remove((hotkey, owner, netuid));
+        TotalHotkeySharesV2::<Test>::remove(hotkey, netuid);
+        Alpha::<Test>::insert((hotkey, owner, netuid), U64F64::from_num(1_000_000));
+        TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from_num(1_000_000));
+        SubtensorModule::credit_epoch_owner_emission(&hotkey, &owner, netuid, 137u64.into());
+        assert!(!Alpha::<Test>::contains_key((hotkey, owner, netuid)));
+        assert!(!TotalHotkeyShares::<Test>::contains_key(hotkey, netuid));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &owner, netuid),
+            1_000_137u64.into()
+        );
+        assert_eq!(
+            TotalHotkeySharesV2::<Test>::get(hotkey, netuid),
+            AlphaV2::<Test>::get((hotkey, owner, netuid))
+        );
+    });
+}
+
+#[test]
+fn null_miner_credit_with_dividends_retains_shares_and_full_budget() {
+    use std::collections::BTreeMap;
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, u16::MAX - 1, 0);
+        SubtensorModule::set_epoch_consensus(netuid, EpochConsensus::Null);
+        let hotkey = U256::from(84_001);
+        let owner = U256::from(84_002);
+        Owner::<Test>::insert(hotkey, owner);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner,
+            netuid,
+            1_000_000u64.into(),
+        );
+        let shares = AlphaV2::<Test>::get((hotkey, owner, netuid));
+        let denominator = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
+        let stamp = AlphaShareEpoch::<Test>::get((hotkey, owner, netuid));
+        let subnet_total = TotalAlphaStaked::<Test>::get(netuid);
+        // Both the owner take and the remaining pool-wide dividends belong to
+        // this sole member, while their ordinary reporting remains intact.
+        Delegates::<Test>::insert(hotkey, PerU16::from_parts(u16::MAX));
+        SubtensorModule::distribute_dividends_and_incentives(
+            netuid,
+            0u64.into(),
+            BTreeMap::from([(hotkey, 101u64.into())]),
+            BTreeMap::from([(hotkey, U96F32::from_num(137u64))]),
+            BTreeMap::new(),
+        );
+        assert_eq!(AlphaV2::<Test>::get((hotkey, owner, netuid)), shares);
+        assert_eq!(
+            TotalHotkeySharesV2::<Test>::get(hotkey, netuid),
+            denominator
+        );
+        assert_eq!(AlphaShareEpoch::<Test>::get((hotkey, owner, netuid)), stamp);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &owner, netuid),
+            1_000_238u64.into()
+        );
+        assert_eq!(
+            TotalAlphaStaked::<Test>::get(netuid),
+            subnet_total.saturating_add(238u64.into())
+        );
+        assert_eq!(
+            TotalHotkeyAlphaLastEpoch::<Test>::get(hotkey, netuid),
+            1_000_238u64.into()
+        );
+    });
+}
+
+#[test]
+fn null_miner_credit_without_collateral_repairs_only_stale_index_membership() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, u16::MAX - 1, 0);
+        SubtensorModule::set_epoch_consensus(netuid, EpochConsensus::Null);
+        let hotkey = U256::from(85_001);
+        let other_hotkey = U256::from(85_003);
+        let owner = U256::from(85_002);
+        ColdkeyCollateralHotkeys::<Test>::mutate(netuid, owner, |hotkeys| {
+            hotkeys.try_push(hotkey).unwrap();
+            hotkeys.try_push(other_hotkey).unwrap();
+        });
+        assert_eq!(
+            SubtensorModule::settle_miner_collateral(
+                netuid,
+                &hotkey,
+                &owner,
+                17u64.into(),
+                17u64.into()
+            ),
+            0u64.into()
+        );
+        assert!(!MinerCollateral::<Test>::contains_key((
+            netuid, hotkey, owner
+        )));
+        assert_eq!(
+            ColdkeyCollateralHotkeys::<Test>::get(netuid, owner).as_slice(),
+            &[other_hotkey]
+        );
+        assert_eq!(
+            ColdkeyMinerCollateral::<Test>::get(netuid, owner),
+            0u64.into()
+        );
+        assert_eq!(
+            SubtensorModule::settle_miner_collateral(
+                netuid,
+                &other_hotkey,
+                &owner,
+                17u64.into(),
+                17u64.into()
+            ),
+            0u64.into()
+        );
+        assert!(!ColdkeyCollateralHotkeys::<Test>::contains_key(
+            netuid, owner
+        ));
+    });
+}

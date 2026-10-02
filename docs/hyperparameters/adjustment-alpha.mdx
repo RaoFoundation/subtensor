@@ -25,10 +25,11 @@ In the current runtime the legacy interval controller is gone, and **nothing
 reads this value** outside of the RPC/metagraph views: registration pricing is
 [handled per block](/code/pallets/subtensor/src/subnets/registration.rs#L473-L515)
 in `pallets/subtensor/src/subnets/registration.rs`, where
-each registration bumps the burn by
+each burn registration bumps only the burn price, and each PoW registration
+bumps only PoW difficulty, by
 [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) and decay with
-half-life [`burn_half_life`](/docs/hyperparameters/burn-half-life) pulls it
-back toward [`min_burn`](/docs/hyperparameters/min-burn). The setter
+half-life [`burn_half_life`](/docs/hyperparameters/burn-half-life) pulls each price
+back toward its own minimum. The setter
 ([`sudo_set_adjustment_alpha`](/code/pallets/admin-utils/src/lib.rs#L428-L452)
 in `pallets/admin-utils/src/lib.rs`) remains
 callable by the subnet owner, subject only to the owner rate limit and admin

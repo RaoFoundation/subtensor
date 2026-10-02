@@ -5043,6 +5043,10 @@ fn test_do_commit_crv3_weights_commit_size_exceeds_limit() {
         SubtensorModule::set_weights_set_rate_limit(netuid, 0);
 
         let max_commit_size = MAX_CRV3_COMMIT_SIZE_BYTES as usize;
+        assert_ok!(SubtensorModule::do_set_epoch_consensus(
+            netuid,
+            EpochConsensus::Null
+        ));
         let commit_data_exceeding: Vec<u8> = vec![0u8; max_commit_size + 1]; // Exceeds max size
 
         // Attempt to create a BoundedVec; this should fail

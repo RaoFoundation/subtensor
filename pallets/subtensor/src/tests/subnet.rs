@@ -230,7 +230,7 @@ fn test_register_network_min_burn_at_default() {
 
         // Check registration allowed
         assert!(NetworkRegistrationAllowed::<Test>::get(netuid));
-        assert!(NetworkPowRegistrationAllowed::<Test>::get(netuid));
+        assert!(!NetworkPowRegistrationAllowed::<Test>::get(netuid));
     });
 }
 
@@ -260,7 +260,7 @@ fn test_register_network_use_symbol_for_subnet_if_available() {
 
             // Check registration allowed
             assert!(NetworkRegistrationAllowed::<Test>::get(netuid));
-            assert!(NetworkPowRegistrationAllowed::<Test>::get(netuid));
+            assert!(!NetworkPowRegistrationAllowed::<Test>::get(netuid));
 
             // Reduce lock cost to avoid exponential cost growth
             NetworkLastLockCost::<Test>::set(1_000.into());
@@ -294,7 +294,7 @@ fn test_register_network_use_next_available_symbol_if_symbol_for_subnet_is_taken
 
             // Check registration allowed
             assert!(NetworkRegistrationAllowed::<Test>::get(netuid));
-            assert!(NetworkPowRegistrationAllowed::<Test>::get(netuid));
+            assert!(!NetworkPowRegistrationAllowed::<Test>::get(netuid));
 
             // Reduce lock cost to avoid exponential cost growth
             NetworkLastLockCost::<Test>::set(1_000.into());
@@ -369,7 +369,7 @@ fn test_register_network_use_default_symbol_if_all_symbols_are_taken() {
 
         // Check registration allowed
         assert!(NetworkRegistrationAllowed::<Test>::get(netuid));
-        assert!(NetworkPowRegistrationAllowed::<Test>::get(netuid));
+        assert!(!NetworkPowRegistrationAllowed::<Test>::get(netuid));
     });
 }
 

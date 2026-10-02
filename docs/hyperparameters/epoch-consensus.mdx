@@ -1,0 +1,29 @@
+---
+title: Epoch consensus
+description: Select Yuma or Null for a subnet's epoch reward calculation.
+---
+
+`epoch_consensus` selects the subnet's reward calculation. `Yuma` (wire value 0)
+is the default; `Null` (wire value 1) uses the highest-stake permitted validator's
+weights for incentives and eligible stake proportions for dividends. Inactive
+validators retain their eligible stake. Null does not update bond storage.
+
+Owners set the enum with:
+
+```bash
+btcli hparams set --netuid 1 --name epoch_consensus --value Null
+```
+
+The SDK accepts `SetHyperparameter(netuid=1, name="epoch_consensus", value="Null")`.
+Use `Yuma` to return to normal consensus. Current values appear as 0 or 1 in the
+subnet hyperparameters read.
+
+Null capacity is limited to `floor(16000 / mechanism_count)` UIDs. Yuma capacity
+is limited to `floor(256 / mechanism_count)`. Returning to Yuma fails until the
+actual population fits its limit; prune explicitly beforehand. Successful
+switching also clamps configured capacity to that limit. Switching to Null
+preserves current capacity. Owner authentication, the admin window and owner
+hyperparameter rate limits still apply.
+
+See [Null consensus](/docs/guides/null-consensus) for the reward rules, precise
+weight submission, timelock limits and integer rounding.

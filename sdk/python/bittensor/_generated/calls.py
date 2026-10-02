@@ -25,6 +25,7 @@ BoundedVec = Any
 CommitmentInfo = Any
 ConsensusMode = Any
 Determinism = Any
+EpochConsensus = Any
 EquivocationProof = Any
 FixedI128 = Any
 FixedU128 = Any
@@ -343,6 +344,11 @@ class SubtensorModule:
     def move_stake_limit(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance', limit_price: 'TaoBalance', allow_partial: 'bool') -> Call:
         'Moves stake from one hotkey to another and, when the subnets differ, protects the swap with a relative price limit.  `limit_price` is the minimum acceptable destination-alpha per origin-alpha ratio, scaled by 1e9. When `allow_partial` is false the call is fill-or-kill; otherwise it moves only the amount executable before the limit is crossed. `alpha_amount` of `AlphaBalance::MAX` means the live origin position at execution.'
         return Call('SubtensorModule', 'move_stake_limit', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount, 'limit_price': limit_price, 'allow_partial': allow_partial})
+
+    @staticmethod
+    def pow_register(netuid: 'NetUid', work_block: 'u64', nonce: 'u64', work: 'Any', hotkey: 'AccountId32') -> Call:
+        'Register by owner-enabled PoW, without TAO burn, collateral purchase, or transaction fee. The signing coldkey is bound into the proof. Transaction validation verifies the proof before pool admission.'
+        return Call('SubtensorModule', 'pow_register', {'netuid': netuid, 'work_block': work_block, 'nonce': nonce, 'work': work, 'hotkey': hotkey})
 
     @staticmethod
     def recycle_alpha(hotkey: 'AccountId32', amount: 'AlphaBalance', netuid: 'NetUid') -> Call:
@@ -1057,6 +1063,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_emission_gate_exponent', {'exponent': exponent})
 
     @staticmethod
+    def sudo_set_epoch_consensus(netuid: 'NetUid', mode: 'EpochConsensus') -> Call:
+        'Selects Yuma or Null reward calculation while preserving epoch scheduling.'
+        return Call('AdminUtils', 'sudo_set_epoch_consensus', {'netuid': netuid, 'mode': mode})
+
+    @staticmethod
     def sudo_set_evm_chain_id(chain_id: 'u64') -> Call:
         'Sets the EVM ChainID.  # Arguments * `origin`: The origin of the call, which must be the subnet owner or the root account. * `chainId`: The u64 chain ID  # Errors * `BadOrigin`: If the caller is neither the subnet owner nor the root account.  # Weight Weight is handled by the `#[pallet::weight]` attribute.'
         return Call('AdminUtils', 'sudo_set_evm_chain_id', {'chain_id': chain_id})
@@ -1193,7 +1204,7 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_network_registration_allowed(netuid: 'NetUid', registration_allowed: 'bool') -> Call:
-        'The extrinsic sets the network registration allowed for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the network registration allowed.'
+        'Enable or disable burned registration independently of PoW. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the network registration allowed.'
         return Call('AdminUtils', 'sudo_set_network_registration_allowed', {'netuid': netuid, 'registration_allowed': registration_allowed})
 
     @staticmethod
@@ -1345,6 +1356,11 @@ class AdminUtils:
     def sudo_toggle_evm_precompile(precompile_id: 'PrecompileEnum', enabled: 'bool') -> Call:
         'Toggles the enablement of an EVM precompile.  # Arguments * `origin`: The origin of the call, which must be the root account. * `precompile_id`: The identifier of the EVM precompile to toggle. * `enabled`: The new enablement state of the precompile.  # Errors * `BadOrigin`: If the caller is not the root account.  # Weight Weight is handled by the `#[pallet::weight]` attribute.'
         return Call('AdminUtils', 'sudo_toggle_evm_precompile', {'precompile_id': precompile_id, 'enabled': enabled})
+
+    @staticmethod
+    def sudo_trim_null_uids_batch(netuid: 'NetUid', target: 'u16') -> Call:
+        'Continue explicit Null pruning by at most 64 UID deletions. Every batch leaves the subnet usable. Only the same final target may continue the original operation without restarting its cooldown.'
+        return Call('AdminUtils', 'sudo_trim_null_uids_batch', {'netuid': netuid, 'target': target})
 
     @staticmethod
     def sudo_trim_to_max_allowed_uids(netuid: 'NetUid', max_n: 'u16') -> Call:

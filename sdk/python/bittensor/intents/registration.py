@@ -51,6 +51,68 @@ def _registration_split_suffix(burn: Balance, lock: Balance) -> str:
 
 @register
 @dataclass
+class PowRegister(Intent):
+    """Register using an owner-enabled proof instead of TAO.
+
+    Direct submission with zero tip pays no transaction fee, burn or initial
+    collateral purchase. Root is excluded. The proof binds the subnet, signing
+    coldkey and hotkey; reused or stale challenge blocks are rejected. A full
+    subnet applies ordinary pruning and immunity rules. Mine a fresh intent
+    with ``client.mine_pow_registration`` and submit it promptly.
+    """
+
+    op = "pow_register"
+    signer = "coldkey"
+    wraps = (("SubtensorModule", "pow_register"),)
+    mev_shield_default = False
+
+    netuid: int = field(metadata={"help": "Non-root subnet with PoW enabled."})
+    work_block: int = field(metadata={"help": "Recent block used for the challenge."})
+    nonce: int = field(metadata={"help": "Unsigned 64-bit solution nonce."})
+    work_hex: str = field(metadata={"help": "32-byte registration seal, encoded as hex."})
+    hotkey_ss58: Optional[str] = field(default=None, metadata={"help": "Hotkey receiving the UID."})
+
+    mining_workers: int = field(
+        default=4, metadata={"help": "Workers when the CLI refreshes an expired proof."}
+    )
+    mining_timeout: float = field(
+        default=300, metadata={"help": "Seconds allowed for CLI proof refresh."}
+    )
+
+    mining_backend: str = field(default="auto", metadata={"help": "auto, gpu, or cpu mining."})
+    mining_device_ids: Optional[list[int]] = field(
+        default=None, metadata={"help": "GPU device ids, or all discovered GPUs."}
+    )
+
+    async def build(self, substrate, wallet: Any):
+        work = bytes.fromhex(self.work_hex.removeprefix("0x"))
+        if len(work) != 32 or not 0 <= self.nonce < 1 << 64:
+            raise ValueError("PoW requires a 32-byte seal and a u64 nonce")
+        if not 0 < self.netuid < 65536 or not 0 <= self.work_block < 1 << 64:
+            raise ValueError("PoW requires a non-root u16 netuid and a u64 work block")
+        return await substrate.compose(
+            calls.SubtensorModule.pow_register(
+                netuid=self.netuid,
+                work_block=self.work_block,
+                nonce=self.nonce,
+                work=list(work),
+                hotkey=self.hotkey_address(wallet, self.hotkey_ss58),
+            )
+        )
+
+    def summary(self) -> str:
+        return f"PoW register {self.hotkey_ss58 or 'wallet hotkey'} on netuid {self.netuid}"
+
+    async def effects(self, substrate, signer_address: str) -> list[str]:
+        return [
+            self.summary(),
+            "no TAO registration burn or upfront collateral purchase",
+            "direct submission with zero tip has no transaction fee",
+        ]
+
+
+@register
+@dataclass
 class BurnedRegister(Intent):
     """Register a hotkey on a subnet by paying the registration cost.
 

@@ -251,7 +251,6 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_network_immunity_period",
         "sudo_set_network_min_lock_cost",
         "sudo_set_network_rate_limit",
-        "sudo_set_network_registration_allowed",
         "sudo_set_nominator_min_required_stake",
         "sudo_set_owner_hparam_rate_limit",
         "sudo_set_rao_recycled",

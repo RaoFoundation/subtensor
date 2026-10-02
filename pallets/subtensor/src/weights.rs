@@ -36,6 +36,9 @@ use core::marker::PhantomData;
 
 /// Weight functions needed for `pallet_subtensor`.
 pub trait WeightInfo {
+    // Reference CI replaces these fallback aliases before release.
+    fn pow_register() -> Weight { Self::register() }
+    fn check_pow_registration() -> Weight { Self::register() }
 	fn register() -> Weight;
 	fn set_weights() -> Weight;
 	fn add_stake() -> Weight;
@@ -57,7 +60,31 @@ pub trait WeightInfo {
 	fn batch_reveal_weights() -> Weight;
 	fn recycle_alpha() -> Weight;
 	fn burn_alpha() -> Weight;
+	/// Conservative envelope derived from the legacy weight until reference measurement.
+	fn commit_crv3_mechanism_weights_null() -> Weight {
+		Self::commit_crv3_mechanism_weights().saturating_mul(u64::from(crate::MAX_CRV3_COMMIT_SIZE_BYTES.div_ceil(crate::YUMA_COMMIT_SIZE_BYTES)))
+	}
+
+	/// Conservative envelope derived from the legacy weight until reference measurement.
+	fn commit_timelocked_weights_null() -> Weight {
+		Self::commit_timelocked_weights().saturating_mul(u64::from(crate::MAX_CRV3_COMMIT_SIZE_BYTES.div_ceil(crate::YUMA_COMMIT_SIZE_BYTES)))
+	}
+
+	/// Conservative envelope derived from the legacy weight until reference measurement.
+	fn commit_timelocked_mechanism_weights_null() -> Weight {
+		Self::commit_timelocked_mechanism_weights().saturating_mul(u64::from(crate::MAX_CRV3_COMMIT_SIZE_BYTES.div_ceil(crate::YUMA_COMMIT_SIZE_BYTES)))
+	}
+
 	fn block_step() -> Weight;
+    /// Diagnostic sole-owner benchmark; never used as the hook's charge.
+    /// Reference generation supplies its result independently of the envelope.
+    fn block_step_null_sole_owner() -> Weight {
+        Self::block_step()
+    }
+	/// Legacy Yuma hook envelope, independently measured from large Null epochs.
+	fn block_step_yuma() -> Weight {
+		Self::block_step()
+	}
 	fn start_call() -> Weight;
 	fn add_stake_limit() -> Weight;
 	fn move_stake() -> Weight;
@@ -113,8 +140,12 @@ pub trait WeightInfo {
 	fn check_serving_endpoints_extension() -> Weight;
 	fn check_evm_key_association_extension() -> Weight;
 	fn set_mechanism_weights(n: u32, ) -> Weight;
+	/// Replaced by the matching reference measurement before release.
+	fn set_mechanism_weights_null(n: u32) -> Weight { Self::set_mechanism_weights(n) }
 	fn commit_mechanism_weights() -> Weight;
 	fn reveal_mechanism_weights(n: u32, ) -> Weight;
+	/// Replaced by the matching reference measurement before release.
+	fn reveal_mechanism_weights_null(n: u32) -> Weight { Self::reveal_mechanism_weights(n) }
 	fn commit_crv3_mechanism_weights() -> Weight;
 	fn commit_timelocked_mechanism_weights() -> Weight;
 	fn swap_hotkey_v2() -> Weight;

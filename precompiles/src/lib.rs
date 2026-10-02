@@ -775,6 +775,10 @@ mod address_and_selector_tests {
             "setOwnerImmuneNeuronLimit(uint16,uint16)",
             "setTempo(uint16,uint16)",
             "trimToMaxAllowedUids(uint16,uint16)",
+            "trimNullUidsBatch(uint16,uint16)",
+            "getNullPruningState(uint16)",
+            "getNullPruningBatchSize()",
+            "getSavedYumaValidatorLimit(uint16)",
         ] {
             assert!(
                 subnet::SubnetPrecompileCall::<Runtime>::supports_selector(selector_u32(signature)),

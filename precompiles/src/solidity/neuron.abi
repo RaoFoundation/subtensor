@@ -1456,5 +1456,71 @@
     ],
     "stateMutability": "view",
     "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint8",
+        "name": "mecid",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes",
+        "name": "commit",
+        "type": "bytes"
+      },
+      {
+        "internalType": "uint64",
+        "name": "revealRound",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint16",
+        "name": "commitRevealVersion",
+        "type": "uint16"
+      }
+    ],
+    "name": "commitTimelockedMechanismWeightsV2",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint8",
+        "name": "mecid",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint16[]",
+        "name": "dests",
+        "type": "uint16[]"
+      },
+      {
+        "internalType": "uint16[]",
+        "name": "weights",
+        "type": "uint16[]"
+      },
+      {
+        "internalType": "uint64",
+        "name": "versionKey",
+        "type": "uint64"
+      }
+    ],
+    "name": "setMechanismWeightsV2",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
   }
 ]

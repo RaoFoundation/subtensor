@@ -51,7 +51,7 @@ impl<T: Config> Pallet<T> {
             let netuid_index = Self::get_mechanism_storage_index(netuid, mecid.into());
 
             // Clean expired commits
-            for (epoch, _) in TimelockedWeightCommits::<T>::iter_prefix(netuid_index) {
+            for epoch in TimelockedWeightCommits::<T>::iter_key_prefix(netuid_index) {
                 if epoch < reveal_epoch {
                     TimelockedWeightCommits::<T>::remove(netuid_index, epoch);
                 }

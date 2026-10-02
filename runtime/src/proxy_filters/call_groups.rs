@@ -332,16 +332,18 @@ call_filter_group!(
 // Permissionless proof-of-work registration (costs no TAO).
 call_filter_group!(
     PowRegistrationCalls,
-    [
-        RuntimeCall::SubtensorModule(SubtensorCall::register),
-        RuntimeCall::SubtensorModule(SubtensorCall::register_limit),
-    ]
+    [RuntimeCall::SubtensorModule(SubtensorCall::pow_register),]
 );
 
 // Registration paid by burning TAO (spends value, unlike POW registration).
 call_filter_group!(
     BurnedRegistrationCalls,
-    [RuntimeCall::SubtensorModule(SubtensorCall::burned_register),]
+    [
+        // These legacy calls now use burn registration despite their old names.
+        RuntimeCall::SubtensorModule(SubtensorCall::register),
+        RuntimeCall::SubtensorModule(SubtensorCall::register_limit),
+        RuntimeCall::SubtensorModule(SubtensorCall::burned_register),
+    ]
 );
 
 // Registration into the root subnet.
@@ -547,8 +549,10 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_bonds_reset_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_owner_immune_neuron_limit),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_mechanism_count),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_epoch_consensus),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_mechanism_emission_split),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_trim_to_max_allowed_uids),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_trim_null_uids_batch),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_allowed_uids),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_burn_half_life),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_burn_increase_mult),

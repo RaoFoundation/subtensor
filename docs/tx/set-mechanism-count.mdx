@@ -16,7 +16,7 @@ end-of-epoch admin freeze window.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_mechanism_count`](/code/pallets/admin-utils/src/lib.rs#L1957-L1979) |
+| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_mechanism_count`](/code/pallets/admin-utils/src/lib.rs#L2050-L2073) |
 
 ## Parameters
 
@@ -68,11 +68,12 @@ result = sub.execute_tool("set_mechanism_count", {...}, wallet)
 
 ## On-chain implementation
 
-`AdminUtils.sudo_set_mechanism_count` — [`pallets/admin-utils/src/lib.rs#L1959`](/code/pallets/admin-utils/src/lib.rs#L1957-L1979):
+`AdminUtils.sudo_set_mechanism_count` — [`pallets/admin-utils/src/lib.rs#L2053`](/code/pallets/admin-utils/src/lib.rs#L2050-L2073):
 
 ```rust
 #[pallet::call_index(76)]
-#[pallet::weight(<T as Config>::WeightInfo::sudo_set_mechanism_count())]
+#[pallet::weight(<T as Config>::WeightInfo::sudo_set_mechanism_count()
+    .saturating_add(T::DbWeight::get().reads(17)))]
 pub fn sudo_set_mechanism_count(
     origin: OriginFor<T>,
     netuid: NetUid,

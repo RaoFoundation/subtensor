@@ -24,6 +24,16 @@ type Release = {
 const releases: Release[] = [
   {
     tag: 'next',
+    date: 'Upcoming',
+    title: 'Null Consensus',
+    summary:
+      'An opt-in epoch mechanism with highest-stake-validator miner incentives, ' +
+      'stake-proportional dividends, exact integer payouts, and a shared 16,000-UID capacity. ' +
+      'Includes raw-u16 SDK and CLI submission and larger bounded timelock commits.',
+    href: '/releases/null-consensus',
+  },
+  {
+    tag: 'next',
     date: 'September 2026',
     title: 'Basket Trading',
     summary:

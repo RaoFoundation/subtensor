@@ -5,6 +5,9 @@ use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 use sp_std::{cmp, vec};
 use subtensor_runtime_common::NetUid;
 
+/// Maximum UID deletions in one explicit Null pruning transaction.
+pub const NULL_PRUNING_BATCH: u16 = 64;
+
 impl<T: Config> Pallet<T> {
     /// Returns the number of filled slots on a network.
     pub fn get_subnetwork_n(netuid: NetUid) -> u16 {
@@ -168,7 +171,120 @@ impl<T: Config> Pallet<T> {
         Self::clear_stale_hotkey_successor(netuid, new_hotkey);
     }
 
+    #[frame_support::transactional]
     pub fn trim_to_max_allowed_uids(netuid: NetUid, max_n: u16) -> DispatchResult {
+        ensure!(
+            Self::get_epoch_consensus(netuid) != EpochConsensus::Null
+                || Self::get_subnetwork_n(netuid).saturating_sub(max_n) <= NULL_PRUNING_BATCH,
+            Error::<T>::InvalidValue
+        );
+        if Self::get_epoch_consensus(netuid) == EpochConsensus::Null
+            && Self::get_subnetwork_n(netuid) > max_n
+        {
+            ensure!(
+                Self::clear_null_pruning_commits(netuid).0,
+                Error::<T>::InvalidValue
+            );
+        }
+        Self::trim_uids_impl(netuid, max_n)?;
+        NullPruningTarget::<T>::remove(netuid);
+        Ok(())
+    }
+
+    /// Remove at most one batch toward the owner's explicit final target.
+    #[frame_support::transactional]
+    pub fn trim_null_uids_batch(netuid: NetUid, target: u16) -> DispatchResult {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(
+            Self::get_epoch_consensus(netuid) == EpochConsensus::Null,
+            Error::<T>::InvalidValue
+        );
+        ensure!(
+            target >= MinAllowedUids::<T>::get(netuid)
+                && target <= MaxAllowedUids::<T>::get(netuid),
+            Error::<T>::InvalidValue
+        );
+        let current = Self::get_subnetwork_n(netuid);
+        if current > target {
+            let owner = SubnetOwner::<T>::get(netuid);
+            let owner_uids = BTreeSet::from_iter(Self::get_immune_owner_uids(netuid, &owner));
+            let immune = (0..current)
+                .filter(|uid| owner_uids.contains(uid) || Self::get_neuron_is_immune(netuid, *uid))
+                .count() as u16;
+            ensure!(
+                Percent::from_rational(immune, target) < T::MaxImmuneUidsPercentage::get(),
+                Error::<T>::TrimmingWouldExceedMaxImmunePercentage
+            );
+        }
+        // A target equal to the current population also permits bounded queue
+        // cancellation, without forcing the owner to deregister participants.
+        let (clean, cleared_commits) = Self::clear_null_pruning_commits(netuid);
+        if !clean {
+            NullPruningTarget::<T>::insert(netuid, target);
+            Self::deposit_event(Event::NullUidsPruningProgress {
+                netuid,
+                target,
+                remaining: current,
+                removed: 0,
+                cleared_commits,
+            });
+            return Ok(());
+        }
+        let next = current.saturating_sub(NULL_PRUNING_BATCH).max(target);
+        Self::trim_uids_impl(netuid, next)?;
+        if Self::get_subnetwork_n(netuid) > target {
+            NullPruningTarget::<T>::insert(netuid, target);
+        } else {
+            NullPruningTarget::<T>::remove(netuid);
+        }
+        let remaining = Self::get_subnetwork_n(netuid);
+        Self::deposit_event(Event::NullUidsPruningProgress {
+            netuid,
+            target,
+            remaining,
+            removed: current.saturating_sub(remaining),
+            cleared_commits,
+        });
+        Ok(())
+    }
+
+    /// Cancel destinations from the pre-compaction UID layout, with a shared
+    /// key budget. Orphan legacy commits may outnumber today's registered UIDs;
+    /// cleanup-only batches make progress without changing the UID layout.
+    fn clear_null_pruning_commits(netuid: NetUid) -> (bool, u32) {
+        let mut budget = u32::from(crate::subnets::mechanism::NULL_UID_BUDGET);
+        let mut cleared = 0u32;
+        for mechanism in 0..u8::from(Self::get_current_mechanism_count(netuid)) {
+            let index = Self::get_mechanism_storage_index(netuid, mechanism.into());
+            let keys = WeightCommits::<T>::iter_key_prefix(index)
+                .take((budget as usize).saturating_add(1))
+                .collect::<Vec<_>>();
+            let has_more = keys.len() > budget as usize;
+            for key in keys.into_iter().take(budget as usize) {
+                WeightCommits::<T>::remove(index, key);
+                budget = budget.saturating_sub(1);
+                cleared = cleared.saturating_add(1);
+            }
+            if has_more {
+                return (false, cleared);
+            }
+            let keys = TimelockedWeightCommits::<T>::iter_key_prefix(index)
+                .take((budget as usize).saturating_add(1))
+                .collect::<Vec<_>>();
+            let has_more = keys.len() > budget as usize;
+            for key in keys.into_iter().take(budget as usize) {
+                TimelockedWeightCommits::<T>::remove(index, key);
+                budget = budget.saturating_sub(1);
+                cleared = cleared.saturating_add(1);
+            }
+            if has_more {
+                return (false, cleared);
+            }
+        }
+        (true, cleared)
+    }
+
+    fn trim_uids_impl(netuid: NetUid, max_n: u16) -> DispatchResult {
         // Reasonable limits
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(
@@ -183,6 +299,7 @@ impl<T: Config> Pallet<T> {
         MaxAllowedUids::<T>::insert(netuid, max_n);
 
         let current_n = Self::get_subnetwork_n(netuid);
+        let is_null = Self::get_epoch_consensus(netuid) == EpochConsensus::Null;
         if current_n > max_n {
             let owner = SubnetOwner::<T>::get(netuid);
             let owner_uids = BTreeSet::from_iter(Self::get_immune_owner_uids(netuid, &owner));
@@ -270,13 +387,44 @@ impl<T: Config> Pallet<T> {
                 }
             }
 
+            ensure!(uids_left_to_process == max_n, Error::<T>::InvalidValue);
+
             // Sort remaining emissions by uid to compress uids to the left
             // This ensures consecutive uid indices in the final arrays
             emissions.sort_by_key(|(uid, _)| *uid);
 
             // Extract the final uids and emissions after trimming and sorting
-            let (trimmed_uids, trimmed_emissions): (Vec<usize>, Vec<AlphaBalance>) =
+            let (mut trimmed_uids, mut trimmed_emissions): (Vec<usize>, Vec<AlphaBalance>) =
                 emissions.into_iter().unzip();
+            if is_null {
+                // Fill deleted holes from the tail. At most one batch of surviving
+                // hotkeys changes UID; all other keys retain their existing UID.
+                let mut original_emission = vec![AlphaBalance::ZERO; usize::from(current_n)];
+                for (&uid, &emission) in trimmed_uids.iter().zip(&trimmed_emissions) {
+                    if let Some(slot) = original_emission.get_mut(uid) {
+                        *slot = emission;
+                    }
+                }
+                let holes = (0..usize::from(max_n))
+                    .filter(|uid| removed_uids.contains(uid))
+                    .collect::<Vec<_>>();
+                let tails = trimmed_uids
+                    .iter()
+                    .copied()
+                    .filter(|uid| *uid >= usize::from(max_n))
+                    .collect::<Vec<_>>();
+                ensure!(holes.len() == tails.len(), Error::<T>::InvalidValue);
+                trimmed_uids = (0..usize::from(max_n)).collect();
+                for (hole, tail) in holes.into_iter().zip(tails) {
+                    if let Some(slot) = trimmed_uids.get_mut(hole) {
+                        *slot = tail;
+                    }
+                }
+                trimmed_emissions = trimmed_uids
+                    .iter()
+                    .map(|uid| original_emission.get(*uid).copied().unwrap_or_default())
+                    .collect();
+            }
 
             // Get all current arrays from storage
             let active = Active::<T>::get(netuid);
@@ -361,6 +509,27 @@ impl<T: Config> Pallet<T> {
                 let old_neuron_uid = *old_uid as u16;
                 let new_neuron_uid = *new_uid as u16;
 
+                if is_null {
+                    if old_neuron_uid != new_neuron_uid {
+                        Keys::<T>::swap(netuid, old_neuron_uid, netuid, new_neuron_uid);
+                        AssociatedEvmAddress::<T>::swap(
+                            netuid,
+                            old_neuron_uid,
+                            netuid,
+                            new_neuron_uid,
+                        );
+                        BlockAtRegistration::<T>::swap(
+                            netuid,
+                            old_neuron_uid,
+                            netuid,
+                            new_neuron_uid,
+                        );
+                        let hotkey = Keys::<T>::get(netuid, new_neuron_uid);
+                        Uids::<T>::insert(netuid, hotkey, new_neuron_uid);
+                    }
+                    continue;
+                }
+
                 // Swap uid specific storage items to new compressed positions
                 Keys::<T>::swap(netuid, old_neuron_uid, netuid, new_neuron_uid);
                 AssociatedEvmAddress::<T>::swap(netuid, old_neuron_uid, netuid, new_neuron_uid);
@@ -403,25 +572,129 @@ impl<T: Config> Pallet<T> {
 
             Self::remap_associated_evm_address_index(netuid, &old_to_new_uid);
 
-            // Clear the UID map for the subnet
-            let clear_result = Uids::<T>::clear_prefix(netuid, u32::MAX, None);
-            // Shouldn't happen, but possible.
-            ensure!(
-                clear_result.maybe_cursor.is_none(),
-                Error::<T>::UidMapCouldNotBeCleared
-            );
+            if is_null {
+                Self::remap_null_pruning_rows(netuid, current_n, &old_to_new_uid, &vpermit)?;
+            } else {
+                // Clear the UID map for the subnet
+                let clear_result = Uids::<T>::clear_prefix(netuid, u32::MAX, None);
+                // Shouldn't happen, but possible.
+                ensure!(
+                    clear_result.maybe_cursor.is_none(),
+                    Error::<T>::UidMapCouldNotBeCleared
+                );
 
-            // Insert the new UIDs
-            for new_uid in old_to_new_uid.values() {
-                // Get the hotkey using Keys map and new UID.
-                let hotkey = Keys::<T>::get(netuid, *new_uid as u16);
-                Uids::<T>::insert(netuid, hotkey, *new_uid as u16);
+                // Insert the new UIDs
+                for new_uid in old_to_new_uid.values() {
+                    // Get the hotkey using Keys map and new UID.
+                    let hotkey = Keys::<T>::get(netuid, *new_uid as u16);
+                    Uids::<T>::insert(netuid, hotkey, *new_uid as u16);
+                }
             }
 
             // Update the subnet's uid count to reflect the new maximum
             SubnetworkN::<T>::insert(netuid, max_n);
+            if is_null {
+                let (stakes, _, _) = Self::get_null_stake_weights_for_network(netuid);
+                let winner = Self::null_validator_winner(&stakes);
+                ValidatorPermit::<T>::insert(
+                    netuid,
+                    (0..stakes.len())
+                        .map(|uid| Some(uid) == winner)
+                        .collect::<Vec<_>>(),
+                );
+            }
         }
 
+        Ok(())
+    }
+
+    /// Explicit pruning invalidates queued reveals, which contain pre-compaction
+    /// UID destinations. Drop historical nonpermit rows without decoding them;
+    /// preserve/remap the elected row and the bounded frozen Yuma bond state.
+    fn remap_null_pruning_rows(
+        netuid: NetUid,
+        old_n: u16,
+        mapping: &BTreeMap<usize, usize>,
+        permits: &[bool],
+    ) -> DispatchResult {
+        // Count changes in Null may redistribute capacity, but all frozen
+        // Yuma rows together remain within the previous shared Yuma budget.
+        let frozen_limit = Self::epoch_uid_budget(EpochConsensus::Yuma);
+        let mut frozen_rows_seen = 0usize;
+        let mut targets = vec![None; usize::from(old_n)];
+        for (&old, &new) in mapping {
+            if let Some(slot) = targets.get_mut(old) {
+                *slot = Some(new as u16);
+            }
+        }
+        for mechanism in 0..u8::from(Self::get_current_mechanism_count(netuid)) {
+            let index = Self::get_mechanism_storage_index(netuid, mechanism.into());
+            let keys = Weights::<T>::iter_key_prefix(index)
+                .take(usize::from(old_n).saturating_add(1))
+                .collect::<Vec<_>>();
+            ensure!(keys.len() <= usize::from(old_n), Error::<T>::InvalidValue);
+            for old in keys {
+                let destination = targets.get(usize::from(old)).copied().flatten();
+                if !permits.get(usize::from(old)).copied().unwrap_or(false) || destination.is_none()
+                {
+                    Weights::<T>::remove(index, old);
+                    continue;
+                }
+                let new = destination.ok_or(Error::<T>::InvalidValue)?;
+                let original = Weights::<T>::get(index, old);
+                let remapped = original
+                    .iter()
+                    .filter_map(|(target, weight)| {
+                        targets
+                            .get(usize::from(*target))
+                            .copied()
+                            .flatten()
+                            .map(|uid| (uid, *weight))
+                    })
+                    .collect::<Vec<_>>();
+                if new != old {
+                    Weights::<T>::remove(index, old);
+                }
+                if new != old || remapped != original {
+                    Weights::<T>::insert(index, new, remapped);
+                }
+            }
+            let bonds = Bonds::<T>::iter_key_prefix(index)
+                .take(usize::from(frozen_limit).saturating_add(1))
+                .collect::<Vec<_>>();
+            frozen_rows_seen = frozen_rows_seen.saturating_add(bonds.len());
+            ensure!(
+                frozen_rows_seen <= usize::from(frozen_limit),
+                Error::<T>::InvalidValue
+            );
+            for old in bonds {
+                let original = Bonds::<T>::get(index, old);
+                ensure!(
+                    original.len() <= usize::from(frozen_limit),
+                    Error::<T>::InvalidValue
+                );
+                let Some(new) = targets.get(usize::from(old)).copied().flatten() else {
+                    Bonds::<T>::remove(index, old);
+                    continue;
+                };
+                let remapped = original
+                    .iter()
+                    .filter_map(|(target, weight)| {
+                        targets
+                            .get(usize::from(*target))
+                            .copied()
+                            .flatten()
+                            .map(|uid| (uid, *weight))
+                    })
+                    .collect::<Vec<_>>();
+                if new != old {
+                    Bonds::<T>::remove(index, old);
+                }
+                if new != old || remapped != original {
+                    Bonds::<T>::insert(index, new, remapped);
+                }
+            }
+        }
         Ok(())
     }
 

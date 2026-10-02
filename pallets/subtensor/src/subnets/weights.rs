@@ -14,16 +14,61 @@ use sp_std::{collections::btree_set::BTreeSet, collections::vec_deque::VecDeque,
 use subtensor_runtime_common::{MechId, NetUid, NetUidStorageIndex};
 
 impl<T: Config> Pallet<T> {
+    pub(crate) fn ensure_null_weight_permit(netuid: NetUid, who: &T::AccountId) -> DispatchResult {
+        if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
+            let uid = Self::get_uid_for_net_and_hotkey(netuid, who)?;
+            ensure!(
+                Self::get_validator_permit_for_uid(netuid, uid),
+                Error::<T>::NeuronNoValidatorPermit
+            );
+        }
+        Ok(())
+    }
+
+    /// Keep the released Yuma cost path, reserving a separate envelope for Null.
+    pub fn timelock_weight_for_mode(netuid: NetUid, yuma: Weight, null: Weight) -> Weight {
+        let weight = if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
+            null
+        } else {
+            yuma
+        };
+        weight.saturating_add(T::DbWeight::get().reads(1))
+    }
+
     /// Pre-dispatch weight of `batch_set_weights`: the batch overhead plus one full
     /// weight-setting unit per item, sized by that item's uid count. Every item runs a
     /// complete `do_set_weights`, so a constant per-batch weight would let one call book a
     /// fraction of the work it performs.
-    pub fn batch_set_weights_weight(weights: &[Vec<(Compact<u16>, Compact<u16>)>]) -> Weight {
-        weights.iter().fold(
+    pub fn set_weights_weight(netuid: NetUid, uids: u32) -> Weight {
+        Self::timelock_weight_for_mode(
+            netuid,
+            <T as Config>::WeightInfo::set_weights(),
+            <T as Config>::WeightInfo::set_mechanism_weights_null(uids),
+        )
+    }
+
+    pub fn set_mechanism_weights_weight(netuid: NetUid, uids: u32) -> Weight {
+        Self::timelock_weight_for_mode(
+            netuid,
+            <T as Config>::WeightInfo::set_mechanism_weights(uids),
+            <T as Config>::WeightInfo::set_mechanism_weights_null(uids),
+        )
+    }
+
+    pub fn batch_set_weights_weight(
+        netuids: &[Compact<NetUid>],
+        weights: &[Vec<(Compact<u16>, Compact<u16>)>],
+    ) -> Weight {
+        weights.iter().enumerate().fold(
             <T as Config>::WeightInfo::batch_set_weights(),
-            |acc, item| {
-                acc.saturating_add(<T as Config>::WeightInfo::set_mechanism_weights(
-                    item.len() as u32
+            |acc, (index, item)| {
+                let netuid = netuids
+                    .get(index)
+                    .map(|netuid| netuid.0)
+                    .unwrap_or(NetUid::ROOT);
+                acc.saturating_add(Self::set_mechanism_weights_weight(
+                    netuid,
+                    item.len() as u32,
                 ))
             },
         )
@@ -39,17 +84,29 @@ impl<T: Config> Pallet<T> {
 
     /// Pre-dispatch weight of `reveal_weights`, sized by the number of revealed uids (the
     /// same work as `reveal_mechanism_weights` on the main mechanism).
-    pub fn reveal_weights_weight(uids: u32) -> Weight {
-        <T as Config>::WeightInfo::reveal_weights()
-            .max(<T as Config>::WeightInfo::reveal_mechanism_weights(uids))
+    pub fn reveal_weights_weight(netuid: NetUid, uids: u32) -> Weight {
+        Self::timelock_weight_for_mode(
+            netuid,
+            <T as Config>::WeightInfo::reveal_weights()
+                .max(<T as Config>::WeightInfo::reveal_mechanism_weights(uids)),
+            <T as Config>::WeightInfo::reveal_mechanism_weights_null(uids),
+        )
+    }
+
+    pub fn reveal_mechanism_weights_weight(netuid: NetUid, uids: u32) -> Weight {
+        Self::timelock_weight_for_mode(
+            netuid,
+            <T as Config>::WeightInfo::reveal_mechanism_weights(uids),
+            <T as Config>::WeightInfo::reveal_mechanism_weights_null(uids),
+        )
     }
 
     /// Pre-dispatch weight of `batch_reveal_weights`: the batch overhead plus one reveal unit
     /// per item, sized by that item's uid count.
-    pub fn batch_reveal_weights_weight(uids_list: &[Vec<u16>]) -> Weight {
+    pub fn batch_reveal_weights_weight(netuid: NetUid, uids_list: &[Vec<u16>]) -> Weight {
         uids_list.iter().fold(
             <T as Config>::WeightInfo::batch_reveal_weights(),
-            |acc, uids| acc.saturating_add(Self::reveal_weights_weight(uids.len() as u32)),
+            |acc, uids| acc.saturating_add(Self::reveal_weights_weight(netuid, uids.len() as u32)),
         )
     }
 
@@ -104,6 +161,7 @@ impl<T: Config> Pallet<T> {
 
         // 1. Verify the caller's signature (hotkey).
         let who = ensure_signed(origin)?;
+        Self::ensure_null_weight_permit(netuid, &who)?;
 
         log::debug!("do_commit_weights(hotkey: {who:?}, netuid: {netuid:?})");
 
@@ -334,6 +392,7 @@ impl<T: Config> Pallet<T> {
 
         // 1. Verify the caller's signature (hotkey).
         let who = ensure_signed(origin)?;
+        Self::ensure_null_weight_permit(netuid, &who)?;
 
         log::debug!("do_commit_v3_weights(hotkey: {who:?}, netuid: {netuid:?})");
 
@@ -367,6 +426,31 @@ impl<T: Config> Pallet<T> {
         let cur_block = Self::get_current_block_as_u64();
         // Key the commit by the epoch it belongs to under the stateful counter.
         let cur_epoch = Self::current_epoch_with_lookahead(netuid);
+
+        if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
+            let commit_hash = BlakeTwo256::hash(&commit);
+            Self::enqueue_null_timelock(
+                &who,
+                netuid,
+                mecid,
+                commit,
+                cur_block,
+                cur_epoch,
+                reveal_round,
+            )?;
+            Self::deposit_event(Event::TimelockedWeightsCommitted(
+                who.clone(),
+                netuid_index,
+                commit_hash,
+                reveal_round,
+            ));
+            Self::set_last_update_for_uid(netuid_index, neuron_uid, commit_block);
+            return Ok(());
+        }
+        ensure!(
+            commit.len() <= YUMA_COMMIT_SIZE_BYTES as usize,
+            Error::<T>::CommitPayloadTooLarge
+        );
 
         TimelockedWeightCommits::<T>::try_mutate(
             netuid_index,
@@ -403,6 +487,140 @@ impl<T: Config> Pallet<T> {
                 Ok(())
             },
         )
+    }
+
+    /// Exact eligibility and stake ordering used by Null epochs, computed only
+    /// for the bounded set of queued hotkeys. UID order breaks stake ties.
+    fn null_commit_priority(
+        netuid: NetUid,
+        who: &T::AccountId,
+        owner_uid: Option<u16>,
+    ) -> (
+        bool,
+        substrate_fixed::types::I64F64,
+        core::cmp::Reverse<u16>,
+    ) {
+        use substrate_fixed::types::I64F64;
+        let Ok(uid) = Self::get_uid_for_net_and_hotkey(netuid, who) else {
+            return (false, I64F64::from(0), core::cmp::Reverse(u16::MAX));
+        };
+        if owner_uid != Some(uid) && !Self::get_validator_permit_for_uid(netuid, uid) {
+            return (false, I64F64::from(0), core::cmp::Reverse(uid));
+        }
+        let alpha =
+            I64F64::saturating_from_num(Self::get_inherited_for_hotkey_on_subnet(who, netuid));
+        let tao =
+            I64F64::saturating_from_num(Self::get_tao_inherited_for_hotkey_on_subnet(who, netuid));
+        let stake = alpha.saturating_add(
+            tao.saturating_mul(I64F64::saturating_from_num(Self::get_tao_weight())),
+        );
+        let eligible = stake > I64F64::from(0)
+            && (owner_uid == Some(uid) || fixed64_to_u64(stake) >= Self::get_stake_threshold());
+        (
+            eligible,
+            if eligible { stake } else { I64F64::from(0) },
+            core::cmp::Reverse(uid),
+        )
+    }
+
+    /// Keep one pending row per hotkey/mechanism and preempt lower-priority
+    /// rows under pressure. The current winning validator can always admit
+    /// one full row per mechanism: its combined payload is at most 32 KiB.
+    /// Stage every change before writing, so rejection leaves queues intact.
+    fn enqueue_null_timelock(
+        who: &T::AccountId,
+        netuid: NetUid,
+        mecid: MechId,
+        commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>,
+        block: u64,
+        epoch: u64,
+        reveal_round: u64,
+    ) -> DispatchResult {
+        let count = usize::from(u8::from(Self::get_current_mechanism_count(netuid)));
+        let payload_limit = (MAX_CRV3_COMMIT_SIZE_BYTES as usize)
+            .checked_div(count)
+            .ok_or(Error::<T>::InvalidValue)?;
+        ensure!(
+            commit.len() <= payload_limit,
+            Error::<T>::CommitPayloadTooLarge
+        );
+        // Always probe all mechanism indices: this gives admission one fixed
+        // benchmarked envelope independent of the owner's current count.
+        let mut queues =
+            (0..usize::from(crate::subnets::mechanism::MAX_MECHANISM_COUNT_PER_SUBNET))
+                .map(|mechanism| {
+                    let index = Self::get_mechanism_storage_index(netuid, (mechanism as u8).into());
+                    (index, TimelockedWeightCommits::<T>::get(index, epoch))
+                })
+                .collect::<Vec<_>>();
+        let current = queues
+            .get_mut(usize::from(u8::from(mecid)))
+            .ok_or(Error::<T>::MechanismDoesNotExist)?;
+        current.1.retain(|(account, ..)| account != who);
+        current
+            .1
+            .push_back((who.clone(), block, commit, reveal_round));
+        let mut bytes = queues
+            .iter()
+            .flat_map(|(_, q)| q.iter())
+            .fold(0usize, |sum, (_, _, ciphertext, _)| {
+                sum.saturating_add(ciphertext.len())
+            });
+        let mut entries = queues
+            .iter()
+            .fold(0usize, |sum, (_, q)| sum.saturating_add(q.len()));
+        let mut evicted = BTreeSet::new();
+        if bytes > NULL_COMMIT_QUEUE_BYTES || entries > NULL_COMMIT_QUEUE_COUNT {
+            let owner_uid = Self::get_owner_uid(netuid);
+            let incoming = Self::null_commit_priority(netuid, who, owner_uid);
+            let mut priorities = sp_std::collections::btree_map::BTreeMap::new();
+            let mut candidates = Vec::new();
+            for (mechanism, (_, queue)) in queues.iter().enumerate() {
+                for (position, (account, _, ciphertext, _)) in queue.iter().enumerate() {
+                    if account == who {
+                        continue;
+                    }
+                    let priority = *priorities
+                        .entry(account.clone())
+                        .or_insert_with(|| Self::null_commit_priority(netuid, account, owner_uid));
+                    if priority < incoming {
+                        candidates.push((priority, mechanism, position, ciphertext.len()));
+                    }
+                }
+            }
+            candidates.sort_by_key(|entry| entry.0);
+            for (_, mechanism, position, len) in candidates {
+                if bytes <= NULL_COMMIT_QUEUE_BYTES && entries <= NULL_COMMIT_QUEUE_COUNT {
+                    break;
+                }
+                bytes = bytes.saturating_sub(len);
+                entries = entries.saturating_sub(1);
+                evicted.insert((mechanism, position));
+            }
+        }
+        ensure!(
+            bytes <= NULL_COMMIT_QUEUE_BYTES && entries <= NULL_COMMIT_QUEUE_COUNT,
+            Error::<T>::CommitQueueFull
+        );
+        for (mechanism, (index, mut queue)) in queues.into_iter().enumerate() {
+            let mut position = 0usize;
+            queue.retain(|_| {
+                let keep = !evicted.contains(&(mechanism, position));
+                position = position.saturating_add(1);
+                keep
+            });
+            // Avoid rewriting unchanged queues, including empty mechanisms.
+            if usize::from(u8::from(mecid)) == mechanism
+                || evicted.iter().any(|(m, _)| *m == mechanism)
+            {
+                if queue.is_empty() {
+                    TimelockedWeightCommits::<T>::remove(index, epoch);
+                } else {
+                    TimelockedWeightCommits::<T>::insert(index, epoch, queue);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The implementation for revealing committed weights.
@@ -476,6 +694,7 @@ impl<T: Config> Pallet<T> {
 
         // --- 1. Check the caller's signature (hotkey).
         let who = ensure_signed(origin.clone())?;
+        Self::ensure_null_weight_permit(netuid, &who)?;
 
         log::debug!("do_reveal_weights( hotkey:{who:?} netuid:{netuid:?})");
 
@@ -627,6 +846,7 @@ impl<T: Config> Pallet<T> {
 
         // --- 2. Check the caller's signature (hotkey).
         let who = ensure_signed(origin.clone())?;
+        Self::ensure_null_weight_permit(netuid, &who)?;
 
         log::debug!("do_batch_reveal_weights( hotkey:{who:?} netuid:{netuid:?})");
 
@@ -761,6 +981,7 @@ impl<T: Config> Pallet<T> {
 
         // --- 1. Check the caller's signature. This is the hotkey of a registered account.
         let hotkey = ensure_signed(origin)?;
+        Self::ensure_null_weight_permit(netuid, &hotkey)?;
         log::debug!(
             "do_set_weights( origin:{hotkey:?} netuid:{netuid:?}, uids:{uids:?}, values:{values:?})"
         );
@@ -833,13 +1054,24 @@ impl<T: Config> Pallet<T> {
         );
 
         // --- 14. Max-upscale the weights.
-        let max_upscaled_weights: Vec<u16> = vec_u16_max_upscale_to_u16(&values);
+        let max_upscaled_weights: Vec<u16> =
+            if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
+                values
+            } else {
+                vec_u16_max_upscale_to_u16(&values)
+            };
 
         // --- 15. Ensure the weights are max weight limited
-        ensure!(
-            Self::max_weight_limited(netuid, neuron_uid, &uids, &max_upscaled_weights),
-            Error::<T>::MaxWeightExceeded
-        );
+        let max_limited = if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
+            let sum: u64 = max_upscaled_weights.iter().map(|w| u64::from(*w)).sum();
+            let max = u64::from(max_upscaled_weights.iter().copied().max().unwrap_or(0));
+            Self::is_self_weight(neuron_uid, &uids, &max_upscaled_weights)
+                || max.saturating_mul(u64::from(u16::MAX))
+                    <= sum.saturating_mul(u64::from(Self::get_max_weight_limit(netuid)))
+        } else {
+            Self::max_weight_limited(netuid, neuron_uid, &uids, &max_upscaled_weights)
+        };
+        ensure!(max_limited, Error::<T>::MaxWeightExceeded);
 
         // --- 16. Zip weights for sinking to storage map.
         let mut zipped_weights: Vec<(u16, u16)> = vec![];
@@ -1116,6 +1348,9 @@ impl<T: Config> Pallet<T> {
 
     /// Returns True if setting self-weight or has validator permit.
     pub fn check_validator_permit(netuid: NetUid, uid: u16, uids: &[u16], weights: &[u16]) -> bool {
+        if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
+            return Self::get_validator_permit_for_uid(netuid, uid);
+        }
         // Check self weight. Allowed to set single value for self weight.
         if Self::is_self_weight(uid, uids, weights) {
             return true;

@@ -108,6 +108,13 @@ class Hyperparam:
 
 
 HYPERPARAMS: dict[str, Hyperparam] = {
+    "epoch_consensus": Hyperparam(
+        "int",
+        "Epoch consensus selector: 0 is Yuma, 1 is Null. Owner setter accepts Yuma or Null.",
+        short="epoch consensus mechanism",
+        minimum=0,
+        maximum=1,
+    ),
     "rho": Hyperparam(
         "int",
         "Temperature of the sigmoid that maps a validator's consensus alignment to "
@@ -149,14 +156,14 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "min_difficulty": Hyperparam(
         "difficulty",
-        "Lower bound for the PoW registration difficulty controller. u64::MAX "
+        "Team-controlled floor for independently adjusted PoW difficulty. u64::MAX "
         "pins difficulty at maximum, effectively disabling PoW registration.",
         short="PoW registration difficulty floor",
     ),
     "max_difficulty": Hyperparam(
         "difficulty",
-        "Upper bound for the PoW registration difficulty controller. u64::MAX "
-        "leaves the difficulty unbounded above.",
+        "PoW difficulty ceiling under independent registration pricing; the team floor "
+        "takes precedence. u64::MAX allows the full u64 range.",
         short="PoW registration difficulty ceiling",
     ),
     "difficulty": Hyperparam(
@@ -178,8 +185,8 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "adjustment_interval": Hyperparam(
         "blocks",
-        "Blocks between adjustments of the registration difficulty and burn cost.",
-        short="difficulty/burn adjustment cadence",
+        "Historical interval controller cadence; current burn/PoW pricing uses burn_half_life.",
+        short="historical adjustment cadence",
     ),
     "activity_cutoff": Hyperparam(
         "blocks",
@@ -199,18 +206,22 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "registration_allowed": Hyperparam(
         "bool",
-        "Whether new neuron registrations are currently accepted on this subnet.",
-        short="new neuron registrations allowed",
+        "Whether burn registration is accepted on this subnet, independently of the PoW toggle. "
+        "Owners must leave at least one registration method enabled.",
+        short="burn registration toggle",
     ),
     "network_pow_registration_allowed": Hyperparam(
         "bool",
-        "Whether proof-of-work registration is allowed (as opposed to burned registration only).",
+        "Whether fee-free proof-of-work registration is allowed, "
+        "independently of burn registration. "
+        "Owners must leave at least one registration method enabled.",
         short="PoW registration toggle",
     ),
     "target_regs_per_interval": Hyperparam(
         "int",
-        "Registrations per adjustment interval the difficulty/burn controller steers toward.",
-        short="registration-rate controller target",
+        "Historical target; current burn/PoW equilibrium uses burn_half_life "
+        "and burn_increase_mult.",
+        short="historical registration-rate target",
     ),
     "min_burn": Hyperparam(
         "rao",
@@ -245,9 +256,9 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "adjustment_alpha": Hyperparam(
         "u64",
-        "Smoothing factor for the difficulty/burn adjustment, stored as u64 "
-        "(u64::MAX = 1.0): higher values adjust more slowly.",
-        short="difficulty/burn adjust smoothing",
+        "Historical interval-controller smoothing, stored as u64. Current burn/PoW pricing "
+        "uses the shared immediate multiplier and per-block half-life.",
+        short="historical adjustment smoothing",
     ),
     "commit_reveal_period": Hyperparam(
         "epochs",
@@ -305,22 +316,24 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     "max_allowed_uids": Hyperparam(
         "int",
         "Maximum neuron slots (UIDs) on the subnet; registrations beyond this "
-        "prune the lowest-scoring neuron.",
+        "prune the lowest-scoring neuron. Capacity shares a budget of 256 under Yuma "
+        "or 2500 under Null across emission mechanisms.",
         short="neuron slot capacity before pruning",
     ),
     "burn_increase_mult": Hyperparam(
         "fixed128",
-        "Multiplier applied to the burn cost after each registration within an "
-        "adjustment window. U64F64 fixed-point: the raw bits divided by 2^64 "
+        "Shared multiplier: a successful burn registration increases only burn price, "
+        "and a successful PoW registration increases only PoW difficulty. U64F64 fixed-point: "
+        "the raw bits divided by 2^64 "
         "give the real multiplier.",
-        short="burn cost bump per registration",
+        short="shared burn/PoW bump multiplier",
         minimum=FIXED128_ONE,
         maximum=3 * FIXED128_ONE,
     ),
     "burn_half_life": Hyperparam(
         "blocks",
-        "Blocks for the burn cost to decay halfway back toward min_burn.",
-        short="burn cost decay half-life",
+        "Shared half-life for burn price and PoW difficulty decay toward their floors.",
+        short="shared burn/PoW decay half-life",
     ),
     "collateral_lock_share": Hyperparam(
         "u16",

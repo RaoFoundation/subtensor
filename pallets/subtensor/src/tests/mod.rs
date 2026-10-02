@@ -29,6 +29,7 @@ pub(crate) mod mock_high_ed;
 mod move_stake;
 mod networks;
 mod neuron_info;
+mod null_consensus;
 mod recycle_alpha;
 mod registration;
 mod remove_data_tests;

@@ -1,63 +1,52 @@
 ---
 title: network_pow_registration_allowed
-description: Whether proof-of-work registration is allowed, as opposed to burned registration only.
+description: Enable fee-free proof-of-work registration on a non-root subnet.
 ---
 
-`network_pow_registration_allowed` is the per-subnet flag that historically
-let owners choose whether miners could register by proof-of-work (grinding
-nonces against [`difficulty`](/docs/hyperparameters/difficulty)) or only by
-burning TAO. Miners reading the metagraph still see the flag, but on the
-current runtime it is a deprecated remnant: PoW registration has been
-retired chain-wide.
+Subnet owners may enable PoW registration independently of the epoch consensus
+mechanism. It is off by default and independent of the burn toggle,
+`registration_allowed`. Owners may enable burn, PoW or both, but cannot disable
+the last enabled method. Root registration retains its separate admission path.
 
-## How it works
-
-Storage is
-[`NetworkPowRegistrationAllowed`](/code/pallets/subtensor/src/lib.rs#L1917) in
-`pallets/subtensor/src/lib.rs`, exposed through the metagraph RPC as
-`pow_registration_allowed`. Two pieces of code make its deprecation
-concrete:
-
-- The migration
-  [`migrate_clear_deprecated_registration_maps`](/code/pallets/subtensor/src/migrations/migrate_clear_deprecated_registration_maps.rs#L5-L64)
-  (`pallets/subtensor/src/migrations/`) cleared every stored entry, so all
-  subnets read the storage default.
-- The AdminUtils setter
-  [`sudo_set_network_pow_registration_allowed`](/code/pallets/admin-utils/src/lib.rs#L709-L715)
-  (`pallets/admin-utils/src/lib.rs`, call index 20) no longer writes
-  anything — it unconditionally returns the
-  [`POWRegistrationDisabled`](/code/pallets/admin-utils/src/lib.rs#L151)
-  error.
-
-Independently, the PoW
-[`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814)
-extrinsic
-(`pallets/subtensor/src/macros/dispatches.rs`) ignores its work arguments
-and routes to the burned-registration path, so the flag has nothing left to
-gate. Both ends of the wire are cut:
-
-<HyperparamPowToggleDeadEnd />
-
-## Reading and setting
-
-```
-btcli sudo get --netuid N --name network_pow_registration_allowed
+```bash
+btcli hparams set --netuid 1 --name network_pow_registration_allowed --value true
+btcli subnets register --netuid 1 --pow --yes
 ```
 
-Nominally owner-settable as a boolean:
+The CLI mines a recent challenge and submits the new `pow_register` call, signed
+by the coldkey. Direct submission with zero tip requires no TAO: there is no
+registration burn, upfront collateral purchase or transaction fee. A proxy,
+multisig or encrypted wrapper may charge its ordinary outer transaction fee.
+Standing miner collateral and emission settlement keep their existing rules.
 
-```
-btcli sudo set --netuid N --name network_pow_registration_allowed --value false
-```
+The proof binds the subnet, hotkey, signing coldkey, nonce and recent block hash.
+Invalid proofs are rejected during transaction-pool validation. Reused challenge
+blocks are rejected per hotkey, including after hotkey swaps or registration on
+another subnet; use a newer challenge block for another successful PoW registration.
+Per-block registration limits still apply. A full subnet uses its existing
+pruning and immunity rules; work does not guarantee that an occupied slot is available.
 
-but on the current runtime the underlying extrinsic always fails with
-`POWRegistrationDisabled`, so the value cannot actually be changed.
+The owner toggle uses the normal admin window and hyperparameter cooldown.
+Disabling it stops new PoW submissions without deleting existing participants.
+Burn registration remains available when its own toggle is enabled. The legacy
+`register` call retains its
+burn-based behaviour; use `pow_register` for actual PoW.
 
-## Related
+The current `difficulty` value controls the work threshold. Successful PoW
+registration increases only difficulty, while burn registration increases only
+burn price. Both reuse `burn_increase_mult` and `burn_half_life`; their prices
+decay independently toward their own bounds. Root/governance controls the PoW
+minimum, and owners cannot bypass it with a lower maximum. The old interval
+controller is not restored.
 
-[`registration_allowed`](/docs/hyperparameters/registration-allowed) ·
-[`difficulty`](/docs/hyperparameters/difficulty) ·
-[`min_difficulty`](/docs/hyperparameters/min-difficulty) ·
-[`max_difficulty`](/docs/hyperparameters/max-difficulty) ·
-[`min_burn`](/docs/hyperparameters/min-burn) ·
-[`max_burn`](/docs/hyperparameters/max-burn)
+The Rust miner uses all discovered OpenCL GPUs by default, with CPU fallback.
+Use `--pow-backend gpu` to require GPU mining or `--pow-backend cpu` to select CPU.
+Long searches refresh the latest block hash every twelve seconds; found proofs
+are checked against current difficulty. Work is accepted through the five-block
+window, and the CLI can remine a proof rejected before inclusion because it expired.
+See [Null consensus](/docs/guides/null-consensus) and
+[difficulty](/docs/hyperparameters/difficulty).
+
+New PoW hotkey associations keep each coldkey’s ownership and staking indexes below the existing 256-entry staking work limit. An already-associated hotkey can register on another subnet without growing those indexes.
+
+The default is off for new subnets and missing storage entries. Previously stored explicit PoW toggle values are retained across the upgrade; owners should review their toggle before activation.
