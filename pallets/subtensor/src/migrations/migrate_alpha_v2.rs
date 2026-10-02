@@ -238,8 +238,9 @@ fn can_settle_position<T: Config>(
 
 /// Rounded TAO proceeds from executing the same fee-free alpha sale used by an
 /// actual migration payout. Dynamic swaps execute in rollback mode, while stable
-/// subnets use their normal 1:1 conversion. Failed quotes are preserved in V2 so
-/// they cannot stall format conversion or destroy a position whose value is unknown.
+/// subnets use their normal 1:1 conversion. Failed or partially filled quotes are
+/// preserved in V2: proceeds from only part of a position cannot value the whole
+/// position for deletion or a full withdrawal.
 fn executable_tao_value<T: Config>(netuid: NetUid, alpha: AlphaBalance) -> Option<u64> {
     if SubnetMechanism::<T>::get(netuid) != 1 {
         return Some(alpha.to_u64());
@@ -247,6 +248,7 @@ fn executable_tao_value<T: Config>(netuid: NetUid, alpha: AlphaBalance) -> Optio
     let order = GetTaoForAlpha::<T>::with_amount(alpha);
     T::SwapInterface::swap(netuid, order, T::SwapInterface::min_price(), true, true)
         .ok()
+        .filter(|result| result.amount_paid_in == alpha)
         .map(|result| result.amount_paid_out.to_u64())
 }
 
@@ -354,7 +356,7 @@ pub fn continue_migration<T: Config>(limit: Weight) -> Weight {
         if settlement_candidate {
             cost.saturating_accrue(Pallet::<T>::staking_hotkeys_walk_actual(&coldkey));
             if netuid.is_root()
-                && payout
+                && (dust || payout)
                 && PendingBasketDeposits::<T>::iter_key_prefix(&hotkey)
                     .next()
                     .is_some()
@@ -367,15 +369,30 @@ pub fn continue_migration<T: Config>(limit: Weight) -> Weight {
             break;
         }
         used.saturating_accrue(cost);
-        let result: Result<(u64, u64, Weight), DispatchError> = with_storage_layer(|| {
+        let result: Result<(u64, u64, Weight, bool), DispatchError> = with_storage_layer(|| {
             if legacy {
                 convert_row::<T>(&hotkey, &coldkey, netuid);
             }
             if dust {
+                let mut flush_weight = Weight::zero();
+                if netuid.is_root() && !alpha.is_zero() {
+                    // Dust principal can still own valuable pending dividends. Flush
+                    // before changing its claimant stake, then rebase the resulting
+                    // watermark in delete_dust so zero-stake claims remain discoverable.
+                    let (work, _, completed) =
+                        Pallet::<T>::flush_basket_deposits_for_hotkey(&hotkey);
+                    flush_weight = Pallet::<T>::basket_flush_weight(work);
+                    if !completed {
+                        // A soft failure requeues credits. Keep their claimant stake,
+                        // but commit conversion/progress so one failed flush cannot
+                        // pin format conversion or the one-time V2 sweep forever.
+                        return Ok((0, 0, flush_weight, false));
+                    }
+                }
                 let burn = executable_value.unwrap_or_default();
                 collect_burn::<T>(netuid, burn)?;
                 delete_dust::<T>(&hotkey, &coldkey, netuid);
-                Ok((burn, 0, Weight::zero()))
+                Ok((burn, 0, flush_weight, true))
             } else if payout {
                 ensure!(
                     coldkey != Pallet::<T>::get_beta_escrow_account_id(),
@@ -403,13 +420,14 @@ pub fn continue_migration<T: Config>(limit: Weight) -> Weight {
                     0,
                     tao.to_u64(),
                     Pallet::<T>::basket_flush_weight(flush_work),
+                    false,
                 ))
             } else {
-                Ok((0, 0, Weight::zero()))
+                Ok((0, 0, Weight::zero(), false))
             }
         });
         match result {
-            Ok((burn, refund, flush_weight)) => {
+            Ok((burn, refund, flush_weight, deleted)) => {
                 used = used.saturating_sub(flush_allowance.saturating_sub(flush_weight));
                 progress.pending_burn = progress.pending_burn.saturating_add(burn);
                 progress.refunded = progress.refunded.saturating_add(refund);
@@ -423,7 +441,7 @@ pub fn continue_migration<T: Config>(limit: Weight) -> Weight {
                     progress.after =
                         Some(AlphaV2::<T>::hashed_key_for((&hotkey, &coldkey, netuid)));
                 }
-                if dust {
+                if deleted {
                     progress.deleted = progress.deleted.saturating_add(1);
                     if !legacy {
                         progress.pass_deleted = progress.pass_deleted.saturating_add(1);
@@ -507,6 +525,242 @@ mod tests {
             }
             continue_migration::<Test>(Weight::from_parts(4_000_000_000_000, u64::MAX));
         }
+    }
+
+    #[test]
+    fn partial_quotes_preserve_legacy_and_v2_positions_and_complete() {
+        for legacy in [true, false] {
+            // Exercise partial proceeds both below the deletion threshold and in
+            // the legacy payout range (which previously retried forever).
+            for (tao, amount) in [(2_000u64, 1_000_000_000u64), (20_000, 10_000_000_000)] {
+                new_test_ext(1).execute_with(|| {
+                    let netuid = network();
+                    setup_reserves(netuid, tao.into(), 1_000_000_000u64.into());
+                    let hot = U256::from(2);
+                    let cold = U256::from(3);
+                    let alpha = AlphaBalance::from(amount);
+                    legacy_position(hot, cold, netuid, alpha.to_u64());
+                    if !legacy {
+                        convert_for_test::<Test>();
+                    }
+                    let quote = <Test as Config>::SwapInterface::swap(
+                        netuid,
+                        GetTaoForAlpha::<Test>::with_amount(alpha),
+                        <Test as Config>::SwapInterface::min_price(),
+                        true,
+                        true,
+                    )
+                    .expect("partial quote");
+                    assert!(quote.amount_paid_in < alpha);
+                    if tao == 2_000 {
+                        assert!(quote.amount_paid_out.to_u64() < MIN_PAYOUT_TAO);
+                    } else {
+                        assert!(
+                            (MIN_PAYOUT_TAO..=MAX_DUST_TAO)
+                                .contains(&quote.amount_paid_out.to_u64())
+                        );
+                    }
+                    assert_eq!(executable_tao_value::<Test>(netuid, alpha), None);
+                    let balance = SubtensorModule::get_coldkey_balance(&cold);
+                    run_batches();
+                    assert_eq!(
+                        SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                            &hot, &cold, netuid
+                        ),
+                        alpha,
+                        "a partial fill must not delete the unsold stake",
+                    );
+                    assert_eq!(SubnetTAO::<Test>::get(netuid), tao.into());
+                    assert_eq!(SubnetAlphaIn::<Test>::get(netuid), 1_000_000_000u64.into());
+                    assert_eq!(SubtensorModule::get_coldkey_balance(&cold), balance);
+                    assert!(retired::Alpha::<Test>::iter().next().is_none());
+                    assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME));
+                    let progress = AlphaV2Migration::<Test>::get().expect("complete");
+                    assert_eq!(
+                        (progress.deleted, progress.refunded, progress.burned),
+                        (0, 0, 0)
+                    );
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn root_dust_flushes_earned_dividends_and_keeps_zero_stake_claims_discoverable() {
+        for legacy in [true, false] {
+            new_test_ext(1).execute_with(|| {
+                let netuid = network();
+                let hot = U256::from(2);
+                let cold = U256::from(3);
+                SubtensorModule::set_tao_weight(u64::MAX);
+                RootClaimableThreshold::<Test>::insert(
+                    NetUid::ROOT,
+                    substrate_fixed::types::I96F32::from_num(0),
+                );
+                Uids::<Test>::insert(NetUid::ROOT, hot, 1);
+                legacy_position(hot, cold, NetUid::ROOT, 999);
+                if !legacy {
+                    convert_for_test::<Test>();
+                }
+                SubnetTAO::<Test>::insert(NetUid::ROOT, TaoBalance::from(999u64));
+                let burn: U256 = <Test as Config>::BurnAccountId::get().into_account_truncating();
+                add_balance_to_coldkey_account(&burn, 500u64.into());
+                SubnetAlphaOut::<Test>::mutate(netuid, |v| {
+                    *v = v.saturating_add(1_000_000u64.into())
+                });
+                SubtensorModule::enqueue_basket_deposit(&hot, netuid, 1_000_000u64.into());
+                let earned = frame_support::storage::with_transaction(|| {
+                    SubtensorModule::flush_basket_deposits_for_hotkey(&hot);
+                    frame_support::storage::TransactionOutcome::Rollback(Ok::<u64, DispatchError>(
+                        SubtensorModule::get_basket_owed_shares(&hot, &cold),
+                    ))
+                })
+                .expect("rollback control flush");
+                assert!(
+                    earned > 0,
+                    "control confirms the queued credit is flushable and earned"
+                );
+                run_batches();
+                assert!(
+                    SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &hot,
+                        &cold,
+                        NetUid::ROOT
+                    )
+                    .is_zero()
+                );
+                SubtensorModule::flush_basket_deposits_for_hotkey(&hot);
+                assert!(
+                    SubtensorModule::get_basket_owed_shares(&hot, &cold) >= earned,
+                    "earned {earned} shares before deletion, owed {} after deletion and flush",
+                    SubtensorModule::get_basket_owed_shares(&hot, &cold)
+                );
+                assert!(PendingBasketDeposits::<Test>::get(hot, netuid).is_zero());
+                assert!(BasketClaimed::<Test>::get(hot, cold) < 0);
+                assert_eq!(
+                    SubtensorModule::root_claim_hotkeys(&cold, StakingHotkeys::<Test>::get(cold)),
+                    vec![hot]
+                );
+                assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME));
+            });
+        }
+    }
+
+    #[test]
+    fn root_dust_failed_flush_preserves_stake_without_pinning_migration() {
+        for legacy in [true, false] {
+            new_test_ext(1).execute_with(|| {
+                let netuid = network();
+                let hot = U256::from(2);
+                let cold = U256::from(3);
+                SubtensorModule::set_tao_weight(u64::MAX);
+                RootClaimableThreshold::<Test>::insert(
+                    NetUid::ROOT,
+                    substrate_fixed::types::I96F32::from_num(0),
+                );
+                Uids::<Test>::insert(NetUid::ROOT, hot, 1);
+                legacy_position(hot, cold, NetUid::ROOT, 999);
+                // The dividend rate increment rounds to zero with this claimant base,
+                // so the existing flush engine must requeue the credit. Populate the
+                // pool directly to keep the target legacy row unconverted in that case.
+                AlphaV2::<Test>::insert(
+                    (hot, U256::from(4), NetUid::ROOT),
+                    SafeFloat::from(10_000_000_000_000_000u64),
+                );
+                retired::TotalHotkeyShares::<Test>::insert(
+                    hot,
+                    NetUid::ROOT,
+                    U64F64::from_num(10_000_000_000_000_999u64),
+                );
+                TotalHotkeyAlpha::<Test>::insert(
+                    hot,
+                    NetUid::ROOT,
+                    AlphaBalance::from(10_000_000_000_000_999u64),
+                );
+                if !legacy {
+                    convert_for_test::<Test>();
+                }
+                SubnetTAO::<Test>::insert(
+                    NetUid::ROOT,
+                    TaoBalance::from(10_000_000_000_000_999u64),
+                );
+                SubnetAlphaOut::<Test>::mutate(netuid, |v| *v = v.saturating_add(1_000u64.into()));
+                SubtensorModule::enqueue_basket_deposit(&hot, netuid, 1_000u64.into());
+                let stake = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hot,
+                    &cold,
+                    NetUid::ROOT,
+                );
+                assert!(!stake.is_zero() && stake.to_u64() < MIN_PAYOUT_TAO);
+                assert!(!SubtensorModule::flush_basket_deposits_for_hotkey(&hot).2);
+                run_batches();
+                assert_eq!(
+                    SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &hot,
+                        &cold,
+                        NetUid::ROOT
+                    ),
+                    stake
+                );
+                assert_eq!(
+                    PendingBasketDeposits::<Test>::get(hot, netuid),
+                    1_000u64.into()
+                );
+                assert!(StakingHotkeys::<Test>::get(cold).contains(&hot));
+                assert!(retired::Alpha::<Test>::iter().next().is_none());
+                assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME));
+                let progress = AlphaV2Migration::<Test>::get().expect("complete");
+                assert_eq!(
+                    (progress.deleted, progress.burned, progress.pending_burn),
+                    (0, 0, 0)
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn root_dust_late_failure_rolls_back_dividend_flush_and_conversion() {
+        new_test_ext(1).execute_with(|| {
+            let netuid = network();
+            let hot = U256::from(2);
+            let cold = U256::from(3);
+            SubtensorModule::set_tao_weight(u64::MAX);
+            RootClaimableThreshold::<Test>::insert(
+                NetUid::ROOT,
+                substrate_fixed::types::I96F32::from_num(0),
+            );
+            Uids::<Test>::insert(NetUid::ROOT, hot, 1);
+            legacy_position(hot, cold, NetUid::ROOT, 999);
+            // The flush can succeed but the subsequent burn collection cannot.
+            SubnetTAO::<Test>::insert(NetUid::ROOT, TaoBalance::ZERO);
+            SubnetAlphaOut::<Test>::mutate(netuid, |v| *v = v.saturating_add(1_000_000u64.into()));
+            SubtensorModule::enqueue_basket_deposit(&hot, netuid, 1_000_000u64.into());
+            let alpha_out = SubnetAlphaOut::<Test>::get(netuid);
+            run_batches();
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hot,
+                    &cold,
+                    NetUid::ROOT
+                ),
+                999u64.into()
+            );
+            assert!(retired::Alpha::<Test>::contains_key((
+                hot,
+                cold,
+                NetUid::ROOT
+            )));
+            assert_eq!(
+                PendingBasketDeposits::<Test>::get(hot, netuid),
+                1_000_000u64.into()
+            );
+            assert_eq!(SubnetAlphaOut::<Test>::get(netuid), alpha_out);
+            assert_eq!(BasketShares::<Test>::get(hot), 0);
+            assert_eq!(BasketClaimed::<Test>::get(hot, cold), 0);
+            let escrow = SubtensorModule::get_beta_escrow_account_id();
+            assert!(!AlphaV2::<Test>::contains_key((hot, escrow, netuid)));
+            assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME));
+        });
     }
 
     fn network() -> NetUid {
