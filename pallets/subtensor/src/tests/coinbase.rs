@@ -3656,8 +3656,8 @@ fn test_coinbase_subnet_terms_with_alpha_in_gt_alpha_emission() {
         let alpha = AlphaBalance::from(
             (U64F64::saturating_from_num(u64::from(tao)) / price_to_set).to_num::<u64>(),
         );
-        SubnetTAO::<Test>::insert(netuid0, tao);
-        SubnetAlphaIn::<Test>::insert(netuid0, alpha);
+        mock::setup_reserves(netuid0, tao, alpha);
+        assert_ok!(Swap::maybe_initialize_palswap(netuid0, None));
 
         // Check the price is set
         assert_abs_diff_eq!(
@@ -3779,44 +3779,208 @@ fn test_coinbase_subnet_terms_with_alpha_in_lte_alpha_emission() {
     });
 }
 
-// Tests for the inject and swap are in the right order.
+// Coinbase buys against the current curve, then translates it for emissions.
 #[test]
-fn test_coinbase_inject_and_maybe_swap_does_not_skew_reserves() {
+fn test_coinbase_inject_and_maybe_swap_preserves_post_buy_price() {
     new_test_ext(1).execute_with(|| {
-        let zero = U96F32::saturating_from_num(0);
-        let netuid0 = add_dynamic_network(&U256::from(1), &U256::from(2));
-        mock::setup_reserves(
-            netuid0,
-            TaoBalance::from(1_000_000_000_000_000_u64),
-            AlphaBalance::from(1_000_000_000_000_000_u64),
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        let initial = 1_000_000_000_000_u64;
+        mock::setup_reserves(netuid, initial.into(), initial.into());
+        pallet_subtensor_swap::SwapSuperellipse::<Test>::remove(netuid);
+        assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+        let curve = pallet_subtensor_swap::SwapSuperellipse::<Test>::get(netuid).unwrap();
+        let buy = 789_100_u64;
+        let bought = curve.buy_output(initial, initial, buy).unwrap();
+        let expected_price = curve
+            .calculate_price(initial - bought, initial + buy)
+            .unwrap();
+        let protocol_before = SubnetProtocolAlpha::<Test>::get(netuid);
+        let out_before = SubnetAlphaOut::<Test>::get(netuid);
+
+        let tao_in = BTreeMap::from([(netuid, U96F32::from_num(123))]);
+        let alpha_in = BTreeMap::from([(netuid, U96F32::from_num(456))]);
+        let excess_tao = BTreeMap::from([(netuid, U96F32::from_num(buy))]);
+        let credit = SubtensorModule::mint_tao((123 + buy).into());
+        SubtensorModule::inject_and_maybe_swap(&[netuid], &tao_in, &alpha_in, &excess_tao, credit);
+
+        assert_eq!(SubnetTAO::<Test>::get(netuid), (initial + buy + 123).into());
+        assert_eq!(
+            SubnetAlphaIn::<Test>::get(netuid),
+            (initial - bought + 456).into()
         );
-        // Initialize swap
-        Swap::maybe_initialize_palswap(netuid0, None);
-
-        let tao_in = BTreeMap::from([(netuid0, U96F32::saturating_from_num(123))]);
-        let alpha_in = BTreeMap::from([(netuid0, U96F32::saturating_from_num(456))]);
-        // We have excess TAO, so we will be swapping with it.
-        let excess_tao = BTreeMap::from([(netuid0, U96F32::saturating_from_num(789100))]);
-
-        // Run the inject and maybe swap
-        let credit = SubtensorModule::mint_tao((123 + 789100).into());
-        SubtensorModule::inject_and_maybe_swap(&[netuid0], &tao_in, &alpha_in, &excess_tao, credit);
-
-        let tao_in_after = SubnetTAO::<Test>::get(netuid0);
-        let alpha_in_after = SubnetAlphaIn::<Test>::get(netuid0);
-
-        // Make sure that when we inject and swap, we do it in the right order.
-        // Thereby not skewing the ratio away from the price.
-        let ratio_after: U96F32 = U96F32::saturating_from_num(alpha_in_after.to_u64())
-            .saturating_div(U96F32::saturating_from_num(tao_in_after.to_u64()));
-        let price_after: U96F32 = U96F32::saturating_from_num(
-            pallet_subtensor_swap::Pallet::<Test>::current_alpha_price(netuid0).to_num::<f64>(),
+        assert_eq!(
+            SubnetProtocolAlpha::<Test>::get(netuid),
+            protocol_before + bought.into()
         );
-        assert_abs_diff_eq!(
-            ratio_after.to_num::<f64>(),
-            price_after.to_num::<f64>(),
-            epsilon = 1.0
+        assert_eq!(
+            SubnetAlphaOut::<Test>::get(netuid),
+            out_before + bought.into()
         );
+        assert_eq!(SubnetExcessTao::<Test>::get(netuid), buy.into());
+        assert_eq!(SubnetTaoInEmission::<Test>::get(netuid), 123.into());
+        assert_eq!(SubnetAlphaInEmission::<Test>::get(netuid), 456.into());
+        assert_eq!(Swap::current_alpha_price(netuid), expected_price);
+    });
+}
+
+#[test]
+fn test_coinbase_disproportional_injection_preserves_price_and_trade_response() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        let alpha = 2_000_000_u64;
+        let tao = 1_000_000_u64;
+        mock::setup_reserves(netuid, tao.into(), alpha.into());
+        pallet_subtensor_swap::SwapSuperellipse::<Test>::remove(netuid);
+        assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+        let curve_before = pallet_subtensor_swap::SwapSuperellipse::<Test>::get(netuid).unwrap();
+        let price_before = Swap::current_alpha_price(netuid);
+        let payout_before = curve_before.buy_output(alpha, tao, 100_000).unwrap();
+        let tao_delta = 50_000_u64;
+        let alpha_delta = 900_000_u64;
+        let issuance_before = SubtensorModule::get_alpha_issuance(netuid);
+        let tao_in = BTreeMap::from([(netuid, U96F32::from_num(tao_delta))]);
+        let alpha_in = BTreeMap::from([(netuid, U96F32::from_num(alpha_delta))]);
+        let credit = SubtensorModule::mint_tao(tao_delta.into());
+        SubtensorModule::inject_and_maybe_swap(
+            &[netuid],
+            &tao_in,
+            &alpha_in,
+            &BTreeMap::new(),
+            credit,
+        );
+
+        assert_eq!(SubnetTAO::<Test>::get(netuid), (tao + tao_delta).into());
+        assert_eq!(
+            SubnetAlphaIn::<Test>::get(netuid),
+            (alpha + alpha_delta).into()
+        );
+        assert_eq!(
+            SubtensorModule::get_alpha_issuance(netuid),
+            issuance_before + alpha_delta.into()
+        );
+        assert_eq!(Swap::current_alpha_price(netuid), price_before);
+        let curve_after = pallet_subtensor_swap::SwapSuperellipse::<Test>::get(netuid).unwrap();
+        assert_eq!(
+            curve_after
+                .buy_output(alpha + alpha_delta, tao + tao_delta, 100_000)
+                .unwrap(),
+            payout_before
+        );
+        assert_eq!(
+            pallet_subtensor_swap::BalancerTaoReservoir::<Test>::get(netuid),
+            TaoBalance::ZERO
+        );
+        assert_eq!(
+            pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::get(netuid),
+            AlphaBalance::ZERO
+        );
+    });
+}
+
+#[test]
+fn test_coinbase_partial_excess_buy_refunds_unconsumed_credit() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        let initial = 1_000_000_u64;
+        mock::setup_reserves(netuid, initial.into(), initial.into());
+        pallet_subtensor_swap::SwapSuperellipse::<Test>::remove(netuid);
+        assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        let chain_before = Balances::free_balance(subnet_account);
+        let issuance_before = TotalIssuance::<Test>::get();
+        let balances_issuance_before = Balances::total_issuance();
+        let protocol_before = SubnetProtocolAlpha::<Test>::get(netuid);
+        let requested = 2_000_000_u64;
+        let excess_tao = BTreeMap::from([(netuid, U96F32::from_num(requested))]);
+        let credit = SubtensorModule::mint_tao(requested.into());
+        SubtensorModule::inject_and_maybe_swap(
+            &[netuid],
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &excess_tao,
+            credit,
+        );
+
+        let consumed = SubnetExcessTao::<Test>::get(netuid);
+        assert!(consumed > TaoBalance::ZERO);
+        assert!(consumed < requested.into());
+        assert_eq!(
+            SubnetTAO::<Test>::get(netuid),
+            TaoBalance::from(initial) + consumed
+        );
+        assert_eq!(
+            Balances::free_balance(subnet_account),
+            chain_before + consumed
+        );
+        assert_eq!(TotalIssuance::<Test>::get(), issuance_before + consumed);
+        assert_eq!(
+            Balances::total_issuance(),
+            balances_issuance_before + consumed
+        );
+        assert_eq!(
+            SubnetProtocolAlpha::<Test>::get(netuid) - protocol_before,
+            AlphaBalance::from(initial) - SubnetAlphaIn::<Test>::get(netuid),
+        );
+    });
+}
+
+#[test]
+fn test_coinbase_failed_curve_injection_refunds_credit_without_minting_alpha() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        mock::setup_reserves(netuid, 1_000_000.into(), 1_000_000.into());
+        pallet_subtensor_swap::SwapSuperellipse::<Test>::remove(netuid);
+        // Model an invalid archived zero quote weight before lazy migration.
+        pallet_subtensor_swap::SwapBalancer::<Test>::mutate(netuid, |weights| {
+            *weights = codec::Decode::decode(&mut &[0_u8; 8][..]).unwrap();
+        });
+        let pending_tao = TaoBalance::from(100_u64);
+        let pending_alpha = AlphaBalance::from(500_u64);
+        pallet_subtensor_swap::BalancerTaoReservoir::<Test>::insert(netuid, pending_tao);
+        pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::insert(netuid, pending_alpha);
+        SubnetAlphaInEmission::<Test>::insert(netuid, AlphaBalance::from(999_u64));
+        SubnetTaoInEmission::<Test>::insert(netuid, TaoBalance::from(999_u64));
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        let chain_before = Balances::free_balance(subnet_account);
+        let issuance_before = TotalIssuance::<Test>::get();
+        let balances_issuance_before = Balances::total_issuance();
+        let alpha_issuance_before = SubtensorModule::get_alpha_issuance(netuid);
+        let tao_before = SubnetTAO::<Test>::get(netuid);
+        let alpha_before = SubnetAlphaIn::<Test>::get(netuid);
+        let tao_in = BTreeMap::from([(netuid, U96F32::from_num(200))]);
+        let alpha_in = BTreeMap::from([(netuid, U96F32::from_num(300))]);
+        let credit = SubtensorModule::mint_tao(200.into());
+        SubtensorModule::inject_and_maybe_swap(
+            &[netuid],
+            &tao_in,
+            &alpha_in,
+            &BTreeMap::new(),
+            credit,
+        );
+
+        assert_eq!(Balances::free_balance(subnet_account), chain_before);
+        assert_eq!(TotalIssuance::<Test>::get(), issuance_before);
+        assert_eq!(Balances::total_issuance(), balances_issuance_before);
+        assert_eq!(
+            SubtensorModule::get_alpha_issuance(netuid),
+            alpha_issuance_before
+        );
+        assert_eq!(SubnetTAO::<Test>::get(netuid), tao_before);
+        assert_eq!(SubnetAlphaIn::<Test>::get(netuid), alpha_before);
+        assert_eq!(SubnetTaoInEmission::<Test>::get(netuid), TaoBalance::ZERO);
+        assert_eq!(
+            SubnetAlphaInEmission::<Test>::get(netuid),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(
+            pallet_subtensor_swap::BalancerTaoReservoir::<Test>::get(netuid),
+            pending_tao
+        );
+        assert_eq!(
+            pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::get(netuid),
+            pending_alpha
+        );
+        assert!(!pallet_subtensor_swap::SwapSuperellipse::<Test>::contains_key(netuid));
     });
 }
 

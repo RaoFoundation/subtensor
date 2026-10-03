@@ -19,13 +19,34 @@ mod hooks {
                 // initialization against an already-live PalSwap.
                 .saturating_add(
                     migrations::migrate_storage_cleanup_v2::migrate_swap_storage_cleanup_v2::<T>(),
+                )
+                .saturating_add(
+                    migrations::migrate_balancer_to_superellipse::migrate_balancer_to_superellipse::<T>(),
                 );
             weight
         }
 
         #[cfg(feature = "try-runtime")]
         fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
+            for (netuid, curve) in SwapSuperellipse::<T>::iter() {
+                curve
+                    .calculate_price(
+                        T::AlphaReserve::reserve(netuid).into(),
+                        T::TaoReserve::reserve(netuid).into(),
+                    )
+                    .map_err(|_| "Invalid live superellipse pool")?;
+            }
             Ok(())
+        }
+
+        #[cfg(feature = "try-runtime")]
+        fn pre_upgrade() -> Result<sp_std::vec::Vec<u8>, sp_runtime::TryRuntimeError> {
+            migrations::migrate_balancer_to_superellipse::pre_upgrade::<T>()
+        }
+
+        #[cfg(feature = "try-runtime")]
+        fn post_upgrade(state: sp_std::vec::Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
+            migrations::migrate_balancer_to_superellipse::post_upgrade::<T>(state)
         }
     }
 }

@@ -9,11 +9,15 @@ use subtensor_runtime_common::{
 use crate::{pallet::balancer::Balancer, weights::WeightInfo};
 pub use pallet::*;
 use subtensor_macros::freeze_struct;
+pub use superellipse::Superellipse;
 
 mod balancer;
 mod hooks;
 mod impls;
+#[cfg(test)]
+mod migration_tests;
 pub mod migrations;
+pub(crate) mod superellipse;
 mod swap_step;
 #[cfg(test)]
 mod tests;
@@ -105,10 +109,14 @@ mod pallet {
         Balancer::default()
     }
 
-    /// u64-normalized reserve weight
+    /// Archived Balancer parameters, retained for migration and legacy queries.
     #[pallet::storage]
     pub type SwapBalancer<T> =
         StorageMap<_, Twox64Concat, NetUid, Balancer, ValueQuery, DefaultBalancer>;
+
+    /// Fixed exponent-two translated superellipse used by live dynamic pools.
+    #[pallet::storage]
+    pub type SwapSuperellipse<T> = StorageMap<_, Twox64Concat, NetUid, Superellipse, OptionQuery>;
 
     /// Storage to determine whether balancer swap was initialized for a specific subnet.
     #[pallet::storage]

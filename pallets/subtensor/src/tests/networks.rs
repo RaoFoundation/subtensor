@@ -582,6 +582,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         assert!(!SubnetAlphaOutEmission::<Test>::contains_key(net));
         assert!(!SubnetTaoInEmission::<Test>::contains_key(net));
         assert!(!SubnetVolume::<Test>::contains_key(net));
+        assert!(!pallet_subtensor_swap::SwapSuperellipse::<Test>::contains_key(net));
         assert!(!pallet_subtensor_swap::BalancerTaoReservoir::<Test>::contains_key(net));
         assert!(!pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::contains_key(net));
 
@@ -709,6 +710,117 @@ fn dissolve_clears_all_per_subnet_storages() {
 }
 
 #[test]
+fn dissolve_releases_protocol_reservoirs_without_invalidating_liquidation_curve() {
+    new_test_ext(1).execute_with(|| {
+        let net = add_dynamic_network(&U256::from(456), &U256::from(123));
+        remove_owner_registration_stake(net);
+        let initial = 1_000_000_u64;
+        setup_reserves(net, initial.into(), initial.into());
+        assert_ok!(Swap::maybe_initialize_palswap(net, None));
+        let price_before = Swap::current_alpha_price(net);
+        let quote_before = swap_alpha_to_tao_ext(net, AlphaBalance::from(1_000_u64), true);
+        let pending_tao = TaoBalance::from(2_000_000_u64);
+        let pending_alpha = AlphaBalance::from(3_000_000_u64);
+        let account = SubtensorModule::get_subnet_account_id(net).unwrap();
+        add_balance_to_coldkey_account(&account, pending_tao);
+        pallet_subtensor_swap::BalancerTaoReservoir::<Test>::insert(net, pending_tao);
+        pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::insert(net, pending_alpha);
+        let hotkey = U256::from(456);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            net,
+            AlphaBalance::from(1_000_u64),
+        );
+        BasketShares::<Test>::insert(hotkey, 1_u64);
+        let alpha_issuance_before = SubtensorModule::get_alpha_issuance(net);
+        let total_stake_before = TotalStake::<Test>::get();
+
+        assert_ok!(SubtensorModule::do_dissolve_network(net));
+        assert_eq!(
+            SubnetTAO::<Test>::get(net),
+            TaoBalance::from(initial) + pending_tao
+        );
+        assert_eq!(
+            SubnetAlphaIn::<Test>::get(net),
+            AlphaBalance::from(initial) + pending_alpha
+        );
+        assert_eq!(
+            TotalStake::<Test>::get(),
+            total_stake_before.saturating_sub(TaoBalance::from(initial)),
+        );
+        assert_eq!(
+            SubtensorModule::get_alpha_issuance(net),
+            alpha_issuance_before
+        );
+        assert_eq!(Swap::current_alpha_price(net), price_before);
+        // The first cleanup phase liquidates beta-basket alpha. Its quote must
+        // remain valid even when reservoirs exceeded the old curve centers.
+        assert_eq!(
+            swap_alpha_to_tao_ext(net, AlphaBalance::from(1_000_u64), true),
+            quote_before
+        );
+        assert!(!pallet_subtensor_swap::BalancerTaoReservoir::<Test>::contains_key(net));
+        assert!(!pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::contains_key(net));
+
+        run_block_idle();
+        assert!(!NetworksAdded::<Test>::contains_key(net));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, net),
+            AlphaBalance::ZERO,
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                NetUid::ROOT
+            )
+            .to_u64(),
+            quote_before.0.to_u64(),
+        );
+        assert_eq!(BasketShares::<Test>::get(hotkey), 1_u64);
+        assert!(!pallet_subtensor_swap::SwapSuperellipse::<Test>::contains_key(net));
+    });
+}
+
+#[test]
+fn dissolve_invalid_curve_preserves_pending_protocol_assets() {
+    new_test_ext(0).execute_with(|| {
+        let net = add_dynamic_network(&U256::from(456), &U256::from(123));
+        remove_owner_registration_stake(net);
+        setup_reserves(net, 1_000_000.into(), 1_000_000.into());
+        pallet_subtensor_swap::SwapBalancer::<Test>::mutate(net, |weights| {
+            *weights = codec::Decode::decode(&mut &[0_u8; 8][..]).unwrap();
+        });
+        let pending_tao = TaoBalance::from(200_u64);
+        let pending_alpha = AlphaBalance::from(300_u64);
+        pallet_subtensor_swap::BalancerTaoReservoir::<Test>::insert(net, pending_tao);
+        pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::insert(net, pending_alpha);
+        let total_stake_before = TotalStake::<Test>::get();
+
+        assert!(SubtensorModule::do_dissolve_network(net).is_err());
+        assert_eq!(SubnetTAO::<Test>::get(net), TaoBalance::from(1_000_000_u64));
+        assert_eq!(
+            SubnetAlphaIn::<Test>::get(net),
+            AlphaBalance::from(1_000_000_u64)
+        );
+        assert_eq!(TotalStake::<Test>::get(), total_stake_before);
+        assert_eq!(
+            pallet_subtensor_swap::BalancerTaoReservoir::<Test>::get(net),
+            pending_tao
+        );
+        assert_eq!(
+            pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::get(net),
+            pending_alpha
+        );
+        assert!(!pallet_subtensor_swap::SwapSuperellipse::<Test>::contains_key(net));
+        assert!(!DissolveCleanupQueue::<Test>::get().contains(&net));
+        assert!(NetworksAdded::<Test>::get(net));
+    });
+}
+
+#[test]
 fn dissolve_materializes_nonzero_protocol_reservoirs_before_cleanup() {
     new_test_ext(0).execute_with(|| {
         let owner_cold = U256::from(123);
@@ -769,6 +881,7 @@ fn dissolve_materializes_nonzero_protocol_reservoirs_before_cleanup() {
         assert!(!SubnetOwner::<Test>::contains_key(net));
         assert!(!SubnetAlphaIn::<Test>::contains_key(net));
         assert!(!SubnetProtocolAlpha::<Test>::contains_key(net));
+        assert!(!pallet_subtensor_swap::SwapSuperellipse::<Test>::contains_key(net));
         assert!(!pallet_subtensor_swap::BalancerTaoReservoir::<Test>::contains_key(net));
         assert!(!pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::contains_key(net));
     });
@@ -4089,5 +4202,69 @@ fn process_network_registration_queue_unlocks_funds_and_charges_coldkey() {
             .expect("queued registration should create a new subnet");
         assert_eq!(SubnetOwner::<Test>::get(new_netuid), cold);
         assert_eq!(SubnetLocked::<Test>::get(new_netuid), queued_lock);
+    });
+}
+
+/// Failed full AMM liquidation falls back to pro-rata dissolution settlement.
+/// Each validator's proceeds must remain attributable through its root slot.
+#[test]
+fn dissolve_endpoint_blocked_basket_settlement_preserves_fund_ownership() {
+    new_test_ext(1).execute_with(|| {
+        let first = U256::from(8001);
+        let second = U256::from(8002);
+        let net = add_dynamic_network(&first, &U256::from(8003));
+        remove_owner_registration_stake(net);
+        setup_reserves(net, 1_000_000u64.into(), 1_000_000u64.into());
+        assert_ok!(Swap::maybe_initialize_palswap(net, None));
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        for (hotkey, alpha) in [(first, 2_000_000u64), (second, 4_000_000u64)] {
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                net,
+                alpha.into(),
+            );
+            BasketShares::<Test>::insert(hotkey, 10);
+        }
+        let root_account = SubtensorModule::get_subnet_account_id(NetUid::ROOT).unwrap();
+        let escrow_before = SubtensorModule::get_coldkey_balance(&escrow);
+        let root_before = SubtensorModule::get_coldkey_balance(&root_account);
+        let total_before = TotalStake::<Test>::get();
+        assert_ok!(SubtensorModule::do_dissolve_network(net));
+        run_block_idle();
+        let first_root = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &first,
+            &escrow,
+            NetUid::ROOT,
+        )
+        .to_u64();
+        let second_root = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &second,
+            &escrow,
+            NetUid::ROOT,
+        )
+        .to_u64();
+        assert!(first_root > 0);
+        assert!(second_root >= first_root);
+        assert!(first_root + second_root <= 1_000_000);
+        assert_eq!(SubtensorModule::get_coldkey_balance(&escrow), escrow_before);
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&root_account) - root_before,
+            TaoBalance::from(first_root + second_root)
+        );
+        assert_eq!(
+            TotalStake::<Test>::get(),
+            total_before
+                .saturating_sub(1_000_000u64.into())
+                .saturating_add((first_root + second_root).into())
+        );
+        for hotkey in [first, second] {
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, net,),
+                AlphaBalance::ZERO
+            );
+            assert_eq!(BasketShares::<Test>::get(hotkey), 10);
+        }
+        assert!(!NetworksAdded::<Test>::contains_key(net));
     });
 }

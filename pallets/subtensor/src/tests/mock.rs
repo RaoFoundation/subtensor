@@ -1202,6 +1202,9 @@ pub fn increase_stake_on_hotkey_account(hotkey: &U256, increment: TaoBalance, ne
 }
 
 pub(crate) fn setup_reserves(netuid: NetUid, tao: TaoBalance, alpha: AlphaBalance) {
+    // Explicitly reseeding reserves creates a fresh pool fixture; a curve fitted
+    // to the previous balances must not survive this test-only operation.
+    pallet_subtensor_swap::SwapSuperellipse::<Test>::remove(netuid);
     SubnetTAO::<Test>::set(netuid, tao);
     SubnetAlphaIn::<Test>::set(netuid, alpha);
 }

@@ -1685,6 +1685,23 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<TaoBalance, DispatchError> {
+        Self::basket_alpha_for_tao_chunks(netuid, alpha, true)
+    }
+
+    /// Read-only callers roll this back: stop at a finite endpoint and value
+    /// only the TAO the holding can actually realize, retaining unsold alpha.
+    pub(crate) fn quote_basket_alpha_for_tao_chunks(
+        netuid: NetUid,
+        alpha: AlphaBalance,
+    ) -> Result<TaoBalance, DispatchError> {
+        Self::basket_alpha_for_tao_chunks(netuid, alpha, false)
+    }
+
+    fn basket_alpha_for_tao_chunks(
+        netuid: NetUid,
+        alpha: AlphaBalance,
+        require_full: bool,
+    ) -> Result<TaoBalance, DispatchError> {
         with_transaction(|| {
             let result = (|| {
                 if alpha.is_zero() {
@@ -1721,6 +1738,11 @@ impl<T: Config> Pallet<T> {
                         .amount_paid_in
                         .to_u64()
                         .saturating_add(out.fee_paid.to_u64());
+                    if !require_full && consumed < chunk {
+                        return Ok(total_tao
+                            .saturating_add(out.amount_paid_out.to_u64())
+                            .into());
+                    }
                     ensure!(consumed > 0, Error::<T>::AmountTooLow);
                     remaining = remaining.saturating_sub(consumed);
                     total_tao = total_tao.saturating_add(out.amount_paid_out.to_u64());

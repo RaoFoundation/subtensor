@@ -673,6 +673,18 @@ fn test_swap_stake_max_caps_to_live_origin() {
         let other_owner_coldkey = U256::from(2001);
         let other_owner_hotkey = U256::from(2002);
         let destination_netuid = add_dynamic_network(&other_owner_hotkey, &other_owner_coldkey);
+        // Keep both legs far from ellipse endpoints: this regression targets
+        // MAX sentinel/share rounding, not partial fills at curve boundaries.
+        mock::setup_reserves(
+            netuid,
+            1_000_000_000_000_000_u64.into(),
+            1_000_000_000_000_000_u64.into(),
+        );
+        mock::setup_reserves(
+            destination_netuid,
+            1_000_000_000_000_000_u64.into(),
+            1_000_000_000_000_000_u64.into(),
+        );
         SubtensorModule::set_tao_weight(u64::MAX);
 
         assert_ok!(SubtensorModule::swap_stake(
@@ -703,6 +715,18 @@ fn test_swap_stake_limit_max_caps_to_live_origin() {
         let other_owner_coldkey = U256::from(2001);
         let other_owner_hotkey = U256::from(2002);
         let destination_netuid = add_dynamic_network(&other_owner_hotkey, &other_owner_coldkey);
+        // Keep both legs far from ellipse endpoints: this regression targets
+        // MAX sentinel/share rounding, not partial fills at curve boundaries.
+        mock::setup_reserves(
+            netuid,
+            1_000_000_000_000_000_u64.into(),
+            1_000_000_000_000_000_u64.into(),
+        );
+        mock::setup_reserves(
+            destination_netuid,
+            1_000_000_000_000_000_u64.into(),
+            1_000_000_000_000_000_u64.into(),
+        );
         SubtensorModule::set_tao_weight(u64::MAX);
 
         // A zero relative limit price accepts any fill, so the whole position moves.

@@ -69,3 +69,8 @@ runtime-benchmarks = [
 	"subtensor-runtime-common/runtime-benchmarks",
 	"subtensor-swap-interface/runtime-benchmarks",
 ]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
+]

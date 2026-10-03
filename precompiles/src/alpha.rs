@@ -77,8 +77,9 @@ where
     #[precompile::public("getAlphaPrice(uint16)")]
     #[precompile::view]
     fn get_alpha_price(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<U256> {
-        // SubnetMechanism + SubnetAlphaIn + SubnetTAO + SwapBalancer reads
-        handle.record_db_reads::<R>(4)?;
+        // Mechanism, reserves and live ellipse; an uninitialized legacy pool
+        // also reads its archived Balancer parameters through the fallback.
+        handle.record_db_reads::<R>(5)?;
         let current_alpha_price =
             <pallet_subtensor_swap::Pallet<R> as SwapHandler>::current_alpha_price(netuid.into());
         let price = current_alpha_price.saturating_mul(U64F64::from_num(1_000_000_000));
@@ -437,6 +438,9 @@ where
         handle: &mut impl PrecompileHandle,
         netuid: u16,
     ) -> EvmResult<(u16, bool, u64, u64, u64)> {
+        // Keep the established ABI. The third field is the archived migration
+        // weight, not a live pricing parameter after the superellipse upgrade.
+        // Live scales and offsets are available in SwapSuperellipse storage.
         handle.record_db_reads::<R>(5)?;
         let netuid = NetUid::from(netuid);
         Ok((

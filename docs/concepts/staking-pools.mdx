@@ -1,6 +1,6 @@
 ---
 title: Staking and pools
-description: The per-subnet balancer pools, what a stake operation actually does, price impact, swap fees, and MEV-shielded submission.
+description: The per-subnet translated superellipse pools, what a stake operation actually does, price impact, swap fees, and MEV-shielded submission.
 ---
 
 Staking on a subnet is not a deposit — it is a **swap**. Every subnet has a
@@ -13,40 +13,44 @@ fact. This page explains the machinery; the
 
 ## The pool
 
-Each subnet's pool is a **weighted balancer pool** (a generalization of the
-constant-product AMM): two reserves, TAO ([`SubnetTAO`](/code/pallets/subtensor/src/lib.rs#L1377)) and alpha
-([`SubnetAlphaIn`](/code/pallets/subtensor/src/lib.rs#L1419)), plus a pair of weights $w_1 + w_2 = 1$. The spot price
-([`calculate_price`](/code/pallets/swap/src/pallet/balancer.rs#L220-L228)) is
+Each dynamic subnet uses a **translated exponent-two superellipse**. The
+actual reserves are alpha $x$ (`SubnetAlphaIn`) and TAO $y$ (`SubnetTAO`).
+The stored curve has alpha and TAO scales $a,b$ and centers $c_x,c_y$.
+Define $X=c_x-x$ and $Y=c_y-y$. Its positive-price branch satisfies
 
 $$
-p = \frac{w_1 \cdot \text{TAO reserve}}{w_2 \cdot \text{alpha reserve}}
+\frac{X^2}{a^2}+\frac{Y^2}{b^2}=C,\qquad X>0,\quad Y>0.
 $$
 
-With the default equal weights $w_1 = w_2 = 0.5$ this reduces to the
-familiar reserve ratio `TAO / alpha`. Unlike Uniswap-style pools, the weights
-let the protocol add liquidity *disproportionally* to price without moving
-the price — the weights absorb the imbalance instead (they are re-solved on
-every injection and bounded so they stay near 0.5 in practice). Only the
-protocol adds liquidity this way; user staking always trades against the
-pool.
-
-A swap moves along the weighted invariant
-$L = x^{w_1} \cdot y^{w_2}$. Selling TAO into the pool (staking), the alpha
-you receive for `Δy` TAO is
+The marginal alpha price, in TAO per alpha, is
 
 $$
-\Delta x = x \cdot \left(1 - \left(\tfrac{y}{y+\Delta y}\right)^{w_2/w_1}\right)
+p=\frac{b^2X}{a^2Y}.
 $$
 
-which is why the execution price curves away from spot as the trade grows —
-each slice of your order fills at a slightly worse price than the last.
+A net TAO input $q$ reduces $Y$ to $Y-q$. Before integer rounding, the
+alpha payout is
 
-<StakingPoolSwapDemo />
+$$
+\Delta x=\sqrt{X^2+\frac{a^2}{b^2}(2Yq-q^2)}-X.
+$$
 
-The math lives in [`pallets/swap/src/pallet/balancer.rs`](/code/pallets/swap/src/pallet/balancer.rs); quotes over RPC use
-exactly the same path ([`quote-stake`](/docs/query/quote-stake),
-[`quote-unstake`](/docs/query/quote-unstake)), so a quote is a faithful
-simulation, not an estimate.
+Selling alpha is the mirror calculation. Payouts round down in atomic
+units, so the pool retains the rounding remainder. Each operation derives
+its invariant from the current reserves; rounding does not create a claim
+that a later reverse trade can collect.
+
+The migration calibrates $a=2w_{\mathrm{tao}}x$ and
+$b=2w_{\mathrm{alpha}}y$, with centers $c_x=x+a$ and $c_y=y+b$.
+This preserves the former weighted pool's spot price and local price
+sensitivity, within fixed-point rounding. Larger trades have a different
+price response. The scales are fixed: there is no adaptive slippage target
+or automatic sensitivity recalibration.
+
+The math lives in [`superellipse.rs`](/code/pallets/swap/src/pallet/superellipse.rs).
+RPC quotes use the same swap path ([`quote-stake`](/docs/query/quote-stake),
+[`quote-unstake`](/docs/query/quote-unstake)), including fees, limits,
+endpoints, and rounding.
 
 ## What a stake operation does
 
@@ -64,7 +68,7 @@ Points worth pinning down:
   the block author — TAO when staking, alpha when unstaking.
 - **The swap updates both reserves.** Your TAO enters `SubnetTAO`, alpha
   leaves the pool's side (`SubnetAlphaIn`) and joins the staked total
-  ([`SubnetAlphaOut`](/code/pallets/subtensor/src/lib.rs#L1424)). The price after your trade is the new reserve ratio —
+  ([`SubnetAlphaOut`](/code/pallets/subtensor/src/lib.rs#L1424)). The price after your trade is the new curve slope —
   your own trade moved it.
 - **The position is alpha, not TAO.** From the moment the swap settles, the
   position's TAO value floats with the pool price, and it earns the
@@ -144,17 +148,30 @@ for how root positions earn.
 
 ## Where the liquidity comes from
 
-Nobody LPs these pools. Every block, the coinbase injects each subnet's
-share of TAO emission into its pool's TAO reserve, alongside newly issued
-alpha into the alpha reserve (`alpha_in ≈ tao_in / price`, capped by the
-subnet's root proportion) — see
-[emissions](/docs/concepts/emissions). Because the protocol may inject the
-two sides disproportionally to price, the balancer weights absorb the
-imbalance; this is the reason the pools are weighted at all. Reserves only
-grow through injection and trading — stake swaps in TAO, unstake swaps it
-back out — and the pool refuses trades that would drain a reserve below a
-minimum, and rejects single swaps larger than 1,000× the TAO reserve
-([`InsufficientLiquidity`](/code/pallets/swap/src/pallet/mod.rs#L151)).
+Pool liquidity is protocol-owned. Every block, the coinbase injects each
+subnet's share of TAO emission, alongside newly issued alpha
+(`alpha_in ≈ tao_in / price`, capped by the subnet's root proportion) — see
+[emissions](/docs/concepts/emissions). An injection translates the centers
+by the amounts added to the actual reserves. It leaves $X$, $Y$, the scales,
+spot price, and the local trade response unchanged. Legacy pending protocol
+reservoirs are materialized when reserve and parameter arithmetic can
+represent them; they remain accounted for while pending.
+
+The usable branch has **finite endpoints**. A buy must keep $Y>0$, a sell
+must keep $X>0$, and neither can pay out more than the available reserve
+above its required minimum. Orders are capped at these boundaries as well
+as their price limits. Partial-fill orders return the unused input; orders
+requiring a full fill reject when the requested amount cannot execute.
+Some actual reserves can remain unreachable through swaps under a fixed
+curve. They remain protocol assets and are included in subnet dissolution
+accounting.
+
+Basket NAV counts only the TAO a holding can actually realize, including
+an endpoint-limited quote. The unsold alpha remains owned by the fund.
+Smaller proportional claims and recovery trades can still execute; a
+redemption whose requested slice cannot fill rolls back without burning
+its shares. During dissolution, fallback pro-rata proceeds go into each
+fund's root cash position, preserving shareholder access to that value.
 
 ## Reading the pool
 
@@ -166,6 +183,11 @@ btcli query quote-unstake --netuid 1 --amount-alpha 50 --json # simulate exit
 
 Spot valuation of a position (`alpha × price`,
 [`stake-value-for-coldkey`](/docs/query/stake-value-for-coldkey)) marks to
-the current reserve ratio and ignores what your own exit would do to it. For
+the current curve price and ignores what your own exit would do to it. For
 what you would actually receive, quote the exit — the quote runs the real
 swap math against the real reserves.
+
+The legacy `getSwapState` response retains the archived Balancer weights for
+compatibility. Those weights describe the calibration history, not the
+live pricing curve. Use the price and quote APIs for current trading values;
+`SwapSuperellipse` contains the live curve parameters.

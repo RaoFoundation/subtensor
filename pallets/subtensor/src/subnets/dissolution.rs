@@ -127,10 +127,45 @@ impl<T: Config> Pallet<T> {
             Error::<T>::SubnetNotExists
         );
 
-        // Since TotalStake is updated on this level, purge reservoirs here into reserves and TotalStake
-        let reservoir_tao = T::SwapInterface::protocol_tao_reservoir(netuid);
-        let reservoir_alpha = T::SwapInterface::protocol_alpha_reservoir(netuid);
-        T::SwapInterface::clear_protocol_liquidity_reservoirs(netuid);
+        let mut dissolved_networks = DissolveCleanupQueue::<T>::get();
+        ensure!(
+            !dissolved_networks.contains(&netuid),
+            Error::<T>::NetworkDissolveAlreadyQueued
+        );
+
+        // Pending protocol assets must enter the payout denominator before
+        // cleanup, while basket liquidation still needs the current swap curve.
+        let pending_tao = T::SwapInterface::protocol_tao_reservoir(netuid);
+        let pending_alpha = T::SwapInterface::protocol_alpha_reservoir(netuid);
+        let tao = SubnetTAO::<T>::get(netuid);
+        let alpha = SubnetAlphaIn::<T>::get(netuid);
+        ensure!(
+            tao.to_u64().checked_add(pending_tao.to_u64()).is_some()
+                && alpha.to_u64().checked_add(pending_alpha.to_u64()).is_some()
+                && TotalStake::<T>::get()
+                    .to_u64()
+                    .checked_add(pending_tao.to_u64())
+                    .is_some(),
+            Error::<T>::Overflow
+        );
+        let (reservoir_tao, reservoir_alpha) = if SubnetMechanism::<T>::get(netuid) == 1
+            && (!tao.is_zero() || !pending_tao.is_zero())
+            && (!alpha.is_zero() || !pending_alpha.is_zero())
+        {
+            // Translate the curve before applying the returned reserve
+            // deltas. Failure leaves both the curve and reservoirs intact.
+            T::SwapInterface::adjust_protocol_liquidity(
+                netuid,
+                TaoBalance::ZERO,
+                AlphaBalance::ZERO,
+            )?
+        } else {
+            // Pools with a still-unfunded side, or non-dynamic pools,
+            // have no tradable dynamic price. Materialize terminal assets
+            // for payouts instead of leaving one-sided reservoirs behind.
+            T::SwapInterface::clear_protocol_liquidity_reservoirs(netuid);
+            (pending_tao, pending_alpha)
+        };
         Self::increase_provided_tao_reserve(netuid, reservoir_tao);
         Self::increase_provided_alpha_reserve(netuid, reservoir_alpha);
         if !reservoir_tao.is_zero() {
@@ -138,12 +173,6 @@ impl<T: Config> Pallet<T> {
                 *total = total.saturating_add(reservoir_tao);
             });
         }
-
-        let mut dissolved_networks = DissolveCleanupQueue::<T>::get();
-        ensure!(
-            !dissolved_networks.contains(&netuid),
-            Error::<T>::NetworkDissolveAlreadyQueued
-        );
 
         // Basket holdings are converted to each fund's root slot in the metered
         // `SubnetBasketHoldingsToRoot` cleanup phase (before stake / AMM teardown).

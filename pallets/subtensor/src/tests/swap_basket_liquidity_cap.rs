@@ -75,18 +75,39 @@ fn nav(hotkey: &U256) -> u64 {
     SubtensorModule::get_validator_basket_nav_tao(hotkey).to_u64()
 }
 
-/// The counterparty sells alpha until spot is back at the moving price (constant product:
-/// `A' = sqrt(k / p)`), so the fund's next slice sees an un-moved reference.
+/// Restore the reference price using actual swaps on the live curve. Reserve-ratio
+/// constant-product formulas do not describe a translated ellipse after trading.
 fn sell_back_to_ema(netuid: NetUid) {
-    let r = SubnetTAO::<Test>::get(netuid).to_u64() as f64;
-    let a = SubnetAlphaIn::<Test>::get(netuid).to_u64() as f64;
-    let target = SubnetMovingPrice::<Test>::get(netuid).to_num::<f64>();
-    let to_sell = (((r * a / target).sqrt() - a).max(0.0) * 1.003) as u64;
-    if to_sell > 0 {
+    let target = SubnetMovingPrice::<Test>::get(netuid).to_num::<U64F64>();
+    if <Test as crate::Config>::SwapInterface::current_alpha_price(netuid) <= target {
+        return;
+    }
+    let mut low = 0u64;
+    let mut high = SubnetAlphaIn::<Test>::get(netuid).to_u64();
+    while low < high {
+        let mid = low + (high - low) / 2;
+        let price = frame_support::storage::with_transaction(|| {
+            if mid > 0 {
+                SubtensorModule::swap_alpha_for_tao(netuid, mid.into(), TaoBalance::ZERO, false)
+                    .unwrap();
+            }
+            let price = <Test as crate::Config>::SwapInterface::current_alpha_price(netuid);
+            frame_support::storage::TransactionOutcome::Rollback(
+                Ok::<_, sp_runtime::DispatchError>(price),
+            )
+        })
+        .unwrap();
+        if price <= target {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+    if high > 0 {
         assert_ok!(SubtensorModule::swap_alpha_for_tao(
             netuid,
-            to_sell.into(),
-            <Test as crate::Config>::SwapInterface::min_price::<TaoBalance>(),
+            high.into(),
+            TaoBalance::ZERO,
             false,
         ));
     }
@@ -157,7 +178,7 @@ fn held_share_bps(hotkey: &U256, netuid: NetUid) -> u64 {
     (u128::from(held) * 10_000 / u128::from(reserve.max(1))) as u64
 }
 
-/// Build a position the way a manager must on a real pool: slices of ~0.9% of the TAO
+/// Build a position the way a manager must on a real pool: slices of 0.2% of the TAO
 /// reserve (< 2% marginal move), letting the moving price catch up to spot between slices.
 /// Returns the slice that was refused and the error.
 fn buy_slices_until_refused(
@@ -165,9 +186,9 @@ fn buy_slices_until_refused(
     hotkey: U256,
     netuid: NetUid,
 ) -> (u64, sp_runtime::DispatchError) {
-    for _ in 0..200 {
+    for _ in 0..1_000 {
         pin_ema_to_spot(netuid);
-        let slice = SubnetTAO::<Test>::get(netuid).to_u64() * 9 / 1000;
+        let slice = SubnetTAO::<Test>::get(netuid).to_u64() * 2 / 1000;
         if let Err(err) =
             SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, netuid, slice, 0)
         {
@@ -635,7 +656,7 @@ fn test_profit_taking_after_run_up_is_paced_by_fast_anchor() {
             1_000_000 * TAO,
         );
         make_fund_with_cash(coldkey, hotkey, 100 * TAO);
-        hold(&hotkey, a, 1_000_000 * TAO);
+        hold(&hotkey, a, 400_000 * TAO);
         // Run-up ×4 that the fast anchor has followed (pinned to spot by `appreciate`),
         // with the slow EMA left where it was (price 1.0): spot is 4× the slow EMA.
         appreciate(a, 2);
@@ -654,7 +675,7 @@ fn test_profit_taking_after_run_up_is_paced_by_fast_anchor() {
             let mut legs = 0;
             let mut sold = 0u64;
             loop {
-                let slice = SubnetAlphaIn::<Test>::get(a).to_u64() * 9 / 1000;
+                let slice = SubnetAlphaIn::<Test>::get(a).to_u64() * 2 / 1000;
                 match SubtensorModule::do_swap_basket(coldkey, hotkey, a, NetUid::ROOT, slice, 0) {
                     Ok(_) => {
                         legs += 1;

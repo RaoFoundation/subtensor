@@ -3551,123 +3551,46 @@ fn test_max_amount_add_stable() {
     });
 }
 
+// Independent closed-form reference for the initial equal-weight ellipse.
+// X/A = Y/T = 1; at price ratio r, X/A = sqrt(2 r²/(1+r²)).
+fn ellipse_limit_input(netuid: NetUid, tao: u64, alpha: u64, limit: u64, buy: bool) -> u64 {
+    let ratio = (limit as f64 / 1e9) / (tao as f64 / alpha as f64);
+    let normalized = if buy {
+        (2.0 / (1.0 + ratio * ratio)).sqrt()
+    } else {
+        (2.0 * ratio * ratio / (1.0 + ratio * ratio)).sqrt()
+    };
+    let reserve = if buy { tao } else { alpha };
+    let net = reserve as f64 * (1.0 - normalized);
+    let fee = pallet_subtensor_swap::FeeRate::<Test>::get(netuid) as f64 / u16::MAX as f64;
+    (net / (1.0 - fee)) as u64
+}
+
 // cargo test --package pallet-subtensor --lib -- tests::staking::test_max_amount_add_dynamic --exact --show-output
 #[test]
 fn test_max_amount_add_dynamic() {
-    // tao_in, alpha_in, limit_price, expected_max_swappable (with 0.05% fees)
-    [
-        // Zero handling (no panics)
-        (
-            1_000_000_000,
-            1_000_000_000,
-            0,
-            Err(DispatchError::from(
-                pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded,
-            )),
-        ),
-        // Low bounds
-        (100, 100, 1_100_000_000, Ok(4)),
-        (1_000, 1_000, 1_100_000_000, Ok(48)),
-        (10_000, 10_000, 1_100_000_000, Ok(488)),
-        // Basic math
-        (1_000_000, 1_000_000, 4_000_000_000, Ok(1_000_500)),
-        (1_000_000, 1_000_000, 9_000_000_000, Ok(2_001_000)),
-        (1_000_000, 1_000_000, 16_000_000_000, Ok(3_001_500)),
-        (
-            1_000_000_000_000,
-            1_000_000_000_000,
-            16_000_000_000,
-            Ok(3_001_500_000_000),
-        ),
-        // Normal range values with edge cases
-        (
-            150_000_000_000,
-            100_000_000_000,
-            0,
-            Err(DispatchError::from(
-                pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded,
-            )),
-        ),
-        (
-            150_000_000_000,
-            100_000_000_000,
-            100_000_000,
-            Err(DispatchError::from(
-                pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded,
-            )),
-        ),
-        (
-            150_000_000_000,
-            100_000_000_000,
-            500_000_000,
-            Err(DispatchError::from(
-                pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded,
-            )),
-        ),
-        (
-            150_000_000_000,
-            100_000_000_000,
-            1_499_999_999,
-            Err(DispatchError::from(
-                pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded,
-            )),
-        ),
-        (
-            150_000_000_000,
-            100_000_000_000,
-            1_500_000_000,
-            Err(DispatchError::from(
-                pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded,
-            )),
-        ),
-        (150_000_000_000, 100_000_000_000, 1_500_000_001, Ok(49)),
-        (
-            150_000_000_000,
-            100_000_000_000,
-            6_000_000_000,
-            Ok(150_075_000_000),
-        ),
-        // Miscellaneous overflows and underflows
-        (u64::MAX / 2, u64::MAX, u64::MAX, Ok(u64::MAX)),
-    ]
-    .into_iter()
-    .for_each(|(tao_in, alpha_in, limit_price, expected_max_swappable)| {
+    for (tao, alpha) in [
+        (1_000_000_u64, 1_000_000_u64),
+        (150_000_000_000, 100_000_000_000),
+        (1_000_000_000_000, 1_000_000_000_000),
+    ] {
         new_test_ext(0).execute_with(|| {
-            let alpha_in = AlphaBalance::from(alpha_in);
-            let subnet_owner_coldkey = U256::from(1001);
-            let subnet_owner_hotkey = U256::from(1002);
-            let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
-
-            // Forse-set alpha in and tao reserve to achieve relative price of subnets
-            SubnetTAO::<Test>::insert(netuid, TaoBalance::from(tao_in));
-            SubnetAlphaIn::<Test>::insert(netuid, alpha_in);
-
-            // Force the swap to initialize
-            <Test as pallet::Config>::SwapInterface::init_swap(netuid, None);
-
-            if !alpha_in.is_zero() {
-                let expected_price = U96F32::from_num(tao_in) / U96F32::from_num(alpha_in);
-                assert_abs_diff_eq!(
-                    <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid.into())
-                        .to_num::<f64>(),
-                    expected_price.to_num::<f64>(),
-                    epsilon = expected_price.to_num::<f64>() / 1_000_f64
-                );
+            let netuid = add_dynamic_network(&U256::from(1002), &U256::from(1001));
+            mock::setup_reserves(netuid, tao.into(), alpha.into());
+            let initial_price = tao as f64 / alpha as f64;
+            for multiplier in [1.1, 4.0, 9.0, 16.0] {
+                let limit = (initial_price * multiplier * 1e9) as u64;
+                let expected = ellipse_limit_input(netuid, tao, alpha, limit, true);
+                let actual = SubtensorModule::get_max_amount_add(netuid, limit.into()).unwrap();
+                assert_abs_diff_eq!(actual, expected, epsilon = (expected / 1_000_000).max(5));
+                assert!(actual < tao * 2, "ellipse endpoint bounds executable input");
             }
-
-            match expected_max_swappable {
-                Err(e) => assert_err!(
-                    SubtensorModule::get_max_amount_add(netuid, limit_price.into()),
-                    e
-                ),
-                Ok(v) => assert_abs_diff_eq!(
-                    SubtensorModule::get_max_amount_add(netuid, limit_price.into()).unwrap(),
-                    v,
-                    epsilon = v / 10000
-                ),
-            }
+            assert_err!(
+                SubtensorModule::get_max_amount_add(netuid, 0.into()),
+                pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded
+            );
         });
-    });
+    }
 }
 
 #[test]
@@ -3752,152 +3675,48 @@ fn test_max_amount_remove_stable() {
 // cargo test --package pallet-subtensor --lib -- tests::staking::test_max_amount_remove_dynamic --exact --show-output
 #[test]
 fn test_max_amount_remove_dynamic() {
-    new_test_ext(0).execute_with(|| {
-        let subnet_owner_coldkey = U256::from(1001);
-        let subnet_owner_hotkey = U256::from(1002);
-        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
-
-        // tao_in, alpha_in, limit_price, expected_max_swappable (+ 0.05% fee)
-        [
-            // Zero handling (no panics)
-            (
-                0_u64,
-                1_000_000_000_u64,
-                100,
-                Err(DispatchError::from(
-                    pallet_subtensor_swap::Error::<Test>::ReservesTooLow,
-                )),
-            ),
-            (
-                1_000_000_000,
-                0,
-                100,
-                Err(DispatchError::from(
-                    pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded,
-                )),
-            ),
-            (10_000_000_000, 10_000_000_000, 0, Ok(10_000_000_000_000)),
-            // Low bounds (numbers are empirical, it is only important that result
-            // is sharply decreasing when limit price increases)
-            (1_000, 1_000, 0, Ok(1_000_000)),
-            (1_001, 1_001, 0, Ok(1_001_000)),
-            (1_001, 1_001, 1, Ok(1_001_000)),
-            (1_001, 1_001, 2, Ok(1_001_000)),
-            (1_001, 1_001, 1_001, Ok(1_001_000)),
-            (1_001, 1_001, 10_000, Ok(17_472)),
-            (1_001, 1_001, 100_000, Ok(17_472)),
-            (1_001, 1_001, 1_000_000, Ok(17_472)),
-            (1_001, 1_001, 10_000_000, Ok(9_013)),
-            (1_001, 1_001, 100_000_000, Ok(2_165)),
-            // Basic math
-            (1_000_000, 1_000_000, 250_000_000, Ok(1_010_000)),
-            (1_000_000, 1_000_000, 62_500_000, Ok(3_030_000)),
-            (
-                1_000_000_000_000,
-                1_000_000_000_000,
-                62_500_000,
-                Ok(3_030_000_000_000),
-            ),
-            // Normal range values with edge cases and sanity checks
-            (200_000_000_000, 100_000_000_000, 0, Ok(100_000_000_000_000)),
-            (
-                200_000_000_000,
-                100_000_000_000,
-                500_000_000,
-                Ok(101_000_000_000),
-            ),
-            (
-                200_000_000_000,
-                100_000_000_000,
-                125_000_000,
-                Ok(303_000_000_000),
-            ),
-            (
-                200_000_000_000,
-                100_000_000_000,
-                2_000_000_000,
-                Err(DispatchError::from(
-                    pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded,
-                )),
-            ),
-            (
-                200_000_000_000,
-                100_000_000_000,
-                2_000_000_001,
-                Err(DispatchError::from(
-                    pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded,
-                )),
-            ),
-            (200_000_000_000, 100_000_000_000, 1_999_999_999, Ok(24)),
-            (200_000_000_000, 100_000_000_000, 1_999_999_990, Ok(250)),
-            // Miscellaneous overflows and underflows
-            (
-                21_000_000_000_000_000,
-                1_000_000,
-                21_000_000_000_000_000,
-                Ok(17_455_533),
-            ),
-            (21_000_000_000_000_000, 1_000_000, u64::MAX, Ok(67_000)),
-            (
-                21_000_000_000_000_000,
-                1_000_000_000_000_000_000,
-                u64::MAX,
-                Err(DispatchError::from(
-                    pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded,
-                )),
-            ),
-            (
-                21_000_000_000_000_000,
-                1_000_000_000_000_000_000,
-                20_000_000,
-                Ok(24_700_000_000_000_000),
-            ),
-            (
-                21_000_000_000_000_000,
-                21_000_000_000_000_000,
-                999_999_999,
-                Ok(10_605_000),
-            ),
-            (
-                21_000_000_000_000_000,
-                21_000_000_000_000_000,
-                0,
-                Ok(u64::MAX),
-            ),
-        ]
-        .into_iter()
-        .for_each(|(tao_in, alpha_in, limit_price, expected_max_swappable)| {
-            let alpha_in = AlphaBalance::from(alpha_in);
-            // Forse-set alpha in and tao reserve to achieve relative price of subnets
-            SubnetTAO::<Test>::insert(netuid, TaoBalance::from(tao_in));
-            SubnetAlphaIn::<Test>::insert(netuid, alpha_in);
-
-            if !alpha_in.is_zero() {
-                let expected_price = U64F64::from_num(tao_in) / U64F64::from_num(alpha_in);
-                assert_eq!(
-                    <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid.into()),
-                    expected_price
+    for (tao, alpha) in [
+        (1_000_000_u64, 1_000_000_u64),
+        (200_000_000_000, 100_000_000_000),
+        (21_000_000_000_000_000, 1_000_000_000_000_000_000),
+    ] {
+        new_test_ext(0).execute_with(|| {
+            let netuid = add_dynamic_network(&U256::from(1002), &U256::from(1001));
+            mock::setup_reserves(netuid, tao.into(), alpha.into());
+            let initial_price = tao as f64 / alpha as f64;
+            for multiplier in [0.99, 0.25, 0.0625, 0.0] {
+                let limit = (initial_price * multiplier * 1e9) as u64;
+                let expected = ellipse_limit_input(netuid, tao, alpha, limit, false);
+                let actual = SubtensorModule::get_max_amount_remove(netuid, limit.into())
+                    .unwrap()
+                    .to_u64();
+                assert_abs_diff_eq!(actual, expected, epsilon = (expected / 1_000_000).max(5));
+                assert!(
+                    actual < alpha.saturating_mul(2),
+                    "ellipse endpoint bounds executable input"
                 );
             }
-
-            match expected_max_swappable {
-                Err(e) => assert_err!(
-                    SubtensorModule::get_max_amount_remove(netuid, limit_price.into()),
-                    DispatchError::from(e)
+            assert_err!(
+                SubtensorModule::get_max_amount_remove(
+                    netuid,
+                    ((initial_price * 1.01 * 1e9) as u64).into()
                 ),
-                Ok(v) => {
-                    let v = AlphaBalance::from(v);
-                    let actual =
-                        SubtensorModule::get_max_amount_remove(netuid, limit_price.into()).unwrap();
-                    let epsilon = v / 100.into();
-                    let diff = actual.max(v).saturating_sub(actual.min(v));
-                    assert!(
-                        diff <= epsilon,
-                        "max remove mismatch: tao_in={tao_in}, alpha_in={alpha_in:?}, limit_price={limit_price}, actual={actual:?}, expected={v:?}, epsilon={epsilon:?}",
-                    );
-                }
-            }
+                pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded
+            );
         });
+    }
+    new_test_ext(0).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1002), &U256::from(1001));
+        mock::setup_reserves(netuid, 0.into(), 1_000_000_000.into());
+        assert_err!(
+            SubtensorModule::get_max_amount_remove(netuid, 0.into()),
+            pallet_subtensor_swap::Error::<Test>::ReservesTooLow
+        );
+        mock::setup_reserves(netuid, 1_000_000_000.into(), 0.into());
+        assert_err!(
+            SubtensorModule::get_max_amount_remove(netuid, 100.into()),
+            pallet_subtensor_swap::Error::<Test>::ReservesTooLow
+        );
     });
 }
 
@@ -4044,8 +3863,7 @@ fn test_max_amount_move_stable_dynamic() {
         // Force-set alpha in and tao reserve to make price equal 0.5
         let tao_reserve = TaoBalance::from(50_000_000_000_u64);
         let alpha_in = AlphaBalance::from(100_000_000_000_u64);
-        SubnetTAO::<Test>::insert(dynamic_netuid, tao_reserve);
-        SubnetAlphaIn::<Test>::insert(dynamic_netuid, alpha_in);
+        mock::setup_reserves(dynamic_netuid, tao_reserve, alpha_in);
         let current_price =
             <Test as pallet::Config>::SwapInterface::current_alpha_price(dynamic_netuid.into());
         assert_eq!(current_price, U96F32::from_num(0.5));
@@ -4078,7 +3896,7 @@ fn test_max_amount_move_stable_dynamic() {
             Err(pallet_subtensor_swap::Error::<Test>::PriceLimitExceeded.into())
         );
 
-        // 2x price => max is 1x TAO
+        // Inverting the relative limit gives a 4x destination price.
         assert_abs_diff_eq!(
             SubtensorModule::get_max_amount_move(
                 stable_netuid,
@@ -4086,7 +3904,13 @@ fn test_max_amount_move_stable_dynamic() {
                 TaoBalance::from(500_000_000)
             )
             .unwrap(),
-            AlphaBalance::from(tao_reserve.to_u64() + (tao_reserve.to_u64() as f64 * 0.003) as u64),
+            AlphaBalance::from(ellipse_limit_input(
+                dynamic_netuid,
+                tao_reserve.to_u64(),
+                alpha_in.to_u64(),
+                2_000_000_000,
+                true
+            )),
             epsilon = AlphaBalance::from(tao_reserve.to_u64() / 100),
         );
 
@@ -4139,21 +3963,28 @@ fn test_max_amount_move_dynamic_stable() {
         let subnet_owner_hotkey = U256::from(1002);
         let dynamic_netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
 
-        // Forse-set alpha in and tao reserve to make price equal 1.5
+        // Force-set alpha in and tao reserve to make price equal 1.5
         let tao_reserve = TaoBalance::from(150_000_000_000_u64);
         let alpha_in = AlphaBalance::from(100_000_000_000_u64);
-        SubnetTAO::<Test>::insert(dynamic_netuid, tao_reserve);
-        SubnetAlphaIn::<Test>::insert(dynamic_netuid, alpha_in);
+        mock::setup_reserves(dynamic_netuid, tao_reserve, alpha_in);
         let current_price =
             <Test as pallet::Config>::SwapInterface::current_alpha_price(dynamic_netuid.into());
         assert_eq!(current_price, U96F32::from_num(1.5));
 
         // The tests below just mimic the remove_stake_limit tests
 
-        // 0 price => max is capped at 1000x input reserve
-        assert_eq!(
-            SubtensorModule::get_max_amount_move(dynamic_netuid, stable_netuid, TaoBalance::ZERO),
-            Ok(alpha_in.saturating_mul(1_000.into()))
+        // The strict positive-price branch stops one atomic unit before its endpoint.
+        assert_abs_diff_eq!(
+            SubtensorModule::get_max_amount_move(dynamic_netuid, stable_netuid, TaoBalance::ZERO)
+                .unwrap(),
+            AlphaBalance::from(ellipse_limit_input(
+                dynamic_netuid,
+                tao_reserve.to_u64(),
+                alpha_in.to_u64(),
+                0,
+                false
+            )),
+            epsilon = 2.into()
         );
 
         // Low price values don't blow things up
@@ -4192,11 +4023,17 @@ fn test_max_amount_move_dynamic_stable() {
             epsilon = 10_000.into()
         );
 
-        // 1/4 price => max is 1x Alpha
+        // Check the independently solved input for a quarter-price limit.
         assert_abs_diff_eq!(
             SubtensorModule::get_max_amount_move(dynamic_netuid, stable_netuid, 375_000_000.into())
                 .unwrap(),
-            alpha_in + alpha_in / 2000.into(), // + 0.05% fee
+            AlphaBalance::from(ellipse_limit_input(
+                dynamic_netuid,
+                tao_reserve.to_u64(),
+                alpha_in.to_u64(),
+                375_000_000,
+                false
+            )),
             epsilon = alpha_in / 10_000.into(),
         );
 
@@ -4442,7 +4279,7 @@ fn test_max_amount_move_dynamic_dynamic() {
                 precision,
             )| {
                 let expected_max_swappable = AlphaBalance::from(expected_max_swappable);
-                // Forse-set alpha in and tao reserve to achieve relative price of subnets
+                // Force-set alpha in and tao reserve to achieve relative price of subnets
                 SubnetTAO::<Test>::insert(origin_netuid, TaoBalance::from(tao_in_1));
                 SubnetAlphaIn::<Test>::insert(origin_netuid, AlphaBalance::from(alpha_in_1));
                 SubnetTAO::<Test>::insert(destination_netuid, TaoBalance::from(tao_in_2));
@@ -4492,7 +4329,7 @@ fn test_add_stake_limit_ok() {
         let netuid = add_dynamic_network(&hotkey_account_id, &coldkey_account_id);
         remove_owner_registration_stake(netuid);
 
-        // Forse-set alpha in and tao reserve to make price equal 1.5
+        // Force-set alpha in and tao reserve to make price equal 1.5
         let tao_reserve = TaoBalance::from(150_000_000_000_u64);
         let alpha_in = AlphaBalance::from(100_000_000_000_u64);
         mock::setup_reserves(netuid, tao_reserve, alpha_in);
@@ -4503,11 +4340,18 @@ fn test_add_stake_limit_ok() {
         // Give it some $$$ in his coldkey balance
         add_balance_to_coldkey_account(&coldkey_account_id, amount.into());
 
-        // Setup limit price so that it doesn't peak above 4x of current price
-        // The amount that can be executed at this price is 450 TAO only
-        // Alpha produced will be equal to 75 = 450*100/(450+150)
+        // Bound the final price at 16 times the initial price. The ellipse
+        // reaches that slope with X/A = sqrt(512/257), Y/T = sqrt(2/257).
         let limit_price = TaoBalance::from(24_000_000_000_u64);
-        let expected_executed_stake = AlphaBalance::from(75_000_000_000_u64);
+        let expected_executed_stake =
+            AlphaBalance::from((100_000_000_000_f64 * ((512_f64 / 257_f64).sqrt() - 1.0)) as u64);
+        let expected_gross_input = ellipse_limit_input(
+            netuid,
+            tao_reserve.to_u64(),
+            alpha_in.to_u64(),
+            24_000_000_000,
+            true,
+        );
 
         // Add stake with slippage safety and check if the result is ok
         assert_ok!(SubtensorModule::add_stake_limit(
@@ -4519,7 +4363,7 @@ fn test_add_stake_limit_ok() {
             true
         ));
 
-        // Check if stake has increased only by 75 Alpha
+        // Check the alpha paid out against independent ellipse inversion.
         assert_abs_diff_eq!(
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
                 &hotkey_account_id,
@@ -4530,19 +4374,14 @@ fn test_add_stake_limit_ok() {
             epsilon = expected_executed_stake / 1000.into(),
         );
 
-        // Check that 450 TAO less fees balance still remains free on coldkey
-        let fee = <tests::mock::Test as pallet::Config>::SwapInterface::approx_fee_amount(
-            netuid.into(),
-            TaoBalance::from(amount / 2),
-        )
-        .to_u64() as f64;
+        // Only the executed input and its fee leave the caller's balance.
         assert_abs_diff_eq!(
             SubtensorModule::get_coldkey_balance(&coldkey_account_id),
-            (amount / 2 - fee as u64).into(),
-            epsilon = (amount / 2 / 1000).into()
+            (amount - expected_gross_input).into(),
+            epsilon = 10.into()
         );
 
-        // Check that price has updated to ~24 = (150+450) / (100 - 75)
+        // The partial fill must stop at the specified marginal price.
         let exp_price = U96F32::from_num(24.0);
         let current_price =
             <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid.into());
@@ -4567,20 +4406,15 @@ fn test_add_stake_limit_fill_or_kill() {
         // Force-set alpha in and tao reserve to make price equal 1.5
         let tao_reserve = TaoBalance::from(150_000_000_000_u64);
         let alpha_in = AlphaBalance::from(100_000_000_000_u64);
-        SubnetTAO::<Test>::insert(netuid, tao_reserve);
-        SubnetAlphaIn::<Test>::insert(netuid, alpha_in);
+        mock::setup_reserves(netuid, tao_reserve, alpha_in);
         let current_price =
             <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid.into());
-        // FIXME it's failing because in the swap pallet, the alpha price is set only after an
-        // initial swap
         assert_eq!(current_price, U96F32::from_num(1.5));
 
         // Give it some $$$ in his coldkey balance
         add_balance_to_coldkey_account(&coldkey_account_id, amount.into());
 
-        // Setup limit price so that it doesn't peak above 4x of current price
-        // The amount that can be executed at this price is 450 TAO only
-        // Alpha produced will be equal to 25 = 100 - 450*100/(150+450)
+        // This finite price limit permits only a partial fill of the requested input.
         let limit_price = TaoBalance::from(24_000_000_000_u64);
 
         // Add stake with slippage safety and check if it fails
@@ -4597,7 +4431,7 @@ fn test_add_stake_limit_fill_or_kill() {
         );
 
         // Lower the amount and it should succeed now
-        let amount_ok = TaoBalance::from(150_000_000_000_u64); // fits the maximum
+        let amount_ok = TaoBalance::from(100_000_000_000_u64); // fits the maximum
         assert_ok!(SubtensorModule::add_stake_limit(
             RuntimeOrigin::signed(coldkey_account_id),
             hotkey_account_id,
@@ -4650,8 +4484,7 @@ fn test_add_stake_limit_partial_zero_max_stake_amount_error() {
         let alpha_in = AlphaBalance::from(186_268_425_402_874_u64);
 
         let netuid = add_dynamic_network(&hotkey_account_id, &coldkey_account_id);
-        SubnetTAO::<Test>::insert(netuid, tao_reserve);
-        SubnetAlphaIn::<Test>::insert(netuid, alpha_in);
+        mock::setup_reserves(netuid, tao_reserve, alpha_in);
 
         add_balance_to_coldkey_account(&coldkey_account_id, amount.into());
 
@@ -4674,7 +4507,7 @@ fn test_remove_stake_limit_ok() {
     new_test_ext(1).execute_with(|| {
         let hotkey_account_id = U256::from(533453);
         let coldkey_account_id = U256::from(55453);
-        let stake_amount = TaoBalance::from(300_000_000_000_u64);
+        let stake_amount = TaoBalance::from(30_000_000_000_u64);
 
         // add network
         let netuid = add_dynamic_network(&hotkey_account_id, &coldkey_account_id);
@@ -4683,11 +4516,10 @@ fn test_remove_stake_limit_ok() {
             stake_amount + ExistentialDeposit::get(),
         );
 
-        // Forse-set sufficient reserves
+        // Force-set sufficient reserves
         let tao_reserve = TaoBalance::from(100_000_000_000_u64);
         let alpha_in = AlphaBalance::from(100_000_000_000_u64);
-        SubnetTAO::<Test>::insert(netuid, tao_reserve);
-        SubnetAlphaIn::<Test>::insert(netuid, alpha_in);
+        mock::setup_reserves(netuid, tao_reserve, alpha_in);
 
         // Stake to hotkey account, and check if the result is ok
         assert_ok!(SubtensorModule::add_stake(
@@ -4707,9 +4539,13 @@ fn test_remove_stake_limit_ok() {
             <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid.into());
         let limit_price = (current_price.to_num::<f64>() * 990_000_000_f64) as u64;
 
-        // Alpha unstaked - calculated using formula from delta_in()
-        let expected_alpha_reduction = (0.00138 * (alpha_in.to_u64() as f64)) as u64;
-        let fee: u64 = (expected_alpha_reduction as f64 * 0.003) as u64;
+        // Independent ellipse inversion: centers and scales remain fixed after buying.
+        let x = 2.0 - SubnetAlphaIn::<Test>::get(netuid).to_u64() as f64 / 100_000_000_000_f64;
+        let target = limit_price as f64 / 1e9;
+        let target_x = (2.0 * target * target / (1.0 + target * target)).sqrt();
+        let fee_rate = pallet_subtensor_swap::FeeRate::<Test>::get(netuid) as f64 / u16::MAX as f64;
+        let expected_alpha_reduction =
+            (100_000_000_000_f64 * (x - target_x) / (1.0 - fee_rate)) as u64;
 
         // Remove stake with slippage safety
         assert_ok!(SubtensorModule::remove_stake_limit(
@@ -4729,8 +4565,8 @@ fn test_remove_stake_limit_ok() {
         // Check if stake has decreased properly
         assert_abs_diff_eq!(
             alpha_before - alpha_after,
-            AlphaBalance::from(expected_alpha_reduction + fee),
-            epsilon = AlphaBalance::from(expected_alpha_reduction / 10),
+            AlphaBalance::from(expected_alpha_reduction),
+            epsilon = AlphaBalance::from(10),
         );
     });
 }
@@ -4754,11 +4590,10 @@ fn test_remove_stake_limit_fill_or_kill() {
             stake_amount,
         );
 
-        // Forse-set alpha in and tao reserve to make price equal 1.5
+        // Force-set alpha in and tao reserve to make price equal 1.5
         let tao_reserve = TaoBalance::from(150_000_000_000_u64);
         let alpha_in = AlphaBalance::from(100_000_000_000_u64);
-        SubnetTAO::<Test>::insert(netuid, tao_reserve);
-        SubnetAlphaIn::<Test>::insert(netuid, alpha_in);
+        mock::setup_reserves(netuid, tao_reserve, alpha_in);
         let current_price =
             <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid.into());
         assert_eq!(current_price, U96F32::from_num(1.5));
@@ -5642,7 +5477,7 @@ fn test_stake_into_subnet_ok() {
         // add network
         let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
 
-        // Forse-set alpha in and tao reserve to make price equal 0.01
+        // Force-set alpha in and tao reserve to make price equal 0.01
         let tao_reserve = TaoBalance::from(100_000_000_000_u64);
         let alpha_in = AlphaBalance::from(1_000_000_000_000_u64);
         mock::setup_reserves(netuid, tao_reserve, alpha_in);
@@ -5697,7 +5532,7 @@ fn test_stake_into_subnet_low_amount() {
         // add network
         let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
 
-        // Forse-set alpha in and tao reserve to make price equal 0.1
+        // Force-set alpha in and tao reserve to make price equal 0.1
         let tao_reserve = TaoBalance::from(100_000_000_000_u64);
         let alpha_in = AlphaBalance::from(1_000_000_000_000_u64);
         mock::setup_reserves(netuid, tao_reserve, alpha_in);
@@ -5751,7 +5586,7 @@ fn test_unstake_from_subnet_low_amount() {
         // add network
         let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
 
-        // Forse-set alpha in and tao reserve to make price equal 0.01
+        // Force-set alpha in and tao reserve to make price equal 0.01
         let tao_reserve = TaoBalance::from(100_000_000_000_u64);
         let alpha_in = AlphaBalance::from(1_000_000_000_000_u64);
         mock::setup_reserves(netuid, tao_reserve, alpha_in);
@@ -5813,7 +5648,7 @@ fn test_stake_into_subnet_prohibitive_limit() {
         let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
         add_balance_to_coldkey_account(&coldkey, amount.into());
 
-        // Forse-set alpha in and tao reserve to make price equal 0.01
+        // Force-set alpha in and tao reserve to make price equal 0.01
         let tao_reserve = TaoBalance::from(100_000_000_000_u64);
         let alpha_in = AlphaBalance::from(1_000_000_000_000_u64);
         mock::setup_reserves(netuid, tao_reserve, alpha_in);
@@ -5872,7 +5707,7 @@ fn test_unstake_from_subnet_prohibitive_limit() {
         let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
         add_balance_to_coldkey_account(&coldkey, amount.into());
 
-        // Forse-set alpha in and tao reserve to make price equal 0.01
+        // Force-set alpha in and tao reserve to make price equal 0.01
         let tao_reserve = TaoBalance::from(100_000_000_000_u64);
         let alpha_in = AlphaBalance::from(1_000_000_000_000_u64);
         mock::setup_reserves(netuid, tao_reserve, alpha_in);
@@ -5947,7 +5782,7 @@ fn test_unstake_full_amount() {
         let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
         add_balance_to_coldkey_account(&coldkey, amount.into());
 
-        // Forse-set alpha in and tao reserve to make price equal 0.01
+        // Force-set alpha in and tao reserve to make price equal 0.01
         let tao_reserve = TaoBalance::from(100_000_000_000_u64);
         let alpha_in = AlphaBalance::from(1_000_000_000_000_u64);
         mock::setup_reserves(netuid, tao_reserve, alpha_in);
@@ -6030,7 +5865,7 @@ fn test_swap_fees_tao_correctness() {
         add_balance_to_coldkey_account(&owner_coldkey, owner_balance_before);
         add_balance_to_coldkey_account(&coldkey, user_balance_before);
 
-        // Forse-set alpha in and tao reserve to make price equal 0.25
+        // Force-set alpha in and tao reserve to make price equal 0.25
         let tao_reserve = TaoBalance::from(100_000_000_000_u64);
         let alpha_in = AlphaBalance::from(400_000_000_000_u64);
         mock::setup_reserves(netuid, tao_reserve, alpha_in);
@@ -6246,8 +6081,7 @@ fn test_remove_stake_full_limit_ok() {
 
         let tao_reserve = TaoBalance::from(100_000_000_000_u64);
         let alpha_in = AlphaBalance::from(100_000_000_000_u64);
-        SubnetTAO::<Test>::insert(netuid, tao_reserve);
-        SubnetAlphaIn::<Test>::insert(netuid, alpha_in);
+        mock::setup_reserves(netuid, tao_reserve, alpha_in);
 
         let limit_price = TaoBalance::from(90_000_000);
 
@@ -6272,7 +6106,17 @@ fn test_remove_stake_full_limit_ok() {
         let new_balance = SubtensorModule::get_coldkey_balance(&coldkey_account_id);
         assert_abs_diff_eq!(
             new_balance,
-            9_086_000_000_u64.into(),
+            ((100_000_000_000_f64
+                * ((2.0
+                    - (1.0
+                        - 0.1
+                            * (1.0
+                                - pallet_subtensor_swap::FeeRate::<Test>::get(netuid) as f64
+                                    / u16::MAX as f64))
+                        .powi(2))
+                .sqrt()
+                    - 1.0)) as u64)
+                .into(),
             epsilon = 1_000_000.into()
         );
     });
@@ -6298,8 +6142,7 @@ fn test_remove_stake_full_limit_fails_slippage_too_high() {
 
         let tao_reserve = TaoBalance::from(100_000_000_000_u64);
         let alpha_in = AlphaBalance::from(100_000_000_000_u64);
-        SubnetTAO::<Test>::insert(netuid, tao_reserve);
-        SubnetAlphaIn::<Test>::insert(netuid, alpha_in);
+        mock::setup_reserves(netuid, tao_reserve, alpha_in);
 
         let invalid_limit_price = TaoBalance::from(910_000_000_u64);
 
@@ -6337,8 +6180,7 @@ fn test_remove_stake_full_limit_ok_with_no_limit_price() {
 
         let tao_reserve = TaoBalance::from(100_000_000_000_u64);
         let alpha_in = AlphaBalance::from(100_000_000_000_u64);
-        SubnetTAO::<Test>::insert(netuid, tao_reserve);
-        SubnetAlphaIn::<Test>::insert(netuid, alpha_in);
+        mock::setup_reserves(netuid, tao_reserve, alpha_in);
 
         // Remove stake with slippage safety
         assert_ok!(SubtensorModule::remove_stake_full_limit(
@@ -6361,7 +6203,17 @@ fn test_remove_stake_full_limit_ok_with_no_limit_price() {
         let new_balance = SubtensorModule::get_coldkey_balance(&coldkey_account_id);
         assert_abs_diff_eq!(
             new_balance,
-            9_086_000_000_u64.into(),
+            ((100_000_000_000_f64
+                * ((2.0
+                    - (1.0
+                        - 0.1
+                            * (1.0
+                                - pallet_subtensor_swap::FeeRate::<Test>::get(netuid) as f64
+                                    / u16::MAX as f64))
+                        .powi(2))
+                .sqrt()
+                    - 1.0)) as u64)
+                .into(),
             epsilon = 1_000_000.into()
         );
     });
@@ -6583,7 +6435,7 @@ fn test_staking_records_flow() {
         // add network
         let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
 
-        // Forse-set alpha in and tao reserve to make price equal 0.01
+        // Force-set alpha in and tao reserve to make price equal 0.01
         let tao_reserve = TaoBalance::from(100_000_000_000_u64);
         let alpha_in = AlphaBalance::from(1_000_000_000_000_u64);
         mock::setup_reserves(netuid, tao_reserve, alpha_in);

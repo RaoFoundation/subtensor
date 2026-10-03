@@ -5,6 +5,7 @@ use sp_io::hashing::twox_128;
 use sp_io::storage::clear_prefix;
 use sp_std::vec::Vec;
 
+pub mod migrate_balancer_to_superellipse;
 pub mod migrate_storage_cleanup_v2;
 pub mod migrate_swapv3_to_balancer;
 

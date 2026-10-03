@@ -69,17 +69,16 @@ describeSuite({
                 const stakeBefore = await devGetAlphaStake(polkadotJs, aliceHotKey.address, alice.address, netuid);
                 const taoBalanceBefore = (await polkadotJs.query.system.account(alice.address)).data.free.toBigInt();
 
-                // limit_price = 100_000_000_000 (100.0 TAO/alpha in ×10⁹ scale) — safely above the
-                // actual pool price on the freshly registered dynamic subnet after devAddStake(tao(1000)).
-                // max_slippage is unset (None) so the effective AMM floor is 0; the limit_price here
-                // only controls the StopLoss trigger condition, not the swap execution price.
+                // Trigger above the live curve price. Sell a fraction of the actual
+                // holding so this success case remains within the finite endpoint.
+                const price = BigInt((await polkadotJs.call.swapRuntimeApi.currentAlphaPrice(netuid)).toString());
                 const signed = buildSignedOrder(polkadotJs, {
                     signer: alice,
                     hotkey: aliceHotKey.address,
                     netuid,
                     orderType: "StopLoss",
-                    amount: tao(100),
-                    limitPrice: 100_000_000_000n,
+                    amount: stakeBefore / 10n,
+                    limitPrice: price * 2n,
                     expiry: FAR_FUTURE,
                     feeRate: 0,
                     feeRecipient: alice.address,

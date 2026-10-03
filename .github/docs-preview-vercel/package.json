@@ -21,13 +21,14 @@
       "path-to-regexp": "6.3.0"
     },
     "ajv": "8.18.0",
-    "brace-expansion": "5.0.9",
+    "brace-expansion": "5.0.12",
     "fast-uri": "3.1.7",
     "js-yaml": "4.3.2",
     "minimatch": "10.2.5",
     "path-to-regexp": "8.4.2",
     "smol-toml": "1.8.0",
     "tar": "7.5.22",
-    "undici": "6.28.0"
+    "ts-morph": "28.0.0",
+    "undici": "6.28.1"
   }
 }
