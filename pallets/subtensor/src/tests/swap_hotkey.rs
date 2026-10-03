@@ -1,5 +1,6 @@
 #![allow(unused, clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
+use crate::migrations::migrate_alpha_v2::retired::{Alpha, TotalHotkeyShares};
 use approx::assert_abs_diff_eq;
 use codec::Encode;
 use frame_support::weights::Weight;
@@ -464,6 +465,7 @@ fn test_swap_staking_hotkeys() {
 
         StakingHotkeys::<Test>::insert(coldkey, vec![old_hotkey]);
         Alpha::<Test>::insert((old_hotkey, coldkey, netuid), U64F64::from_num(100));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
             &old_hotkey,
@@ -587,7 +589,9 @@ fn test_swap_staking_hotkeys_multiple_coldkeys() {
         StakingHotkeys::<Test>::insert(coldkey1, vec![old_hotkey]);
         StakingHotkeys::<Test>::insert(coldkey2, vec![old_hotkey, staker5]);
         Alpha::<Test>::insert((old_hotkey, coldkey1, netuid), U64F64::from_num(100));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
         Alpha::<Test>::insert((old_hotkey, coldkey2, netuid), U64F64::from_num(100));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         SubtensorModule::create_account_if_non_existent(&coldkey1, &old_hotkey);
         add_balance_to_coldkey_account(&coldkey1, stake + ExistentialDeposit::get());
@@ -956,6 +960,7 @@ fn test_swap_stake_success() {
         );
         TotalHotkeyShares::<Test>::insert(old_hotkey, netuid, shares);
         Alpha::<Test>::insert((old_hotkey, coldkey, netuid), U64F64::from_num(amount));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
         AlphaDividendsPerSubnet::<Test>::insert(netuid, old_hotkey, AlphaBalance::from(amount));
 
         // Perform the swap
@@ -1148,9 +1153,10 @@ fn test_swap_stake_old_hotkey_not_exist() {
         Alpha::<Test>::insert((old_hotkey, coldkey, netuid), alpha_share);
         TotalHotkeyAlpha::<Test>::insert(old_hotkey, netuid, alpha);
         TotalHotkeyShares::<Test>::insert(old_hotkey, netuid, alpha_share);
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Ensure old_hotkey has a stake
-        assert!(Alpha::<Test>::contains_key((old_hotkey, coldkey, netuid)));
+        assert!(AlphaV2::<Test>::contains_key((old_hotkey, coldkey, netuid)));
 
         // Perform the swap
         SubtensorModule::perform_hotkey_swap_on_all_subnets(
@@ -1891,6 +1897,127 @@ fn ghsa_2026_011_subnet_swap_interval_bypassed_by_all_subnets_path() {
             LastHotkeySwapOnNetuid::<Test>::get(netuid, coldkey),
             block_after,
             "all-subnets swap must record the per-subnet cooldown block"
+        );
+    });
+}
+
+#[test]
+fn delegated_alpha_destination_has_recovery_window_after_deregistration() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(10);
+        let new_owner = U256::from(11);
+        let delegator = U256::from(20);
+        let hotkey_a = U256::from(30);
+        let hotkey_b = U256::from(31);
+        let hotkey_c = U256::from(32);
+        let replacement = U256::from(40);
+        let stake = DefaultMinStake::<Test>::get() * 20.into();
+        let interval = <Test as crate::Config>::HotkeySwapOnSubnetInterval::get();
+
+        add_network(netuid, 13, 0);
+        register_ok_neuron(netuid, hotkey_a, owner, 0);
+        add_balance_to_coldkey_account(&owner, 1_000_000_000_000_u64.into());
+        add_balance_to_coldkey_account(&delegator, stake + ExistentialDeposit::get());
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(delegator),
+            hotkey_a,
+            netuid,
+            stake,
+        ));
+
+        let delegated_alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey_a, &delegator, netuid,
+        );
+        assert!(!delegated_alpha.is_zero());
+
+        // Deregistration leaves delegated alpha behind on (netuid, hotkey_a).
+        let uid = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &hotkey_a).unwrap();
+        SubtensorModule::replace_neuron(netuid, uid, &replacement, 1);
+        assert!(!IsNetworkMember::<Test>::get(hotkey_a, netuid));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey_a, &delegator, netuid,
+            ),
+            delegated_alpha,
+        );
+
+        // The all-subnets path moves the residual alpha even though hotkey_a is no longer
+        // a member or parent. The recovery window is recorded on its destination.
+        let swap_block = SubtensorModule::get_current_block_as_u64();
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(owner),
+            &hotkey_a,
+            &hotkey_b,
+            None,
+            false,
+        ));
+        let cooldown_until = swap_block.saturating_add(interval);
+        assert_eq!(
+            StakeMoveCooldownUntil::<Test>::get(netuid, hotkey_b),
+            cooldown_until,
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey_b, &delegator, netuid,
+            ),
+            delegated_alpha,
+        );
+
+        // The owner cannot move the delegated position again immediately.
+        assert_err!(
+            SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(owner),
+                &hotkey_b,
+                &hotkey_c,
+                None,
+                false,
+            ),
+            Error::<Test>::HotKeySwapOnSubnetIntervalNotPassed,
+        );
+
+        // The guard is owner-swap-only: the delegator can withdraw during recovery.
+        let withdrawal = AlphaBalance::from(u64::from(delegated_alpha) / 2);
+        assert_ok!(SubtensorModule::do_remove_stake(
+            RuntimeOrigin::signed(delegator),
+            hotkey_b,
+            netuid,
+            withdrawal,
+        ));
+        let remaining_alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey_b, &delegator, netuid,
+        );
+        assert!(remaining_alpha < delegated_alpha);
+        assert!(!remaining_alpha.is_zero());
+
+        // Changing the owning coldkey does not change the position-bound expiry.
+        assert_ok!(SubtensorModule::do_swap_coldkey(&owner, &new_owner));
+        assert!(SubtensorModule::coldkey_owns_hotkey(&new_owner, &hotkey_b));
+        assert_err!(
+            SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(new_owner),
+                &hotkey_b,
+                &hotkey_c,
+                None,
+                false,
+            ),
+            Error::<Test>::HotKeySwapOnSubnetIntervalNotPassed,
+        );
+
+        // At expiry the owner may move the remaining alpha again.
+        System::set_block_number(cooldown_until);
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(new_owner),
+            &hotkey_b,
+            &hotkey_c,
+            None,
+            false,
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey_c, &delegator, netuid,
+            ),
+            remaining_alpha,
         );
     });
 }

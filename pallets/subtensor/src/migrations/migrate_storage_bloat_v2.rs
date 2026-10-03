@@ -142,6 +142,16 @@ fn scan_item_weight<T: Config>(mode: CleanupMode) -> Weight {
     }
 }
 
+/// Alpha/AlphaV2 use two Blake2_128Concat account keys followed by an Identity netuid.
+/// Decode only the relationship; malformed keys cannot identify an index entry to remove.
+fn alpha_relationship<T: Config>(key: &[u8]) -> Option<(T::AccountId, T::AccountId)> {
+    let mut encoded = key.get(32 + 16..)?;
+    let hotkey = T::AccountId::decode(&mut encoded).ok()?;
+    encoded = encoded.get(16..)?;
+    let coldkey = T::AccountId::decode(&mut encoded).ok()?;
+    Some((hotkey, coldkey))
+}
+
 /// Starts the cleanup without doing any unbounded work in the runtime-upgrade block.
 pub fn kickoff_storage_bloat_cleanup<T: Config>() -> Weight {
     let mut weight = T::DbWeight::get().reads(2);
@@ -177,7 +187,13 @@ pub fn continue_storage_bloat_cleanup<T: Config>(limit: Weight) -> Weight {
     let mut work_weight = Weight::zero();
 
     while let Some(target) = TARGETS.get(usize::from(progress.target)).copied() {
-        let item_weight = scan_item_weight::<T>(target.mode);
+        let is_alpha = matches!(target.storage, "Alpha" | "AlphaV2");
+        let mut item_weight = scan_item_weight::<T>(target.mode);
+        if is_alpha {
+            // Two alpha key-prefix probes, BasketClaimed, and a possible index read/write.
+            // Reserve before clearing the alpha key, so both deletions fit in this pass.
+            item_weight.saturating_accrue(T::DbWeight::get().reads_writes(4, 1));
+        }
         if !work_weight.saturating_add(item_weight).all_lte(work_limit) {
             break;
         }
@@ -218,6 +234,9 @@ pub fn continue_storage_bloat_cleanup<T: Config>(limit: Weight) -> Weight {
         };
         if should_clear {
             storage::clear(&next_key);
+            if is_alpha && let Some((hotkey, coldkey)) = alpha_relationship::<T>(&next_key) {
+                Pallet::<T>::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+            }
             progress.removed = progress.removed.saturating_add(1);
         }
         progress.cursor = next_key;

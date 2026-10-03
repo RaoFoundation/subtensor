@@ -1,0 +1,69 @@
+name: Fetch base node
+description: >-
+  Download the amd64 localnet node that the push of this pull request's base
+  commit to main published, for build-node-reusing-base.py. Outputs an empty
+  path when there is none; the caller then builds the node.
+
+inputs:
+  runtime:
+    description: fast-runtime or non-fast-runtime, matching the cargo build the caller would run.
+    required: true
+
+outputs:
+  node:
+    description: Path to the base node binary, or empty.
+    value: ${{ steps.download.outputs.node }}
+
+runs:
+  using: composite
+  steps:
+    - name: Find base node artifact
+      id: find
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        BASE_NODE_SHA: ${{ github.event.pull_request.base.sha }}
+        RUNTIME: ${{ inputs.runtime }}
+      run: |
+        set -euo pipefail
+        [[ "$RUNTIME" == fast-runtime || "$RUNTIME" == non-fast-runtime ]]
+        # docker-localnet.yml builds both runtimes for every push to main and
+        # keeps the binaries for 90 days.
+        if ! .github/scripts/find-base-node-artifact.sh \
+            .github/workflows/docker-localnet.yml \
+            "binaries-x86_64-unknown-linux-gnu-$RUNTIME" \
+            "$GITHUB_OUTPUT"; then
+          echo "::warning::Base node lookup failed; building the node."
+        fi
+
+    - name: Download base node
+      id: download
+      if: steps.find.outputs.found == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        BASE_NODE_SHA: ${{ github.event.pull_request.base.sha }}
+        RUNTIME: ${{ inputs.runtime }}
+        ARTIFACT_ID: ${{ steps.find.outputs.artifact_id }}
+        DIGEST: ${{ steps.find.outputs.digest }}
+        SIZE: ${{ steps.find.outputs.size }}
+      run: |
+        set -euo pipefail
+        destination="$RUNNER_TEMP/base-node-$RUNTIME"
+        rm -rf "$destination"
+        mkdir -p "$destination"
+        if ! .github/scripts/download-artifact.sh "$ARTIFACT_ID" \
+            "binaries-x86_64-unknown-linux-gnu-$RUNTIME" "$DIGEST" "$SIZE" \
+            "$destination" "$RUNNER_TEMP/base-node-download-$RUNTIME.out"; then
+          echo "::warning::Base node artifact failed verification; building the node."
+          exit 0
+        fi
+        node="$destination/ci_target/$RUNTIME/x86_64-unknown-linux-gnu/release/node-subtensor"
+        if [[ ! -s "$node" ]]; then
+          echo "::warning::Base node artifact has no node-subtensor; building the node."
+          exit 0
+        fi
+        chmod +x "$node"
+        echo "node=$node" >> "$GITHUB_OUTPUT"

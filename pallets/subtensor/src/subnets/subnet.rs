@@ -144,6 +144,7 @@ impl<T: Config> Pallet<T> {
     /// * `BalanceWithdrawalError`          – failed to lock balance.
     /// * `InvalidIdentity`                 – supplied `identity` failed validation.
     ///
+    #[frame_support::transactional]
     pub fn do_register_network(
         origin: OriginFor<T>,
         hotkey: &T::AccountId,
@@ -238,7 +239,7 @@ impl<T: Config> Pallet<T> {
             let lock_id = NetworkRegistrationLockId::<T>::get();
             ensure!(lock_id != u32::MAX, Error::<T>::LockIdOverFlow);
 
-            Self::lock_network_registration_cost(&coldkey, lock_amount.into(), lock_id)?;
+            Self::escrow_network_registration_cost(&coldkey, lock_amount, lock_id)?;
             Self::create_account_if_non_existent(&coldkey, hotkey)?;
             NetworkRegistrationLockId::<T>::set(lock_id.saturating_add(1));
 
@@ -282,6 +283,7 @@ impl<T: Config> Pallet<T> {
         .map_err(|e| e.error)
     }
 
+    #[frame_support::transactional]
     pub fn set_new_network_state(
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
@@ -323,11 +325,6 @@ impl<T: Config> Pallet<T> {
             Self::get_next_netuid()
         };
 
-        // --- 2. Unlock the registration cost if the fund is locked.
-        if let Some(lock_id) = lock_id {
-            Self::unlock_network_registration_cost(coldkey, lock_id)?;
-        }
-
         // A netuid identifies a new alpha asset generation after reuse. Clear any
         // legacy counters defensively before creating that generation; normal
         // dissolution cleanup performs the same reset after its last recycle.
@@ -345,10 +342,10 @@ impl<T: Config> Pallet<T> {
         log::debug!("init_new_network: {netuid_to_register:?}");
 
         let actual_tao_lock_amount =
-            Self::transfer_tao_to_subnet(netuid_to_register, coldkey, lock_amount.into())?;
+            Self::pay_network_registration_cost(coldkey, netuid_to_register, lock_amount, lock_id)?;
         // `get_subnet_account_id` + coldkey/subnet balance transfer.
-        weight.saturating_accrue(db_weight.reads(3));
-        weight.saturating_accrue(db_weight.writes(2));
+        weight.saturating_accrue(db_weight.reads(4));
+        weight.saturating_accrue(db_weight.writes(3));
         log::debug!("actual_tao_lock_amount: {actual_tao_lock_amount:?}");
 
         // --- 3. Set the lock amount for use to determine pricing.
@@ -395,14 +392,9 @@ impl<T: Config> Pallet<T> {
 
         // Keep the locked TAO in the pool instead of recycling the excess.
         // Size the pool alpha reserve from the total TAO reserve at that same price.
-        let pool_initial_tao: TaoBalance = Self::get_network_min_lock();
-        weight.saturating_accrue(db_weight.reads(1));
-
-        let total_pool_tao: TaoBalance = if actual_tao_lock_amount >= pool_initial_tao {
-            actual_tao_lock_amount
-        } else {
-            pool_initial_tao
-        };
+        // Never book a configured floor as liquidity that was not paid. In
+        // particular, the floor can change while a registration is queued.
+        let total_pool_tao = actual_tao_lock_amount;
 
         let total_pool_alpha: AlphaBalance = U64F64::saturating_from_num(total_pool_tao.to_u64())
             .safe_div(median_subnet_alpha_price)

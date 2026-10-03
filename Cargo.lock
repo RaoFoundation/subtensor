@@ -10205,6 +10205,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-evm-precompile-bls12381"
+version = "1.0.0-dev"
+dependencies = [
+ "ark-bls12-381 0.4.0",
+ "ark-ec 0.4.2",
+ "ark-ff 0.4.2",
+ "ark-std 0.4.0",
+ "fp-evm",
+]
+
+[[package]]
 name = "pallet-evm-precompile-bn128"
 version = "2.0.0-dev"
 dependencies = [
@@ -18959,6 +18970,7 @@ dependencies = [
  "fp-evm",
  "frame-support",
  "frame-system",
+ "hex",
  "log",
  "pallet-admin-utils",
  "pallet-alpha-assets",
@@ -18967,6 +18979,7 @@ dependencies = [
  "pallet-drand",
  "pallet-evm",
  "pallet-evm-chain-id",
+ "pallet-evm-precompile-bls12381",
  "pallet-evm-precompile-bn128",
  "pallet-evm-precompile-dispatch",
  "pallet-evm-precompile-modexp",
@@ -18982,6 +18995,7 @@ dependencies = [
  "parity-scale-codec",
  "precompile-utils",
  "scale-info",
+ "serde_json",
  "sp-core",
  "sp-io",
  "sp-runtime",

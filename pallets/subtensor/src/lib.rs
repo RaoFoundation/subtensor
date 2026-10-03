@@ -81,6 +81,8 @@ pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
 /// [`MAX_ROOT_CLAIM_WORK`], so a 130-row basket cannot be admitted under a
 /// 129-unit declaration.
 pub const MAX_ROOT_CLAIM_HOTKEY_WORK: u32 = 129;
+/// Finney testnet single-hotkey quote: one validator plus up to 1,024 subnet slots.
+pub const MAX_ROOT_CLAIM_HOTKEY_WORK_TESTNET: u32 = 1_025;
 /// Longest `StakingHotkeys` list a third party may leave behind on a coldkey through
 /// stake transfers. Half the root-claim admission budget, so a coldkey with up to as many
 /// hotkeys of its own still passes the coldkey-wide `claim_root` gate.
@@ -1469,6 +1471,24 @@ pub mod pallet {
         DefaultZeroU64<T>,
     >;
 
+    /// DMap ( netuid, hotkey ) --> blocknumber | block at which alpha moved into this
+    /// hotkey may be moved again by an owner-driven hotkey swap.
+    ///
+    /// Unlike [`LastHotkeySwapOnNetuid`], this is bound to the stake position rather
+    /// than its current owner, so changing the owning coldkey cannot reset the recovery
+    /// window. Delegator withdrawals do not consult this map.
+    #[pallet::storage]
+    pub type StakeMoveCooldownUntil<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        u64,
+        ValueQuery,
+        DefaultZeroU64<T>,
+    >;
+
     /// DMap ( netuid, old_hotkey ) --> new_hotkey | hotkey swap successor on a subnet.
     ///
     /// Written on each successful hotkey swap so watchers can follow identity
@@ -1910,32 +1930,6 @@ pub mod pallet {
         DefaultZeroAlpha<T>,
     >;
 
-    /// DMAP ( hot, netuid ) --> total_alpha_shares | Returns the number of alpha shares for a hotkey on a subnet.
-    #[pallet::storage]
-    pub type TotalHotkeyShares<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        Identity,
-        NetUid,
-        U64F64,
-        ValueQuery,
-        DefaultSharePoolZero<T>,
-    >;
-
-    /// NMAP ( hot, cold, netuid ) --> alpha | Returns the alpha shares for a hotkey, coldkey, netuid triplet.
-    #[pallet::storage]
-    pub type Alpha<T: Config> = StorageNMap<
-        _,
-        (
-            NMapKey<Blake2_128Concat, T::AccountId>, // hot
-            NMapKey<Blake2_128Concat, T::AccountId>, // cold
-            NMapKey<Identity, NetUid>,               // subnet
-        ),
-        U64F64, // Shares
-        ValueQuery,
-    >;
-
     /// DMAP ( hot, netuid ) --> total_alpha_shares | Returns the number of alpha shares for a hotkey on a subnet, stores SafeFloat.
     #[pallet::storage]
     pub type TotalHotkeySharesV2<T: Config> = StorageDoubleMap<
@@ -2085,11 +2079,6 @@ pub mod pallet {
     /// ITEM( unlock_rate ) | Decay timescale in blocks for locked mass.
     #[pallet::storage]
     pub type UnlockRate<T: Config> = StorageValue<_, u64, ValueQuery, DefaultUnlockRate<T>>;
-
-    /// Contains last Alpha storage map key to iterate (check first)
-    #[pallet::storage]
-    pub type AlphaMapLastKey<T: Config> =
-        StorageValue<_, Option<Vec<u8>>, ValueQuery, DefaultAlphaIterationLastKey<T>>;
 
     /// Contains last AlphaV2 storage map key to iterate (check first)
     #[pallet::storage]
@@ -2709,6 +2698,12 @@ pub mod pallet {
     /// MAP ( coldkey ) --> lock_id
     #[pallet::storage]
     pub type NetworkRegistrationLockId<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+    /// Escrow-backed queue entries. Absence denotes a pre-upgrade balance lock.
+    /// Keep the existing queue encoding unchanged so pending registrations remain decodable.
+    #[pallet::storage]
+    pub type NetworkRegistrationEscrow<T: Config> =
+        StorageMap<_, Identity, u32, (AccountIdOf<T>, TaoBalance), OptionQuery>;
 
     // =======================================
     // ==== VotingPower Storage  ====

@@ -8,6 +8,7 @@
 )]
 
 use super::mock::*;
+use crate::migrations::migrate_alpha_v2::retired::{Alpha, TotalHotkeyShares};
 use crate::staking::lock::LockState;
 use crate::*;
 use alloc::collections::BTreeMap;
@@ -7487,6 +7488,83 @@ fn test_storage_bloat_cleanup_preserves_root_age_when_hold_is_enabled() {
 }
 
 #[test]
+fn test_staking_hotkeys_removal_follows_last_alpha_key() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(200);
+        let coldkey = U256::from(100);
+        let first = NetUid::from(1);
+        let second = NetUid::from(2);
+        StakingHotkeys::<Test>::insert(coldkey, vec![hotkey]);
+        // A historical fractional position may quote zero, but its stored shares
+        // must stay discoverable until the alpha cleanup removes them.
+        Alpha::<Test>::insert((hotkey, coldkey, first), U64F64::from_num(0.01));
+        AlphaV2::<Test>::insert((hotkey, coldkey, second), share_pool::SafeFloat::zero());
+        SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+        assert_eq!(StakingHotkeys::<Test>::get(coldkey), vec![hotkey]);
+
+        Alpha::<Test>::remove((hotkey, coldkey, first));
+        SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+        assert_eq!(StakingHotkeys::<Test>::get(coldkey), vec![hotkey]);
+
+        AlphaV2::<Test>::remove((hotkey, coldkey, second));
+        for watermark in [-1_i128, 1_i128] {
+            BasketClaimed::<Test>::insert(hotkey, coldkey, watermark);
+            SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+            assert_eq!(StakingHotkeys::<Test>::get(coldkey), vec![hotkey]);
+        }
+        BasketClaimed::<Test>::remove(hotkey, coldkey);
+        SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+        assert!(!StakingHotkeys::<Test>::contains_key(coldkey));
+    });
+}
+
+#[test]
+fn test_storage_bloat_cleanup_removes_index_with_last_alpha_key() {
+    use crate::migrations::migrate_storage_bloat_v2::{
+        StorageBloatCleanupMigration, continue_storage_bloat_cleanup, kickoff_storage_bloat_cleanup,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(100);
+        let empty = U256::from(200);
+        let live = U256::from(201);
+        let claimant = U256::from(202);
+        let legacy_only = U256::from(203);
+        let first = NetUid::from(1);
+        let second = NetUid::from(2);
+        StakingHotkeys::<Test>::insert(coldkey, vec![empty, live, claimant, legacy_only]);
+        Alpha::<Test>::insert((legacy_only, coldkey, first), U64F64::from_num(0));
+        for hotkey in [empty, live, claimant] {
+            Alpha::<Test>::insert((hotkey, coldkey, first), U64F64::from_num(0));
+            AlphaV2::<Test>::insert((hotkey, coldkey, first), share_pool::SafeFloat::zero());
+        }
+        // One alpha-rao on another subnet is enough: the transaction minimum is
+        // not a reason to hide a retained position.
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &live,
+            &coldkey,
+            second,
+            1_u64.into(),
+        );
+        BasketClaimed::<Test>::insert(claimant, coldkey, -1);
+        kickoff_storage_bloat_cleanup::<Test>();
+        let limit = <Test as Config>::DbWeight::get().reads_writes(8, 5);
+        for _ in 0..100 {
+            let used = continue_storage_bloat_cleanup::<Test>(limit);
+            assert!(used.all_lte(limit));
+            if !StorageBloatCleanupMigration::<Test>::exists() {
+                break;
+            }
+        }
+        assert!(!StorageBloatCleanupMigration::<Test>::exists());
+        assert!(!Alpha::<Test>::contains_key((legacy_only, coldkey, first)));
+        assert!(!AlphaV2::<Test>::contains_key((empty, coldkey, first)));
+        // No separate StakingHotkeys sweep was run: deletion updates the index itself.
+        assert_eq!(StakingHotkeys::<Test>::get(coldkey), vec![live, claimant]);
+    });
+}
+
+#[test]
 fn test_staking_hotkeys_cleanup_is_bounded_and_preserves_live_relationships() {
     use crate::migrations::migrate_cleanup_staking_hotkeys::{
         MIGRATION_NAME, StakingHotkeysCleanupMigration, continue_staking_hotkeys_cleanup,
@@ -7505,13 +7583,13 @@ fn test_staking_hotkeys_cleanup_is_bounded_and_preserves_live_relationships() {
         let zero_v2 = U256::from(205);
         let netuid = NetUid::from(1);
 
-        // The first cleanup already ran on deployed chains. The fresh v2 marker must schedule
-        // the same bounded implementation again.
+        // Previous cleanups must not suppress the new pass.
         HasMigrationRun::<Test>::insert(&b"migrate_cleanup_staking_hotkeys"[..], true);
+        HasMigrationRun::<Test>::insert(&b"migrate_cleanup_staking_hotkeys_v2"[..], true);
         StakingHotkeys::<Test>::insert(coldkey, vec![stale, legacy, v2, basket, zero_v2]);
         StakingHotkeys::<Test>::insert(all_stale_coldkey, vec![other_stale]);
         StakingHotkeys::<Test>::insert(empty_coldkey, Vec::<U256>::new());
-        Alpha::<Test>::insert((legacy, coldkey, netuid), U64F64::from_num(1));
+        Alpha::<Test>::insert((legacy, coldkey, netuid), U64F64::from_num(0.01));
         AlphaV2::<Test>::insert((v2, coldkey, netuid), share_pool::SafeFloat::from(1_u64));
         AlphaV2::<Test>::insert((zero_v2, coldkey, netuid), share_pool::SafeFloat::zero());
         BasketClaimed::<Test>::insert(basket, coldkey, -1);
@@ -7536,7 +7614,7 @@ fn test_staking_hotkeys_cleanup_is_bounded_and_preserves_live_relationships() {
         );
 
         // This budget admits at most one relationship plus a possible vector rewrite per pass.
-        let limit = <Test as Config>::DbWeight::get().reads_writes(6, 3);
+        let limit = <Test as Config>::DbWeight::get().reads_writes(7, 3);
         let mut passes = 0;
         while StakingHotkeysCleanupMigration::<Test>::exists() {
             let used = continue_staking_hotkeys_cleanup::<Test>(limit);
@@ -7578,7 +7656,7 @@ fn test_staking_hotkeys_cleanup_preserves_stake_added_between_passes() {
         StakingHotkeys::<Test>::insert(coldkey, vec![revived, stale_one, stale_two]);
         kickoff_staking_hotkeys_cleanup::<Test>();
 
-        let limit = <Test as Config>::DbWeight::get().reads_writes(6, 3);
+        let limit = <Test as Config>::DbWeight::get().reads_writes(7, 3);
         let first_used = continue_staking_hotkeys_cleanup::<Test>(limit);
         assert!(first_used.all_lte(limit));
         assert!(StakingHotkeysCleanupMigration::<Test>::exists());

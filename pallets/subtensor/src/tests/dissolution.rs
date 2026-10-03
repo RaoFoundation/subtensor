@@ -175,7 +175,7 @@ fn e2e_registration_reuses_in_progress_cleanup_netuid() {
         let new_cold = U256::from(909);
         let new_hot = U256::from(910);
         let lock = SubtensorModule::get_network_lock_cost();
-        add_balance_to_coldkey_account(&new_cold, lock.into());
+        add_balance_to_coldkey_account(&new_cold, lock.saturating_add(ExistentialDeposit::get()));
         TotalIssuance::<Test>::mutate(|ti| *ti = ti.saturating_add(lock));
 
         // Below the subnet limit -> the immediate registration path runs with NO guard against

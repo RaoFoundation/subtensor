@@ -2,6 +2,7 @@
   "title": "Precompiles",
   "pages": [
     "index",
+    "bls12-381",
     "extrinsic-coverage",
     "balance-transfer",
     "staking-v1",

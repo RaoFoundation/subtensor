@@ -56,13 +56,16 @@ jobs:
       python_sdk: ${{ steps.filter.outputs.python_sdk }}
       sdk_drift: ${{ steps.filter.outputs.sdk_drift }}
       snapshot_ci: ${{ steps.filter.outputs.snapshot_ci }}
+      node_reuse: ${{ steps.filter.outputs.node_reuse }}
     steps:
       - name: Checkout trusted path classifier
         if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.base.sha }}
-          sparse-checkout: .github/scripts/classify-runtime-changes.sh
+          sparse-checkout: |
+            .github/scripts/classify-runtime-changes.sh
+            .github/scripts/classify-node-changes.sh
           sparse-checkout-cone-mode: false
           path: .trusted-runtime-filter
           persist-credentials: false
@@ -85,6 +88,7 @@ jobs:
               echo "python_sdk=true"
               echo "sdk_drift=true"
               echo "snapshot_ci=true"
+              echo "node_reuse=false"
             } >> "$GITHUB_OUTPUT"
           }
           publish_classification() {
@@ -118,13 +122,29 @@ jobs:
           fi
           # A rename can move a runtime file outside a matched directory, so
           # classify both the current and previous paths.
+          if ! paths=$(jq -r '.[][] | .filename, (.previous_filename // empty)' <<< "$pages"); then
+            echo "::warning::PR file listing was invalid; enabling every check."
+            enable_all
+            exit 0
+          fi
           classification=$(mktemp)
           trap 'rm -f "$classification"' EXIT
-          if ! jq -r '.[][] | .filename, (.previous_filename // empty)' <<< "$pages" \
-              | bash "$classifier" "$classification" ||
+          if ! printf '%s\n' "$paths" | bash "$classifier" "$classification" ||
              ! publish_classification "$classification"; then
             echo "::warning::Runtime classifier failed or emitted invalid outputs; enabling every check."
             enable_all
+            exit 0
+          fi
+          # The release node may come from the base commit only when the
+          # trusted base's node classifier finds no natively compiled change.
+          node_classifier=.trusted-runtime-filter/.github/scripts/classify-node-changes.sh
+          : > "$classification"
+          if [[ -f "$node_classifier" ]] &&
+             printf '%s\n' "$paths" | bash "$node_classifier" "$classification" >/dev/null &&
+             grep -qx 'node_reuse=true' "$classification"; then
+            echo "node_reuse=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "node_reuse=false" >> "$GITHUB_OUTPUT"
           fi
 
   snapshot-artifact-tests:
@@ -137,8 +157,8 @@ jobs:
       - run: .github/scripts/test-snapshot-artifact.sh
       - run: .github/scripts/test-download-artifact.sh
       - run: .github/scripts/test-select-shared-release-artifact.sh
-      - run: .github/scripts/test-cancel-superseded-release-watchers.sh
       - run: .github/scripts/test-runtime-change-filter.sh
+      - run: .github/scripts/test-classify-node-changes.sh
       - run: .github/scripts/test-clone-regression-phase.sh
 
   # Build the try-runtime wasm independently so its consumers do not wait for
@@ -237,12 +257,26 @@ jobs:
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
 
+      # Runtime-only PRs run clone-upgrade on the base commit's node, which is
+      # what mainnet validators run when this runtime is enacted.
+      - name: Fetch base commit's release node
+        id: base-node
+        if: github.event_name == 'pull_request' && needs.changes.outputs.node_reuse == 'true'
+        uses: ./.github/actions/fetch-base-node
+        with:
+          runtime: non-fast-runtime
+
       - name: Build node-subtensor (release)
+        env:
+          BASE_NODE: ${{ steps.base-node.outputs.node }}
         run: |
           set -euo pipefail
           sccache --zero-stats
           started=$(date -u +%s)
-          cargo build --release -p node-subtensor
+          reuse=()
+          [[ -z "$BASE_NODE" ]] || reuse=(--base-node "$BASE_NODE")
+          .github/scripts/build-node-reusing-base.py --node target/release/node-subtensor "${reuse[@]}" \
+            -- cargo build --release -p node-subtensor
           seconds=$(($(date -u +%s) - started))
           {
             echo "### Release node compile"

@@ -106,6 +106,7 @@ parameter_types! {
     pub const MaxAuthorities: u32 = 32;
     pub static BlockGasLimit: U256 = U256::max_value();
     pub WeightPerGas: Weight = Weight::from_parts(20_000, 0);
+    pub PrecompilesValue: crate::Precompiles<Runtime> = crate::Precompiles::new();
     pub const ProxyDepositBase: TaoBalance = TaoBalance::new(1);
     pub const ProxyDepositFactor: TaoBalance = TaoBalance::new(1);
     pub const MaxProxies: u32 = 20;
@@ -287,8 +288,8 @@ impl pallet_evm::Config for Runtime {
     type WithdrawOrigin = EnsureAddressNever<AccountId>;
     type AddressMapping = pallet_evm::HashedAddressMapping<BlakeTwo256>;
     type Currency = Balances;
-    type PrecompilesType = ();
-    type PrecompilesValue = ();
+    type PrecompilesType = crate::Precompiles<Self>;
+    type PrecompilesValue = PrecompilesValue;
     type ChainId = ();
     type BlockGasLimit = BlockGasLimit;
     type Runner = pallet_evm::runner::stack::Runner<Self>;

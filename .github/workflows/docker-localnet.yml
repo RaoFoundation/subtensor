@@ -2,16 +2,17 @@ name: Publish Localnet Docker Image
 
 # Localnet images are the chain-in-a-box used by SDK/btcli e2e harnesses.
 # The release train force-moves the devnet/testnet mirror branch only after
-# that exact commit is verified on the corresponding live network; the mirror
-# push is therefore the publication hook for those tags. Main publishes its
-# candidate tag directly and is the only branch that advances :latest. Manual
-# PR builds publish :pr-N without moving a branch tag or :latest.
+# that exact commit is verified on the corresponding live network, and
+# watch-mainnet-release.yml moves the mainnet mirror only after the runtime
+# executes on chain; the mirror push is therefore the publication hook for
+# those tags. A mainnet build also publishes its immutable :v<spec_version>
+# release tag. Main publishes its candidate tag directly and is the only
+# branch that advances :latest. Manual PR builds publish :pr-N without moving
+# a branch tag or :latest.
 
 on:
-  release:
-    types: [published]
   push:
-    branches: [main, devnet, testnet]
+    branches: [main, devnet, testnet, mainnet]
   workflow_dispatch:
     inputs:
       branch-or-tag:
@@ -40,6 +41,7 @@ jobs:
       ref: ${{ steps.vars.outputs.ref }}
       latest_tag: ${{ steps.vars.outputs.latest_tag }}
       sha: ${{ steps.source.outputs.sha }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
       image: ${{ steps.image.outputs.image }}
       repository: ${{ steps.image.outputs.repository }}
       publication_id: ${{ steps.image.outputs.publication_id }}
@@ -102,10 +104,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.vars.outputs.ref }}
+          path: source
 
       - name: Record source commit
         id: source
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: echo "sha=$(git -C source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve mainnet release
+        id: release
+        if: steps.vars.outputs.tag == 'mainnet'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./.github/scripts/resolve-mainnet-release.sh source
 
   # Build node binaries for both runtimes on both architectures.
   artifacts:
@@ -300,6 +310,7 @@ jobs:
           IMAGE: ${{ needs.setup.outputs.image }}
           TAG: ${{ needs.setup.outputs.tag }}
           SHA: ${{ needs.setup.outputs.sha }}
+          RELEASE_TAG: ${{ needs.setup.outputs.release_tag }}
           PUBLISH_LATEST: ${{ needs.setup.outputs.latest_tag }}
         run: ./.github/scripts/publish-localnet-manifest.sh image-descriptors
 
@@ -315,11 +326,15 @@ jobs:
           REPOSITORY: ${{ needs.setup.outputs.repository }}
           TAG: ${{ needs.setup.outputs.tag }}
           SHA: ${{ needs.setup.outputs.sha }}
+          RELEASE_TAG: ${{ needs.setup.outputs.release_tag }}
           VERIFY_LATEST: ${{ needs.setup.outputs.latest_tag }}
         run: |
           DOCKER_CONFIG="$(mktemp -d)"
           export DOCKER_CONFIG
           tags=("$TAG" "sha-$SHA")
+          if [ -n "$RELEASE_TAG" ]; then
+            tags+=("$RELEASE_TAG")
+          fi
           if [ "$VERIFY_LATEST" = true ]; then
             tags+=(latest)
           fi

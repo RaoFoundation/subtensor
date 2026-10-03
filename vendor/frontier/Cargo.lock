@@ -7362,7 +7362,9 @@ dependencies = [
  "ark-ff 0.4.2",
  "ark-std 0.4.0",
  "fp-evm",
+ "hex",
  "pallet-evm-test-vector-support",
+ "serde_json",
 ]
 
 [[package]]

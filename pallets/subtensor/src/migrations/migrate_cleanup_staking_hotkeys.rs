@@ -6,9 +6,8 @@ use scale_info::prelude::string::String;
 use sp_std::collections::btree_set::BTreeSet;
 use sp_std::vec::Vec;
 
-// Fresh marker reruns the same bounded cleanup after share-pool dust canonicalization. The
-// original `migrate_cleanup_staking_hotkeys` pass may already be marked complete on-chain.
-pub const MIGRATION_NAME: &[u8] = b"migrate_cleanup_staking_hotkeys_v2";
+// Rerun with the shared alpha-key predicate, including legacy keys and claim watermarks.
+pub const MIGRATION_NAME: &[u8] = b"migrate_cleanup_staking_hotkeys_v3";
 
 /// Persistent progress for the bounded `StakingHotkeys` cleanup.
 ///
@@ -34,8 +33,8 @@ pub type StakingHotkeysCleanupMigration<T: Config> =
     StorageValue<Pallet<T>, StakingHotkeysCleanupProgress, OptionQuery>;
 
 fn candidate_weight<T: Config>() -> Weight {
-    // One prefix probe in each share map plus one BasketClaimed read. The predicate may
-    // short-circuit, but charging all three reads keeps each candidate conservatively bounded.
+    // Legacy and V2 key-prefix probes plus BasketClaimed. Charge all three even
+    // when the shared predicate short-circuits.
     T::DbWeight::get().reads(3)
 }
 
@@ -50,16 +49,12 @@ fn row_load_weight<T: Config>() -> Weight {
 
 /// A conservative keep predicate for one hotkey/coldkey relationship.
 ///
-/// Any stored non-zero share row is retained. The storage-bloat migration runs first and clears
-/// exact-zero Alpha and AlphaV2 rows; treating an unexpected remaining row as live keeps this
-/// cleanup fail safe. A basket watermark is also sufficient to retain the relationship because
+/// Any remaining alpha key is retained, including below-minimum and fractional positions.
+/// Removing the index alone would hide shares which can still receive pool-wide dividends.
+/// A basket watermark is also sufficient to retain the relationship because
 /// zero-root-stake claimants still need to be discoverable by claims and coldkey swaps.
 fn relationship_must_remain<T: Config>(hotkey: &T::AccountId, coldkey: &T::AccountId) -> bool {
-    AlphaV2::<T>::iter_prefix((hotkey, coldkey))
-        .next()
-        .is_some()
-        || Alpha::<T>::iter_prefix((hotkey, coldkey)).next().is_some()
-        || BasketClaimed::<T>::get(hotkey, coldkey) != 0
+    Pallet::<T>::staking_hotkey_must_remain(hotkey, coldkey)
 }
 
 /// Starts the cleanup without scanning `StakingHotkeys` in the runtime-upgrade block.

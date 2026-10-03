@@ -438,7 +438,8 @@ mod tests {
     fn claim_payment_refunds_light_work_and_caps_heavy_work() {
         let light = <Runtime as pallet_subtensor::Config>::WeightInfo::claim_root(1)
             .saturating_add(<Runtime as pallet_subtensor::Config>::WeightInfo::claim_root_scan(2));
-        for (call, declared) in claim_cases() {
+        let cases = new_test_ext().execute_with(claim_cases);
+        for (call, declared) in cases {
             for execution_weight in [light, declared] {
                 new_test_ext().execute_with(|| {
                     let tip = Balance::new(1_000_000);

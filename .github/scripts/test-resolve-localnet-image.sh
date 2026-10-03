@@ -42,8 +42,9 @@ assert_case "devnet push" devnet 0123456789abcdef false \
   env EVENT_NAME=push EVENT_SHA=0123456789abcdef REF_NAME=devnet
 assert_case "testnet push" testnet 0123456789abcdef false \
   env EVENT_NAME=push EVENT_SHA=0123456789abcdef REF_NAME=testnet
-assert_case "release" v431 0123456789abcdef false \
-  env EVENT_NAME=release EVENT_SHA=0123456789abcdef REF_NAME=v431
+# The mainnet mirror publishes its own tag; only main advances :latest.
+assert_case "mainnet push" mainnet 0123456789abcdef false \
+  env EVENT_NAME=push EVENT_SHA=0123456789abcdef REF_NAME=mainnet
 assert_case "manual feature ref" feat-docker feat/docker false \
   env EVENT_NAME=workflow_dispatch "${common[@]}" BRANCH_OR_TAG=feat/docker
 assert_case "manual invalid-leading ref" ref--candidate-x -candidate/x false \

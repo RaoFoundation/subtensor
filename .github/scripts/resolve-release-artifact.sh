@@ -7,11 +7,12 @@
 # the *base* repository's artifact store. The artifact name is attacker-
 # controlled, so a fork PR can plant `mainnet-upgrade-<spec>` containing an
 # attacker `.commit` / wasm. watch-mainnet-release.yml downloads this artifact,
-# checks out its recorded commit, and publishes it to PyPI (`bittensor`),
-# crates.io, and Vercel, and force-pushes `mainnet`. Selecting the artifact by
-# name / newest-first (the previous behaviour) would let that planted artifact
-# ride a single routine mainnet-environment approval straight to the package
-# registries. Selecting by name alone is therefore unsafe.
+# attaches it to the final GitHub release, force-pushes `mainnet` (publishing
+# the production Docker images) without any human approval, and publishes the
+# commit to PyPI (`bittensor`) and Vercel. Selecting the artifact by name /
+# newest-first (the previous behaviour) would let that planted artifact go
+# straight into the release, images, and package registries. Selecting by name
+# alone is therefore unsafe.
 #
 # We require the artifact's producing run to be:
 #   * from this repository (not a fork)   — head_repository_id == repo id

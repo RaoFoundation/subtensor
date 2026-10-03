@@ -28,6 +28,8 @@ case "$artifact_name" in
   "node-subtensor-release-${GITHUB_SHA:-invalid}")
     [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || usage
     ;;
+  # Base-commit localnet nodes for build-node-reusing-base.py.
+  binaries-x86_64-unknown-linux-gnu-fast-runtime|binaries-x86_64-unknown-linux-gnu-non-fast-runtime) ;;
   *) echo "artifact is outside the host-cache allowlist: $artifact_name" >&2; exit 2 ;;
 esac
 

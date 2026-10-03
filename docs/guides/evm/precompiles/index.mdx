@@ -32,6 +32,10 @@ or intentionally non-callable EVM treatment.
 | `Ed25519Verify` | <EvmAddress address="0x0000000000000000000000000000000000000402" /> | Deployed |
 | `Sr25519Verify` | <EvmAddress address="0x0000000000000000000000000000000000000403" /> | Deployed |
 
+The runtime also registers the seven final EIP-2537 BLS12-381 operations at
+`0x0b` through `0x11`. See [BLS12-381 verification](/docs/guides/evm/precompiles/bls12-381)
+for activation, encodings, gas costs, and the Solidity signature-verification example.
+
 ## Bittensor precompiles
 
 | Precompile | Solidity interface | Details |

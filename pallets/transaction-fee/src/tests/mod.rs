@@ -241,7 +241,7 @@ fn test_live_plus_retired_row_still_pays_alpha_fee() {
         let hotkey = sn.hotkeys[0];
         setup_stake(live, &sn.coldkey, &hotkey, stake_amount);
 
-        Alpha::<Test>::insert(
+        pallet_subtensor::migrations::migrate_alpha_v2::retired::Alpha::<Test>::insert(
             (hotkey, sn.coldkey, retired),
             U64F64::from_num(1_000_000u64),
         );

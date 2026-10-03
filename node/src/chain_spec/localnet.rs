@@ -3,8 +3,30 @@
 
 use super::*;
 
+/// Names a runtime wasm file that replaces the embedded runtime in the `dev` and
+/// `local` chain specs. CI uses it to run a prebuilt node with a pull request's
+/// runtime when the node's own code is unchanged; `finney`, `test_finney`,
+/// `devnet`, and JSON chain specs never read it.
+pub const LOCALNET_RUNTIME_WASM_ENV: &str = "SUBTENSOR_LOCALNET_RUNTIME_WASM";
+
+fn localnet_runtime_wasm() -> Result<std::borrow::Cow<'static, [u8]>, String> {
+    let Some(path) = env::var_os(LOCALNET_RUNTIME_WASM_ENV) else {
+        return WASM_BINARY
+            .map(std::borrow::Cow::Borrowed)
+            .ok_or_else(|| "Development wasm not available".to_string());
+    };
+    let path = std::path::PathBuf::from(path);
+    let wasm = std::fs::read(&path)
+        .map_err(|error| format!("{LOCALNET_RUNTIME_WASM_ENV}={}: {error}", path.display()))?;
+    log::info!(
+        "Using runtime wasm from {LOCALNET_RUNTIME_WASM_ENV}={} instead of the embedded runtime",
+        path.display()
+    );
+    Ok(std::borrow::Cow::Owned(wasm))
+}
+
 pub fn localnet_config(single_authority: bool) -> Result<ChainSpec, String> {
-    let wasm_binary = WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?;
+    let wasm_binary = localnet_runtime_wasm()?;
 
     // Give front-ends necessary data to present to users
     let mut properties = sc_service::Properties::new();
@@ -13,7 +35,7 @@ pub fn localnet_config(single_authority: bool) -> Result<ChainSpec, String> {
     properties.insert("ss58Format".into(), 42.into());
 
     Ok(ChainSpec::builder(
-        wasm_binary,
+        &wasm_binary,
         Extensions {
             bad_blocks: Some(HashSet::from_iter(vec![
                 // Example bad block

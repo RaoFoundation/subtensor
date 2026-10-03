@@ -1,5 +1,6 @@
+use super::migrate_alpha_v2::retired::Alpha;
 use crate::staking::stake_utils::HotkeyAlphaSharePoolDataOperations;
-use crate::{Alpha, AlphaV2, Config, Event, HasMigrationRun, Pallet};
+use crate::{AlphaV2, Config, Event, HasMigrationRun, Pallet};
 use alloc::collections::BTreeSet;
 use codec::Decode;
 #[cfg(feature = "try-runtime")]

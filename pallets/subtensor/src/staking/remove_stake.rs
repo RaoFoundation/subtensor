@@ -1,4 +1,5 @@
 use super::*;
+use crate::migrations::migrate_alpha_v2::retired::{Alpha, TotalHotkeyShares};
 use crate::subnets::dissolution::DissolveCleanupStatus;
 use crate::weights::WeightInfo;
 use frame_support::weights::{Weight, WeightMeter};

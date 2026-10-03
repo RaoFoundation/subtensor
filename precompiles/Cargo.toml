@@ -25,6 +25,7 @@ pallet-evm-precompile-modexp.workspace = true
 pallet-evm-precompile-sha3fips.workspace = true
 pallet-evm-precompile-simple.workspace = true
 pallet-evm-precompile-bn128.workspace = true
+pallet-evm-precompile-bls12381.workspace = true
 pallet-subtensor-proxy.workspace = true
 precompile-utils.workspace = true
 scale-info.workspace = true
@@ -56,6 +57,7 @@ std = [
 	"fp-evm/std",
 	"frame-support/std",
 	"frame-system/std",
+	"hex/std",
 	"log/std",
 	"pallet-admin-utils/std",
 	"pallet-alpha-assets/std",
@@ -63,6 +65,7 @@ std = [
 	"pallet-crowdloan/std",
 	"pallet-drand/std",
 	"pallet-evm-precompile-bn128/std",
+	"pallet-evm-precompile-bls12381/std",
 	"pallet-evm-chain-id/std",
 	"pallet-evm-precompile-dispatch/std",
 	"pallet-evm-precompile-modexp/std",
@@ -78,6 +81,7 @@ std = [
 	"pallet-timestamp/std",
 	"precompile-utils/std",
 	"scale-info/std",
+	"serde_json/std",
 	"sp-core/std",
 	"sp-io/std",
 	"sp-runtime/std",
@@ -107,5 +111,7 @@ runtime-benchmarks = [
 ]
 
 [dev-dependencies]
+hex = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
 pallet-preimage = { workspace = true, features = ["std"] }
 precompile-utils = { workspace = true, features = ["std", "testing"] }

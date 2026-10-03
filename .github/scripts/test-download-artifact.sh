@@ -78,6 +78,17 @@ grep -qx 'source=local-hit' "$tmp/output"
 cmp "$tmp/payload/mainnet-snapshot.tar.gz" "$tmp/try-runtime/mainnet-snapshot.tar.gz"
 
 : > "$tmp/output"
+"$helper" 123 binaries-x86_64-unknown-linux-gnu-fast-runtime "$digest" "$size" \
+  "$tmp/base-node" "$tmp/output" >/dev/null
+grep -qx 'source=local-hit' "$tmp/output"
+
+if "$helper" 123 binaries-aarch64-unknown-linux-gnu-fast-runtime "$digest" "$size" \
+  "$tmp/other-arch" "$tmp/output" >/dev/null 2>&1; then
+  echo "expected an artifact outside the allowlist to fail" >&2
+  exit 1
+fi
+
+: > "$tmp/output"
 export MOCK_LOCAL_FAIL=true
 "$helper" 123 mainnet-snapshot "$digest" "$size" "$tmp/direct" "$tmp/output" >/dev/null 2>"$tmp/fallback.log"
 grep -qx 'source=github' "$tmp/output"

@@ -7,6 +7,8 @@ permissions:
   # Fork PRs never reach the image jobs (they need the trusted-pr gate), so
   # this is non-fork only.
   packages: write
+  # The localnet image build downloads the base commit's node artifact.
+  actions: read
 
 concurrency:
   group: e2e-cli-${{ github.ref }}
@@ -58,6 +60,7 @@ jobs:
       run_e2e: ${{ steps.filter.outputs.e2e }}
       build_image: ${{ steps.image.outputs.build_image }}
       base_image_ref: ${{ steps.image.outputs.base_image_ref }}
+      node_reuse: ${{ steps.filter.outputs.node_reuse }}
       test_count: ${{ steps.matrix.outputs.test_count }}
       shard_count: ${{ steps.matrix.outputs.shard_count }}
       test_matrix: ${{ steps.matrix.outputs.test_matrix }}
@@ -72,6 +75,7 @@ jobs:
             .github/scripts/classify-bittensor-e2e-changes.sh
             .github/scripts/build-bittensor-e2e-matrix.py
             .github/scripts/extract-pull-file-paths.sh
+            .github/scripts/classify-node-changes.sh
           path: .trusted-rust-sdk-e2e
           persist-credentials: false
 
@@ -146,6 +150,19 @@ jobs:
             echo "trusted Rust SDK E2E classifier failed or emitted invalid outputs; running the full suite" >&2
             select_full_suite
           fi
+
+          # The image may carry the base commit's node only when the trusted
+          # node classifier finds no natively compiled change.
+          node_output=$(mktemp)
+          node_classifier=.trusted-rust-sdk-e2e/.github/scripts/classify-node-changes.sh
+          if [[ -x "$node_classifier" ]] &&
+             printf '%s\n' "$paths" | "$node_classifier" "$node_output" >/dev/null &&
+             grep -qx 'node_reuse=true' "$node_output"; then
+            echo "node_reuse=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "node_reuse=false" >> "$GITHUB_OUTPUT"
+          fi
+          rm -f "$node_output"
 
       - name: Check out proposed E2E manifest
         if: steps.filter.outputs.e2e == 'true'
@@ -311,8 +328,17 @@ jobs:
           fast-linker: "false"
           sccache-credential-mode: reader
 
+      - name: Fetch base commit's fast-runtime node
+        id: base-node
+        if: github.event_name == 'pull_request' && needs.plan.outputs.node_reuse == 'true'
+        uses: ./.github/actions/fetch-base-node
+        with:
+          runtime: fast-runtime
+
       # The daily sccache warm job runs the same script so this build hits.
       - name: Build only the fast-runtime node
+        env:
+          BASE_NODE: ${{ steps.base-node.outputs.node }}
         run: .github/scripts/build-localnet-fast-node.sh
 
       - name: Report localnet compiler cache

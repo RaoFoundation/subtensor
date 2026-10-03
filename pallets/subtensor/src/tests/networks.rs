@@ -13,6 +13,256 @@ use substrate_fixed::types::{I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{MechId, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 
+#[test]
+fn registration_rejects_short_payment_without_partial_network_state() {
+    new_test_ext(0).execute_with(|| {
+        let cold = U256::from(90_001);
+        let hot = U256::from(90_002);
+        let cost = SubtensorModule::get_network_lock_cost();
+        // Funding exactly the price cannot pay it while preserving the account.
+        add_balance_to_coldkey_account(&cold, cost.into());
+        let root_before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert!(
+            SubtensorModule::set_new_network_state(
+                &cold,
+                &hot,
+                1,
+                None,
+                cost,
+                SubtensorModule::get_median_subnet_alpha_price(),
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(
+            sp_io::storage::root(sp_runtime::StateVersion::V1),
+            root_before
+        );
+    });
+}
+
+#[test]
+fn registration_zero_payment_does_not_leave_a_phantom_network() {
+    new_test_ext(0).execute_with(|| {
+        let root_before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert!(
+            SubtensorModule::set_new_network_state(
+                &U256::from(90_003),
+                &U256::from(90_004),
+                1,
+                None,
+                SubtensorModule::get_network_lock_cost(),
+                SubtensorModule::get_median_subnet_alpha_price(),
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(
+            sp_io::storage::root(sp_runtime::StateVersion::V1),
+            root_before
+        );
+    });
+}
+
+#[test]
+fn registration_legacy_hold_neutralization_is_cancelled_without_a_phantom() {
+    use frame_support::traits::{
+        fungible::{Mutate, MutateHold},
+        tokens::{Precision, Preservation},
+    };
+    new_test_ext(1).execute_with(|| {
+        let cold = U256::from(90_010);
+        let hot = U256::from(90_011);
+        let cost = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, cost.saturating_mul(3.into()));
+        assert_ok!(SubtensorModule::lock_network_registration_cost(
+            &cold, cost, 0
+        ));
+        NetworkRegistrationQueue::<Test>::put(vec![
+            crate::subnets::subnet::NetworkRegistrationInfo {
+                coldkey: cold,
+                hotkey: hot,
+                mechid: 1,
+                identity: None,
+                lock_amount: cost,
+                median_subnet_alpha_price: SubtensorModule::get_median_subnet_alpha_price(),
+                registration_block: 0,
+                lock_id: 0,
+            },
+        ]);
+        let reason = RuntimeHoldReason::Preimage(pallet_preimage::HoldReason::Preimage);
+        assert_ok!(<Balances as MutateHold<U256>>::hold(&reason, &cold, cost));
+        let remaining = ExistentialDeposit::get().saturating_mul(2.into());
+        let drain = Balances::free_balance(cold).saturating_sub(remaining);
+        assert_ok!(<Balances as Mutate<U256>>::transfer(
+            &cold,
+            &U256::from(90_012),
+            drain,
+            Preservation::Preserve
+        ));
+        let count = TotalNetworks::<Test>::get();
+        let stake = TotalStake::<Test>::get();
+        let netuid = SubtensorModule::get_next_netuid();
+        SubtensorModule::process_network_registration_queue();
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+        assert!(!NetworksAdded::<Test>::contains_key(netuid));
+        assert!(!SubnetTAO::<Test>::contains_key(netuid));
+        assert_eq!(TotalNetworks::<Test>::get(), count);
+        assert_eq!(TotalStake::<Test>::get(), stake);
+        assert_eq!(Balances::free_balance(cold), remaining);
+        assert!(pallet_balances::Locks::<Test>::get(cold).is_empty());
+        System::assert_last_event(
+            Event::NetworkRegistrationCancelled {
+                coldkey: cold,
+                hotkey: hot,
+                lock_id: 0,
+                error: Error::<Test>::CannotAffordLockCost.into(),
+            }
+            .into(),
+        );
+        assert_eq!(
+            <Balances as MutateHold<U256>>::release(&reason, &cold, cost, Precision::Exact)
+                .unwrap(),
+            cost
+        );
+    });
+}
+
+#[test]
+fn registration_escrow_is_additive_and_survives_registrant_hold_and_drain() {
+    use frame_support::traits::{
+        fungible::{Inspect, Mutate, MutateHold},
+        tokens::{Fortitude, Preservation},
+    };
+    new_test_ext(0).execute_with(|| {
+        let cold = U256::from(90_020);
+        let cost = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, cost.saturating_mul(4.into()));
+        assert_ok!(SubtensorModule::escrow_network_registration_cost(
+            &cold, cost, 0
+        ));
+        assert_ok!(SubtensorModule::escrow_network_registration_cost(
+            &cold, cost, 1
+        ));
+        assert_ne!(
+            SubtensorModule::network_registration_escrow_account(0),
+            SubtensorModule::network_registration_escrow_account(1)
+        );
+        let reason = RuntimeHoldReason::Preimage(pallet_preimage::HoldReason::Preimage);
+        assert_ok!(<Balances as MutateHold<U256>>::hold(&reason, &cold, cost));
+        let drain = <Balances as Inspect<U256>>::reducible_balance(
+            &cold,
+            Preservation::Preserve,
+            Fortitude::Polite,
+        );
+        assert_ok!(<Balances as Mutate<U256>>::transfer(
+            &cold,
+            &U256::from(90_021),
+            drain,
+            Preservation::Preserve
+        ));
+        for id in [0, 1] {
+            let netuid = SubtensorModule::get_next_netuid();
+            assert_ok!(SubtensorModule::set_new_network_state(
+                &cold,
+                &U256::from(90_030 + id),
+                1,
+                None,
+                cost,
+                SubtensorModule::get_median_subnet_alpha_price(),
+                Some(id),
+            ));
+            assert_eq!(SubnetTAO::<Test>::get(netuid), cost);
+            assert_eq!(SubnetLocked::<Test>::get(netuid), cost);
+            assert_eq!(
+                Balances::free_balance(SubtensorModule::get_subnet_account_id(netuid).unwrap()),
+                cost
+            );
+            assert!(!NetworkRegistrationEscrow::<Test>::contains_key(id));
+        }
+    });
+}
+
+#[test]
+fn registration_late_failure_refunds_escrow_and_does_not_block_next_entry() {
+    new_test_ext(0).execute_with(|| {
+        SubnetLimit::<Test>::put(2);
+        DissolveCleanupQueue::<Test>::put(vec![NetUid::from(1), NetUid::from(2)]);
+        let cold = U256::from(90_040);
+        let hot = U256::from(90_041);
+        let other_cold = U256::from(90_042);
+        let other_hot = U256::from(90_043);
+        let cost = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, cost.saturating_mul(4.into()));
+        add_balance_to_coldkey_account(&other_cold, cost.saturating_mul(4.into()));
+        let original_balance = Balances::free_balance(cold);
+        assert_ok!(SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(cold),
+            &hot,
+            1,
+            None
+        ));
+        assert_ok!(SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(other_cold),
+            &other_hot,
+            1,
+            None
+        ));
+        let id = NetworkRegistrationQueue::<Test>::get()[0].lock_id;
+        let other_cost = NetworkRegistrationQueue::<Test>::get()[1].lock_amount;
+        // Inject a forbidden system hotkey to exercise a failure after payment,
+        // independently of the dispatchable's admission-time validation.
+        let system_hotkey = SubtensorModule::get_subnet_account_id(NetUid::ROOT).unwrap();
+        NetworkRegistrationQueue::<Test>::mutate(|queue| queue[0].hotkey = system_hotkey);
+        DissolveCleanupQueue::<Test>::kill();
+        let count = TotalNetworks::<Test>::get();
+        let stake = TotalStake::<Test>::get();
+        let netuid = SubtensorModule::get_next_netuid();
+        SubtensorModule::process_network_registration_queue();
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
+        assert_eq!(
+            NetworkRegistrationQueue::<Test>::get()[0].coldkey,
+            other_cold
+        );
+        assert_eq!(Balances::free_balance(cold), original_balance);
+        assert!(!NetworkRegistrationEscrow::<Test>::contains_key(id));
+        assert_eq!(TotalNetworks::<Test>::get(), count);
+        assert_eq!(TotalStake::<Test>::get(), stake);
+        assert!(!NetworksAdded::<Test>::contains_key(netuid));
+        assert!(!SubnetTAO::<Test>::contains_key(netuid));
+        SubtensorModule::process_network_registration_queue();
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+        assert_eq!(SubnetOwner::<Test>::get(netuid), other_cold);
+        assert_eq!(SubnetTAO::<Test>::get(netuid), other_cost);
+    });
+}
+
+#[test]
+fn registration_does_not_invent_reserves_when_minimum_changes_while_queued() {
+    new_test_ext(0).execute_with(|| {
+        let cold = U256::from(90_050);
+        let cost = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, cost.saturating_mul(3.into()));
+        assert_ok!(SubtensorModule::escrow_network_registration_cost(
+            &cold, cost, 0
+        ));
+        NetworkMinLockCost::<Test>::put(cost.saturating_mul(2.into()));
+        let netuid = SubtensorModule::get_next_netuid();
+        let stake = TotalStake::<Test>::get();
+        assert_ok!(SubtensorModule::set_new_network_state(
+            &cold,
+            &U256::from(90_051),
+            1,
+            None,
+            cost,
+            SubtensorModule::get_median_subnet_alpha_price(),
+            Some(0),
+        ));
+        assert_eq!(SubnetTAO::<Test>::get(netuid), cost);
+        assert_eq!(TotalStake::<Test>::get(), stake.saturating_add(cost));
+    });
+}
+
 /// Run the same α-out destroy steps as `remove_data_for_dissolved_networks` (post-root-cleanup).
 fn destroy_alpha_in_out_stakes_full_pipeline_for_test(netuid: NetUid) {
     run_destroy_alpha_in_out_stakes_full_pipeline(netuid);
@@ -3853,16 +4103,14 @@ fn set_new_network_state_uses_provided_median_price_for_pool_alpha() {
 }
 
 #[test]
-fn set_new_network_state_seeds_pool_with_min_lock_floor() {
+fn set_new_network_state_never_books_an_unpaid_min_lock_floor() {
     new_test_ext(1).execute_with(|| {
         let cold = U256::from(10_301);
         let hot = U256::from(10_302);
         add_balance_to_coldkey_account(&cold, 1_000_000_000.into());
 
         let netuid = SubtensorModule::get_next_netuid();
-        let min_lock = SubtensorModule::get_network_min_lock();
-
-        // Zero lock: the pool must still be seeded with the min lock floor.
+        // Even a privileged zero-price setup must not fabricate the configured floor.
         assert_ok!(SubtensorModule::set_new_network_state(
             &cold,
             &hot,
@@ -3873,11 +4121,8 @@ fn set_new_network_state_seeds_pool_with_min_lock_floor() {
             None,
         ));
 
-        assert_eq!(SubnetTAO::<Test>::get(netuid), min_lock);
-        assert_eq!(
-            SubnetAlphaIn::<Test>::get(netuid),
-            AlphaBalance::from(u64::from(min_lock))
-        );
+        assert_eq!(SubnetTAO::<Test>::get(netuid), TaoBalance::ZERO);
+        assert_eq!(SubnetAlphaIn::<Test>::get(netuid), AlphaBalance::ZERO);
         assert_eq!(SubnetLocked::<Test>::get(netuid), TaoBalance::ZERO);
     });
 }
@@ -4036,7 +4281,7 @@ fn process_network_registration_queue_processes_one_entry_per_call() {
 }
 
 #[test]
-fn process_network_registration_queue_unlocks_funds_and_charges_coldkey() {
+fn process_network_registration_queue_consumes_prepaid_escrow() {
     new_test_ext(0).execute_with(|| {
         SubnetLimit::<Test>::put(2u16);
 
@@ -4061,27 +4306,34 @@ fn process_network_registration_queue_unlocks_funds_and_charges_coldkey() {
             None,
         ));
 
-        // Funds are locked while queued.
-        assert!(
-            pallet_balances::Locks::<Test>::get(cold)
-                .iter()
-                .any(|l| l.id == identifier)
-        );
+        // New registrations prepay into custody rather than freeze a balance
+        // that another hold can neutralize.
+        assert!(pallet_balances::Locks::<Test>::get(cold).is_empty());
         let queued_lock = NetworkRegistrationQueue::<Test>::get()[0].lock_amount;
-        // Use free balance: the reducible balance is already reduced by the lock.
+        assert_eq!(
+            NetworkRegistrationEscrow::<Test>::get(lock_id),
+            Some((cold, queued_lock))
+        );
+        assert_eq!(
+            Balances::free_balance(SubtensorModule::network_registration_escrow_account(
+                lock_id
+            )),
+            queued_lock
+        );
         let balance_before = pallet_balances::Pallet::<Test>::free_balance(cold);
 
         DissolveCleanupQueue::<Test>::kill();
         SubtensorModule::process_network_registration_queue();
 
-        // Lock released and the lock cost transferred to the new subnet.
+        // Settlement consumes custody, not the registrant's remaining balance.
         assert!(
             pallet_balances::Locks::<Test>::get(cold)
                 .iter()
                 .all(|l| l.id != identifier)
         );
         let balance_after = pallet_balances::Pallet::<Test>::free_balance(cold);
-        assert_eq!(balance_before.saturating_sub(balance_after), queued_lock);
+        assert_eq!(balance_before, balance_after);
+        assert!(!NetworkRegistrationEscrow::<Test>::contains_key(lock_id));
 
         let new_netuid = NetworksAdded::<Test>::iter()
             .find(|(netuid, added)| *added && *netuid != n2)

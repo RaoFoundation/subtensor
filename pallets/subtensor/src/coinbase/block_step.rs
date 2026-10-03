@@ -34,7 +34,6 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         // --- 9. Populate root coldkey maps.
         // Keep claimant-discovery storage immutable while the seed migration iterates it.
         if !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
-            Self::populate_root_coldkey_staking_maps();
             Self::populate_root_coldkey_staking_maps_v2();
         }
 

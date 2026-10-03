@@ -26,6 +26,7 @@ chmod +x "$fake_docker"
 
 assert_case() {
   local publish_latest="$1"
+  local release_tag="$2"
   local argument index
   local -a expected actual
 
@@ -34,6 +35,9 @@ assert_case() {
     --tag "$image:pr-2928"
     --tag "$image:sha-$sha"
   )
+  if [[ -n "$release_tag" ]]; then
+    expected+=(--tag "$image:$release_tag")
+  fi
   if [[ "$publish_latest" == true ]]; then
     expected+=(--tag "$image:latest")
   fi
@@ -46,6 +50,7 @@ assert_case() {
   )
 
   IMAGE="$image" TAG=pr-2928 SHA="$sha" PUBLISH_LATEST="$publish_latest" \
+    RELEASE_TAG="$release_tag" \
     PATH="$workdir:$PATH" DOCKER_ARGS_FILE="$args_file" \
     "$publisher" "$descriptor_dir"
 
@@ -67,8 +72,16 @@ assert_case() {
   done
 }
 
-assert_case false
-assert_case true
+assert_case false ""
+assert_case true ""
+assert_case false v470
+
+if IMAGE="$image" TAG=mainnet SHA="$sha" PUBLISH_LATEST=false RELEASE_TAG=470 \
+  PATH="$workdir:$PATH" DOCKER_ARGS_FILE="$args_file" \
+  "$publisher" "$descriptor_dir" >/dev/null 2>&1; then
+  echo "malformed release tag unexpectedly succeeded" >&2
+  exit 1
+fi
 
 if IMAGE="$image" TAG=pr-2928 SHA="$sha" PUBLISH_LATEST=invalid \
   PATH="$workdir:$PATH" DOCKER_ARGS_FILE="$args_file" \

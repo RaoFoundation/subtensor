@@ -43,6 +43,7 @@ jobs:
       fast_build: ${{ steps.lanes.outputs.fast_build }}
       release_build: ${{ steps.lanes.outputs.release_build }}
       runtime_release: ${{ steps.filter.outputs.runtime_release }}
+      node_reuse: ${{ steps.filter.outputs.node_reuse }}
     steps:
       # Routing decisions for pull requests must come from the trusted base
       # revision. A PR may change these scripts, but those changes take effect
@@ -56,6 +57,7 @@ jobs:
             .github/scripts/classify-runtime-changes.sh
             .github/scripts/extract-pull-file-paths.sh
             .github/scripts/split-typescript-e2e-plan.sh
+            .github/scripts/classify-node-changes.sh
             ts-tests/scripts/e2e-shard-plan.mjs
           path: .trusted-e2e-filter
           persist-credentials: false
@@ -147,6 +149,19 @@ jobs:
             runtime_release=true
           fi
           echo "runtime_release=$runtime_release" >> "$GITHUB_OUTPUT"
+
+          # The fast and release nodes may come from the base commit only when
+          # the trusted node classifier finds no natively compiled change.
+          node_output=$(mktemp)
+          node_classifier=.trusted-e2e-filter/.github/scripts/classify-node-changes.sh
+          if [[ -x "$node_classifier" ]] &&
+             printf '%s\n' "$paths" | "$node_classifier" "$node_output" >/dev/null &&
+             grep -qx 'node_reuse=true' "$node_output"; then
+            echo "node_reuse=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "node_reuse=false" >> "$GITHUB_OUTPUT"
+          fi
+          rm -f "$node_output"
 
       - name: Build matrix from proposed shard manifest
         id: plan
@@ -320,19 +335,40 @@ jobs:
         with:
           sccache-credential-mode: reader
 
+      - name: Fetch base commit's release node
+        id: base-node
+        if: >-
+          steps.reuse.outputs.reused != 'true' &&
+          github.event_name == 'pull_request' &&
+          needs.changes.outputs.node_reuse == 'true'
+        uses: ./.github/actions/fetch-base-node
+        with:
+          runtime: non-fast-runtime
+
       - name: Build node-subtensor (release)
         if: steps.reuse.outputs.reused != 'true'
-        run: cargo build --profile release -p node-subtensor
+        env:
+          BASE_NODE: ${{ steps.base-node.outputs.node }}
+        run: |
+          set -euo pipefail
+          reuse=()
+          [[ -z "$BASE_NODE" ]] || reuse=(--base-node "$BASE_NODE")
+          .github/scripts/build-node-reusing-base.py --node target/release/node-subtensor "${reuse[@]}" \
+            -- cargo build --profile release -p node-subtensor
 
       - name: Report release compiler cache
         if: always() && steps.reuse.outputs.reused != 'true'
         run: .github/scripts/sccache-report.sh "E2E release compiler cache"
 
-      - name: Upload binary
+      # The wasm travels with the node: when the node came from the base
+      # commit, suites boot it with this wasm via SUBTENSOR_LOCALNET_RUNTIME_WASM.
+      - name: Upload node and runtime wasm
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: node-subtensor-release
-          path: target/release/node-subtensor
+          path: |
+            target/release/node-subtensor
+            target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
           if-no-files-found: error
           retention-days: 3
 
@@ -352,6 +388,7 @@ jobs:
       RUST_BACKTRACE: full
     permissions:
       contents: read
+      actions: read
     steps:
       - name: Check-out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -363,18 +400,34 @@ jobs:
           sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
           sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
+      - name: Fetch base commit's fast-runtime node
+        id: base-node
+        if: github.event_name == 'pull_request' && needs.changes.outputs.node_reuse == 'true'
+        uses: ./.github/actions/fetch-base-node
+        with:
+          runtime: fast-runtime
+
       - name: Build node-subtensor (fast)
-        run: cargo build --profile release --features fast-runtime -p node-subtensor
+        env:
+          BASE_NODE: ${{ steps.base-node.outputs.node }}
+        run: |
+          set -euo pipefail
+          reuse=()
+          [[ -z "$BASE_NODE" ]] || reuse=(--base-node "$BASE_NODE")
+          .github/scripts/build-node-reusing-base.py --node target/release/node-subtensor "${reuse[@]}" \
+            -- cargo build --profile release --features fast-runtime -p node-subtensor
 
       - name: Report fast compiler cache
         if: always()
         run: .github/scripts/sccache-report.sh "E2E fast compiler cache"
 
-      - name: Upload binary
+      - name: Upload node and runtime wasm
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: node-subtensor-fast
-          path: target/release/node-subtensor
+          path: |
+            target/release/node-subtensor
+            target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
           if-no-files-found: error
           retention-days: 3
 

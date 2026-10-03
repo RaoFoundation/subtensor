@@ -13,7 +13,7 @@ use share_pool::SafeFloat;
 use sp_core::U256;
 use sp_runtime::traits::Block as BlockT;
 use sp_runtime::{AccountId32, PerU16};
-use substrate_fixed::types::{I96F32, U64F64};
+use substrate_fixed::types::I96F32;
 use subtensor_custom_rpc_runtime_api::{DelegateInfoRuntimeApi, StakeInfoRuntimeApi};
 use subtensor_runtime_common::{AlphaBalance, MechId, NetUid, NetUidStorageIndex, TaoBalance};
 
@@ -75,9 +75,7 @@ fn indexer_stake_and_alpha_shares() {
         let coldkey = U256::from(2);
 
         let _: AlphaBalance = TotalHotkeyAlpha::<Test>::get(hotkey, netuid);
-        let _: U64F64 = TotalHotkeyShares::<Test>::get(hotkey, netuid);
         let _: SafeFloat = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
-        let _: U64F64 = Alpha::<Test>::get((hotkey, coldkey, netuid));
         let _: SafeFloat = AlphaV2::<Test>::get((hotkey, coldkey, netuid));
     });
 }

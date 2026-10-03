@@ -751,7 +751,10 @@ pub fn remove_balance_from_coldkey_account(coldkey: &U256, tao: TaoBalance) {
 pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
     let netuid = SubtensorModule::get_next_netuid();
     let lock_cost = SubtensorModule::get_network_lock_cost();
-    add_balance_to_coldkey_account(coldkey, lock_cost.into());
+    add_balance_to_coldkey_account(
+        coldkey,
+        ExistentialDeposit::get().saturating_add(lock_cost.into()),
+    );
 
     assert_ok!(SubtensorModule::register_network(
         RawOrigin::Signed(*coldkey).into(),

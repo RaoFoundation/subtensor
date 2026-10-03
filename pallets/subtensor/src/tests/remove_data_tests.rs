@@ -124,6 +124,8 @@ fn test_remove_data_for_dissolved_networks_all_phases() {
         );
         PendingBasketDeposits::<Test>::insert(owner_hot, netuid, pending_alpha);
         PendingBasketDeposits::<Test>::insert(owner_hot, other_netuid, AlphaBalance::from(777));
+        StakeMoveCooldownUntil::<Test>::insert(netuid, owner_hot, 100);
+        StakeMoveCooldownUntil::<Test>::insert(other_netuid, owner_hot, 100);
 
         // Now test the full dissolution cleanup process by running on_idle multiple times
         // until all phases complete
@@ -161,6 +163,13 @@ fn test_remove_data_for_dissolved_networks_all_phases() {
 
         // Verify the subnet no longer exists
         assert!(!SubtensorModule::if_subnet_exist(netuid));
+        assert!(!StakeMoveCooldownUntil::<Test>::contains_key(
+            netuid, owner_hot
+        ));
+        assert!(StakeMoveCooldownUntil::<Test>::contains_key(
+            other_netuid,
+            owner_hot
+        ));
 
         // The dissolved netuid's queued credit is gone; the unrelated netuid's survives.
         assert!(!PendingBasketDeposits::<Test>::contains_key(
@@ -834,6 +843,13 @@ fn test_clean_up_hotkey_swap_records() {
         let swap_block_other_new: u64 = 101;
         LastHotkeySwapOnNetuid::<Test>::insert(netuid_2, coldkey_other_new, swap_block_other_new);
 
+        let expired_hotkey = U256::from(5001);
+        let active_hotkey = U256::from(5002);
+        let other_hotkey = U256::from(5003);
+        StakeMoveCooldownUntil::<Test>::insert(netuid_1, expired_hotkey, block_number);
+        StakeMoveCooldownUntil::<Test>::insert(netuid_1, active_hotkey, block_number + 1);
+        StakeMoveCooldownUntil::<Test>::insert(netuid_2, other_hotkey, block_number);
+
         // Before calling the function, verify the records exist
         assert!(LastHotkeySwapOnNetuid::<Test>::contains_key(
             netuid_1,
@@ -877,6 +893,18 @@ fn test_clean_up_hotkey_swap_records() {
             LastHotkeySwapOnNetuid::<Test>::contains_key(netuid_2, coldkey_other_new),
             "Hotkey swap record for netuid_2 should remain untouched"
         );
+        assert!(!StakeMoveCooldownUntil::<Test>::contains_key(
+            netuid_1,
+            expired_hotkey
+        ));
+        assert!(StakeMoveCooldownUntil::<Test>::contains_key(
+            netuid_1,
+            active_hotkey
+        ));
+        assert!(StakeMoveCooldownUntil::<Test>::contains_key(
+            netuid_2,
+            other_hotkey
+        ));
 
         // We can also check that the weight returned is reasonable (non-zero and not max)
         // Note: Weight comparison is tricky, but we can at least check it's not zero

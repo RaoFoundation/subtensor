@@ -107,6 +107,80 @@ jobs:
           # The tarball is already gzipped.
           compression-level: 0
 
+      - name: Ensure verified AWS CLI for R2 mirror
+        env:
+          AWS_CLI_VERSION: "2.37.8"
+          AWS_CLI_KEY_FINGERPRINT: "FB5DB77FD5C118B80511ADA8A6310ACC4672475C"
+        run: |
+          set -euo pipefail
+          if ! command -v aws >/dev/null 2>&1; then
+            archive="$RUNNER_TEMP/awscliv2-${AWS_CLI_VERSION}.zip"
+            signature="$archive.sig"
+            install_dir="$RUNNER_TEMP/aws-cli-${AWS_CLI_VERSION}"
+            bin_dir="$RUNNER_TEMP/aws-bin"
+            key_file="$RUNNER_TEMP/aws-cli-public-key.asc"
+            status_file="$RUNNER_TEMP/aws-cli-gpg-status"
+            mkdir -p "$bin_dir" "$RUNNER_TEMP/aws-gnupg"
+            chmod 700 "$RUNNER_TEMP/aws-gnupg"
+            curl --fail --silent --show-error --location \
+              "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWS_CLI_VERSION}.zip" \
+              --output "$archive"
+            curl --fail --silent --show-error --location \
+              "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWS_CLI_VERSION}.zip.sig" \
+              --output "$signature"
+            cat > "$key_file" <<'KEY'
+          -----BEGIN PGP PUBLIC KEY BLOCK-----
+          mQINBF2Cr7UBEADJZHcgusOJl7ENSyumXh85z0TRV0xJorM2B/JL0kHOyigQluUG
+          ZMLhENaG0bYatdrKP+3H91lvK050pXwnO/R7fB/FSTouki4ciIx5OuLlnJZIxSzx
+          PqGl0mkxImLNbGWoi6Lto0LYxqHN2iQtzlwTVmq9733zd3XfcXrZ3+LblHAgEt5G
+          TfNxEKJ8soPLyWmwDH6HWCnjZ/aIQRBTIQ05uVeEoYxSh6wOai7ss/KveoSNBbYz
+          gbdzoqI2Y8cgH2nbfgp3DSasaLZEdCSsIsK1u05CinE7k2qZ7KgKAUIcT/cR/grk
+          C6VwsnDU0OUCideXcQ8WeHutqvgZH1JgKDbznoIzeQHJD238GEu+eKhRHcz8/jeG
+          94zkcgJOz3KbZGYMiTh277Fvj9zzvZsbMBCedV1BTg3TqgvdX4bdkhf5cH+7NtWO
+          lrFj6UwAsGukBTAOxC0l/dnSmZhJ7Z1KmEWilro/gOrjtOxqRQutlIqG22TaqoPG
+          fYVN+en3Zwbt97kcgZDwqbuykNt64oZWc4XKCa3mprEGC3IbJTBFqglXmZ7l9ywG
+          EEUJYOlb2XrSuPWml39beWdKM8kzr1OjnlOm6+lpTRCBfo0wa9F8YZRhHPAkwKkX
+          XDeOGpWRj4ohOx0d2GWkyV5xyN14p2tQOCdOODmz80yUTgRpPVQUtOEhXQARAQAB
+          tCFBV1MgQ0xJIFRlYW0gPGF3cy1jbGlAYW1hem9uLmNvbT6JAlQEEwEIAD4CGwMF
+          CwkIBwIGFQoJCAsCBBYCAwECHgECF4AWIQT7Xbd/1cEYuAURraimMQrMRnJHXAUC
+          akV0ygUJDqP4lQAKCRCmMQrMRnJHXFHjD/9eyZLYcKuQOlLvtqSDtUBiEZf6ZZjM
+          hSGgpgtNnQyMV1jViRWqPjbouw8OkYKBThUfT1i2Y+wn58ifs6ODBCmTexWtXspA
+          Si+Gt49xDOW0APmbOPnI+a4HJW6tVEo6MWS0WjzpiBayR3d1A4pt4YrPfSdDgpLo
+          h2SLQqlRqvvVZJaWBjhkErNFpfsBA06sDcPEOb0G8LBUbR4WOcdvhe5LubJbZuxC
+          AG9kNPCVeQP1ixwjgjXKysaxeQ6rv0VzIQgRp6tLVLWhy6AKDNvLjFSsmXZ1Wl08
+          Y/RlOHXlzLuQMRE6sR1wOdRxc9TsrNWTGiBK65cvSWOy03JeBkQQ8pesqltiyxI9
+          U21kkgiXtTSKNGfKK8pO27D81YANhRqPK7iTp6kuFiY2WtOg90KTMNlIT+Ff85Y2
+          XPKL2Hjk6ZrKkCjJujhWk3IBPic/wJgz01LEc/OAdUPlby90RJZcIBhSlWhT7mXnXIO
+          c0HWlNQrns2s3CTyYwZSiSlYe9ApeLwhjDo8NhbFuCAy61l6O5UsR4AfZxx/rGKv
+          2wFb1/RN/P4gNe6vmZAPjR0AQcwD3tc2McimOLr/22kmPz8IH3I0X7WoSFr0Biz
+          E91G7bb0hObcA==
+          =knv7
+          -----END PGP PUBLIC KEY BLOCK-----
+          KEY
+            GNUPGHOME="$RUNNER_TEMP/aws-gnupg" gpg --batch --import "$key_file"
+            GNUPGHOME="$RUNNER_TEMP/aws-gnupg" gpg --batch --status-fd=1 \
+              --verify "$signature" "$archive" > "$status_file" 2>/dev/null
+            grep -Fq "VALIDSIG $AWS_CLI_KEY_FINGERPRINT " "$status_file"
+            rm -rf "$RUNNER_TEMP/aws"
+            if command -v unzip >/dev/null 2>&1; then
+              unzip -q "$archive" -d "$RUNNER_TEMP"
+            else
+              python3 - "$archive" "$RUNNER_TEMP" <<'PY'
+          import sys
+          import zipfile
+
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              archive.extractall(sys.argv[2])
+          PY
+            fi
+            "$RUNNER_TEMP/aws/install" \
+              --bin-dir "$bin_dir" \
+              --install-dir "$install_dir" \
+              --update
+            echo "$bin_dir" >> "$GITHUB_PATH"
+          fi
+          aws --version
+
       - name: Mirror snapshot for fleet prefetch
         env:
           GH_TOKEN: ${{ github.token }}

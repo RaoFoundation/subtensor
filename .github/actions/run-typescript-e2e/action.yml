@@ -22,9 +22,15 @@ runs:
         name: node-subtensor-${{ inputs.binary }}
         path: target/release
 
-    - name: Make binary executable
+    # The node may come from the base commit (build-node-reusing-base.py), so
+    # `dev` and `local` chains take this revision's runtime from the artifact.
+    - name: Prepare node and runtime wasm
       shell: bash
-      run: chmod +x target/release/node-subtensor
+      run: |
+        chmod +x target/release/node-subtensor
+        wasm="$PWD/target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm"
+        test -s "$wasm"
+        echo "SUBTENSOR_LOCALNET_RUNTIME_WASM=$wasm" >> "$GITHUB_ENV"
 
     - name: Setup Node.js
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4

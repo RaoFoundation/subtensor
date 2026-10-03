@@ -1,15 +1,16 @@
 name: Publish Docker Image
 
-# Node images publish whenever main or a network mirror moves, on runtime
-# releases, and on demand. Main advances both :main and :latest so every
-# successful merge publishes the default production image without waiting for
-# a runtime release. Release-version and other branch tags never move :latest.
+# Node images publish whenever main or a network mirror moves, and on demand.
+# Each branch publishes its moving tag (:main, :devnet, :testnet, :mainnet).
+# The mainnet mirror moves only after watch-mainnet-release.yml verifies that
+# the runtime executed on chain, so its build also publishes the immutable
+# :v<spec_version> release tag and :latest. :latest is therefore always the
+# code running on mainnet. Dispatch with tag=mainnet to republish the current
+# mainnet release.
 
 on:
-  release:
-    types: [published]
   push:
-    branches: [main, devnet, testnet]
+    branches: [main, devnet, testnet, mainnet]
   workflow_dispatch:
     inputs:
       tag:
@@ -19,9 +20,10 @@ on:
 
 concurrency:
   group: docker-${{ github.ref }}
-  # Main publications run serially so an older push cannot finish after a
-  # newer one and roll :latest backward. Other refs keep the fast-cancel path.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # Main and mainnet publications run serially so an older push cannot finish
+  # after a newer one and roll a moving tag backward. Other refs keep the
+  # fast-cancel path.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/mainnet' }}
 
 permissions:
   contents: read
@@ -30,18 +32,45 @@ permissions:
 jobs:
   setup:
     runs-on: ubuntu-latest
+    env:
+      INPUT_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     outputs:
-      sha: ${{ steps.ref.outputs.sha }}
+      sha: ${{ steps.source.outputs.sha }}
+      tags: ${{ steps.tags.outputs.tags }}
+      mainnet_release: ${{ steps.tags.outputs.mainnet_release }}
     steps:
-      - uses: actions/checkout@v4
+      # Publication policy belongs to the workflow revision, not the selected
+      # source: a manual run may build an older ref whose copy of these
+      # scripts predates the current policy.
+      - name: Check out publication tooling
+        uses: actions/checkout@v4
         with:
-          # Push/release events carry the immutable promoted commit. Manual
+          ref: ${{ github.workflow_sha }}
+
+      - name: Check out source revision
+        uses: actions/checkout@v4
+        with:
+          # Push events carry the immutable promoted commit. Manual
           # dispatches may override it with a branch or tag.
           ref: ${{ github.event.inputs.tag || github.sha }}
+          path: source
 
       - name: Resolve immutable source revision
-        id: ref
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        id: source
+        run: echo "sha=$(git -C source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve mainnet release
+        id: release
+        if: env.INPUT_TAG == 'mainnet'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./.github/scripts/resolve-mainnet-release.sh source
+
+      - name: Resolve image tags
+        id: tags
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+        run: ./.github/scripts/resolve-node-image.sh
 
   binary:
     name: production binary (${{ matrix.platform.arch }})
@@ -125,12 +154,6 @@ jobs:
         with:
           ref: ${{ needs.setup.outputs.sha }}
 
-      - name: Determine tag and image name
-        env:
-          INPUT_TAG: ${{ github.event.inputs.tag || github.ref_name }}
-          SOURCE_REF: ${{ github.ref }}
-        run: ./.github/scripts/resolve-node-image.sh
-
       - name: Download AMD64 production binary
         uses: actions/download-artifact@v5
         with:
@@ -156,15 +179,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify current main revision
-        if: env.latest_tag == 'true'
+      # A newer mainnet release may have moved the mirror while this image
+      # was building.
+      - name: Verify current mainnet revision
+        if: needs.setup.outputs.mainnet_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BUILT_SHA: ${{ needs.setup.outputs.sha }}
         run: |
-          current_main=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
-          [ "$BUILT_SHA" = "$current_main" ] || {
-            echo "Refusing to move :latest from stale main revision $BUILT_SHA; current main is $current_main" >&2
+          current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/mainnet" --jq '.object.sha')
+          [ "$BUILT_SHA" = "$current" ] || {
+            echo "Refusing to move :mainnet and :latest from stale revision $BUILT_SHA; the mainnet mirror is now $current" >&2
             exit 1
           }
 
@@ -175,6 +200,4 @@ jobs:
           file: Dockerfile.prebuilt
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.image }}:${{ env.tag }}
-            ${{ env.latest_tag == 'true' && format('{0}:latest', env.image) || '' }}
+          tags: ${{ needs.setup.outputs.tags }}

@@ -60,8 +60,9 @@ Key properties:
   proposal (CI holds one key of a 2-of-2 deployment multisig with a
   `SudoUncheckedSetCode` proxy); the triumvirate approves 2-of-3 out-of-band.
   Once the upgrade executes on chain, `watch-mainnet-release.yml` cuts the
-  GitHub release and publishes Docker images, the Python SDK, Rust crates,
-  and the production website/docs.
+  GitHub release and moves the `mainnet` branch, which publishes the Docker
+  images, with no further approval. The stable Python SDK and the production
+  website/docs follow after a `mainnet` environment approval.
 
 After your change deploys to testnet, it is your responsibility to verify it
 works there. If it doesn't, coordinate with a core team administrator and open

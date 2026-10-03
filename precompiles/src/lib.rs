@@ -27,6 +27,10 @@ use pallet_evm::{
     AddressMapping, IsPrecompileResult, Precompile, PrecompileHandle, PrecompileResult,
     PrecompileSet,
 };
+use pallet_evm_precompile_bls12381::{
+    Bls12381G1Add, Bls12381G1MultiExp, Bls12381G2Add, Bls12381G2MultiExp, Bls12381MapG1,
+    Bls12381MapG2, Bls12381Pairing,
+};
 use pallet_evm_precompile_bn128::{Bn128Add, Bn128Mul, Bn128Pairing};
 use pallet_evm_precompile_dispatch::Dispatch;
 use pallet_evm_precompile_modexp::Modexp;
@@ -73,6 +77,9 @@ mod voting_power;
 
 #[cfg(test)]
 mod mock;
+
+#[cfg(test)]
+mod bls12381_tests;
 
 pub struct Precompiles<R>(PhantomData<R>);
 
@@ -176,6 +183,7 @@ where
             || address == hash(7)
             || address == hash(8)
             || address == hash(9)
+            || (0x0b..=0x11).any(|index| address == hash(index))
             || address == hash(1024)
             || address == hash(1025)
             || address == hash(Ed25519Verify::<R::AccountId>::INDEX)
@@ -191,7 +199,7 @@ where
             || address == hash(PrecompileRegistry::<R>::INDEX)
     }
 
-    pub fn used_addresses() -> [H160; 33] {
+    pub fn used_addresses() -> [H160; 40] {
         [
             hash(1),
             hash(2),
@@ -202,6 +210,13 @@ where
             hash(7),
             hash(8),
             hash(9),
+            hash(0x0b),
+            hash(0x0c),
+            hash(0x0d),
+            hash(0x0e),
+            hash(0x0f),
+            hash(0x10),
+            hash(0x11),
             hash(1024),
             hash(1025),
             hash(Ed25519Verify::<R::AccountId>::INDEX),
@@ -296,6 +311,14 @@ where
             a if a == hash(7) => Some(Bn128Mul::execute(handle)),
             a if a == hash(8) => Some(Bn128Pairing::execute(handle)),
             a if a == hash(9) => Some(Bn128Add::execute(handle)),
+            // Final EIP-2537. MSM includes single-point multiplication (k = 1).
+            a if a == hash(0x0b) => Some(Bls12381G1Add::execute(handle)),
+            a if a == hash(0x0c) => Some(Bls12381G1MultiExp::execute(handle)),
+            a if a == hash(0x0d) => Some(Bls12381G2Add::execute(handle)),
+            a if a == hash(0x0e) => Some(Bls12381G2MultiExp::execute(handle)),
+            a if a == hash(0x0f) => Some(Bls12381Pairing::execute(handle)),
+            a if a == hash(0x10) => Some(Bls12381MapG1::execute(handle)),
+            a if a == hash(0x11) => Some(Bls12381MapG2::execute(handle)),
             // Non-Frontier specific nor Ethereum precompiles :
             a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),

@@ -31,7 +31,8 @@ name: Release Train
 #     of the spec_version guard
 #
 # After the multisig executes on chain, watch-mainnet-release.yml cuts the
-# release (GitHub release, PyPI stable, crates.io, docs promotion).
+# release without another approval: mainnet mirror (and with it the mainnet
+# Docker images) and GitHub release, then PyPI stable and docs promotion.
 
 on:
   push:

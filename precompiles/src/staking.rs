@@ -56,9 +56,8 @@ use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, TaoBalance, Toke
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 
-// `get_stake_for_hotkey_and_coldkey_on_subnet` reads the transitional V1/V2
-// share storage. In the V2 fallback case it performs two reads for the initial
-// share lookup, then five more for the value, share, and denominator.
+// Preserve the conservative released charge for stake reads, including the
+// current share, pool value, denominator, and retirement epochs.
 const STAKE_INFO_READS_PER_HOTKEY: u64 = 7;
 // Conservative charge for decoding and validating each 32-byte hotkey.
 const STAKE_INFO_INPUT_GAS_PER_HOTKEY: u64 = 64;
@@ -1878,7 +1877,11 @@ where
     let mut raw_positions = 0u64;
     let mut matched_positions = 0u64;
     for hotkey in hotkeys {
-        for (netuid, _) in pallet_subtensor::Alpha::<R>::iter_prefix((&hotkey, coldkey)) {
+        for (netuid, _) in
+            pallet_subtensor::migrations::migrate_alpha_v2::retired::Alpha::<R>::iter_prefix((
+                &hotkey, coldkey,
+            ))
+        {
             raw_positions = raw_positions.saturating_add(1);
             if selected_netuid.is_none_or(|selected| selected == netuid) {
                 matched_positions = matched_positions.saturating_add(1);
@@ -4179,6 +4182,27 @@ mod tests {
             let cost = RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(reads);
             let address = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
             let precompiles = Precompiles::<Runtime>::new();
+
+            // Released V1 calldata must continue to read migrated V2 storage and
+            // retain its EVM decimal units (V2 returns TAO rao).
+            precompiles
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompile::<Runtime>::INDEX),
+                    encode_with_selector(
+                        selector_u32("getTotalColdkeyStake(bytes32)"),
+                        (coldkey_word,),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(cost)
+                .execute_returns(
+                    <Runtime as pallet_evm::Config>::BalanceConverter::into_evm_balance(
+                        SubstrateBalance::from(total),
+                    )
+                    .unwrap()
+                    .into_u256(),
+                );
 
             precompiles
                 .prepare_test(

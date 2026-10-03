@@ -4,53 +4,55 @@ set -euo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 resolver="$script_dir/resolve-node-image.sh"
+image=ghcr.io/raofoundation/subtensor
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 run_case() {
   local name="$1"
   local input_tag="$2"
-  local source_ref="$3"
-  local expected_tag="$4"
-  local expected_latest="$5"
+  local release_tag="$3"
+  local expected_tags="$4"
+  local expected_mainnet="$5"
   local output="$tmp/$name"
 
   GITHUB_REPOSITORY=RaoFoundation/subtensor \
     INPUT_TAG="$input_tag" \
-    SOURCE_REF="$source_ref" \
+    RELEASE_TAG="$release_tag" \
     "$resolver" "$output"
 
-  grep -qxF "tag=$expected_tag" "$output"
-  grep -qxF "latest_tag=$expected_latest" "$output"
-  grep -qxF "image=ghcr.io/raofoundation/subtensor" "$output"
+  grep -qxF "tags=$expected_tags" "$output" || {
+    echo "$name: unexpected tags" >&2
+    cat "$output" >&2
+    exit 1
+  }
+  grep -qxF "mainnet_release=$expected_mainnet" "$output"
 }
 
-run_case main main refs/heads/main main true
-run_case stale-main main refs/tags/v448 main false
-run_case testnet testnet refs/heads/testnet testnet false
-run_case release v448 refs/tags/v448 v448 false
-run_case feature feature/example refs/heads/feature/example feature-example false
+expect_failure() {
+  local name="$1"
+  local input_tag="$2"
+  local release_tag="$3"
 
-workflow="$script_dir/../workflows/docker.yml"
-grep -qF 'branches: [main, devnet, testnet]' "$workflow"
-grep -qF 'run: ./.github/scripts/resolve-node-image.sh' "$workflow"
-grep -qF "env.latest_tag == 'true'" "$workflow"
-grep -qF "cancel-in-progress: \${{ github.ref != 'refs/heads/main' }}" "$workflow"
-grep -qF 'current_main=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main"' "$workflow"
-
-publish_job=$(sed -n '/^  publish:/,$p' "$workflow")
-checkout_line=$(grep -nF 'ref: ${{ needs.setup.outputs.sha }}' <<<"$publish_job" | head -n 1 | cut -d: -f1)
-resolver_line=$(grep -nF 'run: ./.github/scripts/resolve-node-image.sh' <<<"$publish_job" | cut -d: -f1)
-[[ "$checkout_line" -lt "$resolver_line" ]] || {
-  echo "publish job must check out the pinned source before running its resolver" >&2
-  exit 1
+  if GITHUB_REPOSITORY=RaoFoundation/subtensor \
+      INPUT_TAG="$input_tag" \
+      RELEASE_TAG="$release_tag" \
+      "$resolver" "$tmp/$name" >/dev/null 2>&1; then
+    echo "$name: unexpectedly succeeded" >&2
+    exit 1
+  fi
 }
 
-head_check_line=$(grep -nF 'name: Verify current main revision' <<<"$publish_job" | cut -d: -f1)
-push_line=$(grep -nF 'name: Build and push' <<<"$publish_job" | cut -d: -f1)
-[[ "$head_check_line" -lt "$push_line" ]] || {
-  echo "publish job must reject stale main revisions before pushing" >&2
-  exit 1
-}
+# Merged but undeployed code never becomes :latest.
+run_case main main "" "$image:main" false
+run_case testnet testnet "" "$image:testnet" false
+run_case feature feature/example "" "$image:feature-example" false
+run_case manual-release v470 "" "$image:v470" false
+# Only the verified mainnet mirror publishes the release tag and :latest.
+run_case mainnet mainnet v470 "$image:mainnet,$image:v470,$image:latest" true
+
+expect_failure mainnet-without-release mainnet ""
+expect_failure mainnet-malformed-release mainnet "470"
+expect_failure release-tag-off-mainnet main v470
 
 echo "node image tag policy checks passed"

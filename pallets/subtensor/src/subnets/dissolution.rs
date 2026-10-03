@@ -1,4 +1,5 @@
 use super::*;
+use crate::weights::WeightInfo;
 use frame_support::weights::WeightMeter;
 use pallet_alpha_assets::AlphaAssetsInterface;
 use subtensor_runtime_common::{NetUid, clear_prefix_with_meter};
@@ -261,6 +262,8 @@ impl<T: Config> Pallet<T> {
 
         if !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             LastHotkeySwapOnNetuid::<T>::clear_prefix(netuid, limit, None)
+        }) || !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            StakeMoveCooldownUntil::<T>::clear_prefix(netuid, limit, None)
         }) || !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             HotkeySuccessor::<T>::clear_prefix(netuid, limit, None)
         }) || !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
@@ -1047,9 +1050,9 @@ impl<T: Config> Pallet<T> {
         let queue = NetworkRegistrationQueue::<T>::get();
         let mut weight = db_weight.reads(1);
 
-        for (index, info) in queue.iter().enumerate() {
-            // just complete one registration at a time since on_idle just complete one network dissolve cleanup
-            // if one registration fails, then try next one. it could be not align with the order of registration in the queue
+        // Bound work to one attempted settlement or cancellation per idle call.
+        // A failed entry must not create partial state or block later entries forever.
+        if let Some(info) = queue.first() {
             match Self::set_new_network_state(
                 &info.coldkey,
                 &info.hotkey,
@@ -1060,18 +1063,41 @@ impl<T: Config> Pallet<T> {
                 Some(info.lock_id),
             ) {
                 Ok(post_info) => {
-                    NetworkRegistrationQueue::<T>::mutate(|queue| queue.remove(index));
+                    NetworkRegistrationQueue::<T>::mutate(|queue| queue.remove(0));
                     weight.saturating_accrue(db_weight.reads_writes(1, 1));
                     weight.saturating_accrue(post_info.actual_weight.unwrap_or_else(Weight::zero));
                     return weight;
                 }
-                Err(_) => {
+                Err(error) => {
+                    // Settlement is transactional even outside an extrinsic. Charge
+                    // attempted work as well as the refund/queue bookkeeping.
+                    weight.saturating_accrue(<T as Config>::WeightInfo::register_network());
+                    if error.error == Error::<T>::SubnetLimitReached.into() {
+                        return weight;
+                    }
                     log::error!(
                         "Failed to set new network state for coldkey: {:?}, hotkey: {:?}",
                         info.coldkey,
                         info.hotkey
                     );
-                    continue;
+                    // Leave the obligation recorded if refund itself fails. Never
+                    // discard an escrow claim without returning its principal.
+                    let cancelled: DispatchResult =
+                        frame_support::storage::with_storage_layer(|| {
+                            Self::refund_network_registration_cost(&info.coldkey, info.lock_id)?;
+                            NetworkRegistrationQueue::<T>::mutate(|queue| queue.remove(0));
+                            Self::deposit_event(Event::NetworkRegistrationCancelled {
+                                coldkey: info.coldkey.clone(),
+                                hotkey: info.hotkey.clone(),
+                                lock_id: info.lock_id,
+                                error: error.error,
+                            });
+                            Ok(())
+                        });
+                    weight.saturating_accrue(db_weight.reads_writes(5, 4));
+                    if let Err(refund_error) = cancelled {
+                        log::error!("Registration refund failed: {:?}", refund_error);
+                    }
                 }
             }
         }

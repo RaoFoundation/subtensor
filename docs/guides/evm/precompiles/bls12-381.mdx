@@ -1,0 +1,76 @@
+---
+title: BLS12-381 verification
+description: EIP-2537 curve operations, encodings, gas costs, and a Solidity BLS signature verification example.
+---
+
+The runtime implements the seven precompiles from the final
+[EIP-2537 specification](https://eips.ethereum.org/EIPS/eip-2537).
+They become available on a network when the runtime containing this change is
+activated. A Frontier Git commit or node binary alone does not activate them.
+
+| Address | Operation | Input bytes | Output bytes | Gas |
+|---|---|---|---|---|
+| `0x0b` | G1 addition | 256 | 128 | 375 |
+| `0x0c` | G1 multi-scalar multiplication (MSM) | 160 × k | 128 | 12,000 × k × G1 discount / 1,000 |
+| `0x0d` | G2 addition | 512 | 256 | 600 |
+| `0x0e` | G2 MSM | 288 × k | 256 | 22,500 × k × G2 discount / 1,000 |
+| `0x0f` | Pairing check | 384 × k | 32 | 37,700 + 32,600 × k |
+| `0x10` | Map Fp to G1 | 64 | 128 | 5,500 |
+| `0x11` | Map Fp2 to G2 | 128 | 256 | 23,800 |
+
+Here `k` must be positive. The MSM discounts are the separate G1 and G2 tables
+in EIP-2537; the entries for 128 points also apply to larger inputs. Division
+rounds down. An MSM with one point performs ordinary scalar multiplication.
+The gas above excludes the EVM call and transaction overhead.
+
+These are stateless, selectorless precompiles. Send packed bytes directly using
+`staticcall`, without a Solidity function selector or an ABI `bytes` length/offset
+wrapper. `CALL`, `STATICCALL`, `DELEGATECALL`, and `CALLCODE` are supported.
+They have no Bittensor administrative enable/disable switch.
+
+Fp coordinates are 64-byte big-endian integers, strictly less than the field
+modulus; the first 16 bytes must be zero. Fp2 is encoded as `c0 || c1`.
+A G1 point is `x || y` (128 bytes), and a G2 point is
+`x.c0 || x.c1 || y.c0 || y.c1` (256 bytes). All-zero coordinates encode infinity.
+Scalars are 32-byte big-endian integers and need not be less than the subgroup
+order. These encodings differ from compressed BLS public keys and signatures.
+
+MSM and pairing reject points outside the prime-order subgroup. Addition only
+checks curve membership, as required by EIP-2537. Invalid lengths, invalid
+coordinates, and failed subgroup checks cause exceptional failure and burn all
+gas forwarded to that call. A valid pairing equation that does not hold returns
+32-byte zero; an equation that holds returns 32-byte one.
+
+Always check both the success flag and the expected output length: calling an
+address before its precompile is activated can succeed with empty return data.
+
+```solidity
+(bool ok, bytes memory output) = address(0x0f).staticcall(pairingInput);
+require(ok && output.length == 32, "pairing unavailable or invalid input");
+bool verified = abi.decode(output, (uint256)) == 1;
+```
+
+## Signature verification example
+
+`precompiles/tests/fixtures/Bls12381Example.sol` is a complete single-signature
+example using public keys in G1, signatures in G2, and the
+`BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_` ciphersuite. It expands the message
+with SHA-256, reduces four 512-bit values to field elements using Modexp, maps
+two Fp2 elements with `0x11`, adds them with `0x0d`, and checks the two-pair
+equation with `0x0f`. It rejects infinity keys and signatures.
+
+The example expects uncompressed EIP-2537 point encoding. It does not implement
+aggregate verification, compressed-point decoding, or proof-of-possession key
+registration. Use a ciphersuite and domain separation appropriate to your
+protocol; an arbitrary caller-supplied curve point is not a substitute for
+hashing the intended message.
+
+Rust tests execute the compiled Solidity example through Frontier, using
+independent Noble BLS signatures for empty, short, and multi-block messages.
+They also cover wrong messages, infinity, invalid lengths, all four call modes,
+and exceptional gas consumption. The fixture generator pins solc 0.8.21 and
+Noble 1.9.7 and records the regeneration command in its source.
+
+The precompile tests additionally run the pinned Geth conformance vectors for
+all seven operations, including exact output and gas checks. Existing Solidity
+interfaces, selectors, and Bittensor precompile addresses remain unchanged.

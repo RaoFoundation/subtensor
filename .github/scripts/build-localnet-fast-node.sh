@@ -4,6 +4,10 @@
 # sccache keys cover the rustc arguments, target, linker flags, and every
 # CARGO_* variable, so any drift between the two invocations turns every PR
 # compile into a cache miss.
+#
+# BASE_NODE, when set, names the base commit's localnet node; the build then
+# stops after the runtime wasm and keeps that node if it verifies
+# (build-node-reusing-base.py). The cargo invocation is identical either way.
 
 set -euo pipefail
 
@@ -13,7 +17,12 @@ set -euo pipefail
 rustup target add "$BUILD_TRIPLE"
 ./scripts/localnet_patch.sh
 
-CARGO_TARGET_DIR="target/$RUNTIME" cargo build \
+reuse=()
+[[ -z "${BASE_NODE:-}" ]] || reuse=(--base-node "$BASE_NODE")
+
+CARGO_TARGET_DIR="target/$RUNTIME" .github/scripts/build-node-reusing-base.py \
+  --node "target/$RUNTIME/$BUILD_TRIPLE/release/node-subtensor" "${reuse[@]}" -- \
+  cargo build \
   --locked \
   --profile release \
   --features "pow-faucet metadata-hash fast-runtime" \

@@ -73,6 +73,38 @@ fn precompile_registry_addresses_are_unique() {
 }
 
 #[test]
+fn eip2537_is_registered_in_the_production_runtime() {
+    new_test_ext().execute_with(|| {
+        let precompiles = <Runtime as pallet_evm::Config>::PrecompilesValue::get();
+        for (address, input_len, output_len, gas) in [
+            (0x0b, 256, 128, 375),
+            (0x0c, 160, 128, 12_000),
+            (0x0d, 512, 256, 600),
+            (0x0e, 288, 256, 22_500),
+            (0x0f, 384, 32, 70_300),
+            (0x10, 64, 128, 5_500),
+            (0x11, 128, 256, 23_800),
+        ] {
+            let address = addr_from_index(address);
+            let mut handle = MockHandle::new(
+                address,
+                Context {
+                    address,
+                    caller: addr_from_index(0xcafe),
+                    apparent_value: U256::zero(),
+                },
+            );
+            handle.input = vec![0; input_len];
+            handle.gas_limit = gas;
+            handle.is_static = true;
+            let output = precompiles.execute(&mut handle).unwrap().unwrap();
+            assert_eq!(output.output.len(), output_len);
+            assert_eq!(handle.gas_used, gas);
+        }
+    });
+}
+
+#[test]
 fn balance_transfer_precompile_transfers_balance() {
     new_test_ext().execute_with(|| {
         let precompiles = Precompiles::<Runtime>::new();

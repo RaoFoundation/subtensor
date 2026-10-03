@@ -1,7 +1,9 @@
 use super::*;
+use crate::migrations::migrate_alpha_v2::retired::{Alpha, TotalHotkeyShares};
 use frame_support::dispatch::{
     DispatchErrorWithPostInfo, DispatchResultWithPostInfo, PostDispatchInfo,
 };
+use frame_support::storage::StorageNMap as _;
 use frame_support::weights::Weight;
 use safe_math::*;
 use share_pool::{SafeFloat, SharePool, SharePoolDataOperations};
@@ -685,14 +687,26 @@ impl<T: Config> Pallet<T> {
         pool_before.saturating_sub(pool_after)
     }
 
-    /// Remove a staking-hotkey association once the pair has no stake left anywhere.
+    /// Keep the index until all alpha keys have been removed, across both share formats
+    /// and every subnet. Even a zero-valued share can grow with pool-wide dividends,
+    /// which do not recreate the index. Exact-zero rows are removed by storage GC.
+    /// Each prefix probe visits at most one key; no relationship-wide scan is needed.
+    pub(crate) fn staking_hotkey_must_remain(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) -> bool {
+        Alpha::<T>::contains_prefix((hotkey, coldkey))
+            || AlphaV2::<T>::contains_prefix((hotkey, coldkey))
+            || BasketClaimed::<T>::get(hotkey, coldkey) != 0
+    }
+
+    /// Remove a staking-hotkey association once the pair has no alpha keys left anywhere.
     ///
     /// A non-zero basket watermark also keeps the association alive. In particular, an
     /// unstaked root claimant can have a negative watermark representing basket shares that
     /// still need to be claimed or moved during a coldkey swap.
     pub(crate) fn maybe_remove_staking_hotkey(hotkey: &T::AccountId, coldkey: &T::AccountId) {
-        let has_stake = Self::alpha_iter_prefix((hotkey, coldkey)).next().is_some();
-        if has_stake || BasketClaimed::<T>::get(hotkey, coldkey) != 0 {
+        if Self::staking_hotkey_must_remain(hotkey, coldkey) {
             return;
         }
 
@@ -918,6 +932,32 @@ impl<T: Config> Pallet<T> {
         drop_fees: bool,
         enforce_root_hold: bool,
     ) -> Result<TaoBalance, DispatchError> {
+        Self::unstake_from_subnet_with_flush_work(
+            hotkey,
+            coldkey,
+            beneficiary,
+            netuid,
+            alpha,
+            price_limit,
+            drop_fees,
+            enforce_root_hold,
+        )
+        .map(|(tao, _)| tao)
+    }
+
+    /// Internal withdrawal result includes basket work so bounded callers can return
+    /// unused flush weight after reserving the same allowance as normal extrinsics.
+    pub(crate) fn unstake_from_subnet_with_flush_work(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        beneficiary: &T::AccountId,
+        netuid: NetUid,
+        alpha: AlphaBalance,
+        price_limit: TaoBalance,
+        drop_fees: bool,
+        enforce_root_hold: bool,
+    ) -> Result<(TaoBalance, crate::staking::basket_flush::BasketFlushWork), DispatchError> {
+        let mut flush_work = crate::staking::basket_flush::BasketFlushWork::default();
         // Root stake is the claimant base for queued basket deposits: flush the hotkey's
         // pending dividend credits before the stake leaves, so a staker doesn't forfeit
         // flushable dividends earned while they were staked. (Sub-threshold credits
@@ -926,7 +966,7 @@ impl<T: Config> Pallet<T> {
             if enforce_root_hold {
                 Self::ensure_root_stake_unlocked(coldkey, hotkey)?;
             }
-            Self::flush_basket_deposits_for_hotkey(hotkey);
+            (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(hotkey);
         }
 
         // Refuse to strip conviction-locked or collateral-bonded alpha even when
@@ -1010,7 +1050,7 @@ impl<T: Config> Pallet<T> {
             swap_result.fee_paid
         );
 
-        Ok(swap_result.amount_paid_out.into())
+        Ok((swap_result.amount_paid_out.into(), flush_work))
     }
 
     /// Stakes TAO into a subnet for a given hotkey and coldkey pair.

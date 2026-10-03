@@ -16,6 +16,8 @@ ark-std = { workspace = true }
 fp-evm = { workspace = true }
 
 [dev-dependencies]
+hex = { workspace = true }
+serde_json = { workspace = true }
 # Frontier
 pallet-evm-test-vector-support = { workspace = true }
 

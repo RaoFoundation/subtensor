@@ -31,6 +31,11 @@ This page explains what the check does and how to reproduce each step locally.
 4. **`npm test`** runs the smoke test; CI then runs the SDK metadata drift
    gate (`python -m codegen.check --drift`) against the upgraded chain.
 
+When a PR changes only runtime code, CI runs these steps with the node the
+PR's base commit published instead of building one, as mainnet validators do
+when a runtime upgrade is enacted. See
+[Testing a runtime without rebuilding the node](/docs/internals/testing#testing-a-runtime-without-rebuilding-the-node).
+
 ## Reproducing locally
 
 ```bash

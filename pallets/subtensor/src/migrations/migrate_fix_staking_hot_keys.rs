@@ -1,3 +1,4 @@
+use super::migrate_alpha_v2::retired::Alpha;
 use super::*;
 use frame_support::{traits::Get, weights::Weight};
 use log;

@@ -312,6 +312,65 @@ mod pallet_benchmarks {
         _(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
     }
 
+    /// Additional coverage for the custody path; retain reference-hardware
+    /// generation of the dispatch weight rather than inserting local numbers.
+    #[benchmark(extra)]
+    fn register_network_queued() {
+        let coldkey: T::AccountId = account("QueuedRegistration", 0, 1);
+        let hotkey: T::AccountId = account("QueuedHotkey", 0, 1);
+        let netuid = Subtensor::<T>::get_next_netuid();
+        let active = Subtensor::<T>::get_all_subnet_netuids()
+            .into_iter()
+            .filter(|n| *n != NetUid::ROOT)
+            .count() as u16;
+        SubnetLimit::<T>::put(active.saturating_add(1));
+        DissolveCleanupQueue::<T>::put(vec![netuid]);
+        Subtensor::<T>::set_network_rate_limit(0);
+        let cost = Subtensor::<T>::get_network_lock_cost();
+        add_balance_to_coldkey_account::<T>(&coldkey, cost.saturating_mul(3.into()));
+        let lock_id = NetworkRegistrationLockId::<T>::get();
+
+        #[extrinsic_call]
+        register_network(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
+
+        assert_eq!(
+            NetworkRegistrationEscrow::<T>::get(lock_id),
+            Some((coldkey, cost))
+        );
+        assert_eq!(NetworkRegistrationQueue::<T>::get().len(), 1);
+    }
+
+    #[benchmark(extra)]
+    fn settle_network_registration_escrow() {
+        let coldkey: T::AccountId = account("QueuedRegistration", 0, 1);
+        let hotkey: T::AccountId = account("QueuedHotkey", 0, 1);
+        let netuid = Subtensor::<T>::get_next_netuid();
+        let active = Subtensor::<T>::get_all_subnet_netuids()
+            .into_iter()
+            .filter(|n| *n != NetUid::ROOT)
+            .count() as u16;
+        SubnetLimit::<T>::put(active.saturating_add(1));
+        DissolveCleanupQueue::<T>::put(vec![netuid]);
+        Subtensor::<T>::set_network_rate_limit(0);
+        let cost = Subtensor::<T>::get_network_lock_cost();
+        add_balance_to_coldkey_account::<T>(&coldkey, cost.saturating_mul(3.into()));
+        assert_ok!(Subtensor::<T>::do_register_network(
+            RawOrigin::Signed(coldkey).into(),
+            &hotkey,
+            1,
+            None
+        ));
+        DissolveCleanupQueue::<T>::kill();
+
+        #[block]
+        {
+            Subtensor::<T>::process_network_registration_queue();
+        }
+
+        assert!(NetworkRegistrationQueue::<T>::get().is_empty());
+        assert_eq!(SubnetLocked::<T>::get(netuid), cost);
+    }
+
     #[benchmark]
     fn commit_weights() {
         let tempo: u16 = 1;
@@ -2075,7 +2134,9 @@ mod pallet_benchmarks {
         let netuid = Subtensor::<T>::get_next_netuid();
 
         let lock_cost = Subtensor::<T>::get_network_lock_cost();
-        add_balance_to_coldkey_account::<T>(&owner_coldkey, lock_cost.into());
+        // Registration must pay the full cost while keeping the owner account alive.
+        let ed = <T as pallet_balances::Config>::ExistentialDeposit::get();
+        add_balance_to_coldkey_account::<T>(&owner_coldkey, lock_cost.saturating_add(ed));
 
         assert_ok!(Subtensor::<T>::register_network(
             RawOrigin::Signed(owner_coldkey).into(),
@@ -2138,7 +2199,9 @@ mod pallet_benchmarks {
         let netuid = Subtensor::<T>::get_next_netuid();
 
         let lock_cost = Subtensor::<T>::get_network_lock_cost();
-        add_balance_to_coldkey_account::<T>(&owner_coldkey, lock_cost.into());
+        // Registration must pay the full cost while keeping the owner account alive.
+        let ed = <T as pallet_balances::Config>::ExistentialDeposit::get();
+        add_balance_to_coldkey_account::<T>(&owner_coldkey, lock_cost.saturating_add(ed));
 
         assert_ok!(Subtensor::<T>::register_network(
             RawOrigin::Signed(owner_coldkey).into(),

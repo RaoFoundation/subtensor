@@ -258,6 +258,7 @@ runtime-common = { package = "polkadot-runtime-common", git = "https://github.co
 # Frontier
 # Vendored via `git subtree` from RaoFoundation/frontier
 # (branch polkadot-stable2506-2-otf-get-call-indices-metadata, rev d553a1155).
+# BLS12-381 final EIP-2537: feat/bls12-381-eip2537, rev 65a27653.
 # Update with:
 #   git subtree pull --prefix vendor/frontier https://github.com/RaoFoundation/frontier <rev> --squash
 fp-evm = { path = "vendor/frontier/primitives/evm", default-features = false }
@@ -288,6 +289,7 @@ pallet-evm-precompile-modexp = { path = "vendor/frontier/frame/evm/precompile/mo
 pallet-evm-precompile-sha3fips = { path = "vendor/frontier/frame/evm/precompile/sha3fips", default-features = false }
 pallet-evm-precompile-simple = { path = "vendor/frontier/frame/evm/precompile/simple", default-features = false }
 pallet-evm-precompile-bn128 = { path = "vendor/frontier/frame/evm/precompile/bn128", default-features = false }
+pallet-evm-precompile-bls12381 = { path = "vendor/frontier/frame/evm/precompile/bls12381", default-features = false }
 pallet-hotfix-sufficients = { path = "vendor/frontier/frame/hotfix-sufficients", default-features = false }
 
 #DRAND
