@@ -216,7 +216,9 @@ fn remove_stake_limit_success_respects_price_limit() {
         let owner_coldkey = U256::from(4602);
         let coldkey = U256::from(5601);
         let hotkey = U256::from(5602);
-        let stake_amount_raw: u64 = 320_000_000_000;
+        // Stay inside the finite buy domain so a 1% sell-price guard admits
+        // a nonzero trade rather than testing an endpoint rounding no-op.
+        let stake_amount_raw: u64 = 32_000_000_000;
 
         let netuid = mock::add_dynamic_network(&owner_hotkey, &owner_coldkey);
         mock::setup_reserves(
