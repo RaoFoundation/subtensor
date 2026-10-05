@@ -673,6 +673,22 @@ fn test_swap_stake_max_caps_to_live_origin() {
         let other_owner_coldkey = U256::from(2001);
         let other_owner_hotkey = U256::from(2002);
         let destination_netuid = add_dynamic_network(&other_owner_hotkey, &other_owner_coldkey);
+        for market in [netuid, destination_netuid] {
+            setup_reserves(
+                market,
+                100_000_000_000_000_u64.into(),
+                100_000_000_000_000_u64.into(),
+            );
+            pallet_subtensor_swap::SwapSuperellipse::<Test>::insert(
+                market,
+                pallet_subtensor_swap::Superellipse::from_weights(
+                    100_000_000_000_000,
+                    100_000_000_000_000,
+                    sp_runtime::Perquintill::from_percent(50),
+                )
+                .unwrap(),
+            );
+        }
         SubtensorModule::set_tao_weight(u64::MAX);
 
         assert_ok!(SubtensorModule::swap_stake(
@@ -703,6 +719,22 @@ fn test_swap_stake_limit_max_caps_to_live_origin() {
         let other_owner_coldkey = U256::from(2001);
         let other_owner_hotkey = U256::from(2002);
         let destination_netuid = add_dynamic_network(&other_owner_hotkey, &other_owner_coldkey);
+        for market in [netuid, destination_netuid] {
+            setup_reserves(
+                market,
+                100_000_000_000_000_u64.into(),
+                100_000_000_000_000_u64.into(),
+            );
+            pallet_subtensor_swap::SwapSuperellipse::<Test>::insert(
+                market,
+                pallet_subtensor_swap::Superellipse::from_weights(
+                    100_000_000_000_000,
+                    100_000_000_000_000,
+                    sp_runtime::Perquintill::from_percent(50),
+                )
+                .unwrap(),
+            );
+        }
         SubtensorModule::set_tao_weight(u64::MAX);
 
         // A zero relative limit price accepts any fill, so the whole position moves.

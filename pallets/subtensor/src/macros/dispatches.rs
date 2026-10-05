@@ -2364,12 +2364,13 @@ mod dispatches {
         /// The `ColdkeySwapAnnounced` event is emitted on successful announcement.
         ///
         #[pallet::call_index(125)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::announce_coldkey_swap())]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::announce_coldkey_swap().saturating_add(T::DbWeight::get().reads(1)))]
         pub fn announce_coldkey_swap(
             origin: OriginFor<T>,
             new_coldkey_hash: T::Hash,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
+            ensure!(!<T::LendingInterface as pallet_lending::LendingInterface<T::AccountId>>::has_positions(&who), Error::<T>::LendingPositionsOpen);
             let now = <frame_system::Pallet<T>>::block_number();
 
             if let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) {
@@ -2898,6 +2899,32 @@ mod dispatches {
             min_locked: AlphaBalance,
         ) -> DispatchResult {
             Self::do_set_min_collateral(origin, netuid, hotkey, min_locked)
+        }
+        /// Recalibrate a subnet's minimum ending spot-price decline for a sale of
+        /// alpha worth 500 TAO at the current price. Basis points exclude swap fees.
+        /// Existing loans must close before their supporting curve is changed.
+        #[pallet::call_index(146)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_pool_slippage())]
+        #[frame_support::transactional]
+        pub fn sudo_set_pool_slippage(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            impact_bps: u16,
+        ) -> DispatchResult {
+            use pallet_lending::LendingInterface;
+            use subtensor_swap_interface::SwapHandler;
+            ensure_root(origin)?;
+            ensure!(
+                !netuid.is_root() && Self::if_subnet_exist(netuid),
+                Error::<T>::SubnetNotExists
+            );
+            ensure!(
+                !T::LendingInterface::has_outstanding(netuid),
+                Error::<T>::LendingPositionsOpen
+            );
+            T::SwapInterface::configure_slippage(netuid, impact_bps)?;
+            Self::deposit_event(Event::PoolSlippageSet { netuid, impact_bps });
+            Ok(())
         }
     }
 }

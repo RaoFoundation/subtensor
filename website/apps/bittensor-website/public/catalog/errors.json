@@ -93,6 +93,24 @@
     }
   },
   "chain_errors": {
+    "AboveMaximumPayment": {
+      "code": "insufficient_liquidity",
+      "description": "Repayment exceeds the caller's payment ceiling. Requote the full close before resubmitting.",
+      "docs_url": "/docs/errors/chain/AboveMaximumPayment",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AboveMaximumPayment/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 480,
+          "url": "/code/pallets/lending/src/lib.rs#L480",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "AccountNotAllowedCommit": {
       "code": "not_authorized",
       "description": "Raised by `set_commitment` when the runtime commit check fails: the subnet must exist and the signing hotkey must be registered on it. Verify the `netuid` and that the hotkey has a UID on that subnet.",
@@ -291,6 +309,24 @@
         "SafeMode"
       ]
     },
+    "AlreadyDissolving": {
+      "code": "too_early",
+      "description": "Terminal settlement has already started for this subnet. Its frozen settlement must finish before reuse.",
+      "docs_url": "/docs/errors/chain/AlreadyDissolving",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AlreadyDissolving/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 486,
+          "url": "/code/pallets/lending/src/lib.rs#L486",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "AlreadyFinalized": {
       "code": "already_exists",
       "description": "The crowdloan's `finalized` flag is already true, so withdraw, finalize, refund, dissolve, and the update calls are all rejected. Check the `finalized` field of the `Crowdloans` entry for the given `crowdloan_id`.",
@@ -363,6 +399,24 @@
         }
       ]
     },
+    "AmountTooSmall": {
+      "code": "invalid_argument",
+      "description": "The collateral or loan value is below the minimum. Increase collateral and quote the complete opening again.",
+      "docs_url": "/docs/errors/chain/AmountTooSmall",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AmountTooSmall/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 474,
+          "url": "/code/pallets/lending/src/lib.rs#L474",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "AnnouncedColdkeyHashDoesNotMatch": {
       "code": "invalid_argument",
       "description": "The `new_coldkey` passed to `swap_coldkey_announced` (`btcli wallet swap-coldkey`) hashes to a different value than the hash committed in the earlier `announce_coldkey_swap` (`btcli wallet announce-coldkey-swap`). Use the same new coldkey you announced; check status with `btcli wallet swap-check`.",
@@ -396,6 +450,24 @@
           "line": 814,
           "url": "/code/pallets/proxy/src/lib.rs#L814",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+        }
+      ]
+    },
+    "Arithmetic": {
+      "code": "internal",
+      "description": "Lending arithmetic could not represent the requested amount safely. Reduce the amount and report persistent failures.",
+      "docs_url": "/docs/errors/chain/Arithmetic",
+      "markdown_url": "/llms.mdx/docs/errors/chain/Arithmetic/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 484,
+          "url": "/code/pallets/lending/src/lib.rs#L484",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -660,6 +732,42 @@
         }
       ]
     },
+    "BelowMinimumBorrow": {
+      "code": "insufficient_liquidity",
+      "description": "Opening principal is below the caller's minimum. Requote; the failed call moves no assets.",
+      "docs_url": "/docs/errors/chain/BelowMinimumBorrow",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BelowMinimumBorrow/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 479,
+          "url": "/code/pallets/lending/src/lib.rs#L479",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
+    "BelowMinimumRefund": {
+      "code": "insufficient_liquidity",
+      "description": "The remaining collateral refund is below the caller's minimum. Requote after accrued interest.",
+      "docs_url": "/docs/errors/chain/BelowMinimumRefund",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BelowMinimumRefund/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 481,
+          "url": "/code/pallets/lending/src/lib.rs#L481",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "BeneficiaryDoesNotOwnHotkey": {
       "code": "not_authorized",
       "description": "When ending a subnet lease, the hotkey passed for the ownership handover is not owned by the lease's beneficiary coldkey. Check the `Owner` storage for that hotkey and pass a hotkey the beneficiary coldkey actually owns.",
@@ -747,6 +855,24 @@
           "line": 197,
           "url": "/code/pallets/admin-utils/src/lib.rs#L197",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+        }
+      ]
+    },
+    "BorrowingLimit": {
+      "code": "limit_exceeded",
+      "description": "This loan would exceed the aggregate per-asset borrowing cap. Reduce its size or wait for repayment.",
+      "docs_url": "/docs/errors/chain/BorrowingLimit",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BorrowingLimit/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 476,
+          "url": "/code/pallets/lending/src/lib.rs#L476",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -1434,6 +1560,24 @@
         "SafeMode"
       ]
     },
+    "CustodyUnavailable": {
+      "code": "internal",
+      "description": "The lending custody hotkey is unavailable. Governance or runtime maintenance must restore it.",
+      "docs_url": "/docs/errors/chain/CustodyUnavailable",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CustodyUnavailable/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 485,
+          "url": "/code/pallets/lending/src/lib.rs#L485",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "DeadAccount": {
       "code": "not_found",
       "description": "The beneficiary account does not exist and this operation is not allowed to create it. Check `System.Account` for the destination: it must already hold at least the existential deposit before the operation runs.",
@@ -1597,9 +1741,27 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 182,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L182",
+          "line": 223,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L223",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
+        }
+      ]
+    },
+    "Disabled": {
+      "code": "disabled",
+      "description": "New lending positions are disabled. Governance can enable borrowing; closes remain available.",
+      "docs_url": "/docs/errors/chain/Disabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/Disabled/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 468,
+          "url": "/code/pallets/lending/src/lib.rs#L468",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -1939,8 +2101,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 146,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L146",
+          "line": 184,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L184",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -2281,9 +2443,27 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 158,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L158",
+          "line": 196,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L196",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
+        }
+      ]
+    },
+    "InsufficientEscrow": {
+      "code": "insufficient_balance",
+      "description": "Remaining collateral or locked short TAO cannot cover this operation. Inspect interest and the complete close quote.",
+      "docs_url": "/docs/errors/chain/InsufficientEscrow",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InsufficientEscrow/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 482,
+          "url": "/code/pallets/lending/src/lib.rs#L482",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -2299,8 +2479,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 149,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L149",
+          "line": 187,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L187",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -2325,9 +2505,27 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 152,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L152",
+          "line": 190,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L190",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
+        }
+      ]
+    },
+    "InsufficientReserves": {
+      "code": "insufficient_liquidity",
+      "description": "The separate lending vault cannot fund this loan. Inspect lending_reserves or reduce its size.",
+      "docs_url": "/docs/errors/chain/InsufficientReserves",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InsufficientReserves/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 475,
+          "url": "/code/pallets/lending/src/lib.rs#L475",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -2631,8 +2829,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 164,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L164",
+          "line": 202,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L202",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -2679,6 +2877,24 @@
           "line": 17,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L17",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "InvalidQuote": {
+      "code": "insufficient_liquidity",
+      "description": "The full swap cannot execute or its result differs from the loan quote. Check curve capacity and retry with a fresh quote.",
+      "docs_url": "/docs/errors/chain/InvalidQuote",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidQuote/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 483,
+          "url": "/code/pallets/lending/src/lib.rs#L483",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -2819,6 +3035,24 @@
         }
       ]
     },
+    "InvalidSlippageTarget": {
+      "code": "invalid_argument",
+      "description": "The minimum sell impact must be greater than zero and below 10000 basis points. Set a supported target and inspect the pool's reference-capacity status.",
+      "docs_url": "/docs/errors/chain/InvalidSlippageTarget",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidSlippageTarget/content.md",
+      "pallets": [
+        "Swap"
+      ],
+      "sources": [
+        {
+          "pallet": "Swap",
+          "path": "pallets/swap/src/pallet/mod.rs",
+          "line": 220,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L220",
+          "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
+        }
+      ]
+    },
     "InvalidSpecName": {
       "code": "invalid_argument",
       "description": "The new runtime's `spec_name` does not match the current runtime, so `set_code` refuses the upgrade. Check the `RuntimeVersion` embedded in the new wasm and ensure the spec name is identical to the chain's current one.",
@@ -2840,8 +3074,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 161,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L161",
+          "line": 199,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L199",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -3021,6 +3255,42 @@
           "path": "pallets/subtensor/src/macros/errors.rs",
           "line": 230,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L230",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "LendingPositionsOpen": {
+      "code": "policy_violation",
+      "description": "A key move or pool recalibration would affect an open lending position. Close the positions owned by the affected coldkey before changing its keys, or all positions on the subnet before recalibrating its curve, then retry. Nominated stake migrations by other validators update the saved loan hotkey automatically.",
+      "docs_url": "/docs/errors/chain/LendingPositionsOpen",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LendingPositionsOpen/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 416,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L416",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "LendingUnavailable": {
+      "code": "disabled",
+      "description": "The runtime could not initialize lending custody for this subnet. Reserve extraction rolled back. Check the lending migration status and custody account registration.",
+      "docs_url": "/docs/errors/chain/LendingUnavailable",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LendingUnavailable/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 414,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L414",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -3387,8 +3657,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 170,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L170",
+          "line": 208,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L208",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -4447,6 +4717,42 @@
         "EVM"
       ]
     },
+    "PositionExists": {
+      "code": "already_exists",
+      "description": "This coldkey already has a loan on the subnet. Repay and close it before opening another.",
+      "docs_url": "/docs/errors/chain/PositionExists",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PositionExists/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 472,
+          "url": "/code/pallets/lending/src/lib.rs#L472",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
+    "PositionMissing": {
+      "code": "not_found",
+      "description": "This coldkey has no open loan on the subnet. Check lending_position and the signing account.",
+      "docs_url": "/docs/errors/chain/PositionMissing",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PositionMissing/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 473,
+          "url": "/code/pallets/lending/src/lib.rs#L473",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "PreLogExists": {
       "code": "invalid_argument",
       "description": "An `ethereum.transact` extrinsic was submitted in a block that already carries a pre-log digest, meaning an Ethereum transaction is being injected by other means. Check the block's digest for a pre-runtime Ethereum log; transact is not allowed alongside it.",
@@ -4486,8 +4792,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 155,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L155",
+          "line": 193,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L193",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -4553,6 +4859,42 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/Reentrancy/content.md",
       "pallets": [
         "EVM"
+      ]
+    },
+    "ReferenceUnavailable": {
+      "code": "too_early",
+      "description": "The subnet has no valid lending price reference. Wait for a valid reference before borrowing.",
+      "docs_url": "/docs/errors/chain/ReferenceUnavailable",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ReferenceUnavailable/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 470,
+          "url": "/code/pallets/lending/src/lib.rs#L470",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
+    "ReferenceWarmingUp": {
+      "code": "too_early",
+      "description": "The dedicated lending EMA is still warming up. Retry after its valid_after block.",
+      "docs_url": "/docs/errors/chain/ReferenceWarmingUp",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ReferenceWarmingUp/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 471,
+          "url": "/code/pallets/lending/src/lib.rs#L471",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "RegistrationNotPermittedOnRootSubnet": {
@@ -4666,8 +5008,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 176,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L176",
+          "line": 214,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L214",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -4684,8 +5026,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 167,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L167",
+          "line": 205,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L205",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -5203,6 +5545,24 @@
         }
       ]
     },
+    "SubnetUnavailable": {
+      "code": "subnet_not_exists",
+      "description": "The subnet is absent, is root, or is dissolving. Check its lifecycle before borrowing or closing.",
+      "docs_url": "/docs/errors/chain/SubnetUnavailable",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SubnetUnavailable/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 469,
+          "url": "/code/pallets/lending/src/lib.rs#L469",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "SubtokenDisabled": {
       "code": "subtoken_disabled",
       "description": "The subnet's alpha token is not yet enabled, so staking, swapping, and trading on it are blocked until the owner runs `btcli hparams start` after registration. Check readiness with `btcli hparams check-start`.",
@@ -5223,8 +5583,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 173,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L173",
+          "line": 211,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L211",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -5241,8 +5601,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 179,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L179",
+          "line": 217,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L217",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -5500,6 +5860,24 @@
         }
       ]
     },
+    "TooManyPositions": {
+      "code": "limit_exceeded",
+      "description": "The subnet has reached its bounded position count. Wait for another position to close.",
+      "docs_url": "/docs/errors/chain/TooManyPositions",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyPositions/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 477,
+          "url": "/code/pallets/lending/src/lib.rs#L477",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "TooManyRegistrationsThisBlock": {
       "code": "rate_limited",
       "description": "Registrations in the current block already reached the subnet's per-block cap (`MaxRegistrationsPerBlock`, the max_regs_per_block hyperparameter); root registration enforces the same cap on netuid 0. Retry in the next block.",
@@ -5569,6 +5947,24 @@
           "line": 381,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L381",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "TooManySubnets": {
+      "code": "limit_exceeded",
+      "description": "The lending pallet has reached its funded-subnet limit. This needs governance or runtime maintenance.",
+      "docs_url": "/docs/errors/chain/TooManySubnets",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManySubnets/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 478,
+          "url": "/code/pallets/lending/src/lib.rs#L478",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },

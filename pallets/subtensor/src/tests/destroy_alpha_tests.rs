@@ -1,6 +1,7 @@
 #![allow(clippy::expect_used, clippy::indexing_slicing, clippy::unwrap_used)]
 
 use super::mock::*;
+use crate::weights::WeightInfo;
 use crate::*;
 use frame_support::{assert_ok, weights::Weight};
 use sp_core::U256;
@@ -458,6 +459,8 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes_multi_block_total_issuance() {
             (stake_tao * 1_000_000).into(),
             (stake_tao * 10_000_000).into(),
         );
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(stake_tao * 1_000_000));
         let amount: TaoBalance = stake_tao.into();
 
         for index in 1..=10 {
@@ -500,14 +503,14 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes_multi_block_total_issuance() {
 
         // Phase 2: settle_stakes with per-call weight enough for 2 out of 10 stakers.
         //
-        // Each hotkey+coldkey consumes:
-        //   reads(1) outer  +  reads(2) inner  +  writes(1) value  +
-        //   reads_writes(11, 3) transfer  =  reads(14) + writes(4)
-        // Weight for two hotkeys = reads(28) + writes(8)
-        // Plus reads(1) to attempt the third outer iteration  →  reads(29) + writes(8)
-        let per_call = <Test as frame_system::Config>::DbWeight::get()
-            .reads(29)
-            .saturating_add(<Test as frame_system::Config>::DbWeight::get().writes(8));
+        // Reserve the funded transfer + lending callback envelope for two stakers,
+        // plus outer/inner cursor reads and payout bookkeeping.
+        let per_transfer = <Test as frame_system::Config>::DbWeight::get()
+            .reads_writes(12, 3)
+            .saturating_add(<Test as Config>::WeightInfo::transfer_stake().saturating_mul(3));
+        let per_call = per_transfer
+            .saturating_mul(2)
+            .saturating_add(<Test as frame_system::Config>::DbWeight::get().reads_writes(11, 2));
 
         let mut last_key = status.last_key.clone();
         let mut completed = false;

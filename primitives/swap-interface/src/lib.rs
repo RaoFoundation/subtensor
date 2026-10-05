@@ -56,7 +56,25 @@ pub trait SwapHandler {
         netuid: NetUid,
         tao_delta: TaoBalance,
         alpha_delta: AlphaBalance,
-    ) -> (TaoBalance, AlphaBalance);
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError>;
+    /// Recalibrate the 500-TAO-equivalent sell impact while preserving current price.
+    fn configure_slippage(_netuid: NetUid, _impact_bps: u16) -> DispatchResult {
+        Err(DispatchError::Other("slippage calibration unavailable"))
+    }
+    /// Debit only globally unreachable reserve floors; the caller must transfer custody.
+    fn extract_unreachable_reserves(
+        _netuid: NetUid,
+    ) -> Result<(AlphaBalance, TaoBalance), DispatchError> {
+        Ok((AlphaBalance::ZERO, TaoBalance::ZERO))
+    }
+    /// Conservative maximum gross TAO purchase input that fills completely.
+    fn max_buy_input(_netuid: NetUid) -> TaoBalance {
+        u64::MAX.into()
+    }
+    /// Cumulative extraction used by upgrade conservation checks.
+    fn extracted_tao(_netuid: NetUid) -> TaoBalance {
+        TaoBalance::ZERO
+    }
     fn protocol_alpha_reservoir(netuid: NetUid) -> AlphaBalance;
     fn protocol_tao_reservoir(netuid: NetUid) -> TaoBalance;
     fn clear_protocol_liquidity_reservoirs(netuid: NetUid);

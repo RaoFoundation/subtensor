@@ -410,5 +410,9 @@ mod errors {
         /// A `swap_basket_many` call contained no trade legs. Submit at least one leg;
         /// the bounded call argument enforces the maximum at decode time.
         BasketSwapBatchEmpty,
+        /// Lending custody is unavailable in this runtime.
+        LendingUnavailable,
+        /// Close lending positions before recalibrating a pool or changing keys.
+        LendingPositionsOpen,
     }
 }

@@ -892,5 +892,21 @@ mod events {
             /// Settlement failure that triggered cancellation.
             error: DispatchError,
         },
+        /// The 500-TAO-equivalent sell impact floor was recalibrated.
+        PoolSlippageSet {
+            /// Subnet whose curve was recalibrated.
+            netuid: NetUid,
+            /// Minimum ending spot-price decline in basis points.
+            impact_bps: u16,
+        },
+        /// A terminal pro-rata payment could not create its recipient account.
+        DissolutionDustRecycled {
+            /// Dissolved subnet.
+            netuid: NetUid,
+            /// Recipient whose sub-existential payment was recycled.
+            recipient: T::AccountId,
+            /// TAO removed from the pot and recycled, never reported as credited.
+            amount: TaoBalance,
+        },
     }
 }

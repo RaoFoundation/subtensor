@@ -959,7 +959,7 @@ fn dissolve_clears_all_per_subnet_storages() {
 }
 
 #[test]
-fn dissolve_materializes_nonzero_protocol_reservoirs_before_cleanup() {
+fn dissolve_materializes_nonzero_protocol_reservoirs_after_basket_cleanup() {
     new_test_ext(0).execute_with(|| {
         let owner_cold = U256::from(123);
         let owner_hot = U256::from(456);
@@ -993,13 +993,12 @@ fn dissolve_materializes_nonzero_protocol_reservoirs_before_cleanup() {
 
         assert_ok!(SubtensorModule::do_dissolve_network(net));
 
-        // do_dissolve_network only queues the destructive cleanup, but it must
-        // materialize pending protocol reservoirs before the queued cleanup can
-        // compute stake payouts.
-        assert!(!pallet_subtensor_swap::BalancerTaoReservoir::<Test>::contains_key(net));
-        assert!(!pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::contains_key(net));
-        assert_eq!(SubnetTAO::<Test>::get(net), reservoir_tao);
-        assert_eq!(SubnetAlphaIn::<Test>::get(net), reservoir_alpha);
+        // Queuing keeps the AMM coordinates intact for basket conversion. The
+        // subsequent lending settlement phase restores buffers before valuation.
+        assert!(pallet_subtensor_swap::BalancerTaoReservoir::<Test>::contains_key(net));
+        assert!(pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::contains_key(net));
+        assert_eq!(SubnetTAO::<Test>::get(net), TaoBalance::ZERO);
+        assert_eq!(SubnetAlphaIn::<Test>::get(net), AlphaBalance::ZERO);
         assert_eq!(
             SubtensorModule::get_coldkey_balance(&staker_cold),
             staker_before

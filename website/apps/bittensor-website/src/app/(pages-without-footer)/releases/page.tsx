@@ -23,6 +23,17 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'proposal',
+    date: 'Not yet deployed',
+    title: 'Tunable Pool Depth and Reserve Lending',
+    summary:
+      'A price-preserving pool migration calibrates ending price impact for a 500-TAO reference ' +
+      'sale and creates separate lending reserves from unreachable balances. Custodial alpha ' +
+      'shorts and transferable TAO loans use 25% LTV, fixed principal, weekly collateral ' +
+      'interest and a 10% borrowing cap per asset. Borrowing requires the complete migration to succeed.',
+    href: '/releases/pool-lending',
+  },
+  {
     tag: 'next',
     date: 'September 2026',
     title: 'Basket Trading',

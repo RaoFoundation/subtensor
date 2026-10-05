@@ -22,11 +22,13 @@
     clippy::unwrap_used
 )]
 
-use crate::tests::claim_root::{escrow_alpha, register_on_root};
+use crate::tests::claim_root::{
+    buy_impact_slice, escrow_alpha, register_on_root, sell_impact_slice,
+};
 use crate::tests::mock::*;
 use crate::{
     BasketDailyTurnoverCap, BasketShares, BasketTradeBucket, BasketTradingEnabled, Error,
-    FirstEmissionBlockNumber, NetworksAdded, Owner, SubnetAlphaIn, SubnetAlphaOut,
+    FirstEmissionBlockNumber, GetTaoForAlpha, NetworksAdded, Owner, SubnetAlphaIn, SubnetAlphaOut,
     SubnetFastMovingPrice, SubnetMovingPrice, SubnetTAO, TotalStake,
 };
 use frame_support::storage::{TransactionOutcome, with_transaction};
@@ -70,6 +72,7 @@ fn make_pool(seed: u64, tao: u64, alpha: u64, slow: f64, fast: f64) -> NetUid {
     SubnetTAO::<Test>::insert(netuid, TaoBalance::from(tao));
     SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(alpha));
     add_balance_to_coldkey_account(&subnet_acct(netuid), TaoBalance::from(tao));
+    assert_ok!(SubtensorModule::fund_unreachable_reserves(netuid, false));
     SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(slow));
     SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(fast));
     netuid
@@ -149,40 +152,97 @@ fn fund_swap(from: NetUid, to: NetUid, amount: u64) -> Result<(), DispatchError>
 }
 
 /// Attacker market-buys alpha with `tao` (fees charged). Returns alpha received.
+fn attacker_buy_fill(netuid: NetUid, tao: u64) -> (u64, u64) {
+    let mut remaining = tao;
+    let mut bought = 0u64;
+    let mut paid = 0u64;
+    for _ in 0..8 {
+        if remaining == 0 {
+            break;
+        }
+        let input =
+            remaining.min(<Test as crate::Config>::SwapInterface::max_buy_input(netuid).to_u64());
+        if input == 0 {
+            break;
+        }
+        add_balance_to_coldkey_account(&subnet_acct(netuid), input.into());
+        let out =
+            match SubtensorModule::swap_tao_for_alpha(netuid, input.into(), u64::MAX.into(), false)
+            {
+                Ok(out) => out,
+                Err(_) => break,
+            };
+        let consumed = out.amount_paid_in.to_u64() + out.fee_paid.to_u64();
+        bought += out.amount_paid_out.to_u64();
+        paid += consumed;
+        remaining -= consumed;
+        if consumed < input {
+            break;
+        }
+    }
+    (bought, paid)
+}
+
 fn attacker_buy(netuid: NetUid, tao: u64) -> u64 {
-    add_balance_to_coldkey_account(&subnet_acct(netuid), TaoBalance::from(tao));
-    let out = SubtensorModule::swap_tao_for_alpha(
-        netuid,
-        tao.into(),
-        <Test as crate::Config>::SwapInterface::max_price::<TaoBalance>(),
-        false,
-    )
-    .unwrap();
-    out.amount_paid_out.to_u64()
+    attacker_buy_fill(netuid, tao).0
 }
 
 /// Attacker market-sells `alpha` (fees charged). Returns TAO received.
+fn attacker_sell_fill(netuid: NetUid, alpha: u64) -> (u64, u64) {
+    let mut remaining = alpha;
+    let mut received = 0u64;
+    let mut sold = 0u64;
+    for _ in 0..8 {
+        if remaining == 0 {
+            break;
+        }
+        let input = remaining.min(
+            <Test as crate::Config>::SwapInterface::max_swap_input::<GetTaoForAlpha<Test>>(netuid)
+                .to_u64(),
+        );
+        if input == 0 {
+            break;
+        }
+        let out =
+            SubtensorModule::swap_alpha_for_tao(netuid, input.into(), TaoBalance::ZERO, false)
+                .unwrap();
+        let consumed = out.amount_paid_in.to_u64() + out.fee_paid.to_u64();
+        received += out.amount_paid_out.to_u64();
+        sold += consumed;
+        remaining -= consumed;
+        if consumed < input {
+            break;
+        }
+    }
+    if received > 0 {
+        SubtensorModule::transfer_tao_from_subnet(netuid, &U256::from(ATTACKER), received.into())
+            .unwrap();
+    }
+    (received, sold)
+}
+
 fn attacker_sell(netuid: NetUid, alpha: u64) -> u64 {
-    let out = SubtensorModule::swap_alpha_for_tao(
-        netuid,
-        alpha.into(),
-        <Test as crate::Config>::SwapInterface::min_price::<TaoBalance>(),
-        false,
-    )
-    .unwrap();
-    let tao = out.amount_paid_out.to_u64();
-    SubtensorModule::transfer_tao_from_subnet(netuid, &U256::from(ATTACKER), tao.into()).unwrap();
-    tao
+    attacker_sell_fill(netuid, alpha).0
 }
 
 /// TAO the attacker must pay (fees included) to buy back at least `alpha` right now.
 fn tao_to_buy_alpha(netuid: NetUid, alpha: u64) -> u64 {
     let mut lo = 0u64;
-    let mut hi = SubnetTAO::<Test>::get(netuid)
-        .to_u64()
-        .saturating_mul(4)
-        .max(TAO);
-    for _ in 0..60 {
+    let curve = pallet_subtensor_swap::Pallet::<Test>::superellipse(netuid).unwrap();
+    let capacity = curve
+        .max_buy_input(
+            SubnetAlphaIn::<Test>::get(netuid).to_u64(),
+            SubnetTAO::<Test>::get(netuid).to_u64(),
+        )
+        .unwrap();
+    // Include fee headroom and simulate the same reserve-bounded chunks as execution.
+    let mut hi = capacity.saturating_add(capacity / 10);
+    let maximum = with_transaction(|| {
+        TransactionOutcome::Rollback(Ok::<_, DispatchError>(attacker_buy(netuid, hi)))
+    })
+    .unwrap();
+    assert!(maximum >= alpha, "buyback must be within the finite branch");
+    while lo < hi {
         let mid = lo + (hi - lo) / 2;
         let got = with_transaction(|| {
             let got = if mid == 0 {
@@ -217,17 +277,19 @@ fn prepare_leg(netuid: NetUid, anchor: FastAnchor) {
     }
 }
 
-/// Fund chain-buys `netuid` from its cash slot in ~0.95%-of-reserve legs until a guardrail
+/// Fund chain-buys `netuid` from its cash slot in 0.2%-of-reserve legs until a guardrail
 /// refuses or `budget` is spent. Returns `(spent, legs)`.
 fn fund_chain_buy(netuid: NetUid, budget: u64, anchor: FastAnchor) -> (u64, u32) {
     let mut spent = 0u64;
     let mut legs = 0u32;
     loop {
-        let remaining = budget.saturating_sub(spent);
+        let remaining = budget
+            .checked_sub(spent)
+            .expect("chain buys stay within budget");
         if remaining < TAO {
             return (spent, legs);
         }
-        let leg = remaining.min(SubnetTAO::<Test>::get(netuid).to_u64() / 105);
+        let leg = remaining.min(buy_impact_slice(netuid, U64F64::from_num(1.005)));
         prepare_leg(netuid, anchor);
         match fund_swap(NetUid::ROOT, netuid, leg) {
             Ok(()) => {
@@ -289,18 +351,28 @@ fn best_stale_high_buy_attack(netuid: NetUid, budget: u64, anchor: FastAnchor) -
         let res = with_transaction(|| {
             BasketTradeBucket::<Test>::remove(hotkey());
             let nav0 = nav();
-            let bought = if lift > 0 {
-                attacker_buy(netuid, lift)
+            let (bought, paid) = if lift > 0 {
+                attacker_buy_fill(netuid, lift)
             } else {
-                0
+                (0, 0)
             };
             let (_, legs) = fund_chain_buy(netuid, budget, anchor);
+            if anchor == FastAnchor::Held && legs > 0 {
+                let ceiling =
+                    SubnetFastMovingPrice::<Test>::get(netuid).unwrap() * U64F64::from_num(1.02);
+                assert!(
+                    spot(netuid) <= ceiling + U64F64::from_num(0.000000001),
+                    "every filled chain must remain inside the original fast-anchor band"
+                );
+            }
             let proceeds = if bought > 0 {
-                attacker_sell(netuid, bought)
+                let (proceeds, sold) = attacker_sell_fill(netuid, bought);
+                assert_eq!(sold, bought, "lift-buy-dump restores all alpha inventory");
+                proceeds
             } else {
                 0
             };
-            let profit = proceeds as i128 - lift as i128;
+            let profit = proceeds as i128 - paid as i128;
             let loss = nav0 as i128 - nav() as i128;
             TransactionOutcome::Rollback(Ok::<_, DispatchError>(AttackResult {
                 profit_bps: bps(profit, nav0),
@@ -332,16 +404,25 @@ fn best_stale_low_sell_attack(netuid: NetUid, holding: u64, anchor: FastAnchor) 
             BasketTradeBucket::<Test>::remove(hotkey());
             let nav0 = nav();
             grant_outside_alpha(netuid, dump);
-            let proceeds = if dump > 0 {
-                attacker_sell(netuid, dump)
+            let (proceeds, sold) = if dump > 0 {
+                attacker_sell_fill(netuid, dump)
             } else {
-                0
+                (0, 0)
             };
-            let (_, _, legs) = fund_chain_sell(netuid, holding / 100, holding, anchor);
-            let cost = if dump > 0 {
-                let tao = tao_to_buy_alpha(netuid, dump);
-                attacker_buy(netuid, tao);
-                tao
+            let (_, _, legs) = fund_chain_sell(
+                netuid,
+                sell_impact_slice(netuid, U64F64::from_num(0.995)),
+                holding,
+                anchor,
+            );
+            let cost = if sold > 0 {
+                let tao = tao_to_buy_alpha(netuid, sold);
+                let (restored, paid) = attacker_buy_fill(netuid, tao);
+                assert!(
+                    restored >= sold,
+                    "attack control must restore its alpha inventory"
+                );
+                paid
             } else {
                 0
             };
@@ -371,13 +452,15 @@ fn best_stale_low_sell_attack(netuid: NetUid, holding: u64, anchor: FastAnchor) 
 
 /// With the slow EMA stale above spot by ×1.35, ×2 and ×4, a same-block lift-buy-dump used
 /// to extract 1.1% / 4.1% / 6.9% of NAV per day (the fund chain-bought near the slow EMA).
-/// Anchored to the fast EMA the fund fills at most one in-band leg at the pre-lift price
+/// Anchored to the fast EMA the fund fills only within the original pre-lift band
 /// and the attacker cannot profit; the control with the fast anchor neutralized reproduces
 /// the old extraction, well above the accepted ceiling.
 #[test]
 fn test_e8_stale_high_ema_buy_extraction_closed_by_fast_anchor() {
     new_test_ext(1).execute_with(|| {
-        let fund_nav = 100_000 * TAO;
+        // Keep the fund's daily buy budget within this calibrated curve's
+        // reachable depth, so the unanchored control reproduces extraction.
+        let fund_nav = 80_000 * TAO;
         make_fund_with_cash(fund_nav);
         let budget = SubtensorModule::basket_trade_budget_tao(guarded_nav());
         assert!(budget > fund_nav / 11 && budget <= fund_nav / 10);
@@ -411,11 +494,6 @@ fn test_e8_stale_high_ema_buy_extraction_closed_by_fast_anchor() {
                 fixed.fund_loss_bps <= 10,
                 "m={m}: fund lost {} bps of NAV to a lift-buy-dump",
                 fixed.fund_loss_bps
-            );
-            assert!(
-                fixed.legs <= 1,
-                "m={m}: the fund filled {} legs against a lifted spot",
-                fixed.legs
             );
             // The control must still show the vulnerability the anchor closes: at m >= 2
             // the old band leaked more than the accepted ceiling in a single block.
@@ -505,7 +583,7 @@ fn test_e8_honest_trade_at_spot_still_fills() {
         make_fund_with_cash(100_000 * TAO);
         // Deep pool, every anchor at spot: a 1%-impact buy and the matching sell both fill.
         let x = make_pool(100, 1_000_000 * TAO, 1_000_000 * TAO, 1.0, 1.0);
-        assert_ok!(fund_swap(NetUid::ROOT, x, 5_000 * TAO));
+        assert_ok!(fund_swap(NetUid::ROOT, x, 500 * TAO));
         let held = escrow_alpha(&hotkey(), x);
         assert!(held > 0);
         assert_ok!(fund_swap(x, NetUid::ROOT, held / 2));
@@ -516,7 +594,7 @@ fn test_e8_honest_trade_at_spot_still_fills() {
         let y = make_pool(200, 500_000 * TAO, 1_000_000 * TAO, 1.0, 0.5);
         assert!((spot_f64(y) - 0.5).abs() < 0.001);
         BasketTradeBucket::<Test>::remove(hotkey());
-        assert_ok!(fund_swap(NetUid::ROOT, y, 2_000 * TAO));
+        assert_ok!(fund_swap(NetUid::ROOT, y, 500 * TAO));
 
         // ...but a pool whose spot was lifted this block above where it opened (fast
         // anchor 0.4, spot 0.5, slow EMA still permissive at 1.0) is refused: nothing may
@@ -552,7 +630,15 @@ fn test_fast_moving_price_bootstraps_and_halves_distance_per_half_life() {
 
         // Spot jumps to 2.0 and holds: after one half-life the fast EMA is at ~1.5, after
         // two at ~1.75.
-        SubnetTAO::<Test>::insert(x, TaoBalance::from(2_000_000 * TAO));
+        let input = buy_impact_slice(x, U64F64::from_num(2));
+        add_balance_to_coldkey_account(&subnet_acct(x), input.into());
+        assert_ok!(SubtensorModule::swap_tao_for_alpha(
+            x,
+            input.into(),
+            u64::MAX.into(),
+            true
+        ));
+        assert!((spot_f64(x) - 2.0).abs() < 1e-8);
         let half_life = crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS;
         for _ in 0..half_life {
             SubtensorModule::update_fast_moving_price(x);
@@ -615,10 +701,11 @@ fn test_bk15_pumped_thin_holding_cannot_admit_oversize_buy() {
         assert_eq!(guarded_real, nav_real, "unpumped: both marks agree");
         let honest_budget = SubtensorModule::basket_trade_budget_tao(guarded_real);
 
-        // --- A: cap alone (turnover budget lifted): a 1,500 TAO buy is over 1/16 of NAV.
+        // --- A: cap alone (turnover budget lifted): an 800 TAO buy is over 1/16
+        // of honest NAV, but below 1/16 of the inflated realizable NAV.
         with_transaction(|| {
             BasketDailyTurnoverCap::<Test>::put(u16::MAX);
-            let trade = 1_500 * TAO;
+            let trade = 800 * TAO;
             assert_noop!(
                 fund_swap(NetUid::ROOT, d, trade),
                 Error::<Test>::BasketConcentrationCapExceeded
@@ -638,7 +725,10 @@ fn test_bk15_pumped_thin_holding_cannot_admit_oversize_buy() {
                 guarded_real / TAO,
                 guarded_pumped / TAO
             );
-            assert!(nav_pumped > nav_real * 5, "the realizable mark must be pumpable");
+            // The finite ellipse branch bounds the pump, but it still materially
+            // inflates unguarded NAV and could inflate a budget or concentration limit.
+            assert!(nav_pumped > nav_real + 3_000 * TAO, "the realizable mark must be pumpable");
+            assert!(trade * 16 < nav_pumped, "unguarded NAV would admit the concentration slice");
             assert!(
                 guarded_pumped <= guarded_real + 900 * TAO,
                 "guarded NAV moved to {guarded_pumped}"
@@ -652,15 +742,17 @@ fn test_bk15_pumped_thin_holding_cannot_admit_oversize_buy() {
         })
         .unwrap();
 
-        // --- B: default 10% turnover budget: a 9,500 TAO buy is over budget, before and
-        // after a 1M TAO pump; the reported budget is unchanged by the pump.
-        let trade = 9_500 * TAO;
+        // --- B: a 1,200 TAO buy exceeds the honest 10% budget but fits the
+        // unguarded pumped budget. It must remain refused after a branch-filling
+        // pump; the guarded budget is unchanged.
+        let trade = 1_200 * TAO;
         assert_noop!(
             fund_swap(NetUid::ROOT, d, trade),
             Error::<Test>::BasketTurnoverBudgetExceeded
         );
         let pump = 1_000_000 * TAO;
         let got = attacker_buy(x, pump);
+        assert!(SubtensorModule::basket_trade_budget_tao(nav()) > trade, "unguarded NAV would admit the turnover slice");
         let status = SubtensorModule::get_basket_trading_status(&hotkey());
         println!(
             "BK-15 B: pump {} TAO -> realizable NAV {} TAO, guarded NAV {} TAO, budget {} TAO (honest {} TAO)",

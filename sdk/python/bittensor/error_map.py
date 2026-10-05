@@ -44,6 +44,29 @@ class ErrorCode(str, Enum):
 _C = ErrorCode
 
 NAME_TO_CODE: dict[str, ErrorCode] = {
+    # ── Lending and tunable pool calibration ─────────────────────────────
+    "Disabled": _C.DISABLED,
+    "SubnetUnavailable": _C.SUBNET_NOT_EXISTS,
+    "ReferenceUnavailable": _C.TOO_EARLY,
+    "ReferenceWarmingUp": _C.TOO_EARLY,
+    "PositionExists": _C.ALREADY_EXISTS,
+    "PositionMissing": _C.NOT_FOUND,
+    "AmountTooSmall": _C.INVALID_ARGUMENT,
+    "InsufficientReserves": _C.INSUFFICIENT_LIQUIDITY,
+    "BorrowingLimit": _C.LIMIT_EXCEEDED,
+    "TooManyPositions": _C.LIMIT_EXCEEDED,
+    "TooManySubnets": _C.LIMIT_EXCEEDED,
+    "BelowMinimumBorrow": _C.INSUFFICIENT_LIQUIDITY,
+    "AboveMaximumPayment": _C.INSUFFICIENT_LIQUIDITY,
+    "BelowMinimumRefund": _C.INSUFFICIENT_LIQUIDITY,
+    "InsufficientEscrow": _C.INSUFFICIENT_BALANCE,
+    "InvalidQuote": _C.INSUFFICIENT_LIQUIDITY,
+    "Arithmetic": _C.INTERNAL,
+    "CustodyUnavailable": _C.INTERNAL,
+    "AlreadyDissolving": _C.TOO_EARLY,
+    "InvalidSlippageTarget": _C.INVALID_ARGUMENT,
+    "LendingUnavailable": _C.DISABLED,
+    "LendingPositionsOpen": _C.POLICY_VIOLATION,
     # ── System ──────────────────────────────────────────────────────────
     "InvalidSpecName": _C.INVALID_ARGUMENT,
     "SpecVersionNeedsToIncrease": _C.INVALID_ARGUMENT,

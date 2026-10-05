@@ -56,7 +56,7 @@ impl<T: Config> Pallet<T> {
             .map(|result| result.amount_paid_out)
         } else {
             with_transaction(|| {
-                TransactionOutcome::Rollback(Self::swap_basket_alpha_for_tao_chunks(
+                TransactionOutcome::Rollback(Self::quote_basket_alpha_for_tao_chunks(
                     netuid,
                     alpha.into(),
                 ))

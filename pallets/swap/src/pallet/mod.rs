@@ -9,17 +9,24 @@ use subtensor_runtime_common::{
 use crate::{pallet::balancer::Balancer, weights::WeightInfo};
 pub use pallet::*;
 use subtensor_macros::freeze_struct;
+pub use superellipse::Superellipse;
 
 mod balancer;
 mod hooks;
 mod impls;
+#[cfg(test)]
+mod migration_tests;
 pub mod migrations;
+pub(crate) mod superellipse;
 mod swap_step;
 #[cfg(test)]
 mod tests;
 
 // Define a maximum length for the migration key
 type MigrationKeyMaxLen = ConstU32<128>;
+
+pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+pub const SLIPPAGE_REFERENCE_TAO: u64 = 500_000_000_000;
 
 #[allow(clippy::module_inception)]
 #[import_section(hooks::hooks)]
@@ -30,6 +37,7 @@ mod pallet {
     use frame_system::ensure_root;
 
     #[pallet::pallet]
+    #[pallet::storage_version(STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
     /// Configure the pallet by specifying the parameters and types on which it depends.
@@ -64,6 +72,11 @@ mod pallet {
         /// Minimum reserve for tao and alpha
         #[pallet::constant]
         type MinimumReserve: Get<NonZeroU64>;
+
+        /// Runtime-provided compute envelope for one bounded curve calibration
+        /// or extraction. Composed from already measured swap operation weights;
+        /// caller-owned dispatches must charge this in addition to storage reads.
+        type CalibrationWeight: Get<Weight>;
 
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: WeightInfo;
@@ -105,10 +118,35 @@ mod pallet {
         Balancer::default()
     }
 
-    /// u64-normalized reserve weight
+    /// Archived Balancer parameters, retained for migration and legacy queries.
     #[pallet::storage]
     pub type SwapBalancer<T> =
         StorageMap<_, Twox64Concat, NetUid, Balancer, ValueQuery, DefaultBalancer>;
+
+    /// Fixed exponent-two translated superellipse used by live dynamic pools.
+    #[pallet::storage]
+    pub type SwapSuperellipse<T> = StorageMap<_, Twox64Concat, NetUid, Superellipse, OptionQuery>;
+
+    #[pallet::type_value]
+    pub fn DefaultMinimumSellImpactBps() -> u16 {
+        100
+    }
+
+    /// Minimum ending spot-price fall at calibration for the fixed 500-TAO
+    /// opening-price-equivalent alpha sale. Parameters stay fixed after that.
+    #[pallet::storage]
+    pub type MinimumSellImpactBps<T> =
+        StorageMap<_, Twox64Concat, NetUid, u16, ValueQuery, DefaultMinimumSellImpactBps>;
+
+    /// The complete reference sale cannot execute on this pool's safe curve.
+    #[pallet::storage]
+    pub type SlippageReferenceLimited<T> = StorageMap<_, Twox64Concat, NetUid, bool, ValueQuery>;
+
+    /// Cumulative active balances extracted into separate lending custody.
+    /// This independently witnesses active-plus-extracted migration conservation.
+    #[pallet::storage]
+    pub type ExtractedReserves<T> =
+        StorageMap<_, Twox64Concat, NetUid, (AlphaBalance, TaoBalance), ValueQuery>;
 
     /// Storage to determine whether balancer swap was initialized for a specific subnet.
     #[pallet::storage]
@@ -177,6 +215,9 @@ mod pallet {
 
         /// Swap input is too large relative to input-side liquidity
         SwapInputTooLarge,
+
+        /// The requested calibration is outside (0, 10000) basis points.
+        InvalidSlippageTarget,
 
         /// The extrinsic is deprecated
         Deprecated,

@@ -141,6 +141,7 @@ frame_support::construct_runtime!(
         Crowdloan: pallet_crowdloan = 11,
         Commitments: pallet_commitments = 12,
         Proxy: pallet_subtensor_proxy = 13,
+        Lending: pallet_lending = 14,
     }
 );
 
@@ -281,7 +282,7 @@ parameter_types! {
         Weight::from_parts(4_000_000_000_000, u64::MAX),
         Perbill::from_percent(75),
     );
-    pub const ExistentialDeposit: Balance = TaoBalance::new(1);
+    pub static ExistentialDeposit: Balance = TaoBalance::new(1);
     pub const TransactionByteFee: Balance = TaoBalance::new(100);
     pub const SDebug:u64 = 1;
     pub const InitialRho: u16 = 30;
@@ -430,6 +431,7 @@ impl crate::Config for Test {
     type InitialEmaPriceHalvingPeriod = InitialEmaPriceHalvingPeriod;
     type InitialStartCallDelay = InitialStartCallDelay;
     type SwapInterface = pallet_subtensor_swap::Pallet<Self>;
+    type LendingInterface = Lending;
     type KeySwapOnSubnetCost = InitialKeySwapOnSubnetCost;
     type HotkeySwapOnSubnetInterval = HotkeySwapOnSubnetInterval;
     type ProxyInterface = FakeProxier;
@@ -463,6 +465,7 @@ impl pallet_subtensor_swap::Config for Test {
     type MaxFeeRate = SwapMaxFeeRate;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
+    type CalibrationWeight = SwapCalibrationWeight;
     type WeightInfo = ();
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
@@ -772,6 +775,7 @@ pub fn init_logs_for_tests() {
 #[allow(dead_code)]
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext(block_number: BlockNumber) -> sp_io::TestExternalities {
+    ExistentialDeposit::set(TaoBalance::new(1));
     init_logs_for_tests();
     let t = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
@@ -1205,6 +1209,9 @@ pub fn increase_stake_on_hotkey_account(hotkey: &U256, increment: TaoBalance, ne
 pub(crate) fn setup_reserves(netuid: NetUid, tao: TaoBalance, alpha: AlphaBalance) {
     SubnetTAO::<Test>::set(netuid, tao);
     SubnetAlphaIn::<Test>::set(netuid, alpha);
+    // Direct fixture reserve resets create a fresh pool; discard the previous cached curve.
+    pallet_subtensor_swap::SwapSuperellipse::<Test>::remove(netuid);
+    pallet_subtensor_swap::PalSwapInitialized::<Test>::remove(netuid);
 }
 
 pub(crate) fn swap_tao_to_alpha(netuid: NetUid, tao: TaoBalance) -> (AlphaBalance, u64) {
@@ -1568,4 +1575,29 @@ pub fn run_destroy_alpha_in_out_stakes_full_pipeline(netuid: NetUid) {
         SubtensorModule::destroy_alpha_in_out_stakes(netuid, &mut weight_meter, &mut status),
         "destroy_alpha_in_out_stakes incomplete"
     );
+}
+
+frame_support::parameter_types! { pub SwapCalibrationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }
+
+parameter_types! {
+    pub const LendingPalletId: PalletId = PalletId(*b"bt/loans");
+    pub const LendingMinimumLoanValue: u64 = 1_000_000_000;
+    pub const LendingInterestPeriod: u64 = 50_400;
+    pub const LendingBlocksPerYear: u64 = 2_628_000;
+    pub const LendingReferenceWarmup: u64 = 7_200;
+    pub const LendingMaxPositionsPerSubnet: u32 = 128;
+    pub const LendingMaxTotalPositions: u32 = 256;
+    pub const LendingMaxFundedSubnets: u32 = 256;
+}
+impl pallet_lending::Config for Test {
+    type Pool = SubtensorModule;
+    type PalletId = LendingPalletId;
+    type MinimumLoanValue = LendingMinimumLoanValue;
+    type InterestPeriod = LendingInterestPeriod;
+    type BlocksPerYear = LendingBlocksPerYear;
+    type ReferenceWarmup = LendingReferenceWarmup;
+    type MaxPositionsPerSubnet = LendingMaxPositionsPerSubnet;
+    type MaxTotalPositions = LendingMaxTotalPositions;
+    type MaxFundedSubnets = LendingMaxFundedSubnets;
+    type WeightInfo = ();
 }

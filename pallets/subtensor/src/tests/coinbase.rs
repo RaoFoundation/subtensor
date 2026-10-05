@@ -3656,8 +3656,7 @@ fn test_coinbase_subnet_terms_with_alpha_in_gt_alpha_emission() {
         let alpha = AlphaBalance::from(
             (U64F64::saturating_from_num(u64::from(tao)) / price_to_set).to_num::<u64>(),
         );
-        SubnetTAO::<Test>::insert(netuid0, tao);
-        SubnetAlphaIn::<Test>::insert(netuid0, alpha);
+        mock::setup_reserves(netuid0, tao, alpha);
 
         // Check the price is set
         assert_abs_diff_eq!(

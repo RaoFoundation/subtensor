@@ -22,6 +22,7 @@ use sp_runtime::DispatchError;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
+use subtensor_swap_interface::SwapHandler;
 
 // =============================================================================
 // Helpers
@@ -32,11 +33,34 @@ use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 /// protocol redeploys can physically move sold TAO onto destination accounts.
 pub(super) fn fund_pool(netuid: NetUid) {
     let tao = TaoBalance::from(1_000_000_000_000u64);
-    SubnetTAO::<Test>::insert(netuid, tao);
-    SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+    setup_reserves(netuid, tao, AlphaBalance::from(1_000_000_000_000u64));
     if let Some(subnet_account) = SubtensorModule::get_subnet_account_id(netuid) {
         add_balance_to_coldkey_account(&subnet_account, tao);
     }
+}
+
+/// Gross-free input that moves the actual curve by the given fractional spot response.
+/// Use curve geometry rather than a physical reserve ratio after reserve extraction.
+pub(super) fn buy_impact_slice(netuid: NetUid, factor: U64F64) -> u64 {
+    <Test as crate::Config>::SwapInterface::init_swap(netuid, None);
+    let curve = pallet_subtensor_swap::Pallet::<Test>::superellipse(netuid).unwrap();
+    let alpha = SubnetAlphaIn::<Test>::get(netuid).to_u64();
+    let tao = SubnetTAO::<Test>::get(netuid).to_u64();
+    let price = curve.calculate_price(alpha, tao).unwrap();
+    curve
+        .quote_delta_to_price(alpha, tao, price.checked_mul(factor).unwrap())
+        .unwrap()
+}
+
+pub(super) fn sell_impact_slice(netuid: NetUid, factor: U64F64) -> u64 {
+    <Test as crate::Config>::SwapInterface::init_swap(netuid, None);
+    let curve = pallet_subtensor_swap::Pallet::<Test>::superellipse(netuid).unwrap();
+    let alpha = SubnetAlphaIn::<Test>::get(netuid).to_u64();
+    let tao = SubnetTAO::<Test>::get(netuid).to_u64();
+    let price = curve.calculate_price(alpha, tao).unwrap();
+    curve
+        .base_delta_to_price(alpha, tao, price.checked_mul(factor).unwrap())
+        .unwrap()
 }
 
 /// Claims are fund-level and consult only the ROOT threshold entry; zero it for tests that
@@ -2800,9 +2824,13 @@ fn test_root_basket_large_magnitudes_no_saturation() {
         let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
         remove_owner_registration_stake(netuid);
 
-        // Very deep pool at price 1 so a 2e13 trade has negligible slippage.
-        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000_000_000u64));
-        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000_000_000u64));
+        // Large reserve counters exercise fixed-point arithmetic. The migration's
+        // depth target still applies; realizable value must use its calibrated curve.
+        setup_reserves(
+            netuid,
+            1_000_000_000_000_000_000u64.into(),
+            1_000_000_000_000_000_000u64.into(),
+        );
 
         SubtensorModule::set_tao_weight(u64::MAX);
         zero_claim_threshold();
@@ -2821,25 +2849,27 @@ fn test_root_basket_large_magnitudes_no_saturation() {
         );
         register_on_root(&hotkey, 0);
 
-        // Fund at supply scale: escrow holds 2e16 alpha (price 1 => NAV 2e16), 2e16 shares out.
-        // (Direct stake write: the mock helper's subnet-balance top-up overflows the test-chain
-        // issuance at this scale.)
+        // Supply-scale stable-subnet NAV avoids assuming an unlimited dynamic
+        // alpha sell branch. A direct share write isolates numeric valuation from
+        // the mock's capped issuance and does not give the fund root dividend yield.
+        let stable = add_dynamic_network(&U256::from(1102), &U256::from(1101));
+        crate::SubnetMechanism::<Test>::insert(stable, 0);
         let fund_scale = 20_000_000_000_000_000u64; // 2e16
         let escrow_ck = SubtensorModule::get_beta_escrow_account_id();
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
             &escrow_ck,
-            netuid,
+            stable,
             fund_scale.into(),
         );
         BasketShares::<Test>::insert(hotkey, fund_scale);
 
-        // Deposit a 2e13-rao dividend directly into the basket (bypassing the emission split,
-        // which is stake-proportional and not what is under test): N/P ~= 1, so ~2e13 shares
-        // must be minted. NAV is a realizable quote, so redeeming the whole 2e16 fund against
-        // the 1e18 pool marks ~2% below par (N/P slightly < 1) and the mint lands slightly
-        // above the dividend — far from the ~5x collapse a saturated mint would show.
-        let dividend = 20_000_000_000_000u64; // 2e13
+        // This executable alpha credit still makes dividend*shares exceed 96
+        // integer bits. Shares must track the curve's realizable contribution,
+        // including its deliberately increased impact, without saturating.
+        let dividend = 5_000_000_000_000u64;
+        let value = SubtensorModule::realizable_tao_for_alpha(netuid, dividend);
+        assert!(u128::from(dividend) * u128::from(fund_scale) > (1u128 << 96));
         SubtensorModule::distribute_root_alpha_to_basket(&hotkey, netuid, dividend.into());
 
         let minted = fund_shares(&hotkey).saturating_sub(fund_scale);
@@ -2847,7 +2877,7 @@ fn test_root_basket_large_magnitudes_no_saturation() {
             minted > dividend / 2 && minted < dividend * 2,
             "mint saturated or mispriced: minted {minted} for a {dividend} deposit at N/P~=1"
         );
-        assert_abs_diff_eq!(minted, dividend, epsilon = dividend / 20);
+        assert_abs_diff_eq!(minted, value, epsilon = 1);
     });
 }
 
@@ -3451,11 +3481,11 @@ fn test_root_basket_claim_writes_off_only_claimants_terminal_garbage_slice() {
 
         // Alpha -> TAO requires the output (TAO) reserve to meet SwapMinimumReserve.
         // This pool is therefore terminal for sales, independent of the sale amount.
-        SubnetTAO::<Test>::insert(
+        setup_reserves(
             garbage,
             TaoBalance::from(u64::from(SwapMinimumReserve::get()) - 1),
+            AlphaBalance::from(1_000_000u64),
         );
-        SubnetAlphaIn::<Test>::insert(garbage, AlphaBalance::from(1_000_000u64));
 
         mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
@@ -3500,61 +3530,173 @@ fn test_root_basket_claim_writes_off_only_claimants_terminal_garbage_slice() {
     });
 }
 
-/// A full holding larger than the swap engine's one-call 1000x input-reserve guard is still
-/// executable in reserve-bounded chunks. Its valuation and the money-moving claim must use
-/// the same chunk sequence, rather than treating `SwapInputTooLarge` as a zero-valued slot.
+/// A finite ellipse values executable proceeds without mutating the holding.
+/// A redemption that cannot execute its complete slice still rolls back, preserving
+/// both the holding and the shareholder entitlement.
 #[test]
-fn test_root_basket_claim_chunks_oversized_executable_holding() {
-    new_test_ext(1).execute_with(|| {
-        let owner_coldkey = U256::from(1001);
-        let hotkey = U256::from(1002);
-        let coldkey = U256::from(1003);
-        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
-        remove_owner_registration_stake(netuid);
-        // A liquid high-price pool keeps ample TAO output reserve even after selling more
-        // than 1000x its alpha input reserve. This isolates the engine's per-call input guard
-        // from a genuinely terminal reserve condition.
-        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000_000u64));
-        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000u64));
-        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
-        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(1_000_000_000_000_000u64));
+fn test_root_basket_claim_preserves_endpoint_blocked_holding() {
+    for multiple in [2u64, 1_100u64] {
+        new_test_ext(1).execute_with(|| {
+            let owner_coldkey = U256::from(1001);
+            let hotkey = U256::from(1002);
+            let coldkey = U256::from(1003);
+            let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+            remove_owner_registration_stake(netuid);
+            setup_reserves(
+                netuid,
+                TaoBalance::from(1_000_000_000_000_000u64),
+                AlphaBalance::from(1_000_000_000u64),
+            );
+            let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+            add_balance_to_coldkey_account(
+                &subnet_account,
+                TaoBalance::from(1_000_000_000_000_000u64),
+            );
 
+            SubtensorModule::set_tao_weight(u64::MAX);
+            zero_claim_threshold();
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                1u64.into(),
+            );
+            register_on_root(&hotkey, 0);
+
+            let alpha_reserve = SubnetAlphaIn::<Test>::get(netuid).to_u64();
+            let oversized = alpha_reserve.saturating_mul(multiple);
+            let escrow = SubtensorModule::get_beta_escrow_account_id();
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                netuid,
+                oversized.into(),
+            );
+            BasketShares::<Test>::insert(hotkey, 1u64);
+            BasketRate::<Test>::insert(hotkey, I96F32::from_num(1));
+
+            let tao_before = SubnetTAO::<Test>::get(netuid);
+            let alpha_before = SubnetAlphaIn::<Test>::get(netuid);
+            let events_before = System::events();
+            let expected_error: DispatchError = Error::<Test>::AmountTooLow.into();
+            if multiple > 1_000 {
+                // Retain coverage of the engine's hard input guard independently of
+                // the basket's chunked attempt to realize the full holding.
+                assert_err!(
+                    SubtensorModule::swap_alpha_for_tao(
+                        netuid,
+                        oversized.into(),
+                        TaoBalance::from(1u64),
+                        true
+                    ),
+                    pallet_subtensor_swap::Error::<Test>::SwapInputTooLarge
+                );
+            }
+            assert_storage_noop!({
+                let value = SubtensorModule::try_realizable_tao_for_alpha(netuid, oversized)
+                    .unwrap()
+                    .unwrap();
+                assert!(value > 0);
+                assert!(value <= tao_before.to_u64());
+            });
+            let root_before = root_stake_of(&hotkey, &coldkey);
+            assert_err_ignore_postinfo!(
+                SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey),
+                expected_error
+            );
+
+            assert_eq!(root_stake_of(&hotkey, &coldkey), root_before);
+            assert_eq!(escrow_alpha(&hotkey, netuid), oversized);
+            assert_eq!(fund_shares(&hotkey), 1);
+            assert_eq!(
+                SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey),
+                1
+            );
+            assert_eq!(SubnetTAO::<Test>::get(netuid), tao_before);
+            assert_eq!(SubnetAlphaIn::<Test>::get(netuid), alpha_before);
+            assert_eq!(
+                System::events(),
+                events_before,
+                "a partially executable holding must not be written off"
+            );
+        });
+    }
+}
+
+/// Claims inside the finite range must extract every realizable rao. A first
+/// shareholder receives its NAV fraction; sale surplus stays with the fund until
+/// the final shareholder redeems the remaining alpha and root cash.
+#[test]
+fn test_root_basket_claim_near_endpoint_preserves_sale_surplus_and_conservation() {
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let alice = U256::from(1003);
+        let bob = U256::from(1004);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        remove_owner_registration_stake(netuid);
+        let initial_tao = 1_000_000_000_000_000u64;
+        let initial_alpha = 1_000_000_000u64;
+        setup_reserves(netuid, initial_tao.into(), initial_alpha.into());
+        let account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&account, initial_tao.into());
         SubtensorModule::set_tao_weight(u64::MAX);
         zero_claim_threshold();
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-            1u64.into(),
-        );
+        for coldkey in [&alice, &bob] {
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                coldkey,
+                NetUid::ROOT,
+                100u64.into(),
+            );
+        }
         register_on_root(&hotkey, 0);
-
-        let alpha_reserve = SubnetAlphaIn::<Test>::get(netuid).to_u64();
-        let oversized = alpha_reserve.saturating_mul(1_100);
+        <Test as crate::Config>::SwapInterface::init_swap(netuid, None);
+        let curve = pallet_subtensor_swap::Pallet::<Test>::superellipse(netuid).unwrap();
+        let holding = curve.max_sell_input(initial_alpha, initial_tao).unwrap() * 3 / 4;
         let escrow = SubtensorModule::get_beta_escrow_account_id();
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
             &escrow,
             netuid,
-            oversized.into(),
+            holding.into(),
         );
-        BasketShares::<Test>::insert(hotkey, 1u64);
+        BasketShares::<Test>::insert(hotkey, 200u64);
         BasketRate::<Test>::insert(hotkey, I96F32::from_num(1));
-
-        assert!(
-            SubtensorModule::try_realizable_tao_for_alpha(netuid, oversized)
-                .expect("oversized quote must not fail")
-                .expect("deep pool is not terminal")
-                > 0
-        );
-        let root_before = root_stake_of(&hotkey, &coldkey);
+        let full_value = SubtensorModule::try_realizable_tao_for_alpha(netuid, holding)
+            .unwrap()
+            .unwrap();
+        assert!(full_value > 0);
+        let alice_before = root_stake_of(&hotkey, &alice);
+        let bob_before = root_stake_of(&hotkey, &bob);
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
-            RuntimeOrigin::signed(coldkey),
+            RuntimeOrigin::signed(alice),
             hotkey
         ));
-
-        assert!(root_stake_of(&hotkey, &coldkey) > root_before);
+        let alice_paid = root_stake_of(&hotkey, &alice) - alice_before;
+        assert_eq!(alice_paid, full_value / 2);
+        assert_eq!(escrow_alpha(&hotkey, netuid), holding / 2);
+        assert_eq!(fund_shares(&hotkey), 100);
+        let retained = escrow_alpha(&hotkey, NetUid::ROOT);
+        assert!(
+            retained > 0,
+            "first sale surplus belongs to the remaining fund"
+        );
+        let first_reserve_loss = initial_tao - SubnetTAO::<Test>::get(netuid).to_u64();
+        assert_eq!(first_reserve_loss, alice_paid + retained);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(bob),
+            hotkey
+        ));
+        let bob_paid = root_stake_of(&hotkey, &bob) - bob_before;
+        let total_reserve_loss = initial_tao - SubnetTAO::<Test>::get(netuid).to_u64();
+        assert_eq!(alice_paid + bob_paid, total_reserve_loss);
+        assert_eq!(
+            SubnetAlphaIn::<Test>::get(netuid).to_u64(),
+            initial_alpha + holding
+        );
         assert_eq!(escrow_alpha(&hotkey, netuid), 0);
+        assert_eq!(escrow_alpha(&hotkey, NetUid::ROOT), 0);
         assert_eq!(fund_shares(&hotkey), 0);
     });
 }
@@ -4115,5 +4257,71 @@ fn test_root_register_skips_immune_when_pruning() {
         );
         assert!(Uids::<Test>::contains_key(NetUid::ROOT, staked_hotkey));
         assert!(Uids::<Test>::contains_key(NetUid::ROOT, incoming_hotkey));
+    });
+}
+
+/// An endpoint-blocked full holding must not pin a smaller executable claim
+/// or its share of root cash. The unredeemed alpha and shares remain owned.
+#[test]
+fn test_root_basket_small_claim_with_endpoint_blocked_holding_and_cash() {
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(7001);
+        let hotkey = U256::from(7002);
+        let claimant = U256::from(7003);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        remove_owner_registration_stake(netuid);
+        setup_reserves(
+            netuid,
+            1_000_000_000_000_000u64.into(),
+            1_000_000_000u64.into(),
+        );
+        let account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&account, 1_000_000_000_000_000u64.into());
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &claimant,
+            NetUid::ROOT,
+            1u64.into(),
+        );
+        register_on_root(&hotkey, 0);
+        <Test as crate::Config>::SwapInterface::init_swap(netuid, None);
+        let curve = pallet_subtensor_swap::Pallet::<Test>::superellipse(netuid).unwrap();
+        let holding = curve
+            .max_sell_input(1_000_000_000, 1_000_000_000_000_000)
+            .unwrap()
+            * 2;
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid,
+            holding.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            NetUid::ROOT,
+            100_000u64.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, 20);
+        BasketRate::<Test>::insert(hotkey, I96F32::from_num(1));
+        let nav = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        let root_before = root_stake_of(&hotkey, &claimant);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(claimant),
+            hotkey,
+        ));
+        let paid = root_stake_of(&hotkey, &claimant) - root_before;
+        assert!(paid >= 5_000);
+        assert!(paid <= nav / 20);
+        assert_eq!(escrow_alpha(&hotkey, netuid), holding - holding / 20);
+        assert_eq!(fund_shares(&hotkey), 19);
+        assert_eq!(
+            SubtensorModule::get_basket_owed_shares(&hotkey, &claimant),
+            0
+        );
+        assert!(SubnetTAO::<Test>::get(netuid).to_u64() > 0);
     });
 }

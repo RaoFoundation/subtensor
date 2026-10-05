@@ -16,7 +16,7 @@ use subtensor_swap_interface::{
 
 use super::pallet::*;
 use super::swap_step::{BasicSwapStep, MAX_SWAP_INPUT_RESERVE_MULTIPLIER, SwapStep};
-use crate::{pallet::Balancer, pallet::balancer::BalancerError};
+use crate::{pallet::Balancer, pallet::Superellipse, pallet::balancer::BalancerError};
 
 impl<T: Config> Pallet<T> {
     pub fn current_price(netuid: NetUid) -> U64F64 {
@@ -25,8 +25,15 @@ impl<T: Config> Pallet<T> {
                 let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
                 if !alpha_reserve.is_zero() {
                     let tao_reserve = T::TaoReserve::reserve(netuid.into());
-                    let balancer = SwapBalancer::<T>::get(netuid);
-                    balancer.calculate_price(alpha_reserve.into(), tao_reserve.into())
+                    if let Some(curve) = SwapSuperellipse::<T>::get(netuid) {
+                        curve
+                            .calculate_price(alpha_reserve.into(), tao_reserve.into())
+                            .unwrap_or_default()
+                    } else {
+                        // Read-only fallback for legacy/unfunded pools until initialization.
+                        SwapBalancer::<T>::get(netuid)
+                            .calculate_price(alpha_reserve.into(), tao_reserve.into())
+                    }
                 } else {
                     U64F64::saturating_from_num(0)
                 }
@@ -35,12 +42,12 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    // initializes pal-swap (balancer) for a subnet if needed
+    // Initialize a fixed ellipse, retaining the legacy initializer entry point.
     pub fn maybe_initialize_palswap(
         netuid: NetUid,
         maybe_price: Option<U64F64>,
     ) -> Result<(), Error<T>> {
-        if PalSwapInitialized::<T>::get(netuid) {
+        if SwapSuperellipse::<T>::contains_key(netuid) {
             return Ok(());
         }
 
@@ -48,149 +55,330 @@ impl<T: Config> Pallet<T> {
         let tao_reserve = T::TaoReserve::reserve(netuid.into());
         let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
 
-        // Create balancer based on price
-        let balancer = Balancer::new(if let Some(price) = maybe_price {
-            // Price is given, calculate weights:
-            // w_quote = y / (px + y)
-            let px_high = (price.saturating_to_num::<u64>() as u128)
-                .saturating_mul(u64::from(alpha_reserve) as u128);
-            let px_low = U64F64::saturating_from_num(alpha_reserve)
-                .saturating_mul(price.frac())
-                .saturating_to_num::<u128>();
-            let px_plus_y = px_high
-                .saturating_add(px_low)
-                .saturating_add(u64::from(tao_reserve) as u128);
+        if tao_reserve.is_zero() || alpha_reserve.is_zero() {
+            return Err(Error::<T>::ReservesTooLow);
+        }
 
-            // If price is given and both reserves are zero, the swap doesn't initialize
-            if px_plus_y == 0u128 {
-                return Err(Error::<T>::ReservesOutOfBalance);
-            }
-            Perquintill::from_rational(u64::from(tao_reserve) as u128, px_plus_y)
+        // Recover the archived price and sensitivity, or initialize a new pool.
+        let balancer = if PalSwapInitialized::<T>::get(netuid) && maybe_price.is_none() {
+            SwapBalancer::<T>::get(netuid)
         } else {
-            // No price = insert 0.5 into SwapBalancer
-            Perquintill::from_rational(1_u64, 2_u64)
-        })
-        .map_err(|err| match err {
-            BalancerError::InvalidValue => Error::<T>::ReservesOutOfBalance,
-        })?;
-        SwapBalancer::<T>::insert(netuid, balancer.clone());
+            Balancer::new(if let Some(price) = maybe_price {
+                // Price is given, calculate weights:
+                // w_quote = y / (px + y)
+                let px_high = (price.saturating_to_num::<u64>() as u128)
+                    .saturating_mul(u64::from(alpha_reserve) as u128);
+                let px_low = U64F64::saturating_from_num(alpha_reserve)
+                    .saturating_mul(price.frac())
+                    .saturating_to_num::<u128>();
+                let px_plus_y = px_high
+                    .saturating_add(px_low)
+                    .saturating_add(u64::from(tao_reserve) as u128);
 
+                // If price is given and both reserves are zero, the swap doesn't initialize
+                if px_plus_y == 0u128 {
+                    return Err(Error::<T>::ReservesOutOfBalance);
+                }
+                Perquintill::from_rational(u64::from(tao_reserve) as u128, px_plus_y)
+            } else {
+                // No price = insert 0.5 into SwapBalancer
+                Perquintill::from_rational(1_u64, 2_u64)
+            })
+            .map_err(|err| match err {
+                BalancerError::InvalidValue => Error::<T>::ReservesOutOfBalance,
+            })?
+        };
+        let curve = Superellipse::from_balancer(
+            alpha_reserve.into(),
+            tao_reserve.into(),
+            balancer.get_quote_weight(),
+        )
+        .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        let (curve, limited) = curve
+            .calibrate_sell_depth(
+                alpha_reserve.into(),
+                tao_reserve.into(),
+                super::SLIPPAGE_REFERENCE_TAO,
+                MinimumSellImpactBps::<T>::get(netuid),
+                T::MinimumReserve::get().get(),
+            )
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        SlippageReferenceLimited::<T>::insert(netuid, limited);
+        SwapBalancer::<T>::insert(netuid, balancer);
+        SwapSuperellipse::<T>::insert(netuid, curve);
         PalSwapInitialized::<T>::insert(netuid, true);
 
         Ok(())
     }
 
-    /// Adjusts balancer weights with minted TAO and alpha liquidity to
-    /// maintain price.
-    ///
-    /// If weights cannot be adjusted (get pushed out of range), the excess TAO
-    /// and/or Alpha are added to reservoirs and an attempt to use them will be made
-    /// later.
-    ///
-    /// Returns:
-    /// 1. price-active TAO delta to add to `SubnetTAO`
-    /// 2. price-active Alpha delta to add to `SubnetAlphaIn`
-    ///
-    /// Amounts that would push weights out of range are materialized but left in
-    /// per-subnet reservoirs for a later balancer update.
-    ///
-    /// The caller is responsible for materializing the current `tao_delta` and
-    /// `alpha_delta`; reservoir amounts were materialized when first stored.
+    /// Maximum fee-inclusive TAO input which fully fills a lending buy at its
+    /// maximal explicit price limit. This is a geometric bound, so tiny inputs
+    /// with a zero rounded payout do not get mistaken for the upper endpoint.
+    pub fn maximum_buy_input(netuid: NetUid) -> TaoBalance {
+        let capacity = || -> Result<u64, DispatchError> {
+            ensure!(
+                T::SubnetInfo::exists(netuid) && T::SubnetInfo::mechanism(netuid) == 1,
+                Error::<T>::MechanismDoesNotExist
+            );
+            ensure!(
+                FeeRate::<T>::get(netuid) < u16::MAX,
+                Error::<T>::FeeRateTooHigh
+            );
+            let alpha = u64::from(T::AlphaReserve::reserve(netuid));
+            let tao = u64::from(T::TaoReserve::reserve(netuid));
+            let curve = Self::superellipse(netuid)?;
+            let mut net = curve
+                .max_buy_input_with_reserve_floor(alpha, tao, T::MinimumReserve::get().get())
+                .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+            net = net.min(tao.saturating_mul(MAX_SWAP_INPUT_RESERVE_MULTIPLIER));
+            let limit = U64F64::saturating_from_num(u64::MAX)
+                .safe_div(U64F64::saturating_from_num(1_000_000_000_u64));
+            let output = curve
+                .buy_output(alpha, tao, net)
+                .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+            let final_price = curve.calculate_price(
+                alpha
+                    .checked_sub(output)
+                    .ok_or(Error::<T>::InsufficientLiquidity)?,
+                tao.checked_add(net)
+                    .ok_or(Error::<T>::ReservesOutOfBalance)?,
+            );
+            if final_price.is_err() || final_price.is_ok_and(|price| price > limit) {
+                net = net.min(
+                    curve
+                        .quote_delta_to_price(alpha, tao, limit)
+                        .map_err(|_| Error::<T>::ReservesOutOfBalance)?,
+                );
+            }
+            if net == 0
+                || curve
+                    .buy_output(alpha, tao, net)
+                    .map_err(|_| Error::<T>::ReservesOutOfBalance)?
+                    == 0
+            {
+                return Ok(0);
+            }
+            // net(gross) = gross - floor(gross*fee_rate) is monotone. Use the
+            // exact execution fee routine, including its fixed-point rounding.
+            let mut low = net;
+            let mut high = u64::MAX;
+            while low < high {
+                let mid = low
+                    .checked_add(
+                        high.checked_sub(low)
+                            .ok_or(Error::<T>::ReservesOutOfBalance)?
+                            .div_ceil(2),
+                    )
+                    .ok_or(Error::<T>::ReservesOutOfBalance)?;
+                let fee = u64::from(Self::calculate_fee_amount(
+                    netuid,
+                    TaoBalance::from(mid),
+                    false,
+                ));
+                if mid
+                    .checked_sub(fee)
+                    .ok_or(Error::<T>::ReservesOutOfBalance)?
+                    <= net
+                {
+                    low = mid;
+                } else {
+                    high = mid.checked_sub(1).ok_or(Error::<T>::ReservesOutOfBalance)?;
+                }
+            }
+            Ok(low)
+        };
+        capacity().unwrap_or_default().into()
+    }
+
+    /// The compute envelope callers charge for calibration or extraction.
+    pub fn calibration_weight() -> frame_support::weights::Weight {
+        T::CalibrationWeight::get()
+    }
+
+    /// Explicit, price-preserving recalibration. Runtime policy must prevent
+    /// exposing already-loaned inventory through a subsequent curve change.
+    pub fn configure_slippage(netuid: NetUid, impact_bps: u16) -> Result<(), DispatchError> {
+        ensure!(
+            impact_bps > 0 && impact_bps < 10_000,
+            Error::<T>::InvalidSlippageTarget
+        );
+        ensure!(
+            T::SubnetInfo::exists(netuid) && T::SubnetInfo::mechanism(netuid) == 1,
+            Error::<T>::MechanismDoesNotExist
+        );
+        let alpha = u64::from(T::AlphaReserve::reserve(netuid));
+        let tao = u64::from(T::TaoReserve::reserve(netuid));
+        let price = Self::current_price(netuid);
+        let baseline = Superellipse::from_price(alpha, tao, price)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        let (curve, limited) = baseline
+            .calibrate_sell_depth(
+                alpha,
+                tao,
+                super::SLIPPAGE_REFERENCE_TAO,
+                impact_bps,
+                T::MinimumReserve::get().get(),
+            )
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        SwapSuperellipse::<T>::insert(netuid, curve);
+        MinimumSellImpactBps::<T>::insert(netuid, impact_bps);
+        SlippageReferenceLimited::<T>::insert(netuid, limited);
+        PalSwapInitialized::<T>::insert(netuid, true);
+        Ok(())
+    }
+
+    /// Debit globally unreachable active reserve balances and translate their
+    /// centers by the same amounts. This does not mint, burn or transfer assets:
+    /// the runtime bridge materializes already-issued lending custody balances
+    /// and reconciles TotalStake/alpha issuance in the surrounding transaction.
+    #[frame_support::transactional]
+    pub fn extract_unreachable_reserves(
+        netuid: NetUid,
+    ) -> Result<(AlphaBalance, TaoBalance), DispatchError> {
+        ensure!(
+            T::SubnetInfo::exists(netuid) && T::SubnetInfo::mechanism(netuid) == 1,
+            Error::<T>::MechanismDoesNotExist
+        );
+        Self::maybe_initialize_palswap(netuid, None)?;
+        let alpha = u64::from(T::AlphaReserve::reserve(netuid));
+        let tao = u64::from(T::TaoReserve::reserve(netuid));
+        let mut curve = Self::superellipse(netuid)?;
+        let (take_alpha, take_tao) = curve
+            .extractable_reserves(alpha, tao, T::MinimumReserve::get().get())
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        curve
+            .withdraw_liquidity(take_alpha, take_tao)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        curve
+            .calculate_price(
+                alpha
+                    .checked_sub(take_alpha)
+                    .ok_or(Error::<T>::InsufficientLiquidity)?,
+                tao.checked_sub(take_tao)
+                    .ok_or(Error::<T>::InsufficientLiquidity)?,
+            )
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        let (already_alpha, already_tao) = ExtractedReserves::<T>::get(netuid);
+        let extracted_alpha = u64::from(already_alpha)
+            .checked_add(take_alpha)
+            .ok_or(Error::<T>::ReservesOutOfBalance)?;
+        let extracted_tao = u64::from(already_tao)
+            .checked_add(take_tao)
+            .ok_or(Error::<T>::ReservesOutOfBalance)?;
+        T::AlphaReserve::decrease_provided(netuid, take_alpha.into());
+        T::TaoReserve::decrease_provided(netuid, take_tao.into());
+        ExtractedReserves::<T>::insert(
+            netuid,
+            (
+                AlphaBalance::from(extracted_alpha),
+                TaoBalance::from(extracted_tao),
+            ),
+        );
+        SwapSuperellipse::<T>::insert(netuid, curve);
+        Ok((take_alpha.into(), take_tao.into()))
+    }
+
+    /// Materialized protocol liquidity translates the curve without changing its
+    /// normalized coordinates, price or scale. Pending legacy reservoirs are
+    /// released when both projected reserves and offsets can represent them.
+    /// The caller materializes current emissions and applies returned reserve deltas.
+    #[frame_support::transactional]
     pub(super) fn adjust_protocol_liquidity(
         netuid: NetUid,
         tao_delta: TaoBalance,
         alpha_delta: AlphaBalance,
-    ) -> (TaoBalance, AlphaBalance) {
-        // Get reserves
-        let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
-        let tao_reserve = T::TaoReserve::reserve(netuid.into());
-        let balancer = SwapBalancer::<T>::get(netuid);
-
-        let pending_tao = BalancerTaoReservoir::<T>::get(netuid).saturating_add(tao_delta);
-        let pending_alpha = BalancerAlphaReservoir::<T>::get(netuid).saturating_add(alpha_delta);
-
-        if let Some(new_balancer) = Self::try_update_balancer(
-            &balancer,
-            tao_reserve,
-            alpha_reserve,
-            pending_tao,
-            pending_alpha,
-        ) {
-            BalancerTaoReservoir::<T>::remove(netuid);
-            BalancerAlphaReservoir::<T>::remove(netuid);
-            SwapBalancer::<T>::insert(netuid, new_balancer);
-            return (pending_tao, pending_alpha);
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError> {
+        let alpha = T::AlphaReserve::reserve(netuid);
+        let tao = T::TaoReserve::reserve(netuid);
+        // Refuse unrepresentable emissions before changing any curve or buffer.
+        // The caller refunds current materialized TAO and does not mint alpha.
+        let pending_tao = u64::from(BalancerTaoReservoir::<T>::get(netuid))
+            .checked_add(tao_delta.into())
+            .ok_or(Error::<T>::ReservesOutOfBalance)?;
+        let pending_alpha = u64::from(BalancerAlphaReservoir::<T>::get(netuid))
+            .checked_add(alpha_delta.into())
+            .ok_or(Error::<T>::ReservesOutOfBalance)?;
+        let new_tao = u64::from(tao)
+            .checked_add(pending_tao)
+            .ok_or(Error::<T>::ReservesOutOfBalance)?;
+        let new_alpha = u64::from(alpha)
+            .checked_add(pending_alpha)
+            .ok_or(Error::<T>::ReservesOutOfBalance)?;
+        if new_tao == 0 || new_alpha == 0 {
+            // An unfunded side has no tradable price. Buffer already materialized
+            // liquidity until both sides can initialize together.
+            BalancerTaoReservoir::<T>::insert(netuid, TaoBalance::from(pending_tao));
+            BalancerAlphaReservoir::<T>::insert(netuid, AlphaBalance::from(pending_alpha));
+            return Ok((TaoBalance::ZERO, AlphaBalance::ZERO));
         }
-
-        if let Some(new_balancer) = Self::try_update_balancer(
-            &balancer,
-            tao_reserve,
-            alpha_reserve,
-            TaoBalance::ZERO,
-            pending_alpha,
-        ) {
-            BalancerTaoReservoir::<T>::insert(netuid, pending_tao);
-            BalancerAlphaReservoir::<T>::remove(netuid);
-            SwapBalancer::<T>::insert(netuid, new_balancer);
-            return (TaoBalance::ZERO, pending_alpha);
-        }
-
-        if let Some(new_balancer) = Self::try_update_balancer(
-            &balancer,
-            tao_reserve,
-            alpha_reserve,
-            pending_tao,
-            AlphaBalance::ZERO,
-        ) {
-            BalancerTaoReservoir::<T>::remove(netuid);
-            BalancerAlphaReservoir::<T>::insert(netuid, pending_alpha);
-            SwapBalancer::<T>::insert(netuid, new_balancer);
-            return (pending_tao, AlphaBalance::ZERO);
-        }
-
-        if pending_tao.is_zero() {
-            BalancerTaoReservoir::<T>::remove(netuid);
+        let mut calibration_status = None;
+        let mut curve = if let Some(curve) = SwapSuperellipse::<T>::get(netuid) {
+            // Validate the existing coordinates before translating them.
+            curve
+                .calculate_price(alpha.into(), tao.into())
+                .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+            curve
+        } else if !tao.is_zero() && !alpha.is_zero() {
+            let baseline = Superellipse::from_balancer(
+                alpha.into(),
+                tao.into(),
+                SwapBalancer::<T>::get(netuid).get_quote_weight(),
+            )
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+            let (curve, limited) = baseline
+                .calibrate_sell_depth(
+                    alpha.into(),
+                    tao.into(),
+                    super::SLIPPAGE_REFERENCE_TAO,
+                    MinimumSellImpactBps::<T>::get(netuid),
+                    T::MinimumReserve::get().get(),
+                )
+                .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+            calibration_status = Some(limited);
+            curve
         } else {
-            BalancerTaoReservoir::<T>::insert(netuid, pending_tao);
-        }
-        if pending_alpha.is_zero() {
+            // An empty pool has no price to preserve. Anchor at projected reserves
+            // and skip translation: the pending balances are already in the anchor.
+            let curve = Superellipse::from_balancer(
+                new_alpha,
+                new_tao,
+                SwapBalancer::<T>::get(netuid).get_quote_weight(),
+            )
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+            let (curve, limited) = curve
+                .calibrate_sell_depth(
+                    new_alpha,
+                    new_tao,
+                    super::SLIPPAGE_REFERENCE_TAO,
+                    MinimumSellImpactBps::<T>::get(netuid),
+                    T::MinimumReserve::get().get(),
+                )
+                .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+            SlippageReferenceLimited::<T>::insert(netuid, limited);
+            SwapSuperellipse::<T>::insert(netuid, curve);
+            PalSwapInitialized::<T>::insert(netuid, true);
+            BalancerTaoReservoir::<T>::remove(netuid);
             BalancerAlphaReservoir::<T>::remove(netuid);
-        } else {
-            BalancerAlphaReservoir::<T>::insert(netuid, pending_alpha);
+            return Ok((pending_tao.into(), pending_alpha.into()));
+        };
+        curve
+            .translate_liquidity(pending_alpha, pending_tao)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        curve
+            .calculate_price(new_alpha, new_tao)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        SwapSuperellipse::<T>::insert(netuid, curve);
+        if let Some(limited) = calibration_status {
+            SlippageReferenceLimited::<T>::insert(netuid, limited);
         }
-        if pending_tao > TaoBalance::ZERO || pending_alpha > AlphaBalance::ZERO {
-            log::warn!(
-                "Reserves are out of range for emission: netuid = {}, tao = {}, alpha = {}, tao_delta = {}, alpha_delta = {}, tao_reservoir = {}, alpha_reservoir = {}",
-                netuid,
-                tao_reserve,
-                alpha_reserve,
-                tao_delta,
-                alpha_delta,
-                pending_tao,
-                pending_alpha
-            );
-        }
-
-        (TaoBalance::ZERO, AlphaBalance::ZERO)
+        PalSwapInitialized::<T>::insert(netuid, true);
+        BalancerTaoReservoir::<T>::remove(netuid);
+        BalancerAlphaReservoir::<T>::remove(netuid);
+        Ok((pending_tao.into(), pending_alpha.into()))
     }
 
-    fn try_update_balancer(
-        balancer: &Balancer,
-        tao_reserve: TaoBalance,
-        alpha_reserve: AlphaBalance,
-        tao_delta: TaoBalance,
-        alpha_delta: AlphaBalance,
-    ) -> Option<Balancer> {
-        let mut new_balancer = balancer.clone();
-        new_balancer
-            .update_weights_for_added_liquidity(
-                u64::from(tao_reserve),
-                u64::from(alpha_reserve),
-                u64::from(tao_delta),
-                u64::from(alpha_delta),
-            )
-            .ok()?;
-        Some(new_balancer)
+    pub fn superellipse(netuid: NetUid) -> Result<Superellipse, Error<T>> {
+        SwapSuperellipse::<T>::get(netuid).ok_or(Error::<T>::ReservesOutOfBalance)
     }
 
     /// Executes a token swap on the specified subnet.
@@ -212,9 +400,9 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Simulation Mode
     /// When `simulate` is set to `true`, the function:
-    /// 1. Executes all logic without persisting any state changes (i.e., performs a dry run).
-    /// 2. Skips reserve checks — it may return an `amount_paid_out` greater than the available
-    ///    reserve.
+    /// 1. Computes the executable result without persisting reserve or initialization changes.
+    /// 2. Enforces the same curve domain, reserve floors, and price limits as execution,
+    ///    including partial-fill boundaries.
     ///
     /// Use simulation mode to preview the outcome of a swap without modifying the blockchain state.
     pub(crate) fn do_swap<Order>(
@@ -233,7 +421,7 @@ impl<T: Config> Pallet<T> {
         // whose open/rollback cost dominates when valuation paths (basket NAV sweeps,
         // RPC quotes) issue thousands of sim swaps per block. An uninitialized pool falls
         // through to the transactional dry-run so its one-time init write still rolls back.
-        if simulate && PalSwapInitialized::<T>::get(netuid) {
+        if simulate && SwapSuperellipse::<T>::contains_key(netuid) {
             return Self::ensure_swap_input_within_reserve_limit::<Order>(
                 netuid,
                 order.amount(),
@@ -324,7 +512,7 @@ impl<T: Config> Pallet<T> {
             amount_to_swap,
             limit_price,
             drop_fees,
-        );
+        )?;
 
         let swap_result = swap_step.execute()?;
 
@@ -379,7 +567,7 @@ impl<T: Config> Pallet<T> {
 
     /// Clear **protocol-owned** liquidity and wipe all swap state for `netuid`.
     pub fn do_clear_protocol_liquidity(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
-        let clear_weight = T::DbWeight::get().reads_writes(6, 7);
+        let clear_weight = T::DbWeight::get().reads_writes(6, 11);
         if !weight_meter.can_consume(clear_weight) {
             return false;
         }
@@ -404,6 +592,10 @@ impl<T: Config> Pallet<T> {
 
         FeeRate::<T>::remove(netuid);
         SwapBalancer::<T>::remove(netuid);
+        SwapSuperellipse::<T>::remove(netuid);
+        MinimumSellImpactBps::<T>::remove(netuid);
+        SlippageReferenceLimited::<T>::remove(netuid);
+        ExtractedReserves::<T>::remove(netuid);
 
         log::debug!(
             "clear_protocol_liquidity: netuid={netuid:?}, protocol_burned: τ={burned_tao:?}, α={burned_alpha:?}; state cleared"
@@ -521,8 +713,26 @@ impl<T: Config> SwapHandler for Pallet<T> {
         netuid: NetUid,
         tao_delta: TaoBalance,
         alpha_delta: AlphaBalance,
-    ) -> (TaoBalance, AlphaBalance) {
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError> {
         Self::adjust_protocol_liquidity(netuid, tao_delta, alpha_delta)
+    }
+
+    fn configure_slippage(netuid: NetUid, impact_bps: u16) -> Result<(), DispatchError> {
+        Pallet::<T>::configure_slippage(netuid, impact_bps)
+    }
+
+    fn extract_unreachable_reserves(
+        netuid: NetUid,
+    ) -> Result<(AlphaBalance, TaoBalance), DispatchError> {
+        Pallet::<T>::extract_unreachable_reserves(netuid)
+    }
+
+    fn max_buy_input(netuid: NetUid) -> TaoBalance {
+        Pallet::<T>::maximum_buy_input(netuid)
+    }
+
+    fn extracted_tao(netuid: NetUid) -> TaoBalance {
+        ExtractedReserves::<T>::get(netuid).1
     }
 
     fn protocol_alpha_reservoir(netuid: NetUid) -> AlphaBalance {

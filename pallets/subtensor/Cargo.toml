@@ -44,6 +44,7 @@ runtime-common.workspace = true
 subtensor-runtime-common = { workspace = true, features = ["approx"] }
 sp-keyring.workspace = true
 pallet-alpha-assets.workspace = true
+pallet-lending.workspace = true
 
 pallet-drand.workspace = true
 pallet-commitments.workspace = true
@@ -79,6 +80,7 @@ pallet-shield = { workspace = true, features = ["std"] }
 
 [features]
 try-runtime = [
+	"pallet-subtensor-swap/try-runtime",
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"pallet-balances/try-runtime",
@@ -94,6 +96,7 @@ try-runtime = [
 	"pallet-subtensor-utility/try-runtime",
 	"pallet-shield/try-runtime",
 	"pallet-aura/try-runtime",
+	"pallet-lending/try-runtime",
 ]
 default = ["std"]
 std = [
@@ -117,6 +120,7 @@ std = [
 	"sp-keyring/std",
 	"subtensor-runtime-common/std",
 	"pallet-alpha-assets/std",
+	"pallet-lending/std",
 	"pallet-commitments/std",
 	"pallet-crowdloan/std",
 	"pallet-drand/std",
@@ -157,6 +161,7 @@ runtime-benchmarks = [
 	"pallet-drand/runtime-benchmarks",
 	"pallet-subtensor-proxy/runtime-benchmarks",
 	"pallet-subtensor-swap/runtime-benchmarks",
+	"pallet-lending/runtime-benchmarks",
 	"pallet-subtensor-utility/runtime-benchmarks",
 	"pallet-shield/runtime-benchmarks",
 	"subtensor-runtime-common/runtime-benchmarks",

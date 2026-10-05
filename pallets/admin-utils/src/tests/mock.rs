@@ -240,6 +240,7 @@ impl pallet_subtensor::Config for Test {
     type InitialEmaPriceHalvingPeriod = InitialEmaPriceHalvingPeriod;
     type InitialStartCallDelay = InitialStartCallDelay;
     type SwapInterface = Swap;
+    type LendingInterface = ();
     type KeySwapOnSubnetCost = InitialKeySwapOnSubnetCost;
     type HotkeySwapOnSubnetInterval = HotkeySwapOnSubnetInterval;
     type ProxyInterface = ();
@@ -368,6 +369,7 @@ impl pallet_subtensor_swap::Config for Test {
     type MaxFeeRate = SwapMaxFeeRate;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
+    type CalibrationWeight = SwapCalibrationWeight;
     type WeightInfo = ();
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
@@ -594,3 +596,5 @@ pub fn add_balance_to_coldkey_account(coldkey: &U256, tao: TaoBalance) {
 pub fn remove_balance_from_coldkey_account(coldkey: &U256, tao: TaoBalance) {
     let _ = SubtensorModule::burn_tao(coldkey, tao);
 }
+
+frame_support::parameter_types! { pub SwapCalibrationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }

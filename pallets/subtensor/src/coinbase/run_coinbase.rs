@@ -170,11 +170,30 @@ impl<T: Config> Pallet<T> {
                 // without pushing balancer weights out of range. Only already
                 // materialized current TAO is offered to the swap pallet.
                 let (price_active_tao, price_active_alpha) =
-                    T::SwapInterface::adjust_protocol_liquidity(
+                    match T::SwapInterface::adjust_protocol_liquidity(
                         *netuid_i,
                         materialized_tao_delta,
                         alpha_in_i,
-                    );
+                    ) {
+                        Ok(active) => active,
+                        Err(error) => {
+                            // The curve/buffer update is transactional. Reverse this block's
+                            // already-resolved credit and leave alpha unminted on failure.
+                            if !materialized_tao_delta.is_zero() {
+                                match Self::withdraw_tao_as_credit(
+                                    &subnet_account_id,
+                                    materialized_tao_delta,
+                                ) {
+                                    Ok(credit) => remaining_credit.subsume(credit),
+                                    Err(refund_error) => log::error!(
+                                        "Protocol liquidity refund failed for {netuid_i:?}: {refund_error:?}"
+                                    ),
+                                }
+                            }
+                            log::error!("Protocol liquidity deferred for {netuid_i:?}: {error:?}");
+                            continue;
+                        }
+                    };
 
                 // Materialize this block's alpha emission, then add only the
                 // price-active portion to the pool reserve. The price-active

@@ -402,6 +402,52 @@ class Prices(_ReadNamespace):
     async def alpha_prices(self, *, block: Optional[int] = None) -> dict[int, float]:
         """Spot alpha price for every subnet, as TAO per alpha keyed by netuid."""
 
+    async def lending_close_quote(self, coldkey_ss58: str, netuid: int, repay_from_wallet: bool = False, *, block: Optional[int] = None) -> dict:
+        """Runtime quote of the full repayment and refund, after accrued interest.
+
+        Payment is TAO except for a wallet-repaid short, which returns its fixed
+        alpha principal. Refund is TAO for a short and alpha for a long. A short
+        AMM buyback must fit within the curve's remaining buy range.
+        """
+
+    async def lending_open_quote(self, netuid: int, side: str, collateral: str, *, block: Optional[int] = None) -> dict:
+        """Quote the entire loan using the runtime's fee-inclusive arithmetic.
+
+        Includes EMA valuation, executable AMM depth, inventory and utilization
+        checks. A refusal is an error; it never becomes a zero-protection quote.
+        The result is indicative until the opening transaction executes.
+        """
+
+    async def lending_position(self, coldkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
+        """A coldkey's fixed-principal loan on one subnet, or None.
+
+        Principal never falls when interest is collected. Amounts retain their
+        currency: short collateral and sale proceeds are TAO, short debt is
+        alpha; long collateral is alpha and long debt is TAO. Interest and
+        remaining runway are estimates at the selected block, not a close quote.
+        """
+
+    async def lending_positions(self, netuid: int, *, block: Optional[int] = None) -> list[dict]:
+        """All open loans on a subnet, pinned to one block and sorted by owner."""
+
+    async def lending_reserves(self, netuid: int, *, block: Optional[int] = None) -> dict:
+        """Available, borrowed, lost and pending balances of the lending vault.
+
+        The 10% cap uses available inventory plus outstanding principal in each
+        asset. AMM reserves, borrower collateral, short proceeds and pending
+        conversions are excluded. This reports inventory, not a promise that
+        loans will be repaid.
+        """
+
+    async def pool_depth(self, netuid: int, *, block: Optional[int] = None) -> dict:
+        """Minimum calibrated sell impact for a 500-TAO-equivalent alpha sale.
+
+        This is an ending spot-price target excluding fees, calibrated once; it
+        is not an execution-slippage guarantee at every later pool state.
+        `reference_limited` means the full reference sale cannot execute and
+        the safe baseline curve was retained instead of promising that target.
+        """
+
     async def quote_stake(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> SwapQuote:
         """Simulate staking `amount_tao` TAO into a subnet: alpha out, fee, and slippage.
 

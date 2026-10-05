@@ -67,6 +67,8 @@ fn test_remove_data_for_dissolved_networks_all_phases() {
             (stake_tao * 1_000_000).into(),
             (stake_tao * 10_000_000).into(),
         );
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(stake_tao * 1_000_000));
 
         assert_ok!(SubtensorModule::create_account_if_non_existent(
             &owner_cold,
@@ -205,6 +207,8 @@ fn test_clean_up_root_claimable_for_subnet() {
             (stake_tao * 1_000_000).into(),
             (stake_tao * 10_000_000).into(),
         );
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(stake_tao * 1_000_000));
         let amount: TaoBalance = (stake_tao).into();
         assert_ok!(SubtensorModule::create_account_if_non_existent(
             &owner_cold,
@@ -250,6 +254,8 @@ fn test_clean_up_root_claimed_for_subnet() {
             (stake_tao * 1_000_000).into(),
             (stake_tao * 10_000_000).into(),
         );
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(stake_tao * 1_000_000));
         let amount: TaoBalance = (stake_tao).into();
         assert_ok!(SubtensorModule::create_account_if_non_existent(
             &owner_cold,
@@ -338,6 +344,8 @@ fn test_clear_protocol_liquidity() {
             (stake_tao * 1_000_000).into(),
             (stake_tao * 10_000_000).into(),
         );
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(stake_tao * 1_000_000));
         let amount: TaoBalance = (stake_tao).into();
         assert_ok!(SubtensorModule::create_account_if_non_existent(
             &owner_cold,
@@ -381,6 +389,8 @@ fn test_remove_data_for_dissolved_networks_via_on_idle() {
             (stake_tao * 1_000_000).into(),
             (stake_tao * 10_000_000).into(),
         );
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(stake_tao * 1_000_000));
         let amount: TaoBalance = (stake_tao).into();
         assert_ok!(SubtensorModule::create_account_if_non_existent(
             &owner_cold,
@@ -513,6 +523,8 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes() {
             (stake_tao * 1_000_000).into(),
             (stake_tao * 10_000_000).into(),
         );
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(stake_tao * 1_000_000));
         let amount: TaoBalance = (stake_tao).into();
         assert_ok!(SubtensorModule::create_account_if_non_existent(
             &owner_cold,

@@ -3,6 +3,16 @@
 from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
+    "LendingUnavailable": (
+        "The runtime could not initialize lending custody for this subnet. Reserve extraction "
+        "rolled back. Check the lending migration status and custody account registration."
+    ),
+    "LendingPositionsOpen": (
+        "A key move or pool recalibration would affect an open lending position. Close the "
+        "positions owned by the affected coldkey before changing its keys, or all positions "
+        "on the subnet before recalibrating its curve, then retry. Nominated stake migrations "
+        "by other validators update the saved loan hotkey automatically."
+    ),
     "AccountRejectsLockedAlpha": (
         "Locked alpha was being transferred to a coldkey whose `AccountFlags` do not have the "
         "accept-locked-alpha bit set, e.g. during a lock transfer or coldkey swap of locks. "

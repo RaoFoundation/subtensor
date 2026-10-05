@@ -21,6 +21,7 @@ from .drand import DESCRIPTIONS as _DRAND
 from .ethereum import DESCRIPTIONS as _ETHEREUM
 from .evm import DESCRIPTIONS as _EVM
 from .grandpa import DESCRIPTIONS as _GRANDPA
+from .lending import DESCRIPTIONS as _LENDING
 from .limit_orders import DESCRIPTIONS as _LIMIT_ORDERS
 from .mev_shield import DESCRIPTIONS as _MEV_SHIELD
 from .multisig import DESCRIPTIONS as _MULTISIG
@@ -46,6 +47,7 @@ for _part in (
     _ETHEREUM,
     _GRANDPA,
     _LIMIT_ORDERS,
+    _LENDING,
     _MEV_SHIELD,
     _MULTISIG,
     _PREIMAGE,

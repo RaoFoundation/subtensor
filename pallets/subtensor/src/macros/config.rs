@@ -55,6 +55,9 @@ mod config {
             + SwapEngine<GetAlphaForTao<Self>>
             + SwapEngine<GetTaoForAlpha<Self>>;
 
+        /// Custodial lending reserves and subnet dissolution settlement.
+        type LendingInterface: pallet_lending::LendingInterface<Self::AccountId>;
+
         /// Interface to allow interacting with the proxy pallet.
         type ProxyInterface: crate::ProxyInterface<Self::AccountId>;
 

@@ -176,8 +176,14 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
         }
         SubtokenEnabled::<T>::insert(netuid, true);
         // Seed pool reserves so the AMM price is well-defined and swaps return non-zero.
+        SubnetMechanism::<T>::insert(netuid, 1);
         SubnetTAO::<T>::insert(netuid, TaoBalance::from(1_000_000_000_000_u64));
         SubnetAlphaIn::<T>::insert(netuid, AlphaBalance::from(1_000_000_000_000_u64));
+        if let Some(account) = Self::get_subnet_account_id(netuid) {
+            let credit = Self::mint_tao(1_000_000_000_000_u64.into());
+            let _ = Self::spend_tao(&account, credit, 1_000_000_000_000_u64.into());
+        }
+        T::SwapInterface::init_swap(netuid, None);
     }
 
     #[cfg(feature = "runtime-benchmarks")]

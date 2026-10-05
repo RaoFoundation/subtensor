@@ -2,6 +2,7 @@ use super::*;
 use crate::weights::WeightInfo;
 use frame_support::weights::WeightMeter;
 use pallet_alpha_assets::AlphaAssetsInterface;
+use pallet_lending::LendingInterface;
 use subtensor_runtime_common::{NetUid, clear_prefix_with_meter};
 use subtensor_swap_interface::SwapHandler;
 /// Enum for the dissolve cleanup phase.
@@ -73,6 +74,10 @@ pub enum DissolveCleanupPhase {
     /// that can recycle alpha has completed. Appended so existing in-flight cleanup
     /// discriminants remain stable.
     NetworkAlphaAssetCounters,
+    /// Freeze-settle shorts and collect long coupons before fixing the funded payout pot.
+    LendingSettleShorts,
+    /// Close zero-payout longs after all ordinary alpha redemptions completed.
+    LendingSettleRemainingLongs,
 }
 
 impl Default for DissolveCleanupPhase {
@@ -121,6 +126,7 @@ impl<T: Config> Pallet<T> {
     /// * `MechanismDoesNotExist`: If the specified network does not exist.
     /// * `NotSubnetOwner`: If the caller does not own the specified subnet.
     ///
+    #[frame_support::transactional]
     pub fn do_dissolve_network(netuid: NetUid) -> dispatch::DispatchResult {
         // --- The network exists?
         ensure!(
@@ -128,17 +134,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::SubnetNotExists
         );
 
-        // Since TotalStake is updated on this level, purge reservoirs here into reserves and TotalStake
-        let reservoir_tao = T::SwapInterface::protocol_tao_reservoir(netuid);
-        let reservoir_alpha = T::SwapInterface::protocol_alpha_reservoir(netuid);
-        T::SwapInterface::clear_protocol_liquidity_reservoirs(netuid);
-        Self::increase_provided_tao_reserve(netuid, reservoir_tao);
-        Self::increase_provided_alpha_reserve(netuid, reservoir_alpha);
-        if !reservoir_tao.is_zero() {
-            TotalStake::<T>::mutate(|total| {
-                *total = total.saturating_add(reservoir_tao);
-            });
-        }
+        // The lending settlement mark and coupon cutoff belong to the trigger block.
+        T::LendingInterface::start_dissolution(netuid)?;
 
         let mut dissolved_networks = DissolveCleanupQueue::<T>::get();
         ensure!(
@@ -685,6 +682,34 @@ impl<T: Config> Pallet<T> {
             );
 
             let done = match &status.phase {
+                DissolveCleanupPhase::LendingSettleShorts => {
+                    // All basket AMM trades are finished. Restore latent buffers only now:
+                    // adding them sooner changes physical coordinates under the fixed curve.
+                    let restoration = T::DbWeight::get().reads_writes(4, 4);
+                    if weight_meter.try_consume(restoration).is_err() {
+                        break;
+                    }
+                    let tao = T::SwapInterface::protocol_tao_reservoir(netuid);
+                    let alpha = T::SwapInterface::protocol_alpha_reservoir(netuid);
+                    T::SwapInterface::clear_protocol_liquidity_reservoirs(netuid);
+                    Self::increase_provided_tao_reserve(netuid, tao);
+                    Self::increase_provided_alpha_reserve(netuid, alpha);
+                    // This subnet is inactive and no longer contributes to TotalStake.
+                    let done = T::LendingInterface::settle_shorts(netuid, weight_meter);
+                    if done {
+                        status.set_phase(DissolveCleanupPhase::SubnetRootDividendsRootClaimable);
+                        status.last_key = None;
+                    }
+                    done
+                }
+                DissolveCleanupPhase::LendingSettleRemainingLongs => {
+                    let done = T::LendingInterface::settle_remaining_longs(netuid, weight_meter);
+                    if done {
+                        status.set_phase(DissolveCleanupPhase::AlphaInOutStakesAlpha);
+                        status.last_key = None;
+                    }
+                    done
+                }
                 DissolveCleanupPhase::SubnetBasketHoldingsToRoot => {
                     let (done, new_key) = Self::convert_subnet_basket_holdings_to_root(
                         netuid,
@@ -693,7 +718,7 @@ impl<T: Config> Pallet<T> {
                     );
 
                     if done {
-                        status.set_phase(DissolveCleanupPhase::SubnetRootDividendsRootClaimable);
+                        status.set_phase(DissolveCleanupPhase::LendingSettleShorts);
                         status.last_key = None;
                     } else {
                         status.last_key = new_key;
@@ -753,7 +778,7 @@ impl<T: Config> Pallet<T> {
                         status,
                     );
                     if done {
-                        status.set_phase(DissolveCleanupPhase::AlphaInOutStakesAlpha);
+                        status.set_phase(DissolveCleanupPhase::LendingSettleRemainingLongs);
                         status.last_key = None;
                     } else {
                         status.last_key = new_key;
@@ -1020,14 +1045,22 @@ impl<T: Config> Pallet<T> {
                     done
                 }
                 DissolveCleanupPhase::NetworkAlphaAssetCounters => {
-                    let clear_weight = T::DbWeight::get().writes(3);
+                    // Lending generation cleanup may transfer recovered TAO, then removes
+                    // vault/reference/index state. Reserve that work before executing it.
+                    let clear_weight = T::DbWeight::get().reads_writes(12, 14).saturating_add(
+                        <T as Config>::WeightInfo::transfer_stake().saturating_mul(2),
+                    );
                     if !weight_meter.can_consume(clear_weight) {
                         false
                     } else {
                         weight_meter.consume(clear_weight);
-                        T::AlphaAssets::clear_alpha_counters(netuid);
-                        cleanup_completed = true;
-                        true
+                        if T::LendingInterface::finish_dissolution(netuid).is_err() {
+                            false
+                        } else {
+                            T::AlphaAssets::clear_alpha_counters(netuid);
+                            cleanup_completed = true;
+                            true
+                        }
                     }
                 }
             };

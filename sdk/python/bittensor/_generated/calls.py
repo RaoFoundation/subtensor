@@ -43,6 +43,7 @@ ProxyType = Any
 PulsesPayload = Any
 RecycleOrBurnEnum = Any
 RuntimeCall = Any
+Side = Any
 TaoBalance = Any
 TickIndex = Any
 Timepoint = Any
@@ -523,6 +524,11 @@ class SubtensorModule:
     def sudo_set_min_childkey_take(take: 'PerU16') -> Call:
         'Sets the minimum allowed childkey take.  This function can only be called by the root origin.  # Arguments * `origin`: The origin of the call, must be root. * `take`: The new minimum childkey take value.  # Errors * `BadOrigin`: If the origin is not root.'
         return Call('SubtensorModule', 'sudo_set_min_childkey_take', {'take': take})
+
+    @staticmethod
+    def sudo_set_pool_slippage(netuid: 'NetUid', impact_bps: 'u16') -> Call:
+        "Recalibrate a subnet's minimum ending spot-price decline for a sale of alpha worth 500 TAO at the current price. Basis points exclude swap fees. Existing loans must close before their supporting curve is changed."
+        return Call('SubtensorModule', 'sudo_set_pool_slippage', {'netuid': netuid, 'impact_bps': impact_bps})
 
     @staticmethod
     def sudo_set_root_claim_threshold(netuid: 'NetUid', new_value: 'u64') -> Call:
@@ -1681,3 +1687,22 @@ class LimitOrders:
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
+
+
+class Lending:
+    """Call builders for the Lending pallet."""
+
+    @staticmethod
+    def close(netuid: 'NetUid', repay_from_wallet: 'bool', max_payment: 'u64', min_refund: 'u64') -> Call:
+        'Repay the fixed principal and release remaining collateral. A short may buy back from escrow or supply alpha from its opening hotkey; a long supplies free TAO.'
+        return Call('Lending', 'close', {'netuid': netuid, 'repay_from_wallet': repay_from_wallet, 'max_payment': max_payment, 'min_refund': min_refund})
+
+    @staticmethod
+    def open(netuid: 'NetUid', side: 'Side', collateral: 'u64', hotkey: 'AccountId32', min_borrow: 'u64') -> Call:
+        "Open one fixed-principal loan on a subnet. Amounts use the collateral token's atoms."
+        return Call('Lending', 'open', {'netuid': netuid, 'side': side, 'collateral': collateral, 'hotkey': hotkey, 'min_borrow': min_borrow})
+
+    @staticmethod
+    def set_enabled(enabled: 'bool') -> Call:
+        'Pause new loans. Repayment, collection and terminal settlement remain available.'
+        return Call('Lending', 'set_enabled', {'enabled': enabled})
