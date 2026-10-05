@@ -6,6 +6,7 @@ use frame_support::{
     transactional,
 };
 use pallet_lending::{LendingInterface, LendingPoolInterface};
+use sp_runtime::traits::AccountIdConversion;
 use substrate_fixed::types::U64F64;
 use subtensor_swap_interface::{Order, SwapHandler};
 
@@ -125,6 +126,28 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         amount: TaoBalance,
     ) -> Result<TaoBalance, DispatchError> {
         Self::transfer_lending_tao_or_recycle_dust(from, vault, amount)
+    }
+
+    #[transactional]
+    fn burn_interest_tao(account: &T::AccountId, amount: TaoBalance) -> DispatchResult {
+        if amount.is_zero() {
+            return Ok(());
+        }
+        let burn: T::AccountId = T::BurnAccountId::get().into_account_truncating();
+        ensure!(*account != burn, Error::<T>::InsufficientTaoBalance);
+        let source_before = <T as Config>::Currency::total_balance(account);
+        let burn_before = <T as Config>::Currency::total_balance(&burn);
+        Self::burn_tao(account, amount)?;
+        let source_after = <T as Config>::Currency::total_balance(account);
+        let burn_after = <T as Config>::Currency::total_balance(&burn);
+        // A fee cannot consume unrelated principal through sender reaping, nor
+        // be recorded as burned unless the canonical address receives it in full.
+        ensure!(
+            source_before.saturating_sub(source_after) == amount
+                && burn_after.saturating_sub(burn_before) == amount,
+            Error::<T>::InsufficientTaoBalance
+        );
+        Ok(())
     }
 
     #[transactional]

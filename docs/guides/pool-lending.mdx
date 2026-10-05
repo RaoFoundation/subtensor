@@ -58,8 +58,8 @@ withdrawal is unnecessary. The transfer creates no new tokens.
 
 The accounting separates active AMM reserves, available lending inventory,
 outstanding principal, borrower collateral, locked short proceeds and collected
-interest awaiting conversion. Extracted balances become real lending assets;
-they are not also available to pay swaps.
+interest awaiting a TAO burn or alpha conversion. Extracted balances become
+real lending assets; they are not also available to pay swaps.
 
 ## Open and close a short
 
@@ -112,6 +112,7 @@ in collateral units at opening. For shorts, annual TAO interest equals the net
 TAO proceeds of the actual opening sale. For longs, the TAO principal is
 converted into alpha at the opening lending reference, rounded up; that fixes
 annual alpha interest. Later market prices do not change the collateral coupon.
+There is no additional fee for opening or closing a loan.
 
 Interest accrues per block. Collection is scheduled weekly and processed within
 the chain's available weight budget. A 250-TAO opening loan pays approximately
@@ -119,19 +120,28 @@ the chain's available weight budget. A 250-TAO opening loan pays approximately
 close, that corresponds to approximately four years of coupons. It is not
 100% interest on the entire 1,000-TAO collateral.
 
-Short coupons buy alpha through the AMM and deposit the alpha into lending
-inventory. Long coupons sell collateral alpha and deposit the TAO into lending
-inventory. **The outputs are retained, not burned.** If conversion cannot
-execute, the collected assets remain explicitly accounted for and conversion
-is retried; collection does not pretend a swap occurred. Conversions require a
-mature lending reference and accept at most 2% below its fair output, including
-fees and price impact. Bounded chunking can convert a smaller acceptable amount;
-assets that fail this bound remain pending in custody. Favorable prices are
-allowed.
+**Both short and long coupons burn TAO.** A short already pays interest in TAO:
+the collected coupon moves to the vault's reserve account and then to the
+canonical inaccessible TAO burn address (`BurnAccountId`). This needs no AMM
+swap or mature price reference.
 
-A TAO coupon too small to initialize an empty destination account is recycled
-explicitly and recorded as `DustForfeited`. It is not credited as lending
-inventory. This can apply to a tiny first coupon when a vault holds only alpha.
+A long pays interest in collateral alpha. The chain sells that alpha through
+the existing executable AMM path and burns exactly the TAO it receives. The
+complete, fee-inclusive sale must return at least 98% of a mature lending EMA's
+fair output, including fees and price impact. Bounded chunking can sell a
+smaller acceptable amount; favorable prices are allowed. The sale and exact TAO
+burn are atomic: if either fails, the original alpha remains pending in custody.
+A failed short-coupon burn likewise retains the collected TAO for retry.
+
+Collected interest does not replenish available loan inventory or enlarge the
+borrowing cap. The canonical burn transfers TAO to the inaccessible burn
+address; both the currency and Subtensor total-issuance counters remain
+unchanged. It does not use TAO recycling, which reduces issuance.
+
+A TAO coupon too small to initialize an empty destination account remains an
+explicit dust exception: it is recycled and recorded as `DustForfeited`, rather
+than credited or reported as an interest burn. This can apply to a tiny first
+coupon when a vault holds only alpha.
 
 There are no price-triggered liquidations. When collateral is exhausted, the
 chain forfeits and finalizes the position, retains assets still held in custody,
@@ -159,8 +169,9 @@ At launch, outstanding borrowing in each asset may not exceed **10% of that
 asset's funded vault inventory**: available inventory plus outstanding fixed
 principal. This is an aggregate subnet cap, not a per-user allowance or a share
 of circulating subnet supply. Collateral, locked proceeds, AMM reserves and
-pending conversions do not enlarge it. Repayment and converted interest can
-replenish inventory; written-off principal reduces the funded base.
+pending interest do not enlarge it. Principal repayments replenish inventory in
+the original borrowed asset; interest burns do not. Written-off principal
+reduces the funded base.
 
 V1 supports at most 256 funded subnet vaults, bounding reference-update work.
 When those slots are full, additional pools retain their reserves in the AMM
@@ -185,9 +196,15 @@ endpoint retain their alpha for ordinary funded redemption, which is credited
 to the originating validator's root cash slot. Lending positions then settle in bounded
 batches without AMM swaps. Custodial shorts settle against their remaining TAO
 collateral and sale proceeds; the owner receives any surplus and the chain
-records any shortfall.
-Recovered cash and remaining uncommitted lending inventory enter the funded
-dissolution pot before ordinary alpha redemption amounts are fixed.
+records any shortfall. Collected pending TAO interest is burned before reserve
+inventory is returned. Recovered cash and remaining uncommitted lending
+inventory enter the funded dissolution pot before ordinary alpha redemption
+amounts are fixed.
+
+Pending alpha interest stays ordinary vault stake through global settlement.
+The chain burns only the actual funded TAO redemption receipts for that
+interest, without an AMM swap. Alpha with no funded TAO receipt produces no TAO
+burn; a spot or EMA valuation is not a funded receipt.
 
 Longs accumulate **actual funded TAO redemptions** across all of the position
 escrow's alpha holdings, then settle once after every redemption is complete.

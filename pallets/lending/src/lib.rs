@@ -2,7 +2,8 @@
 //!
 //! Shorts sell borrowed alpha into custodial TAO proceeds. Longs transfer borrowed TAO
 //! to their owner. Both lock collateral, pay a fixed annual opening-value coupon,
-//! and have no price-triggered liquidation. Exhausted collateral forfeits the position.
+//! and have no price-triggered liquidation. Both coupons burn TAO; long coupons first
+//! sell alpha through the guarded AMM. Exhausted collateral forfeits the position.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -84,6 +85,9 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
         Self::transfer_tao(from, vault, amount)?;
         Ok(amount)
     }
+    /// Burn exactly the collected fee using the chain's canonical TAO burn account.
+    /// Failure must preserve both balances, including unrelated custody principal.
+    fn burn_interest_tao(account: &AccountId, amount: TaoBalance) -> DispatchResult;
     /// Repay the fixed alpha principal without applying unrelated spot-valued
     /// minimum-transfer rules. Source ownership, available stake and locks still apply.
     fn repay_alpha(
@@ -116,7 +120,7 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
         Self::transfer_staked_alpha(from, hotkey, to, hotkey, netuid, amount, false, false)
     }
     /// Return uncommitted lending inventory to the dissolution pot before its denominator
-    /// is fixed. Pending coupons are included. No swap is permitted here.
+    /// is fixed. Collected fees remain separate. No swap is permitted here.
     fn return_dissolution_reserves(
         netuid: NetUid,
         account: &AccountId,
@@ -438,6 +442,7 @@ pub mod pallet {
             tao: u64,
             alpha: u64,
         },
+        /// Retained for event codec compatibility; new coupons emit InterestBurned.
         InterestConverted {
             netuid: NetUid,
             side: Side,
@@ -463,6 +468,11 @@ pub mod pallet {
         DustForfeited {
             netuid: NetUid,
             recipient: T::AccountId,
+            tao: u64,
+        },
+        InterestBurned {
+            netuid: NetUid,
+            side: Side,
             tao: u64,
         },
     }
@@ -1497,20 +1507,13 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// V1 permits at most 2% below the mature EMA's fair output, including fees
-    /// and depth. Floor to output atoms once; favorable execution is unrestricted.
-    /// Coupon chunks failing this bound remain physically backed pending assets.
-    fn coupon_minimum_output(
-        side: Side,
-        input: u64,
-        reference: U64F64,
-    ) -> Result<u64, DispatchError> {
-        let input = U64F64::from_num(input);
-        let fair = match side {
-            Side::Short => input.checked_div(reference),
-            Side::Long => input.checked_mul(reference),
-        }
-        .ok_or(Error::<T>::Arithmetic)?;
+    /// Alpha fee sales require at least 98% of the mature EMA's fair TAO output,
+    /// including fees and depth. Floor once to output atoms; favorable execution
+    /// is unrestricted. Failed chunks remain physically backed pending alpha.
+    fn coupon_minimum_output(input: u64, reference: U64F64) -> Result<u64, DispatchError> {
+        let fair = U64F64::from_num(input)
+            .checked_mul(reference)
+            .ok_or(Error::<T>::Arithmetic)?;
         let minimum = fair
             .checked_div(U64F64::from_num(50))
             .and_then(|value| value.checked_mul(U64F64::from_num(49)))
@@ -1519,6 +1522,29 @@ impl<T: Config> Pallet<T> {
             .floor()
             .checked_to_num()
             .ok_or(Error::<T>::Arithmetic.into())
+    }
+
+    /// Short coupons already are TAO, so burning requires no quote or price reference.
+    #[transactional]
+    fn burn_pending_tao(netuid: NetUid) -> DispatchResult {
+        let amount = Vaults::<T>::get(netuid)
+            .ok_or(Error::<T>::InsufficientReserves)?
+            .pending_tao;
+        if amount == 0 {
+            return Ok(());
+        }
+        T::Pool::burn_interest_tao(&Self::reserve_account(netuid), amount.into())?;
+        Vaults::<T>::try_mutate(netuid, |vault| -> DispatchResult {
+            let vault = vault.as_mut().ok_or(Error::<T>::InsufficientReserves)?;
+            vault.pending_tao = Self::sub(vault.pending_tao, amount)?;
+            Ok(())
+        })?;
+        Self::deposit_event(Event::InterestBurned {
+            netuid,
+            side: Side::Short,
+            tao: amount,
+        });
+        Ok(())
     }
 
     fn convert_pending(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
@@ -1551,105 +1577,73 @@ impl<T: Config> Pallet<T> {
                 ConversionCursor::<T>::put(netuid);
                 continue;
             }
-            let Some(reference) = References::<T>::get(netuid)
-                .filter(|reference| reference.price.to_bits() > 0 && now >= reference.valid_after)
-            else {
-                ConversionCursor::<T>::put(netuid);
-                continue;
-            };
             if meter.try_consume(T::WeightInfo::collect()).is_err() {
                 finished = false;
                 break;
             }
             ConversionCursor::<T>::put(netuid);
-            for (side, amount) in [
-                (Side::Short, vault.pending_tao),
-                (Side::Long, vault.pending_alpha),
-            ] {
-                if amount == 0 {
-                    continue;
-                }
-                // If the full coupon exceeds the curve's input boundary, find a nonzero
-                // tradable chunk. The unconverted balance remains explicitly owned.
-                let mut input = match side {
-                    Side::Short => amount
-                        .min(T::Pool::buy_spendable_tao(&Self::reserve_account(netuid)).to_u64()),
-                    Side::Long => amount,
-                };
-                let mut output = 0_u64;
-                while input > 0 {
-                    let quote = match side {
-                        Side::Short => T::Pool::quote_buy(netuid, input.into()).map(|n| n.to_u64()),
-                        Side::Long => T::Pool::quote_sell(netuid, input.into()).map(|n| n.to_u64()),
-                    };
-                    if let Ok(quoted) = quote
-                        && quoted > 0
-                        && Self::coupon_minimum_output(side, input, reference.price)
-                            .is_ok_and(|minimum| quoted >= minimum)
-                    {
-                        output = quoted;
-                        break;
-                    }
-                    input = input.checked_div(2).unwrap_or_default();
-                }
-                if input == 0 || output == 0 {
-                    continue;
-                }
-                let _: DispatchResult = with_transaction(|| {
-                    let result = (|| -> DispatchResult {
-                        let account = Self::reserve_account(netuid);
-                        let hotkey = Self::custody_hotkey()?;
-                        let received = match side {
-                            Side::Short => T::Pool::buy_alpha(
-                                &account,
-                                &hotkey,
-                                netuid,
-                                input.into(),
-                                u64::MAX.into(),
-                                false,
-                            )?
-                            .to_u64(),
-                            Side::Long => T::Pool::sell_alpha(
-                                &account,
-                                &hotkey,
-                                netuid,
-                                input.into(),
-                                TaoBalance::ZERO,
-                                false,
-                            )?
-                            .to_u64(),
-                        };
-                        ensure!(received == output, Error::<T>::InvalidQuote);
-                        Vaults::<T>::try_mutate(netuid, |vault| -> DispatchResult {
-                            let vault = vault.as_mut().ok_or(Error::<T>::InsufficientReserves)?;
-                            match side {
-                                Side::Short => {
-                                    vault.pending_tao = Self::sub(vault.pending_tao, input)?;
-                                    vault.available_alpha =
-                                        Self::add(vault.available_alpha, received)?;
-                                }
-                                Side::Long => {
-                                    vault.pending_alpha = Self::sub(vault.pending_alpha, input)?;
-                                    vault.available_tao = Self::add(vault.available_tao, received)?;
-                                }
-                            }
-                            Ok(())
-                        })?;
-                        Self::deposit_event(Event::InterestConverted {
-                            netuid,
-                            side,
-                            input,
-                            output: received,
-                        });
-                        Ok(())
-                    })();
-                    if result.is_ok() {
-                        TransactionOutcome::Commit(result)
-                    } else {
-                        TransactionOutcome::Rollback(result)
-                    }
-                });
+            // A failed burn retains backed TAO for retry without blocking collection
+            // or a safe alpha fee sale for the other side.
+            let _ = Self::burn_pending_tao(netuid);
+            if vault.pending_alpha == 0 {
+                continue;
             }
+            let Some(reference) = References::<T>::get(netuid)
+                .filter(|reference| reference.price.to_bits() > 0 && now >= reference.valid_after)
+            else {
+                continue;
+            };
+            // At most 64 halvings find a nonzero executable, price-guarded chunk.
+            let mut input = vault.pending_alpha;
+            let mut output = 0_u64;
+            while input > 0 {
+                if let Ok(quoted) = T::Pool::quote_sell(netuid, input.into())
+                    && !quoted.is_zero()
+                    && Self::coupon_minimum_output(input, reference.price)
+                        .is_ok_and(|minimum| quoted.to_u64() >= minimum)
+                {
+                    output = quoted.to_u64();
+                    break;
+                }
+                input = input.checked_div(2).unwrap_or_default();
+            }
+            if input == 0 || output == 0 {
+                continue;
+            }
+            let _: DispatchResult = with_transaction(|| {
+                let result = (|| -> DispatchResult {
+                    let account = Self::reserve_account(netuid);
+                    let received = T::Pool::sell_alpha(
+                        &account,
+                        &Self::custody_hotkey()?,
+                        netuid,
+                        input.into(),
+                        TaoBalance::ZERO,
+                        false,
+                    )?
+                    .to_u64();
+                    ensure!(received == output, Error::<T>::InvalidQuote);
+                    // Sale and burn share one transaction: a failed exact burn also
+                    // rolls back the AMM trade, leaving the original alpha fee intact.
+                    T::Pool::burn_interest_tao(&account, received.into())?;
+                    Vaults::<T>::try_mutate(netuid, |vault| -> DispatchResult {
+                        let vault = vault.as_mut().ok_or(Error::<T>::InsufficientReserves)?;
+                        vault.pending_alpha = Self::sub(vault.pending_alpha, input)?;
+                        Ok(())
+                    })?;
+                    Self::deposit_event(Event::InterestBurned {
+                        netuid,
+                        side: Side::Long,
+                        tao: received,
+                    });
+                    Ok(())
+                })();
+                if result.is_ok() {
+                    TransactionOutcome::Commit(result)
+                } else {
+                    TransactionOutcome::Rollback(result)
+                }
+            });
         }
         if finished {
             ConversionCursor::<T>::kill();
@@ -1788,20 +1782,20 @@ impl<T: Config> Pallet<T> {
 
     #[transactional]
     fn return_terminal_reserves(netuid: NetUid) -> DispatchResult {
+        Self::burn_pending_tao(netuid)?;
         let vault = Vaults::<T>::get(netuid).ok_or(Error::<T>::InsufficientReserves)?;
         T::Pool::return_dissolution_reserves(
             netuid,
             &Self::reserve_account(netuid),
             &Self::custody_hotkey()?,
-            Self::add(vault.available_tao, vault.pending_tao)?.into(),
-            Self::add(vault.available_alpha, vault.pending_alpha)?.into(),
+            vault.available_tao.into(),
+            vault.available_alpha.into(),
         )?;
         Vaults::<T>::mutate(netuid, |vault| {
             if let Some(vault) = vault {
                 vault.available_tao = 0;
                 vault.available_alpha = 0;
                 vault.pending_tao = 0;
-                vault.pending_alpha = 0;
             }
         });
         Dissolutions::<T>::mutate(netuid, |state| {
@@ -1820,6 +1814,27 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         tao_paid: TaoBalance,
     ) -> DispatchResult {
+        // Alpha fees remain ordinary vault stake until the global funded payout.
+        // Burn only actual receipts, with no frozen-price mint or terminal swap.
+        // Multiple hotkeys/pages can pay the same vault, so retain the alpha ledger
+        // until the caller has finished every ordinary redemption.
+        if coldkey == &Self::reserve_account(netuid)
+            && Vaults::<T>::get(netuid).is_some_and(|vault| vault.pending_alpha > 0)
+        {
+            ensure!(
+                Dissolutions::<T>::get(netuid).is_some_and(|state| state.reserves_returned),
+                Error::<T>::SubnetUnavailable
+            );
+            if !tao_paid.is_zero() {
+                T::Pool::burn_interest_tao(coldkey, tao_paid)?;
+                Self::deposit_event(Event::InterestBurned {
+                    netuid,
+                    side: Side::Long,
+                    tao: tao_paid.to_u64(),
+                });
+            }
+            return Ok(());
+        }
         let Some(owner) = EscrowOwner::<T>::get(netuid, coldkey) else {
             return Ok(());
         };
@@ -1902,6 +1917,19 @@ impl<T: Config> Pallet<T> {
                 return false;
             }
         }
+        // This lifecycle hook runs only after all ordinary funded payouts. Alpha
+        // fees with no funded receipt are retired without claiming a TAO burn.
+        if meter
+            .try_consume(T::DbWeight::get().reads_writes(1, 1))
+            .is_err()
+        {
+            return false;
+        }
+        Vaults::<T>::mutate(netuid, |vault| {
+            if let Some(vault) = vault {
+                vault.pending_alpha = 0;
+            }
+        });
         true
     }
 

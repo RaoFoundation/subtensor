@@ -82,6 +82,12 @@ fn write(key: &[u8], value: impl Encode) {
 fn tao(who: &Account) -> u64 {
     read(&key(b"test/tao", who))
 }
+fn burn_account() -> Account {
+    account(255)
+}
+fn burned_tao() -> u64 {
+    tao(&burn_account())
+}
 fn alpha(who: &Account, hotkey: &Account, netuid: NetUid) -> u64 {
     read(&key(b"test/alpha", (who, hotkey, netuid)))
 }
@@ -253,6 +259,20 @@ impl OrderSwapInterface<Account> for MockPool {
     }
 }
 impl LendingPoolInterface<Account> for MockPool {
+    fn burn_interest_tao(account: &Account, amount: TaoBalance) -> DispatchResult {
+        ensure!(
+            !read::<bool>(b"test/fail_burn"),
+            DispatchError::Other("burn unavailable")
+        );
+        let amount = amount.to_u64();
+        ensure!(
+            tao(account) >= amount,
+            DispatchError::Other("tao unavailable")
+        );
+        write(&key(b"test/tao", account), tao(account) - amount);
+        mint_tao(&burn_account(), amount);
+        Ok(())
+    }
     fn buy_spendable_tao(account: &Account) -> TaoBalance {
         tao(account).saturating_sub(read::<u64>(b"test/ed")).into()
     }
@@ -488,48 +508,57 @@ fn long_tao_is_transferable_and_collateral_returns_in_alpha() {
 }
 
 #[test]
-fn weekly_interest_is_on_loan_opening_value_and_replenishes_vault() {
+fn weekly_short_interest_burns_opening_value_coupon_without_enlarging_inventory() {
     ext().execute_with(|| {
         open(Side::Short, 1000);
         let p = position();
         let before = Vaults::<Test>::get(netuid()).unwrap();
+        let swaps = swap_count();
         idle(11);
         let after = position();
         let vault = Vaults::<Test>::get(netuid()).unwrap();
         assert_eq!(after.principal, p.principal);
         assert_eq!(after.collateral, 1000 - p.annual_interest * 10 / 520);
         assert_eq!(vault.pending_tao, 0);
-        assert!(vault.available_alpha > before.available_alpha);
+        assert_eq!(vault.available_alpha, before.available_alpha);
+        assert_eq!(vault.available_tao, before.available_tao);
         assert_eq!(vault.outstanding_alpha, p.principal);
+        assert_eq!(burned_tao(), p.annual_interest * 10 / 520);
+        assert_eq!(swap_count(), swaps);
     });
 }
 
 #[test]
-fn unconvertible_interest_remains_owned_then_retries() {
+fn failed_short_interest_burn_remains_backed_then_retries() {
     ext().execute_with(|| {
         open(Side::Short, 1000);
-        write(b"test/fail_buy", true);
+        write(b"test/fail_burn", true);
         idle(11);
         let paid = 1000 - position().collateral;
         let vault = Vaults::<Test>::get(netuid()).unwrap();
         assert!(paid > 0);
         assert_eq!(vault.pending_tao, paid);
         assert_eq!(tao(&Lending::reserve_account(netuid())), 100_000 + paid);
-        write(b"test/fail_buy", false);
+        assert_eq!(burned_tao(), 0);
+        write(b"test/fail_burn", false);
         idle(12);
         assert_eq!(Vaults::<Test>::get(netuid()).unwrap().pending_tao, 0);
+        assert_eq!(burned_tao(), paid);
+        assert_eq!(tao(&Lending::reserve_account(netuid())), 100_000);
     });
 }
 
 #[test]
-fn finite_boundary_converts_only_executable_chunk() {
+fn finite_boundary_sells_only_executable_long_fee_chunk_and_burns_its_tao() {
     ext().execute_with(|| {
-        open(Side::Short, 1000);
-        write(b"test/max_buy", 2_u64);
+        open(Side::Long, 1000);
+        write(b"test/max_sell", 2_u64);
         idle(11);
         let vault = Vaults::<Test>::get(netuid()).unwrap();
-        assert!(vault.pending_tao > 0);
-        assert!(vault.pending_tao < 1000 - position().collateral);
+        assert!(vault.pending_alpha > 0);
+        assert!(vault.pending_alpha < 1000 - position().collateral);
+        assert_eq!(burned_tao(), 1);
+        assert_eq!(vault.available_tao, 100_000 - position().principal);
     });
 }
 
@@ -582,7 +611,7 @@ fn annual_interest_exhaustion_forfeits_without_forced_swap() {
     ext().execute_with(|| {
         open(Side::Short, 1000);
         let p = position();
-        write(b"test/fail_buy", true);
+        write(b"test/fail_burn", true);
         let swaps = swap_count();
         idle(1 + 520 * 5);
         assert!(Positions::<Test>::get(account(1), netuid()).is_none());
@@ -591,6 +620,7 @@ fn annual_interest_exhaustion_forfeits_without_forced_swap() {
         assert_eq!(vault.lost_alpha, p.principal);
         assert_eq!(vault.pending_tao, 1000);
         assert_eq!(vault.available_tao, 100_000 + p.proceeds);
+        assert_eq!(burned_tao(), 0);
         assert_eq!(swap_count(), swaps);
         assert_noop!(
             Lending::close(
@@ -797,6 +827,7 @@ fn deregistration_uses_common_interest_cutoff_and_no_swaps() {
         assert_eq!(swap_count(), swaps);
         assert!(Positions::<Test>::get(account(1), netuid()).is_none());
         let charged = (p.annual_interest * 5).div_ceil(520);
+        assert_eq!(burned_tao(), charged);
         let expected_refund = 1000 - charged + p.proceeds - p.principal;
         assert_eq!(tao(&account(1)), 999_000 + expected_refund);
         assert_eq!(Vaults::<Test>::get(netuid()).unwrap().pending_tao, 0);
@@ -1372,162 +1403,354 @@ fn assert_coupon_inventory_is_backed() {
 }
 
 #[test]
-fn adverse_coupon_buy_and_sale_hold_assets_until_ema_bounded_execution_returns() {
-    for (side, manipulated) in [
-        (Side::Short, (1_000_000_u64, 2_000_000_u64)),
-        (Side::Long, (2_000_000_u64, 1_000_000_u64)),
-    ] {
+fn short_fee_burn_needs_neither_price_reference_nor_amm_execution() {
+    for amount in [1_u64, 5_000] {
         ext().execute_with(|| {
-            seed_pending_coupon(side, 5_000);
-            write(&key(b"test/market", netuid()), manipulated);
+            seed_pending_coupon(Side::Short, amount);
+            References::<Test>::remove(netuid());
+            write(&key(b"test/market", netuid()), (0_u64, 0_u64));
+            write(b"test/fail_buy", true);
+            write(b"test/fail_sell", true);
             let before = Vaults::<Test>::get(netuid()).unwrap();
-            let reference = References::<Test>::get(netuid()).unwrap();
             let swaps = swap_count();
             idle(11);
-            assert_eq!(Vaults::<Test>::get(netuid()), Some(before));
+            let after = Vaults::<Test>::get(netuid()).unwrap();
+            assert_eq!(after.pending_tao, 0);
+            assert_eq!(after.available_tao, before.available_tao);
+            assert_eq!(after.available_alpha, before.available_alpha);
+            assert_eq!(burned_tao(), amount);
             assert_eq!(swap_count(), swaps);
-            assert_eq!(market(netuid()), manipulated);
-            assert_eq!(References::<Test>::get(netuid()), Some(reference));
+            assert_eq!(market(netuid()), (0, 0));
+            assert!(!References::<Test>::contains_key(netuid()));
             assert_coupon_inventory_is_backed();
-
-            // Returning to the mature reference admits normal ~1% ending-price
-            // depth and the mock's 0.1% fee within the fixed 2% output allowance.
-            write(
-                &key(b"test/market", netuid()),
-                (1_000_000_u64, 1_000_000_u64),
-            );
-            idle(12);
-            let after = Vaults::<Test>::get(netuid()).unwrap();
-            assert_eq!(after.pending_tao, 0);
-            assert_eq!(after.pending_alpha, 0);
-            assert_eq!(swap_count(), swaps + 1);
-            assert_coupon_inventory_is_backed();
+            System::assert_last_event(RuntimeEvent::Lending(Event::InterestBurned {
+                netuid: netuid(),
+                side: Side::Short,
+                tao: amount,
+            }));
         });
     }
 }
 
 #[test]
-fn coupon_conversion_waits_for_a_present_mature_reference() {
+fn long_fee_burn_failure_rolls_back_sale_and_retries_the_original_alpha() {
+    ext().execute_with(|| {
+        seed_pending_coupon(Side::Long, 5_000);
+        let before = Vaults::<Test>::get(netuid()).unwrap();
+        let before_market = market(netuid());
+        let before_events = System::events();
+        let swaps = swap_count();
+        let output = MockPool::sell_quote(netuid(), 5_000).unwrap();
+        write(b"test/fail_burn", true);
+        idle(11);
+        assert_eq!(Vaults::<Test>::get(netuid()), Some(before.clone()));
+        assert_eq!(market(netuid()), before_market);
+        assert_eq!(swap_count(), swaps);
+        assert_eq!(System::events(), before_events);
+        assert_eq!(burned_tao(), 0);
+        assert_coupon_inventory_is_backed();
+
+        write(b"test/fail_burn", false);
+        idle(12);
+        let after = Vaults::<Test>::get(netuid()).unwrap();
+        assert_eq!(after.pending_alpha, 0);
+        assert_eq!(after.pending_tao, 0);
+        assert_eq!(after.available_tao, before.available_tao);
+        assert_eq!(after.available_alpha, before.available_alpha);
+        assert_eq!(burned_tao(), output);
+        assert_eq!(swap_count(), swaps + 1);
+        assert_coupon_inventory_is_backed();
+        System::assert_last_event(RuntimeEvent::Lending(Event::InterestBurned {
+            netuid: netuid(),
+            side: Side::Long,
+            tao: output,
+        }));
+    });
+}
+
+#[test]
+fn wallet_repayment_restores_principal_without_burning_it() {
     for side in [Side::Short, Side::Long] {
-        for missing in [false, true] {
-            ext().execute_with(|| {
-                seed_pending_coupon(side, 5_000);
-                let mut reference = References::<Test>::get(netuid()).unwrap();
-                reference.valid_after = 12;
-                if missing {
-                    References::<Test>::remove(netuid());
-                } else {
-                    References::<Test>::insert(netuid(), reference.clone());
-                }
-                let before = Vaults::<Test>::get(netuid()).unwrap();
-                idle(11);
-                assert_eq!(Vaults::<Test>::get(netuid()), Some(before));
-                assert_eq!(swap_count(), 0);
-                assert_coupon_inventory_is_backed();
-                References::<Test>::insert(netuid(), reference);
-                idle(12);
-                let after = Vaults::<Test>::get(netuid()).unwrap();
-                assert_eq!(after.pending_tao, 0);
-                assert_eq!(after.pending_alpha, 0);
-                assert_eq!(swap_count(), 1);
-                assert_coupon_inventory_is_backed();
-            });
+        ext().execute_with(|| {
+            open(side, 1_000);
+            let debt = position().principal;
+            assert_ok!(Lending::close(
+                RuntimeOrigin::signed(account(1)),
+                netuid(),
+                true,
+                debt,
+                1_000
+            ));
+            let vault = Vaults::<Test>::get(netuid()).unwrap();
+            assert_eq!(vault.available_tao, 100_000);
+            assert_eq!(vault.available_alpha, 100_000);
+            assert_eq!(vault.outstanding_tao, 0);
+            assert_eq!(vault.outstanding_alpha, 0);
+            assert_eq!(vault.pending_tao, 0);
+            assert_eq!(vault.pending_alpha, 0);
+            assert_eq!(burned_tao(), 0);
+            assert_coupon_inventory_is_backed();
+            assert!(System::events().iter().all(|event| !matches!(
+                event.event,
+                RuntimeEvent::Lending(Event::InterestBurned { .. })
+            )));
+        });
+    }
+}
+
+#[test]
+fn terminal_fees_burn_only_actual_receipts_and_wait_for_every_payout_page() {
+    ext().execute_with(|| {
+        seed_pending_coupon(Side::Short, 7);
+        seed_pending_coupon(Side::Long, 5_000);
+        let account = Lending::reserve_account(netuid());
+        let hotkey = Lending::custody_hotkey().unwrap();
+        let swaps = swap_count();
+        assert_ok!(Lending::start_dissolution(netuid()));
+        assert!(Lending::settle_shorts(netuid(), &mut meter()));
+        assert_eq!(read::<(u64, u64)>(b"test/returned"), (100_000, 100_000));
+        assert_eq!(burned_tao(), 7);
+        assert_eq!(tao(&account), 0);
+        assert_eq!(alpha(&account, &hotkey, netuid()), 5_000);
+        assert_eq!(Vaults::<Test>::get(netuid()).unwrap().pending_alpha, 5_000);
+        assert!(Lending::finish_dissolution(netuid()).is_err());
+
+        for receipt in [11_u64, 17] {
+            mint_tao(&account, receipt);
+            assert_ok!(Lending::on_alpha_redemption(
+                netuid(),
+                &account,
+                receipt.into()
+            ));
+            let vault = Vaults::<Test>::get(netuid()).unwrap();
+            assert_eq!(vault.pending_alpha, 5_000);
+            assert_eq!(vault.available_tao, 0);
+            assert_eq!(tao(&account), 0);
         }
-    }
+        assert_eq!(burned_tao(), 35);
+        assert_eq!(swap_count(), swaps);
+        // Model the ordinary payout's obsolete-alpha cleanup, separate from
+        // lending's ledger retirement after every funded page has completed.
+        write(&key(b"test/alpha", (&account, &hotkey, netuid())), 0_u64);
+        assert!(Lending::settle_remaining_longs(netuid(), &mut meter()));
+        assert_eq!(Vaults::<Test>::get(netuid()).unwrap().pending_alpha, 0);
+        assert_ok!(Lending::finish_dissolution(netuid()));
+        assert!(!Vaults::<Test>::contains_key(netuid()));
+        assert_eq!(burned_tao(), 35);
+    });
 }
 
 #[test]
-fn coupon_depth_guard_reduces_large_chunks_and_preserves_the_remainder() {
-    for side in [Side::Short, Side::Long] {
-        ext().execute_with(|| {
-            seed_pending_coupon(side, 50_000);
-            let before = Vaults::<Test>::get(netuid()).unwrap();
-            idle(11);
-            let after = Vaults::<Test>::get(netuid()).unwrap();
-            let received = match side {
-                Side::Short => {
-                    assert_eq!(after.pending_tao, 37_500);
-                    after.available_alpha - before.available_alpha
-                }
-                Side::Long => {
-                    assert_eq!(after.pending_alpha, 37_500);
-                    after.available_tao - before.available_tao
-                }
-            };
-            assert!(
-                received >= 12_250,
-                "12500 input retains at least 98% EMA output"
-            );
-            assert_eq!(swap_count(), 1);
-            assert_coupon_inventory_is_backed();
-        });
-    }
+fn terminal_zero_fee_payout_does_not_invent_tao_or_leave_a_stale_ledger() {
+    ext().execute_with(|| {
+        seed_pending_coupon(Side::Long, 5_000);
+        let account = Lending::reserve_account(netuid());
+        let hotkey = Lending::custody_hotkey().unwrap();
+        assert_ok!(Lending::start_dissolution(netuid()));
+        assert!(Lending::settle_shorts(netuid(), &mut meter()));
+        assert_ok!(Lending::on_alpha_redemption(
+            netuid(),
+            &account,
+            TaoBalance::ZERO
+        ));
+        assert_eq!(Vaults::<Test>::get(netuid()).unwrap().pending_alpha, 5_000);
+        assert_eq!(burned_tao(), 0);
+        write(&key(b"test/alpha", (&account, &hotkey, netuid())), 0_u64);
+        assert!(Lending::settle_remaining_longs(netuid(), &mut meter()));
+        assert_eq!(Vaults::<Test>::get(netuid()).unwrap().pending_alpha, 0);
+        assert_ok!(Lending::finish_dissolution(netuid()));
+        assert_eq!(burned_tao(), 0);
+        assert_eq!(swap_count(), 0);
+    });
 }
 
 #[test]
-fn coupon_guard_permits_favorable_prices_and_rejects_zero_output_dust() {
-    for (side, favorable) in [
-        (Side::Short, (2_000_000_u64, 1_000_000_u64)),
-        (Side::Long, (1_000_000_u64, 2_000_000_u64)),
-    ] {
+fn terminal_receipt_burn_failure_keeps_real_tao_and_retries_without_retiring_alpha() {
+    ext().execute_with(|| {
+        seed_pending_coupon(Side::Long, 5_000);
+        let account = Lending::reserve_account(netuid());
+        assert_ok!(Lending::start_dissolution(netuid()));
+        assert!(Lending::settle_shorts(netuid(), &mut meter()));
+        mint_tao(&account, 25);
+        let before = Vaults::<Test>::get(netuid()).unwrap();
+        write(b"test/fail_burn", true);
+        assert_noop!(
+            Lending::on_alpha_redemption(netuid(), &account, 25.into()),
+            DispatchError::Other("burn unavailable")
+        );
+        assert_eq!(tao(&account), 25);
+        assert_eq!(burned_tao(), 0);
+        assert_eq!(Vaults::<Test>::get(netuid()), Some(before.clone()));
+        write(b"test/fail_burn", false);
+        assert_ok!(Lending::on_alpha_redemption(netuid(), &account, 25.into()));
+        assert_eq!(tao(&account), 0);
+        assert_eq!(burned_tao(), 25);
+        assert_eq!(Vaults::<Test>::get(netuid()), Some(before));
+    });
+}
+
+#[test]
+fn failed_terminal_reserve_return_rolls_back_the_prior_short_fee_burn() {
+    ext().execute_with(|| {
+        seed_pending_coupon(Side::Short, 7);
+        seed_pending_coupon(Side::Long, 5_000);
+        assert_ok!(Lending::start_dissolution(netuid()));
+        let before = Vaults::<Test>::get(netuid()).unwrap();
+        let events = System::events();
+        write(b"test/fail_transfer", true);
+        assert!(!Lending::settle_shorts(netuid(), &mut meter()));
+        assert_eq!(burned_tao(), 0);
+        assert_eq!(Vaults::<Test>::get(netuid()), Some(before));
+        assert!(
+            !Dissolutions::<Test>::get(netuid())
+                .unwrap()
+                .reserves_returned
+        );
+        assert_eq!(System::events(), events);
+        assert_coupon_inventory_is_backed();
+        write(b"test/fail_transfer", false);
+        assert!(Lending::settle_shorts(netuid(), &mut meter()));
+        assert_eq!(burned_tao(), 7);
+        assert_eq!(Vaults::<Test>::get(netuid()).unwrap().pending_alpha, 5_000);
+    });
+}
+
+#[test]
+fn adverse_long_fee_sale_holds_alpha_until_ema_bounded_execution_returns() {
+    ext().execute_with(|| {
+        seed_pending_coupon(Side::Long, 5_000);
+        let manipulated = (2_000_000_u64, 1_000_000_u64);
+        write(&key(b"test/market", netuid()), manipulated);
+        let before = Vaults::<Test>::get(netuid()).unwrap();
+        let reference = References::<Test>::get(netuid()).unwrap();
+        let swaps = swap_count();
+        idle(11);
+        assert_eq!(Vaults::<Test>::get(netuid()), Some(before));
+        assert_eq!(swap_count(), swaps);
+        assert_eq!(market(netuid()), manipulated);
+        assert_eq!(References::<Test>::get(netuid()), Some(reference));
+        assert_coupon_inventory_is_backed();
+        assert_eq!(burned_tao(), 0);
+
+        // Returning to the mature reference admits normal ~1% ending-price
+        // depth and the mock's 0.1% fee within the fixed 2% output allowance.
+        write(
+            &key(b"test/market", netuid()),
+            (1_000_000_u64, 1_000_000_u64),
+        );
+        idle(12);
+        let after = Vaults::<Test>::get(netuid()).unwrap();
+        assert_eq!(after.pending_tao, 0);
+        assert_eq!(after.pending_alpha, 0);
+        assert_eq!(swap_count(), swaps + 1);
+        assert_eq!(after.available_tao, 100_000);
+        assert_eq!(after.available_alpha, 100_000);
+        assert!(burned_tao() >= 4_900);
+        assert_coupon_inventory_is_backed();
+    });
+}
+
+#[test]
+fn long_fee_conversion_waits_for_a_present_mature_reference() {
+    for missing in [false, true] {
         ext().execute_with(|| {
-            seed_pending_coupon(side, 5_000);
-            write(&key(b"test/market", netuid()), favorable);
-            idle(11);
-            let after = Vaults::<Test>::get(netuid()).unwrap();
-            assert_eq!(after.pending_tao, 0);
-            assert_eq!(after.pending_alpha, 0);
-            assert_eq!(swap_count(), 1);
-            assert_coupon_inventory_is_backed();
-        });
-        ext().execute_with(|| {
-            seed_pending_coupon(side, 1);
+            seed_pending_coupon(Side::Long, 5_000);
+            let mut reference = References::<Test>::get(netuid()).unwrap();
+            reference.valid_after = 12;
+            if missing {
+                References::<Test>::remove(netuid());
+            } else {
+                References::<Test>::insert(netuid(), reference.clone());
+            }
             let before = Vaults::<Test>::get(netuid()).unwrap();
             idle(11);
             assert_eq!(Vaults::<Test>::get(netuid()), Some(before));
             assert_eq!(swap_count(), 0);
+            assert_eq!(burned_tao(), 0);
+            assert_coupon_inventory_is_backed();
+            References::<Test>::insert(netuid(), reference);
+            idle(12);
+            let after = Vaults::<Test>::get(netuid()).unwrap();
+            assert_eq!(after.pending_tao, 0);
+            assert_eq!(after.pending_alpha, 0);
+            assert_eq!(swap_count(), 1);
+            assert!(burned_tao() >= 4_900);
             assert_coupon_inventory_is_backed();
         });
     }
+}
+
+#[test]
+fn long_fee_depth_guard_burns_a_smaller_chunk_and_preserves_the_remainder() {
+    ext().execute_with(|| {
+        seed_pending_coupon(Side::Long, 50_000);
+        let before = Vaults::<Test>::get(netuid()).unwrap();
+        idle(11);
+        let after = Vaults::<Test>::get(netuid()).unwrap();
+        assert_eq!(after.pending_alpha, 37_500);
+        assert_eq!(after.available_tao, before.available_tao);
+        assert_eq!(after.available_alpha, before.available_alpha);
+        let received = burned_tao();
+        assert!(
+            received >= 12_250,
+            "12500 input retains at least 98% EMA output"
+        );
+        assert_eq!(swap_count(), 1);
+        assert_coupon_inventory_is_backed();
+    });
+}
+
+#[test]
+fn long_fee_guard_permits_favorable_prices_and_rejects_zero_output_dust() {
+    ext().execute_with(|| {
+        seed_pending_coupon(Side::Long, 5_000);
+        let favorable = (1_000_000_u64, 2_000_000_u64);
+        write(&key(b"test/market", netuid()), favorable);
+        idle(11);
+        let after = Vaults::<Test>::get(netuid()).unwrap();
+        assert_eq!(after.pending_tao, 0);
+        assert_eq!(after.pending_alpha, 0);
+        assert_eq!(swap_count(), 1);
+        assert!(burned_tao() > 5_000);
+        assert_coupon_inventory_is_backed();
+    });
+    ext().execute_with(|| {
+        seed_pending_coupon(Side::Long, 1);
+        let before = Vaults::<Test>::get(netuid()).unwrap();
+        idle(11);
+        assert_eq!(Vaults::<Test>::get(netuid()), Some(before));
+        assert_eq!(swap_count(), 0);
+        assert_eq!(burned_tao(), 0);
+        assert_coupon_inventory_is_backed();
+    });
 }
 
 #[test]
 fn coupon_output_budget_includes_fees_and_rounds_only_to_output_atoms() {
     assert_eq!(
-        Lending::coupon_minimum_output(Side::Short, 100, U64F64::from_num(1)).unwrap(),
+        Lending::coupon_minimum_output(100, U64F64::from_num(1)).unwrap(),
         98
     );
     assert_eq!(
-        Lending::coupon_minimum_output(Side::Long, 100, U64F64::from_num(1)).unwrap(),
-        98
-    );
-    assert_eq!(
-        Lending::coupon_minimum_output(Side::Short, 50, U64F64::from_num(2)).unwrap(),
-        24
-    );
-    assert_eq!(
-        Lending::coupon_minimum_output(Side::Long, 50, U64F64::from_num(2)).unwrap(),
+        Lending::coupon_minimum_output(50, U64F64::from_num(2)).unwrap(),
         98
     );
 }
 
 #[test]
-fn unrepresentable_ema_coupon_valuations_keep_both_assets_pending() {
-    for (side, price) in [
-        (Side::Long, U64F64::from_num(u64::MAX)),
-        (Side::Short, U64F64::from_bits(1)),
-    ] {
-        assert!(Lending::coupon_minimum_output(side, 100, price).is_err());
-        ext().execute_with(|| {
-            seed_pending_coupon(side, 100);
-            References::<Test>::mutate(netuid(), |reference| {
-                reference.as_mut().unwrap().price = price;
-            });
-            let before = Vaults::<Test>::get(netuid()).unwrap();
-            idle(11);
-            assert_eq!(Vaults::<Test>::get(netuid()), Some(before));
-            assert_eq!(swap_count(), 0);
-            assert_coupon_inventory_is_backed();
+fn unrepresentable_ema_long_fee_valuation_keeps_alpha_pending() {
+    let price = U64F64::from_num(u64::MAX);
+    assert!(Lending::coupon_minimum_output(100, price).is_err());
+    ext().execute_with(|| {
+        seed_pending_coupon(Side::Long, 100);
+        References::<Test>::mutate(netuid(), |reference| {
+            reference.as_mut().unwrap().price = price;
         });
-    }
+        let before = Vaults::<Test>::get(netuid()).unwrap();
+        idle(11);
+        assert_eq!(Vaults::<Test>::get(netuid()), Some(before));
+        assert_eq!(swap_count(), 0);
+        assert_eq!(burned_tao(), 0);
+        assert_coupon_inventory_is_backed();
+    });
 }

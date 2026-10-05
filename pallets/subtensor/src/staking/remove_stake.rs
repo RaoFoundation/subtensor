@@ -833,8 +833,9 @@ impl<T: Config> Pallet<T> {
         let r = T::DbWeight::get().reads(1);
         let w = T::DbWeight::get().writes(1);
         let weight_for_tansfer_tao = T::DbWeight::get()
-            .reads_writes(12, 3)
-            .saturating_add(<T as Config>::WeightInfo::transfer_stake().saturating_mul(3));
+            .reads_writes(20, 5)
+            // A lending fee recipient also burns its actual redemption receipt.
+            .saturating_add(<T as Config>::WeightInfo::transfer_stake().saturating_mul(4));
         let mut read_all = true;
 
         let mut stakers: Vec<(T::AccountId, T::AccountId, u128)> = Vec::new();

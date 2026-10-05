@@ -52,6 +52,8 @@ describeSuite({
         let coldkey: KeyringPair;
         let hotkey2: KeyringPair;
         let coldkey2: KeyringPair;
+        let subnetOwnerHotkey: KeyringPair;
+        let subnetOwnerColdkey: KeyringPair;
         let netuid = 0;
         let contractAddress = "";
         let inkClient: InkClient<typeof contracts.bittensor>;
@@ -128,17 +130,10 @@ describeSuite({
             faucet = generateKeyringPair("sr25519");
             await forceSetBalance(api, convertPublicKeyToSs58(faucet.publicKey), tao(1e9));
 
-            hotkey = generateKeyringPair("sr25519");
-            coldkey = generateKeyringPair("sr25519");
-            await fundAccount(api, faucet, convertPublicKeyToSs58(coldkey.publicKey));
-            await fundAccount(api, faucet, convertPublicKeyToSs58(hotkey.publicKey));
-
-            netuid = await addNewSubnetwork(api, hotkey, coldkey);
-            await startCall(api, netuid, coldkey);
-            await addNewSubnetwork(api, hotkey, coldkey);
-            await startCall(api, netuid + 1, coldkey);
-            await setTargetRegistrationsPerInterval(api, netuid);
-            await waitForFinalizedBlocks(api, 1);
+            subnetOwnerHotkey = generateKeyringPair("sr25519");
+            subnetOwnerColdkey = generateKeyringPair("sr25519");
+            await fundAccount(api, faucet, convertPublicKeyToSs58(subnetOwnerColdkey.publicKey), tao(100_000));
+            await fundAccount(api, faucet, convertPublicKeyToSs58(subnetOwnerHotkey.publicKey));
         }, 900000);
 
         beforeEach(async () => {
@@ -146,6 +141,15 @@ describeSuite({
             coldkey = generateKeyringPair("sr25519");
             await fundAccount(api, faucet, convertPublicKeyToSs58(coldkey.publicKey));
             await fundAccount(api, faucet, convertPublicKeyToSs58(hotkey.publicKey));
+            // Contract calls and registrations consume finite AMM depth. Give each case fresh
+            // pools so earlier cases cannot exhaust its registration or staking capacity.
+            // Separate owner keys keep the tested hotkey's collateral-backed registration real.
+            netuid = await addNewSubnetwork(api, subnetOwnerHotkey, subnetOwnerColdkey);
+            await startCall(api, netuid, subnetOwnerColdkey);
+            await addNewSubnetwork(api, subnetOwnerHotkey, subnetOwnerColdkey);
+            await startCall(api, netuid + 1, subnetOwnerColdkey);
+            await setTargetRegistrationsPerInterval(api, netuid);
+            await waitForFinalizedBlocks(api, 1);
             await burnedRegister(api, netuid, convertPublicKeyToSs58(hotkey.publicKey), coldkey);
         }, 300000);
 

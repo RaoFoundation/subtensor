@@ -67,15 +67,16 @@ export default function PoolLendingRelease() {
               <strong>100% nominal annual interest on opening loan value.</strong> Coupons are fixed
               in collateral units, accrue per block and are collected weekly. A 250-TAO opening loan
               pays about 4.79 TAO per seven days, not 1,000 TAO annually merely because it has 1,000
-              TAO collateral.
+              TAO collateral. There is no additional opening or closing fee.
             </li>
             <li>
-              <strong>Coupons replenish lending reserves.</strong> Short coupons buy alpha; long
-              coupons sell alpha for TAO. The outputs are retained, not burned. Unconverted coupons
-              remain accounted for until a swap returns at least 98% of the mature lending
-              reference’s fair output, after fees and price impact. Favorable prices remain allowed.
-              TAO dust too small to initialize an empty destination account is explicitly recycled
-              and recorded.
+              <strong>Both short and long coupons burn TAO.</strong> Short coupons move to the
+              reserve account and then directly to the canonical inaccessible TAO burn address,
+              without an AMM swap or mature price reference. Long coupons sell alpha for TAO only
+              when the full fee-inclusive quote returns at least 98% of the mature lending EMA’s
+              fair output after fees and price impact. Bounded chunking permits smaller acceptable
+              sales. Each sale atomically burns exactly the TAO received; a failed sale or burn
+              retains the backed pending coupon. Favorable prices remain allowed.
             </li>
             <li>
               <strong>No price-triggered liquidation.</strong> Collateral exhaustion forfeits the
@@ -85,9 +86,17 @@ export default function PoolLendingRelease() {
             <li>
               <strong>10% aggregate borrowing cap per asset.</strong> The denominator is available
               vault inventory plus outstanding principal, excluding AMM reserves, borrower
-              collateral, locked proceeds and pending conversions.
+              collateral, locked proceeds and pending interest. Interest burns do not replenish
+              inventory or enlarge the cap; principal repayments replenish the original borrowed
+              asset.
             </li>
           </ul>
+          <p>
+            The canonical burn transfers TAO to its inaccessible burn address while both the
+            currency and Subtensor total-issuance counters stay unchanged. Tiny amounts that cannot
+            be credited remain an explicit recycling exception, recorded as{' '}
+            <code>DustForfeited</code>.
+          </p>
           <p>
             Debt never falls merely because interest was collected. Each coldkey can hold one
             position per subnet. The lending reference is a dedicated geometric EMA with a 24-hour
@@ -109,11 +118,14 @@ export default function PoolLendingRelease() {
           <p>
             Deregistration freezes interest. Existing beta-basket holdings convert to funded root
             cash first; endpoint-blocked holdings receive funded redemption into their original
-            fund. Lending positions settle without AMM swaps. Remaining lending inventory enters the
-            funded dissolution pot. Longs accumulate their escrow&apos;s actual TAO redemptions,
-            then settle once after all payouts: debt is recovered, any surplus is returned and any
-            shortfall is recorded. TAO transferred elsewhere is not assumed to remain in custody.
-            Tiny refunds that cannot recreate a reaped account are explicitly recycled and recorded.
+            fund. Lending positions settle without AMM swaps. Pending TAO coupons are burned before
+            remaining reserve inventory enters the funded dissolution pot. Pending alpha coupons
+            stay ordinary vault stake through global settlement; only their actual funded TAO
+            redemption receipts are burned. Unfunded alpha produces no TAO burn. Longs accumulate
+            their escrow&apos;s actual TAO redemptions, then settle once after all payouts: debt is
+            recovered, any surplus is returned and any shortfall is recorded. TAO transferred
+            elsewhere is not assumed to remain in custody. Tiny refunds that cannot recreate a
+            reaped account are explicitly recycled and recorded as <code>DustForfeited</code>.
             Cleanup finishes before the subnet identifier can be reused.
           </p>
         </section>

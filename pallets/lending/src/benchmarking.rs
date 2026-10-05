@@ -95,11 +95,14 @@ mod benchmarks {
     #[benchmark]
     fn collect() {
         let (owner, hotkey, netuid) = setup::<T>();
+        let collateral = T::Pool::quote_buy(netuid, 8_000_000_000_u64.into())
+            .unwrap()
+            .to_u64();
         Pallet::<T>::open(
             RawOrigin::Signed(owner.clone()).into(),
             netuid,
-            Side::Short,
-            16_000_000_000,
+            Side::Long,
+            collateral,
             hotkey,
             1,
             0,
@@ -108,6 +111,11 @@ mod benchmarks {
         let now =
             frame_system::Pallet::<T>::block_number().saturating_add(T::InterestPeriod::get());
         frame_system::Pallet::<T>::set_block_number(now);
+        let position = Positions::<T>::get(&owner, netuid).unwrap();
+        let (fee, _) = Pallet::<T>::interest_due(&position, now, false).unwrap();
+        let fee = fee.min(position.collateral);
+        let expected_burn = T::Pool::quote_sell(netuid, fee.into()).unwrap().to_u64();
+        assert!(expected_burn > 0);
         #[block]
         {
             let mut position = Positions::<T>::get(&owner, netuid).unwrap();
@@ -116,7 +124,14 @@ mod benchmarks {
             let mut meter = WeightMeter::with_limit(Weight::MAX);
             Pallet::<T>::convert_pending(now, &mut meter);
         }
-        assert_eq!(Vaults::<T>::get(netuid).unwrap().pending_tao, 0);
+        assert_eq!(Vaults::<T>::get(netuid).unwrap().pending_alpha, 0);
+        let event: <T as frame_system::Config>::RuntimeEvent = Event::<T>::InterestBurned {
+            netuid,
+            side: Side::Long,
+            tao: expected_burn,
+        }
+        .into();
+        frame_system::Pallet::<T>::assert_last_event(event);
     }
 
     #[benchmark]
@@ -143,14 +158,23 @@ mod benchmarks {
             0,
         )
         .unwrap();
+        frame_system::Pallet::<T>::set_block_number(
+            frame_system::Pallet::<T>::block_number().saturating_add(T::InterestPeriod::get()),
+        );
         Pallet::<T>::start_dissolution(netuid).unwrap();
         let position = Positions::<T>::get(&owner, netuid).unwrap();
         let dissolution = Dissolutions::<T>::get(netuid).unwrap();
         #[block]
         {
             Pallet::<T>::settle_short(netuid, &owner, position, &dissolution).unwrap();
+            Pallet::<T>::return_terminal_reserves(netuid).unwrap();
         }
         assert!(!Positions::<T>::contains_key(owner, netuid));
+        let vault = Vaults::<T>::get(netuid).unwrap();
+        assert_eq!(vault.available_tao, 0);
+        assert_eq!(vault.available_alpha, 0);
+        assert_eq!(vault.pending_tao, 0);
+        assert!(Dissolutions::<T>::get(netuid).unwrap().reserves_returned);
     }
 
     impl_benchmark_test_suite!(Pallet, crate::tests::ext(), crate::tests::Test);

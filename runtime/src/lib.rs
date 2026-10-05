@@ -1516,6 +1516,8 @@ impl pallet_lending::weights::WeightInfo for LendingWeights {
         <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::sudo_set_root_claim_threshold()
     }
     fn collect() -> Weight {
+        // Retain the measured swap/transfer envelope for bounded alpha-fee quotes,
+        // sale plus exact burn, and the independent pending-TAO burn attempt.
         <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::add_stake().saturating_mul(130)
             .saturating_add(<pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::transfer_stake().saturating_mul(5))
             .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(21,16))

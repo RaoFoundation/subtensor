@@ -30,7 +30,8 @@ const releases: Release[] = [
       'A price-preserving pool migration calibrates ending price impact for a 500-TAO reference ' +
       'sale and creates separate lending reserves from unreachable balances. Custodial alpha ' +
       'shorts and transferable TAO loans use 25% LTV, fixed principal, weekly collateral ' +
-      'interest and a 10% borrowing cap per asset. Borrowing requires the complete migration to succeed.',
+      'interest that burns TAO, and a 10% borrowing cap per asset. Borrowing requires the complete ' +
+      'migration to succeed.',
     href: '/releases/pool-lending',
   },
   {
