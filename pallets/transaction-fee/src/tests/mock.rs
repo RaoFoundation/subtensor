@@ -689,6 +689,9 @@ pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
 pub(crate) fn setup_reserves(netuid: NetUid, tao: TaoBalance, alpha: AlphaBalance) {
     SubnetTAO::<Test>::set(netuid, tao);
     SubnetAlphaIn::<Test>::set(netuid, alpha);
+    // Reserve resets create a fresh fixture pool; its curve is initialized lazily.
+    pallet_subtensor_swap::SwapSuperellipse::<Test>::remove(netuid);
+    pallet_subtensor_swap::PalSwapInitialized::<Test>::remove(netuid);
 }
 
 pub(crate) fn swap_alpha_to_tao_ext(
@@ -776,15 +779,6 @@ pub fn setup_subnets(sncount: u16, neurons: u16) -> TestSetup {
 
         // Setup pool reserves
         setup_reserves(subnet.netuid, amount.into(), amount.into());
-
-        // Cause the v3 pool to initialize
-        SubtensorModule::swap_tao_for_alpha(
-            subnet.netuid,
-            0.into(),
-            1_000_000_000_000_u64.into(),
-            false,
-        )
-        .unwrap();
 
         subnets.push(subnet);
     }

@@ -773,6 +773,9 @@ pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
 pub(crate) fn setup_reserves(netuid: NetUid, tao: TaoBalance, alpha: AlphaBalance) {
     SubnetTAO::<Test>::set(netuid, tao);
     SubnetAlphaIn::<Test>::set(netuid, alpha);
+    // Reserve resets create a fresh fixture pool; its curve is initialized lazily.
+    pallet_subtensor_swap::SwapSuperellipse::<Test>::remove(netuid);
+    pallet_subtensor_swap::PalSwapInitialized::<Test>::remove(netuid);
 }
 
 frame_support::parameter_types! { pub SwapCalibrationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }
