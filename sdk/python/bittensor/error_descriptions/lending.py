@@ -73,4 +73,8 @@ DESCRIPTIONS: dict[str, str] = {
         "Terminal settlement has already started for this subnet. Its frozen settlement must "
         "finish before reuse."
     ),
+    "BelowMinimumProceeds": (
+        "The short's opening sale returns less TAO than the caller's minimum. Requote the full "
+        "opening; the failed call moves no assets."
+    ),
 }

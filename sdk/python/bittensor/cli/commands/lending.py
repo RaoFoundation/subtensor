@@ -45,7 +45,7 @@ def open_loan(
         "--max-slippage",
         min=0.0,
         max=99.0,
-        help="Principal may be at most this percent below the full runtime quote (default 1%).",
+        help="Maximum fall in quoted principal or short TAO proceeds (percent; default 1%).",
     ),
 ):
     """Lock collateral and open one short or long on a subnet.
@@ -64,6 +64,8 @@ def open_loan(
             )
         )
     intent.min_borrow = _bound(quote["principal"], max_slippage)
+    if side == Side.short:
+        intent.min_proceeds = _bound(quote["opening_value"], max_slippage)
     context.submit(
         intent,
         card_sections=[
@@ -73,6 +75,7 @@ def open_loan(
                     ("collateral", str(intent.collateral)),
                     ("fixed principal", str(quote["principal"])),
                     ("minimum principal", str(intent.min_borrow)),
+                    ("minimum sale proceeds", str(intent.min_proceeds)),
                     ("interest per year", str(quote["annual_interest"])),
                 ],
             )

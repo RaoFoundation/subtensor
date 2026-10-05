@@ -73,7 +73,9 @@ both `D × E ≤ C / 4` and net actual opening sale proceeds of at most `C / 4`.
 The complete sale must execute. This combines the historical reference with
 current executable depth and includes swap fees; a hypothetical alpha purchase
 is not required to open a short. Available inventory and the aggregate
-borrowing cap must also permit the loan.
+borrowing cap must also permit the loan. A caller supplies separate minimum
+alpha principal and minimum net TAO proceeds; the latter protects the opening
+sale even when the historical reference keeps alpha debt unchanged.
 
 For example, 1,000 TAO collateral can support an opening loan valued at up to
 250 TAO. Suppose its fixed debt is 700 alpha. That debt stays **700 alpha** until
@@ -121,7 +123,11 @@ Short coupons buy alpha through the AMM and deposit the alpha into lending
 inventory. Long coupons sell collateral alpha and deposit the TAO into lending
 inventory. **The outputs are retained, not burned.** If conversion cannot
 execute, the collected assets remain explicitly accounted for and conversion
-is retried; collection does not pretend a swap occurred.
+is retried; collection does not pretend a swap occurred. Conversions require a
+mature lending reference and accept at most 2% below its fair output, including
+fees and price impact. Bounded chunking can convert a smaller acceptable amount;
+assets that fail this bound remain pending in custody. Favorable prices are
+allowed.
 
 A TAO coupon too small to initialize an empty destination account is recycled
 explicitly and recorded as `DustForfeited`. It is not credited as lending
@@ -224,8 +230,9 @@ btcli lending list --netuid 64 --coldkey <coldkey>
 ```
 
 Open and close obtain full fee-inclusive quotes from the runtime. By default,
-`--max-slippage 1` sets an opening principal floor or a closing payment ceiling
-and refund floor with a 1% margin. The entire call rolls back if its bounds fail.
+`--max-slippage 1` sets an opening principal floor and, for shorts, a separate
+TAO proceeds floor, or a closing payment ceiling and refund floor, with a 1%
+margin. The entire call rolls back if its bounds fail.
 An unavailable quote stops submission instead of silently dropping protection.
 Writes use the existing wallet, review, signing and MEV-shield submission flow.
 

@@ -750,6 +750,24 @@
         }
       ]
     },
+    "BelowMinimumProceeds": {
+      "code": "insufficient_liquidity",
+      "description": "The short's opening sale returns less TAO than the caller's minimum. Requote the full opening; the failed call moves no assets.",
+      "docs_url": "/docs/errors/chain/BelowMinimumProceeds",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BelowMinimumProceeds/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 491,
+          "url": "/code/pallets/lending/src/lib.rs#L491",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "BelowMinimumRefund": {
       "code": "insufficient_liquidity",
       "description": "The remaining collateral refund is below the caller's minimum. Requote after accrued interest.",

@@ -488,6 +488,7 @@ pub mod pallet {
         Arithmetic,
         CustodyUnavailable,
         AlreadyDissolving,
+        BelowMinimumProceeds,
     }
 
     #[pallet::hooks]
@@ -530,7 +531,7 @@ pub mod pallet {
         fn on_idle(now: BlockNumberFor<T>, remaining: Weight) -> Weight {
             let mut meter = WeightMeter::with_limit(remaining);
             Self::collect_due(now, &mut meter);
-            Self::convert_pending(&mut meter);
+            Self::convert_pending(now, &mut meter);
             meter.consumed()
         }
     }
@@ -548,6 +549,7 @@ pub mod pallet {
             collateral: u64,
             hotkey: T::AccountId,
             min_borrow: u64,
+            min_proceeds: u64,
         ) -> DispatchResult {
             let owner = ensure_signed(origin)?;
             ensure!(Enabled::<T>::get(), Error::<T>::Disabled);
@@ -572,6 +574,12 @@ pub mod pallet {
                 quote.principal >= min_borrow,
                 Error::<T>::BelowMinimumBorrow
             );
+            if side == Side::Short {
+                ensure!(
+                    quote.opening_value >= min_proceeds,
+                    Error::<T>::BelowMinimumProceeds
+                );
+            }
             let now = frame_system::Pallet::<T>::block_number();
             let vault = Self::reserve_account(netuid);
             let escrow = Self::position_account(&owner, netuid);
@@ -599,6 +607,7 @@ pub mod pallet {
                     )?
                     .to_u64();
                     ensure!(received == quote.opening_value, Error::<T>::InvalidQuote);
+                    ensure!(received >= min_proceeds, Error::<T>::BelowMinimumProceeds);
                     received
                 }
                 Side::Long => {
@@ -1488,7 +1497,31 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    fn convert_pending(meter: &mut WeightMeter) {
+    /// V1 permits at most 2% below the mature EMA's fair output, including fees
+    /// and depth. Floor to output atoms once; favorable execution is unrestricted.
+    /// Coupon chunks failing this bound remain physically backed pending assets.
+    fn coupon_minimum_output(
+        side: Side,
+        input: u64,
+        reference: U64F64,
+    ) -> Result<u64, DispatchError> {
+        let input = U64F64::from_num(input);
+        let fair = match side {
+            Side::Short => input.checked_div(reference),
+            Side::Long => input.checked_mul(reference),
+        }
+        .ok_or(Error::<T>::Arithmetic)?;
+        let minimum = fair
+            .checked_div(U64F64::from_num(50))
+            .and_then(|value| value.checked_mul(U64F64::from_num(49)))
+            .ok_or(Error::<T>::Arithmetic)?;
+        minimum
+            .floor()
+            .checked_to_num()
+            .ok_or(Error::<T>::Arithmetic.into())
+    }
+
+    fn convert_pending(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
         use frame_support::storage::{TransactionOutcome, with_transaction};
         // Reserve cursor setup, iterator termination and the final cursor removal,
         // including the empty-vault case, before accessing storage.
@@ -1506,7 +1539,7 @@ impl<T: Config> Pallet<T> {
         let mut finished = true;
         for (netuid, vault) in iter {
             if meter
-                .try_consume(T::DbWeight::get().reads_writes(3, 1))
+                .try_consume(T::DbWeight::get().reads_writes(4, 1))
                 .is_err()
             {
                 finished = false;
@@ -1518,6 +1551,12 @@ impl<T: Config> Pallet<T> {
                 ConversionCursor::<T>::put(netuid);
                 continue;
             }
+            let Some(reference) = References::<T>::get(netuid)
+                .filter(|reference| reference.price.to_bits() > 0 && now >= reference.valid_after)
+            else {
+                ConversionCursor::<T>::put(netuid);
+                continue;
+            };
             if meter.try_consume(T::WeightInfo::collect()).is_err() {
                 finished = false;
                 break;
@@ -1543,7 +1582,11 @@ impl<T: Config> Pallet<T> {
                         Side::Short => T::Pool::quote_buy(netuid, input.into()).map(|n| n.to_u64()),
                         Side::Long => T::Pool::quote_sell(netuid, input.into()).map(|n| n.to_u64()),
                     };
-                    if let Ok(quoted) = quote {
+                    if let Ok(quoted) = quote
+                        && quoted > 0
+                        && Self::coupon_minimum_output(side, input, reference.price)
+                            .is_ok_and(|minimum| quoted >= minimum)
+                    {
                         output = quoted;
                         break;
                     }

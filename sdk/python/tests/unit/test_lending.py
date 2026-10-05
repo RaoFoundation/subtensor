@@ -43,6 +43,7 @@ async def test_open_preserves_exact_units_and_atoms(side, collateral_unit, debt_
         side=side.lower(),
         collateral=Balance.from_rao(1_000_000_001, collateral_unit),
         min_borrow=Balance.from_rao(250_000_001, debt_unit),
+        min_proceeds=Balance.from_rao(250_000_003),
     )
     call = await intent.build(fake, dev_wallet())
     assert call.module == "Lending"
@@ -53,6 +54,7 @@ async def test_open_preserves_exact_units_and_atoms(side, collateral_unit, debt_
         "collateral": 1_000_000_001,
         "hotkey": ALICE_HOT,
         "min_borrow": 250_000_001,
+        "min_proceeds": 250_000_003,
     }
 
 
@@ -63,6 +65,8 @@ async def test_open_preserves_exact_units_and_atoms(side, collateral_unit, debt_
         ("Long", "collateral", 0),
         ("Short", "min_borrow", 0),
         ("Long", "min_borrow", 1),
+        ("Short", "min_proceeds", 1),
+        ("Long", "min_proceeds", 1),
     ],
 )
 def test_open_rejects_wrong_currency(side, field, wrong_unit):
@@ -218,6 +222,7 @@ def test_cli_open_quotes_full_loan_and_sets_floor(cli_fake, side):
     plan = json.loads(result.output)
     assert plan["op"] == "open_loan"
     assert plan["args"]["min_borrow"] == "0.2475"
+    assert plan["args"]["min_proceeds"] == ("0.2475" if side == "short" else "0")
     assert cli_fake.submissions == []
 
 

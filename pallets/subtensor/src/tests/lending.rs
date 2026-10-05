@@ -76,11 +76,65 @@ fn open(owner: U256, hotkey: U256, netuid: NetUid, side: Side) {
         COLLATERAL,
         hotkey,
         quote.principal,
+        if side == Side::Short {
+            quote.opening_value
+        } else {
+            0
+        },
     ));
 }
 
 fn meter() -> WeightMeter {
     WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX))
+}
+
+#[test]
+fn short_open_rejects_lower_proceeds_even_when_alpha_principal_is_unchanged() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        let (first, first_hotkey) = borrower(180);
+        open(first, first_hotkey, netuid, Side::Short);
+        let (owner, hotkey) = borrower(181);
+        let quoted = Lending::quote_open(netuid, Side::Short, COLLATERAL).unwrap();
+
+        // Another real sale moves spot below the historical reference. The
+        // reference still caps alpha debt at the same quantity, while executable
+        // TAO proceeds fall. A principal-only floor cannot protect this caller.
+        let (other, other_hotkey) = borrower(182);
+        open(other, other_hotkey, netuid, Side::Short);
+        let current = Lending::quote_open(netuid, Side::Short, COLLATERAL).unwrap();
+        assert_eq!(current.principal, quoted.principal);
+        assert!(current.opening_value < quoted.opening_value);
+        assert_noop!(
+            Lending::open(
+                RuntimeOrigin::signed(owner),
+                netuid,
+                Side::Short,
+                COLLATERAL,
+                hotkey,
+                quoted.principal,
+                quoted.opening_value,
+            ),
+            pallet_lending::Error::<Test>::BelowMinimumProceeds
+        );
+        assert!(!Positions::<Test>::contains_key(owner, netuid));
+
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            Side::Short,
+            COLLATERAL,
+            hotkey,
+            current.principal,
+            current.opening_value,
+        ));
+        assert_eq!(
+            Positions::<Test>::get(owner, netuid).unwrap().proceeds,
+            current.opening_value
+        );
+        assert_total_alpha_staked_invariant(netuid);
+        assert_live_stake_total();
+    });
 }
 
 fn assert_live_stake_total() {
@@ -573,7 +627,8 @@ fn failed_long_cash_transfer_rolls_back_real_alpha_share_transfer() {
                 Side::Long,
                 COLLATERAL,
                 hotkey,
-                0
+                0,
+                0,
             )
             .is_err()
         );
@@ -1400,7 +1455,8 @@ fn funded_terminal_surplus_below_real_ed_does_not_recreate_a_reaped_owner() {
             Side::Long,
             collateral,
             hotkey,
-            quote.principal
+            quote.principal,
+            0,
         ));
         assert_eq!(stake(&owner, &hotkey, netuid), 0);
         let balance = SubtensorModule::get_coldkey_balance(&owner);
@@ -1501,7 +1557,8 @@ fn tiny_first_tao_coupon_into_an_alpha_only_vault_is_explicitly_recycled() {
             Side::Short,
             5 * UNIT,
             hotkey,
-            quote.principal
+            quote.principal,
+            0,
         ));
         let coupon = u128::from(quote.annual_interest)
             .div_ceil(u128::from(LendingBlocksPerYear::get())) as u64;

@@ -1518,7 +1518,7 @@ impl pallet_lending::weights::WeightInfo for LendingWeights {
     fn collect() -> Weight {
         <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::add_stake().saturating_mul(130)
             .saturating_add(<pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::transfer_stake().saturating_mul(5))
-            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(20,16))
+            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(21,16))
     }
     fn update_reference() -> Weight {
         // EMA logarithm/exponential arithmetic fits the existing swap CPU envelope.

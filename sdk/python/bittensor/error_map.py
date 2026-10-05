@@ -57,6 +57,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "TooManyPositions": _C.LIMIT_EXCEEDED,
     "TooManySubnets": _C.LIMIT_EXCEEDED,
     "BelowMinimumBorrow": _C.INSUFFICIENT_LIQUIDITY,
+    "BelowMinimumProceeds": _C.INSUFFICIENT_LIQUIDITY,
     "AboveMaximumPayment": _C.INSUFFICIENT_LIQUIDITY,
     "BelowMinimumRefund": _C.INSUFFICIENT_LIQUIDITY,
     "InsufficientEscrow": _C.INSUFFICIENT_BALANCE,

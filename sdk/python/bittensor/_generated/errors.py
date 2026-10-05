@@ -437,4 +437,5 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (33, 16): ErrorInfo('Lending', 'Arithmetic', ''),
     (33, 17): ErrorInfo('Lending', 'CustodyUnavailable', ''),
     (33, 18): ErrorInfo('Lending', 'AlreadyDissolving', ''),
+    (33, 19): ErrorInfo('Lending', 'BelowMinimumProceeds', ''),
 }

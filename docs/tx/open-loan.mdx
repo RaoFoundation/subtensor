@@ -13,12 +13,13 @@ charged in fixed collateral units and collected weekly. There are no
 price-triggered liquidations; exhausted collateral forfeits the position.
 
 `min_borrow` is a floor on fixed principal, including opening swap fees.
-The call is atomic and refuses a smaller loan. One position may be open
+`min_proceeds` separately bounds the TAO from a short's opening sale.
+The call is atomic and refuses a smaller loan or sale. One position may be open
 per coldkey and subnet; close it before opening another.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L541-L671) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L542-L680) |
 
 ## Parameters
 
@@ -29,6 +30,7 @@ per coldkey and subnet; close it before opening another.
 | `collateral` | number \| `"all"` | yes | Collateral to lock: TAO for a short, subnet alpha for a long. |
 | `hotkey_ss58` | string | no | Hotkey holding long collateral or wallet-supplied short repayment alpha. |
 | `min_borrow` | number \| `"all"` | no | Minimum fixed principal: subnet alpha for a short, TAO for a long. |
+| `min_proceeds` | number \| `"all"` | no | Minimum TAO proceeds from a short's opening sale; unused for longs. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -75,7 +77,7 @@ result = sub.execute_tool("open_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open` — [`pallets/lending/src/lib.rs#L544`](/code/pallets/lending/src/lib.rs#L541-L671):
+`Lending.open` — [`pallets/lending/src/lib.rs#L545`](/code/pallets/lending/src/lib.rs#L542-L680):
 
 ```rust
 #[pallet::call_index(0)]
@@ -88,6 +90,7 @@ pub fn open(
     collateral: u64,
     hotkey: T::AccountId,
     min_borrow: u64,
+    min_proceeds: u64,
 ) -> DispatchResult {
     let owner = ensure_signed(origin)?;
     ensure!(Enabled::<T>::get(), Error::<T>::Disabled);
@@ -112,6 +115,12 @@ pub fn open(
         quote.principal >= min_borrow,
         Error::<T>::BelowMinimumBorrow
     );
+    if side == Side::Short {
+        ensure!(
+            quote.opening_value >= min_proceeds,
+            Error::<T>::BelowMinimumProceeds
+        );
+    }
     let now = frame_system::Pallet::<T>::block_number();
     let vault = Self::reserve_account(netuid);
     let escrow = Self::position_account(&owner, netuid);
@@ -139,6 +148,7 @@ pub fn open(
             )?
             .to_u64();
             ensure!(received == quote.opening_value, Error::<T>::InvalidQuote);
+            ensure!(received >= min_proceeds, Error::<T>::BelowMinimumProceeds);
             received
         }
         Side::Long => {
@@ -211,6 +221,6 @@ pub fn open(
 }
 ```
 
-Delegates to [`quote_open`](/code/pallets/lending/src/lib.rs#L885), [`reserve_account`](/code/pallets/lending/src/lib.rs#L804), [`position_account`](/code/pallets/lending/src/lib.rs#L808).
+Delegates to [`quote_open`](/code/pallets/lending/src/lib.rs#L894), [`reserve_account`](/code/pallets/lending/src/lib.rs#L813), [`position_account`](/code/pallets/lending/src/lib.rs#L817).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

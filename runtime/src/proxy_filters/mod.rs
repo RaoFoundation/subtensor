@@ -557,6 +557,7 @@ mod tests {
                 collateral: 1_000_000_000,
                 hotkey: AccountId::new([7; 32]),
                 min_borrow: 1,
+                min_proceeds: 0,
             }),
             RuntimeCall::Lending(pallet_lending::Call::open {
                 netuid,
@@ -564,6 +565,7 @@ mod tests {
                 collateral: 1_000_000_000,
                 hotkey: AccountId::new([7; 32]),
                 min_borrow: 1,
+                min_proceeds: 0,
             }),
             RuntimeCall::Lending(pallet_lending::Call::close {
                 netuid,

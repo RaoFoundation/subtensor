@@ -1698,9 +1698,9 @@ class Lending:
         return Call('Lending', 'close', {'netuid': netuid, 'repay_from_wallet': repay_from_wallet, 'max_payment': max_payment, 'min_refund': min_refund})
 
     @staticmethod
-    def open(netuid: 'NetUid', side: 'Side', collateral: 'u64', hotkey: 'AccountId32', min_borrow: 'u64') -> Call:
+    def open(netuid: 'NetUid', side: 'Side', collateral: 'u64', hotkey: 'AccountId32', min_borrow: 'u64', min_proceeds: 'u64') -> Call:
         "Open one fixed-principal loan on a subnet. Amounts use the collateral token's atoms."
-        return Call('Lending', 'open', {'netuid': netuid, 'side': side, 'collateral': collateral, 'hotkey': hotkey, 'min_borrow': min_borrow})
+        return Call('Lending', 'open', {'netuid': netuid, 'side': side, 'collateral': collateral, 'hotkey': hotkey, 'min_borrow': min_borrow, 'min_proceeds': min_proceeds})
 
     @staticmethod
     def set_enabled(enabled: 'bool') -> Call:

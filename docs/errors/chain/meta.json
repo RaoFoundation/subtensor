@@ -41,6 +41,7 @@
     "BasketTradingFrozen",
     "BasketTurnoverBudgetExceeded",
     "BelowMinimumBorrow",
+    "BelowMinimumProceeds",
     "BelowMinimumRefund",
     "BeneficiaryDoesNotOwnHotkey",
     "BetaBasketSeedInProgress",

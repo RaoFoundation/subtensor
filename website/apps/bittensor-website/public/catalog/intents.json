@@ -696,9 +696,9 @@
         "pallet": "Lending",
         "call": "close",
         "path": "pallets/lending/src/lib.rs",
-        "line": 678,
-        "end_line": 786,
-        "url": "/code/pallets/lending/src/lib.rs#L675-L786",
+        "line": 687,
+        "end_line": 795,
+        "url": "/code/pallets/lending/src/lib.rs#L684-L795",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1952,7 +1952,7 @@
   {
     "name": "open_loan",
     "summary": "Open one fixed-principal loan on a subnet at 25% initial LTV.",
-    "description": "Open one fixed-principal loan on a subnet at 25% initial LTV.\n\nA short locks TAO collateral, borrows alpha and immediately sells it;\nthe TAO proceeds stay in contract custody. A long locks existing free\nalpha stake and receives freely transferable TAO. The debt stays in the\nborrowed currency. Interest is 100% annually on opening loan value,\ncharged in fixed collateral units and collected weekly. There are no\nprice-triggered liquidations; exhausted collateral forfeits the position.\n\n`min_borrow` is a floor on fixed principal, including opening swap fees.\nThe call is atomic and refuses a smaller loan. One position may be open\nper coldkey and subnet; close it before opening another.",
+    "description": "Open one fixed-principal loan on a subnet at 25% initial LTV.\n\nA short locks TAO collateral, borrows alpha and immediately sells it;\nthe TAO proceeds stay in contract custody. A long locks existing free\nalpha stake and receives freely transferable TAO. The debt stays in the\nborrowed currency. Interest is 100% annually on opening loan value,\ncharged in fixed collateral units and collected weekly. There are no\nprice-triggered liquidations; exhausted collateral forfeits the position.\n\n`min_borrow` is a floor on fixed principal, including opening swap fees.\n`min_proceeds` separately bounds the TAO from a short's opening sale.\nThe call is atomic and refuses a smaller loan or sale. One position may be open\nper coldkey and subnet; close it before opening another.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2003,6 +2003,19 @@
             }
           ],
           "description": "Minimum fixed principal: subnet alpha for a short, TAO for a long."
+        },
+        "min_proceeds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Minimum TAO proceeds from a short's opening sale; unused for longs."
         }
       },
       "required": [
@@ -2020,9 +2033,9 @@
         "pallet": "Lending",
         "call": "open",
         "path": "pallets/lending/src/lib.rs",
-        "line": 544,
-        "end_line": 671,
-        "url": "/code/pallets/lending/src/lib.rs#L541-L671",
+        "line": 545,
+        "end_line": 680,
+        "url": "/code/pallets/lending/src/lib.rs#L542-L680",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

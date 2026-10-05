@@ -55,7 +55,8 @@ class OpenLoan(Intent):
     price-triggered liquidations; exhausted collateral forfeits the position.
 
     ``min_borrow`` is a floor on fixed principal, including opening swap fees.
-    The call is atomic and refuses a smaller loan. One position may be open
+    ``min_proceeds`` separately bounds the TAO from a short's opening sale.
+    The call is atomic and refuses a smaller loan or sale. One position may be open
     per coldkey and subnet; close it before opening another.
     """
 
@@ -79,6 +80,10 @@ class OpenLoan(Intent):
         default=0,
         metadata={"help": "Minimum fixed principal: subnet alpha for a short, TAO for a long."},
     )
+    min_proceeds: Money = field(
+        default=0,
+        metadata={"help": "Minimum TAO proceeds from a short's opening sale; unused for longs."},
+    )
 
     def __post_init__(self):
         _check_netuid(self.netuid)
@@ -90,6 +95,7 @@ class OpenLoan(Intent):
         normalized = cast(Balance, collateral_unit(self.collateral))
         self.collateral = normalized
         self.min_borrow = debt_unit(self.min_borrow)
+        self.min_proceeds = tao_amount(self.min_proceeds)
         if normalized.rao == 0:
             raise BittensorError("collateral must be greater than zero")
 
@@ -106,6 +112,7 @@ class OpenLoan(Intent):
                     "collateral": collateral.rao,
                     "hotkey": self.hotkey_address(wallet, self.hotkey_ss58),
                     "min_borrow": minimum.rao,
+                    "min_proceeds": cast(Balance, self.min_proceeds).rao,
                 },
             )
         )

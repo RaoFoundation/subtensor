@@ -363,7 +363,8 @@ fn open(side: Side, collateral: u64) {
         side,
         collateral,
         account(1),
-        1
+        1,
+        0,
     ));
 }
 fn position() -> Position<Account, u64> {
@@ -543,7 +544,8 @@ fn full_open_and_close_failures_rollback_balances_and_debt() {
                 Side::Short,
                 1000,
                 account(1),
-                251
+                251,
+                0,
             ),
             Error::<Test>::BelowMinimumBorrow
         );
@@ -634,7 +636,8 @@ fn low_ltv_and_aggregate_cap_reject_without_clipping() {
                 Side::Short,
                 44_000,
                 account(1),
-                0
+                0,
+                0,
             ),
             Error::<Test>::BorrowingLimit
         );
@@ -651,7 +654,8 @@ fn low_ltv_and_aggregate_cap_reject_without_clipping() {
                 Side::Short,
                 1000,
                 account(2),
-                0
+                0,
+                0,
             ),
             Error::<Test>::BorrowingLimit
         );
@@ -772,7 +776,8 @@ fn disabled_borrowing_preserves_repayment() {
                 Side::Long,
                 1000,
                 account(1),
-                0
+                0,
+                0,
             ),
             Error::<Test>::Disabled
         );
@@ -879,7 +884,8 @@ fn metered_deregistration_resumes_past_long_positions() {
                 Side::Long,
                 1000,
                 account(n),
-                1
+                1,
+                0,
             ));
         }
         System::set_block_number(6);
@@ -925,7 +931,8 @@ fn pumped_spot_cannot_raise_long_credit_above_historical_value() {
             Side::Short,
             1000,
             account(1),
-            short.principal
+            short.principal,
+            0,
         ));
     });
 }
@@ -957,7 +964,8 @@ fn lending_owner_recovery_gate_rejects_new_loans() {
                 Side::Long,
                 1000,
                 account(1),
-                1
+                1,
+                0,
             ),
             Error::<Test>::SubnetUnavailable
         );
@@ -989,7 +997,8 @@ fn global_position_cap_applies_across_subnets_and_close_releases_capacity() {
                 Side::Long,
                 1000,
                 account(n),
-                1
+                1,
+                0,
             ));
         }
         mint_alpha(&account(1), &account(1), second, 1000);
@@ -999,7 +1008,8 @@ fn global_position_cap_applies_across_subnets_and_close_releases_capacity() {
             Side::Long,
             1000,
             account(1),
-            1
+            1,
+            0,
         ));
         assert_eq!(TotalPositions::<Test>::get(), 5);
         mint_alpha(&account(2), &account(2), second, 1000);
@@ -1010,7 +1020,8 @@ fn global_position_cap_applies_across_subnets_and_close_releases_capacity() {
                 Side::Long,
                 1000,
                 account(2),
-                1
+                1,
+                0,
             ),
             Error::<Test>::TooManyPositions
         );
@@ -1028,7 +1039,8 @@ fn global_position_cap_applies_across_subnets_and_close_releases_capacity() {
             Side::Long,
             1000,
             account(2),
-            1
+            1,
+            0,
         ));
         assert_eq!(TotalPositions::<Test>::get(), 5);
     });
@@ -1074,7 +1086,8 @@ fn nominated_hotkey_reference_count_covers_every_borrower_until_close() {
             Side::Long,
             1000,
             account(1),
-            1
+            1,
+            0,
         ));
         assert_eq!(LoanHotkeys::<Test>::get(account(1)), 2);
         assert!(<Lending as LendingInterface<Account>>::has_hotkey_positions(&account(1)));
@@ -1325,4 +1338,196 @@ fn multiple_terminal_receipts_retire_the_long_only_after_all_redemptions() {
         assert_eq!(Vaults::<Test>::get(netuid()).unwrap().lost_tao, 0);
         assert!(!EscrowOwner::<Test>::contains_key(netuid(), &escrow));
     });
+}
+
+fn seed_pending_coupon(side: Side, amount: u64) {
+    let vault = Lending::reserve_account(netuid());
+    let hotkey = Lending::custody_hotkey().unwrap();
+    match side {
+        Side::Short => mint_tao(&vault, amount),
+        Side::Long => mint_alpha(&vault, &hotkey, netuid(), amount),
+    }
+    Vaults::<Test>::mutate(netuid(), |value| {
+        let value = value.as_mut().unwrap();
+        match side {
+            Side::Short => value.pending_tao += amount,
+            Side::Long => value.pending_alpha += amount,
+        }
+    });
+}
+
+fn assert_coupon_inventory_is_backed() {
+    let vault = Vaults::<Test>::get(netuid()).unwrap();
+    let account = Lending::reserve_account(netuid());
+    let hotkey = Lending::custody_hotkey().unwrap();
+    assert_eq!(tao(&account), vault.available_tao + vault.pending_tao);
+    assert_eq!(
+        alpha(&account, &hotkey, netuid()),
+        vault.available_alpha + vault.pending_alpha
+    );
+    assert_eq!(vault.outstanding_alpha, 0);
+    assert_eq!(vault.outstanding_tao, 0);
+    assert_eq!(vault.lost_alpha, 0);
+    assert_eq!(vault.lost_tao, 0);
+}
+
+#[test]
+fn adverse_coupon_buy_and_sale_hold_assets_until_ema_bounded_execution_returns() {
+    for (side, manipulated) in [
+        (Side::Short, (1_000_000_u64, 2_000_000_u64)),
+        (Side::Long, (2_000_000_u64, 1_000_000_u64)),
+    ] {
+        ext().execute_with(|| {
+            seed_pending_coupon(side, 5_000);
+            write(&key(b"test/market", netuid()), manipulated);
+            let before = Vaults::<Test>::get(netuid()).unwrap();
+            let reference = References::<Test>::get(netuid()).unwrap();
+            let swaps = swap_count();
+            idle(11);
+            assert_eq!(Vaults::<Test>::get(netuid()), Some(before));
+            assert_eq!(swap_count(), swaps);
+            assert_eq!(market(netuid()), manipulated);
+            assert_eq!(References::<Test>::get(netuid()), Some(reference));
+            assert_coupon_inventory_is_backed();
+
+            // Returning to the mature reference admits normal ~1% ending-price
+            // depth and the mock's 0.1% fee within the fixed 2% output allowance.
+            write(
+                &key(b"test/market", netuid()),
+                (1_000_000_u64, 1_000_000_u64),
+            );
+            idle(12);
+            let after = Vaults::<Test>::get(netuid()).unwrap();
+            assert_eq!(after.pending_tao, 0);
+            assert_eq!(after.pending_alpha, 0);
+            assert_eq!(swap_count(), swaps + 1);
+            assert_coupon_inventory_is_backed();
+        });
+    }
+}
+
+#[test]
+fn coupon_conversion_waits_for_a_present_mature_reference() {
+    for side in [Side::Short, Side::Long] {
+        for missing in [false, true] {
+            ext().execute_with(|| {
+                seed_pending_coupon(side, 5_000);
+                let mut reference = References::<Test>::get(netuid()).unwrap();
+                reference.valid_after = 12;
+                if missing {
+                    References::<Test>::remove(netuid());
+                } else {
+                    References::<Test>::insert(netuid(), reference.clone());
+                }
+                let before = Vaults::<Test>::get(netuid()).unwrap();
+                idle(11);
+                assert_eq!(Vaults::<Test>::get(netuid()), Some(before));
+                assert_eq!(swap_count(), 0);
+                assert_coupon_inventory_is_backed();
+                References::<Test>::insert(netuid(), reference);
+                idle(12);
+                let after = Vaults::<Test>::get(netuid()).unwrap();
+                assert_eq!(after.pending_tao, 0);
+                assert_eq!(after.pending_alpha, 0);
+                assert_eq!(swap_count(), 1);
+                assert_coupon_inventory_is_backed();
+            });
+        }
+    }
+}
+
+#[test]
+fn coupon_depth_guard_reduces_large_chunks_and_preserves_the_remainder() {
+    for side in [Side::Short, Side::Long] {
+        ext().execute_with(|| {
+            seed_pending_coupon(side, 50_000);
+            let before = Vaults::<Test>::get(netuid()).unwrap();
+            idle(11);
+            let after = Vaults::<Test>::get(netuid()).unwrap();
+            let received = match side {
+                Side::Short => {
+                    assert_eq!(after.pending_tao, 37_500);
+                    after.available_alpha - before.available_alpha
+                }
+                Side::Long => {
+                    assert_eq!(after.pending_alpha, 37_500);
+                    after.available_tao - before.available_tao
+                }
+            };
+            assert!(
+                received >= 12_250,
+                "12500 input retains at least 98% EMA output"
+            );
+            assert_eq!(swap_count(), 1);
+            assert_coupon_inventory_is_backed();
+        });
+    }
+}
+
+#[test]
+fn coupon_guard_permits_favorable_prices_and_rejects_zero_output_dust() {
+    for (side, favorable) in [
+        (Side::Short, (2_000_000_u64, 1_000_000_u64)),
+        (Side::Long, (1_000_000_u64, 2_000_000_u64)),
+    ] {
+        ext().execute_with(|| {
+            seed_pending_coupon(side, 5_000);
+            write(&key(b"test/market", netuid()), favorable);
+            idle(11);
+            let after = Vaults::<Test>::get(netuid()).unwrap();
+            assert_eq!(after.pending_tao, 0);
+            assert_eq!(after.pending_alpha, 0);
+            assert_eq!(swap_count(), 1);
+            assert_coupon_inventory_is_backed();
+        });
+        ext().execute_with(|| {
+            seed_pending_coupon(side, 1);
+            let before = Vaults::<Test>::get(netuid()).unwrap();
+            idle(11);
+            assert_eq!(Vaults::<Test>::get(netuid()), Some(before));
+            assert_eq!(swap_count(), 0);
+            assert_coupon_inventory_is_backed();
+        });
+    }
+}
+
+#[test]
+fn coupon_output_budget_includes_fees_and_rounds_only_to_output_atoms() {
+    assert_eq!(
+        Lending::coupon_minimum_output(Side::Short, 100, U64F64::from_num(1)).unwrap(),
+        98
+    );
+    assert_eq!(
+        Lending::coupon_minimum_output(Side::Long, 100, U64F64::from_num(1)).unwrap(),
+        98
+    );
+    assert_eq!(
+        Lending::coupon_minimum_output(Side::Short, 50, U64F64::from_num(2)).unwrap(),
+        24
+    );
+    assert_eq!(
+        Lending::coupon_minimum_output(Side::Long, 50, U64F64::from_num(2)).unwrap(),
+        98
+    );
+}
+
+#[test]
+fn unrepresentable_ema_coupon_valuations_keep_both_assets_pending() {
+    for (side, price) in [
+        (Side::Long, U64F64::from_num(u64::MAX)),
+        (Side::Short, U64F64::from_bits(1)),
+    ] {
+        assert!(Lending::coupon_minimum_output(side, 100, price).is_err());
+        ext().execute_with(|| {
+            seed_pending_coupon(side, 100);
+            References::<Test>::mutate(netuid(), |reference| {
+                reference.as_mut().unwrap().price = price;
+            });
+            let before = Vaults::<Test>::get(netuid()).unwrap();
+            idle(11);
+            assert_eq!(Vaults::<Test>::get(netuid()), Some(before));
+            assert_eq!(swap_count(), 0);
+            assert_coupon_inventory_is_backed();
+        });
+    }
 }

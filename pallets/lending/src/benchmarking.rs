@@ -59,6 +59,7 @@ mod benchmarks {
             16_000_000_000,
             hotkey,
             1,
+            0,
         );
         assert!(Positions::<T>::contains_key(owner, netuid));
     }
@@ -73,6 +74,7 @@ mod benchmarks {
             16_000_000_000,
             hotkey,
             1,
+            0,
         )
         .unwrap();
         frame_system::Pallet::<T>::set_block_number(
@@ -100,6 +102,7 @@ mod benchmarks {
             16_000_000_000,
             hotkey,
             1,
+            0,
         )
         .unwrap();
         let now =
@@ -111,7 +114,7 @@ mod benchmarks {
             Pallet::<T>::charge_interest(&owner, netuid, &mut position, now, false).unwrap();
             Positions::<T>::insert(&owner, netuid, position);
             let mut meter = WeightMeter::with_limit(Weight::MAX);
-            Pallet::<T>::convert_pending(&mut meter);
+            Pallet::<T>::convert_pending(now, &mut meter);
         }
         assert_eq!(Vaults::<T>::get(netuid).unwrap().pending_tao, 0);
     }
@@ -137,6 +140,7 @@ mod benchmarks {
             16_000_000_000,
             hotkey,
             1,
+            0,
         )
         .unwrap();
         Pallet::<T>::start_dissolution(netuid).unwrap();

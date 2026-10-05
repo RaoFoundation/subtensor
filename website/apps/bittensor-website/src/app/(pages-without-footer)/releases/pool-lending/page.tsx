@@ -60,7 +60,8 @@ export default function PoolLendingRelease() {
           <ul className={styles.list}>
             <li>
               <strong>25% initial LTV.</strong> Historical lending prices and complete,
-              fee-inclusive swap quotes bound each opening; vault inventory must fund it.
+              fee-inclusive swap quotes bound each opening; vault inventory must fund it. Shorts
+              also require the caller’s minimum net TAO proceeds.
             </li>
             <li>
               <strong>100% nominal annual interest on opening loan value.</strong> Coupons are fixed
@@ -71,8 +72,10 @@ export default function PoolLendingRelease() {
             <li>
               <strong>Coupons replenish lending reserves.</strong> Short coupons buy alpha; long
               coupons sell alpha for TAO. The outputs are retained, not burned. Unconverted coupons
-              remain accounted for until a swap can execute. TAO dust too small to initialize an
-              empty destination account is explicitly recycled and recorded.
+              remain accounted for until a swap returns at least 98% of the mature lending
+              reference’s fair output, after fees and price impact. Favorable prices remain allowed.
+              TAO dust too small to initialize an empty destination account is explicitly recycled
+              and recorded.
             </li>
             <li>
               <strong>No price-triggered liquidation.</strong> Collateral exhaustion forfeits the
@@ -94,10 +97,10 @@ export default function PoolLendingRelease() {
           </p>
           <p>
             V1 bounds processing to 256 funded subnet vaults, 256 open positions across the chain
-            and 128 per subnet. When vault capacity is full, additional pools keep their reserves
-            in the AMM until a retired subnet vault frees a slot for automatic admission.
-            Borrowers must close before changing their own keys. Nominated
-            positions follow actual validator hotkey stake migrations.
+            and 128 per subnet. When vault capacity is full, additional pools keep their reserves in
+            the AMM until a retired subnet vault frees a slot for automatic admission. Borrowers
+            must close before changing their own keys. Nominated positions follow actual validator
+            hotkey stake migrations.
           </p>
         </section>
 
@@ -106,12 +109,12 @@ export default function PoolLendingRelease() {
           <p>
             Deregistration freezes interest. Existing beta-basket holdings convert to funded root
             cash first; endpoint-blocked holdings receive funded redemption into their original
-            fund. Lending positions settle without AMM swaps. Remaining lending inventory enters
-            the funded dissolution pot. Longs accumulate their escrow&apos;s actual TAO redemptions,
-            then settle once after all payouts: debt is recovered, any surplus is returned and
-            any shortfall is recorded. TAO transferred elsewhere is not assumed to
-            remain in custody. Tiny refunds that cannot recreate a reaped account are explicitly
-            recycled and recorded. Cleanup finishes before the subnet identifier can be reused.
+            fund. Lending positions settle without AMM swaps. Remaining lending inventory enters the
+            funded dissolution pot. Longs accumulate their escrow&apos;s actual TAO redemptions,
+            then settle once after all payouts: debt is recovered, any surplus is returned and any
+            shortfall is recorded. TAO transferred elsewhere is not assumed to remain in custody.
+            Tiny refunds that cannot recreate a reaped account are explicitly recycled and recorded.
+            Cleanup finishes before the subnet identifier can be reused.
           </p>
         </section>
 
