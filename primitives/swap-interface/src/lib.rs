@@ -75,6 +75,18 @@ pub trait SwapHandler {
     fn extracted_tao(_netuid: NetUid) -> TaoBalance {
         TaoBalance::ZERO
     }
+    /// Read-only upgrade inspection: cumulative alpha/TAO extraction, an opaque
+    /// curve fingerprint, and whether any unreachable reserve can still be funded.
+    fn reserve_funding_state(
+        netuid: NetUid,
+    ) -> Result<(AlphaBalance, TaoBalance, [u8; 32], bool), DispatchError> {
+        Ok((
+            AlphaBalance::ZERO,
+            Self::extracted_tao(netuid),
+            [0; 32],
+            false,
+        ))
+    }
     fn protocol_alpha_reservoir(netuid: NetUid) -> AlphaBalance;
     fn protocol_tao_reservoir(netuid: NetUid) -> TaoBalance;
     fn clear_protocol_liquidity_reservoirs(netuid: NetUid);

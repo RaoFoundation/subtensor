@@ -735,6 +735,30 @@ impl<T: Config> SwapHandler for Pallet<T> {
         ExtractedReserves::<T>::get(netuid).1
     }
 
+    fn reserve_funding_state(
+        netuid: NetUid,
+    ) -> Result<(AlphaBalance, TaoBalance, [u8; 32], bool), DispatchError> {
+        use codec::Encode;
+        let curve = SwapSuperellipse::<T>::get(netuid);
+        let fingerprint = sp_io::hashing::blake2_256(&curve.encode());
+        let alpha = u64::from(T::AlphaReserve::reserve(netuid));
+        let tao = u64::from(T::TaoReserve::reserve(netuid));
+        let extractable = if T::SubnetInfo::mechanism(netuid) == 1
+            && alpha > 0
+            && tao > 0
+            && let Some(curve) = curve
+        {
+            let (alpha, tao) = curve
+                .extractable_reserves(alpha, tao, T::MinimumReserve::get().get())
+                .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+            alpha > 0 || tao > 0
+        } else {
+            false
+        };
+        let (extracted_alpha, extracted_tao) = ExtractedReserves::<T>::get(netuid);
+        Ok((extracted_alpha, extracted_tao, fingerprint, extractable))
+    }
+
     fn protocol_alpha_reservoir(netuid: NetUid) -> AlphaBalance {
         BalancerAlphaReservoir::<T>::get(netuid)
     }

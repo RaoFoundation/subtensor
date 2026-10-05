@@ -94,7 +94,9 @@ export default function PoolLendingRelease() {
           </p>
           <p>
             V1 bounds processing to 256 funded subnet vaults, 256 open positions across the chain
-            and 128 per subnet. Borrowers must close before changing their own keys. Nominated
+            and 128 per subnet. When vault capacity is full, additional pools keep their reserves
+            in the AMM until a retired subnet vault frees a slot for automatic admission.
+            Borrowers must close before changing their own keys. Nominated
             positions follow actual validator hotkey stake migrations.
           </p>
         </section>

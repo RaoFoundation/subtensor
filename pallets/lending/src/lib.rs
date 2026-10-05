@@ -131,6 +131,7 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
 pub trait LendingInterface<AccountId> {
     fn custody_accounts(netuid: NetUid) -> Option<(AccountId, AccountId)>;
     fn has_vault(netuid: NetUid) -> bool;
+    fn has_funding_capacity() -> bool;
     fn has_outstanding(netuid: NetUid) -> bool;
     fn has_positions(owner: &AccountId) -> bool;
     fn has_hotkey_positions(hotkey: &AccountId) -> bool;
@@ -159,6 +160,9 @@ impl<AccountId> LendingInterface<AccountId> for () {
         None
     }
     fn has_vault(_: NetUid) -> bool {
+        false
+    }
+    fn has_funding_capacity() -> bool {
         false
     }
     fn has_outstanding(_: NetUid) -> bool {
@@ -1897,6 +1901,9 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
     }
     fn has_vault(netuid: NetUid) -> bool {
         Vaults::<T>::contains_key(netuid)
+    }
+    fn has_funding_capacity() -> bool {
+        VaultCount::<T>::get() < T::MaxFundedSubnets::get()
     }
     fn has_outstanding(netuid: NetUid) -> bool {
         PositionCount::<T>::get(netuid) > 0

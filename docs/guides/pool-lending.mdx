@@ -157,7 +157,12 @@ pending conversions do not enlarge it. Repayment and converted interest can
 replenish inventory; written-off principal reduces the funded base.
 
 V1 supports at most 256 funded subnet vaults, bounding reference-update work.
-It additionally limits open positions to 128 per subnet and 256 across the
+When those slots are full, additional pools retain their reserves in the AMM
+and cannot open loans. Automatic admission checks at most one subnet per block
+and resumes funding after a completed subnet deregistration frees a vault slot.
+The pool calibration still applies to those deferred subnets.
+
+V1 additionally limits open positions to 128 per subnet and 256 across the
 chain. Closing releases position slots. A borrower's own coldkey and hotkey changes,
 and curve recalibration on a subnet with open positions, are blocked until
 closing. If a validator moves a hotkey's nominated stake, positions follow the

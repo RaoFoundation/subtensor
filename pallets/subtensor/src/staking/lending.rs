@@ -256,6 +256,12 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        // Admission is bounded independently of the number of live subnet pools.
+        // A full vault set leaves the pool and its unreachable floors untouched;
+        // the ordinary bounded hook retries admission after a slot becomes free.
+        if !T::LendingInterface::has_funding_capacity() {
+            return Ok(());
+        }
         if SubnetTAO::<T>::get(netuid).is_zero() || SubnetAlphaIn::<T>::get(netuid).is_zero() {
             return Ok(());
         }

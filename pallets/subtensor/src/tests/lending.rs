@@ -141,6 +141,115 @@ fn unfunded_extraction_rolls_back_curve_balances_and_custody() {
 }
 
 #[test]
+fn capacity_deferred_pool_stays_intact_and_is_admitted_after_a_slot_frees() {
+    use crate::migrations::migrate_pool_lending::{MIGRATION_NAME, Migration};
+    use frame_support::traits::OnRuntimeUpgrade;
+    use pallet_lending::{LendingInterface, Vault, VaultCount};
+
+    new_test_ext(1).execute_with(|| {
+        let netuid = market(true);
+        assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+        // Empty existing vaults still occupy bounded reference-update slots.
+        for id in 2_u16..=257 {
+            Vaults::<Test>::insert(NetUid::from(id), Vault::default());
+        }
+        VaultCount::<Test>::put(256);
+        assert!(!<Lending as LendingInterface<U256>>::has_funding_capacity());
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert_ok!(SubtensorModule::fund_unreachable_reserves(netuid, true));
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+        let curve = pallet_subtensor_swap::SwapSuperellipse::<Test>::get(netuid);
+        let issuance = Balances::total_issuance();
+        #[cfg(feature = "try-runtime")]
+        let snapshot = Migration::<Test>::pre_upgrade().unwrap();
+        Migration::<Test>::on_runtime_upgrade();
+        #[cfg(feature = "try-runtime")]
+        assert_ok!(Migration::<Test>::post_upgrade(snapshot));
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(pallet_lending::Enabled::<Test>::get());
+        assert!(!Vaults::<Test>::contains_key(netuid));
+        assert_eq!(SubnetTAO::<Test>::get(netuid).to_u64(), POOL);
+        assert_eq!(SubnetAlphaIn::<Test>::get(netuid).to_u64(), POOL);
+        assert_eq!(
+            pallet_subtensor_swap::SwapSuperellipse::<Test>::get(netuid),
+            curve
+        );
+        assert_eq!(
+            pallet_subtensor_swap::ExtractedReserves::<Test>::get(netuid),
+            Default::default()
+        );
+
+        assert_ok!(Lending::finish_dissolution(NetUid::from(2)));
+        assert!(<Lending as LendingInterface<U256>>::has_funding_capacity());
+        SubtensorModule::fund_one_new_lending_vault();
+        let vault = Vaults::<Test>::get(netuid).unwrap();
+        assert!(vault.available_alpha > 0 && vault.available_tao > 0);
+        assert_eq!(VaultCount::<Test>::get(), 256);
+        assert_eq!(Balances::total_issuance(), issuance);
+        assert_eq!(
+            SubnetAlphaIn::<Test>::get(netuid).to_u64() + vault.available_alpha,
+            POOL
+        );
+        assert_eq!(
+            SubnetTAO::<Test>::get(netuid).to_u64() + vault.available_tao,
+            POOL
+        );
+        assert_live_stake_total();
+        assert_total_alpha_staked_invariant(netuid);
+    });
+}
+
+#[test]
+fn partial_funding_failure_keeps_migration_incomplete_and_retry_preserves_existing_vault() {
+    use crate::migrations::migrate_pool_lending::{MIGRATION_NAME, Migration};
+    use frame_support::traits::OnRuntimeUpgrade;
+
+    new_test_ext(1).execute_with(|| {
+        let existing = market(true);
+        assert_ok!(SubtensorModule::fund_unreachable_reserves(existing, true));
+        let previous = Vaults::<Test>::get(existing).unwrap();
+        let previous_curve = pallet_subtensor_swap::SwapSuperellipse::<Test>::get(existing);
+        let failing = NetUid::from(2);
+        add_network(failing, 360, 0);
+        SubnetMechanism::<Test>::insert(failing, 1);
+        setup_reserves(failing, POOL.into(), POOL.into());
+        TotalStake::<Test>::mutate(|total| *total = total.saturating_add(POOL.into()));
+        assert_ok!(Swap::maybe_initialize_palswap(failing, None));
+        let failing_curve = pallet_subtensor_swap::SwapSuperellipse::<Test>::get(failing);
+        Migration::<Test>::on_runtime_upgrade();
+        assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(!pallet_lending::Enabled::<Test>::get());
+        assert!(!Vaults::<Test>::contains_key(failing));
+        assert_eq!(Vaults::<Test>::get(existing), Some(previous.clone()));
+        assert_eq!(
+            pallet_subtensor_swap::SwapSuperellipse::<Test>::get(failing),
+            failing_curve
+        );
+        assert_eq!(SubnetTAO::<Test>::get(failing).to_u64(), POOL);
+        assert_eq!(SubnetAlphaIn::<Test>::get(failing).to_u64(), POOL);
+
+        let account = SubtensorModule::get_subnet_account_id(failing).unwrap();
+        add_balance_to_coldkey_account(&account, POOL.into());
+        #[cfg(feature = "try-runtime")]
+        let snapshot = Migration::<Test>::pre_upgrade().unwrap();
+        Migration::<Test>::on_runtime_upgrade();
+        #[cfg(feature = "try-runtime")]
+        assert_ok!(Migration::<Test>::post_upgrade(snapshot));
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(pallet_lending::Enabled::<Test>::get());
+        assert_eq!(Vaults::<Test>::get(existing), Some(previous));
+        assert_eq!(
+            pallet_subtensor_swap::SwapSuperellipse::<Test>::get(existing),
+            previous_curve
+        );
+        assert!(Vaults::<Test>::contains_key(failing));
+        assert_live_stake_total();
+        assert_total_alpha_staked_invariant(existing);
+        assert_total_alpha_staked_invariant(failing);
+    });
+}
+
+#[test]
 fn short_is_custodial_and_amm_close_restores_principal() {
     new_test_ext(1).execute_with(|| {
         let netuid = funded_market();
