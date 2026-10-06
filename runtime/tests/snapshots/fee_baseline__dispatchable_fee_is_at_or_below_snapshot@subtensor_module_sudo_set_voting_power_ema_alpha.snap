@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_sudo_set_voting_power_ema_alpha
+expression: fee
+---
+75839

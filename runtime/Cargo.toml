@@ -163,6 +163,8 @@ frame-metadata.workspace = true
 sp-tracing.workspace = true
 sp-keyring.workspace = true
 precompile-utils = { workspace = true, features = ["testing"] }
+insta.workspace = true
+rstest.workspace = true
 
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }

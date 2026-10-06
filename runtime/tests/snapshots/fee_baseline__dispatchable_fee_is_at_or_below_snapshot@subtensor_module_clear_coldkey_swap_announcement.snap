@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_clear_coldkey_swap_announcement
+expression: fee
+---
+82089

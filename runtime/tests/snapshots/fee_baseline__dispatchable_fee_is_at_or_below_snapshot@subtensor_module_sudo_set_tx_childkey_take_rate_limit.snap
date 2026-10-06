@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_sudo_set_tx_childkey_take_rate_limit
+expression: fee
+---
+67839

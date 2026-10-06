@@ -126,7 +126,9 @@ Inflector = "0.11"
 cfg-expr = "0.15"
 # use_alloc is required for Itertools::powerset (procedural-fork); it used to
 # be enabled implicitly via feature unification with the duplicated SDK tree.
-itertools = { version = "0.10", default-features = false, features = ["use_alloc"] }
+itertools = { version = "0.10", default-features = false, features = [
+	"use_alloc",
+] }
 macro_magic = { version = "0.5", default-features = false }
 frame-support-procedural-tools = { version = "10.0.0", default-features = false }
 proc-macro-warning = { version = "1", default-features = false }
@@ -313,6 +315,8 @@ pallet-shield = { path = "pallets/shield", default-features = false }
 ml-kem = { version = "0.2.2", default-features = false }
 chacha20poly1305 = { version = "0.10", default-features = false }
 blake2 = "0.10.6"
+insta = "1.41"
+rstest = "0.27.0"
 
 # Primitives
 

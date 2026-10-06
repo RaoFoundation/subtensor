@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: system_apply_authorized_upgrade
+expression: fee
+---
+41819128

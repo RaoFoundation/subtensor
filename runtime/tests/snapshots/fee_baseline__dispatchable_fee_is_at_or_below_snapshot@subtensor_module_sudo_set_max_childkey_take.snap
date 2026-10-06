@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_sudo_set_max_childkey_take
+expression: fee
+---
+67839

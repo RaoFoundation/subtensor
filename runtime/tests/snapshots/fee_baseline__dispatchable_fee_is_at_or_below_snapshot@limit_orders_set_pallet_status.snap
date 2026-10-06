@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: limit_orders_set_pallet_status
+expression: fee
+---
+68444
