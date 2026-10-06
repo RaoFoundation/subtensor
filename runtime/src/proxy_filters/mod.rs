@@ -870,6 +870,7 @@ mod tests {
                 "SubtensorModule::register",
                 "SubtensorModule::register_limit",
                 "SubtensorModule::burned_register",
+                "SubtensorModule::pow_register",
             ])
         );
         assert_eq!(
@@ -1182,5 +1183,41 @@ mod tests {
             &ProxyType::SudoUncheckedSetCode,
             &checked
         ));
+    }
+}
+
+#[cfg(test)]
+mod pow_proxy_tests {
+    use super::*;
+    use pallet_subtensor::Call;
+    use subtensor_runtime_common::{AccountId, NetUid};
+
+    #[test]
+    fn pow_and_legacy_burn_registration_have_distinct_proxy_permissions() {
+        let hotkey = AccountId::new([7; 32]);
+        let coldkey = AccountId::new([8; 32]);
+        let netuid = NetUid::from(1);
+        let pow = RuntimeCall::SubtensorModule(Call::pow_register {
+            netuid,
+            work_block: 1,
+            nonce: 0,
+            work: [0; 32],
+            hotkey: hotkey.clone(),
+        });
+        let legacy = RuntimeCall::SubtensorModule(Call::register {
+            netuid,
+            block_number: 1,
+            nonce: 0,
+            work: vec![],
+            hotkey,
+            coldkey,
+        });
+        assert!(ProxyType::Registration.filter(&pow));
+        assert!(ProxyType::Registration.filter(&legacy));
+        assert!(ProxyType::NonFungible.filter(&pow));
+        assert!(!ProxyType::NonFungible.filter(&legacy));
+        assert!(ProxyType::NonCritical.filter(&pow));
+        assert!(!ProxyType::NonCritical.filter(&legacy));
+        assert!(!ProxyType::Staking.filter(&pow));
     }
 }

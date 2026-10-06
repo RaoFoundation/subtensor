@@ -374,8 +374,23 @@ impl<T: Config> Pallet<T> {
 
     /// Subnets whose epoch slot is due *this* block but is deferred by the per-block
     /// cap (`MaxEpochsPerBlock`).
+    /// A large Null epoch settles in the same block, using one scheduler slot
+    /// for the block. Pure Yuma blocks retain the configured epoch cap.
+    fn epoch_cap_for_block(subnets: &[NetUid], current_block: u64) -> u32 {
+        let configured = u32::from(Self::get_max_epochs_per_block());
+        if subnets.iter().any(|netuid| {
+            !netuid.is_root()
+                && Self::get_epoch_consensus(*netuid) == EpochConsensus::Null
+                && Self::should_run_epoch(*netuid, current_block)
+        }) {
+            configured.min(1)
+        } else {
+            configured
+        }
+    }
+
     pub fn epochs_deferred_this_block(subnets: &[NetUid], current_block: u64) -> BTreeSet<NetUid> {
-        let cap = Self::get_max_epochs_per_block() as u32;
+        let cap = Self::epoch_cap_for_block(subnets, current_block);
         let mut deferred: BTreeSet<NetUid> = BTreeSet::new();
         let mut epochs_run_this_block: u32 = 0;
 
@@ -406,7 +421,7 @@ impl<T: Config> Pallet<T> {
         > = BTreeMap::new();
         // Per-block cap on number of epochs that may run; the rest are deferred 1 block forward
         // by setting `PendingEpochAt`.
-        let max_epochs_per_block = Self::get_max_epochs_per_block() as u32;
+        let max_epochs_per_block = Self::epoch_cap_for_block(subnets, current_block);
         let mut epochs_run_this_block: u32 = 0;
         for &netuid in subnets.iter() {
             // Keep the scheduler age bounded per subnet. `tempo + 1` is enough to
@@ -510,6 +525,9 @@ impl<T: Config> Pallet<T> {
                 pending_owner_cut,
             );
             LastMechansimStepBlock::<T>::insert(netuid, current_block);
+            if current_block > 0 && Self::get_epoch_consensus(netuid) == EpochConsensus::Yuma {
+                LastYumaStepBlock::<T>::insert(netuid, current_block);
+            }
         }
     }
 
@@ -531,6 +549,7 @@ impl<T: Config> Pallet<T> {
         BTreeMap<T::AccountId, AlphaBalance>,
         BTreeMap<T::AccountId, U96F32>,
     ) {
+        let skip_zero_dividends = Self::get_epoch_consensus(netuid) == EpochConsensus::Null;
         // Accumulate emission of dividends and incentive per hotkey.
         let mut incentives: BTreeMap<T::AccountId, AlphaBalance> = BTreeMap::new();
         let mut dividends: BTreeMap<T::AccountId, U96F32> = BTreeMap::new();
@@ -540,6 +559,11 @@ impl<T: Config> Pallet<T> {
                 .entry(hotkey.clone())
                 .and_modify(|e| *e = e.saturating_add(incentive))
                 .or_insert(incentive);
+            // Null gives most UIDs no dividend. Avoid parent/take/collateral
+            // work and stake-snapshot writes for these zero-value recipients.
+            if skip_zero_dividends && dividend.is_zero() {
+                continue;
+            }
             // Accumulate dividends to parents.
             let div_tuples: Vec<(T::AccountId, AlphaBalance)> =
                 Self::get_parent_child_dividends_distribution(&hotkey, netuid, dividend);
@@ -810,12 +834,7 @@ impl<T: Config> Pallet<T> {
                 });
             }
 
-            Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                &destination,
-                &owner,
-                netuid,
-                liquid,
-            );
+            Self::credit_epoch_owner_emission(&destination, &owner, netuid, liquid);
         }
 
         // Record the proportion of this tempo's miner emission that was withheld from
@@ -841,12 +860,7 @@ impl<T: Config> Pallet<T> {
             let liquid_take = take.saturating_sub(captured);
             if !liquid_take.is_zero() {
                 log::debug!("hotkey: {hotkey:?} alpha_take: {liquid_take:?}");
-                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                    &hotkey,
-                    &owner,
-                    netuid,
-                    liquid_take,
-                );
+                Self::credit_epoch_owner_emission(&hotkey, &owner, netuid, liquid_take);
             }
             let nominator_alpha: AlphaBalance = tou64!(nominator_divs).into();
             if !nominator_alpha.is_zero() {
@@ -970,13 +984,15 @@ impl<T: Config> Pallet<T> {
         );
 
         let tao_weight = Self::get_tao_weight();
-        let total_alpha_minus_owner_cut = pending_server_alpha
-            .saturating_add(pending_validator_alpha)
-            .saturating_add(pending_root_alpha);
 
         // Run the epoch, using the alpha going to both the servers and the validators.
         let hotkey_emission: Vec<(T::AccountId, AlphaBalance, AlphaBalance)> =
-            Self::epoch_with_mechanisms(netuid, total_alpha_minus_owner_cut);
+            Self::epoch_with_mechanism_budgets(
+                netuid,
+                pending_server_alpha,
+                pending_validator_alpha,
+                pending_root_alpha,
+            );
         log::debug!("hotkey_emission: {hotkey_emission:?}");
 
         // Compute the pending validator alpha.

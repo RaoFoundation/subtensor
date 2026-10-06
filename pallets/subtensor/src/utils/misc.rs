@@ -595,6 +595,7 @@ impl<T: Config> Pallet<T> {
     pub fn set_max_allowed_uids(netuid: NetUid, max_allowed: u16) {
         MaxAllowedUids::<T>::insert(netuid, max_allowed);
         Self::deposit_event(Event::MaxAllowedUidsSet(netuid, max_allowed));
+        NullPruningTarget::<T>::remove(netuid);
     }
 
     pub fn get_kappa(netuid: NetUid) -> u16 {
@@ -723,6 +724,11 @@ impl<T: Config> Pallet<T> {
         MaxAllowedValidators::<T>::get(netuid)
     }
     pub fn set_max_allowed_validators(netuid: NetUid, max_allowed_validators: u16) {
+        let max_allowed_validators = if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
+            1
+        } else {
+            max_allowed_validators
+        };
         MaxAllowedValidators::<T>::insert(netuid, max_allowed_validators);
         Self::deposit_event(Event::MaxAllowedValidatorsSet(
             netuid,
@@ -834,6 +840,15 @@ impl<T: Config> Pallet<T> {
 
     pub fn get_liquid_alpha_consensus_mode(netuid: NetUid) -> ConsensusMode {
         LiquidAlphaConsensusMode::<T>::get(netuid)
+    }
+
+    pub fn get_epoch_consensus(netuid: NetUid) -> EpochConsensus {
+        SubnetEpochConsensus::<T>::get(netuid)
+    }
+
+    pub fn set_epoch_consensus(netuid: NetUid, mode: EpochConsensus) {
+        SubnetEpochConsensus::<T>::insert(netuid, mode);
+        Self::deposit_event(Event::EpochConsensusSet(netuid, mode));
     }
 
     pub fn set_liquid_alpha_consensus_mode(netuid: NetUid, mode: ConsensusMode) {

@@ -277,6 +277,23 @@ class SubstrateConnection:
         raws = [by_key.get(key_hex) for key_hex in key_hexes]
         return decode_storage_values(codec, entry, raws)
 
+    async def map_has_entries(
+        self,
+        module: str,
+        storage_function: str,
+        params: list,
+        block_hash: Optional[str] = None,
+    ) -> bool:
+        """Probe one map key without downloading or decoding its value."""
+        block_hash = block_hash or await self.get_chain_head()
+        codec = await self._runtimes.codec_at(block_hash)
+        entry = codec.storage_entry(module, storage_function)
+        if not entry.param_types or len(params) >= len(entry.param_types):
+            raise ValueError("map prefix must leave at least one key unspecified")
+        prefix = "0x" + codec.storage_key(entry, params).hex()
+        keys = await self._session.request("state_getKeysPaged", [prefix, 1, prefix, block_hash])
+        return bool(keys)
+
     async def query_map(
         self,
         module: str,

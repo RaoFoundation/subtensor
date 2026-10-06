@@ -1,0 +1,246 @@
+---
+title: Null consensus
+description: Configure Null epochs, submit precise integer weights to large subnets, and safely switch back to Yuma.
+---
+
+Null is an owner-selected alternative to Yuma inside the existing epoch interface.
+Existing and newly created subnets default to Yuma. Selecting Null does not change
+stake calculation, reward destinations, collateral settlement or owner cuts.
+The root subnet keeps its separate basket/dividend mechanism and cannot select Null.
+
+## Rewards
+
+Null elects exactly one validator permit holder: the registered UID with the highest
+unrounded stake weight. Equal stakes select the first UID. Only this permit holder
+may submit weights, commit weights or reveal weights; owner and self-weight exceptions
+do not bypass this rule. Permits are recomputed at epochs and initialized when
+switching to Null. All positive staked UIDs receive proportional dividends even
+without a permit, including inactive UIDs.
+
+The winner's weights undergo the existing self-weight, registration and commit-reveal
+masks. Its remaining integer ratios determine miner rewards. An empty or all-zero
+valid row distributes miner rewards equally across **every registered UID**. Null
+skips consensus and bond calculations and does not write bond storage.
+
+With positive stake, half the epoch budget goes to validator dividends,
+proportional to all positive stake. The miner budget receives the other half, including the
+extra atomic unit when the epoch budget is odd. With no positive stake,
+the local server and validator budget goes to miners. Unassignable root rewards
+are recycled separately and are never added to that miner budget. Wide integer arithmetic allocates each budget in
+UID order using cumulative proportional shares. Each payout is the floor or ceiling
+of its exact share; their sum equals the budget. A zero-weight UID receives zero.
+No fractional entitlement carries forward. Reported u16 incentive and dividend
+fractions remain quantized and do not feed back into actual reward amounts.
+
+## Owner configuration
+
+```bash
+btcli hparams set --netuid 1 --name epoch_consensus --value Null
+btcli hparams set --netuid 1 --name max_allowed_uids --value 2500
+```
+
+Capacity is `floor(2500 / mechanism_count)` for Null, and
+`floor(256 / mechanism_count)` for Yuma. Increasing the mechanism count also checks
+the configured capacity. Reduce capacity first if the shared limit would be exceeded.
+Switching to Null does not automatically increase capacity.
+
+Returning to Yuma requires the actual registered population to fit the Yuma ceiling.
+Use bounded owner pruning to shrink explicitly before switching. Switching
+never silently deletes participants; once allowed, it also lowers configured capacity
+to the Yuma ceiling. The minimum allowed UIDs must fit the selected ceiling too.
+Owner authentication, admin windows and hyperparameter rate limits apply.
+Entering Null saves the Yuma validator limit. Returning restores that limit,
+clamped to the remaining UID capacity; setting Null again does not overwrite it.
+
+```bash
+btcli hparams trim-null-batch --netuid 1 --target 256
+```
+
+For a long-running return to Yuma, use the opt-in workflow:
+
+```bash
+btcli hparams trim-null --netuid 1 --switch-to-yuma
+```
+
+This derives the target as `floor(256 / mechanism_count)`, or resumes an existing
+on-chain pruning target. `--target` selects a smaller final population within the
+subnet's minimum and maximum. A conflicting pending target is rejected. Pruning
+deregisters participants and can change survivor UIDs; review the target before
+signing. Each batch uses the normal wallet, fee review, confirmation and receipt
+flow. Pass `--yes` to approve sequential submissions without individual prompts.
+Without `--switch-to-yuma`, the workflow only prunes and leaves consensus as Null.
+
+The workflow waits for each transaction to finalize and reads `NullPruningTarget`
+and `SubnetworkN` after every batch. It reports removed UIDs and cancelled commits,
+including cleanup-only batches. It polls closed administration windows every
+12 seconds, with a one-hour wait limit; `--poll-seconds` and `--wait-timeout` adjust
+these bounds. Initial trimming cooldown failures stop with an explanation rather
+than repeatedly submitting paid failures. Successful same-target continuations
+retain the runtime's cooldown exemption. `--max-batches` bounds the run to 256
+batches by default; repeated lack of progress also stops the loop. `--dry-run`
+previews one transaction without starting the loop's submissions.
+
+Ctrl-C stops waiting or further submissions. Rerun the command with the same
+target to resume from on-chain state. A recovery record beside the CLI config
+prevents another local workflow from silently resubmitting a transaction whose
+delivery is uncertain. `--state-file` selects its location. If interruption or a
+connection failure leaves an unresolved record, reconcile the transaction's
+inclusion or expiry on-chain before removing that record and restarting. Do not
+delete it merely because the population has not changed: a transaction may still
+be pending or may only cancel commits. Run one workflow per subnet, including
+across machines, and retain the same recovery-file location when restarting.
+
+With `--switch-to-yuma`, remaining timelocked commitments are cancelled through
+bounded batches before the switch; the workflow also waits for the consensus
+cooldown and administration window. It verifies the mode after the switch receipt.
+Ownership changes, mechanism-count changes, permanent transaction failures and
+incomplete multisig approvals stop the run so the owner can resolve them explicitly.
+
+For the single-batch command, repeat with the same target until `NullPruningTarget` is absent
+and `SubnetworkN` is at most the target. Each transaction deletes at most 64
+UIDs. Pending weight commits are cancelled before survivor UIDs move; a large
+legacy commit backlog can require cleanup-only transactions. Continuations
+retain owner authorization and admin-window checks, while sharing the first
+transaction's trimming cooldown. Changing the target starts a new operation.
+The legacy atomic trimming call still works for Yuma; in Null it cannot delete
+more than one batch. A target equal to the current population can cancel
+queued commits without deleting participants.
+
+Mode changes require pending timelocked commits to drain. Mechanism-count
+changes in Null also require legacy hash commit queues to be empty. If necessary,
+disable new commit-reveal submissions and wait for pending commits to reveal or
+expire, or cancel them through bounded pruning before changing the mechanism
+count. Frozen bonds retain the last
+Yuma epoch's registration cutoff, so replaced miners cannot inherit old bonds.
+The mechanism-count call charges for checking pending queues and removing
+historical state when the mechanism count is reduced.
+
+## Registration without TAO
+
+Owners can opt into PoW registration for Null or Yuma subnets:
+
+```bash
+btcli hparams set --netuid 1 --name network_pow_registration_allowed --value true
+btcli subnets register --netuid 1 --pow --yes
+```
+
+PoW and burn have independent demand: PoW admissions increase only difficulty,
+and burn admissions increase only burn cost. Both use `burn_increase_mult` and
+`burn_half_life` for their multiplier and decay. PoW keeps a separate
+team-controlled `min_difficulty` floor and its own maximum.
+
+Owners can toggle burned registration with `registration_allowed` independently
+of PoW. At least one route must stay enabled on a non-root subnet; enable the
+replacement route before disabling the other. Direct zero-tip PoW submission pays no
+registration burn, initial collateral purchase or transaction fee. The CLI
+pulls the latest block challenge every 12 seconds while mining. The chain accepts
+proofs from the five preceding blocks, leaving time for signing and propagation.
+Only public challenge data enters the Rust GPU or CPU workers; signing stays in
+the usual coldkey workflow. Automatic mining uses all discovered OpenCL GPUs,
+with CPU fallback. Use `--pow-backend gpu` to require GPU mining, repeat
+`--pow-device` to select devices, and use `--pow-workers` and `--pow-timeout`
+to bound mining resources. Work does not bypass pruning, immunity, ownership or
+per-block registration limits. Root keeps its separate registration path.
+
+## Exact integer weights
+
+Null stores submitted u16 values without max-upscaling. Values are relative integers
+in 0..65535 and need not sum to 65535. Choose ratios such as 65534:1 to retain small
+shares. A full row can target thousands of participants; payouts below one atomic
+unit still depend on the epoch budget and deterministic remainder allocation.
+
+```python
+from bittensor.intents import SetWeights
+
+intent = SetWeights(netuid=1, weights={2: 65534, 3: 1}, raw_u16=True)
+# Execute with the normal client and validator hotkey wallet.
+```
+
+For large rows, write a JSON object mapping UID to integer weight:
+
+```bash
+btcli misc weights set --netuid 1 --raw-u16 --weights-file weights.json
+btcli misc weights commit --netuid 1 --raw-u16 --weights-file weights.json
+```
+
+The raw path rejects fractional, negative, nonfinite and out-of-range values. It
+checks the subnet's maximum weight fraction without clipping the submitted ratios.
+Minimum count, unique valid destinations, stake, permits, rate and version checks
+still apply. Raw mode requires Null. The existing relative-float path remains
+available and keeps its scaling and clipping behavior.
+
+`set` automatically selects plaintext or timelocked submission according to subnet
+configuration. Timelocked rows auto-reveal using drand; they need no manual reveal.
+Null allows ciphertexts up to `floor(32 KiB / mechanism_count)`, leaving room
+above a full row at the corresponding UID ceiling. The shared queue per subnet
+epoch is bounded to 64 KiB and 64 commits across all mechanisms. Each hotkey can
+have one pending row per mechanism; resubmitting replaces that row. When full,
+a higher-priority eligible validator can displace lower-priority rows. Priority
+uses stake with ties resolved by first UID; ineligible hotkeys rank last.
+The leading validator can admit a full row for every mechanism even if junk
+commits previously filled the queue. Other commits may receive `CommitQueueFull`. Yuma keeps its 5,000-byte
+ciphertext limit. These limits include encryption and serialization overhead.
+
+## Operational cost
+
+Null incentive and payout allocation is linear in registered UIDs. The epoch
+loads only the elected validator's row, containing at most one entry per UID.
+Historical nonwinning rows are not read or decoded. Weight reads, masking and
+working memory therefore stay linear even if old dense rows remain in storage.
+Null skips quadratic bond updates and writes the ordinary output vectors and
+payouts. For an existing staking pool owned entirely by the reward recipient,
+owner rewards increase the pool balance without rewriting ownership shares.
+Shared pools and first deposits keep the ordinary deposit accounting, and
+collateral capture and release still apply. The shared interface still uses ordered account maps, so this does not
+claim that every operation in the surrounding epoch pipeline is strictly linear.
+Delegation processing also scales with incoming parent edges, whose count is
+currently unbounded; a population ceiling alone does not bound that workload.
+When a Null epoch is due, the existing scheduler runs at most one epoch in that
+block. Remaining due subnets are deferred; blocks with only Yuma epochs retain
+the configured epoch cap. Payouts settle atomically in the epoch's block.
+
+## Solidity callers
+
+The Subnet precompile at `0x0803` adds `setEpochConsensus(uint16,uint8)` (0 is
+Yuma, 1 is Null), `getEpochConsensus(uint16)`, and `getNullConsensusLimits()`.
+The setter dispatches with the mapped caller's signed origin and enforces the
+same owner, rate, window and population checks as the normal extrinsic.
+
+The Neuron precompile at `0x0804` adds `setMechanismWeightsV2` for rows up to
+2,500 entries and `commitTimelockedMechanismWeightsV2` for ciphertexts up to
+32 KiB. The runtime still applies the selected subnet mode's limits. The
+released `setMechanismWeights` and timelocked selectors preserve their 4,096-entry
+and 5,000-byte input bounds. Existing selectors, types and addresses are unchanged.
+The SDK's vendored ABIs include the new functions.
+
+`trimNullUidsBatch(uint16,uint16)` performs one owner-authorized pruning batch.
+`getNullPruningState(uint16)` returns `(active, target, remaining)` with a zero
+target when inactive. `getNullPruningBatchSize()` reads the current runtime's
+deletion bound. `getSavedYumaValidatorLimit(uint16)` returns `(present, limit)`
+with a zero limit when absent. These are additive selectors at `0x0803`.
+
+New PoW hotkey associations keep each coldkey’s ownership and staking indexes below the existing 256-entry staking work limit. An already-associated hotkey can register on another subnet without growing those indexes.
+
+The synchronous SDK exposes the same public challenge miner:
+
+```python
+import bittensor as bt
+
+# wallet is the existing local wallet; mining needs only its public addresses.
+with bt.Subtensor("test") as sub:
+    proof = sub.mine_pow_registration(
+        netuid=1,
+        hotkey_ss58=wallet.hotkey.ss58_address,
+        coldkey_ss58=wallet.coldkeypub.ss58_address,
+        workers=4,
+    )
+    result = sub.execute(proof, wallet)
+    result.raise_for_failure()
+```
+
+For async clients, await `client.mine_pow_registration(...)` and then
+`client.execute(...)`. Submit a returned proof promptly. The CLI refreshes an
+expired proof after confirmation and key unlock while keeping the selected subnet,
+hotkey and mining backend unchanged. Confirmed pre-inclusion expiry may trigger
+fresh mining, with at most three submission attempts; included transactions are
+never replayed by this recovery path.

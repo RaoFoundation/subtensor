@@ -412,6 +412,15 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "(btcli misc weights auto-selects it) instead of plain set_weights — check with "
         "`btcli hparams get --netuid N`"
     ),
+    "CommitPayloadTooLarge": (
+        "ciphertext exceeds the subnet consensus limit (floor(32 KiB / mechanism_count) "
+        "for Null, 5,000 bytes for "
+        "Yuma); reduce the row or check epoch_consensus"
+    ),
+    "CommitQueueFull": (
+        "the Null subnet's shared timelock queue reached its byte or count limit; "
+        "wait for the next epoch or for queued commits to reveal"
+    ),
     "CommitRevealDisabled": (
         "commit-reveal is off on this subnet; use plain set_weights — check with "
         "`btcli hparams get --netuid N`"

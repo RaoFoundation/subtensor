@@ -15,14 +15,15 @@ signing it preflights registration and the rate limit, so those failures
 are caught fast with the same error the chain would return; the rate-limit
 error says how many blocks to wait. The chain additionally enforces checks
 that are not preflighted: the hotkey must hold the minimum stake to set
-weights, must hold a validator permit to set non-self weights (the subnet
-owner is exempt), and `version_key` must not be older than the subnet's
+weights and a validator permit. Null has one permit holder, the highest-stake
+UID; self weights and subnet ownership do not bypass that permit. Yuma retains
+its owner and self-weight exceptions. `version_key` must not be older than the subnet's
 required version. Prefer this over `commit_weights`/`reveal_weights`
 unless you specifically need to force one path.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L126-L141), [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2024-L2042) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L126-L141), [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2040-L2058) |
 
 ## Parameters
 
@@ -33,6 +34,7 @@ unless you specifically need to force one path.
 | `weights` | array of number | no | Relative weight per miner: either a JSON object mapping uid to weight, or a list parallel to uids. Values are relative, not absolute; they are clipped to the subnet's max-weight limit, normalized, and quantized before submission. |
 | `mechid` | integer | no | Mechanism index within the subnet. 0 is the default (and for most subnets the only) mechanism. |
 | `version_key` | integer | no | Weights version key checked against the subnet's required version. Leave 0 unless the subnet owner requires a specific value. |
+| `raw_u16` | boolean | no | Preserve exact u16 integer ratios on Null subnets; no scaling or clipping. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -79,7 +81,7 @@ result = sub.execute_tool("set_weights", {...}, wallet)
 
 ```rust
 #[pallet::call_index(119)]
-#[pallet::weight((<T as Config>::WeightInfo::set_mechanism_weights(dests.len() as u32), DispatchClass::Normal, Pays::No))]
+#[pallet::weight((Pallet::<T>::set_mechanism_weights_weight(*netuid, dests.len() as u32), DispatchClass::Normal, Pays::No))]
 pub fn set_mechanism_weights(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -96,13 +98,13 @@ pub fn set_mechanism_weights(
 }
 ```
 
-Delegates to [`get_commit_reveal_weights_enabled`](/code/pallets/subtensor/src/utils/misc.rs#L607), [`do_set_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L956).
+Delegates to [`get_commit_reveal_weights_enabled`](/code/pallets/subtensor/src/utils/misc.rs#L608), [`do_set_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L1188).
 
-`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L2026`](/code/pallets/subtensor/src/macros/dispatches.rs#L2024-L2042):
+`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L2042`](/code/pallets/subtensor/src/macros/dispatches.rs#L2040-L2058):
 
 ```rust
 #[pallet::call_index(118)]
-#[pallet::weight((<T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), DispatchClass::Normal, Pays::No))]
+#[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), <T as Config>::WeightInfo::commit_timelocked_mechanism_weights_null()), DispatchClass::Normal, Pays::No))]
 pub fn commit_timelocked_mechanism_weights(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -122,6 +124,6 @@ pub fn commit_timelocked_mechanism_weights(
 }
 ```
 
-Delegates to [`do_commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L303).
+Delegates to [`do_commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L361).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

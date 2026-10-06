@@ -332,6 +332,24 @@ jobs:
         if: always()
         run: .github/scripts/sccache-report.sh "Bittensor core wasm compiler cache"
 
+  # clippy/test above only compile the workspace for x86_64 Linux. aarch64
+  # Linux differs in ways a type check catches (`c_char` is u8 there, not i8)
+  # and is where the localnet image and manylinux wheels also ship, so the SDK
+  # crates get a native arm64 check. Hosted arm runner, parallel to the
+  # longer `cargo test` lane: no added wall time.
+  sdk-linux-arm64:
+    name: bittensor-core linux arm64
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04-arm
+    env:
+      SKIP_WASM_BUILD: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust-setup
+      - name: cargo check SDK crates (aarch64-unknown-linux-gnu)
+        run: cargo check -p bittensor-core -p bittensor-core-py --all-targets --all-features
+
   fix:
     name: cargo fix leaves no diff
     needs: [trusted-pr, changes]

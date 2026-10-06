@@ -64,7 +64,7 @@ mod dispatches {
         ///
         /// * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.
         #[pallet::call_index(0)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::set_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::set_weights_weight(*netuid, dests.len() as u32), DispatchClass::Normal, Pays::No))]
         pub fn set_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -124,7 +124,7 @@ mod dispatches {
         ///
         /// * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.
         #[pallet::call_index(119)]
-        #[pallet::weight((<T as Config>::WeightInfo::set_mechanism_weights(dests.len() as u32), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::set_mechanism_weights_weight(*netuid, dests.len() as u32), DispatchClass::Normal, Pays::No))]
         pub fn set_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -158,7 +158,7 @@ mod dispatches {
         /// * `BatchWeightItemFailed`: On failure for each failed item in the batch.
         ///
         #[pallet::call_index(80)]
-        #[pallet::weight((Pallet::<T>::batch_set_weights_weight(weights), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::batch_set_weights_weight(netuids, weights), DispatchClass::Normal, Pays::No))]
         pub fn batch_set_weights(
             origin: OriginFor<T>,
             netuids: Vec<Compact<NetUid>>,
@@ -271,7 +271,7 @@ mod dispatches {
         /// * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.
         ///
         #[pallet::call_index(97)]
-        #[pallet::weight((Pallet::<T>::reveal_weights_weight(uids.len() as u32), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::reveal_weights_weight(*netuid, uids.len() as u32), DispatchClass::Normal, Pays::No))]
         pub fn reveal_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -312,7 +312,7 @@ mod dispatches {
         /// * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.
         ///
         #[pallet::call_index(116)]
-        #[pallet::weight((<T as Config>::WeightInfo::reveal_mechanism_weights(uids.len() as u32), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::reveal_mechanism_weights_weight(*netuid, uids.len() as u32), DispatchClass::Normal, Pays::No))]
         pub fn reveal_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -395,7 +395,7 @@ mod dispatches {
         /// * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.
         ///
         #[pallet::call_index(117)]
-        #[pallet::weight((<T as Config>::WeightInfo::commit_crv3_mechanism_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_crv3_mechanism_weights(), <T as Config>::WeightInfo::commit_crv3_mechanism_weights_null()), DispatchClass::Normal, Pays::No))]
         pub fn commit_crv3_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -441,7 +441,7 @@ mod dispatches {
         ///
         /// * `InvalidInputLengths`: The input vectors are of mismatched lengths.
         #[pallet::call_index(98)]
-        #[pallet::weight((Pallet::<T>::batch_reveal_weights_weight(uids_list), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::batch_reveal_weights_weight(*netuid, uids_list), DispatchClass::Normal, Pays::No))]
         pub fn batch_reveal_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -844,6 +844,22 @@ mod dispatches {
             hotkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
             Self::do_register_with_post_info(origin, netuid, hotkey)
+        }
+
+        /// Register by owner-enabled PoW, without TAO burn, collateral purchase,
+        /// or transaction fee. The signing coldkey is bound into the proof.
+        /// Transaction validation verifies the proof before pool admission.
+        #[pallet::call_index(152)]
+        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::pow_register(), Pays::No))]
+        pub fn pow_register(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            work_block: u64,
+            nonce: u64,
+            work: [u8; 32],
+            hotkey: T::AccountId,
+        ) -> DispatchResult {
+            Self::do_pow_register(origin, netuid, work_block, nonce, work, hotkey)
         }
 
         /// The extrinsic for user to change its hotkey in subnet or all subnets.
@@ -1929,7 +1945,7 @@ mod dispatches {
         ///
         /// * `commit_reveal_version`: The client (bittensor-drand) version.
         #[pallet::call_index(113)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::commit_timelocked_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as crate::pallet::Config>::WeightInfo::commit_timelocked_weights(), <T as crate::pallet::Config>::WeightInfo::commit_timelocked_weights_null()), DispatchClass::Normal, Pays::No))]
         pub fn commit_timelocked_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2022,7 +2038,7 @@ mod dispatches {
         ///
         /// * `commit_reveal_version`: The client (bittensor-drand) version.
         #[pallet::call_index(118)]
-        #[pallet::weight((<T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), <T as Config>::WeightInfo::commit_timelocked_mechanism_weights_null()), DispatchClass::Normal, Pays::No))]
         pub fn commit_timelocked_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,

@@ -11,6 +11,9 @@ use system::pallet_prelude::BlockNumberFor;
 
 const LOG_TARGET: &str = "runtime::subtensor::registration";
 
+/// Allow periodic challenge refresh plus signing and propagation time.
+pub(crate) const POW_MAX_WORK_AGE_BLOCKS: u64 = 5;
+
 /// Why a registration was refused before its payment ran, and therefore what it pays:
 /// the fixed pre-check reads, or — after the prune search on a full subnet, which walks
 /// the owner's hotkeys and every uid — the declared registration weight.
@@ -20,6 +23,136 @@ enum RegistrationRefusal {
 }
 
 impl<T: Config> Pallet<T> {
+    /// Registration challenge binds the subnet, recent block, hotkey and signing
+    /// coldkey. Changing any of them invalidates mined work.
+    pub fn create_registration_seal(
+        netuid: NetUid,
+        work_block: u64,
+        nonce: u64,
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) -> H256 {
+        let mut payload = b"subtensor-pow-register-v1".to_vec();
+        payload.extend_from_slice(&u16::from(netuid).to_le_bytes());
+        payload.extend_from_slice(Self::get_block_hash_from_u64(work_block).as_bytes());
+        payload.extend_from_slice(&hotkey.encode());
+        payload.extend_from_slice(&coldkey.encode());
+        payload.extend_from_slice(&nonce.to_le_bytes());
+        H256::from(keccak_256(&sha2_256(&payload)))
+    }
+
+    /// Fixed-cost, read-only admission check used both by the transaction pool
+    /// and dispatch. Capacity replacement is deliberately checked only during
+    /// dispatch, so pool admission cannot force a full subnet pruning scan.
+    pub fn check_pow_registration(
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+        work_block: u64,
+        nonce: u64,
+        work: &[u8; 32],
+        hotkey: &T::AccountId,
+    ) -> Result<(), Error<T>> {
+        ensure!(
+            !netuid.is_root(),
+            Error::<T>::RegistrationNotPermittedOnRootSubnet
+        );
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(
+            Self::get_network_pow_registration_allowed(netuid),
+            Error::<T>::SubNetRegistrationDisabled
+        );
+        ensure!(
+            !Uids::<T>::contains_key(netuid, hotkey),
+            Error::<T>::HotKeyAlreadyRegisteredInSubNet
+        );
+        ensure!(
+            Self::get_max_allowed_uids(netuid) != 0,
+            Error::<T>::NoNeuronIdAvailable
+        );
+        ensure!(
+            RegistrationsThisBlock::<T>::get(netuid) < MaxRegistrationsPerBlock::<T>::get(netuid),
+            Error::<T>::TooManyRegistrationsThisBlock
+        );
+        let now = Self::get_current_block_as_u64();
+        ensure!(
+            work_block < now && now.saturating_sub(work_block) <= POW_MAX_WORK_AGE_BLOCKS,
+            Error::<T>::InvalidWorkBlock
+        );
+        ensure!(
+            LastPowRegistrationBlock::<T>::get(hotkey).is_none_or(|last| work_block > last),
+            Error::<T>::InvalidWorkBlock
+        );
+        ensure!(
+            Self::get_block_hash_from_u64(work_block) != H256::zero(),
+            Error::<T>::InvalidWorkBlock
+        );
+        let hash = H256::from(*work);
+        ensure!(
+            hash == Self::create_registration_seal(netuid, work_block, nonce, hotkey, coldkey),
+            Error::<T>::InvalidSeal
+        );
+        ensure!(
+            Self::hash_meets_difficulty(&hash, U256::from(Self::effective_pow_difficulty(netuid))),
+            Error::<T>::InvalidDifficulty
+        );
+        ensure!(
+            Self::is_subnet_account_id(hotkey).is_none(),
+            Error::<T>::CannotUseSystemAccount
+        );
+        ensure!(
+            Owner::<T>::try_get(hotkey).map_or(true, |owner| owner == *coldkey),
+            Error::<T>::NonAssociatedColdKey
+        );
+        // A fee-free call must not decode unbounded legacy ownership indexes.
+        // New identities stay within the existing coldkey staking-work budget;
+        // an already-associated hotkey does not grow either list.
+        if !Owner::<T>::contains_key(hotkey) {
+            ensure!(
+                OwnedHotkeys::<T>::decode_len(coldkey).unwrap_or(0)
+                    < crate::MAX_STAKING_HOTKEYS as usize
+                    && StakingHotkeys::<T>::decode_len(coldkey).unwrap_or(0)
+                        < crate::MAX_STAKING_HOTKEYS as usize,
+                Error::<T>::TooManyStakingHotkeys
+            );
+        }
+        Ok(())
+    }
+
+    /// The proof pays for admission, not a TAO transfer. Registration and proof
+    /// consumption are atomic, including ownership and full-subnet replacement.
+    pub fn do_pow_register(
+        origin: OriginFor<T>,
+        netuid: NetUid,
+        work_block: u64,
+        nonce: u64,
+        work: [u8; 32],
+        hotkey: T::AccountId,
+    ) -> DispatchResult {
+        let coldkey = ensure_signed(origin)?;
+        Self::check_pow_registration(&coldkey, netuid, work_block, nonce, &work, &hotkey)?;
+        with_transaction(|| {
+            let result = (|| -> DispatchResult {
+                Self::create_account_if_non_existent(&coldkey, &hotkey)?;
+                let uid = Self::register_neuron(netuid, &hotkey)?;
+                // Legacy replacement protects the owner's primary hotkey by
+                // returning early. Never consume work for a skipped replacement.
+                ensure!(
+                    Uids::<T>::get(netuid, &hotkey) == Some(uid),
+                    Error::<T>::NoNeuronIdAvailable
+                );
+                Self::bump_pow_difficulty_after_registration(netuid);
+                LastPowRegistrationBlock::<T>::insert(&hotkey, work_block);
+                RegistrationsThisBlock::<T>::mutate(netuid, |count| count.saturating_inc());
+                Self::deposit_event(Event::NeuronRegistered(netuid, uid, hotkey.clone()));
+                Ok(())
+            })();
+            match result {
+                Ok(()) => TransactionOutcome::Commit(Ok(())),
+                Err(error) => TransactionOutcome::Rollback(Err(error)),
+            }
+        })
+    }
+
     pub fn register_neuron(netuid: NetUid, hotkey: &T::AccountId) -> Result<u16, DispatchError> {
         let block_number: u64 = Self::get_current_block_as_u64();
         let current_subnetwork_n: u16 = Self::get_subnetwork_n(netuid);
@@ -334,15 +467,16 @@ impl<T: Config> Pallet<T> {
     }
 
     fn get_immune_owner_tuples(netuid: NetUid, coldkey: &T::AccountId) -> Vec<(u16, T::AccountId)> {
-        // Gather (block, uid, hotkey) only for hotkeys that have a UID and a registration block.
-        let mut triples: Vec<(u64, u16, T::AccountId)> = OwnedHotkeys::<T>::get(coldkey)
-            .into_iter()
-            .filter_map(|hotkey| {
-                // Uids must exist, filter_map ignores hotkeys without UID
-                Uids::<T>::get(netuid, &hotkey).map(|uid| {
-                    let block = BlockAtRegistration::<T>::get(netuid, uid);
-                    (block, uid, hotkey)
-                })
+        // Walk this subnet's bounded UID population rather than the owner's
+        // lifetime ownership index, which may contain arbitrarily many keys
+        // registered elsewhere. Owner is the authoritative association.
+        let mut triples: Vec<(u64, u16, T::AccountId)> = (0..Self::get_subnetwork_n(netuid))
+            .filter_map(|uid| {
+                let hotkey = Keys::<T>::try_get(netuid, uid).ok()?;
+                if Owner::<T>::try_get(&hotkey).ok().as_ref() != Some(coldkey) {
+                    return None;
+                }
+                Some((BlockAtRegistration::<T>::get(netuid, uid), uid, hotkey))
             })
             .collect();
 
@@ -383,7 +517,10 @@ impl<T: Config> Pallet<T> {
         }
 
         let owner_ck = SubnetOwner::<T>::get(netuid);
-        let immortal_hotkeys = Self::get_immune_owner_hotkeys(netuid, &owner_ck);
+        let immortal_hotkeys: sp_std::collections::btree_set::BTreeSet<_> =
+            Self::get_immune_owner_hotkeys(netuid, &owner_ck)
+                .into_iter()
+                .collect();
         let emissions: Vec<AlphaBalance> = Emission::<T>::get(netuid);
 
         // Single pass:
@@ -596,12 +733,12 @@ impl<T: Config> Pallet<T> {
         (nonce, vec_work)
     }
 
-    /// Updates neuron burn price.
+    /// Updates burn and PoW admission prices using their shared demand controller.
     ///
     /// Behavior:
-    /// * Each non-genesis block: burn decays continuously by a per-block factor `f`,
+    /// * Each non-genesis block: both prices decay by the shared per-block factor `f`,
     ///   where `f ^ BurnHalfLife = 1/2`.
-    /// * Burn is clamped to the configured [`MinBurn`, `MaxBurn`] range.
+    /// * Burn uses [`MinBurn`, `MaxBurn`]; PoW uses [`MinDifficulty`, `MaxDifficulty`].
     ///
     pub fn update_registration_prices_for_networks() {
         let current_block: u64 = Self::get_current_block_as_u64();
@@ -613,24 +750,21 @@ impl<T: Config> Pallet<T> {
             let max_burn_u64: u64 = Self::get_max_burn(netuid).into();
             let half_life: u16 = BurnHalfLife::<T>::get(netuid);
 
-            let mut new_burn_u64: u64 = burn_u64;
+            let factor =
+                (half_life > 0 && current_block > 1).then(|| Self::decay_factor_q32(half_life));
+            let new_burn_u64 =
+                Self::decayed_registration_price(burn_u64, min_burn_u64, max_burn_u64, factor);
 
-            if half_life > 0 {
-                // Since this function runs every block in `on_initialize`,
-                // applying the per-block factor once here gives continuous
-                // exponential decay.
-                if current_block > 1 {
-                    let factor_q32: u64 = Self::decay_factor_q32(half_life);
-                    new_burn_u64 = Self::mul_by_q32(burn_u64, factor_q32);
+            // PoW and burn consume the same UID capacity and share demand
+            // parameters. Root remains burn-only. Keep prices responsive even
+            // while PoW admission is disabled, so enabling it cannot reset demand.
+            if !netuid.is_root() {
+                let difficulty = Difficulty::<T>::get(netuid);
+                let (min, max) = Self::pow_difficulty_bounds(netuid);
+                let new_difficulty = Self::decayed_registration_price(difficulty, min, max, factor);
+                if new_difficulty != difficulty {
+                    Self::set_difficulty(netuid, new_difficulty);
                 }
-            }
-
-            // Enforce configured burn bounds.
-            if new_burn_u64 < min_burn_u64 {
-                new_burn_u64 = min_burn_u64;
-            }
-            if new_burn_u64 > max_burn_u64 {
-                new_burn_u64 = max_burn_u64;
             }
 
             if new_burn_u64 != burn_u64 {
@@ -659,18 +793,50 @@ impl<T: Config> Pallet<T> {
         let min_burn_u64: u64 = Self::get_min_burn(netuid).into();
         let max_burn_u64: u64 = Self::get_max_burn(netuid).into();
 
-        let mut new_burn_u64: u64 = U64F64::saturating_from_num(burn_u64)
-            .saturating_mul(mult)
-            .saturating_to_num::<u64>();
-
-        // Enforce configured burn bounds.
-        if new_burn_u64 < min_burn_u64 {
-            new_burn_u64 = min_burn_u64;
-        }
-        if new_burn_u64 > max_burn_u64 {
-            new_burn_u64 = max_burn_u64;
-        }
-
+        let new_burn_u64 =
+            Self::bumped_registration_price(burn_u64, min_burn_u64, max_burn_u64, mult);
         Self::set_burn(netuid, TaoBalance::from(new_burn_u64));
+    }
+
+    /// PoW admissions increase only PoW difficulty; burn demand is independent.
+    pub fn bump_pow_difficulty_after_registration(netuid: NetUid) {
+        if netuid.is_root() {
+            return;
+        }
+        let mult = BurnIncreaseMult::<T>::get(netuid).max(U64F64::saturating_from_num(1));
+        let (min, max) = Self::pow_difficulty_bounds(netuid);
+        let stored_difficulty = Difficulty::<T>::get(netuid);
+        let difficulty = stored_difficulty.max(min).min(max);
+        let next = Self::bumped_registration_price(difficulty, min, max, mult);
+        if next != stored_difficulty {
+            Self::set_difficulty(netuid, next);
+        }
+    }
+
+    fn decayed_registration_price(value: u64, min: u64, max: u64, factor: Option<u64>) -> u64 {
+        factor
+            .map_or(value, |factor| Self::mul_by_q32(value, factor))
+            .max(min)
+            .min(max)
+    }
+
+    fn bumped_registration_price(value: u64, min: u64, max: u64, mult: U64F64) -> u64 {
+        U64F64::saturating_from_num(value)
+            .saturating_mul(mult)
+            .saturating_to_num::<u64>()
+            .max(min)
+            .min(max)
+    }
+
+    fn pow_difficulty_bounds(netuid: NetUid) -> (u64, u64) {
+        let min = Self::get_min_difficulty(netuid).max(1);
+        // An owner-controlled ceiling cannot bypass the team's minimum.
+        (min, Self::get_max_difficulty(netuid).max(min))
+    }
+
+    /// Enforce configured bounds during admission as well as block updates.
+    pub fn effective_pow_difficulty(netuid: NetUid) -> u64 {
+        let (min, max) = Self::pow_difficulty_bounds(netuid);
+        Difficulty::<T>::get(netuid).max(min).min(max)
     }
 }

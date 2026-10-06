@@ -22,7 +22,7 @@ admission; a refused deposit pays its pre-check reads.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.stake_into_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2217-L2234) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.stake_into_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2233-L2250) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("stake_into_basket", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.stake_into_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2225`](/code/pallets/subtensor/src/macros/dispatches.rs#L2217-L2234):
+`SubtensorModule.stake_into_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2241`](/code/pallets/subtensor/src/macros/dispatches.rs#L2233-L2250):
 
 ```rust
 #[pallet::call_index(147)]
@@ -97,6 +97,6 @@ pub fn stake_into_basket(
 }
 ```
 
-Delegates to [`do_stake_into_basket_tracked`](/code/pallets/subtensor/src/staking/claim_root.rs#L416), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1338).
+Delegates to [`do_stake_into_basket_tracked`](/code/pallets/subtensor/src/staking/claim_root.rs#L416), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1458).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

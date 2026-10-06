@@ -4613,6 +4613,43 @@ fn test_get_subnet_terms_alpha_emissions_cap() {
 }
 
 #[test]
+fn test_null_epoch_cap_matches_reveal_deferral_and_emission_drain() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_max_epochs_per_block(2);
+        let subnets = vec![NetUid::from(1), NetUid::from(2), NetUid::from(3)];
+        for &netuid in &subnets {
+            add_network(netuid, 100, 0);
+            PendingEpochAt::<Test>::insert(netuid, 1);
+            PendingServerEmission::<Test>::insert(netuid, AlphaBalance::from(7u64));
+        }
+        SubtensorModule::set_epoch_consensus(subnets[0], EpochConsensus::Null);
+        let deferred = SubtensorModule::epochs_deferred_this_block(&subnets, 1);
+        assert_eq!(deferred, subnets[1..].iter().copied().collect());
+        let drained = SubtensorModule::drain_pending(&subnets, 1);
+        assert_eq!(
+            drained.keys().copied().collect::<Vec<_>>(),
+            vec![subnets[0]]
+        );
+        for &netuid in &subnets[1..] {
+            assert_eq!(
+                PendingServerEmission::<Test>::get(netuid),
+                AlphaBalance::from(7u64)
+            );
+            assert_eq!(PendingEpochAt::<Test>::get(netuid), 2);
+        }
+
+        // A future Null epoch must not reduce the configured Yuma capacity.
+        PendingEpochAt::<Test>::insert(subnets[0], 100);
+        for &netuid in &subnets[1..] {
+            PendingEpochAt::<Test>::insert(netuid, 1);
+        }
+        assert!(SubtensorModule::epochs_deferred_this_block(&subnets, 1).is_empty());
+        let drained = SubtensorModule::drain_pending(&subnets, 1);
+        assert_eq!(drained.keys().copied().collect::<Vec<_>>(), subnets[1..]);
+    });
+}
+
+#[test]
 fn test_epochs_deferred_this_block_respects_cap() {
     new_test_ext(1).execute_with(|| {
         let cap = SubtensorModule::get_max_epochs_per_block() as usize;

@@ -654,7 +654,13 @@ def intent_page(op: str, cls) -> str:
         cli_parts.append(cli_arg(name, props[name]))
     cli_cmd = " \\\n  ".join(cli_parts)
 
-    py_args = ", ".join(f"{n}={py_placeholder(n, props[n])}" for n in required)
+    examples = {
+        "trim_subnet": {"max_n": "64"},
+        "trim_null_subnet_batch": {"target": "64"},
+    }.get(op, {})
+    py_args = ", ".join(
+        f"{n}={examples.get(n, py_placeholder(n, props[n]))}" for n in required
+    )
     class_name = cls.__name__
 
     return f"""{frontmatter(kebab(op), summary)}

@@ -14,7 +14,7 @@ alpha unit (TAO for netuid 0).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket_many`](/code/pallets/subtensor/src/macros/dispatches.rs#L2310-L2321) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket_many`](/code/pallets/subtensor/src/macros/dispatches.rs#L2326-L2337) |
 
 ## Parameters
 
@@ -66,7 +66,7 @@ result = sub.execute_tool("swap_basket_many", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_basket_many` — [`pallets/subtensor/src/macros/dispatches.rs#L2312`](/code/pallets/subtensor/src/macros/dispatches.rs#L2310-L2321):
+`SubtensorModule.swap_basket_many` — [`pallets/subtensor/src/macros/dispatches.rs#L2328`](/code/pallets/subtensor/src/macros/dispatches.rs#L2326-L2337):
 
 ```rust
 #[pallet::call_index(151)]
@@ -83,6 +83,6 @@ pub fn swap_basket_many(
 }
 ```
 
-Delegates to [`do_swap_basket_many_tracked`](/code/pallets/subtensor/src/staking/basket_trade.rs#L207), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1338).
+Delegates to [`do_swap_basket_many_tracked`](/code/pallets/subtensor/src/staking/basket_trade.rs#L207), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1458).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

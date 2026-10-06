@@ -479,6 +479,14 @@ impl<T: Config> Pallet<T> {
 
         Some(alloc::vec![
             (
+                "epoch_consensus",
+                HyperparamValue::U16(Compact(match Self::get_epoch_consensus(netuid) {
+                    EpochConsensus::Yuma => 0,
+                    EpochConsensus::Null => 1,
+                })),
+            )
+                .into(),
+            (
                 "kappa",
                 HyperparamValue::U16(Self::get_kappa(netuid).into())
             )

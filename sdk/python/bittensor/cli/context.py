@@ -905,6 +905,9 @@ class AppContext:
         summary: Optional[str] = None,
         summary_note: Optional[str] = None,
         card_sections: Optional[list[tuple[str, list[tuple]]]] = None,
+        wait_for_finalization: bool = False,
+        before_submit: Optional[Callable[[], None]] = None,
+        on_result: Optional[Callable[[ExtrinsicResult], None]] = None,
     ) -> Optional[ExtrinsicResult]:
         """Run a mutation with a uniform dry-run / confirm / execute / render flow.
 
@@ -928,6 +931,11 @@ class AppContext:
         When omitted, the ``--proxy-for`` tx-global (if set) then the persistent
         ``proxy_for`` config value is used; the sentinel ``self`` bypasses that
         default and signs directly.
+
+        Sequential workflows may request finalization and use ``before_submit``
+        to persist a recovery record after confirmation, before execution.
+        ``on_result`` receives the receipt before rendering can exit on failure.
+        Neither callback runs during a dry-run.
 
         Stake-trading intents (``mev_shield_default``) are submitted
         MEV-shielded via ``client.submit_shielded`` unless the user opts out
@@ -965,6 +973,9 @@ class AppContext:
                 summary=summary,
                 summary_note=summary_note,
                 card_sections=card_sections,
+                wait_for_finalization=wait_for_finalization,
+                before_submit=before_submit,
+                on_result=on_result,
             )
 
         # ``-w <multisig>``: rewrite the intent as a multisig approval signed
@@ -1475,9 +1486,11 @@ class AppContext:
                 await self._prepare_two_stage_signer(signer)
             result = None
             try:
+                if before_submit is not None:
+                    before_submit()
                 if use_shield:
                     shield_options = {
-                        "wait_for_finalization": False,
+                        "wait_for_finalization": wait_for_finalization,
                         **options,
                     }
                     if intent.op == "register_subnet":
@@ -1489,16 +1502,88 @@ class AppContext:
                     )
                 else:
                     execute_options = {
-                        "wait_for_finalization": False,
+                        "wait_for_finalization": wait_for_finalization,
                         **options,
                     }
                     if intent.op == "register_subnet":
                         execute_options["on_progress"] = _registration_progress
-                    result = await client.execute(
-                        intent,
-                        signer,
-                        **execute_options,
-                    )
+                    execution_intent = intent
+                    if intent.op == "pow_register":
+                        # Human confirmation and key unlock may outlive a proof.
+                        # Refresh the public challenge after both, preserving the
+                        # already-approved registration target and signer.
+                        from ..pow_registration import MAX_WORK_AGE_BLOCKS, effective_difficulty
+
+                        height = await client.block()
+                        bounds = await asyncio.gather(
+                            *(
+                                client.query(item, [intent.netuid], block=height)
+                                for item in (
+                                    storage.SubtensorModule.Difficulty,
+                                    storage.SubtensorModule.MinDifficulty,
+                                    storage.SubtensorModule.MaxDifficulty,
+                                )
+                            )
+                        )
+                        target = ((1 << 256) - 1) // effective_difficulty(*bounds)
+                        invalid_difficulty = (
+                            int.from_bytes(
+                                bytes.fromhex(intent.work_hex.removeprefix("0x")), "little"
+                            )
+                            > target
+                        )
+                        if (
+                            height < intent.work_block
+                            or height - intent.work_block >= MAX_WORK_AGE_BLOCKS
+                            or invalid_difficulty
+                        ):
+                            execution_intent = await client.mine_pow_registration(
+                                intent.netuid,
+                                intent.hotkey_address(signer, intent.hotkey_ss58),
+                                public_view(signer, "coldkey").ss58_address,
+                                workers=intent.mining_workers,
+                                max_seconds=intent.mining_timeout,
+                                backend=intent.mining_backend,
+                                device_ids=intent.mining_device_ids,
+                            )
+                    for pow_attempt in range(3 if intent.op == "pow_register" else 1):
+                        result = await client.execute(
+                            execution_intent,
+                            signer,
+                            **execute_options,
+                        )
+                        if (
+                            intent.op != "pow_register"
+                            or result.success
+                            or pow_attempt == 2
+                            or result.block_hash is not None
+                            or result.extrinsic_id is not None
+                            or result.events
+                            or result.fee is not None
+                            or result.error is None
+                            or result.error.name not in {"InvalidWorkBlock", "BadRequest"}
+                        ):
+                            break
+                        # Signing and RPC latency may consume the allowed proof
+                        # window. Retry only a pool rejection with confirmed
+                        # expiry; never replay an included or uncertain delivery.
+                        # Older runtimes report an expired proof as BadRequest.
+                        height = await client.block()
+                        if height - execution_intent.work_block < MAX_WORK_AGE_BLOCKS:
+                            break
+                        self.output.message(
+                            "[dim]registration proof expired before inclusion; "
+                            "mining a fresh proof[/dim]"
+                        )
+                        execution_intent = await client.mine_pow_registration(
+                            intent.netuid,
+                            intent.hotkey_address(signer, intent.hotkey_ss58),
+                            public_view(signer, "coldkey").ss58_address,
+                            workers=intent.mining_workers,
+                            max_seconds=intent.mining_timeout,
+                            backend=intent.mining_backend,
+                            device_ids=intent.mining_device_ids,
+                        )
                 # Shielded results carry the decrypted inner extrinsic's
                 # receipt, so the co-signer followup works for both paths.
                 # Skipped mid-chain: the next approval happens in this same
@@ -1534,6 +1619,8 @@ class AppContext:
         else:
             with self.output.activity("submitting transaction…"):
                 result = self.run(_execute)
+        if on_result is not None:
+            on_result(result)
         if result.success and self.rounds_intermediate():
             # Chained run, and another approval follows immediately: a one-line
             # acknowledgment is enough. The full receipt and the co-signer

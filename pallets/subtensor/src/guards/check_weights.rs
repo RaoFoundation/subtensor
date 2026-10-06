@@ -95,6 +95,13 @@ impl<T: Config> CheckWeights<T> {
     }
 
     fn ensure_min_stake(who: &T::AccountId, netuid: NetUid) -> Result<(), Error<T>> {
+        if Pallet::<T>::get_epoch_consensus(netuid) == crate::EpochConsensus::Null {
+            let uid = Pallet::<T>::get_uid_for_net_and_hotkey(netuid, who)
+                .map_err(|_| Error::<T>::HotKeyNotRegisteredInSubNet)?;
+            if !Pallet::<T>::get_validator_permit_for_uid(netuid, uid) {
+                return Err(Error::<T>::NeuronNoValidatorPermit);
+            }
+        }
         if Pallet::<T>::check_weights_min_stake(who, netuid) {
             Ok(())
         } else {

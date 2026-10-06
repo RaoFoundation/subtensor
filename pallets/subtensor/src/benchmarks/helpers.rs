@@ -305,12 +305,79 @@ pub(super) fn set_benchmark_block_number<T: Config>(block_number: u64) {
 /// intentionally large so this hook benchmark reflects a 128-subnet mainnet
 /// state instead of a one-subnet toy state.
 ///
+pub(super) fn initialize_block_step_neuron_vectors<T: Config>(netuid: NetUid, count: u16) {
+    let n = usize::from(count);
+    let index = NetUidStorageIndex::from(netuid);
+    SubnetworkN::<T>::insert(netuid, count);
+    Active::<T>::insert(netuid, vec![true; n]);
+    Emission::<T>::insert(netuid, vec![AlphaBalance::ZERO; n]);
+    Consensus::<T>::insert(netuid, vec![PerU16::zero(); n]);
+    Incentive::<T>::insert(index, vec![PerU16::zero(); n]);
+    LastUpdate::<T>::insert(index, vec![6_999u64; n]);
+    Dividends::<T>::insert(netuid, vec![PerU16::zero(); n]);
+    ValidatorTrust::<T>::insert(netuid, vec![PerU16::zero(); n]);
+    ValidatorPermit::<T>::insert(netuid, vec![false; n]);
+    StakeWeight::<T>::insert(netuid, vec![0u16; n]);
+}
+
+pub(super) fn setup_pow_registration_benchmark<T: Config>()
+-> (NetUid, T::AccountId, T::AccountId, [u8; 32]) {
+    let netuid = NetUid::from(1);
+    setup_full_subnet_registration_benchmark::<T>(netuid, "pow_existing_hot", "pow_existing_cold");
+    let old_n = SubnetworkN::<T>::get(netuid);
+    let n = crate::subnets::mechanism::NULL_UID_BUDGET;
+    initialize_block_step_neuron_vectors::<T>(netuid, n);
+    for uid in old_n..n {
+        let hotkey: T::AccountId = account("pow_existing_hot", u32::from(uid), 0);
+        let owner: T::AccountId = account("pow_existing_cold", u32::from(uid), 0);
+        Owner::<T>::insert(&hotkey, owner);
+        Keys::<T>::insert(netuid, uid, &hotkey);
+        Uids::<T>::insert(netuid, &hotkey, uid);
+        IsNetworkMember::<T>::insert(&hotkey, netuid, true);
+        BlockAtRegistration::<T>::insert(netuid, uid, 0);
+    }
+    Subtensor::<T>::set_epoch_consensus(netuid, EpochConsensus::Null);
+    Subtensor::<T>::set_max_allowed_uids(netuid, n);
+    Subtensor::<T>::set_network_pow_registration_allowed(netuid, true);
+    Subtensor::<T>::set_min_difficulty(netuid, 1);
+    Subtensor::<T>::set_difficulty(netuid, 1);
+    system::Pallet::<T>::set_block_number(2u32.into());
+    let hash = <T as frame_system::Config>::Hash::decode(&mut &[1u8; 32][..])
+        .expect("32-byte runtime hash");
+    system::BlockHash::<T>::insert(BlockNumberFor::<T>::from(1u32), hash);
+    // Include the maximal subnet-local ownership scan and immunity sort.
+    let subnet_owner: T::AccountId = account("pow_subnet_owner", 0, 0);
+    SubnetOwner::<T>::insert(netuid, &subnet_owner);
+    for uid in 0..n {
+        Owner::<T>::insert(Keys::<T>::get(netuid, uid), &subnet_owner);
+    }
+    ImmuneOwnerUidsLimit::<T>::insert(netuid, n - 1);
+    let hotkey = account("pow_new_hot", 0, 0);
+    let coldkey = account("pow_new_cold", 0, 0);
+    let owned = (0..crate::MAX_STAKING_HOTKEYS - 1)
+        .map(|index| account::<T::AccountId>("pow_owned", index, 0))
+        .collect::<Vec<_>>();
+    OwnedHotkeys::<T>::insert(&coldkey, &owned);
+    StakingHotkeys::<T>::insert(&coldkey, owned);
+    let work =
+        *Subtensor::<T>::create_registration_seal(netuid, 1, 0, &hotkey, &coldkey).as_fixed_bytes();
+    (netuid, hotkey, coldkey, work)
+}
+
 /// Only the runtime-capped number of subnet epochs are made due in the measured
-/// block. The remaining subnets are fully populated and live, but not eligible
-/// for epoch execution in this block. This mirrors production behavior where
-/// `MaxEpochsPerBlock` bounds the number of Yuma epochs that can execute in a
-/// single block.
-pub(super) fn setup_block_step_benchmark<T: Config>() {
+/// block. Measure full-size Null epochs separately from legacy Yuma epochs;
+/// ambient subnets remain at the legacy size. `MaxEpochsPerBlock` bounds both
+/// modes. Include collateral settlement for every epoch-due miner.
+pub(super) fn setup_block_step_benchmark<T: Config>(null_epochs: bool) {
+    setup_block_step_benchmark_impl::<T>(null_epochs, true);
+}
+
+/// Diagnostic common case; the hook is charged using the shared/collateral case.
+pub(super) fn setup_block_step_null_sole_owner_benchmark<T: Config>() {
+    setup_block_step_benchmark_impl::<T>(true, false);
+}
+
+fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools: bool) {
     const MAINNET_SUBNETS: u16 = 128;
     const MAINNET_NEURONS_PER_SUBNET: u16 = 256;
     const MAINNET_VALIDATORS_PER_SUBNET: u16 = 128;
@@ -321,6 +388,7 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
     const VALIDATOR_ALPHA_STAKE: u64 = 1_000_000_000;
 
     set_benchmark_block_number::<T>(CURRENT_BLOCK);
+    StakeThreshold::<T>::put(0u64);
 
     let max_epochs_this_block =
         u16::from(Subtensor::<T>::get_max_epochs_per_block()).min(MAINNET_SUBNETS);
@@ -354,12 +422,16 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
     // staking maps. These root neurons mirror the high-cardinality account map
     // shape seen on a populated mainnet chain.
     let root_index = NetUidStorageIndex::from(NetUid::ROOT);
+    initialize_block_step_neuron_vectors::<T>(NetUid::ROOT, MAINNET_NEURONS_PER_SUBNET);
     for uid in 0..MAINNET_NEURONS_PER_SUBNET {
         let hotkey: T::AccountId = account("block_step_root_hot", 0, u32::from(uid));
         let coldkey: T::AccountId = account("block_step_root_cold", 0, u32::from(uid));
 
         Owner::<T>::insert(&hotkey, &coldkey);
-        Subtensor::<T>::append_neuron(NetUid::ROOT, &hotkey, 0);
+        Keys::<T>::insert(NetUid::ROOT, uid, &hotkey);
+        Uids::<T>::insert(NetUid::ROOT, &hotkey, uid);
+        BlockAtRegistration::<T>::insert(NetUid::ROOT, uid, 0);
+        IsNetworkMember::<T>::insert(&hotkey, NetUid::ROOT, true);
         Subtensor::<T>::set_validator_permit_for_uid(NetUid::ROOT, uid, true);
         Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
@@ -374,23 +446,38 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
         }
     }
 
-    // 128 live non-root subnets, each with 256 registered neurons. The first 128
-    // neurons per subnet are validator-permit neurons with dense weight and bond
-    // rows. Only the first `MaxEpochsPerBlock` subnets are scheduled to run their
-    // epoch in this measured block; the rest remain live ambient state.
+    // 128 live non-root subnets. Epoch-due subnets use the selected mode's size,
+    // with 128 dense validator rows. Null does not read or write bonds. Only
+    // the first `MaxEpochsPerBlock` subnets run their epoch in this block.
     for subnet_index in 1..=MAINNET_SUBNETS {
         let netuid = NetUid::from(subnet_index);
         let netuid_index = NetUidStorageIndex::from(netuid);
         let subnet_owner: T::AccountId =
             account("block_step_subnet_owner", u32::from(subnet_index), 0);
         let epoch_is_due_this_block = subnet_index <= max_epochs_this_block;
+        let neuron_count = if null_epochs && epoch_is_due_this_block {
+            crate::subnets::mechanism::NULL_UID_BUDGET
+        } else {
+            MAINNET_NEURONS_PER_SUBNET
+        };
+        let subnet_weights = dense_benchmark_weights(neuron_count);
 
         Subtensor::<T>::init_new_network(netuid, TEMPO);
+        // Measure dynamic PoW price writes on every live subnet, including
+        // disabled PoW admission, rather than a floor-only no-write fixture.
+        Subtensor::<T>::set_min_difficulty(netuid, 1);
+        Subtensor::<T>::set_max_difficulty(netuid, u64::MAX);
+        Subtensor::<T>::set_difficulty(netuid, u64::MAX);
+
+        if null_epochs && epoch_is_due_this_block {
+            Subtensor::<T>::set_epoch_consensus(netuid, EpochConsensus::Null);
+        }
+        Subtensor::<T>::set_max_allowed_validators(netuid, MAINNET_VALIDATORS_PER_SUBNET);
         SubtokenEnabled::<T>::insert(netuid, true);
         SubnetEmissionEnabled::<T>::insert(netuid, true);
         SubnetOwner::<T>::insert(netuid, subnet_owner);
         Subtensor::<T>::set_network_registration_allowed(netuid, true);
-        Subtensor::<T>::set_max_allowed_uids(netuid, MAINNET_NEURONS_PER_SUBNET);
+        Subtensor::<T>::set_max_allowed_uids(netuid, neuron_count);
         Subtensor::<T>::set_max_registrations_per_block(netuid, MAINNET_NEURONS_PER_SUBNET);
         Subtensor::<T>::set_target_registrations_per_interval(netuid, MAINNET_NEURONS_PER_SUBNET);
         Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
@@ -407,6 +494,10 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
             LastEpochBlock::<T>::insert(netuid, 0);
             LastMechansimStepBlock::<T>::insert(netuid, 0);
             BlocksSinceLastStep::<T>::insert(netuid, CURRENT_BLOCK);
+            // Nonzero funded rewards exercise actual settlement, not just the
+            // epoch calculation and zero-valued dividend housekeeping.
+            PendingServerEmission::<T>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+            PendingValidatorEmission::<T>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
         } else {
             PendingEpochAt::<T>::insert(netuid, 0);
             LastEpochBlock::<T>::insert(netuid, CURRENT_BLOCK);
@@ -414,14 +505,20 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
             BlocksSinceLastStep::<T>::insert(netuid, 0);
         }
 
-        for uid in 0..MAINNET_NEURONS_PER_SUBNET {
+        // Reset all vectors together: a production genesis may already have
+        // registered neurons, whose vectors must not grow past this fixture's N.
+        initialize_block_step_neuron_vectors::<T>(netuid, neuron_count);
+        for uid in 0..neuron_count {
             let hotkey: T::AccountId =
                 account("block_step_hot", u32::from(subnet_index), u32::from(uid));
             let coldkey: T::AccountId =
                 account("block_step_cold", u32::from(subnet_index), u32::from(uid));
 
             Owner::<T>::insert(&hotkey, &coldkey);
-            Subtensor::<T>::append_neuron(netuid, &hotkey, 0);
+            Keys::<T>::insert(netuid, uid, &hotkey);
+            Uids::<T>::insert(netuid, &hotkey, uid);
+            BlockAtRegistration::<T>::insert(netuid, uid, 0);
+            IsNetworkMember::<T>::insert(&hotkey, netuid, true);
             Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
                 &hotkey,
                 &coldkey,
@@ -429,12 +526,28 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
                 AlphaBalance::from(VALIDATOR_ALPHA_STAKE),
             );
 
+            if null_epochs && epoch_is_due_this_block && expensive_pools {
+                // The weight envelope must cover the general deposit fallback,
+                // not assume every miner qualifies for a sole-owner fast path.
+                let nominator: T::AccountId = account(
+                    "block_step_nominator",
+                    u32::from(subnet_index),
+                    u32::from(uid),
+                );
+                Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey,
+                    &nominator,
+                    netuid,
+                    AlphaBalance::from(VALIDATOR_ALPHA_STAKE),
+                );
+            }
+
             // Worst case for coinbase: every incentivized miner has standing
             // collateral that must be settled. Alternate below-floor capture
             // (stake write into the lock) and above-floor drain (release back
             // to free stake) so both settle branches are measured. Only seed
             // epoch-due subnets so ambient live state stays cheap.
-            if epoch_is_due_this_block {
+            if epoch_is_due_this_block && (!null_epochs || expensive_pools) {
                 let (locked, min_locked) = if uid % 2 == 0 {
                     (
                         AlphaBalance::from(VALIDATOR_ALPHA_STAKE / 4),
@@ -464,9 +577,20 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
             }
 
             if uid < MAINNET_VALIDATORS_PER_SUBNET {
-                Subtensor::<T>::set_validator_permit_for_uid(netuid, uid, true);
-                Weights::<T>::insert(netuid_index, uid, dense_weights.clone());
-                Bonds::<T>::insert(netuid_index, uid, dense_weights.clone());
+                Subtensor::<T>::set_validator_permit_for_uid(
+                    netuid,
+                    uid,
+                    !null_epochs || !epoch_is_due_this_block || uid == 0,
+                );
+                Weights::<T>::insert(netuid_index, uid, subnet_weights.clone());
+                if !null_epochs || !epoch_is_due_this_block {
+                    Bonds::<T>::insert(netuid_index, uid, subnet_weights.clone());
+                }
+            }
+            if null_epochs && epoch_is_due_this_block && uid >= MAINNET_VALIDATORS_PER_SUBNET {
+                // Historical dense rows survive permit churn, but Null epochs
+                // must load only the elected validator's row.
+                Weights::<T>::insert(netuid_index, uid, subnet_weights.clone());
             }
         }
     }
@@ -613,4 +737,88 @@ pub(super) fn setup_mechanism_weight_benchmark<T: Config>(
     Subtensor::<T>::set_commit_reveal_weights_enabled(netuid, true);
 
     (netuid, hotkey, uids, weight_values, salt, version_key)
+}
+
+/// Price a sparse row against full-size UID-indexed storage, even when `n` is
+/// small. Growing these vectors by registration would make setup quadratic.
+pub(super) fn setup_null_weight_benchmark<T: Config>(
+    n: u32,
+) -> (NetUid, T::AccountId, Vec<u16>, Vec<u16>, Vec<u16>) {
+    let netuid = NetUid::from(1);
+    let size = crate::subnets::mechanism::NULL_UID_BUDGET;
+    let index = NetUidStorageIndex::from(netuid);
+    Subtensor::<T>::init_new_network(netuid, 0);
+    Subtensor::<T>::set_epoch_consensus(netuid, EpochConsensus::Null);
+    Subtensor::<T>::set_max_allowed_uids(netuid, size);
+    Subtensor::<T>::set_weights_set_rate_limit(netuid, 0);
+    Subtensor::<T>::set_stake_threshold(0);
+    Subtensor::<T>::set_min_allowed_weights(netuid, 0);
+    SubtokenEnabled::<T>::insert(netuid, true);
+    SubnetworkN::<T>::insert(netuid, size);
+    LastUpdate::<T>::insert(index, vec![0u64; usize::from(size)]);
+    ValidatorPermit::<T>::insert(netuid, (0..size).map(|uid| uid == 0).collect::<Vec<_>>());
+    let signer: T::AccountId = account("null_weight_hot", 0, 0);
+    for uid in 0..size {
+        let hotkey: T::AccountId = account("null_weight_hot", u32::from(uid), 0);
+        Keys::<T>::insert(netuid, uid, &hotkey);
+        Uids::<T>::insert(netuid, &hotkey, uid);
+    }
+    Owner::<T>::insert(&signer, &signer);
+    Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        &signer,
+        &signer,
+        netuid,
+        1_000_000_000u64.into(),
+    );
+    let row_size = n.clamp(1, u32::from(size)) as u16;
+    let uids = (0..row_size).collect::<Vec<_>>();
+    let values = (1..=row_size).collect::<Vec<_>>();
+    let salt = vec![u16::MAX; usize::from(row_size)];
+    (netuid, signer, uids, values, salt)
+}
+
+/// Fill Null admission to both quotas with distinct eligible validators so a
+/// leading full-row submission measures stake comparisons and eviction writes.
+pub(super) fn setup_null_commit_queue<T: Config>(netuid: NetUid, winner: &T::AccountId) {
+    use scale_info::prelude::collections::VecDeque;
+    // FRAME can advance block zero to one before the measured dispatch. Keep
+    // this fixture in a stable epoch so the full queue is actually read.
+    Subtensor::<T>::set_tempo_unchecked(netuid, 0);
+    set_benchmark_block_number::<T>(10);
+    Subtensor::<T>::set_epoch_consensus(netuid, EpochConsensus::Null);
+    MechanismCountCurrent::<T>::insert(netuid, subtensor_runtime_common::MechId::from(1));
+    Subtensor::<T>::set_max_allowed_uids(netuid, crate::subnets::mechanism::NULL_UID_BUDGET);
+    Subtensor::<T>::set_stake_threshold(0);
+    Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        winner,
+        winner,
+        netuid,
+        1_000_000_000u64.into(),
+    );
+    let epoch = Subtensor::<T>::current_epoch_with_lookahead(netuid);
+    let mut queue = VecDeque::new();
+    for seed in 0..NULL_COMMIT_QUEUE_COUNT {
+        let hotkey: T::AccountId = account("null_queued", seed as u32, 0);
+        let uid = Subtensor::<T>::get_subnetwork_n(netuid);
+        Subtensor::<T>::append_neuron(netuid, &hotkey, 0);
+        Subtensor::<T>::set_validator_permit_for_uid(netuid, uid, true);
+        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &hotkey,
+            netuid,
+            1u64.into(),
+        );
+        let payload: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>> =
+            vec![0u8; NULL_COMMIT_QUEUE_BYTES / NULL_COMMIT_QUEUE_COUNT]
+                .try_into()
+                .unwrap();
+        queue.push_back((hotkey, 0, payload, seed as u64));
+    }
+    let size = usize::from(crate::subnets::mechanism::NULL_UID_BUDGET);
+    SubnetworkN::<T>::insert(netuid, size as u16);
+    ValidatorPermit::<T>::mutate(netuid, |permits| permits.resize(size, false));
+    LastUpdate::<T>::mutate(NetUidStorageIndex::from(netuid), |updates| {
+        updates.resize(size, 0)
+    });
+    TimelockedWeightCommits::<T>::insert(NetUidStorageIndex::from(netuid), epoch, queue);
 }

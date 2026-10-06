@@ -30,6 +30,9 @@ class TrimSubnet(Intent):
     before shrinking a live subnet. To simply cap future growth without
     evicting anyone, set the ``max_allowed_uids`` hyperparameter to a value
     at or above the current UID count instead.
+
+    For Null consensus, this legacy atomic operation can remove at most one
+    pruning batch. Use ``TrimNullSubnetBatch`` repeatedly for a larger shrink.
     """
 
     op = "trim_subnet"
@@ -51,6 +54,38 @@ class TrimSubnet(Intent):
 
     def summary(self) -> str:
         return f"trim netuid {self.netuid} to at most {self.max_n} UIDs"
+
+
+@register
+@dataclass
+class TrimNullSubnetBatch(Intent):
+    """Execute one bounded Null subnet pruning batch toward ``target``.
+
+    Cancels pending weight commits before moving UIDs, then removes at most
+    the runtime's batch size (currently 64). A large legacy commit backlog
+    can produce a cleanup-only batch. Read ``NullPruningTarget`` and
+    ``SubnetworkN`` after inclusion: a successful transaction does not imply
+    the final target has been reached. Continue with the same target until
+    the pending target is absent. Each batch is owner-authorized and respects
+    the admin freeze window. Only the first batch starts the trimming cooldown;
+    changing the target is a new operation. Survivor UID values can change.
+    """
+
+    op = "trim_null_subnet_batch"
+    signer = "coldkey"
+    origin = "subnet_owner"
+    wraps = (("AdminUtils", "sudo_trim_null_uids_batch"),)
+
+    netuid: int = field(metadata={"help": "Null subnet owned by the signer."})
+    target: int = field(metadata={"help": "Final UID count, shared by every continuation."})
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.AdminUtils.sudo_trim_null_uids_batch(netuid=self.netuid, target=self.target)
+        )
+
+    def summary(self) -> str:
+        return f"prune one Null batch on netuid {self.netuid} toward {self.target} UIDs"
 
 
 @register

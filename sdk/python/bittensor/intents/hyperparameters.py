@@ -29,6 +29,7 @@ from .registry import register
 # name -> (AdminUtils setter, value is boolean). Every setter takes (netuid, value),
 # except the alpha pair below, which shares the two-value sudo_set_alpha_values.
 OWNER_HYPERPARAMETERS: dict[str, tuple[str, bool]] = {
+    "epoch_consensus": ("sudo_set_epoch_consensus", False),
     "tempo": ("sudo_set_tempo", False),
     "immunity_period": ("sudo_set_immunity_period", False),
     "min_allowed_weights": ("sudo_set_min_allowed_weights", False),
@@ -55,6 +56,7 @@ OWNER_HYPERPARAMETERS: dict[str, tuple[str, bool]] = {
     "alpha_high": ("sudo_set_alpha_values", False),
     "commit_reveal_weights_enabled": ("sudo_set_commit_reveal_weights_enabled", True),
     "liquid_alpha_enabled": ("sudo_set_liquid_alpha_enabled", True),
+    "registration_allowed": ("sudo_set_network_registration_allowed", True),
     "network_pow_registration_allowed": ("sudo_set_network_pow_registration_allowed", True),
     "yuma3_enabled": ("sudo_set_yuma3_enabled", True),
     "bonds_reset_enabled": ("sudo_set_bonds_reset_enabled", True),
@@ -121,10 +123,18 @@ class SetHyperparameter(Intent):
                 f"unknown or owner-unsettable hyperparameter {self.name!r}; "
                 f"settable: {sorted(OWNER_HYPERPARAMETERS)}"
             )
-        self.value = to_raw(self.name, self.value)
+        if self.name == "epoch_consensus":
+            if self.value not in ("Yuma", "Null"):
+                raise ValueError("epoch_consensus must be Yuma or Null")
+        else:
+            self.value = to_raw(self.name, self.value)
 
     async def build(self, substrate, wallet: Any):
         method, is_bool = OWNER_HYPERPARAMETERS[self.name]
+        if self.name == "epoch_consensus":
+            return await substrate.compose(
+                calls.Call("AdminUtils", method, {"netuid": self.netuid, "mode": self.value})
+            )
         if self.name in _ALPHA_PAIR:
             # The chain sets alpha_low/alpha_high together; keep the other side.
             pair = list(await substrate.query(*st.AlphaValues, [self.netuid]))

@@ -22,7 +22,8 @@ to zero every block by
 [`update_registration_prices_for_networks`](/code/pallets/subtensor/src/subnets/registration.rs#L473-L515)
 (same file), which runs in `on_initialize`.
 
-The cap is checked against that counter in two places:
+Burn and PoW registration share this per-block cap. Their enable flags and
+price adjustments are independent. The cap is also consulted by:
 
 - Root registration:
   [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L77-L188)
@@ -38,8 +39,8 @@ The cap is checked against that counter in two places:
   [`registration_allowed`](/docs/hyperparameters/registration-allowed)
   gate and the same 3 × target interval cap.
 
-Because the burn cost also bumps multiplicatively after every registration
-in a block ([`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult)),
+Because burn registrations bump only burn cost and PoW registrations bump only
+PoW difficulty multiplicatively ([`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult)),
 the price and the cap work together against registration floods.
 
 Drag the cap below to see how it slices bursts block by block:

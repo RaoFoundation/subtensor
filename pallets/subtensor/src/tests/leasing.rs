@@ -1049,7 +1049,22 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
 
         // Distribute the dividends
         let owner_cut_alpha = AlphaBalance::from(5_000_000_000_u64);
+        let event_offset = System::events().len();
         SubtensorModule::distribute_leased_network_dividends(lease_id, owner_cut_alpha);
+        // Difficulty and burn updates can emit earlier in this block. Verify
+        // exactly the lease events emitted by this distribution, in order.
+        let lease_events: Vec<_> = System::events()
+            .into_iter()
+            .skip(event_offset)
+            .filter(|record| {
+                matches!(
+                    &record.event,
+                    RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendsDistributed { .. })
+                )
+            })
+            .map(|record| record.event)
+            .collect();
+        assert_eq!(lease_events.len(), 3);
 
         // Ensure the dividends were distributed correctly relative to their shares
         let distributed_alpha =
@@ -1093,7 +1108,7 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
                 .to_num::<u64>();
         assert_eq!(contributor1_alpha_delta, expected_contributor1_alpha.into());
         assert_eq!(
-            System::events()[3].event,
+            lease_events[0],
             RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendsDistributed {
                 lease_id,
                 contributor: contributions[0].0.into(),
@@ -1108,7 +1123,7 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
                 .to_num::<u64>();
         assert_eq!(contributor2_alpha_delta, expected_contributor2_alpha.into());
         assert_eq!(
-            System::events()[6].event,
+            lease_events[1],
             RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendsDistributed {
                 lease_id,
                 contributor: contributions[1].0.into(),
@@ -1121,7 +1136,7 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
             - (expected_contributor1_alpha + expected_contributor2_alpha);
         assert_eq!(beneficiary_alpha_delta, expected_beneficiary_alpha.into());
         assert_eq!(
-            System::events()[9].event,
+            lease_events[2],
             RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendsDistributed {
                 lease_id,
                 contributor: beneficiary.into(),

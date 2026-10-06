@@ -148,6 +148,14 @@ class Substrate(Protocol):
         """Read one storage item, returning its plain decoded value."""
         ...
 
+    async def map_has_entries(
+        self,
+        module: str,
+        storage_function: str,
+        params: list,
+        block_hash: Optional[str] = None,
+    ) -> bool: ...
+
     async def query_map(
         self,
         module: str,
@@ -461,6 +469,17 @@ class RpcSubstrate:
     ) -> Any:
         return await self._read(
             lambda raw: raw.query(module, storage_function, params or [], block_hash)
+        )
+
+    async def map_has_entries(
+        self,
+        module: str,
+        storage_function: str,
+        params: list,
+        block_hash: Optional[str] = None,
+    ) -> bool:
+        return await self._read(
+            lambda raw: raw.map_has_entries(module, storage_function, params, block_hash)
         )
 
     async def query_map(

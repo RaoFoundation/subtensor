@@ -4,6 +4,9 @@ use sp_runtime::PerU16;
 use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 use subtensor_runtime_common::NetUid;
 
+/// Maximum stored delegation fan-in per child on each subnet, including inert edges.
+pub const MAX_PARENTS_PER_CHILD: usize = 100;
+
 pub struct PCRelations<T: Config> {
     /// The distinguished `hotkey` this structure is built around.
     pivot: T::AccountId,
@@ -268,6 +271,31 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let pivot = relations.pivot().clone();
 
+        // Validate every incoming list before writing either direction. This runs
+        // at activation, so competing pending updates and protocol auto-parenting
+        // cannot bypass the cap. Legacy oversized lists may shrink or be updated,
+        // but cannot grow; never truncate delegations or change existing rewards.
+        let previous_parents = ParentKeys::<T>::get(&pivot, netuid);
+        weight.saturating_accrue(T::DbWeight::get().reads(1));
+        ensure!(
+            relations.parents().len() <= MAX_PARENTS_PER_CHILD
+                || (relations.parents().len() <= previous_parents.len()
+                    && relations
+                        .parents()
+                        .keys()
+                        .all(|parent| { previous_parents.iter().any(|(_, old)| old == parent) })),
+            DispatchError::Other("TooManyParents")
+        );
+        for child in relations.children().keys() {
+            let parents = ParentKeys::<T>::get(child, netuid);
+            weight.saturating_accrue(T::DbWeight::get().reads(1));
+            ensure!(
+                parents.iter().any(|(_, parent)| parent == &pivot)
+                    || parents.len() < MAX_PARENTS_PER_CHILD,
+                DispatchError::Other("TooManyParents")
+            );
+        }
+
         // ---------------------------
         // 1) Pivot -> Children side
         // ---------------------------
@@ -391,6 +419,7 @@ impl<T: Config> Pallet<T> {
     ///  2) Clean up storage references to `old_hotkey` (both directions)
     ///  3) Rebind pivot to `new_hotkey`
     ///  4) Persist relations around `new_hotkey`
+    #[frame_support::transactional]
     pub fn parent_child_swap_hotkey(
         old_hotkey: &T::AccountId,
         new_hotkey: &T::AccountId,

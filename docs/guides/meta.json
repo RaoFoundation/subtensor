@@ -10,6 +10,7 @@
     "conviction",
     "mining",
     "validating",
+    "null-consensus",
     "subnets",
     "multisig",
     "proxies",

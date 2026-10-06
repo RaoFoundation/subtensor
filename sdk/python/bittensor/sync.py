@@ -404,6 +404,30 @@ class SyncClient:
     def reads(self) -> list[dict]:
         return self._client.reads()
 
+    def mine_pow_registration(
+        self,
+        netuid: int,
+        hotkey_ss58: str,
+        coldkey_ss58: str,
+        *,
+        workers: int = 4,
+        max_seconds: float = 300,
+        backend: str = "auto",
+        device_ids: tuple[int, ...] | None = None,
+    ):
+        """Mine a fresh public challenge for fee-free subnet registration."""
+        return self._call(
+            self._client.mine_pow_registration(
+                netuid,
+                hotkey_ss58,
+                coldkey_ss58,
+                workers=workers,
+                max_seconds=max_seconds,
+                backend=backend,
+                device_ids=device_ids,
+            )
+        )
+
     def submit_call(self, call, wallet, **kwargs):
         return self._call(self._client.submit_call(call, wallet, **kwargs))
 

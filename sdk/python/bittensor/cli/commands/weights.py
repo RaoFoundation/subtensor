@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import typer
 
 from ...intents import CommitWeights, RevealWeights, SetWeights
@@ -23,6 +26,27 @@ def _parse_float_list(raw: str) -> list[float]:
     return [float(part.strip()) for part in raw.split(",") if part.strip()]
 
 
+def _weight_input(uids: str | None, weights: str | None, weights_file: Path | None, raw_u16: bool):
+    if weights_file is not None:
+        if uids is not None or weights is not None:
+            raise typer.BadParameter("Use --weights-file or --uids/--weights, not both.")
+        try:
+            data = json.loads(weights_file.read_text())
+        except (OSError, ValueError) as exc:
+            raise typer.BadParameter(f"Cannot read weights file: {exc}") from exc
+        if not isinstance(data, dict):
+            raise typer.BadParameter("Weights file must contain a UID-to-weight JSON object.")
+        return None, data
+    if uids is None or weights is None:
+        raise typer.BadParameter("Provide --weights-file or both --uids and --weights.")
+    try:
+        return _parse_int_list(uids), (
+            _parse_int_list(weights) if raw_u16 else _parse_float_list(weights)
+        )
+    except ValueError as exc:
+        raise typer.BadParameter("Invalid comma-separated UIDs or weights.") from exc
+
+
 @app.command(
     "set",
     epilog="Example: btcli misc weights set --netuid 1 --uids 0,1,2 --weights 0.5,0.3,0.2",
@@ -31,14 +55,22 @@ def _parse_float_list(raw: str) -> list[float]:
 def set_weights(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", help=SetWeights.field_help("netuid")),
-    uids: str = typer.Option(
-        ..., "--uids", help="Comma-separated miner UIDs, parallel to --weights."
+    uids: str | None = typer.Option(
+        None, "--uids", help="Comma-separated miner UIDs, parallel to --weights."
     ),
-    weights: str = typer.Option(
-        ...,
+    weights: str | None = typer.Option(
+        None,
         "--weights",
         help="Comma-separated relative weights, parallel to --uids. Clipped to the "
         "subnet's max-weight limit, normalized, and quantized before submission.",
+    ),
+    raw_u16: bool = typer.Option(
+        False, "--raw-u16", help="Preserve exact integer weights (Null consensus only)."
+    ),
+    weights_file: Path | None = typer.Option(
+        None,
+        "--weights-file",
+        help="JSON object mapping UID to weight; supports full 2,500-UID rows.",
     ),
     mechid: int = typer.Option(0, "--mechid", help=SetWeights.field_help("mechid")),
     version_key: int = typer.Option(0, "--version-key", help=SetWeights.field_help("version_key")),
@@ -50,12 +82,14 @@ def set_weights(
     (plaintext or timelocked commit) follows the subnet's on-chain
     configuration; registration and rate limits are checked before signing.
     """
+    parsed_uids, parsed_weights = _weight_input(uids, weights, weights_file, raw_u16)
     app_ctx: AppContext = ctx_of(ctx)
     app_ctx.submit(
         SetWeights(
             netuid=netuid,
-            uids=_parse_int_list(uids),
-            weights=_parse_float_list(weights),
+            uids=parsed_uids,
+            weights=parsed_weights,
+            raw_u16=raw_u16,
             mechid=mechid,
             version_key=version_key,
         )
@@ -71,11 +105,19 @@ def commit_weights(
         "--netuid",
         help=CommitWeights.field_help("netuid") or "Subnet whose miners the weights score.",
     ),
-    uids: str = typer.Option(
-        ..., "--uids", help="Comma-separated miner UIDs, parallel to --weights."
+    uids: str | None = typer.Option(
+        None, "--uids", help="Comma-separated miner UIDs, parallel to --weights."
     ),
-    weights: str = typer.Option(
-        ..., "--weights", help="Comma-separated relative weights, parallel to --uids."
+    weights: str | None = typer.Option(
+        None, "--weights", help="Comma-separated relative weights, parallel to --uids."
+    ),
+    raw_u16: bool = typer.Option(
+        False, "--raw-u16", help="Preserve exact integer weights (Null consensus only)."
+    ),
+    weights_file: Path | None = typer.Option(
+        None,
+        "--weights-file",
+        help="JSON object mapping UID to weight; supports full 2,500-UID rows.",
     ),
     mechid: int = typer.Option(
         0,
@@ -96,12 +138,14 @@ def commit_weights(
     subnet runs plaintext weights. The chain auto-reveals the commit at the
     drand reveal round; no manual reveal is needed.
     """
+    parsed_uids, parsed_weights = _weight_input(uids, weights, weights_file, raw_u16)
     app_ctx: AppContext = ctx_of(ctx)
     app_ctx.submit(
         CommitWeights(
             netuid=netuid,
-            uids=_parse_int_list(uids),
-            weights=_parse_float_list(weights),
+            uids=parsed_uids,
+            weights=parsed_weights,
+            raw_u16=raw_u16,
             mechid=mechid,
             version_key=version_key,
         )

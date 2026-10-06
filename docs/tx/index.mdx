@@ -14,6 +14,7 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`set-hyperparameter`](/docs/tx/set-hyperparameter) | coldkey | subnet owner | Set an owner-settable subnet hyperparameter (btcli `sudo set`). |
 | [`set-mechanism-count`](/docs/tx/set-mechanism-count) | coldkey | subnet owner | Set the number of mechanisms on a subnet. |
 | [`set-subnet-emission-enabled`](/docs/tx/set-subnet-emission-enabled) | coldkey | root (chain sudo) | Enable or disable a subnet's pool-side TAO emission (root only). |
+| [`trim-null-subnet-batch`](/docs/tx/trim-null-subnet-batch) | coldkey | subnet owner | Execute one bounded Null subnet pruning batch toward `target`. |
 | [`trim-subnet`](/docs/tx/trim-subnet) | coldkey | subnet owner | Trim a subnet to at most `max_n` UIDs (subnet owner). |
 
 ## Balances
@@ -94,6 +95,7 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`move-lock`](/docs/tx/move-lock) | coldkey | signed account (pallet role may apply) | Move an existing lock from one hotkey to another on a subnet. |
 | [`move-stake`](/docs/tx/move-stake) | coldkey | signed account (pallet role may apply) | Move alpha between hotkeys and/or subnets. |
 | [`move-swap-stake`](/docs/tx/move-swap-stake) | coldkey | signed account (pallet role may apply) | Move stake to a new hotkey and swap it to a new subnet in one transaction. |
+| [`pow-register`](/docs/tx/pow-register) | coldkey | signed account (pallet role may apply) | Register using an owner-enabled proof instead of TAO. |
 | [`register-leased-network`](/docs/tx/register-leased-network) | coldkey | signed account (pallet role may apply) | Register a new crowdloan-funded leased subnet. |
 | [`register-subnet`](/docs/tx/register-subnet) | coldkey | signed account (pallet role may apply) | Create a new subnet owned by the signing coldkey. |
 | [`remove-stake`](/docs/tx/remove-stake) | coldkey | signed account (pallet role may apply) | Unstake alpha from a hotkey back to the coldkey. |

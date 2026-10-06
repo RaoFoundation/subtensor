@@ -7,6 +7,12 @@ sessions in this repo.
 **Source of truth for status:** `gh pr checks`, not `gh run list`.
 `gh run list` misses required checks that are not GitHub Actions jobs.
 
+**CI repair note, 2026-09-30:** CI was already red during the Null consensus
+release work (PR #3206). Compare failed checks with their base-branch logs and
+tested SHAs before choosing a fix. Existing failures, regressions, and transient
+infrastructure problems need different remedies, but none is a reason to
+ignore a failed release check.
+
 Always finish a local pass with:
 
 ```bash
@@ -21,14 +27,18 @@ creates commits.
 
 ## 1. The 10-minute loop
 
-Do this in order. Stop when the remaining red jobs are slow or infra.
+Do this in order. Fix failures as they appear and keep watching the remaining
+jobs, including slow checks and infrastructure retries, until CI is green.
 
 1. Confirm GitHub is testing the commit you think it is.
    Local fmt/clippy that you did not push does not count.
 2. Run `scripts/preflight.sh` (see §3). It scopes itself to the
    files you changed and stops at the cheap failures first.
-3. Push those fixes as one commit.
-4. Watch with fail-fast. Fix the next cheap failure. Repeat.
+3. Push the validated fix immediately after local preflight passes; do not
+   wait for the rest of the remote suite to finish.
+4. Watch with fail-fast. When any check fails, inspect its logs and begin the
+   fix immediately while other jobs continue. Restart the watcher after each
+   push and repeat until the complete check set is green.
 5. Rerun only when the log is infra (429, GHCR pull/push, warp-proof,
    cancelled sibling).
 6. Do not push again just to "unstick" CI. A new push cancels
@@ -50,11 +60,10 @@ gh run view <run-id> --log-failed
 or still running. Re-read the full check set after every push. The set
 can change.
 
-`gh pr checks` is tab-separated. Names have spaces. To list real
-failures and hide a waived skeptic:
+`gh pr checks` is tab-separated. Names have spaces. To list all failures:
 
 ```bash
-gh pr checks <N> | awk -F'\t' '$2=="fail" && $1!="skeptic"'
+gh pr checks <N> | awk -F'\t' '$2=="fail"'
 ```
 
 ---
@@ -777,3 +786,35 @@ runtime build to "match CI".
 Clone-upgrade and try-runtime need that Linux artifact. Reproduce
 them only after the cheap gates are green and the log shows a real
 migration, regression, or metadata-drift failure.
+
+## Null release exception (2026-10-01)
+
+For PR #3206, the owner explicitly chose a shared Null capacity of 2,500 UIDs
+(divided by emission mechanism count) and accepted Skeptic as the sole allowed
+non-green review check. Keep its result and findings visible; do not suppress
+the check or describe it as passed. All other CI checks and the mandatory local
+preflight/pre-push gate must pass. Further reward-accounting optimizations are
+deferred; payouts remain atomic. This exception does not supply measured weights
+or establish that deployment resource limits have passed.
+
+## PoW challenge refresh validation (2026-10-02)
+
+Competitive registration mining refreshes the latest published block challenge
+on a 12-second cadence. Chain admission accepts work with age 1 through 5 blocks;
+transaction-pool longevity reflects the remaining lifetime. The miner must not
+restart or poll the chain after every small GPU batch. A found proof is checked
+against the latest difficulty before submission. Preserve key/subnet binding,
+replay rejection, disjoint GPU nonce ranges and bounded cancellation.
+
+Verify the 12-second refresh with a deterministic clock, exact accepted/rejected
+age boundaries, difficulty changes during mining, and live GPU registration on
+the rebuilt runtime. Delay a broadcast beyond the buffer to exercise bounded
+fresh-proof recovery; do not replay included or uncertain transactions. Raising
+the CLI mining timeout alone does not change on-chain proof expiry.
+
+If the local Python-binding Rust tests fail to link `-lpython3.12`, check that
+the interpreter selected by PyO3 has its shared development library installed.
+Select an installed managed interpreter with that library using
+`PYO3_PYTHON=/path/to/python3.12 scripts/preflight.sh`, and preserve that setting
+for the pre-push hook. This is a local toolchain issue; do not disable the tests
+or change the binding code to hide it.

@@ -125,9 +125,9 @@ stake; conviction locking and its unlock schedule are covered in the
 [staking guide](/docs/guides/staking).
 
 Three owner habits worth adopting. Decide your `registration_allowed` policy
-before activation — owners pause registration during mechanism upgrades so
-participants can update without eviction risk, and the toggle is root-gated
-here, so plan ahead. Run a validator on the owner hotkey: the owner cut and
+before activation. Burn and PoW have separate owner-settable toggles; keep at
+least one method enabled and configure prices and per-block limits to control
+registration pressure. Run a validator on the owner hotkey: the owner cut and
 validation rewards land on the same key, and the 18% cut can be staked behind
 it. Do **not** mine on the owner hotkey — miner emission directed at owner
 hotkeys is burned or recycled, never paid.
@@ -151,9 +151,11 @@ The important owner-settable parameters, with chain defaults:
 | `tempo` | 360 | Blocks per epoch. Owner changes bounded 360–50,400 and reset the epoch cycle. |
 | `immunity_period` | 4,096 | Blocks a fresh UID is protected from pruning and trimming. |
 | `min_burn` / `max_burn` | 0.0005 τ / 100 τ | Clamp on the neuron registration price. Read the live price with [`burn`](/docs/query/burn). |
-| `burn_half_life` | 360 | Blocks for the registration price to decay halfway toward `min_burn` when nobody registers. |
-| `burn_increase_mult` | 1.26 | Multiplier applied to the registration price after each successful registration. |
-| `max_allowed_uids` | 256 | UID slots. Floor 64; times mechanism count must stay ≤ 256. |
+| `burn_half_life` | 360 | Shared decay half-life; burn price and PoW difficulty each decay toward their own minimum. |
+| `burn_increase_mult` | 1.26 | Shared multiplier; each successful registration raises only the price of its own method. |
+| `max_allowed_uids` | 256 | UID slots. Floor 64; shared budget is 256 under Yuma or 2,500 under Null, divided by mechanism count. |
+| `registration_allowed` | true | Enables burn registration independently of PoW. Owners keep at least one method enabled. |
+| `network_pow_registration_allowed` | false | Enables fee-free proof-of-work registration on non-root subnets, independently of burn. |
 | `activity_cutoff_factor` | 13,889 | Per-mille of tempo; effective cutoff = factor × tempo / 1000 blocks (5,000 at tempo 360; bounds 1,000–50,000). A validator that hasn't set weights within the cutoff sits out until next epoch. Replaces the deprecated `activity_cutoff` (5,000). |
 | `serving_rate_limit` | 50 | Minimum blocks between `serve-axon` / `serve-prometheus` calls per key. |
 | `commit_reveal_weights_enabled` | true | Weights are committed hashed, revealed later. |
@@ -171,12 +173,17 @@ Parameters marked * have their own extrinsics on chain rather than a name in
 `set-hyperparameter`; if the SDK doesn't expose one, use the
 [raw-call escape hatch](/docs/concepts/advanced).
 
-Chain reads also return `rho`, `difficulty`, `adjustment_interval`,
-`adjustment_alpha`, and `target_regs_per_interval` — legacy registration and
-consensus parameters that still exist as storage but no longer drive neuron
-admission; the burn price decay/bump mechanism replaced the old PoW and
-adjustment-interval machinery. (`max_registrations_per_block` is still
-enforced.)
+Owners may enable [proof-of-work registration](/docs/hyperparameters/network-pow-registration-allowed)
+so miners can join without upfront TAO. Use `btcli subnets register --netuid 42 --pow`;
+burn registration remains available when its own toggle is enabled. `difficulty` controls the proof threshold,
+while the old `adjustment_interval`, `adjustment_alpha` and
+`target_regs_per_interval` controller remains inactive. Both registration paths
+share `max_registrations_per_block`, `burn_increase_mult` and `burn_half_life`.
+Successful burn registration increases only burn cost; successful PoW increases
+only PoW difficulty. Each price decays toward its own minimum each block. PoW
+has its own `min_difficulty` (team/root controlled) and `max_difficulty` bounds.
+Owners can select burn-only, PoW-only or both; enable the other route before
+disabling the last enabled route.
 
 Two chain-side constraints on owner changes:
 
@@ -190,7 +197,7 @@ Two chain-side constraints on owner changes:
 
 Root-only parameters — `kappa` (default 32,767 ≈ 0.5),
 `max_allowed_validators` (128), `weights_set_rate_limit` (100 blocks between
-weight submissions), tempo outside the owner bounds, `registration_allowed`,
+weight submissions), tempo outside the owner bounds, `min_difficulty`,
 and others — need root privileges and the
 [raw-call escape hatch](/docs/concepts/advanced).
 

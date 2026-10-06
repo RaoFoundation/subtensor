@@ -266,6 +266,19 @@ class FakeSubstrate:
             return self._storage_defaults[item]
         return DEFAULT_STORAGE.get(item)
 
+    async def map_has_entries(
+        self,
+        module: str,
+        storage_function: str,
+        params: list,
+        block_hash: Optional[str] = None,
+    ) -> bool:
+        item = (module, storage_function)
+        prefix = _key(params)
+        return bool(self._maps.get(item)) or any(
+            key[: len(prefix)] == prefix for key in self._storage.get(item, {})
+        )
+
     async def query_map(
         self,
         module: str,

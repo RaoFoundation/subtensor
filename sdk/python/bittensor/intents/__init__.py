@@ -32,6 +32,7 @@ from .evm import EvmWithdraw, FundEvmKey
 from .governance import (
     SetMechanismCount,
     StakeBurn,
+    TrimNullSubnetBatch,
     TrimSubnet,
     UpdateSymbol,
 )
@@ -60,6 +61,7 @@ from .registration import (
     BurnedRegister,
     ClaimRoot,
     ClaimRootWithHotkey,
+    PowRegister,
     RegisterSubnet,
     RootRegister,
     StartCall,
@@ -134,6 +136,7 @@ __all__ = [
     "OpenLoan",
     "Plan",
     "Policy",
+    "PowRegister",
     "RefundCrowdloan",
     "RegisterLeasedNetwork",
     "RegisterSubnet",
@@ -175,6 +178,7 @@ __all__ = [
     "Transfer",
     "TransferAll",
     "TransferStake",
+    "TrimNullSubnetBatch",
     "TrimSubnet",
     "UnstakeAll",
     "UnstakeAllAlpha",

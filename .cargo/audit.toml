@@ -10,4 +10,12 @@ ignore = [
     # is wasmtime >=24.0.13. The node never exposes a WASI filesystem to the
     # runtime, so the advisory is not reachable here.
     "RUSTSEC-2026-0269",
+    # GHSA-jqpg-j7w6-42pr / RUSTSEC-2026-0316 affects dynamic component
+    # record lifting through wasmtime::component::Val. The SDK executor uses
+    # core WebAssembly only. Even `cargo metadata --all-features --locked`
+    # resolves wasmtime 8.0.1 without `component-model` (cache, cranelift,
+    # jitdump, parallel-compilation, pooling-allocator), so the affected API
+    # is not compiled. Revisit if executor features or the SDK fork change.
+    # https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-jqpg-j7w6-42pr
+    "RUSTSEC-2026-0316",
 ]

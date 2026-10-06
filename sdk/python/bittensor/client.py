@@ -298,6 +298,37 @@ class Client:
 
     # Chain / block metadata ---------------------------------------------------
 
+    async def mine_pow_registration(
+        self,
+        netuid: int,
+        hotkey_ss58: str,
+        coldkey_ss58: str,
+        *,
+        workers: int = 4,
+        max_seconds: float = 300,
+        backend: str = "auto",
+        device_ids: tuple[int, ...] | None = None,
+    ):
+        """Mine a fresh PowRegister intent using public addresses only.
+
+        Execute it promptly with the named coldkey and zero tip. Mining does
+        not sign or submit a transaction. PoW must be enabled by the subnet
+        owner; root registration uses its existing separate path.
+        """
+        from .pow_registration import mine_registration
+
+        await self.connect()
+        return await mine_registration(
+            self._substrate,
+            netuid,
+            hotkey_ss58,
+            coldkey_ss58,
+            workers=workers,
+            max_seconds=max_seconds,
+            backend=backend,
+            device_ids=device_ids,
+        )
+
     async def timestamp(self, block: Optional[int] = None) -> datetime:
         """UTC timestamp of a block (defaults to the chain head)."""
         ms = await self.query(_st.Timestamp.Now, block=block)

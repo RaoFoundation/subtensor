@@ -2,6 +2,7 @@
   "title": "Hyperparameters",
   "pages": [
     "index",
+    "epoch-consensus",
     "rho",
     "kappa",
     "immunity-period",

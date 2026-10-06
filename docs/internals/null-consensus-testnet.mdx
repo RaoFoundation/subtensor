@@ -1,0 +1,53 @@
+---
+title: Null consensus testnet validation
+description: Verify a reviewed Null runtime and its full SDK, CLI, timelock, emission and mode-switch path before mainnet approval.
+---
+
+Use dedicated test subnets and test accounts. Do not change other subnet owners'
+settings, balances, registrations or stake. Keep signer secrets in the vault and
+out of command arguments, transcripts and test artifacts.
+
+## Deployment prerequisites
+
+Record the exact source commit, runtime spec version, WASM hash and reference
+benchmark run. Full local preflight and PR CI must pass, including resource and
+domain reviews. Install reference weights and verify that the complete hook
+reservation fits the block budget and every normal extrinsic fits its limit.
+A successful local test does not establish shared-chain resource safety.
+
+Before signing, verify the endpoint is testnet, the vault signer matches the live
+sudo account, and blocks finalize normally. Read the live runtime version and
+retain its runtime code and hash for recovery. Confirm the candidate is newer.
+After the upgrade finalizes, verify the runtime version and code hash against the
+candidate. Check inner sudo events as well as outer extrinsic success.
+
+## Functional coverage
+
+Capture transaction hashes, finalized blocks, subnet IDs and before/after state
+for each case. Use the normal SDK and CLI submission paths wherever applicable.
+
+| Area | Checks |
+| --- | --- |
+| Defaults and access | Existing subnets remain Yuma; root rejects Null; owners can switch their subnet; unrelated callers fail. |
+| Shared capacity | One, two and four mechanisms allow 2,500, 1,250 and 625 UIDs respectively. Reject each next UID/capacity and incompatible mechanism-count changes. |
+| Return to Yuma | Reject switching above the existing Yuma population ceiling; explicitly prune first; verify UID and weight remapping, then switch and check capacity clamping. |
+| Winner | Highest raw stake wins the sole permit; UID order breaks ties; nonpermit UIDs cannot submit, commit or reveal even as owner or self-weight sender; all positive stake receives dividends including inactive nonpermit UIDs. |
+| Empty weights | Empty or fully masked winner rows split miner emission over every registered UID. Zero eligible stake uses the documented fallback without allocating or recycling the same root units twice. |
+| Precision | Preserve submitted integer ratios including weight 1 alongside 65,534; cover thousands of small allocations, zero weights, odd epoch budgets and multiple mechanisms. Sum actual miner payouts and confirm they do not exceed the funded miner budget. |
+| Bonds and switching | Null leaves epoch bond state unchanged. Null → Yuma → Null preserves the interface and budget rules; miner replacement cannot revive bonds belonging to the previous UID occupant. |
+| Timelock | Encrypt, commit, reveal and consume a full row. Exercise mechanism-dependent payload limits, missing pulses/retry, pending-commit switch guards, queue byte/count bounds and the winner's priority admission under pressure. |
+| Clients and EVM | Submit raw U16 weights and JSON files through SDK/CLI; reject invalid values without rescaling. Check released Solidity selectors and bounds alongside V2 calldata, authorization and gas charging. |
+| Payout destinations | Check owner cuts, validator/root destinations and standing versus draining miner collateral against epoch funding; compare emitted vectors with actual credits. |
+| Scheduling | A due Null epoch uses one scheduler slot. Deferred reveals and emission drains agree; a future Null epoch does not reduce the configured Yuma cap. |
+
+Run maximum-size resource cases first against an isolated testnet-state clone.
+Repeat safe production-shaped cases on shared testnet after reference resource
+validation. Monitor finalization, failed extrinsics and runtime logs throughout;
+record any discrepancy as a release blocker rather than waiving it.
+
+## Promotion evidence
+
+Retain the deployment transaction, WASM hash, checked source commit, CI results,
+external audit approval, test transactions and finalization observations together.
+The release remains gated until devnet and testnet smoke checks pass. Stop at the
+mainnet environment gate; testnet authorization does not approve a mainnet upgrade.

@@ -30,7 +30,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use pallet_evm_chain_id::{self, ChainId};
     use pallet_subtensor::{
-        ConsensusMode, DefaultMaxAllowedUids, MAX_BONDS_MOVING_AVERAGE,
+        ConsensusMode, EpochConsensus, MAX_BONDS_MOVING_AVERAGE,
         utils::rate_limiting::{Hyperparameter, TransactionType},
     };
     use sp_runtime::{BoundedVec, PerU16};
@@ -623,12 +623,16 @@ pub mod pallet {
                 Error::<T>::MaxAllowedUIdsLessThanCurrentUIds
             );
             ensure!(
-                max_allowed_uids <= DefaultMaxAllowedUids::<T>::get(),
+                max_allowed_uids
+                    <= pallet_subtensor::Pallet::<T>::epoch_uid_budget(
+                        pallet_subtensor::Pallet::<T>::get_epoch_consensus(netuid)
+                    ),
                 Error::<T>::MaxAllowedUidsGreaterThanDefaultMaxAllowedUids
             );
             // Prevent chain bloat: Require max UIDs to be limited
             let mechanism_count = pallet_subtensor::MechanismCountCurrent::<T>::get(netuid);
             pallet_subtensor::Pallet::<T>::ensure_max_uids_over_all_mechanisms(
+                netuid,
                 max_allowed_uids,
                 mechanism_count.into(),
             )?;
@@ -754,7 +758,7 @@ pub mod pallet {
             Ok(())
         }
 
-        /// The extrinsic sets the network registration allowed for a subnet.
+        /// Enable or disable burned registration independently of PoW.
         /// It is only callable by the root account or subnet owner.
         /// The extrinsic will call the Subtensor pallet to set the network registration allowed.
         #[pallet::call_index(19)]
@@ -764,10 +768,38 @@ pub mod pallet {
             netuid: NetUid,
             registration_allowed: bool,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            // Root retains its separate burn-only administration path.
+            if netuid.is_root() {
+                ensure_root(origin)?;
+                pallet_subtensor::Pallet::<T>::set_network_registration_allowed(
+                    netuid,
+                    registration_allowed,
+                );
+                return Ok(());
+            }
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::BurnRegistrationAllowed.into()],
+            )?;
+            ensure!(
+                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                Error::<T>::SubnetDoesNotExist
+            );
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            ensure!(
+                registration_allowed
+                    || pallet_subtensor::Pallet::<T>::get_network_pow_registration_allowed(netuid),
+                Error::<T>::InvalidValue
+            );
             pallet_subtensor::Pallet::<T>::set_network_registration_allowed(
                 netuid,
                 registration_allowed,
+            );
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::BurnRegistrationAllowed.into()],
             );
             log::debug!(
                 "NetworkRegistrationAllowed( registration_allowed: {registration_allowed:?} ) "
@@ -781,11 +813,36 @@ pub mod pallet {
         #[pallet::call_index(20)]
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_network_pow_registration_allowed())]
         pub fn sudo_set_network_pow_registration_allowed(
-            _origin: OriginFor<T>,
-            _netuid: NetUid,
-            _registration_allowed: bool,
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            registration_allowed: bool,
         ) -> DispatchResult {
-            Err(Error::<T>::POWRegistrationDisabled.into())
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::PowRegistrationAllowed.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            ensure!(
+                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                Error::<T>::SubnetDoesNotExist
+            );
+            ensure!(!netuid.is_root(), Error::<T>::NotPermittedOnRootSubnet);
+            ensure!(
+                registration_allowed
+                    || pallet_subtensor::Pallet::<T>::get_network_registration_allowed(netuid),
+                Error::<T>::InvalidValue
+            );
+            pallet_subtensor::Pallet::<T>::set_network_pow_registration_allowed(
+                netuid,
+                registration_allowed,
+            );
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::PowRegistrationAllowed.into()],
+            );
+            Ok(())
         }
 
         /// The extrinsic sets the target registrations per interval for a subnet.
@@ -929,6 +986,12 @@ pub mod pallet {
             ensure!(
                 pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
                 Error::<T>::SubnetDoesNotExist
+            );
+            ensure!(
+                pallet_subtensor::Pallet::<T>::get_epoch_consensus(netuid)
+                    != pallet_subtensor::EpochConsensus::Null
+                    || max_allowed_validators == 1,
+                Error::<T>::InvalidValue
             );
             ensure!(
                 max_allowed_validators
@@ -1402,6 +1465,36 @@ pub mod pallet {
                 maybe_owner,
                 netuid,
                 &[Hyperparameter::LiquidAlphaConsensusMode.into()],
+            );
+            Ok(())
+        }
+
+        /// Selects Yuma or Null reward calculation while preserving epoch scheduling.
+        #[pallet::call_index(111)]
+        #[pallet::weight(
+            <T as pallet::Config>::WeightInfo::sudo_set_epoch_consensus()
+                .saturating_add(<T as frame_system::Config>::DbWeight::get().reads_writes(25, 3))
+        )]
+        pub fn sudo_set_epoch_consensus(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mode: EpochConsensus,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::EpochConsensus.into()],
+            )?;
+            ensure!(
+                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                pallet_subtensor::Error::<T>::SubnetNotExists
+            );
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            pallet_subtensor::Pallet::<T>::do_set_epoch_consensus(netuid, mode)?;
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::EpochConsensus.into()],
             );
             Ok(())
         }
@@ -1955,7 +2048,8 @@ pub mod pallet {
 
         /// Sets the desired number of mechanisms in a subnet
         #[pallet::call_index(76)]
-        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_mechanism_count())]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_mechanism_count()
+            .saturating_add(T::DbWeight::get().reads(17)))]
         pub fn sudo_set_mechanism_count(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2009,7 +2103,11 @@ pub mod pallet {
         /// the lowest emitters while preserving temporally and owner immune UIDs. The UIDs are
         /// then compressed to the left and storage is migrated to the new compressed UIDs.
         #[pallet::call_index(78)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_trim_to_max_allowed_uids())]
+        #[pallet::weight(if pallet_subtensor::Pallet::<T>::get_epoch_consensus(*netuid) == pallet_subtensor::EpochConsensus::Null {
+            <T as pallet::Config>::WeightInfo::sudo_trim_null_uids_batch().max(<T as pallet::Config>::WeightInfo::sudo_trim_null_uids_batch_many_mechanisms())
+        } else {
+            <T as pallet::Config>::WeightInfo::sudo_trim_to_max_allowed_uids()
+        }.saturating_add(T::DbWeight::get().reads(1)))]
         pub fn sudo_trim_to_max_allowed_uids(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2029,6 +2127,37 @@ pub mod pallet {
                 netuid,
                 &[TransactionType::MaxUidsTrimming],
             );
+            Ok(())
+        }
+
+        /// Continue explicit Null pruning by at most 64 UID deletions. Every
+        /// batch leaves the subnet usable. Only the same final target may
+        /// continue the original operation without restarting its cooldown.
+        #[pallet::call_index(112)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_trim_null_uids_batch().max(<T as pallet::Config>::WeightInfo::sudo_trim_null_uids_batch_many_mechanisms()))]
+        pub fn sudo_trim_null_uids_batch(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            target: u16,
+        ) -> DispatchResult {
+            let continuing = pallet_subtensor::NullPruningTarget::<T>::get(netuid) == Some(target);
+            let limits: &[TransactionType] = if continuing {
+                &[]
+            } else {
+                &[TransactionType::MaxUidsTrimming]
+            };
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin, netuid, limits,
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            pallet_subtensor::Pallet::<T>::trim_null_uids_batch(netuid, target)?;
+            if !continuing {
+                pallet_subtensor::Pallet::<T>::record_owner_rl(
+                    maybe_owner,
+                    netuid,
+                    &[TransactionType::MaxUidsTrimming],
+                );
+            }
             Ok(())
         }
 

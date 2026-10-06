@@ -16,9 +16,9 @@ Every block,
 [`block_step`](/code/pallets/subtensor/src/coinbase/block_step.rs#L7-L36))
 decays
 the current burn price exponentially toward zero — and then clamps it into
-`[min_burn, max_burn]`. The same clamp is applied after each registration bumps
+`[min_burn, max_burn]`. The same clamp is applied after each burn registration bumps
 the price by [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult).
-So with no registrations arriving, the price settles at exactly `min_burn` and
+So with no burn registrations arriving, the price settles at exactly `min_burn` and
 stays there; `min_burn` is the resting price of an idle subnet.
 
 The value is stored in [`MinBurn`](/code/pallets/subtensor/src/lib.rs#L2135)

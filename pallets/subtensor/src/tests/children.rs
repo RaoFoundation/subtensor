@@ -13,6 +13,129 @@ use crate::{utils::rate_limiting::TransactionType, *};
 use sp_core::U256;
 use sp_runtime::PerU16;
 
+#[test]
+fn test_parent_cap_activation_is_atomic_and_allows_updates_and_removals() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let child = U256::from(1_000);
+        let other_child = U256::from(1_001);
+        for parent in 1..=100u64 {
+            SubtensorModule::persist_pending_chidren_ok(
+                netuid,
+                &U256::from(parent),
+                &vec![(1, child)],
+            );
+        }
+        assert_eq!(ParentKeys::<Test>::get(child, netuid).len(), 100);
+        let overflow = U256::from(101);
+        let relations = SubtensorModule::load_relations_from_pending(
+            overflow,
+            &vec![(1, other_child), (1, child)],
+            netuid,
+        )
+        .unwrap();
+        let mut weight = frame_support::weights::Weight::zero();
+        assert_noop!(
+            SubtensorModule::persist_child_parent_relations(relations, netuid, &mut weight),
+            sp_runtime::DispatchError::Other("TooManyParents")
+        );
+        assert!(ChildKeys::<Test>::get(overflow, netuid).is_empty());
+        assert!(ParentKeys::<Test>::get(other_child, netuid).is_empty());
+        SubtensorModule::persist_pending_chidren_ok(netuid, &U256::from(1), &vec![(2, child)]);
+        assert!(ParentKeys::<Test>::get(child, netuid).contains(&(2, U256::from(1))));
+        SubtensorModule::persist_pending_chidren_ok(netuid, &U256::from(1), &vec![]);
+        SubtensorModule::persist_pending_chidren_ok(netuid, &overflow, &vec![(1, child)]);
+        assert_eq!(ParentKeys::<Test>::get(child, netuid).len(), 100);
+        assert_eq!(ChildKeys::<Test>::get(overflow, netuid), vec![(1, child)]);
+    });
+}
+
+#[test]
+fn test_parent_cap_competing_pending_updates_and_auto_parenting() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let child = U256::from(1_000);
+        add_network(netuid, 13, 0);
+        SubnetOwnerHotkey::<Test>::insert(netuid, child);
+        for parent in 1..=99u64 {
+            SubtensorModule::persist_pending_chidren_ok(
+                netuid,
+                &U256::from(parent),
+                &vec![(1, child)],
+            );
+        }
+        // Both proposals are prepared against the same 99-parent state.
+        let first = SubtensorModule::load_relations_from_pending(
+            U256::from(100),
+            &vec![(1, child)],
+            netuid,
+        )
+        .unwrap();
+        let second = SubtensorModule::load_relations_from_pending(
+            U256::from(101),
+            &vec![(1, child)],
+            netuid,
+        )
+        .unwrap();
+        let mut weight = frame_support::weights::Weight::zero();
+        assert_ok!(SubtensorModule::persist_child_parent_relations(
+            first,
+            netuid,
+            &mut weight
+        ));
+        assert_noop!(
+            SubtensorModule::persist_child_parent_relations(second, netuid, &mut weight),
+            sp_runtime::DispatchError::Other("TooManyParents")
+        );
+        SubtensorModule::do_set_subnet_owners_for_root_validator(&U256::from(102));
+        assert!(ChildKeys::<Test>::get(U256::from(102), netuid).is_empty());
+        assert_eq!(ParentKeys::<Test>::get(child, netuid).len(), 100);
+    });
+}
+
+#[test]
+fn test_parent_cap_failed_hotkey_swap_rolls_back_relations() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let old = U256::from(1_000);
+        let new = U256::from(1_001);
+        for parent in 1..=101u64 {
+            ParentKeys::<Test>::append(old, netuid, (1, U256::from(parent)));
+            ChildKeys::<Test>::insert(U256::from(parent), netuid, vec![(1, old)]);
+        }
+        let mut weight = frame_support::weights::Weight::zero();
+        assert_noop!(
+            SubtensorModule::parent_child_swap_hotkey(&old, &new, netuid, &mut weight),
+            sp_runtime::DispatchError::Other("TooManyParents")
+        );
+        assert_eq!(ParentKeys::<Test>::get(old, netuid).len(), 101);
+        assert!(ParentKeys::<Test>::get(new, netuid).is_empty());
+        for parent in 1..=101u64 {
+            assert_eq!(
+                ChildKeys::<Test>::get(U256::from(parent), netuid),
+                vec![(1, old)]
+            );
+        }
+        // Existing oversized state can still remove an edge without truncation.
+        SubtensorModule::persist_pending_chidren_ok(netuid, &U256::from(1), &vec![]);
+        assert_eq!(ParentKeys::<Test>::get(old, netuid).len(), 100);
+        assert_ok!(SubtensorModule::parent_child_swap_hotkey(
+            &old,
+            &new,
+            netuid,
+            &mut weight
+        ));
+        assert!(ParentKeys::<Test>::get(old, netuid).is_empty());
+        assert_eq!(ParentKeys::<Test>::get(new, netuid).len(), 100);
+        for parent in 2..=101u64 {
+            assert_eq!(
+                ChildKeys::<Test>::get(U256::from(parent), netuid),
+                vec![(1, new)]
+            );
+        }
+    });
+}
+
 fn close(value: u64, target: u64, eps: u64, msg: &str) {
     assert!(
         (value as i64 - target as i64).abs() <= eps as i64,

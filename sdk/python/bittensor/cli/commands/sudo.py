@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Optional
 
 import typer
@@ -14,6 +15,7 @@ from ...intents import (
     SetTake,
     StakeBurn,
     StartCall,
+    TrimNullSubnetBatch,
     TrimSubnet,
     UpdateSymbol,
 )
@@ -23,6 +25,7 @@ from ...settings import DOCS_URL, U16_MAX
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..hyperparams_view import fetch_hyperparameters, show_hyperparameters
+from ..null_pruning import run_pruning
 from ..prompt import PromptSpec, confirm_wallet, fill_missing, interactive
 from ..tx import _parse_money
 
@@ -84,7 +87,11 @@ def _prompt_set_args(
 
         def _parse_value(_app_ctx: AppContext, raw: str) -> str:
             if kwargs["name"] is not None:
-                to_raw(kwargs["name"], raw)  # validate the form; the intent converts again
+                if kwargs["name"] == "epoch_consensus":
+                    if raw not in ("Yuma", "Null"):
+                        raise ValueError("epoch_consensus must be Yuma or Null")
+                else:
+                    to_raw(kwargs["name"], raw)  # validate the form; the intent converts again
             return raw
 
         specs.append(
@@ -344,6 +351,100 @@ def trim_subnet(
     """
     app_ctx: AppContext = ctx_of(ctx)
     app_ctx.submit(TrimSubnet(netuid=netuid, max_n=max_n))
+
+
+@app.command("trim-null-batch", rich_help_panel=PANEL_SUBNETS)
+@with_tx_globals
+def trim_null_subnet_batch(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", help=TrimNullSubnetBatch.field_help("netuid")),
+    target: int = typer.Option(..., "--target", help=TrimNullSubnetBatch.field_help("target")),
+):
+    """Prune one bounded Null batch; repeat the same target until completion.
+
+    Each transaction can remove at most 64 UIDs. Commit cleanup may produce
+    a batch with no UID deletions. Check NullPruningTarget and SubnetworkN
+    after inclusion; a successful receipt alone does not mean pruning is done.
+    """
+    app_ctx: AppContext = ctx_of(ctx)
+    app_ctx.submit(TrimNullSubnetBatch(netuid=netuid, target=target))
+
+
+@app.command("trim-null", rich_help_panel=PANEL_SUBNETS)
+@with_tx_globals
+def trim_null_subnet(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", min=1, max=4095),
+    target: Optional[int] = typer.Option(
+        None,
+        "--target",
+        min=1,
+        max=65535,
+        help="Final population. Defaults to the pending target or floor(256 / mechanism_count).",
+    ),
+    switch_to_yuma: bool = typer.Option(
+        False,
+        "--switch-to-yuma",
+        help="Switch to Yuma after pruning and its prerequisites pass.",
+    ),
+    wait_timeout: float = typer.Option(
+        3600,
+        "--wait-timeout",
+        min=1,
+        max=86400,
+        help="Maximum seconds for each administration-window or switch-prerequisite wait.",
+    ),
+    poll_seconds: float = typer.Option(
+        12,
+        "--poll-seconds",
+        min=1,
+        max=60,
+        help="Seconds between state polls while waiting.",
+    ),
+    max_batches: int = typer.Option(
+        256,
+        "--max-batches",
+        min=1,
+        max=4096,
+        help="Stop after this many batches; rerun to resume.",
+    ),
+    state_file: Optional[Path] = typer.Option(
+        None,
+        "--state-file",
+        help="Recovery record; default is beside btcli config, keyed by chain and subnet.",
+    ),
+):
+    """Prune sequential finalized Null batches for a return to Yuma.
+
+    Deregisters participants and may change survivor UIDs. Restart with the
+    same target to resume from on-chain state. --switch-to-yuma is opt-in;
+    without it, consensus remains Null. --dry-run previews one transaction.
+    Each transaction uses the usual confirmation flow; --yes skips prompts.
+    """
+    app_ctx = ctx_of(ctx)
+    confirm_wallet(
+        app_ctx, help_text="Subnet owner coldkey signing every batch.", require_coldkey=True
+    )
+    try:
+        run_pruning(
+            app_ctx,
+            netuid=netuid,
+            target=target,
+            switch_to_yuma=switch_to_yuma,
+            wait_timeout=wait_timeout,
+            poll_seconds=poll_seconds,
+            max_batches=max_batches,
+            state_file=state_file,
+        )
+    except (ValueError, OSError) as error:
+        app_ctx.output.error(str(error))
+        raise typer.Exit(1) from error
+    except KeyboardInterrupt:
+        app_ctx.output.message(
+            "Interrupted; rerun with the same target to resume. "
+            "Uncertain submissions are not retried."
+        )
+        raise typer.Exit(130)
 
 
 @app.command("stake-burn", rich_help_panel=PANEL_SUBNETS)

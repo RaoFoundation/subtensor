@@ -72,6 +72,57 @@ def invoke(*args: str):
     return runner.invoke(app, list(args))
 
 
+def test_trim_null_uses_existing_submission_and_finalized_receipts(fake, monkeypatch, wallet_dir):
+    from dataclasses import replace
+
+    from bittensor.cli import null_pruning
+    from bittensor.result import ExtrinsicResult
+
+    owner = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+    current = null_pruning.PruningState(
+        100, "0xgenesis", owner, 320, None, 1, 64, 2500, "Null", False
+    )
+
+    async def read(_client, _netuid):
+        return current
+
+    async def submit(call, keypair, **options):
+        nonlocal current
+        assert options["wait_for_finalization"] is True
+        assert call.function == "sudo_trim_null_uids_batch"
+        assert call.params == {"netuid": 1, "target": 256}
+        current = replace(current, population=256)
+        fake.submissions.append((call, keypair.ss58_address, options))
+        return ExtrinsicResult(
+            success=True,
+            block_hash="0xfinalized",
+            extrinsic_id="101-0001",
+            events=[
+                {
+                    "event": {
+                        "module_id": "SubtensorModule",
+                        "event_id": "NullUidsPruningProgress",
+                        "attributes": {
+                            "netuid": 1,
+                            "target": 256,
+                            "remaining": 256,
+                            "removed": 64,
+                            "cleared_commits": 0,
+                        },
+                    }
+                }
+            ],
+        )
+
+    monkeypatch.setattr(null_pruning, "read_state", read)
+    monkeypatch.setattr(fake, "submit", submit)
+    result = invoke("hparams", "trim-null", "--netuid", "1", "--yes")
+    assert result.exit_code == 0, result.output
+    assert len(fake.submissions) == 1
+    assert "Pruning progress" in result.output
+    assert "finalized" in result.output
+
+
 def seed_root_validator_summary(fake: FakeSubstrate) -> None:
     fake.seed_runtime(
         "BetaBasketRuntimeApi",
@@ -960,3 +1011,289 @@ class TestResolveHotkeySs58:
         result = invoke("stake", "child", "revoke", "--netuid", "1", "--hotkey", "hotkey1")
         assert result.exit_code == 0, result.output
         assert captured[0].hotkey_ss58 == alt_hotkey
+
+
+class TestPowRegistration:
+    def test_root_rejects_pow_without_mining(self, fake, monkeypatch):
+        async def mine(*args, **kwargs):
+            pytest.fail("root must not start mining")
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        result = invoke("subnets", "register", "--netuid", "0", "--pow", "--yes")
+        assert result.exit_code == 2, result.output
+        assert not fake.submissions
+
+    def test_cli_refreshes_fresh_proof_when_difficulty_increases(self, fake, monkeypatch):
+        from bittensor.intents import PowRegister
+
+        calls = []
+
+        async def mine(
+            self,
+            netuid,
+            hotkey_ss58,
+            coldkey_ss58,
+            *,
+            workers,
+            max_seconds,
+            backend="auto",
+            device_ids=None,
+        ):
+            calls.append(netuid)
+            fake.seed("SubtensorModule", "Difficulty", [netuid], 2)
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block - 1,
+                nonce=0,
+                work_hex=("ff" if len(calls) == 1 else "00") * 32,
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        result = invoke("subnets", "register", "--netuid", "1", "--pow", "--yes")
+        assert result.exit_code == 0, result.output
+        assert calls == [1, 1]
+        assert len(fake.submissions) == 1
+
+    def test_cli_remines_only_after_confirmed_expired_pool_rejection(self, fake, monkeypatch):
+        from bittensor.intents import PowRegister
+        from bittensor.result import ChainError, ExtrinsicResult
+        from tests.harness.fake_substrate import success_result
+
+        mined = []
+        submitted = []
+
+        async def mine(self, netuid, hotkey_ss58, coldkey_ss58, **options):
+            mined.append((options["backend"], options["device_ids"]))
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block,
+                nonce=0,
+                work_hex="00" * 32,
+                mining_backend=options["backend"],
+                mining_device_ids=options["device_ids"],
+            )
+
+        async def submit(call, keypair, **options):
+            submitted.append((call.params["work_block"], keypair.ss58_address))
+            if len(submitted) == 1:
+                fake.block += 5
+                return ExtrinsicResult(
+                    success=False, error=ChainError("pool rejection", name="BadRequest")
+                )
+            return success_result(fake.block)
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        monkeypatch.setattr(fake, "submit", submit)
+        result = invoke(
+            "subnets",
+            "register",
+            "--netuid",
+            "1",
+            "--pow",
+            "--pow-backend",
+            "gpu",
+            "--pow-device",
+            "0",
+            "--yes",
+        )
+        assert result.exit_code == 0, result.output
+        assert mined == [("gpu", [0]), ("gpu", [0])]
+        assert len(submitted) == 2
+        assert submitted[1][0] == submitted[0][0] + 5
+        assert submitted[1][1] == submitted[0][1]
+
+    @pytest.mark.parametrize(
+        "head_advance,error_name,included",
+        [(0, "BadRequest", False), (5, "BadRequest", True), (5, "Unknown", False)],
+    )
+    def test_cli_does_not_retry_fresh_included_or_uncertain_failure(
+        self, fake, monkeypatch, head_advance, error_name, included
+    ):
+        from bittensor.intents import PowRegister
+        from bittensor.result import ChainError, ExtrinsicResult
+
+        calls = []
+
+        async def mine(self, netuid, hotkey_ss58, coldkey_ss58, **options):
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block,
+                nonce=0,
+                work_hex="00" * 32,
+            )
+
+        async def submit(call, keypair, **options):
+            calls.append(call)
+            fake.block += head_advance
+            return ExtrinsicResult(
+                success=False,
+                error=ChainError("rejected", name=error_name),
+                block_hash="0x" + "11" * 32 if included else None,
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        monkeypatch.setattr(fake, "submit", submit)
+        result = invoke("subnets", "register", "--netuid", "1", "--pow", "--yes")
+        assert result.exit_code == 1, result.output
+        assert len(calls) == 1
+
+    def test_cli_caps_expired_proof_submission_attempts(self, fake, monkeypatch):
+        from bittensor.intents import PowRegister
+        from bittensor.result import ChainError, ExtrinsicResult
+
+        calls = []
+
+        async def mine(self, netuid, hotkey_ss58, coldkey_ss58, **options):
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block,
+                nonce=0,
+                work_hex="00" * 32,
+            )
+
+        async def submit(call, keypair, **options):
+            calls.append(call)
+            fake.block += 5
+            return ExtrinsicResult(
+                success=False, error=ChainError("expired", name="InvalidWorkBlock")
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        monkeypatch.setattr(fake, "submit", submit)
+        result = invoke("subnets", "register", "--netuid", "1", "--pow", "--yes")
+        assert result.exit_code == 1, result.output
+        assert len(calls) == 3
+
+    @pytest.mark.parametrize("head_age,expected_mines", [(4, 1), (5, 2)])
+    def test_cli_refreshes_only_at_five_block_pool_boundary(
+        self, fake, monkeypatch, head_age, expected_mines
+    ):
+        from bittensor.intents import PowRegister
+
+        calls = []
+
+        async def mine(self, netuid, hotkey_ss58, coldkey_ss58, **options):
+            calls.append(netuid)
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block - (head_age if len(calls) == 1 else 0),
+                nonce=0,
+                work_hex="00" * 32,
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        result = invoke("subnets", "register", "--netuid", "1", "--pow", "--yes")
+        assert result.exit_code == 0, result.output
+        assert len(calls) == expected_mines
+        assert len(fake.submissions) == 1
+
+    def test_cli_accepts_published_head_proof_without_unnecessary_refresh(self, fake, monkeypatch):
+        from bittensor.intents import PowRegister
+
+        calls = []
+
+        async def mine(self, netuid, hotkey_ss58, coldkey_ss58, **kwargs):
+            calls.append(netuid)
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block,
+                nonce=0,
+                work_hex="00" * 32,
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        result = invoke("subnets", "register", "--netuid", "1", "--pow", "--yes")
+        assert result.exit_code == 0, result.output
+        assert calls == [1]
+        assert len(fake.submissions) == 1
+
+    def test_cli_preserves_gpu_backend_and_devices_when_refreshing(self, fake, monkeypatch):
+        from bittensor.intents import PowRegister
+
+        calls = []
+
+        async def mine(
+            self, netuid, hotkey_ss58, coldkey_ss58, *, workers, max_seconds, backend, device_ids
+        ):
+            calls.append((backend, device_ids))
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block - (5 if len(calls) == 1 else 1),
+                nonce=0,
+                work_hex="ab" * 32,
+                mining_backend=backend,
+                mining_device_ids=device_ids,
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        result = invoke(
+            "subnets",
+            "register",
+            "--netuid",
+            "1",
+            "--pow",
+            "--pow-backend",
+            "gpu",
+            "--pow-device",
+            "0",
+            "--pow-device",
+            "1",
+            "--yes",
+        )
+        assert result.exit_code == 0, result.output
+        assert calls == [("gpu", [0, 1]), ("gpu", [0, 1])]
+        assert len(fake.submissions) == 1
+
+    def test_cli_refreshes_expired_proof_after_confirmation(self, fake, monkeypatch):
+        from bittensor.intents import PowRegister
+
+        calls = []
+
+        async def mine(
+            self,
+            netuid,
+            hotkey_ss58,
+            coldkey_ss58,
+            *,
+            workers,
+            max_seconds,
+            backend="auto",
+            device_ids=None,
+        ):
+            calls.append((netuid, hotkey_ss58, coldkey_ss58, workers, max_seconds))
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block - (5 if len(calls) == 1 else 1),
+                nonce=0,
+                work_hex="ab" * 32,
+                mining_workers=workers,
+                mining_timeout=max_seconds,
+                mining_backend=backend,
+                mining_device_ids=device_ids,
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        result = invoke(
+            "subnets",
+            "register",
+            "--netuid",
+            "1",
+            "--pow",
+            "--pow-workers",
+            "1",
+            "--pow-timeout",
+            "10",
+            "--yes",
+        )
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 2
+        assert calls[0] == calls[1]
+        assert len(fake.submissions) == 1

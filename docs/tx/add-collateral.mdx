@@ -23,7 +23,7 @@ to clear unshielded at an unbounded AMM price.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_collateral`](/code/pallets/subtensor/src/macros/dispatches.rs#L2858-L2868) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_collateral`](/code/pallets/subtensor/src/macros/dispatches.rs#L2874-L2884) |
 
 ## Parameters
 
@@ -77,7 +77,7 @@ result = sub.execute_tool("add_collateral", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.add_collateral` — [`pallets/subtensor/src/macros/dispatches.rs#L2860`](/code/pallets/subtensor/src/macros/dispatches.rs#L2858-L2868):
+`SubtensorModule.add_collateral` — [`pallets/subtensor/src/macros/dispatches.rs#L2876`](/code/pallets/subtensor/src/macros/dispatches.rs#L2874-L2884):
 
 ```rust
 #[pallet::call_index(144)]
@@ -93,6 +93,6 @@ pub fn add_collateral(
 }
 ```
 
-Delegates to [`do_add_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L554).
+Delegates to [`do_add_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L559).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -16,7 +16,7 @@ commit-reveal setting.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2024-L2042) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2040-L2058) |
 
 ## Parameters
 
@@ -27,6 +27,7 @@ commit-reveal setting.
 | `weights` | array of number | no | Relative weight per miner: either a JSON object mapping uid to weight, or a list parallel to uids. Values are relative, not absolute; they are clipped to the subnet's max-weight limit, normalized, and quantized before submission. |
 | `mechid` | integer | no | Mechanism index within the subnet. 0 is the default (and for most subnets the only) mechanism. |
 | `version_key` | integer | no | Weights version key checked against the subnet's required version. Leave 0 unless the subnet owner requires a specific value. |
+| `raw_u16` | boolean | no | Preserve exact u16 integer ratios on Null subnets; no scaling or clipping. |
 | `commit_reveal_version` | integer | no | Commit-reveal protocol version to tag the commit with. Keep the default unless the subnet requires an older protocol. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
@@ -70,11 +71,11 @@ result = sub.execute_tool("commit_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L2026`](/code/pallets/subtensor/src/macros/dispatches.rs#L2024-L2042):
+`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L2042`](/code/pallets/subtensor/src/macros/dispatches.rs#L2040-L2058):
 
 ```rust
 #[pallet::call_index(118)]
-#[pallet::weight((<T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), DispatchClass::Normal, Pays::No))]
+#[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), <T as Config>::WeightInfo::commit_timelocked_mechanism_weights_null()), DispatchClass::Normal, Pays::No))]
 pub fn commit_timelocked_mechanism_weights(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -94,6 +95,6 @@ pub fn commit_timelocked_mechanism_weights(
 }
 ```
 
-Delegates to [`do_commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L303).
+Delegates to [`do_commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L361).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
