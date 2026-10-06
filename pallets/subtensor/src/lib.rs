@@ -3963,4 +3963,4 @@ pub trait CommitmentsInterface<AccountId> {
 /// about 0.006 TAO at current fee calibration, so admitting every few blocks' worth of a
 /// refilling turnover bucket can spend more on transaction fees than it rebalances. Half a TAO
 /// keeps the trade well above its fee while still allowing modest funds to rebalance incrementally.
-pub const MIN_BASKET_TRADE_TAO: u64 = 500_000_000;
+pub const MIN_BASKET_TRADE_TAO: u64 = 5_000_000;
