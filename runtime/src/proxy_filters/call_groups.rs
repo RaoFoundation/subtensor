@@ -578,7 +578,6 @@ call_filter_group!(
     RootConfigCalls,
     [
         RuntimeCall::Lending(LendingCall::set_enabled),
-        RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_pool_slippage),
         RuntimeCall::AdminUtils(AdminUtilsCall::swap_authorities),
         RuntimeCall::AdminUtils(AdminUtilsCall::schedule_grandpa_change),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_default_take),

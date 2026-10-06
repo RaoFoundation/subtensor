@@ -160,148 +160,6 @@ impl Superellipse {
         Self::at_scales(alpha, tao, a, b)
     }
 
-    /// Calibrate a 45-degree anchor to a minimum ending-price decrease for a
-    /// reference sale valued at the opening spot price. This is a calibration
-    /// target, not a continuously maintained guarantee. A pool which cannot
-    /// execute the full reference preserves its safe baseline and reports that
-    /// limitation rather than pretending a partial fill satisfies the target.
-    pub fn calibrate_sell_depth(
-        &self,
-        alpha: u64,
-        tao: u64,
-        reference_tao: u64,
-        impact_bps: u16,
-        reserve_floor: u64,
-    ) -> MathResult<(Self, bool)> {
-        if reference_tao == 0 || impact_bps == 0 || impact_bps >= 10_000 {
-            return Err(EllipseError::InvalidParameters);
-        }
-        let (anchor_x, anchor_y) = self.coordinates(alpha, tao)?;
-        if anchor_x != U512::from(self.alpha_scale) || anchor_y != U512::from(self.tao_scale) {
-            return Err(EllipseError::InvalidParameters);
-        }
-        let price = self.calculate_price(alpha, tao)?;
-        if price.to_bits() == 0 {
-            return Err(EllipseError::InvalidParameters);
-        }
-        // Round the reference alpha input up: its opening value is at least
-        // the requested TAO amount, and therefore not an understated target.
-        let numerator = mul(U512::from(reference_tao), U512::from(1_u128 << 64))?;
-        let input = div(
-            add(numerator, U512::from(price.to_bits().saturating_sub(1)))?,
-            U512::from(price.to_bits()),
-        )?;
-        if input > U512::from(u64::MAX) {
-            return Ok((self.clone(), true));
-        }
-        let input = input.low_u64();
-        if alpha <= reserve_floor || tao <= reserve_floor {
-            return Ok((self.clone(), true));
-        }
-        if input > self.max_sell_input_with_reserve_floor(alpha, tao, reserve_floor)? {
-            return Ok((self.clone(), true));
-        }
-        let remainder_bps = 10_000_u16
-            .checked_sub(impact_bps)
-            .ok_or(EllipseError::InvalidParameters)?;
-        let target_bits = narrow(div(
-            mul(U512::from(price.to_bits()), U512::from(remainder_bps))?,
-            U512::from(10_000),
-        )?)?;
-        let target = U64F64::from_bits(target_bits);
-        let meets_target = |curve: &Self| -> MathResult<bool> {
-            let output = curve.sell_output(alpha, tao, input)?;
-            if output > tao.saturating_sub(reserve_floor) {
-                return Ok(false);
-            }
-            Ok(curve.calculate_price(
-                alpha.checked_add(input).ok_or(EllipseError::Overflow)?,
-                tao.checked_sub(output).ok_or(EllipseError::Overflow)?,
-            )? <= target)
-        };
-        if meets_target(self)? {
-            return Ok((self.clone(), false));
-        }
-
-        // At X/a = Y/b = 1, p_after/p_before = t/sqrt(2-t^2),
-        // where t = 1 - input/a. Solve once for t in Q64. Rounding
-        // t down, and scales down, biases the curve toward greater impact.
-        let remainder = U512::from(remainder_bps);
-        let remainder2 = mul(remainder, remainder)?;
-        let t = sqrt_floor(div(
-            mul(
-                mul(remainder2, U512::from(2))?,
-                mul(U512::from(1_u128 << 64), U512::from(1_u128 << 64))?,
-            )?,
-            add(U512::from(100_000_000), remainder2)?,
-        )?);
-        let u = sub(U512::from(1_u128 << 64), t)?;
-        let desired_a = div(
-            mul(
-                mul(U512::from(input), U512::from(SCALE))?,
-                U512::from(1_u128 << 64),
-            )?,
-            u,
-        )?;
-        let upper = narrow(div(
-            mul(desired_a, U512::from(SCALE))?,
-            U512::from(self.alpha_scale),
-        )?)?
-        .min(SCALE);
-        // One Q32 scaling unit also covers ordinary atomic payout rounding.
-        let upper = upper.saturating_sub(1);
-        let input_q32 = mul(U512::from(input), U512::from(SCALE))?;
-        let minimum = narrow(div(
-            add(
-                mul(add(input_q32, U512::one())?, U512::from(SCALE))?,
-                U512::from(self.alpha_scale.saturating_sub(1)),
-            )?,
-            U512::from(self.alpha_scale),
-        )?)?
-        .max(1);
-        if minimum > upper {
-            return Ok((self.clone(), true));
-        }
-        let at_scale = |factor: u128| -> MathResult<Self> {
-            let a = narrow(div(
-                mul(U512::from(self.alpha_scale), U512::from(factor))?,
-                U512::from(SCALE),
-            )?)?;
-            let b = narrow(div(
-                mul(U512::from(self.tao_scale), U512::from(factor))?,
-                U512::from(SCALE),
-            )?)?;
-            Self::at_scales(alpha, tao, a, b)
-        };
-        let candidate = at_scale(upper)?;
-        if meets_target(&candidate)? {
-            return Ok((candidate, false));
-        }
-        // Atomic rounding matters most for exceptionally small balances.
-        // A bounded search corrects those cases against the actual quote.
-        let first = at_scale(minimum)?;
-        if !meets_target(&first)? {
-            return Ok((self.clone(), true));
-        }
-        let mut low = minimum;
-        let mut high = upper;
-        while low < high {
-            let mid = low
-                .checked_add(
-                    high.checked_sub(low)
-                        .ok_or(EllipseError::Overflow)?
-                        .div_ceil(2),
-                )
-                .ok_or(EllipseError::Overflow)?;
-            if meets_target(&at_scale(mid)?)? {
-                low = mid;
-            } else {
-                high = mid.checked_sub(1).ok_or(EllipseError::Overflow)?;
-            }
-        }
-        Ok((at_scale(low)?, false))
-    }
-
     fn at_scales(alpha: u64, tao: u64, a: u128, b: u128) -> MathResult<Self> {
         if a == 0 || b == 0 {
             return Err(EllipseError::InvalidParameters);
@@ -704,7 +562,7 @@ mod tests {
     }
 
     #[test]
-    fn calibration_preserves_price_and_local_sensitivity() {
+    fn baseline_preserves_price_and_local_sensitivity() {
         let (alpha, tao) = (10_000_000_000_000_u64, 500_000_000_000_u64);
         for weight in [1_u64, 10, 30, 50, 70, 90, 99] {
             let quote = Perquintill::from_percent(weight);
@@ -721,6 +579,15 @@ mod tests {
                 .to_num::<f64>();
             let slope = (after / price).ln() / input as f64;
             let expected_slope = 1. / ((1. - wq) * tao as f64);
+            assert!((slope / expected_slope - 1.).abs() < 0.0001);
+            let input = 1_000_000;
+            let output = pool.sell_output(alpha, tao, input).unwrap();
+            let after = pool
+                .calculate_price(alpha + input, tao - output)
+                .unwrap()
+                .to_num::<f64>();
+            let slope = -(after / price).ln() / input as f64;
+            let expected_slope = 1. / (wq * alpha as f64);
             assert!((slope / expected_slope - 1.).abs() < 0.0001);
         }
     }
@@ -889,47 +756,7 @@ mod tests {
     }
 
     #[test]
-    fn sell_depth_targets_preserve_price_for_all_balancer_weights() {
-        let (alpha, tao) = (2_880_603_110_475_064, 203_305_249_479_705);
-        for weight in [1, 10, 30, 50, 70, 90, 99] {
-            let baseline =
-                Superellipse::from_weights(alpha, tao, Perquintill::from_percent(weight)).unwrap();
-            let before = baseline.calculate_price(alpha, tao).unwrap();
-            for impact in [1, 10, 100, 300, 1_000, 9_000] {
-                let (curve, limited) = baseline
-                    .calibrate_sell_depth(alpha, tao, 500_000_000_000, impact, 1_000_000)
-                    .unwrap();
-                assert!(!limited, "weight={weight}, impact={impact}");
-                let after = curve.calculate_price(alpha, tao).unwrap();
-                let relative = after.to_num::<f64>() / before.to_num::<f64>() - 1.;
-                assert!(relative.abs() < 1e-12, "price changed by {relative}");
-                let input = narrow_amount(
-                    narrow(
-                        div(
-                            add(
-                                mul(U512::from(500_000_000_000_u64), U512::from(1_u128 << 64))
-                                    .unwrap(),
-                                U512::from(after.to_bits() - 1),
-                            )
-                            .unwrap(),
-                            U512::from(after.to_bits()),
-                        )
-                        .unwrap(),
-                    )
-                    .unwrap(),
-                )
-                .unwrap();
-                let output = curve.sell_output(alpha, tao, input).unwrap();
-                assert!(output <= tao - 1_000_000);
-                let end = curve.calculate_price(alpha + input, tao - output).unwrap();
-                let target = before.to_bits() * u128::from(10_000 - impact) / 10_000;
-                assert!(end.to_bits() <= target);
-            }
-        }
-    }
-
-    #[test]
-    fn calibrated_extraction_is_safe_for_full_width_reserves() {
+    fn baseline_extraction_is_safe_for_full_width_reserves() {
         let mut state = 59_u64;
         let mut next = || {
             state = state
@@ -941,11 +768,7 @@ mod tests {
             let alpha = next().max(1);
             let tao = next().max(1);
             let weight = Perquintill::from_percent(next() % 99 + 1);
-            let impact = (next() % 9_999 + 1) as u16;
-            let baseline = Superellipse::from_weights(alpha, tao, weight).unwrap();
-            let (mut curve, _) = baseline
-                .calibrate_sell_depth(alpha, tao, 500_000_000_000, impact, 1)
-                .unwrap();
+            let mut curve = Superellipse::from_weights(alpha, tao, weight).unwrap();
             let before = curve.clone();
             let take = curve.extractable_reserves(alpha, tao, 1).unwrap();
             curve.withdraw_liquidity(take.0, take.1).unwrap();
@@ -980,37 +803,11 @@ mod tests {
     }
 
     #[test]
-    fn shallow_and_reference_limited_pools_keep_their_baseline() {
-        let (alpha, tao) = (4_000_000_000_000, 1_000_000_000_000);
-        let baseline = equal(alpha, tao);
-        let (curve, limited) = baseline
-            .calibrate_sell_depth(alpha, tao, 500_000_000_000, 100, 1)
-            .unwrap();
-        assert!(!limited);
-        assert_eq!(curve, baseline);
-        let tiny = equal(4_000_000_000, 1_000_000_000);
-        let (curve, limited) = tiny
-            .calibrate_sell_depth(4_000_000_000, 1_000_000_000, 500_000_000_000, 100, 1)
-            .unwrap();
-        assert!(limited);
-        assert_eq!(curve, tiny);
-        for impact in [0, 10_000, u16::MAX] {
-            assert_eq!(
-                baseline.calibrate_sell_depth(alpha, tao, 500_000_000_000, impact, 1),
-                Err(EllipseError::InvalidParameters)
-            );
-        }
-    }
-
-    #[test]
     fn globally_unreachable_extraction_preserves_quotes_and_boundaries() {
         let (alpha, tao) = (2_880_603_110_475_064, 203_305_249_479_705);
         for weight in [1, 10, 50, 90, 99] {
-            let original =
+            let mut curve =
                 Superellipse::from_weights(alpha, tao, Perquintill::from_percent(weight)).unwrap();
-            let (mut curve, _) = original
-                .calibrate_sell_depth(alpha, tao, 500_000_000_000, 100, 1_000_000)
-                .unwrap();
             let before = curve.clone();
             let take = curve.extractable_reserves(alpha, tao, 1_000_000).unwrap();
             let next_alpha = alpha - take.0;

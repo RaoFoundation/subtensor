@@ -439,15 +439,6 @@ class Prices(_ReadNamespace):
         loans will be repaid.
         """
 
-    async def pool_depth(self, netuid: int, *, block: Optional[int] = None) -> dict:
-        """Minimum calibrated sell impact for a 500-TAO-equivalent alpha sale.
-
-        This is an ending spot-price target excluding fees, calibrated once; it
-        is not an execution-slippage guarantee at every later pool state.
-        `reference_limited` means the full reference sale cannot execute and
-        the safe baseline curve was retained instead of promising that target.
-        """
-
     async def quote_stake(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> SwapQuote:
         """Simulate staking `amount_tao` TAO into a subnet: alpha out, fee, and slippage.
 

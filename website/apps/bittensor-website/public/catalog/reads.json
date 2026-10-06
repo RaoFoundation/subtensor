@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 2812,
-        "end_line": 2822,
-        "url": "/code/runtime/src/lib.rs#L2812-L2822",
+        "line": 2813,
+        "end_line": 2823,
+        "url": "/code/runtime/src/lib.rs#L2813-L2823",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -932,9 +932,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_hotkey_conviction",
         "path": "runtime/src/lib.rs",
-        "line": 2667,
-        "end_line": 2669,
-        "url": "/code/runtime/src/lib.rs#L2667-L2669",
+        "line": 2668,
+        "end_line": 2670,
+        "url": "/code/runtime/src/lib.rs#L2668-L2670",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1479,9 +1479,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_most_convicted_hotkey_on_subnet",
         "path": "runtime/src/lib.rs",
-        "line": 2671,
-        "end_line": 2673,
-        "url": "/code/runtime/src/lib.rs#L2671-L2673",
+        "line": 2672,
+        "end_line": 2674,
+        "url": "/code/runtime/src/lib.rs#L2672-L2674",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1685,21 +1685,6 @@
     ]
   },
   {
-    "name": "pool_depth",
-    "summary": "Minimum calibrated sell impact for a 500-TAO-equivalent alpha sale.",
-    "description": "Minimum calibrated sell impact for a 500-TAO-equivalent alpha sale.\n\nThis is an ending spot-price target excluding fees, calibrated once; it\nis not an execution-slippage guarantee at every later pool state.\n`reference_limited` means the full reference sale cannot execute and\nthe safe baseline curve was retained instead of promising that target.",
-    "params": {
-      "netuid": "integer"
-    },
-    "param_docs": {
-      "netuid": "Subnet whose calibration settings to inspect."
-    },
-    "category": "Prices & swaps",
-    "docs_url": "/docs/query/pool-depth",
-    "markdown_url": "/llms.mdx/docs/query/pool-depth/content.md",
-    "python": "sub.prices.pool_depth(...)"
-  },
-  {
     "name": "proxies",
     "summary": "Proxy delegations of an account: who may sign on its behalf, and the reserved deposit.",
     "description": "Proxy delegations of an account: who may sign on its behalf, and the reserved deposit.",
@@ -1747,9 +1732,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 2824,
-        "end_line": 2852,
-        "url": "/code/runtime/src/lib.rs#L2824-L2852",
+        "line": 2825,
+        "end_line": 2853,
+        "url": "/code/runtime/src/lib.rs#L2825-L2853",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1776,9 +1761,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 2854,
-        "end_line": 2882,
-        "url": "/code/runtime/src/lib.rs#L2854-L2882",
+        "line": 2855,
+        "end_line": 2883,
+        "url": "/code/runtime/src/lib.rs#L2855-L2883",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1857,9 +1842,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2684,
-        "end_line": 2686,
-        "url": "/code/runtime/src/lib.rs#L2684-L2686",
+        "line": 2685,
+        "end_line": 2687,
+        "url": "/code/runtime/src/lib.rs#L2685-L2687",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1922,9 +1907,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2696,
-        "end_line": 2698,
-        "url": "/code/runtime/src/lib.rs#L2696-L2698",
+        "line": 2697,
+        "end_line": 2699,
+        "url": "/code/runtime/src/lib.rs#L2697-L2699",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2494,9 +2479,9 @@
         "container": "SubnetRegistrationRuntimeApi",
         "name": "get_network_registration_cost",
         "path": "runtime/src/lib.rs",
-        "line": 2677,
-        "end_line": 2679,
-        "url": "/code/runtime/src/lib.rs#L2677-L2679",
+        "line": 2678,
+        "end_line": 2680,
+        "url": "/code/runtime/src/lib.rs#L2678-L2680",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2791,9 +2776,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2690,
-        "end_line": 2692,
-        "url": "/code/runtime/src/lib.rs#L2690-L2692",
+        "line": 2691,
+        "end_line": 2693,
+        "url": "/code/runtime/src/lib.rs#L2691-L2693",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]

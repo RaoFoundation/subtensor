@@ -390,8 +390,10 @@ fn test_over_cap_winner_only_blocks_further_buys() {
         );
         assert_eq!(escrow_alpha(&hotkey, a), winner);
 
-        // Allowed: take profit into another subnet, and into cash.
-        let slice = sell_impact_slice(a, U64F64::from_num(0.995));
+        // Allowed: take profit into another subnet, and into cash. Keep each
+        // slice within both the 0.5% price band and 5% of the winner's holding;
+        // a deep baseline curve can quote far more alpha than this fund owns.
+        let slice = sell_impact_slice(a, U64F64::from_num(0.995)).min(winner / 20);
         assert!(slice > 0 && slice < winner / 10);
         assert_ok!(SubtensorModule::do_swap_basket(
             coldkey, hotkey, a, b, slice, 0

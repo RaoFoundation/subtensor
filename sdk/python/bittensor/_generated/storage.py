@@ -429,8 +429,6 @@ class Swap:
     FeeRate = Item('Swap', 'FeeRate', 'u16')
     SwapBalancer = Item('Swap', 'SwapBalancer', 'Balancer')
     SwapSuperellipse = Item('Swap', 'SwapSuperellipse', 'Superellipse')
-    MinimumSellImpactBps = Item('Swap', 'MinimumSellImpactBps', 'u16')
-    SlippageReferenceLimited = Item('Swap', 'SlippageReferenceLimited', 'bool')
     ExtractedReserves = Item('Swap', 'ExtractedReserves', '(AlphaBalance, TaoBalance)')
     PalSwapInitialized = Item('Swap', 'PalSwapInitialized', 'bool')
     BalancerTaoReservoir = Item('Swap', 'BalancerTaoReservoir', 'TaoBalance')

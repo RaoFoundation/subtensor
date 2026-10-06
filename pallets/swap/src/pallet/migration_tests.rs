@@ -13,7 +13,7 @@ fn stamped() -> bool {
 }
 
 #[test]
-fn migration_preserves_price_balances_and_calibrates_sell_depth_for_extreme_weights() {
+fn migration_preserves_price_balances_and_baseline_curve_for_extreme_weights() {
     new_test_ext().execute_with(|| {
         let x = 10_000_000_000_000_000u64;
         let y = 500_000_000_000_000u64;
@@ -35,12 +35,8 @@ fn migration_preserves_price_balances_and_calibrates_sell_depth_for_extreme_weig
             let quote = Perquintill::from_rational(parts, 1000u64);
             let old = SwapBalancer::<Test>::get(netuid);
             let ellipse = SwapSuperellipse::<Test>::get(netuid).unwrap();
-            let (expected, limited) = super::superellipse::Superellipse::from_balancer(x, y, quote)
-                .unwrap()
-                .calibrate_sell_depth(x, y, SLIPPAGE_REFERENCE_TAO, 100, 1)
-                .unwrap();
+            let expected = super::superellipse::Superellipse::from_balancer(x, y, quote).unwrap();
             assert_eq!(ellipse, expected);
-            assert_eq!(SlippageReferenceLimited::<Test>::get(netuid), limited);
             let p_before = old.calculate_price(x, y).to_num::<f64>();
             let p_after = ellipse.calculate_price(x, y).unwrap().to_num::<f64>();
             assert!((p_after / p_before - 1.0).abs() < 1e-10);
@@ -55,6 +51,59 @@ fn migration_preserves_price_balances_and_calibrates_sell_depth_for_extreme_weig
                 TaoBalance::from(29u64)
             );
             assert_eq!(old.get_quote_weight(), quote);
+        }
+    });
+}
+
+#[test]
+fn migration_and_lazy_initialization_preserve_deep_pool_sensitivity_and_capacity() {
+    new_test_ext().execute_with(|| {
+        // A Chutes-sized pool previously had its scales tightened to meet the
+        // 500-TAO target. Both eager and lazy conversion now retain the baseline.
+        let alpha = 2_880_603_110_475_064_u64;
+        let tao = 203_305_249_479_705_u64;
+        let expected =
+            Superellipse::from_balancer(alpha, tao, Perquintill::from_percent(50)).unwrap();
+        let eager = NetUid::from(54);
+        let lazy = NetUid::from(55);
+        for netuid in [eager, lazy] {
+            AlphaReserve::set_mock_reserve(netuid, alpha.into());
+            TaoReserve::set_mock_reserve(netuid, tao.into());
+        }
+        PalSwapInitialized::<Test>::insert(eager, true);
+        migrate_balancer_to_superellipse::<Test>();
+        Pallet::<Test>::maybe_initialize_palswap(lazy, None).unwrap();
+        for netuid in [eager, lazy] {
+            let curve = SwapSuperellipse::<Test>::get(netuid).unwrap();
+            assert_eq!(curve, expected);
+            assert_eq!(curve.max_buy_input(alpha, tao).unwrap(), tao - 1);
+            let input = 500_000_000_000_u64;
+            let bought = curve.buy_output(alpha, tao, input).unwrap();
+            let before = curve.calculate_price(alpha, tao).unwrap().to_num::<f64>();
+            let after = curve
+                .calculate_price(alpha - bought, tao + input)
+                .unwrap()
+                .to_num::<f64>();
+            assert!(after > before && after < before * 1.01);
+            let quotes = (
+                curve.buy_output(alpha, tao, input).unwrap(),
+                curve.sell_output(alpha, tao, input).unwrap(),
+            );
+            Pallet::<Test>::extract_unreachable_reserves(netuid).unwrap();
+            let active_alpha = u64::from(AlphaReserve::reserve(netuid));
+            let active_tao = u64::from(TaoReserve::reserve(netuid));
+            let funded = SwapSuperellipse::<Test>::get(netuid).unwrap();
+            assert_eq!(
+                funded.max_buy_input(active_alpha, active_tao).unwrap(),
+                tao - 1
+            );
+            assert_eq!(
+                (
+                    funded.buy_output(active_alpha, active_tao, input).unwrap(),
+                    funded.sell_output(active_alpha, active_tao, input).unwrap(),
+                ),
+                quotes
+            );
         }
     });
 }
@@ -83,7 +132,7 @@ fn migration_handles_initialized_only_archived_only_empty_root_and_removed_pools
             assert!(!SwapSuperellipse::<Test>::contains_key(netuid));
         }
         let curve = SwapSuperellipse::<Test>::get(implicit).unwrap();
-        // Once stamped, later reserve changes must not recalibrate migrated pools.
+        // Once stamped, later reserve changes must not rebuild migrated pools.
         TaoReserve::set_mock_reserve(implicit, TaoBalance::from(123u64));
         migrate_balancer_to_superellipse::<Test>();
         assert_eq!(SwapSuperellipse::<Test>::get(implicit), Some(curve));
@@ -159,6 +208,30 @@ fn migration_try_runtime_rejects_reserve_drift() {
     });
 }
 
+#[cfg(feature = "try-runtime")]
+#[test]
+fn migration_try_runtime_rejects_price_preserving_depth_changes() {
+    use crate::pallet::migrations::migrate_balancer_to_superellipse::{post_upgrade, pre_upgrade};
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(83);
+        PalSwapInitialized::<Test>::insert(netuid, true);
+        let before = pre_upgrade::<Test>().unwrap();
+        migrate_balancer_to_superellipse::<Test>();
+        let alpha = u64::from(AlphaReserve::reserve(netuid));
+        let tao = u64::from(TaoReserve::reserve(netuid));
+        let original_price = Pallet::<Test>::current_price(netuid);
+        let mut tightened =
+            Superellipse::from_balancer(alpha / 2, tao / 2, Perquintill::from_percent(50)).unwrap();
+        tightened.translate_liquidity(alpha / 2, tao / 2).unwrap();
+        assert_eq!(
+            tightened.calculate_price(alpha, tao).unwrap(),
+            original_price
+        );
+        SwapSuperellipse::<Test>::insert(netuid, tightened);
+        assert!(post_upgrade::<Test>(before).is_err());
+    });
+}
+
 #[test]
 fn reserve_extraction_preserves_price_quotes_and_is_idempotent() {
     new_test_ext().execute_with(|| {
@@ -206,38 +279,11 @@ fn reserve_extraction_preserves_price_quotes_and_is_idempotent() {
 }
 
 #[test]
-fn explicit_recalibration_preserves_current_post_trade_price() {
-    new_test_ext().execute_with(|| {
-        let netuid = NetUid::from(92);
-        let alpha = 2_880_603_110_475_064_u64;
-        let tao = 203_305_249_479_705_u64;
-        AlphaReserve::set_mock_reserve(netuid, alpha.into());
-        TaoReserve::set_mock_reserve(netuid, tao.into());
-        PalSwapInitialized::<Test>::insert(netuid, true);
-        migrate_balancer_to_superellipse::<Test>();
-        let curve = SwapSuperellipse::<Test>::get(netuid).unwrap();
-        let output = curve.buy_output(alpha, tao, 100_000_000_000).unwrap();
-        AlphaReserve::set_mock_reserve(netuid, (alpha - output).into());
-        TaoReserve::set_mock_reserve(netuid, (tao + 100_000_000_000).into());
-        let before = Pallet::<Test>::current_price(netuid).to_num::<f64>();
-        Pallet::<Test>::configure_slippage(netuid, 300).unwrap();
-        let after = Pallet::<Test>::current_price(netuid).to_num::<f64>();
-        assert!((after / before - 1.).abs() < 1e-12);
-        assert_eq!(MinimumSellImpactBps::<Test>::get(netuid), 300);
-        assert!(!SlippageReferenceLimited::<Test>::get(netuid));
-        assert!(Pallet::<Test>::configure_slippage(netuid, 0).is_err());
-        assert_eq!(MinimumSellImpactBps::<Test>::get(netuid), 300);
-    });
-}
-
-#[test]
-fn pool_cleanup_clears_curve_policy_and_extraction_counters_for_netuid_reuse() {
+fn pool_cleanup_clears_curve_and_extraction_counters_for_netuid_reuse() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(93);
         PalSwapInitialized::<Test>::insert(netuid, true);
         migrate_balancer_to_superellipse::<Test>();
-        MinimumSellImpactBps::<Test>::insert(netuid, 300);
-        SlippageReferenceLimited::<Test>::insert(netuid, true);
         ExtractedReserves::<Test>::insert(
             netuid,
             (AlphaBalance::from(11_u64), TaoBalance::from(17_u64)),
@@ -247,8 +293,6 @@ fn pool_cleanup_clears_curve_policy_and_extraction_counters_for_netuid_reuse() {
             netuid, &mut meter
         ));
         assert!(!SwapSuperellipse::<Test>::contains_key(netuid));
-        assert!(!MinimumSellImpactBps::<Test>::contains_key(netuid));
-        assert!(!SlippageReferenceLimited::<Test>::contains_key(netuid));
         assert!(!ExtractedReserves::<Test>::contains_key(netuid));
     });
 }

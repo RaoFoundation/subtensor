@@ -332,7 +332,7 @@ impl pallet_subtensor_swap::Config for Test {
     type MaxFeeRate = SwapMaxFeeRate;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
-    type CalibrationWeight = SwapCalibrationWeight;
+    type CurveInitializationWeight = SwapCurveInitializationWeight;
     type WeightInfo = ();
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
@@ -589,4 +589,4 @@ pub fn add_balance_to_coldkey_account(coldkey: &U256, tao: TaoBalance) {
     }
 }
 
-frame_support::parameter_types! { pub SwapCalibrationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }
+frame_support::parameter_types! { pub SwapCurveInitializationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }

@@ -465,7 +465,7 @@ impl pallet_subtensor_swap::Config for Test {
     type MaxFeeRate = SwapMaxFeeRate;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
-    type CalibrationWeight = SwapCalibrationWeight;
+    type CurveInitializationWeight = SwapCurveInitializationWeight;
     type WeightInfo = ();
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
@@ -778,4 +778,4 @@ pub(crate) fn setup_reserves(netuid: NetUid, tao: TaoBalance, alpha: AlphaBalanc
     pallet_subtensor_swap::PalSwapInitialized::<Test>::remove(netuid);
 }
 
-frame_support::parameter_types! { pub SwapCalibrationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }
+frame_support::parameter_types! { pub SwapCurveInitializationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }

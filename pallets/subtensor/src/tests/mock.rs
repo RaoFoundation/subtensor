@@ -465,7 +465,7 @@ impl pallet_subtensor_swap::Config for Test {
     type MaxFeeRate = SwapMaxFeeRate;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
-    type CalibrationWeight = SwapCalibrationWeight;
+    type CurveInitializationWeight = SwapCurveInitializationWeight;
     type WeightInfo = ();
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
@@ -1577,7 +1577,7 @@ pub fn run_destroy_alpha_in_out_stakes_full_pipeline(netuid: NetUid) {
     );
 }
 
-frame_support::parameter_types! { pub SwapCalibrationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }
+frame_support::parameter_types! { pub SwapCurveInitializationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }
 
 parameter_types! {
     pub const LendingPalletId: PalletId = PalletId(*b"bt/loans");

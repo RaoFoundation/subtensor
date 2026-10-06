@@ -187,7 +187,6 @@
     "InvalidSchedule",
     "InvalidSeal",
     "InvalidSignature",
-    "InvalidSlippageTarget",
     "InvalidSpecName",
     "InvalidTickRange",
     "InvalidValue",

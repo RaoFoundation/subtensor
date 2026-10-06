@@ -240,7 +240,7 @@ fn test_swap_initialization() {
         );
 
         assert!(SwapSuperellipse::<Test>::contains_key(netuid));
-        // Archived Balancer calibration remains available.
+        // Archived Balancer weights remain available.
         let reserve_weight = SwapBalancer::<Test>::get(netuid);
         assert_eq!(
             reserve_weight.get_quote_weight(),
@@ -448,7 +448,7 @@ fn test_swap_precision_edge_case() {
     });
 }
 
-/// Independent floating-point reference for the migration-calibrated ellipse.
+/// Independent floating-point reference for the baseline migrated ellipse.
 fn ellipse_output(alpha: u64, tao: u64, weight: f64, input: u64, buy: bool) -> u64 {
     let a = 2.0 * weight * alpha as f64;
     let b = 2.0 * (1.0 - weight) * tao as f64;

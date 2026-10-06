@@ -5,9 +5,9 @@ import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'Tunable Pool Depth and Reserve Lending',
+  title: 'Pool Reserves and Native Lending',
   description:
-    'A proposed price-preserving migration calibrates subnet pool depth and creates separate ' +
+    'A proposed migration preserves opening price and local sensitivity, creating separate ' +
     'lending reserves for custodial alpha shorts and transferable TAO loans.',
   alternates: {canonical: '/releases/pool-lending'},
 };
@@ -17,7 +17,7 @@ export default function PoolLendingRelease() {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <h1 className={styles.paper_title}>Tunable Pool Depth and Reserve Lending</h1>
+          <h1 className={styles.paper_title}>Pool Reserves and Native Lending</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             Proposed network upgrade · Not yet deployed
           </p>
@@ -26,25 +26,25 @@ export default function PoolLendingRelease() {
         <section className={styles.section}>
           <h2 className={styles.subtitle}>One pool migration, two uses of liquidity</h2>
           <p>
-            This upgrade gives subnet pools a tunable price response and puts balances outside their
-            trading range to work as lending inventory. Existing pools move to a translated ellipse
-            while keeping their opening prices. The initial calibration targets at least a 1% fall
-            in ending spot price for a sale of alpha worth 500 TAO at that opening price, excluding
-            fees. Pools already sufficiently sensitive keep their baseline response.
+            This upgrade puts balances outside subnet pools&apos; trading range to work as lending
+            inventory. Existing pools move to a translated ellipse while preserving their opening
+            prices and local price sensitivity. The migration uses the baseline ellipse for every
+            pool, without additional tightening of its depth.
           </p>
           <p>
-            The target holds at calibration; parameters stay fixed between explicit changes. Pools
-            unable to execute the full reference trade retain a safe baseline and report that
-            limitation. The ellipse has finite buy and sell endpoints, so complete swaps must fit
-            its remaining range and any caller price limits.
+            V1 defers the proposed minimum 1% ending-price movement for a 500-TAO-equivalent trade.
+            It does not expose a pool-depth tuning call. Very small trades preserve their opening
+            price response; finite trades differ because the curve has a different shape. The
+            ellipse still has finite buy and sell endpoints, so complete swaps must fit its
+            remaining range and any caller price limits.
           </p>
           <p>
             The migration transfers globally unreachable alpha and TAO balances into separate
-            vaults. It adjusts the ellipse centers by the same amounts, preserving the calibrated
-            swap quotes. The assets can be extracted independently, without paired liquidity
-            withdrawal or token creation. Borrowing is enabled only after the complete migration
-            succeeds; an incomplete migration leaves it disabled. Governance can pause new loans
-            without disabling repayments.
+            vaults. It adjusts the ellipse centers by the same amounts, preserving the rebuilt swap
+            quotes. The assets can be extracted independently, without paired liquidity withdrawal
+            or token creation. Borrowing is enabled only after the complete migration succeeds; an
+            incomplete migration leaves it disabled. Governance can pause new loans without
+            disabling repayments.
           </p>
         </section>
 

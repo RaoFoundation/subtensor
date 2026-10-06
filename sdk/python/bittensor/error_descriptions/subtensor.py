@@ -8,9 +8,8 @@ DESCRIPTIONS: dict[str, str] = {
         "rolled back. Check the lending migration status and custody account registration."
     ),
     "LendingPositionsOpen": (
-        "A key move or pool recalibration would affect an open lending position. Close the "
-        "positions owned by the affected coldkey before changing its keys, or all positions "
-        "on the subnet before recalibrating its curve, then retry. Nominated stake migrations "
+        "A key move would affect an open lending position. Close the positions owned by "
+        "the affected coldkey before changing its keys, then retry. Nominated stake migrations "
         "by other validators update the saved loan hotkey automatically."
     ),
     "AccountRejectsLockedAlpha": (

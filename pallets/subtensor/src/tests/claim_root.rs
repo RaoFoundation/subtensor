@@ -2825,7 +2825,7 @@ fn test_root_basket_large_magnitudes_no_saturation() {
         remove_owner_registration_stake(netuid);
 
         // Large reserve counters exercise fixed-point arithmetic. The migration's
-        // depth target still applies; realizable value must use its calibrated curve.
+        // baseline ellipse still applies; realizable value must use its executable curve.
         setup_reserves(
             netuid,
             1_000_000_000_000_000_000u64.into(),
@@ -2866,7 +2866,7 @@ fn test_root_basket_large_magnitudes_no_saturation() {
 
         // This executable alpha credit still makes dividend*shares exceed 96
         // integer bits. Shares must track the curve's realizable contribution,
-        // including its deliberately increased impact, without saturating.
+        // including its finite-trade price impact, without saturating.
         let dividend = 5_000_000_000_000u64;
         let value = SubtensorModule::realizable_tao_for_alpha(netuid, dividend);
         assert!(u128::from(dividend) * u128::from(fund_scale) > (1u128 << 96));
@@ -3654,6 +3654,9 @@ fn test_root_basket_claim_near_endpoint_preserves_sale_surplus_and_conservation(
         <Test as crate::Config>::SwapInterface::init_swap(netuid, None);
         let curve = pallet_subtensor_swap::Pallet::<Test>::superellipse(netuid).unwrap();
         let holding = curve.max_sell_input(initial_alpha, initial_tao).unwrap() * 3 / 4;
+        // Equal shareholders receive exact halves of this fixture's alpha. Retain
+        // the near-endpoint holding while avoiding an unrelated odd-unit residue.
+        let holding = holding / 2 * 2;
         let escrow = SubtensorModule::get_beta_escrow_account_id();
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,

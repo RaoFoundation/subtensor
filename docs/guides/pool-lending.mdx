@@ -1,12 +1,11 @@
 ---
-title: Tunable pool depth and reserve lending
-description: How the proposed price preserving pool migration creates separate lending reserves and supports fixed principal subnet shorts and TAO loans.
+title: Pool reserves and native lending
+description: How the proposed migration preserves opening price and local sensitivity, creates separate lending reserves and supports fixed principal subnet shorts and TAO loans.
 ---
 
-This upgrade gives subnet pools a configurable price response and uses balances
-outside the resulting curve's trading range to fund a separate lending vault.
-The initial calibration asks for at least a **1% fall in ending spot price when
-alpha worth 500 TAO at the opening price is sold**. Borrowers can then open
+This upgrade moves subnet pools to a translated ellipse while preserving each
+pool's opening price and local price sensitivity. Balances outside the new
+curve's trading range fund a separate lending vault. Borrowers can then open
 custodial shorts or borrow transferable TAO against alpha collateral.
 
 This page describes the proposed implementation. It is not a mainnet launch
@@ -14,32 +13,25 @@ announcement. Borrowing is enabled only after the complete pool migration
 succeeds. If migration cannot complete, it stays disabled. Governance can pause
 new loans; repayment remains available independently of that safety switch.
 
-## Pool calibration and migration
+## Pool migration
 
 Each dynamic subnet pool moves from weighted Balancer pricing to a translated
-ellipse, a superellipse with exponent two. The migration chooses scales and
-centers that preserve the pool's opening price. If the baseline curve already
-responds sufficiently to the reference sale, it keeps that sensitivity;
-otherwise it shrinks the scales until the complete reference sale meets the
-configured minimum ending price impact. Governance can change that minimum.
+ellipse, a superellipse with exponent two. Its scales and centers preserve the
+pool's opening price and local price sensitivity. The curve parameters stay
+fixed after swaps, and later liquidity injections preserve the existing curve
+coordinates instead of recalibrating its depth.
 
-The reference is a fixed 500 TAO, converted into an alpha amount at the pool's
-opening spot price and rounded up to whole atoms. Its 1% target excludes swap
-fees. It describes the **ending spot price**, rather than a 1% loss on the
-trade's average execution price. Purchases use the same curve, but a finite buy
-and a finite sale need not have exactly equal percentage impact.
+V1 does not impose a minimum price movement for a fixed trade size or expose a
+pool-depth tuning call. The proposed 1% ending-price movement for a
+500-TAO-equivalent trade is deferred to a future design. Preserving local
+sensitivity means the price response of a very small trade is unchanged at
+migration; finite trades differ because the ellipse has a different shape.
+Purchases and sales need not have exactly equal percentage impact.
 
-Calibration happens once. The parameters do not change after every swap, and
-later liquidity injections preserve the existing curve response instead of
-recalibrating it. The target is therefore a property of the calibration state,
-not a promise that every future 500-TAO-equivalent sale has the same impact.
-
-Some pools cannot execute the entire reference sale within the safe baseline
-range. Those pools keep that baseline and report `reference_limited`; they do
-not claim to meet a target on a trade they cannot complete. Empty pools and root
-are not funded by this migration. Later tuning must respect the runtime's
-borrowing checks; it cannot treat inventory already lent out as immediately
-available.
+The finite buy and sell boundaries remain. An order must fit the available
+curve range, output reserves and caller price limits. Empty pools and root are
+not funded by this migration. Lending inventory comes from the baseline
+ellipse's unreachable floors, without additional tightening of the curve.
 
 ## Where lending inventory comes from
 
@@ -52,7 +44,7 @@ Consequently, some physical alpha and TAO cannot be withdrawn through swaps
 while these parameters stay fixed. The migration calculates these global
 reserve floors and transfers them into the lending vault. It subtracts each
 extracted amount from the corresponding ellipse center as well as the active
-reserve, preserving the translated coordinates and the calibrated swap quotes.
+reserve, preserving the translated coordinates and the rebuilt swap quotes.
 Alpha and TAO can be extracted independently; paired proportional liquidity
 withdrawal is unnecessary. The transfer creates no new tokens.
 
@@ -177,13 +169,12 @@ V1 supports at most 256 funded subnet vaults, bounding reference-update work.
 When those slots are full, additional pools retain their reserves in the AMM
 and cannot open loans. Automatic admission checks at most one subnet per block
 and resumes funding after a completed subnet deregistration frees a vault slot.
-The pool calibration still applies to those deferred subnets.
+The baseline ellipse migration still applies to those deferred subnets.
 
 V1 additionally limits open positions to 128 per subnet and 256 across the
-chain. Closing releases position slots. A borrower's own coldkey and hotkey changes,
-and curve recalibration on a subnet with open positions, are blocked until
-closing. If a validator moves a hotkey's nominated stake, positions follow the
-actual stake migration so their repayment source and collateral destination
+chain. Closing releases position slots. A borrower's own coldkey and hotkey
+changes are blocked until closing. If a validator moves a hotkey's nominated
+stake, positions follow the actual stake migration so their repayment source and collateral destination
 remain correct. Keeping stake on the old hotkey also keeps the position's source
 there.
 
@@ -253,7 +244,7 @@ margin. The entire call rolls back if its bounds fail.
 An unavailable quote stops submission instead of silently dropping protection.
 Writes use the existing wallet, review, signing and MEV-shield submission flow.
 
-The SDK also exposes block-pinned reads through `client.read`: `pool_depth`,
+The SDK also exposes block-pinned reads through `client.read`:
 `lending_reserves`, `lending_position`, `lending_positions`,
 `lending_open_quote` and `lending_close_quote`. Low-level `OpenLoan` and
 `CloseLoan` intents accept exact amounts and explicit quote bounds for callers

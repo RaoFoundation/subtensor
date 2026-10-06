@@ -596,16 +596,11 @@ mod tests {
 
     #[test]
     fn lending_root_configuration_remains_inert_for_signed_proxies() {
-        use subtensor_runtime_common::{AccountId, NetUid};
+        use subtensor_runtime_common::AccountId;
 
-        let netuid = NetUid::from(1);
-        let calls = [
-            RuntimeCall::Lending(pallet_lending::Call::set_enabled { enabled: true }),
-            RuntimeCall::SubtensorModule(pallet_subtensor::Call::sudo_set_pool_slippage {
-                netuid,
-                impact_bps: 100,
-            }),
-        ];
+        let calls = [RuntimeCall::Lending(pallet_lending::Call::set_enabled {
+            enabled: true,
+        })];
         for call in &calls {
             assert!(RootConfigCalls::contains(call));
             let metadata = call.get_call_metadata();
@@ -631,15 +626,7 @@ mod tests {
         sp_io::TestExternalities::default().execute_with(|| {
             let owner = AccountId::new([7; 32]);
             assert_eq!(
-                crate::Lending::set_enabled(crate::RuntimeOrigin::signed(owner.clone()), true),
-                Err(sp_runtime::DispatchError::BadOrigin)
-            );
-            assert_eq!(
-                crate::SubtensorModule::sudo_set_pool_slippage(
-                    crate::RuntimeOrigin::signed(owner),
-                    netuid,
-                    100,
-                ),
+                crate::Lending::set_enabled(crate::RuntimeOrigin::signed(owner), true),
                 Err(sp_runtime::DispatchError::BadOrigin)
             );
         });

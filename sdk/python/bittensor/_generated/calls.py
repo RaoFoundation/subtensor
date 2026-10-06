@@ -526,11 +526,6 @@ class SubtensorModule:
         return Call('SubtensorModule', 'sudo_set_min_childkey_take', {'take': take})
 
     @staticmethod
-    def sudo_set_pool_slippage(netuid: 'NetUid', impact_bps: 'u16') -> Call:
-        "Recalibrate a subnet's minimum ending spot-price decline for a sale of alpha worth 500 TAO at the current price. Basis points exclude swap fees. Existing loans must close before their supporting curve is changed."
-        return Call('SubtensorModule', 'sudo_set_pool_slippage', {'netuid': netuid, 'impact_bps': impact_bps})
-
-    @staticmethod
     def sudo_set_root_claim_threshold(netuid: 'NetUid', new_value: 'u64') -> Call:
         '--- Sets the root claim dust threshold (sudo). Basket redemption is fund-level, so only the `NetUid::ROOT` entry is meaningful; other netuids are rejected.'
         return Call('SubtensorModule', 'sudo_set_root_claim_threshold', {'netuid': netuid, 'new_value': new_value})

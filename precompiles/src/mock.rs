@@ -327,7 +327,7 @@ impl pallet_subtensor_swap::Config for Runtime {
     type MaxFeeRate = SwapMaxFeeRate;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
-    type CalibrationWeight = SwapCalibrationWeight;
+    type CurveInitializationWeight = SwapCurveInitializationWeight;
     type WeightInfo = ();
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
@@ -672,4 +672,4 @@ pub(crate) fn substrate_to_evm(amount: u64) -> U256 {
         .into_u256()
 }
 
-frame_support::parameter_types! { pub SwapCalibrationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }
+frame_support::parameter_types! { pub SwapCurveInitializationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }

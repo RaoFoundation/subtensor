@@ -67,7 +67,7 @@ parameter_types! {
     pub const MaxFeeRate: u16 = 10000; // 15.26%
     pub const MinimumLiquidity: u64 = 1_000;
     pub const MinimumReserves: NonZeroU64 = NonZeroU64::new(1).unwrap();
-    pub const CalibrationWeight: Weight = Weight::from_parts(0, 0);
+    pub const CurveInitializationWeight: Weight = Weight::from_parts(0, 0);
 }
 
 thread_local! {
@@ -288,7 +288,7 @@ impl crate::pallet::Config for Test {
     type MinimumLiquidity = MinimumLiquidity;
     type MinimumReserve = MinimumReserves;
     type WeightInfo = ();
-    type CalibrationWeight = CalibrationWeight;
+    type CurveInitializationWeight = CurveInitializationWeight;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
 }

@@ -458,7 +458,7 @@ fn best_stale_low_sell_attack(netuid: NetUid, holding: u64, anchor: FastAnchor) 
 #[test]
 fn test_e8_stale_high_ema_buy_extraction_closed_by_fast_anchor() {
     new_test_ext(1).execute_with(|| {
-        // Keep the fund's daily buy budget within this calibrated curve's
+        // Keep the fund's daily buy budget within this baseline ellipse's
         // reachable depth, so the unanchored control reproduces extraction.
         let fund_nav = 80_000 * TAO;
         make_fund_with_cash(fund_nav);

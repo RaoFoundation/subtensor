@@ -1090,7 +1090,7 @@ impl pallet_subtensor_swap::Config for Runtime {
     type MaxFeeRate = SwapMaxFeeRate;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
-    type CalibrationWeight = SwapCalibrationWeight;
+    type CurveInitializationWeight = SwapCurveInitializationWeight;
     type WeightInfo = pallet_subtensor_swap::weights::SubstrateWeight<Runtime>;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = SwapBenchmarkHelper;
@@ -1551,14 +1551,15 @@ impl pallet_lending::Config for Runtime {
     type WeightInfo = LendingWeights;
 }
 
-pub struct SwapCalibrationWeight;
-impl Get<Weight> for SwapCalibrationWeight {
+pub struct SwapCurveInitializationWeight;
+impl Get<Weight> for SwapCurveInitializationWeight {
     fn get() -> Weight {
         let reference = <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::remove_stake();
         let cpu = reference.saturating_sub(
             <Runtime as frame_system::Config>::DbWeight::get().reads_writes(39, 16),
         );
-        // Calibration probes operate on an in-memory curve; they do not access quote storage.
+        // Retain the conservative reference CPU envelope for baseline curve initialization.
+        // Initialization computes in memory; database work is accounted separately.
         Weight::from_parts(cpu.ref_time(), 0).saturating_mul(40)
     }
 }

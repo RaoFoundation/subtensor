@@ -57,10 +57,6 @@ pub trait SwapHandler {
         tao_delta: TaoBalance,
         alpha_delta: AlphaBalance,
     ) -> Result<(TaoBalance, AlphaBalance), DispatchError>;
-    /// Recalibrate the 500-TAO-equivalent sell impact while preserving current price.
-    fn configure_slippage(_netuid: NetUid, _impact_bps: u16) -> DispatchResult {
-        Err(DispatchError::Other("slippage calibration unavailable"))
-    }
     /// Debit only globally unreachable reserve floors; the caller must transfer custody.
     fn extract_unreachable_reserves(
         _netuid: NetUid,

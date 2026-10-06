@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
-    "InvalidSlippageTarget": (
-        "The minimum sell impact must be greater than zero and below 10000 basis points. "
-        "Set a supported target and inspect the pool's reference-capacity status."
-    ),
     "FeeRateTooHigh": (
         "`set_fee_rate` was called with a rate above the swap pallet's `MaxFeeRate` config "
         "constant. Compare the `rate` argument (u16-scaled fraction) against `MaxFeeRate` "

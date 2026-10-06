@@ -452,7 +452,7 @@ impl pallet_subtensor_swap::Config for Test {
     type MaxFeeRate = SwapMaxFeeRate;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
-    type CalibrationWeight = SwapCalibrationWeight;
+    type CurveInitializationWeight = SwapCurveInitializationWeight;
     type WeightInfo = ();
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
@@ -871,4 +871,4 @@ pub(crate) fn quote_remove_stake_after_alpha_fee(
     .expect("transactional quote should not fail")
 }
 
-frame_support::parameter_types! { pub SwapCalibrationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }
+frame_support::parameter_types! { pub SwapCurveInitializationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }

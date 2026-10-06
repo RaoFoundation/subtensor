@@ -2900,31 +2900,6 @@ mod dispatches {
         ) -> DispatchResult {
             Self::do_set_min_collateral(origin, netuid, hotkey, min_locked)
         }
-        /// Recalibrate a subnet's minimum ending spot-price decline for a sale of
-        /// alpha worth 500 TAO at the current price. Basis points exclude swap fees.
-        /// Existing loans must close before their supporting curve is changed.
-        #[pallet::call_index(146)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_pool_slippage())]
-        #[frame_support::transactional]
-        pub fn sudo_set_pool_slippage(
-            origin: OriginFor<T>,
-            netuid: NetUid,
-            impact_bps: u16,
-        ) -> DispatchResult {
-            use pallet_lending::LendingInterface;
-            use subtensor_swap_interface::SwapHandler;
-            ensure_root(origin)?;
-            ensure!(
-                !netuid.is_root() && Self::if_subnet_exist(netuid),
-                Error::<T>::SubnetNotExists
-            );
-            ensure!(
-                !T::LendingInterface::has_outstanding(netuid),
-                Error::<T>::LendingPositionsOpen
-            );
-            T::SwapInterface::configure_slippage(netuid, impact_bps)?;
-            Self::deposit_event(Event::PoolSlippageSet { netuid, impact_bps });
-            Ok(())
-        }
+        // Call index 146 remains reserved for the deferred pool-depth calibration.
     }
 }

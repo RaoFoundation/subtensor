@@ -1670,15 +1670,11 @@ fn deregistration_collects_frozen_long_interest_after_the_network_is_removed() {
 }
 
 #[test]
-fn outstanding_positions_block_key_moves_and_curve_recalibration() {
+fn outstanding_positions_block_key_moves() {
     new_test_ext(1).execute_with(|| {
         let netuid = funded_market();
         let (owner, hotkey) = borrower(110);
         open(owner, hotkey, netuid, Side::Short);
-        assert_noop!(
-            SubtensorModule::sudo_set_pool_slippage(RuntimeOrigin::root(), netuid, 200),
-            Error::<Test>::LendingPositionsOpen
-        );
         assert_noop!(
             SubtensorModule::do_swap_coldkey(&owner, &U256::from(111)),
             Error::<Test>::LendingPositionsOpen
@@ -1701,11 +1697,7 @@ fn outstanding_positions_block_key_moves_and_curve_recalibration() {
             quote.payment,
             0
         ));
-        assert_ok!(SubtensorModule::sudo_set_pool_slippage(
-            RuntimeOrigin::root(),
-            netuid,
-            200
-        ));
+        assert!(!Positions::<Test>::contains_key(owner, netuid));
     });
 }
 

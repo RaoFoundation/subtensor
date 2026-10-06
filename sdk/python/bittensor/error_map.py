@@ -44,7 +44,7 @@ class ErrorCode(str, Enum):
 _C = ErrorCode
 
 NAME_TO_CODE: dict[str, ErrorCode] = {
-    # ── Lending and tunable pool calibration ─────────────────────────────
+    # ── Reserve lending ────────────────────────────────────────────────
     "Disabled": _C.DISABLED,
     "SubnetUnavailable": _C.SUBNET_NOT_EXISTS,
     "ReferenceUnavailable": _C.TOO_EARLY,
@@ -65,7 +65,6 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "Arithmetic": _C.INTERNAL,
     "CustodyUnavailable": _C.INTERNAL,
     "AlreadyDissolving": _C.TOO_EARLY,
-    "InvalidSlippageTarget": _C.INVALID_ARGUMENT,
     "LendingUnavailable": _C.DISABLED,
     "LendingPositionsOpen": _C.POLICY_VIOLATION,
     # ── System ──────────────────────────────────────────────────────────

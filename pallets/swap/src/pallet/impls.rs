@@ -94,16 +94,6 @@ impl<T: Config> Pallet<T> {
             balancer.get_quote_weight(),
         )
         .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
-        let (curve, limited) = curve
-            .calibrate_sell_depth(
-                alpha_reserve.into(),
-                tao_reserve.into(),
-                super::SLIPPAGE_REFERENCE_TAO,
-                MinimumSellImpactBps::<T>::get(netuid),
-                T::MinimumReserve::get().get(),
-            )
-            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
-        SlippageReferenceLimited::<T>::insert(netuid, limited);
         SwapBalancer::<T>::insert(netuid, balancer);
         SwapSuperellipse::<T>::insert(netuid, curve);
         PalSwapInitialized::<T>::insert(netuid, true);
@@ -190,41 +180,9 @@ impl<T: Config> Pallet<T> {
         capacity().unwrap_or_default().into()
     }
 
-    /// The compute envelope callers charge for calibration or extraction.
-    pub fn calibration_weight() -> frame_support::weights::Weight {
-        T::CalibrationWeight::get()
-    }
-
-    /// Explicit, price-preserving recalibration. Runtime policy must prevent
-    /// exposing already-loaned inventory through a subsequent curve change.
-    pub fn configure_slippage(netuid: NetUid, impact_bps: u16) -> Result<(), DispatchError> {
-        ensure!(
-            impact_bps > 0 && impact_bps < 10_000,
-            Error::<T>::InvalidSlippageTarget
-        );
-        ensure!(
-            T::SubnetInfo::exists(netuid) && T::SubnetInfo::mechanism(netuid) == 1,
-            Error::<T>::MechanismDoesNotExist
-        );
-        let alpha = u64::from(T::AlphaReserve::reserve(netuid));
-        let tao = u64::from(T::TaoReserve::reserve(netuid));
-        let price = Self::current_price(netuid);
-        let baseline = Superellipse::from_price(alpha, tao, price)
-            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
-        let (curve, limited) = baseline
-            .calibrate_sell_depth(
-                alpha,
-                tao,
-                super::SLIPPAGE_REFERENCE_TAO,
-                impact_bps,
-                T::MinimumReserve::get().get(),
-            )
-            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
-        SwapSuperellipse::<T>::insert(netuid, curve);
-        MinimumSellImpactBps::<T>::insert(netuid, impact_bps);
-        SlippageReferenceLimited::<T>::insert(netuid, limited);
-        PalSwapInitialized::<T>::insert(netuid, true);
-        Ok(())
+    /// The compute envelope callers charge for initialization or extraction.
+    pub fn curve_initialization_weight() -> frame_support::weights::Weight {
+        T::CurveInitializationWeight::get()
     }
 
     /// Debit globally unreachable active reserve balances and translate their
@@ -311,7 +269,6 @@ impl<T: Config> Pallet<T> {
             BalancerAlphaReservoir::<T>::insert(netuid, AlphaBalance::from(pending_alpha));
             return Ok((TaoBalance::ZERO, AlphaBalance::ZERO));
         }
-        let mut calibration_status = None;
         let mut curve = if let Some(curve) = SwapSuperellipse::<T>::get(netuid) {
             // Validate the existing coordinates before translating them.
             curve
@@ -319,23 +276,12 @@ impl<T: Config> Pallet<T> {
                 .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
             curve
         } else if !tao.is_zero() && !alpha.is_zero() {
-            let baseline = Superellipse::from_balancer(
+            Superellipse::from_balancer(
                 alpha.into(),
                 tao.into(),
                 SwapBalancer::<T>::get(netuid).get_quote_weight(),
             )
-            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
-            let (curve, limited) = baseline
-                .calibrate_sell_depth(
-                    alpha.into(),
-                    tao.into(),
-                    super::SLIPPAGE_REFERENCE_TAO,
-                    MinimumSellImpactBps::<T>::get(netuid),
-                    T::MinimumReserve::get().get(),
-                )
-                .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
-            calibration_status = Some(limited);
-            curve
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?
         } else {
             // An empty pool has no price to preserve. Anchor at projected reserves
             // and skip translation: the pending balances are already in the anchor.
@@ -345,16 +291,6 @@ impl<T: Config> Pallet<T> {
                 SwapBalancer::<T>::get(netuid).get_quote_weight(),
             )
             .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
-            let (curve, limited) = curve
-                .calibrate_sell_depth(
-                    new_alpha,
-                    new_tao,
-                    super::SLIPPAGE_REFERENCE_TAO,
-                    MinimumSellImpactBps::<T>::get(netuid),
-                    T::MinimumReserve::get().get(),
-                )
-                .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
-            SlippageReferenceLimited::<T>::insert(netuid, limited);
             SwapSuperellipse::<T>::insert(netuid, curve);
             PalSwapInitialized::<T>::insert(netuid, true);
             BalancerTaoReservoir::<T>::remove(netuid);
@@ -368,9 +304,6 @@ impl<T: Config> Pallet<T> {
             .calculate_price(new_alpha, new_tao)
             .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
         SwapSuperellipse::<T>::insert(netuid, curve);
-        if let Some(limited) = calibration_status {
-            SlippageReferenceLimited::<T>::insert(netuid, limited);
-        }
         PalSwapInitialized::<T>::insert(netuid, true);
         BalancerTaoReservoir::<T>::remove(netuid);
         BalancerAlphaReservoir::<T>::remove(netuid);
@@ -567,7 +500,7 @@ impl<T: Config> Pallet<T> {
 
     /// Clear **protocol-owned** liquidity and wipe all swap state for `netuid`.
     pub fn do_clear_protocol_liquidity(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
-        let clear_weight = T::DbWeight::get().reads_writes(6, 11);
+        let clear_weight = T::DbWeight::get().reads_writes(6, 9);
         if !weight_meter.can_consume(clear_weight) {
             return false;
         }
@@ -593,8 +526,6 @@ impl<T: Config> Pallet<T> {
         FeeRate::<T>::remove(netuid);
         SwapBalancer::<T>::remove(netuid);
         SwapSuperellipse::<T>::remove(netuid);
-        MinimumSellImpactBps::<T>::remove(netuid);
-        SlippageReferenceLimited::<T>::remove(netuid);
         ExtractedReserves::<T>::remove(netuid);
 
         log::debug!(
@@ -715,10 +646,6 @@ impl<T: Config> SwapHandler for Pallet<T> {
         alpha_delta: AlphaBalance,
     ) -> Result<(TaoBalance, AlphaBalance), DispatchError> {
         Self::adjust_protocol_liquidity(netuid, tao_delta, alpha_delta)
-    }
-
-    fn configure_slippage(netuid: NetUid, impact_bps: u16) -> Result<(), DispatchError> {
-        Pallet::<T>::configure_slippage(netuid, impact_bps)
     }
 
     fn extract_unreachable_reserves(

@@ -25,11 +25,11 @@ const releases: Release[] = [
   {
     tag: 'proposal',
     date: 'Not yet deployed',
-    title: 'Tunable Pool Depth and Reserve Lending',
+    title: 'Pool Reserves and Native Lending',
     summary:
-      'A price-preserving pool migration calibrates ending price impact for a 500-TAO reference ' +
-      'sale and creates separate lending reserves from unreachable balances. Custodial alpha ' +
-      'shorts and transferable TAO loans use 25% LTV, fixed principal, weekly collateral ' +
+      'A pool migration preserves opening prices and local sensitivity while creating separate ' +
+      'lending reserves from unreachable balances. Additional depth calibration is deferred. ' +
+      'Custodial alpha shorts and transferable TAO loans use 25% LTV, fixed principal, weekly collateral ' +
       'interest that burns TAO, and a 10% borrowing cap per asset. Borrowing requires the complete ' +
       'migration to succeed.',
     href: '/releases/pool-lending',

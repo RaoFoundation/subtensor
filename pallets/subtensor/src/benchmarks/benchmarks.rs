@@ -2253,18 +2253,6 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
-    fn sudo_set_pool_slippage() {
-        let netuid = NetUid::from(1);
-        Subtensor::<T>::init_new_network(netuid, 100);
-        SubnetMechanism::<T>::insert(netuid, 1);
-        SubnetTAO::<T>::insert(netuid, TaoBalance::from(200_000_000_000_000_u64));
-        SubnetAlphaIn::<T>::insert(netuid, AlphaBalance::from(3_000_000_000_000_000_u64));
-        T::SwapInterface::init_swap(netuid, None);
-        #[extrinsic_call]
-        _(RawOrigin::Root, netuid, 100_u16);
-    }
-
-    #[benchmark]
     fn sudo_set_root_claim_threshold() {
         #[extrinsic_call]
         _(RawOrigin::Root, NetUid::ROOT, 100);

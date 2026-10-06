@@ -36,14 +36,6 @@ use core::marker::PhantomData;
 
 /// Weight functions needed for `pallet_subtensor`.
 pub trait WeightInfo {
-    /// Bounded calibration plus custody funding, composed from existing reference
-    /// measurements until dedicated reference benchmarks replace this envelope.
-    fn sudo_set_pool_slippage() -> Weight {
-        let cpu = Self::remove_stake().saturating_sub(RocksDbWeight::get().reads_writes(39, 16));
-        Weight::from_parts(cpu.ref_time(), 0).saturating_mul(40)
-            .saturating_add(Self::transfer_stake().saturating_mul(4))
-    }
-
     /// Two extraction square roots and exact custody transfers, using reference envelopes.
     fn fund_lending_reserves() -> Weight {
         let cpu = Self::remove_stake().saturating_sub(RocksDbWeight::get().reads_writes(39, 16));

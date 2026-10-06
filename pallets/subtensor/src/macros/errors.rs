@@ -412,7 +412,7 @@ mod errors {
         BasketSwapBatchEmpty,
         /// Lending custody is unavailable in this runtime.
         LendingUnavailable,
-        /// Close lending positions before recalibrating a pool or changing keys.
+        /// Close lending positions before changing keys.
         LendingPositionsOpen,
     }
 }

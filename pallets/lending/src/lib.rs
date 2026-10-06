@@ -136,7 +136,6 @@ pub trait LendingInterface<AccountId> {
     fn custody_accounts(netuid: NetUid) -> Option<(AccountId, AccountId)>;
     fn has_vault(netuid: NetUid) -> bool;
     fn has_funding_capacity() -> bool;
-    fn has_outstanding(netuid: NetUid) -> bool;
     fn has_positions(owner: &AccountId) -> bool;
     fn has_hotkey_positions(hotkey: &AccountId) -> bool;
     fn max_positions() -> u32;
@@ -167,9 +166,6 @@ impl<AccountId> LendingInterface<AccountId> for () {
         false
     }
     fn has_funding_capacity() -> bool {
-        false
-    }
-    fn has_outstanding(_: NetUid) -> bool {
         false
     }
     fn has_positions(_: &AccountId) -> bool {
@@ -1975,9 +1971,6 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
     }
     fn has_funding_capacity() -> bool {
         VaultCount::<T>::get() < T::MaxFundedSubnets::get()
-    }
-    fn has_outstanding(netuid: NetUid) -> bool {
-        PositionCount::<T>::get(netuid) > 0
     }
     fn has_positions(owner: &T::AccountId) -> bool {
         use frame_support::StorageDoubleMap as _;

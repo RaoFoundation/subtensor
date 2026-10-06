@@ -1,16 +1,13 @@
 use super::*;
 #[cfg(feature = "try-runtime")]
 use crate::ExtractedReserves;
-use crate::{
-    HasMigrationRun, MinimumSellImpactBps, PalSwapInitialized, SlippageReferenceLimited,
-    SwapBalancer, SwapSuperellipse,
-};
+use crate::{HasMigrationRun, PalSwapInitialized, SwapBalancer, SwapSuperellipse};
 use frame_support::traits::{Get, GetStorageVersion, OnRuntimeUpgrade};
 #[cfg(feature = "try-runtime")]
 use sp_std::vec::Vec;
 use sp_std::{collections::btree_set::BTreeSet, marker::PhantomData};
 
-pub const MIGRATION_NAME: &[u8] = b"migrate_balancer_to_tunable_superellipse";
+pub const MIGRATION_NAME: &[u8] = b"migrate_balancer_to_superellipse";
 
 fn candidates<T: Config>() -> BTreeSet<NetUid> {
     PalSwapInitialized::<T>::iter_keys()
@@ -18,9 +15,9 @@ fn candidates<T: Config>() -> BTreeSet<NetUid> {
         .collect()
 }
 
-/// Preserve each old pool's price, then impose the minimum calibrated sell
-/// impact when the complete reference sale is executable. Lending funding is
-/// a separate migration stage, preserving the active-plus-vault accounting.
+/// Preserve each old pool's price and initial local sensitivity. Lending funding
+/// extracts only unreachable floors in a separate migration stage, preserving
+/// active-plus-vault accounting and the baseline curve's trading capacity.
 pub fn migrate_balancer_to_superellipse<T: Config>() -> Weight {
     let name = BoundedVec::truncate_from(MIGRATION_NAME.to_vec());
     let mut weight = T::DbWeight::get().reads(1);
@@ -55,22 +52,12 @@ pub fn migrate_balancer_to_superellipse<T: Config>() -> Weight {
         }
         weight.saturating_accrue(T::DbWeight::get().reads(1));
         let old = SwapBalancer::<T>::get(netuid);
-        weight.saturating_accrue(T::DbWeight::get().reads(1));
-        weight.saturating_accrue(T::CalibrationWeight::get());
+        weight.saturating_accrue(T::CurveInitializationWeight::get());
         match crate::pallet::superellipse::Superellipse::from_balancer(x, y, old.get_quote_weight())
-            .and_then(|curve| {
-                curve.calibrate_sell_depth(
-                    x,
-                    y,
-                    crate::pallet::SLIPPAGE_REFERENCE_TAO,
-                    MinimumSellImpactBps::<T>::get(netuid),
-                    T::MinimumReserve::get().get(),
-                )
-            }) {
-            Ok((curve, limited)) => {
+        {
+            Ok(curve) => {
                 SwapSuperellipse::<T>::insert(netuid, curve);
-                SlippageReferenceLimited::<T>::insert(netuid, limited);
-                weight.saturating_accrue(T::DbWeight::get().writes(2));
+                weight.saturating_accrue(T::DbWeight::get().writes(1));
                 weight.saturating_accrue(T::DbWeight::get().reads(1));
                 if !PalSwapInitialized::<T>::get(netuid) {
                     PalSwapInitialized::<T>::insert(netuid, true);
@@ -231,18 +218,8 @@ pub fn post_upgrade<T: Config>(state: Vec<u8>) -> Result<(), sp_runtime::TryRunt
             before.tao,
             SwapBalancer::<T>::get(netuid).get_quote_weight(),
         )
-        .and_then(|baseline| {
-            baseline.calibrate_sell_depth(
-                before.alpha,
-                before.tao,
-                crate::pallet::SLIPPAGE_REFERENCE_TAO,
-                MinimumSellImpactBps::<T>::get(netuid),
-                T::MinimumReserve::get().get(),
-            )
-        })
-        .map_err(|_| "Funded pool cannot be calibrated")?;
+        .map_err(|_| "Funded pool cannot initialize its baseline curve")?;
         let safe = expected
-            .0
             .extractable_reserves(before.alpha, before.tao, T::MinimumReserve::get().get())
             .map_err(|_| "Cannot certify extracted reserve floors")?;
         ensure!(
@@ -250,16 +227,11 @@ pub fn post_upgrade<T: Config>(state: Vec<u8>) -> Result<(), sp_runtime::TryRunt
             "Extraction exceeds unreachable floors"
         );
         expected
-            .0
             .withdraw_liquidity(take_alpha, take_tao)
-            .map_err(|_| "Extraction cannot translate calibrated ellipse")?;
+            .map_err(|_| "Extraction cannot translate baseline ellipse")?;
         ensure!(
-            curve == expected.0,
-            "Migration did not match sell-depth calibration and extraction"
-        );
-        ensure!(
-            SlippageReferenceLimited::<T>::get(netuid) == expected.1,
-            "Migration lost the reference-limited status"
+            curve == expected,
+            "Migration changed baseline price sensitivity or trading capacity beyond extraction"
         );
         let price = curve
             .calculate_price(active_alpha, active_tao)

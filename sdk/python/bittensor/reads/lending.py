@@ -19,30 +19,6 @@ QUOTE_OPEN = Method("LendingRuntimeApi", "quote_open")
 QUOTE_CLOSE = Method("LendingRuntimeApi", "quote_close")
 
 
-@read(
-    "pool_depth",
-    {"netuid": "integer"},
-    category="Prices & swaps",
-    param_docs={"netuid": "Subnet whose calibration settings to inspect."},
-)
-async def pool_depth(view, netuid: int) -> dict:
-    """Minimum calibrated sell impact for a 500-TAO-equivalent alpha sale.
-
-    This is an ending spot-price target excluding fees, calibrated once; it
-    is not an execution-slippage guarantee at every later pool state.
-    ``reference_limited`` means the full reference sale cannot execute and
-    the safe baseline curve was retained instead of promising that target.
-    """
-    view = await view.at()
-    impact = await view.query(("Swap", "MinimumSellImpactBps"), [netuid])
-    return {
-        "netuid": netuid,
-        "reference_tao": Balance.from_rao(500 * 10**9),
-        "minimum_sell_impact_percent": int(impact if impact is not None else 100) / 100,
-        "reference_limited": bool(await view.query(("Swap", "SlippageReferenceLimited"), [netuid])),
-    }
-
-
 def _ok(raw: Any) -> dict:
     if not isinstance(raw, dict):
         raise BittensorError("lending quote unavailable; use a node with the lending runtime")
