@@ -63,10 +63,12 @@ export default function PoolLendingRelease() {
           <p>
             Tightening contracts the curve&apos;s remaining range around its current trading point,
             preserving the spot price within fixed-point rounding. Its least-sensitive regions
-            determine a conservative minimum for later complete reference trades, so current impact
-            can exceed the selected minimum. Both reference trades must still fit when the target is
-            set; otherwise the call fails atomically. Curve parameters then stay fixed through
-            swaps, without per-trade recalibration.
+            determine a conservative geometric minimum for later complete reference trades, so
+            current impact can exceed the selected minimum. This minimum describes the continuous
+            curve; future executable quotes also include atomic token and fixed-point rounding. Both
+            reference trades must still fit when the target is set; otherwise the call fails
+            atomically. Curve parameters then stay fixed through swaps, without per-trade
+            recalibration.
           </p>
           <p>
             Newly unreachable alpha and TAO move to the ready lending vault. Existing debt, coupons,

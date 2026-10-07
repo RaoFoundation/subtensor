@@ -47,14 +47,16 @@ the percentage.
 
 This measures mechanical price impact, not realised market volatility or the
 trader's average execution slippage. Fees and average execution prices are
-separate. The guarantee applies when the complete reference trade fits the
+separate. The geometric target applies when the complete reference trade fits the
 remaining curve range and reserves; it does not make an otherwise blocked trade
 executable or override caller price limits.
 
 Tightening contracts the ellipse's remaining range around its current trading
 point while keeping the opening spot price unchanged within fixed-point rounding.
-It uses the curve's least-sensitive regions to establish a conservative minimum for later
-complete reference trades on either side. Consequently, the current impact can
+It uses the curve's least-sensitive regions to establish a conservative geometric
+minimum for later complete reference trades on either side. This minimum describes
+the continuous curve; future executable quotes also include atomic token and
+fixed-point rounding. Consequently, the current impact can
 be greater than the selected minimum. The parameters remain fixed through
 subsequent swaps: the chain does not recalibrate after every trade. Activation
 requires both full reference trades to fit; a target that would prevent either
