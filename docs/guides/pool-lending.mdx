@@ -6,7 +6,8 @@ description: How the proposed migration preserves opening price and local sensit
 This upgrade moves subnet pools to a translated ellipse while preserving each
 pool's opening price and local price sensitivity. Balances outside the new
 curve's trading range fund a separate lending vault. Borrowers can then open
-custodial shorts or borrow transferable TAO against alpha collateral.
+receive freely usable alpha against TAO collateral or borrow transferable TAO
+against alpha collateral.
 
 This page describes the proposed implementation. It is not a mainnet launch
 announcement. Borrowing is enabled only after the complete pool migration
@@ -49,37 +50,39 @@ Alpha and TAO can be extracted independently; paired proportional liquidity
 withdrawal is unnecessary. The transfer creates no new tokens.
 
 The accounting separates active AMM reserves, available lending inventory,
-outstanding principal, borrower collateral, locked short proceeds and collected
+outstanding principal, borrower collateral and collected
 interest awaiting a TAO burn or alpha conversion. Extracted balances become
 real lending assets; they are not also available to pay swaps.
 
 ## Open and close a short
 
-A short locks TAO collateral and borrows alpha. The contract immediately sells
-that alpha through the subnet AMM and locks the resulting TAO proceeds. In v1
-neither the borrowed alpha nor the proceeds move freely outside the position.
-There is one position per coldkey and subnet.
+A short locks TAO collateral and receives real alpha on its selected hotkey.
+The borrower can sell, transfer, use or pledge that alpha elsewhere. Opening
+does not sell it through the AMM or create locked sale proceeds. There is one
+position per coldkey and subnet.
 
 For collateral `C` and lending reference price `E`, alpha debt `D` is bounded by
-both `D × E ≤ C / 4` and net actual opening sale proceeds of at most `C / 4`.
-The complete sale must execute. This combines the historical reference with
-current executable depth and includes swap fees; a hypothetical alpha purchase
-is not required to open a short. Available inventory and the aggregate
-borrowing cap must also permit the loan. A caller supplies separate minimum
-alpha principal and minimum net TAO proceeds; the latter protects the opening
-sale even when the historical reference keeps alpha debt unchanged.
+both `D × E ≤ C / 4` and the alpha obtainable from a simulated purchase spending
+`C / 4` TAO. The simulated purchase must fit the curve and includes swap fees;
+it limits the loan without executing a swap. Available inventory and the
+aggregate borrowing cap must also permit the loan. The caller protects
+additional alpha principal and its opening TAO valuation separately. The legacy
+call field `min_proceeds` now means minimum opening valuation, not sale proceeds.
 
 For example, 1,000 TAO collateral can support an opening loan valued at up to
 250 TAO. Suppose its fixed debt is 700 alpha. That debt stays **700 alpha** unless
 the position borrows more or repays; coupons do not amortize it.
 
-At an ordinary close, the contract buys back the fixed alpha debt using locked
-TAO through at most six internal orders in one atomic operation, returns the
-alpha to the vault and refunds the remaining TAO. If the buyback
-cannot execute within the curve's capacity or the locked funds, that close
-fails without changing the position. Alternatively, the owner can supply the
-total alpha principal from the saved hotkey, avoiding the buyback entirely.
-Both paths collect interest accrued through the closing block.
+At an ordinary close, the owner returns the total alpha principal from the
+saved hotkey. The alpha need not be the originally borrowed units: buying it
+later or obtaining it elsewhere repays the same fixed debt. The contract
+returns that alpha to the lending vault and refunds the remaining TAO collateral.
+
+The owner can instead request a buyback through at most six internal AMM orders
+in one atomic operation. It can spend only remaining TAO collateral after
+interest, with no assumed sale proceeds or external spending. If the complete
+buyback cannot fit the curve or the collateral, it fails without changing the
+position. Both paths collect interest through the closing block.
 
 ## Borrow TAO against alpha
 
@@ -127,8 +130,8 @@ The loan does not automatically reverse trades the borrower made elsewhere.
 
 Use the same `open` command again to add collateral and borrow more. The subnet,
 side and hotkey must match the saved position. There remains one position per
-coldkey and subnet: its collateral, debt and any locked short proceeds grow
-together, and one close repays the total principal.
+coldkey and subnet: its collateral and debt grow together, and one close repays
+the total principal. Additional borrowed assets are delivered freely too.
 
 The chain collects interest accrued on the existing position before adding the
 new collateral. The combined position must pass current opening limits, not
@@ -141,16 +144,17 @@ Each increase fixes a coupon for the additional borrowing at its current
 opening valuation and adds it to the existing annual coupon. Earlier coupons
 are not repriced, fractional interest is carried forward, and the weekly
 collection schedule is not restarted. An increase uses the existing position
-slot. Its quote and caller bounds refer to **additional principal, sale proceeds
+slot. Its quote and caller bounds refer to **additional principal, opening value
 and annual interest**; position reads and `list` report the combined totals.
 The `Increased` event likewise reports the added collateral, principal, proceeds
-and annual coupon rather than the resulting totals.
+and annual coupon rather than the resulting totals. New shorts report zero
+proceeds in that compatibility event field.
 
 ## Interest and forfeiture
 
 The launch rate is **100% nominal annual interest on opening loan value**, fixed
-in collateral units at opening. For shorts, annual TAO interest equals the net
-TAO proceeds of the actual opening sale. For longs, the TAO principal is
+in collateral units at opening. For shorts, annual TAO interest equals the
+alpha principal's value at the opening lending EMA, rounded up. For longs, the TAO principal is
 converted into alpha at the opening lending reference, rounded up; that fixes
 annual alpha interest. Later market prices do not change the collateral coupon.
 There is no additional fee for opening or closing a loan.
@@ -187,8 +191,8 @@ coupon when a vault holds only alpha.
 
 There are no price-triggered liquidations. When collateral is exhausted, the
 chain forfeits and finalizes the position, retains assets still held in custody,
-and records unrecovered principal as a loss. In particular, retained short TAO
-is credited as TAO, not described as repayment of alpha that was never returned.
+and records unrecovered principal as a loss. Freely transferred borrowed assets
+are not reclaimed or described as repayment when they were never returned.
 The borrower cannot later revive a forfeited position to recover its assets.
 This mechanism deliberately accepts credit losses; a high coupon and low LTV
 do not guarantee principal recovery.
@@ -203,7 +207,7 @@ history is retained during the price-preserving migration; references without
 valid history must warm up before borrowing.
 
 The reference does not make manipulation mathematically impossible. The
-executable-depth checks, custody and borrowing caps provide additional limits.
+executable-depth checks, collateral and borrowing caps provide additional limits.
 The chain does not impose a blanket borrowing pause merely because spot and
 the EMA disagree.
 
@@ -216,7 +220,7 @@ coverage as interest consumes collateral or the alpha claim count changes.
 At launch, outstanding borrowing in each asset may not exceed **10% of that
 asset's funded vault inventory**: available inventory plus outstanding fixed
 principal. This is an aggregate subnet cap, not a per-user allowance or a share
-of circulating subnet supply. Collateral, locked proceeds, AMM reserves and
+of circulating subnet supply. Collateral, AMM reserves and
 pending interest do not enlarge it. Principal repayments replenish inventory in
 the original borrowed asset; interest burns do not. Written-off principal
 reduces the funded base.
@@ -236,17 +240,34 @@ there.
 
 ## Subnet deregistration
 
-Deregistration stops new loans and freezes a common interest cutoff. The
-short settlement price is the greater of spot and the lending EMA at that cutoff. Existing beta-basket holdings first convert to funded
-root cash through their own AMM path. Holdings that cannot fully sell at a curve
-endpoint retain their alpha for ordinary funded redemption, which is credited
-to the originating validator's root cash slot. Lending positions then settle in bounded
-batches without AMM swaps. Custodial shorts settle against their remaining TAO
-collateral and sale proceeds; the owner receives any surplus and the chain
-records any shortfall. Collected pending TAO interest is burned before reserve
-inventory is returned. Recovered cash and remaining uncommitted lending
-inventory enter the funded dissolution pot before ordinary alpha redemption
-amounts are fixed.
+Deregistration stops new loans and freezes interest at a common cutoff. It
+also freezes the dedicated 24-hour lending EMA and the existing 2-hour fast EMA.
+Their higher value is the historical short-debt mark; if the fast EMA is absent,
+the lending EMA supplies the mark. This replaces a live spot-price settlement.
+
+Existing beta-basket holdings first convert to funded root cash through their
+own AMM path. Holdings blocked by a curve endpoint retain alpha for ordinary
+funded redemption into the originating validator's root cash slot. Pending TAO
+coupons are burned and unloaned lending assets return before the ordinary
+dissolution pot and eligible alpha claim count are fixed.
+
+Ordinary alpha holders then receive the actual funded pro-rata redemption
+rate. Freely held borrowed alpha is real alpha and receives the same treatment;
+the chain does not invent a repayment or exclude it from ordinary claims.
+Pledged alpha likewise has no priority over other holders.
+
+After ordinary payouts complete, a short's fixed alpha debt is valued at the
+**higher of its frozen historical mark and its funded redemption value**,
+rounded conservatively. The chain takes at most that amount from the remaining
+TAO collateral, recovers principal, returns any surplus and records a shortfall
+when collateral cannot cover the debt. The funded valuation includes an
+allowance for ordinary payout rounding. The borrower does not need to return
+alpha during this terminal settlement; there is no AMM buyback.
+
+Recovery cannot exceed the remaining TAO collateral. The opening 25% market
+LTV does not guarantee coverage of a later funded redemption value, especially
+after interest deductions. The terminal valuation prevents an artificially low
+debt mark, but it cannot create missing funds; this design accepts that loss.
 
 Pending alpha interest stays ordinary vault stake through global settlement.
 The chain burns only the actual funded TAO redemption receipts for that
@@ -260,9 +281,11 @@ owing 50 TAO whose collateral redeems for 70 TAO repays 50 and refunds 20. If it
 redeems for 20 TAO, the chain recovers 20 and records a 30-TAO loss. Freely
 transferred TAO is not reclaimed from elsewhere. Recovery is routed separately
 from the already-fixed payout pot to avoid counting the same funds twice.
-Pledged alpha receives the ordinary funded pro-rata redemption rate, without
-priority over other alpha holders. The conservative opening valuation does
-not create a different payout rate or replace actual funded receipts.
+Both short and long principal recoveries go to the existing global protocol
+recovery destination, outside the already-fixed ordinary payout pot. They
+cannot enlarge holders' payouts or be counted twice. The conservative opening
+valuation does not create a different payout rate or replace actual funded
+receipts. No lending position performs a terminal AMM swap.
 
 Tiny terminal refunds below the account minimum cannot recreate a reaped
 account. These amounts are recycled explicitly and recorded as `DustForfeited`;
@@ -279,7 +302,7 @@ network and wallet; the examples below use subnet 64 as an example, not a
 statement that its lending vault is enabled or has sufficient inventory.
 
 ```bash
-# Lock 1,000 TAO and open a custodial alpha short.
+# Lock 1,000 TAO and receive freely usable borrowed alpha on this hotkey.
 btcli lending open --netuid 64 --side short --collateral 1000 -w mywallet
 
 # Lock 700 free alpha from this hotkey and receive transferable TAO.
@@ -288,20 +311,20 @@ btcli lending open --netuid 64 --side long --collateral 700 --hotkey <hotkey> -w
 # Add 200 more TAO collateral and increase the same short.
 btcli lending open --netuid 64 --side short --collateral 200 -w mywallet
 
-# Repay total principal and release remaining collateral.
+# Repay total principal from your wallet and release remaining collateral.
 btcli lending close --netuid 64 -w mywallet
 
-# A short can instead repay with alpha already held on its saved hotkey.
-btcli lending close --netuid 64 --repay-from-wallet -w mywallet
+# A short can instead buy back its debt using only remaining TAO collateral.
+btcli lending close --netuid 64 --no-repay-from-wallet -w mywallet
 
 # List all positions on a subnet, or one owner's position.
 btcli lending list --netuid 64
 btcli lending list --netuid 64 --coldkey <coldkey>
 ```
 
-Open and close obtain full fee-inclusive quotes from the runtime. By default,
+Open and close obtain complete quotes from the runtime. By default,
 `--max-slippage 1` sets an opening principal floor and, for shorts, a separate
-TAO proceeds floor, or a closing payment ceiling and refund floor, with a 1%
+opening TAO valuation floor, or a closing payment ceiling and refund floor, with a 1%
 margin. The entire call rolls back if its bounds fail.
 The CLI quotes using the signing owner and selected hotkey, so an increase is
 checked against the saved position. An unavailable quote stops submission

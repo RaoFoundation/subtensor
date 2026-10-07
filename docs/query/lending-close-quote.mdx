@@ -7,7 +7,8 @@ description: "Runtime quote of the combined debt repayment and refund, after acc
 
 Payment is TAO except for a wallet-repaid short, which returns its fixed
 alpha principal. Refund is TAO for a short and alpha for a long. A short
-AMM buyback must fit within the curve's remaining buy range.
+AMM buyback must fit within the curve's remaining buy range and remaining
+TAO collateral after interest. Borrowed alpha need not have been sold.
 
 **Category:** Prices & swaps
 
@@ -17,7 +18,7 @@ AMM buyback must fit within the curve's remaining buy range.
 | --- | --- | --- |
 | `coldkey_ss58` | string | Position owner. |
 | `netuid` | integer | Subnet of the position. |
-| `repay_from_wallet` | boolean | Repay a short with alpha from its saved hotkey. |
+| `repay_from_wallet` | boolean | Repay short alpha from its saved hotkey (default); false buys with collateral. |
 
 ## CLI
 

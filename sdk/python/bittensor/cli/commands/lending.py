@@ -45,13 +45,14 @@ def open_loan(
         "--max-slippage",
         min=0.0,
         max=99.0,
-        help="Maximum fall in quoted principal or short TAO proceeds (percent; default 1%).",
+        help="Maximum fall in quoted principal or short opening value (percent; default 1%).",
     ),
 ):
     """Add collateral and open or increase a short or long on a subnet.
 
-    Shorts borrow and sell alpha, keeping TAO proceeds locked. Longs borrow
-    transferable TAO against existing alpha stake. An existing position must
+    Shorts receive freely usable alpha on the selected hotkey; opening does
+    not sell it. Longs borrow transferable TAO against existing alpha stake.
+    An existing position must
     use the same side and hotkey. btcli quotes additional debt after checking
     the combined position and refuses to submit when a quote is unavailable.
     """
@@ -85,7 +86,7 @@ def open_loan(
                     ("additional collateral", str(intent.collateral)),
                     ("additional fixed principal", str(quote["principal"])),
                     ("minimum additional principal", str(intent.min_borrow)),
-                    ("minimum additional sale proceeds", str(intent.min_proceeds)),
+                    ("minimum additional opening value", str(intent.min_proceeds)),
                     ("additional interest per year", str(quote["annual_interest"])),
                 ],
             )
@@ -99,9 +100,9 @@ def close_loan(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", min=1, max=65535, help="Subnet of your position."),
     repay_from_wallet: bool = typer.Option(
-        False,
-        "--repay-from-wallet",
-        help="Repay a short with alpha on its saved hotkey instead of buying through the AMM.",
+        True,
+        "--repay-from-wallet/--no-repay-from-wallet",
+        help="Repay short alpha from its saved hotkey; disable to buy with remaining collateral.",
     ),
     max_slippage: float = typer.Option(
         1.0,
@@ -113,7 +114,8 @@ def close_loan(
 ):
     """Repay fixed principal and return remaining collateral.
 
-    A short normally buys alpha back using its locked TAO. A long repays
+    A short normally supplies alpha from its saved hotkey. Opt out to buy
+    that alpha using only remaining TAO collateral. A long repays
     TAO from your wallet. The full runtime quote sets a payment ceiling and
     refund floor; a failed quote stops submission.
     """
@@ -179,14 +181,13 @@ def list_positions(
     positions = context.run(_positions)
     context.output.table(
         f"loans on netuid {netuid}",
-        ["owner", "side", "principal", "collateral", "proceeds", "interest due", "runway"],
+        ["owner", "side", "principal", "collateral", "interest due", "runway"],
         [
             [
                 position["coldkey"],
                 position["side"],
                 str(position["principal"]),
                 str(position["collateral"]),
-                str(position["proceeds"]),
                 str(position["interest_due"]),
                 f"{position['runway_days']:.0f}d" if position["runway_days"] is not None else "-",
             ]

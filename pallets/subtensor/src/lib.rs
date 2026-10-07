@@ -2742,6 +2742,11 @@ pub mod pallet {
     #[pallet::storage]
     pub type CurrentDissolveCleanupStatus<T> = StorageValue<_, DissolveCleanupStatus, OptionQuery>;
 
+    /// Number of eligible, nonzero holder rows in the ordinary dissolution scan.
+    /// Lending uses this to bound largest-remainder rounding without changing payouts.
+    #[pallet::storage]
+    pub type DissolutionEligibleAlphaRows<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
+
     /// ITEM ( network_registration_queue ) Network registrations waiting to be executed.
     #[pallet::storage]
     pub type NetworkRegistrationQueue<T> =

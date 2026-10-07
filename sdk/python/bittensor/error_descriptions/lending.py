@@ -56,11 +56,11 @@ DESCRIPTIONS: dict[str, str] = {
         "interest."
     ),
     "InsufficientEscrow": (
-        "Remaining collateral or locked short TAO cannot cover this operation. Inspect interest "
+        "Remaining collateral cannot cover this operation. Inspect accrued interest "
         "and the complete close quote."
     ),
     "InvalidQuote": (
-        "The full swap cannot execute or its result differs from the loan quote. Check curve "
+        "A required executable-depth quote or repayment swap is unavailable. Check curve "
         "capacity and retry with a fresh quote."
     ),
     "Arithmetic": (
@@ -76,7 +76,7 @@ DESCRIPTIONS: dict[str, str] = {
         "finish before reuse."
     ),
     "BelowMinimumProceeds": (
-        "The additional short sale returns less TAO than the caller's minimum. Requote the "
+        "The additional short's opening value is below the caller's minimum. Requote the "
         "opening or increase; the failed call moves no assets."
     ),
     "RedemptionUnavailable": (

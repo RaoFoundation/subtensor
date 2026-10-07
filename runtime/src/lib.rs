@@ -1503,7 +1503,7 @@ parameter_types! {
 pub struct LendingWeights;
 impl pallet_lending::weights::WeightInfo for LendingWeights {
     fn open() -> Weight {
-        // Retain the short's bounded swap-quote envelope and cover every existing
+        // Retain the existing conservative swap-quote envelope and cover every existing
         // loan read by long admission with a measured transfer envelope. Cover
         // an increase's additional coupon transfer and pending-fee accounting,
         // the iterator's terminal read and the aggregate-supply/readiness hook.
@@ -1538,8 +1538,9 @@ impl pallet_lending::weights::WeightInfo for LendingWeights {
             .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(10, 1))
     }
     fn settle() -> Weight {
+        // Alpha-debt cash settlement also reads its frozen ordinary redemption basis.
         <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::transfer_stake().saturating_mul(4)
-            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(16,12))
+            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(17,12))
     }
 }
 

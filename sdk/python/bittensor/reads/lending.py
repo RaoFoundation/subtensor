@@ -83,8 +83,10 @@ async def lending_position(view, coldkey_ss58: str, netuid: int) -> Optional[dic
 
     Principal increases when more is borrowed and never falls when interest is
     collected. This record reports the combined position. Amounts retain their
-    currency: short collateral and sale proceeds are TAO, short debt is
-    alpha; long collateral is alpha and long debt is TAO. Interest and
+    currency: short collateral is TAO and short debt is alpha; long collateral
+    is alpha and long debt is TAO. The retained ``proceeds`` compatibility field
+    is zero for newly opened shorts; it is not a borrowed-alpha sale balance.
+    Interest and
     remaining runway are estimates at the selected block, not a close quote.
     """
     view = await view.at()
@@ -127,7 +129,7 @@ async def lending_reserves(view, netuid: int) -> dict:
     """Available, borrowed, lost and pending balances of the lending vault.
 
     The 10% cap uses available inventory plus outstanding principal in each
-    asset. AMM reserves, borrower collateral, short proceeds and pending
+    asset. AMM reserves, borrower collateral, legacy escrow proceeds and pending
     conversions are excluded. This reports inventory, not a promise that
     loans will be repaid.
     """
@@ -159,7 +161,7 @@ async def lending_reserves(view, netuid: int) -> dict:
         "side": "short or long.",
         "collateral": "Additional collateral amount: TAO for a short, alpha for a long.",
         "coldkey_ss58": "Owner to quote an opening or increase for; supply its hotkey too.",
-        "hotkey_ss58": "Collateral or repayment hotkey; supply the owner too.",
+        "hotkey_ss58": "Alpha delivery, collateral or repayment hotkey; supply the owner too.",
     },
 )
 async def lending_open_quote(
@@ -170,13 +172,16 @@ async def lending_open_quote(
     coldkey_ss58: Optional[str] = None,
     hotkey_ss58: Optional[str] = None,
 ) -> dict:
-    """Quote additional debt and interest using the runtime's fee-inclusive arithmetic.
+    """Quote additional fixed debt, opening value and collateral coupon.
 
     Supply the owner and hotkey together to quote a new position or increase
     an existing position with the same side and hotkey. The runtime accrues old
     interest and checks the combined position, including funded-redemption
     backing for TAO loans. Returned principal, annual_interest and opening_value
-    are additions, not totals. Omitting both addresses quotes a fresh loan only.
+    are additions, not totals. Short opening_value is the loan's TAO value at
+    the lending EMA, rounded up, and fixes its annual TAO coupon. A simulated
+    buy limits alpha principal but opening makes no AMM swap and pays no sale
+    proceeds. Omitting both addresses quotes a fresh loan only.
     A refusal is an error; it never becomes a zero-protection quote. The result
     is indicative until the transaction executes.
     """
@@ -209,17 +214,20 @@ async def lending_open_quote(
     param_docs={
         "coldkey_ss58": "Position owner.",
         "netuid": "Subnet of the position.",
-        "repay_from_wallet": "Repay a short with alpha from its saved hotkey.",
+        "repay_from_wallet": (
+            "Repay short alpha from its saved hotkey (default); false buys with collateral."
+        ),
     },
 )
 async def lending_close_quote(
-    view, coldkey_ss58: str, netuid: int, repay_from_wallet: bool = False
+    view, coldkey_ss58: str, netuid: int, repay_from_wallet: bool = True
 ) -> dict:
     """Runtime quote of the combined debt repayment and refund, after accrued interest.
 
     Payment is TAO except for a wallet-repaid short, which returns its fixed
     alpha principal. Refund is TAO for a short and alpha for a long. A short
-    AMM buyback must fit within the curve's remaining buy range.
+    AMM buyback must fit within the curve's remaining buy range and remaining
+    TAO collateral after interest. Borrowed alpha need not have been sold.
     """
     view = await view.at()
     position = await lending_position(view, coldkey_ss58, netuid)

@@ -164,7 +164,7 @@ mod benchmarks {
     }
 
     // Measure the independent long-admission scan in addition to the short's
-    // bounded swap quotes. The runtime conservatively composes both envelopes.
+    // simulated purchase. The runtime conservatively composes both envelopes.
     #[benchmark(extra)]
     fn funded_long_admission() {
         let (_, hotkey, netuid) = setup::<T>();
@@ -295,19 +295,75 @@ mod benchmarks {
             frame_system::Pallet::<T>::block_number().saturating_add(T::InterestPeriod::get()),
         );
         Pallet::<T>::start_dissolution(netuid).unwrap();
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        assert!(Pallet::<T>::settle_shorts(netuid, &mut meter));
+        // Ordinary redemption finishes before principal recovery. A small,
+        // nonzero basis also exercises ratio rounding and holder-row allowance.
+        Pallet::<T>::freeze_redemption_basis(netuid, 1_u64.into(), 3, 1).unwrap();
         let position = Positions::<T>::get(&owner, netuid).unwrap();
         let dissolution = Dissolutions::<T>::get(netuid).unwrap();
         #[block]
         {
             Pallet::<T>::settle_short(netuid, &owner, position, &dissolution).unwrap();
-            Pallet::<T>::return_terminal_reserves(netuid).unwrap();
         }
         assert!(!Positions::<T>::contains_key(owner, netuid));
         let vault = Vaults::<T>::get(netuid).unwrap();
-        assert_eq!(vault.available_tao, 0);
+        assert!(vault.available_tao > 0);
         assert_eq!(vault.available_alpha, 0);
         assert_eq!(vault.pending_tao, 0);
         assert!(Dissolutions::<T>::get(netuid).unwrap().reserves_returned);
+    }
+
+    #[benchmark(extra)]
+    fn freeze_interest() {
+        let (owner, hotkey, netuid) = setup::<T>();
+        Pallet::<T>::open(
+            RawOrigin::Signed(owner.clone()).into(),
+            netuid,
+            Side::Short,
+            16_000_000_000,
+            hotkey,
+            1,
+            0,
+        )
+        .unwrap();
+        frame_system::Pallet::<T>::set_block_number(
+            frame_system::Pallet::<T>::block_number().saturating_add(T::InterestPeriod::get()),
+        );
+        Pallet::<T>::start_dissolution(netuid).unwrap();
+        let before = Positions::<T>::get(&owner, netuid).unwrap();
+        #[block]
+        {
+            Pallet::<T>::freeze_position_interest(netuid, &owner).unwrap();
+            Pallet::<T>::return_terminal_reserves(netuid).unwrap();
+        }
+        let after = Positions::<T>::get(owner, netuid).unwrap();
+        assert_eq!(after.principal, before.principal);
+        assert!(after.collateral < before.collateral);
+        assert_eq!(after.interest_remainder, 0);
+        assert_eq!(Vaults::<T>::get(netuid).unwrap().pending_tao, 0);
+        assert!(Dissolutions::<T>::get(netuid).unwrap().reserves_returned);
+    }
+
+    #[benchmark(extra)]
+    fn freeze_redemption_basis() {
+        let (_, _, netuid) = setup::<T>();
+        Pallet::<T>::start_dissolution(netuid).unwrap();
+        Pallet::<T>::return_terminal_reserves(netuid).unwrap();
+        #[block]
+        {
+            Pallet::<T>::freeze_redemption_basis(
+                netuid,
+                100_000_000_000_u64.into(),
+                1_000_000_000_000,
+                1000,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            RedemptionBases::<T>::get(netuid),
+            Some((100_000_000_000, 1_000_000_000_000, 1000))
+        );
     }
 
     impl_benchmark_test_suite!(Pallet, crate::tests::ext(), crate::tests::Test);

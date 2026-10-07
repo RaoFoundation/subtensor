@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   title: 'Pool Reserves and Native Lending',
   description:
     'A proposed migration preserves opening price and local sensitivity, creating separate ' +
-    'lending reserves for custodial alpha shorts and transferable TAO loans.',
+    'lending reserves for freely usable alpha borrowing and transferable TAO loans.',
   alternates: {canonical: '/releases/pool-lending'},
 };
 
@@ -51,17 +51,18 @@ export default function PoolLendingRelease() {
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Fixed principal, collateral coupons</h2>
           <p>
-            A short posts TAO collateral, borrows alpha and sells it through the AMM. The resulting
-            TAO remains locked. Closing buys back the total alpha debt, or the owner supplies that
-            alpha from the saved hotkey, and returns the remaining TAO. A long posts existing alpha
-            collateral and receives freely transferable TAO. Closing repays the total TAO debt and
-            returns the remaining alpha.
+            A short posts TAO collateral and receives real alpha on its selected hotkey. That alpha
+            can be sold, transferred, used or pledged elsewhere; opening makes no AMM sale and locks
+            no sale proceeds. Closing returns the total alpha debt from the saved hotkey and refunds
+            remaining TAO. The owner can instead request a buyback using only remaining collateral.
+            A long posts existing alpha collateral and receives freely transferable TAO. Closing
+            repays the total TAO debt and returns the remaining alpha.
           </p>
           <ul className={styles.list}>
             <li>
               <strong>25% initial LTV.</strong> Historical lending prices and complete,
-              fee-inclusive swap quotes bound each opening; vault inventory must fund it. Shorts
-              also require the caller’s minimum net TAO proceeds.
+              fee-inclusive simulated swap quotes bound each opening; vault inventory must fund it.
+              Shorts protect the delivered alpha and its opening TAO valuation separately.
             </li>
             <li>
               <strong>TAO loans also require funded redemption backing.</strong> A new loan cannot
@@ -94,9 +95,8 @@ export default function PoolLendingRelease() {
             <li>
               <strong>10% aggregate borrowing cap per asset.</strong> The denominator is available
               vault inventory plus outstanding principal, excluding AMM reserves, borrower
-              collateral, locked proceeds and pending interest. Interest burns do not replenish
-              inventory or enlarge the cap; principal repayments replenish the original borrowed
-              asset.
+              collateral and pending interest. Interest burns do not replenish inventory or enlarge
+              the cap; principal repayments replenish the original borrowed asset.
             </li>
           </ul>
           <p>
@@ -130,17 +130,33 @@ export default function PoolLendingRelease() {
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Subnet deregistration</h2>
           <p>
-            Deregistration freezes interest. Existing beta-basket holdings convert to funded root
-            cash first; endpoint-blocked holdings receive funded redemption into their original
-            fund. Lending positions settle without AMM swaps. Pending TAO coupons are burned before
-            remaining reserve inventory enters the funded dissolution pot. Pending alpha coupons
-            stay ordinary vault stake through global settlement; only their actual funded TAO
-            redemption receipts are burned. Unfunded alpha produces no TAO burn. Longs accumulate
-            their escrow&apos;s actual TAO redemptions, then settle once after all payouts: debt is
-            recovered, any surplus is returned and any shortfall is recorded. TAO transferred
-            elsewhere is not assumed to remain in custody. Tiny refunds that cannot recreate a
-            reaped account are explicitly recycled and recorded as <code>DustForfeited</code>.
-            Cleanup finishes before the subnet identifier can be reused.
+            Deregistration freezes interest and both the 24-hour lending EMA and existing 2-hour
+            fast EMA. Existing beta-basket holdings convert to funded root cash first;
+            endpoint-blocked holdings receive funded redemption into their original fund. Pending
+            TAO coupons are burned and unloaned reserve assets return before the ordinary funded
+            payout pot and eligible alpha claims are fixed. Alpha holders, including holders of
+            freely borrowed alpha, then receive ordinary pro-rata redemption.
+          </p>
+          <p>
+            A short&apos;s fixed alpha debt is valued at the higher of the two frozen EMAs and its
+            actual funded redemption value, with conservative rounding. That debt is recovered from
+            remaining TAO collateral; any surplus returns to the owner and any shortfall is
+            recorded. Longs accumulate their collateral&apos;s actual TAO redemption receipts and
+            repay fixed TAO debt from those receipts. Both kinds of principal recovery remain
+            outside the already-fixed payout pot and go to global protocol recovery. There are no
+            terminal lending swaps or assumed repayments of freely transferred assets.
+          </p>
+          <p>
+            Terminal recovery from a short cannot exceed its remaining TAO collateral. The 25%
+            opening market LTV does not guarantee coverage of a later funded redemption value, and
+            interest reduces that collateral over time. Conservative terminal valuation cannot
+            create missing funds; the design accepts unrecovered principal as a loss.
+          </p>
+          <p>
+            Pending alpha coupons stay ordinary vault stake through global settlement; only their
+            actual funded TAO receipts are burned. Unfunded alpha produces no TAO burn. Tiny refunds
+            that cannot recreate a reaped account are explicitly recycled and recorded as{' '}
+            <code>DustForfeited</code>. Cleanup finishes before the subnet identifier can be reused.
           </p>
           <p>
             Alpha collateral receives ordinary funded pro-rata redemption, with no priority over
@@ -166,8 +182,8 @@ btcli lending list --netuid 64`}
             <Link href='/docs/guides/pool-lending' className={styles.inline_link}>
               pool lending guide
             </Link>{' '}
-            explains long collateral, direct alpha repayment, reserve accounting and settlement in
-            detail.
+            explains long collateral, wallet alpha repayment, optional collateral-only buyback,
+            reserve accounting and settlement in detail.
           </p>
         </section>
       </FadeInWrapper>

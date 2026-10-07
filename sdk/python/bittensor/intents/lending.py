@@ -47,22 +47,24 @@ def _contextual_amount(value: Money) -> Money:
 class OpenLoan(Intent):
     """Open or increase a fixed-principal subnet loan at up to 25% LTV.
 
-    A short locks TAO collateral, borrows alpha and immediately sells it;
-    the TAO proceeds stay in contract custody. A long locks existing free
-    alpha stake and receives freely transferable TAO. The debt stays in the
+    A short locks TAO collateral and receives freely usable alpha on its
+    selected hotkey. Opening does not sell that alpha or lock sale proceeds.
+    A long locks existing free alpha stake and receives transferable TAO.
+    Borrowed assets may be sold, transferred or pledged elsewhere. Debt stays in the
     borrowed currency. Interest is 100% annually on opening loan value,
     charged in fixed collateral units and collected weekly. There are no
     price-triggered liquidations; exhausted collateral forfeits the position.
 
     An existing position must have the same side and hotkey. ``collateral``
     adds to its remaining collateral after accrued interest; borrowed principal,
-    short sale proceeds and the new fixed coupon add to the saved position.
+    and the new fixed coupon add to the saved position.
     The old coupon is not repriced. The combined position must pass current
     opening guards, and an already exhausted position cannot be increased.
 
-    ``min_borrow`` is a floor on additional principal, including opening swap
-    fees. ``min_proceeds`` separately bounds TAO from the additional short sale.
-    The call is atomic and refuses a smaller loan or sale. There remains one
+    ``min_borrow`` is a floor on additional principal. The legacy wire field
+    ``min_proceeds`` bounds the additional short's opening value in TAO,
+    marked at the lending EMA; it does not describe an actual sale.
+    The call is atomic and refuses a smaller loan or opening value. There remains one
     position per coldkey and subnet; closing repays its total principal.
     """
 
@@ -79,7 +81,7 @@ class OpenLoan(Intent):
     hotkey_ss58: Optional[str] = field(
         default=None,
         metadata={
-            "help": "Hotkey holding long collateral or wallet-supplied short repayment alpha."
+            "help": "Hotkey receiving short alpha or holding long collateral and repayment alpha."
         },
     )
     min_borrow: Money = field(
@@ -88,7 +90,7 @@ class OpenLoan(Intent):
     )
     min_proceeds: Money = field(
         default=0,
-        metadata={"help": "Minimum TAO from the additional short sale; unused for longs."},
+        metadata={"help": "Minimum additional short opening value in TAO; unused for longs."},
     )
 
     def __post_init__(self):
@@ -137,8 +139,10 @@ class OpenLoan(Intent):
 class CloseLoan(Intent):
     """Repay total principal and return remaining collateral on a subnet.
 
-    A short normally buys its fixed alpha debt through the AMM using locked
-    TAO. ``repay_from_wallet`` instead takes that alpha from the saved hotkey.
+    A short normally repays its fixed alpha debt from the saved hotkey.
+    ``repay_from_wallet=False`` instead buys that alpha through the AMM using
+    only remaining TAO collateral, after accrued interest. Opening created no
+    locked sale proceeds, and an optional buyback cannot spend external funds.
     A long always repays TAO from the owner's free balance. Both charge
     accrued interest through the closing block and then refund the remainder.
     A failed repayment, payment ceiling or refund floor rolls back the call.
@@ -163,8 +167,8 @@ class CloseLoan(Intent):
         metadata={"help": "Minimum returned collateral: TAO for shorts, alpha for longs."},
     )
     repay_from_wallet: bool = field(
-        default=False,
-        metadata={"help": "Repay a short with alpha from its saved hotkey instead of an AMM buy."},
+        default=True,
+        metadata={"help": "Repay short alpha from its saved hotkey; false buys with collateral."},
     )
 
     def __post_init__(self):
@@ -197,6 +201,10 @@ class CloseLoan(Intent):
                 else alpha_amount(self.min_refund, self.netuid)
             ),
         )
+        # The saved side resolves plain decimal amounts before the executor's
+        # TAO spend policy runs. Wallet alpha repayment is not free-TAO spend.
+        self.max_payment = payment
+        self.min_refund = refund
         return await substrate.compose(
             Call(
                 "Lending",

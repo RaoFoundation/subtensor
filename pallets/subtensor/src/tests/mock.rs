@@ -1488,6 +1488,14 @@ pub fn run_destroy_alpha_get_total_and_settle(netuid: NetUid) -> DissolveCleanup
         ),
         "destroy_alpha_in_out_stakes_get_total_alpha_value incomplete"
     );
+    assert_ok!(
+        <Lending as pallet_lending::LendingInterface<AccountId>>::freeze_redemption_basis(
+            netuid,
+            SubnetTAO::<Test>::get(netuid),
+            status.subnet_total_alpha_value.unwrap(),
+            DissolutionEligibleAlphaRows::<Test>::get(netuid),
+        )
+    );
     status.subnet_distributed_tao = Some(0);
     assert!(
         run_resumable_netuid_cleanup_with_status(

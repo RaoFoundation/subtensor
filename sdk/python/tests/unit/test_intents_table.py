@@ -20,7 +20,7 @@ from bittensor.intents import REGISTRY, build
 from bittensor.intents._money import UNBOUNDED, _Unbounded
 from bittensor.intents.base import BuiltCall
 from bittensor.result import BittensorError, ChainError
-from tests.harness.fake_substrate import FakeSubstrate
+from tests.harness.fake_substrate import DEFAULT_STORAGE, FakeSubstrate
 from tests.harness.samples import ALICE, ALICE_HOT, BOB, BOB_HOT, INTENT_SAMPLES, dev_wallet
 
 
@@ -140,17 +140,33 @@ class TestPolicyEnforcement:
     that declares a spend, not just hand-picked ones."""
 
     @pytest.mark.asyncio
-    async def test_spend_cap_blocks_every_spending_intent(self, client: Client, wallet):
+    async def test_spend_cap_blocks_every_spending_intent(
+        self, client: Client, substrate: FakeSubstrate, wallet
+    ):
         cap = Policy(max_spend_tao=0.000000001)  # 1 rao
         blocked, leaked = [], []
         for op in sorted(REGISTRY):
             intent = build(op, INTENT_SAMPLES[op])
+            if op == "close_loan":
+                # Stored side determines repayment currency. Exercise a TAO
+                # loan here; a default alpha-loan close spends alpha, not TAO.
+                substrate.seed(
+                    "Lending",
+                    "Positions",
+                    [wallet.coldkeypub.ss58_address, intent.netuid],
+                    {**DEFAULT_STORAGE[("Lending", "Positions")], "side": "Long"},
+                )
             spend = intent.spend()
             if spend is None:
                 continue
             plan = await client.plan(intent, wallet, policy=cap)
+            if op == "close_loan":
+                assert isinstance(plan.spend, Balance)
+                assert plan.spend.netuid == 0
+                assert plan.spend > cap.max_spend_tao
             (blocked if not plan.ok else leaked).append(op)
         assert not leaked, f"spend cap did not block: {leaked}"
+        assert "close_loan" in blocked, "TAO loan repayment must enforce the spending cap"
         assert blocked, "no spending intents found — spend() wiring broken?"
 
     @pytest.mark.asyncio

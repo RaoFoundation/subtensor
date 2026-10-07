@@ -633,7 +633,7 @@
   {
     "name": "close_loan",
     "summary": "Repay total principal and return remaining collateral on a subnet.",
-    "description": "Repay total principal and return remaining collateral on a subnet.\n\nA short normally buys its fixed alpha debt through the AMM using locked\nTAO. `repay_from_wallet` instead takes that alpha from the saved hotkey.\nA long always repays TAO from the owner's free balance. Both charge\naccrued interest through the closing block and then refund the remainder.\nA failed repayment, payment ceiling or refund floor rolls back the call.\n\n`max_payment` is TAO for AMM short closes and long repayment, or alpha\nfor a wallet-repaid short. `min_refund` is TAO for shorts and alpha for\nlongs. Units are checked against the owner's actual stored position.\nClosing remains available when new borrowing is disabled.",
+    "description": "Repay total principal and return remaining collateral on a subnet.\n\nA short normally repays its fixed alpha debt from the saved hotkey.\n`repay_from_wallet=False` instead buys that alpha through the AMM using\nonly remaining TAO collateral, after accrued interest. Opening created no\nlocked sale proceeds, and an optional buyback cannot spend external funds.\nA long always repays TAO from the owner's free balance. Both charge\naccrued interest through the closing block and then refund the remainder.\nA failed repayment, payment ceiling or refund floor rolls back the call.\n\n`max_payment` is TAO for AMM short closes and long repayment, or alpha\nfor a wallet-repaid short. `min_refund` is TAO for shorts and alpha for\nlongs. Units are checked against the owner's actual stored position.\nClosing remains available when new borrowing is disabled.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -679,7 +679,7 @@
         },
         "repay_from_wallet": {
           "type": "boolean",
-          "description": "Repay a short with alpha from its saved hotkey instead of an AMM buy."
+          "description": "Repay short alpha from its saved hotkey; false buys with collateral."
         }
       },
       "required": [
@@ -696,9 +696,9 @@
         "pallet": "Lending",
         "call": "close",
         "path": "pallets/lending/src/lib.rs",
-        "line": 738,
-        "end_line": 846,
-        "url": "/code/pallets/lending/src/lib.rs#L735-L846",
+        "line": 748,
+        "end_line": 856,
+        "url": "/code/pallets/lending/src/lib.rs#L745-L856",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1956,7 +1956,7 @@
   {
     "name": "open_loan",
     "summary": "Open or increase a fixed-principal subnet loan at up to 25% LTV.",
-    "description": "Open or increase a fixed-principal subnet loan at up to 25% LTV.\n\nA short locks TAO collateral, borrows alpha and immediately sells it;\nthe TAO proceeds stay in contract custody. A long locks existing free\nalpha stake and receives freely transferable TAO. The debt stays in the\nborrowed currency. Interest is 100% annually on opening loan value,\ncharged in fixed collateral units and collected weekly. There are no\nprice-triggered liquidations; exhausted collateral forfeits the position.\n\nAn existing position must have the same side and hotkey. `collateral`\nadds to its remaining collateral after accrued interest; borrowed principal,\nshort sale proceeds and the new fixed coupon add to the saved position.\nThe old coupon is not repriced. The combined position must pass current\nopening guards, and an already exhausted position cannot be increased.\n\n`min_borrow` is a floor on additional principal, including opening swap\nfees. `min_proceeds` separately bounds TAO from the additional short sale.\nThe call is atomic and refuses a smaller loan or sale. There remains one\nposition per coldkey and subnet; closing repays its total principal.",
+    "description": "Open or increase a fixed-principal subnet loan at up to 25% LTV.\n\nA short locks TAO collateral and receives freely usable alpha on its\nselected hotkey. Opening does not sell that alpha or lock sale proceeds.\nA long locks existing free alpha stake and receives transferable TAO.\nBorrowed assets may be sold, transferred or pledged elsewhere. Debt stays in the\nborrowed currency. Interest is 100% annually on opening loan value,\ncharged in fixed collateral units and collected weekly. There are no\nprice-triggered liquidations; exhausted collateral forfeits the position.\n\nAn existing position must have the same side and hotkey. `collateral`\nadds to its remaining collateral after accrued interest; borrowed principal,\nand the new fixed coupon add to the saved position.\nThe old coupon is not repriced. The combined position must pass current\nopening guards, and an already exhausted position cannot be increased.\n\n`min_borrow` is a floor on additional principal. The legacy wire field\n`min_proceeds` bounds the additional short's opening value in TAO,\nmarked at the lending EMA; it does not describe an actual sale.\nThe call is atomic and refuses a smaller loan or opening value. There remains one\nposition per coldkey and subnet; closing repays its total principal.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1993,7 +1993,7 @@
         },
         "hotkey_ss58": {
           "type": "string",
-          "description": "Hotkey holding long collateral or wallet-supplied short repayment alpha."
+          "description": "Hotkey receiving short alpha or holding long collateral and repayment alpha."
         },
         "min_borrow": {
           "anyOf": [
@@ -2019,7 +2019,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "Minimum TAO from the additional short sale; unused for longs."
+          "description": "Minimum additional short opening value in TAO; unused for longs."
         }
       },
       "required": [
@@ -2037,9 +2037,9 @@
         "pallet": "Lending",
         "call": "open",
         "path": "pallets/lending/src/lib.rs",
-        "line": 567,
-        "end_line": 731,
-        "url": "/code/pallets/lending/src/lib.rs#L564-L731",
+        "line": 588,
+        "end_line": 741,
+        "url": "/code/pallets/lending/src/lib.rs#L585-L741",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

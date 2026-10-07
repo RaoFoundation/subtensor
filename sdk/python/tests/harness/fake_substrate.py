@@ -60,7 +60,7 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
         "hotkey": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
         "principal": 250_000_000,
         "collateral": 1_000_000_000,
-        "proceeds": 250_000_000,
+        "proceeds": 0,
         "annual_interest": 250_000_000,
         "last_accrued": 100,
         "interest_remainder": 0,

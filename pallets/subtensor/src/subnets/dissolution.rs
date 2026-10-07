@@ -74,9 +74,11 @@ pub enum DissolveCleanupPhase {
     /// that can recycle alpha has completed. Appended so existing in-flight cleanup
     /// discriminants remain stable.
     NetworkAlphaAssetCounters,
-    /// Freeze-settle shorts and collect long coupons before fixing the funded payout pot.
+    /// Freeze both loan coupons and return unloaned inventory before fixing the
+    /// ordinary funded payout pot. The legacy variant name preserves its codec.
     LendingSettleShorts,
-    /// Close zero-payout longs after all ordinary alpha redemptions completed.
+    /// Settle both loan principals after ordinary alpha redemptions. Principal
+    /// recoveries stay outside the payout pot. The variant keeps its legacy codec.
     LendingSettleRemainingLongs,
 }
 
@@ -764,14 +766,33 @@ impl<T: Config> Pallet<T> {
                         status,
                     );
                     if done {
-                        status.subnet_distributed_tao = Some(0);
-                        status.set_phase(DissolveCleanupPhase::AlphaInOutStakesSettleStakes);
-                        status.last_key = None;
-                        weight_meter.consume(T::DbWeight::get().writes(2));
+                        // The exact holder denominator is complete only now. Freeze
+                        // its original cash backing before ordinary payouts or any
+                        // principal recovery, which must never enlarge this pot.
+                        // Retain the completed scan cursor when the hook needs a
+                        // retry so the final page cannot be counted twice.
+                        status.last_key = new_key;
+                        let freeze_weight = T::DbWeight::get().reads_writes(4, 3);
+                        if weight_meter.try_consume(freeze_weight).is_err()
+                            || T::LendingInterface::freeze_redemption_basis(
+                                netuid,
+                                SubnetTAO::<T>::get(netuid),
+                                status.subnet_total_alpha_value.unwrap_or_default(),
+                                DissolutionEligibleAlphaRows::<T>::get(netuid),
+                            )
+                            .is_err()
+                        {
+                            false
+                        } else {
+                            status.subnet_distributed_tao = Some(0);
+                            status.set_phase(DissolveCleanupPhase::AlphaInOutStakesSettleStakes);
+                            status.last_key = None;
+                            true
+                        }
                     } else {
                         status.last_key = new_key;
+                        false
                     }
-                    done
                 }
 
                 DissolveCleanupPhase::AlphaInOutStakesSettleStakes => {
@@ -1051,7 +1072,7 @@ impl<T: Config> Pallet<T> {
                 DissolveCleanupPhase::NetworkAlphaAssetCounters => {
                     // Lending generation cleanup may transfer recovered TAO, then removes
                     // vault/reference/index state. Reserve that work before executing it.
-                    let clear_weight = T::DbWeight::get().reads_writes(12, 14).saturating_add(
+                    let clear_weight = T::DbWeight::get().reads_writes(12, 16).saturating_add(
                         <T as Config>::WeightInfo::transfer_stake().saturating_mul(2),
                     );
                     if !weight_meter.can_consume(clear_weight) {
@@ -1061,6 +1082,7 @@ impl<T: Config> Pallet<T> {
                         if T::LendingInterface::finish_dissolution(netuid).is_err() {
                             false
                         } else {
+                            DissolutionEligibleAlphaRows::<T>::remove(netuid);
                             T::AlphaAssets::clear_alpha_counters(netuid);
                             cleanup_completed = true;
                             true

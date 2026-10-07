@@ -123,7 +123,7 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`alpha-price`](/docs/query/alpha-price) | Current spot alpha price for a subnet, as TAO per alpha. |
 | [`alpha-prices`](/docs/query/alpha-prices) | Spot alpha price for every subnet, as TAO per alpha keyed by netuid. |
 | [`lending-close-quote`](/docs/query/lending-close-quote) | Runtime quote of the combined debt repayment and refund, after accrued interest. |
-| [`lending-open-quote`](/docs/query/lending-open-quote) | Quote additional debt and interest using the runtime's fee-inclusive arithmetic. |
+| [`lending-open-quote`](/docs/query/lending-open-quote) | Quote additional fixed debt, opening value and collateral coupon. |
 | [`lending-position`](/docs/query/lending-position) | A coldkey's fixed-principal loan on one subnet, or None. |
 | [`lending-positions`](/docs/query/lending-positions) | All open loans on a subnet, pinned to one block and sorted by owner. |
 | [`lending-reserves`](/docs/query/lending-reserves) | Available, borrowed, lost and pending balances of the lending vault. |

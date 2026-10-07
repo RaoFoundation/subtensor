@@ -1,7 +1,7 @@
 //! Fixed-principal loans funded exclusively by the AMM's extracted reserve floors.
 //!
-//! Shorts sell borrowed alpha into custodial TAO proceeds. Longs transfer borrowed TAO
-//! to their owner. Both lock collateral, pay a fixed annual opening-value coupon,
+//! Alpha loans and TAO loans transfer their borrowed asset freely to their owner.
+//! Both lock collateral, pay a fixed annual opening-value coupon,
 //! and have no price-triggered liquidation. Both coupons burn TAO; long coupons first
 //! sell alpha through the guarded AMM. Exhausted collateral forfeits the position.
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -37,6 +37,11 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     }
     fn quote_sell(netuid: NetUid, alpha: AlphaBalance) -> Result<TaoBalance, DispatchError>;
     fn quote_buy(netuid: NetUid, tao: TaoBalance) -> Result<AlphaBalance, DispatchError>;
+    /// A mature short-horizon price EMA, when one exists. Terminal marks use the
+    /// higher of this reference and lending's long-horizon EMA, never spot price.
+    fn fast_alpha_price(_netuid: NetUid) -> Option<U64F64> {
+        None
+    }
     /// An upper bound on the alpha claims sharing a funded deregistration payout.
     /// Must fail while aggregate staking counters are incomplete.
     fn redemption_alpha_supply(netuid: NetUid) -> Result<u128, DispatchError>;
@@ -152,6 +157,14 @@ pub trait LendingInterface<AccountId> {
     ) -> DispatchResult;
     fn start_dissolution(netuid: NetUid) -> DispatchResult;
     fn settle_shorts(netuid: NetUid, meter: &mut WeightMeter) -> bool;
+    /// Freeze the exact ordinary funded payout basis before any alpha payout.
+    /// Debt recoveries must not be added to this pot afterwards.
+    fn freeze_redemption_basis(
+        netuid: NetUid,
+        pot: TaoBalance,
+        eligible_alpha: u128,
+        eligible_rows: u64,
+    ) -> DispatchResult;
     fn on_alpha_redemption(
         netuid: NetUid,
         coldkey: &AccountId,
@@ -197,6 +210,9 @@ impl<AccountId> LendingInterface<AccountId> for () {
     }
     fn settle_shorts(_: NetUid, _: &mut WeightMeter) -> bool {
         true
+    }
+    fn freeze_redemption_basis(_: NetUid, _: TaoBalance, _: u128, _: u64) -> DispatchResult {
+        Ok(())
     }
     fn on_alpha_redemption(_: NetUid, _: &AccountId, _: TaoBalance) -> DispatchResult {
         Ok(())
@@ -250,7 +266,7 @@ pub struct Vault {
     pub pending_alpha: u64,
 }
 
-#[freeze_struct("5845ea2961d09261")]
+#[freeze_struct("9482783dc052c44b")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
 )]
@@ -261,7 +277,8 @@ pub struct Position<AccountId, BlockNumber> {
     pub principal: u64,
     /// Remaining collateral in TAO for Short, alpha for Long.
     pub collateral: u64,
-    /// Short sale proceeds; long funded TAO receipts accumulated only during dissolution.
+    /// Actual funded TAO receipts during dissolution or legacy short sale proceeds.
+    /// Freely delivered alpha loans create no opening proceeds.
     pub proceeds: u64,
     /// 100% nominal annual interest, fixed in opening collateral units.
     pub annual_interest: u64,
@@ -387,6 +404,10 @@ pub mod pallet {
     #[pallet::storage]
     pub type Dissolutions<T: Config> =
         StorageMap<_, Identity, NetUid, Dissolution<BlockNumberFor<T>>, OptionQuery>;
+    /// Exact ordinary payout pot, eligible alpha claim count, and payout row count.
+    /// Separate storage preserves the frozen Dissolution codec.
+    #[pallet::storage]
+    pub type RedemptionBases<T> = StorageMap<_, Identity, NetUid, (u64, u128, u64), OptionQuery>;
     #[pallet::storage]
     pub type DissolutionCursor<T: Config> =
         StorageMap<_, Identity, NetUid, T::AccountId, OptionQuery>;
@@ -637,25 +658,14 @@ pub mod pallet {
                     T::Pool::transfer_staked_alpha(
                         &vault,
                         &custody,
-                        &escrow,
-                        &custody,
+                        &owner,
+                        &hotkey,
                         netuid,
                         quote.principal.into(),
                         false,
-                        false,
+                        true,
                     )?;
-                    let received = T::Pool::sell_alpha(
-                        &escrow,
-                        &custody,
-                        netuid,
-                        quote.principal.into(),
-                        TaoBalance::ZERO,
-                        false,
-                    )?
-                    .to_u64();
-                    ensure!(received == quote.opening_value, Error::<T>::InvalidQuote);
-                    ensure!(received >= min_proceeds, Error::<T>::BelowMinimumProceeds);
-                    received
+                    0
                 }
                 Side::Long => {
                     T::Pool::transfer_staked_alpha(
@@ -785,7 +795,7 @@ pub mod pallet {
                             &escrow,
                             netuid,
                             position.principal,
-                            pot.min(max_payment),
+                            position.collateral.min(max_payment),
                         )?;
                         ensure!(payment <= max_payment, Error::<T>::AboveMaximumPayment);
                         let refund = Self::sub(pot, payment)?;
@@ -1028,33 +1038,18 @@ impl<T: Config> Pallet<T> {
         let vault = Vaults::<T>::get(netuid).ok_or(Error::<T>::InsufficientReserves)?;
         let quote = match side {
             Side::Short => {
-                let limit = Self::alpha_for_tao(quarter, reference.price, false)?
+                // Borrow no more alpha than a real quarter-collateral purchase
+                // could deliver, while also respecting the historical valuation.
+                // This quote does not execute a swap or create custodial proceeds.
+                let historical = Self::alpha_for_tao(quarter, reference.price, false)?;
+                let executable = T::Pool::quote_buy(netuid, quarter.into())?.to_u64();
+                let principal = historical
+                    .min(executable)
                     .checked_sub(old_principal)
                     .ok_or(Error::<T>::InsufficientEscrow)?;
-                // Historical marking limits debt; the real opening sell independently limits
-                // executable exposure. Binary search is bounded by the u64 input domain.
-                let mut low = 0_u64;
-                let mut high = limit;
-                while low < high {
-                    let mid = low.saturating_add(
-                        high.saturating_sub(low)
-                            .saturating_add(1)
-                            .checked_div(2)
-                            .unwrap_or_default(),
-                    );
-                    let combined = Self::add(old_principal, mid)?;
-                    let fits = T::Pool::quote_sell(netuid, combined.into())
-                        .is_ok_and(|out| out.to_u64() <= quarter);
-                    if fits {
-                        low = mid;
-                    } else {
-                        high = mid.saturating_sub(1);
-                    }
-                }
-                ensure!(low > 0, Error::<T>::AmountTooSmall);
-                let opening_value = T::Pool::quote_sell(netuid, low.into())?.to_u64();
+                let opening_value = Self::tao_for_alpha(principal, reference.price, true)?;
                 OpeningQuote {
-                    principal: low,
+                    principal,
                     annual_interest: opening_value,
                     opening_value,
                 }
@@ -1092,9 +1087,6 @@ impl<T: Config> Pallet<T> {
         if let Some((_, position)) = existing {
             Self::add(position.principal, quote.principal)?;
             Self::add(position.annual_interest, quote.annual_interest)?;
-            if side == Side::Short {
-                Self::add(position.proceeds, quote.opening_value)?;
-            }
         }
         let (available, outstanding) = match side {
             Side::Short => (vault.available_alpha, vault.outstanding_alpha),
@@ -1234,7 +1226,7 @@ impl<T: Config> Pallet<T> {
                                 frame_system::Pallet::<T>::block_number(),
                                 true,
                             )?;
-                            Self::execute_buyback(&escrow, netuid, position.principal, pot)
+                            Self::execute_buyback(&escrow, netuid, position.principal, remaining)
                                 .map(|(payment, _)| payment)
                         })();
                         TransactionOutcome::Rollback(result)
@@ -1872,7 +1864,9 @@ impl<T: Config> Pallet<T> {
         let Some(reference) = References::<T>::get(netuid) else {
             return Ok(());
         };
-        let price = reference.price.max(T::Pool::current_alpha_price(netuid));
+        let price = reference
+            .price
+            .max(T::Pool::fast_alpha_price(netuid).unwrap_or(reference.price));
         let frozen_at = frame_system::Pallet::<T>::block_number();
         Dissolutions::<T>::insert(
             netuid,
@@ -1890,8 +1884,8 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Settle custodial short cash first, then return unlent vault inventory. Every
-    /// resulting asset enters the funded pot before ordinary alpha payouts are fixed.
+    /// Freeze coupons on both loan sides, then return only unloaned inventory.
+    /// Principal recoveries wait until the ordinary payout basis and receipts are fixed.
     pub fn settle_shorts(netuid: NetUid, meter: &mut WeightMeter) -> bool {
         if meter
             .try_consume(T::DbWeight::get().reads_writes(3, 1))
@@ -1920,17 +1914,13 @@ impl<T: Config> Pallet<T> {
             {
                 return false;
             }
-            let Some(position) = Positions::<T>::get(&owner, netuid) else {
+            let Some(_) = Positions::<T>::get(&owner, netuid) else {
                 continue;
             };
             if meter.try_consume(T::WeightInfo::settle()).is_err() {
                 return false;
             }
-            let settled = match position.side {
-                Side::Short => Self::settle_short(netuid, &owner, position, &dissolution),
-                Side::Long => Self::freeze_long_interest(netuid, &owner),
-            };
-            if settled.is_err() {
+            if Self::freeze_position_interest(netuid, &owner).is_err() {
                 return false;
             }
             DissolutionCursor::<T>::insert(netuid, owner);
@@ -1951,27 +1941,27 @@ impl<T: Config> Pallet<T> {
     fn settle_short(
         netuid: NetUid,
         owner: &T::AccountId,
-        mut position: Position<T::AccountId, BlockNumberFor<T>>,
+        position: Position<T::AccountId, BlockNumberFor<T>>,
         dissolution: &Dissolution<BlockNumberFor<T>>,
     ) -> DispatchResult {
-        Self::charge_interest(owner, netuid, &mut position, dissolution.frozen_at, true)?;
-        let pot = Self::add(position.collateral, position.proceeds)?;
-        // Terminal cash settlement must remain possible even when the frozen mark
-        // makes debt exceed the entire u64 TAO domain.
-        let exact_owed = dissolution
-            .price
-            .checked_mul(U64F64::from_num(position.principal))
-            .and_then(|value| value.checked_ceil())
-            .map(|value| value.to_num::<u64>());
-        let owed = exact_owed.unwrap_or(u64::MAX);
-        let paid = pot.min(owed);
-        let refund = pot.saturating_sub(paid);
+        let basis = RedemptionBases::<T>::get(netuid).ok_or(Error::<T>::RedemptionUnavailable)?;
+        let owed = Self::terminal_alpha_value(position.principal, dissolution.price, basis)?;
+        // A free-alpha loan has only its TAO collateral to recover. Legacy cash
+        // proceeds remain refundable, but cannot back new principal or coupons.
+        let paid = u128::from(position.collateral).min(owed) as u64;
+        let refund = Self::add(position.collateral.saturating_sub(paid), position.proceeds)?;
         let escrow = Self::position_account(owner, netuid);
         let (paid, refund) = Self::disburse_terminal(netuid, &escrow, owner, paid, refund)?;
-        let recovered = if exact_owed.is_some_and(|owed| paid >= owed) {
+        let recovered = if u128::from(paid) >= owed {
             position.principal
         } else {
-            Self::alpha_for_tao(paid, dissolution.price, false)?.min(position.principal)
+            // Cash settlement retires the covered fraction of fixed-alpha debt.
+            // The only asset credited to inventory is the actual TAO receipt.
+            let covered = u128::from(position.principal)
+                .checked_mul(u128::from(paid))
+                .and_then(|value| value.checked_div(owed))
+                .ok_or(Error::<T>::Arithmetic)?;
+            u64::try_from(covered).map_err(|_| Error::<T>::Arithmetic)?
         };
         let lost = position.principal.saturating_sub(recovered);
         Vaults::<T>::try_mutate(netuid, |vault| -> DispatchResult {
@@ -1990,6 +1980,83 @@ impl<T: Config> Pallet<T> {
             principal_lost: lost,
             tao_refund: refund,
         });
+        Ok(())
+    }
+
+    fn ceil_ratio(numerator: u128, denominator: u128) -> Result<u128, DispatchError> {
+        let whole = numerator
+            .checked_div(denominator)
+            .ok_or(Error::<T>::Arithmetic)?;
+        let remainder = numerator
+            .checked_rem(denominator)
+            .ok_or(Error::<T>::Arithmetic)?;
+        whole
+            .checked_add(u128::from(remainder > 0))
+            .ok_or(Error::<T>::Arithmetic.into())
+    }
+
+    /// Exact ceil(alpha * fixed-point price), without overflowing a price-bit
+    /// product or narrowing a terminal liability to the u64 cash domain.
+    fn marked_alpha_value(alpha: u64, price: U64F64) -> Result<u128, DispatchError> {
+        let bits = price.to_bits();
+        let whole_price = bits.checked_shr(64).ok_or(Error::<T>::Arithmetic)?;
+        let fractional_price = bits & u128::from(u64::MAX);
+        let whole = u128::from(alpha)
+            .checked_mul(whole_price)
+            .ok_or(Error::<T>::Arithmetic)?;
+        let fraction = u128::from(alpha)
+            .checked_mul(fractional_price)
+            .ok_or(Error::<T>::Arithmetic)?;
+        let rounded = Self::ceil_ratio(
+            fraction,
+            1_u128.checked_shl(64).ok_or(Error::<T>::Arithmetic)?,
+        )?;
+        whole
+            .checked_add(rounded)
+            .ok_or(Error::<T>::Arithmetic.into())
+    }
+
+    fn funded_alpha_value(alpha: u64, basis: (u64, u128, u64)) -> Result<u128, DispatchError> {
+        let (pot, supply, rows) = basis;
+        if supply == 0 {
+            return Ok(0);
+        }
+        let numerator = u128::from(alpha)
+            .checked_mul(u128::from(pot))
+            .ok_or(Error::<T>::Arithmetic)?;
+        let base = Self::ceil_ratio(numerator, supply)?;
+        // Largest-remainder payouts can award one atom per eligible holder row.
+        // Reserve that bounded dust without lowering debt when base exceeds P.
+        let allowance = u128::from(alpha.min(rows));
+        let with_dust = base.checked_add(allowance).ok_or(Error::<T>::Arithmetic)?;
+        Ok(base.max(with_dust.min(u128::from(pot))))
+    }
+
+    fn terminal_alpha_value(
+        alpha: u64,
+        mark: U64F64,
+        basis: (u64, u128, u64),
+    ) -> Result<u128, DispatchError> {
+        Ok(Self::marked_alpha_value(alpha, mark)?.max(Self::funded_alpha_value(alpha, basis)?))
+    }
+
+    /// Repeated valuation pages must preserve the first complete ordinary basis.
+    pub fn freeze_redemption_basis(
+        netuid: NetUid,
+        pot: TaoBalance,
+        eligible_alpha: u128,
+        eligible_rows: u64,
+    ) -> DispatchResult {
+        let Some(dissolution) = Dissolutions::<T>::get(netuid) else {
+            return Ok(());
+        };
+        ensure!(dissolution.reserves_returned, Error::<T>::SubnetUnavailable);
+        let basis = (pot.to_u64(), eligible_alpha, eligible_rows);
+        if let Some(existing) = RedemptionBases::<T>::get(netuid) {
+            ensure!(existing == basis, Error::<T>::InvalidQuote);
+        } else {
+            RedemptionBases::<T>::insert(netuid, basis);
+        }
         Ok(())
     }
 
@@ -2054,7 +2121,7 @@ impl<T: Config> Pallet<T> {
         let mut position =
             Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::PositionMissing)?;
         ensure!(
-            position.side == Side::Long && Dissolutions::<T>::contains_key(netuid),
+            Dissolutions::<T>::contains_key(netuid),
             Error::<T>::InvalidQuote
         );
         position.proceeds = Self::add(position.proceeds, tao_paid.to_u64())?;
@@ -2094,18 +2161,13 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Flush long coupons only until the common cutoff, before alpha denominator
-    /// calculation. This is separate from short settlement so all collateral rows
-    /// are final before the ordinary dissolution values them.
+    /// Flush coupons only until the common cutoff, before denominator calculation.
     #[transactional]
-    pub fn freeze_long_interest(netuid: NetUid, owner: &T::AccountId) -> DispatchResult {
+    pub fn freeze_position_interest(netuid: NetUid, owner: &T::AccountId) -> DispatchResult {
         let dissolution = Dissolutions::<T>::get(netuid).ok_or(Error::<T>::SubnetUnavailable)?;
         let Some(mut position) = Positions::<T>::get(owner, netuid) else {
             return Ok(());
         };
-        if position.side != Side::Long {
-            return Ok(());
-        }
         Self::charge_interest(owner, netuid, &mut position, dissolution.frozen_at, true)?;
         Positions::<T>::insert(owner, netuid, position);
         Ok(())
@@ -2126,7 +2188,18 @@ impl<T: Config> Pallet<T> {
             {
                 return false;
             }
-            if Self::settle_long(netuid, &owner).is_err() {
+            let Some(position) = Positions::<T>::get(&owner, netuid) else {
+                return false;
+            };
+            let settled = match position.side {
+                Side::Long => Self::settle_long(netuid, &owner),
+                Side::Short => Dissolutions::<T>::get(netuid)
+                    .ok_or(Error::<T>::SubnetUnavailable.into())
+                    .and_then(|dissolution| {
+                        Self::settle_short(netuid, &owner, position, &dissolution)
+                    }),
+            };
+            if settled.is_err() {
                 return false;
             }
         }
@@ -2173,6 +2246,7 @@ impl<T: Config> Pallet<T> {
         References::<T>::remove(netuid);
         Dissolutions::<T>::remove(netuid);
         DissolutionCursor::<T>::remove(netuid);
+        RedemptionBases::<T>::remove(netuid);
         PositionCount::<T>::remove(netuid);
         Ok(())
     }
@@ -2220,6 +2294,14 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
     }
     fn settle_shorts(netuid: NetUid, meter: &mut WeightMeter) -> bool {
         Self::settle_shorts(netuid, meter)
+    }
+    fn freeze_redemption_basis(
+        netuid: NetUid,
+        pot: TaoBalance,
+        eligible_alpha: u128,
+        eligible_rows: u64,
+    ) -> DispatchResult {
+        Self::freeze_redemption_basis(netuid, pot, eligible_alpha, eligible_rows)
     }
     fn on_alpha_redemption(
         netuid: NetUid,

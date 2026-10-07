@@ -700,6 +700,21 @@ impl<T: Config> Pallet<T> {
         let r = T::DbWeight::get().reads(1);
         let mut read_all = true;
 
+        // Keep the resumable row count outside the codec-frozen cleanup status.
+        // Ordinary largest-remainder payouts can add at most one rao per row;
+        // lending uses this count as a conservative terminal rounding allowance.
+        if weight_meter
+            .try_consume(T::DbWeight::get().reads_writes(1, 1))
+            .is_err()
+        {
+            return (false, last_key);
+        }
+        let mut eligible_rows = if status.subnet_total_alpha_value.is_some() {
+            DissolutionEligibleAlphaRows::<T>::get(netuid)
+        } else {
+            0
+        };
+
         let mut total_alpha_value_u128: u128;
 
         if let Some(value) = status.subnet_total_alpha_value {
@@ -780,6 +795,7 @@ impl<T: Config> Pallet<T> {
                 if val_u64 > 0 {
                     let val_u128 = val_u64 as u128;
                     total_alpha_value_u128 = total_alpha_value_u128.saturating_add(val_u128);
+                    eligible_rows = eligible_rows.saturating_add(1);
                 }
             }
 
@@ -791,6 +807,7 @@ impl<T: Config> Pallet<T> {
         }
 
         status.subnet_total_alpha_value = Some(total_alpha_value_u128);
+        DissolutionEligibleAlphaRows::<T>::insert(netuid, eligible_rows);
 
         (read_all, last_completed_key)
     }

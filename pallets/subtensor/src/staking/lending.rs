@@ -23,6 +23,10 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
             && !ColdkeySwapDisputes::<T>::contains_key(owner)
     }
 
+    fn fast_alpha_price(netuid: NetUid) -> Option<U64F64> {
+        SubnetFastMovingPrice::<T>::get(netuid).filter(|price| *price > U64F64::from_num(0))
+    }
+
     fn redemption_alpha_supply(netuid: NetUid) -> Result<u128, DispatchError> {
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(

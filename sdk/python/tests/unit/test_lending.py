@@ -12,7 +12,7 @@ from bittensor.balance import Balance, UnitMismatchError
 from bittensor.cli.commands.lending import _bound
 from bittensor.cli.main import app
 from bittensor.client import Client
-from bittensor.intents import CloseLoan, OpenLoan
+from bittensor.intents import CloseLoan, OpenLoan, Policy
 from bittensor.result import BittensorError
 from tests.harness.fake_substrate import DEFAULT_STORAGE, FakeSubstrate
 from tests.harness.samples import ALICE, ALICE_HOT, dev_wallet
@@ -89,7 +89,7 @@ def test_root_or_invalid_subnet_cannot_borrow(netuid):
 
 @pytest.mark.parametrize(
     "side,wallet,payment_unit,refund_unit",
-    [("Short", False, 0, 0), ("Short", True, 1, 0), ("Long", False, 0, 1)],
+    [("Short", False, 0, 0), ("Short", True, 1, 0), ("Long", False, 0, 1), ("Long", True, 0, 1)],
 )
 @pytest.mark.asyncio
 async def test_close_derives_units_from_owned_position(side, wallet, payment_unit, refund_unit):
@@ -108,6 +108,49 @@ async def test_close_derives_units_from_owned_position(side, wallet, payment_uni
         "max_payment": 700_000_001,
         "min_refund": 900_000_003,
     }
+
+
+@pytest.mark.asyncio
+async def test_short_close_defaults_to_wallet_alpha_repayment_without_sale_proceeds():
+    fake = FakeSubstrate()
+    _seed_position(fake, principal=700_000_001, proceeds=0)
+    intent = CloseLoan(
+        netuid=1,
+        max_payment=Balance.from_rao(700_000_001, 1),
+        min_refund=Balance.from_rao(900_000_003),
+    )
+    call = await intent.build(fake, dev_wallet())
+    assert call.params["repay_from_wallet"] is True
+    assert call.params["max_payment"] == 700_000_001
+    assert intent.spend() is None
+
+
+@pytest.mark.asyncio
+async def test_default_short_close_rejects_tao_tagged_as_wallet_alpha_payment():
+    fake = FakeSubstrate()
+    _seed_position(fake)
+    with pytest.raises(UnitMismatchError):
+        await CloseLoan(netuid=1, max_payment=Balance.from_rao(700)).build(fake, dev_wallet())
+
+
+@pytest.mark.parametrize("side,tao_spend", [("Short", None), ("Long", 700_000_000_001)])
+@pytest.mark.asyncio
+async def test_plain_close_amount_gets_currency_before_tao_spend_policy(side, tao_spend):
+    fake = FakeSubstrate()
+    _seed_position(fake, side, principal=700_000_000_001, proceeds=0)
+    async with Client("local", substrate=fake) as client:
+        plan = await client.plan(
+            CloseLoan(netuid=1, max_payment="700.000000001"),
+            dev_wallet(),
+            policy=Policy(max_spend_tao=0),
+        )
+    assert plan.call.params["max_payment"] == 700_000_000_001
+    if tao_spend is None:
+        assert plan.spend is None
+        assert plan.ok
+    else:
+        assert plan.spend == Balance.from_rao(tao_spend)
+        assert any("exceeds max_spend_tao" in item for item in plan.violations)
 
 
 @pytest.mark.asyncio
@@ -159,7 +202,7 @@ async def test_vault_cap_uses_available_plus_outstanding_and_excludes_pending():
 
 
 @pytest.mark.asyncio
-async def test_quote_uses_runtime_fee_inclusive_result_and_exact_input():
+async def test_quote_preserves_alpha_delivery_and_reference_value_without_sale_proceeds():
     fake = FakeSubstrate()
     seen = []
 
@@ -175,7 +218,42 @@ async def test_quote_uses_runtime_fee_inclusive_result_and_exact_input():
     assert seen == [[1, "Short", 1_000_000_001]]
     assert result["principal"].rao == 234
     assert result["principal"].netuid == 1
+    assert result["opening_value"] == Balance.from_rao(230)
+    assert result["annual_interest"].rao == 230
     assert result["annual_interest"].netuid == 0
+    assert "proceeds" not in result
+
+
+@pytest.mark.parametrize("wallet,payment_unit", [(True, 1), (False, 0)])
+@pytest.mark.asyncio
+async def test_short_close_quote_selects_wallet_or_collateral_payment(wallet, payment_unit):
+    fake = FakeSubstrate()
+    _seed_position(fake, principal=700, proceeds=0)
+    seen = []
+
+    def quote(params):
+        seen.append(params)
+        return {"Ok": {"payment": 700 if params[2] else 250, "refund": 800}}
+
+    fake.seed_runtime("LendingRuntimeApi", "quote_close", quote)
+    async with Client("local", substrate=fake) as client:
+        kwargs = {} if wallet else {"repay_from_wallet": False}
+        result = await client.read("lending_close_quote", coldkey_ss58=ALICE, netuid=1, **kwargs)
+    assert seen == [[ALICE, 1, wallet]]
+    assert result["payment"] == Balance.from_rao(700 if wallet else 250, payment_unit)
+    assert result["refund"] == Balance.from_rao(800)
+
+
+@pytest.mark.asyncio
+async def test_collateral_buyback_quote_refusal_never_becomes_wallet_repayment():
+    fake = FakeSubstrate()
+    _seed_position(fake, proceeds=0)
+    fake.seed_runtime("LendingRuntimeApi", "quote_close", {"Err": "InsufficientEscrow"})
+    async with Client("local", substrate=fake) as client:
+        with pytest.raises(BittensorError, match="InsufficientEscrow"):
+            await client.read(
+                "lending_close_quote", coldkey_ss58=ALICE, netuid=1, repay_from_wallet=False
+            )
 
 
 @pytest.mark.parametrize("side,principal_unit,collateral_unit", [("short", 1, 0), ("long", 0, 1)])
@@ -309,8 +387,48 @@ def test_cli_close_sets_payment_and_refund_bounds(cli_fake):
     )
     assert result.exit_code == 0, result.output
     plan = json.loads(result.output)
+    assert plan["args"]["repay_from_wallet"] is True
     assert plan["args"]["max_payment"] == "0.2525"
     assert plan["args"]["min_refund"] == "0.99"
+    assert cli_fake.submissions == []
+
+
+@pytest.mark.parametrize(
+    "flags,wallet,payment,protected_payment",
+    [([], True, 700_000_000, "0.707"), (["--no-repay-from-wallet"], False, 250_000_000, "0.2525")],
+)
+def test_cli_short_close_keeps_repayment_choice_in_quote_and_call(
+    cli_fake, flags, wallet, payment, protected_payment
+):
+    _seed_position(cli_fake, principal=700_000_000, proceeds=0)
+    seen = []
+
+    def quote(params):
+        seen.append(params)
+        return {"Ok": {"payment": payment, "refund": 900_000_000}}
+
+    cli_fake.seed_runtime("LendingRuntimeApi", "quote_close", quote)
+    result = runner.invoke(
+        app,
+        ["--json", "--dry-run", "--no-mev-shield", "lending", "close", "--netuid", "1", *flags],
+    )
+    assert result.exit_code == 0, result.output
+    plan = json.loads(result.output)
+    assert len(seen) == 1
+    assert seen[0][1:] == [1, wallet]
+    assert plan["args"]["repay_from_wallet"] is wallet
+    assert plan["args"]["max_payment"] == protected_payment
+    assert plan["args"]["min_refund"] == "0.891"
+    assert cli_fake.submissions == []
+
+
+def test_cli_collateral_only_buyback_refusal_does_not_submit(cli_fake):
+    cli_fake.seed_runtime("LendingRuntimeApi", "quote_close", {"Err": "InsufficientEscrow"})
+    result = runner.invoke(
+        app,
+        ["--json", "--dry-run", "lending", "close", "--netuid", "1", "--no-repay-from-wallet"],
+    )
+    assert result.exit_code != 0
     assert cli_fake.submissions == []
 
 
@@ -343,4 +461,13 @@ def test_cli_lists_a_subnet_without_wallet_unlock(cli_fake):
     positions = json.loads(result.output)
     assert len(positions) == 1
     assert positions[0]["coldkey"] == ALICE
+    assert positions[0]["proceeds"] == str(Balance.from_rao(0))
     assert cli_fake.submissions == []
+
+
+def test_cli_position_table_does_not_present_a_locked_sale_balance(cli_fake):
+    cli_fake.seed_map("Lending", "OpenByNetuid", [(ALICE, None)])
+    result = runner.invoke(app, ["lending", "list", "--netuid", "1"])
+    assert result.exit_code == 0, result.output
+    assert "proceeds" not in result.output.lower()
+    assert "principal" in result.output.lower()

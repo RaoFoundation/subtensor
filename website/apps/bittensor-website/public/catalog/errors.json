@@ -105,8 +105,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 503,
-          "url": "/code/pallets/lending/src/lib.rs#L503",
+          "line": 524,
+          "url": "/code/pallets/lending/src/lib.rs#L524",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -321,8 +321,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 509,
-          "url": "/code/pallets/lending/src/lib.rs#L509",
+          "line": 530,
+          "url": "/code/pallets/lending/src/lib.rs#L530",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -411,8 +411,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 497,
-          "url": "/code/pallets/lending/src/lib.rs#L497",
+          "line": 518,
+          "url": "/code/pallets/lending/src/lib.rs#L518",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -465,8 +465,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 507,
-          "url": "/code/pallets/lending/src/lib.rs#L507",
+          "line": 528,
+          "url": "/code/pallets/lending/src/lib.rs#L528",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -744,15 +744,15 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 502,
-          "url": "/code/pallets/lending/src/lib.rs#L502",
+          "line": 523,
+          "url": "/code/pallets/lending/src/lib.rs#L523",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
     "BelowMinimumProceeds": {
       "code": "insufficient_liquidity",
-      "description": "The additional short sale returns less TAO than the caller's minimum. Requote the opening or increase; the failed call moves no assets.",
+      "description": "The additional short's opening value is below the caller's minimum. Requote the opening or increase; the failed call moves no assets.",
       "docs_url": "/docs/errors/chain/BelowMinimumProceeds",
       "markdown_url": "/llms.mdx/docs/errors/chain/BelowMinimumProceeds/content.md",
       "pallets": [
@@ -762,8 +762,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 510,
-          "url": "/code/pallets/lending/src/lib.rs#L510",
+          "line": 531,
+          "url": "/code/pallets/lending/src/lib.rs#L531",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -780,8 +780,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 504,
-          "url": "/code/pallets/lending/src/lib.rs#L504",
+          "line": 525,
+          "url": "/code/pallets/lending/src/lib.rs#L525",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -888,8 +888,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 499,
-          "url": "/code/pallets/lending/src/lib.rs#L499",
+          "line": 520,
+          "url": "/code/pallets/lending/src/lib.rs#L520",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1626,8 +1626,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 508,
-          "url": "/code/pallets/lending/src/lib.rs#L508",
+          "line": 529,
+          "url": "/code/pallets/lending/src/lib.rs#L529",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1813,8 +1813,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 491,
-          "url": "/code/pallets/lending/src/lib.rs#L491",
+          "line": 512,
+          "url": "/code/pallets/lending/src/lib.rs#L512",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2505,7 +2505,7 @@
     },
     "InsufficientEscrow": {
       "code": "insufficient_balance",
-      "description": "Remaining collateral or locked short TAO cannot cover this operation. Inspect interest and the complete close quote.",
+      "description": "Remaining collateral cannot cover this operation. Inspect accrued interest and the complete close quote.",
       "docs_url": "/docs/errors/chain/InsufficientEscrow",
       "markdown_url": "/llms.mdx/docs/errors/chain/InsufficientEscrow/content.md",
       "pallets": [
@@ -2515,8 +2515,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 505,
-          "url": "/code/pallets/lending/src/lib.rs#L505",
+          "line": 526,
+          "url": "/code/pallets/lending/src/lib.rs#L526",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2577,8 +2577,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 512,
-          "url": "/code/pallets/lending/src/lib.rs#L512",
+          "line": 533,
+          "url": "/code/pallets/lending/src/lib.rs#L533",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2595,8 +2595,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 498,
-          "url": "/code/pallets/lending/src/lib.rs#L498",
+          "line": 519,
+          "url": "/code/pallets/lending/src/lib.rs#L519",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2954,7 +2954,7 @@
     },
     "InvalidQuote": {
       "code": "insufficient_liquidity",
-      "description": "The full swap cannot execute or its result differs from the loan quote. Check curve capacity and retry with a fresh quote.",
+      "description": "A required executable-depth quote or repayment swap is unavailable. Check curve capacity and retry with a fresh quote.",
       "docs_url": "/docs/errors/chain/InvalidQuote",
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidQuote/content.md",
       "pallets": [
@@ -2964,8 +2964,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 506,
-          "url": "/code/pallets/lending/src/lib.rs#L506",
+          "line": 527,
+          "url": "/code/pallets/lending/src/lib.rs#L527",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -4783,8 +4783,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 495,
-          "url": "/code/pallets/lending/src/lib.rs#L495",
+          "line": 516,
+          "url": "/code/pallets/lending/src/lib.rs#L516",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -4801,8 +4801,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 496,
-          "url": "/code/pallets/lending/src/lib.rs#L496",
+          "line": 517,
+          "url": "/code/pallets/lending/src/lib.rs#L517",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -4909,8 +4909,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 511,
-          "url": "/code/pallets/lending/src/lib.rs#L511",
+          "line": 532,
+          "url": "/code/pallets/lending/src/lib.rs#L532",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -4945,8 +4945,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 493,
-          "url": "/code/pallets/lending/src/lib.rs#L493",
+          "line": 514,
+          "url": "/code/pallets/lending/src/lib.rs#L514",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -4963,8 +4963,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 494,
-          "url": "/code/pallets/lending/src/lib.rs#L494",
+          "line": 515,
+          "url": "/code/pallets/lending/src/lib.rs#L515",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5629,8 +5629,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 492,
-          "url": "/code/pallets/lending/src/lib.rs#L492",
+          "line": 513,
+          "url": "/code/pallets/lending/src/lib.rs#L513",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5944,8 +5944,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 500,
-          "url": "/code/pallets/lending/src/lib.rs#L500",
+          "line": 521,
+          "url": "/code/pallets/lending/src/lib.rs#L521",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -6034,8 +6034,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 501,
-          "url": "/code/pallets/lending/src/lib.rs#L501",
+          "line": 522,
+          "url": "/code/pallets/lending/src/lib.rs#L522",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]

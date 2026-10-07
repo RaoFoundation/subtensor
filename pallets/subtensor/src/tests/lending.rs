@@ -97,6 +97,15 @@ fn redemption_supply(netuid: NetUid) -> u128 {
     <SubtensorModule as LendingPoolInterface<U256>>::redemption_alpha_supply(netuid).unwrap()
 }
 
+fn freeze_basis(netuid: NetUid, status: &crate::subnets::dissolution::DissolveCleanupStatus) {
+    assert_ok!(Lending::freeze_redemption_basis(
+        netuid,
+        SubnetTAO::<Test>::get(netuid),
+        status.subnet_total_alpha_value.unwrap(),
+        DissolutionEligibleAlphaRows::<Test>::get(netuid),
+    ));
+}
+
 fn grow(
     owner: U256,
     hotkey: U256,
@@ -147,7 +156,7 @@ fn assert_single_position(owner: U256, hotkey: U256, netuid: NetUid) {
 }
 
 #[test]
-fn growing_short_preserves_custody_coupon_and_one_position_then_closes_combined_debt() {
+fn growing_alpha_loan_preserves_coupon_and_one_position_then_closes_combined_debt() {
     new_test_ext(1).execute_with(|| {
         let netuid = funded_market();
         let (owner, hotkey) = borrower(210);
@@ -172,7 +181,8 @@ fn growing_short_preserves_custody_coupon_and_one_position_then_closes_combined_
             combined.collateral,
             first.collateral - paid + added_collateral
         );
-        assert_eq!(combined.proceeds, first.proceeds + added.opening_value);
+        assert_eq!(combined.proceeds, 0);
+        assert_eq!(stake(&owner, &hotkey, netuid), combined.principal);
         assert_eq!(
             combined.annual_interest,
             first.annual_interest + added.annual_interest
@@ -188,7 +198,7 @@ fn growing_short_preserves_custody_coupon_and_one_position_then_closes_combined_
                 side: Side::Short,
                 principal: added.principal,
                 collateral: added_collateral,
-                proceeds: added.opening_value,
+                proceeds: 0,
                 annual_interest: added.annual_interest,
             })));
         let escrow = Lending::position_account(&owner, netuid);
@@ -883,7 +893,7 @@ fn lending_fee_burn_rolls_back_sender_dust_and_underfunded_burn_address() {
 }
 
 #[test]
-fn short_open_rejects_lower_proceeds_even_when_alpha_principal_is_unchanged() {
+fn alpha_loan_quote_rejects_stale_value_after_a_real_purchase_changes_depth() {
     new_test_ext(1).execute_with(|| {
         let netuid = funded_market();
         let (first, first_hotkey) = borrower(180);
@@ -891,13 +901,13 @@ fn short_open_rejects_lower_proceeds_even_when_alpha_principal_is_unchanged() {
         let (owner, hotkey) = borrower(181);
         let quoted = Lending::quote_open(netuid, Side::Short, COLLATERAL).unwrap();
 
-        // Another real sale moves spot below the historical reference. The
-        // reference still caps alpha debt at the same quantity, while executable
-        // TAO proceeds fall. A principal-only floor cannot protect this caller.
+        // Delivery itself performs no sale. A separate real purchase reduces
+        // what the reference purchase can buy; the caller's value floor holds.
         let (other, other_hotkey) = borrower(182);
         open(other, other_hotkey, netuid, Side::Short);
+        buy(&other, &other_hotkey, netuid, 1_000 * UNIT);
         let current = Lending::quote_open(netuid, Side::Short, COLLATERAL).unwrap();
-        assert_eq!(current.principal, quoted.principal);
+        assert!(current.principal < quoted.principal);
         assert!(current.opening_value < quoted.opening_value);
         assert_noop!(
             Lending::open(
@@ -906,7 +916,7 @@ fn short_open_rejects_lower_proceeds_even_when_alpha_principal_is_unchanged() {
                 Side::Short,
                 COLLATERAL,
                 hotkey,
-                quoted.principal,
+                0,
                 quoted.opening_value,
             ),
             pallet_lending::Error::<Test>::BelowMinimumProceeds
@@ -922,10 +932,7 @@ fn short_open_rejects_lower_proceeds_even_when_alpha_principal_is_unchanged() {
             current.principal,
             current.opening_value,
         ));
-        assert_eq!(
-            Positions::<Test>::get(owner, netuid).unwrap().proceeds,
-            current.opening_value
-        );
+        assert_eq!(Positions::<Test>::get(owner, netuid).unwrap().proceeds, 0);
         assert_total_alpha_staked_invariant(netuid);
         assert_live_stake_total();
     });
@@ -1098,35 +1105,78 @@ fn partial_funding_failure_keeps_migration_incomplete_and_retry_preserves_existi
 }
 
 #[test]
-fn short_is_custodial_and_amm_close_restores_principal() {
+fn alpha_loan_is_delivered_without_a_swap_and_can_move_before_fixed_token_repayment() {
     new_test_ext(1).execute_with(|| {
         let netuid = funded_market();
         let (owner, hotkey) = borrower(100);
         let balance_before = SubtensorModule::get_coldkey_balance(&owner).to_u64();
         let alpha_before = Vaults::<Test>::get(netuid).unwrap().available_alpha;
+        let pool_before = (
+            SubnetTAO::<Test>::get(netuid),
+            SubnetAlphaIn::<Test>::get(netuid),
+        );
         open(owner, hotkey, netuid, Side::Short);
         let position = Positions::<Test>::get(owner, netuid).unwrap();
         let escrow = Lending::position_account(&owner, netuid);
         let custody = Lending::custody_hotkey().unwrap();
-        assert_eq!(stake(&owner, &hotkey, netuid), 0);
+        assert_eq!(stake(&owner, &hotkey, netuid), position.principal);
         assert_eq!(stake(&escrow, &custody, netuid), 0);
+        assert_eq!(position.proceeds, 0);
+        assert_eq!(
+            (
+                SubnetTAO::<Test>::get(netuid),
+                SubnetAlphaIn::<Test>::get(netuid)
+            ),
+            pool_before,
+            "opening lends real alpha without selling it"
+        );
         assert_eq!(
             SubtensorModule::get_coldkey_balance(&owner).to_u64(),
             balance_before - COLLATERAL
         );
         assert_eq!(
             SubtensorModule::get_coldkey_balance(&escrow).to_u64(),
-            COLLATERAL + position.proceeds
+            COLLATERAL
         );
         assert_eq!(
             Vaults::<Test>::get(netuid).unwrap().available_alpha,
             alpha_before - position.principal
         );
-        let quote = Lending::quote_close(&owner, netuid, false).unwrap();
+        let (recipient, recipient_hotkey) = borrower(102);
+        assert_ok!(
+            <SubtensorModule as OrderSwapInterface<U256>>::transfer_staked_alpha(
+                &owner,
+                &hotkey,
+                &recipient,
+                &recipient_hotkey,
+                netuid,
+                position.principal.into(),
+                true,
+                false
+            )
+        );
+        assert_eq!(stake(&owner, &hotkey, netuid), 0);
+        assert_eq!(
+            stake(&recipient, &recipient_hotkey, netuid),
+            position.principal
+        );
+        assert_ok!(
+            <SubtensorModule as OrderSwapInterface<U256>>::transfer_staked_alpha(
+                &recipient,
+                &recipient_hotkey,
+                &owner,
+                &hotkey,
+                netuid,
+                position.principal.into(),
+                true,
+                false
+            )
+        );
+        let quote = Lending::quote_close(&owner, netuid, true).unwrap();
         assert_ok!(Lending::close(
             RuntimeOrigin::signed(owner),
             netuid,
-            false,
+            true,
             quote.payment,
             quote.refund
         ));
@@ -1141,13 +1191,457 @@ fn short_is_custodial_and_amm_close_restores_principal() {
         );
         let vault = Vaults::<Test>::get(netuid).unwrap();
         assert_eq!(vault.outstanding_alpha, 0);
-        assert!(vault.available_alpha >= alpha_before);
+        assert_eq!(vault.available_alpha, alpha_before);
+        assert_eq!(stake(&owner, &hotkey, netuid), 0);
+        assert_eq!(
+            (
+                SubnetTAO::<Test>::get(netuid),
+                SubnetAlphaIn::<Test>::get(netuid)
+            ),
+            pool_before
+        );
         assert_eq!(
             stake(&Lending::reserve_account(netuid), &custody, netuid),
             vault.available_alpha
         );
         assert_live_stake_total();
         assert_total_alpha_staked_invariant(netuid);
+    });
+}
+
+#[test]
+fn free_alpha_redemption_and_terminal_recovery_use_the_original_pot_for_both_subnet_eras() {
+    for legacy in [false, true] {
+        new_test_ext(1).execute_with(|| {
+            let netuid = funded_market();
+            if legacy {
+                TaoInRefundDeploymentBlock::<Test>::put(1);
+            }
+            let (owner, hotkey) = borrower(280);
+            let (recipient, recipient_hotkey) = borrower(281);
+            open(owner, hotkey, netuid, Side::Short);
+            let loan = Positions::<Test>::get(owner, netuid).unwrap();
+            assert_ok!(
+                <SubtensorModule as OrderSwapInterface<U256>>::transfer_staked_alpha(
+                    &owner,
+                    &hotkey,
+                    &recipient,
+                    &recipient_hotkey,
+                    netuid,
+                    loan.principal.into(),
+                    true,
+                    false,
+                )
+            );
+            pallet_lending::References::<Test>::mutate(netuid, |reference| {
+                reference.as_mut().unwrap().price = substrate_fixed::types::U64F64::from_num(0.01);
+            });
+            SubnetFastMovingPrice::<Test>::insert(
+                netuid,
+                substrate_fixed::types::U64F64::from_num(0.02),
+            );
+            assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+            let trigger = System::block_number();
+            System::set_block_number(trigger + 10 * LendingInterestPeriod::get());
+            assert!(Lending::settle_shorts(netuid, &mut meter()));
+            assert_eq!(
+                Positions::<Test>::get(owner, netuid).unwrap().collateral,
+                loan.collateral
+            );
+            let pot = SubnetTAO::<Test>::get(netuid).to_u64();
+            let recipient_before = Balances::free_balance(recipient).to_u64();
+            let owner_before = Balances::free_balance(owner).to_u64();
+            let mut status = run_destroy_alpha_get_total_and_settle(netuid);
+            let n = status.subnet_total_alpha_value.unwrap();
+            assert_eq!(DissolutionEligibleAlphaRows::<Test>::get(netuid), 1);
+            assert_eq!(
+                n,
+                u128::from(loan.principal)
+                    + if legacy {
+                        0
+                    } else {
+                        u128::from(SubnetAlphaIn::<Test>::get(netuid).to_u64())
+                    },
+            );
+            let ordinary = Balances::free_balance(recipient).to_u64() - recipient_before;
+            assert_eq!(
+                ordinary,
+                (u128::from(loan.principal) * u128::from(pot) / n) as u64
+            );
+            assert_eq!(Vaults::<Test>::get(netuid).unwrap().available_tao, 0);
+            assert!(Positions::<Test>::contains_key(owner, netuid));
+            let funded_base = (u128::from(loan.principal) * u128::from(pot)).div_ceil(n) as u64;
+            let owed = funded_base.max(pot.min(funded_base + 1));
+            let recovered = owed.min(loan.collateral);
+            assert!(Lending::settle_remaining_longs(netuid, &mut meter()));
+            assert_eq!(
+                SubnetTAO::<Test>::get(netuid).to_u64(),
+                pot,
+                "principal recovery cannot fund the ordinary redemption pot"
+            );
+            assert_eq!(
+                Balances::free_balance(owner).to_u64(),
+                owner_before + loan.collateral - recovered
+            );
+            let vault = Vaults::<Test>::get(netuid).unwrap();
+            assert_eq!(vault.available_tao, recovered);
+            assert_eq!(vault.outstanding_alpha, 0);
+            assert_eq!(
+                vault.lost_alpha > 0,
+                legacy,
+                "an undercovered legacy ADR claim is recorded as reserve credit loss"
+            );
+            status.set_phase(
+                crate::subnets::dissolution::DissolveCleanupPhase::AlphaInOutStakesAlpha,
+            );
+            assert!(
+                SubtensorModule::clean_up_data_for_one_dissolved_network(&mut meter(), &mut status)
+                    .0
+            );
+            assert_eq!(
+                Balances::free_balance(Lending::recovery_account()).to_u64(),
+                recovered
+            );
+            assert!(!DissolutionEligibleAlphaRows::<Test>::contains_key(netuid));
+            assert_eq!(stake(&recipient, &recipient_hotkey, netuid), 0);
+        });
+    }
+}
+
+#[test]
+fn split_alpha_holder_rounding_cannot_exceed_the_terminal_funded_allowance() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        TaoInRefundDeploymentBlock::<Test>::put(1);
+        let (owner, hotkey) = borrower(300);
+        open(owner, hotkey, netuid, Side::Short);
+        let loan = Positions::<Test>::get(owner, netuid).unwrap();
+        let piece = loan.principal / 3;
+        let mut loan_holders = Vec::new();
+        for i in 0..3 {
+            let (recipient, _) = borrower(301 + i);
+            let amount = if i == 2 {
+                loan.principal - 2 * piece
+            } else {
+                piece
+            };
+            assert_ok!(
+                <SubtensorModule as OrderSwapInterface<U256>>::transfer_staked_alpha(
+                    &owner,
+                    &hotkey,
+                    &recipient,
+                    &hotkey,
+                    netuid,
+                    amount.into(),
+                    true,
+                    false,
+                )
+            );
+            loan_holders.push(recipient);
+        }
+        // All rows share one hotkey/page. Each borrowed row has a strictly larger
+        // remainder than the seven other rows, so all three win a rounding atom.
+        for i in 0..7 {
+            let (holder, _) = borrower(310 + i);
+            let alpha = AlphaBalance::from(piece - 1);
+            SubtensorModule::resolve_to_alpha_out(SubtensorModule::mint_alpha(netuid, alpha));
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &holder, netuid, alpha,
+            );
+        }
+        pallet_lending::References::<Test>::mutate(netuid, |reference| {
+            reference.as_mut().unwrap().price = substrate_fixed::types::U64F64::from_bits(1);
+        });
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        assert!(Lending::settle_shorts(netuid, &mut meter()));
+        let subnet = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        let cash = Balances::free_balance(subnet).to_u64();
+        assert_ok!(SubtensorModule::transfer_tao(
+            &subnet,
+            &owner,
+            (cash - 4).into()
+        ));
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(4));
+        let before: Vec<_> = loan_holders
+            .iter()
+            .map(|holder| Balances::free_balance(holder).to_u64())
+            .collect();
+        let status = run_destroy_alpha_get_total_and_settle(netuid);
+        let n = status.subnet_total_alpha_value.unwrap();
+        let base = (u128::from(loan.principal) * 4).div_ceil(n) as u64;
+        assert_eq!(base, 2);
+        let paid: u64 = loan_holders
+            .iter()
+            .zip(before)
+            .map(|(holder, balance)| Balances::free_balance(holder).to_u64() - balance)
+            .sum();
+        assert_eq!(
+            paid, 3,
+            "a position-sized ceil alone misses split-row rounding"
+        );
+        assert_eq!(DissolutionEligibleAlphaRows::<Test>::get(netuid), 10);
+        assert!(Lending::settle_remaining_longs(netuid, &mut meter()));
+        assert_eq!(Vaults::<Test>::get(netuid).unwrap().available_tao, 4);
+        assert_eq!(Vaults::<Test>::get(netuid).unwrap().lost_alpha, 0);
+    });
+}
+
+#[test]
+fn alpha_borrower_can_sell_and_repledge_the_real_sale_cash_into_the_same_loan() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        let (owner, hotkey) = borrower(330);
+        open(owner, hotkey, netuid, Side::Short);
+        let first = Positions::<Test>::get(owner, netuid).unwrap();
+        let cash = <SubtensorModule as OrderSwapInterface<U256>>::sell_alpha(
+            &owner,
+            &hotkey,
+            netuid,
+            first.principal.into(),
+            TaoBalance::ZERO,
+            true,
+        )
+        .unwrap()
+        .to_u64();
+        assert!(cash > 0);
+        assert_eq!(stake(&owner, &hotkey, netuid), 0);
+        let added = grow(owner, hotkey, netuid, Side::Short, cash);
+        let merged = Positions::<Test>::get(owner, netuid).unwrap();
+        assert_eq!(merged.principal, first.principal + added.principal);
+        assert_eq!(merged.collateral, first.collateral + cash);
+        assert_eq!(merged.proceeds, 0);
+        assert_eq!(stake(&owner, &hotkey, netuid), added.principal);
+        assert_eq!(
+            Balances::free_balance(Lending::position_account(&owner, netuid)).to_u64(),
+            merged.collateral
+        );
+        assert_single_position(owner, hotkey, netuid);
+    });
+}
+
+#[test]
+fn eligible_redemption_rows_resume_without_double_counting_and_basis_uses_the_completed_scan() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        for id in 340..343 {
+            let (owner, hotkey) = borrower(id);
+            buy(&owner, &hotkey, netuid, 100 * UNIT);
+        }
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        assert!(Lending::settle_shorts(netuid, &mut meter()));
+        // A new denominator scan owns its initialization; stale generation
+        // bookkeeping cannot survive its first processed page.
+        DissolutionEligibleAlphaRows::<Test>::insert(netuid, 99);
+        let mut status = dissolve_cleanup_status(netuid);
+        let mut cursor = None;
+        let mut done = false;
+        for expected in 1..=3 {
+            let mut page = WeightMeter::with_limit(
+                <Test as frame_system::Config>::DbWeight::get().reads_writes(2, 1),
+            );
+            (done, cursor) = SubtensorModule::destroy_alpha_in_out_stakes_get_total_alpha_value(
+                netuid,
+                &mut page,
+                cursor,
+                &mut status,
+            );
+            assert_eq!(DissolutionEligibleAlphaRows::<Test>::get(netuid), expected);
+            if done {
+                break;
+            }
+        }
+        if !done {
+            (done, cursor) = SubtensorModule::destroy_alpha_in_out_stakes_get_total_alpha_value(
+                netuid,
+                &mut meter(),
+                cursor,
+                &mut status,
+            );
+        }
+        assert!(done);
+        assert_eq!(DissolutionEligibleAlphaRows::<Test>::get(netuid), 3);
+        let completed = status.subnet_total_alpha_value;
+        assert!(
+            SubtensorModule::destroy_alpha_in_out_stakes_get_total_alpha_value(
+                netuid,
+                &mut meter(),
+                cursor,
+                &mut status,
+            )
+            .0
+        );
+        assert_eq!(status.subnet_total_alpha_value, completed);
+        assert_eq!(DissolutionEligibleAlphaRows::<Test>::get(netuid), 3);
+        freeze_basis(netuid, &status);
+        assert_eq!(
+            pallet_lending::RedemptionBases::<Test>::get(netuid),
+            Some((
+                SubnetTAO::<Test>::get(netuid).to_u64(),
+                completed.unwrap(),
+                3,
+            ))
+        );
+    });
+}
+
+#[test]
+fn dissolution_uses_the_two_ema_marks_and_ignores_a_current_spot_pump() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        assert_eq!(
+            <SubtensorModule as LendingPoolInterface<U256>>::fast_alpha_price(netuid),
+            None
+        );
+        SubnetFastMovingPrice::<Test>::insert(netuid, substrate_fixed::types::U64F64::from_num(0));
+        assert_eq!(
+            <SubtensorModule as LendingPoolInterface<U256>>::fast_alpha_price(netuid),
+            None
+        );
+        let (owner, hotkey) = borrower(350);
+        buy(&owner, &hotkey, netuid, 1_900 * UNIT);
+        let slow = substrate_fixed::types::U64F64::from_num(1.01);
+        let fast = substrate_fixed::types::U64F64::from_num(1.005);
+        assert!(<Test as Config>::SwapInterface::current_alpha_price(netuid) > slow);
+        pallet_lending::References::<Test>::mutate(netuid, |reference| {
+            reference.as_mut().unwrap().price = slow;
+        });
+        SubnetFastMovingPrice::<Test>::insert(netuid, fast);
+        assert_eq!(
+            <SubtensorModule as LendingPoolInterface<U256>>::fast_alpha_price(netuid),
+            Some(fast)
+        );
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        assert_eq!(
+            pallet_lending::Dissolutions::<Test>::get(netuid)
+                .unwrap()
+                .price,
+            slow
+        );
+    });
+}
+
+#[test]
+fn free_alpha_delivery_rejects_an_unknown_hotkey_without_consuming_custody() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        let (owner, _) = borrower(360);
+        let unknown = U256::from(999_999);
+        assert!(!SubtensorModule::hotkey_account_exists(&unknown));
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert_noop!(
+            Lending::open(
+                RuntimeOrigin::signed(owner),
+                netuid,
+                Side::Short,
+                COLLATERAL,
+                unknown,
+                0,
+                0
+            ),
+            Error::<Test>::HotKeyAccountNotExists,
+        );
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+        assert!(!Positions::<Test>::contains_key(owner, netuid));
+        assert_total_alpha_staked_invariant(netuid);
+    });
+}
+
+#[test]
+fn a_public_alpha_donation_to_a_short_escrow_is_refunded_after_terminal_debt() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        let (owner, hotkey) = borrower(370);
+        let (donor, donated_hotkey) = borrower(371);
+        let donation = buy(&donor, &donated_hotkey, netuid, 50 * UNIT);
+        open(owner, hotkey, netuid, Side::Short);
+        let loan = Positions::<Test>::get(owner, netuid).unwrap();
+        let escrow = Lending::position_account(&owner, netuid);
+        assert_ok!(SubtensorModule::transfer_stake(
+            RuntimeOrigin::signed(donor),
+            escrow,
+            donated_hotkey,
+            netuid,
+            netuid,
+            donation,
+        ));
+        assert!(stake(&escrow, &donated_hotkey, netuid) > 0);
+        assert_eq!(Positions::<Test>::get(owner, netuid).unwrap().proceeds, 0);
+        SubnetFastMovingPrice::<Test>::insert(netuid, substrate_fixed::types::U64F64::from_num(2));
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        assert!(Lending::settle_shorts(netuid, &mut meter()));
+        let mut status = run_destroy_alpha_get_total_and_settle(netuid);
+        let funded = Positions::<Test>::get(owner, netuid).unwrap().proceeds;
+        assert_eq!(
+            Balances::free_balance(escrow).to_u64(),
+            loan.collateral + funded
+        );
+        assert!(funded > 0);
+        assert_eq!(DissolutionEligibleAlphaRows::<Test>::get(netuid), 2);
+        let original_pot = SubnetTAO::<Test>::get(netuid);
+        let before = Balances::free_balance(owner).to_u64();
+        let owed = 2 * loan.principal;
+        assert!(owed < loan.collateral);
+        assert!(Lending::settle_remaining_longs(netuid, &mut meter()));
+        assert_eq!(
+            Balances::free_balance(owner).to_u64(),
+            before + loan.collateral - owed + funded
+        );
+        assert_eq!(Balances::free_balance(escrow), TaoBalance::ZERO);
+        assert_eq!(Vaults::<Test>::get(netuid).unwrap().available_tao, owed);
+        assert_eq!(Vaults::<Test>::get(netuid).unwrap().lost_alpha, 0);
+        assert_eq!(SubnetTAO::<Test>::get(netuid), original_pot);
+        status.set_phase(crate::subnets::dissolution::DissolveCleanupPhase::AlphaInOutStakesAlpha);
+        assert!(
+            SubtensorModule::clean_up_data_for_one_dissolved_network(&mut meter(), &mut status).0
+        );
+        assert_eq!(stake(&escrow, &donated_hotkey, netuid), 0);
+        assert_eq!(
+            Balances::free_balance(Lending::recovery_account()).to_u64(),
+            owed
+        );
+        assert!(!Positions::<Test>::contains_key(owner, netuid));
+        assert_total_alpha_staked_invariant(netuid);
+    });
+}
+
+#[test]
+fn completed_denominator_scan_retries_the_basis_hook_before_any_ordinary_payout() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        let (owner, hotkey) = borrower(380);
+        open(owner, hotkey, netuid, Side::Short);
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        assert!(Lending::settle_shorts(netuid, &mut meter()));
+        let mut status = dissolve_cleanup_status(netuid);
+        status.set_phase(crate::subnets::dissolution::DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue);
+        // The first pass finishes one hotkey; the second reaches the scan end
+        // but has no weight for the lending hook. Both must retain the cursor.
+        for _ in 0..2 {
+            let mut page = WeightMeter::with_limit(
+                <Test as frame_system::Config>::DbWeight::get().reads_writes(2, 1),
+            );
+            assert!(!SubtensorModule::clean_up_data_for_one_dissolved_network(&mut page, &mut status).0);
+            assert_eq!(DissolutionEligibleAlphaRows::<Test>::get(netuid), 1);
+            assert_eq!(status.phase, crate::subnets::dissolution::DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue);
+            assert!(status.last_key.is_some());
+            assert!(!pallet_lending::RedemptionBases::<Test>::contains_key(netuid));
+        }
+        let completed = status.subnet_total_alpha_value.unwrap();
+        let wallet_before = Balances::free_balance(owner);
+        let mut page = WeightMeter::with_limit(
+            <Test as frame_system::Config>::DbWeight::get().reads_writes(5, 4),
+        );
+        assert!(!SubtensorModule::clean_up_data_for_one_dissolved_network(&mut page, &mut status).0);
+        assert_eq!(DissolutionEligibleAlphaRows::<Test>::get(netuid), 1);
+        assert_eq!(status.subnet_total_alpha_value, Some(completed));
+        assert_eq!(status.phase, crate::subnets::dissolution::DissolveCleanupPhase::AlphaInOutStakesSettleStakes);
+        assert_eq!(pallet_lending::RedemptionBases::<Test>::get(netuid), Some((
+            SubnetTAO::<Test>::get(netuid).to_u64(), completed, 1,
+        )));
+        assert_eq!(Balances::free_balance(owner), wallet_before);
+        assert!(SubtensorModule::clean_up_data_for_one_dissolved_network(&mut meter(), &mut status).0);
+        assert!(!Positions::<Test>::contains_key(owner, netuid));
+        assert!(!DissolutionEligibleAlphaRows::<Test>::contains_key(netuid));
     });
 }
 
@@ -1683,6 +2177,11 @@ fn collateral_exhaustion_forfeits_fixed_debt_and_cleans_custody() {
         assert_eq!(vault.outstanding_tao, 0);
         assert_eq!(vault.lost_alpha, short_principal);
         assert_eq!(vault.lost_tao, long_principal);
+        assert_eq!(
+            stake(&short_owner, &short_hotkey, netuid),
+            short_principal,
+            "forfeiture records credit loss without confiscating freely delivered alpha"
+        );
         assert_eq!(pallet_lending::TotalPositions::<Test>::get(), 0);
         let custody = Lending::custody_hotkey().unwrap();
         for owner in [short_owner, long_owner] {
@@ -1730,8 +2229,10 @@ fn deregistration_burns_only_funded_fees_and_preserves_principal_recovery() {
         let short_fee = coupon(short.annual_interest);
         let long_fee = coupon(long.annual_interest);
         System::set_block_number(short.due);
+        SubnetFastMovingPrice::<Test>::insert(netuid, substrate_fixed::types::U64F64::from_num(2));
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
         let frozen = pallet_lending::Dissolutions::<Test>::get(netuid).unwrap();
+        assert_eq!(frozen.price, substrate_fixed::types::U64F64::from_num(2));
         let short_recovery = frozen
             .price
             .checked_mul(substrate_fixed::types::U64F64::from_num(short.principal))
@@ -1762,7 +2263,7 @@ fn deregistration_burns_only_funded_fees_and_preserves_principal_recovery() {
         );
         assert_eq!(
             SubnetTAO::<Test>::get(netuid).to_u64(),
-            pool_tao + protocol_tao + vault_before.available_tao + short_recovery
+            pool_tao + protocol_tao + vault_before.available_tao
         );
         assert_eq!(
             SubnetAlphaIn::<Test>::get(netuid).to_u64(),
@@ -1814,7 +2315,7 @@ fn deregistration_burns_only_funded_fees_and_preserves_principal_recovery() {
             owner_before + TaoBalance::from(funded - long.principal)
         );
         let recovered = Vaults::<Test>::get(netuid).unwrap();
-        assert_eq!(recovered.available_tao, long.principal);
+        assert_eq!(recovered.available_tao, long.principal + short_recovery);
         assert_eq!(recovered.pending_alpha, 0);
         assert_eq!(recovered.pending_tao, 0);
         assert_eq!(recovered.outstanding_alpha, 0);
@@ -1822,7 +2323,7 @@ fn deregistration_burns_only_funded_fees_and_preserves_principal_recovery() {
         assert_eq!(recovered.lost_tao, 0);
         assert_eq!(
             SubtensorModule::get_coldkey_balance(&reserve).to_u64(),
-            long.principal
+            long.principal + short_recovery
         );
         assert_eq!(TotalIssuance::<Test>::get(), issuance);
         assert_eq!(Balances::total_issuance(), currency_issuance);
@@ -1842,7 +2343,7 @@ fn deregistration_burns_only_funded_fees_and_preserves_principal_recovery() {
         );
         assert_eq!(
             SubtensorModule::get_coldkey_balance(&Lending::recovery_account()).to_u64(),
-            long.principal
+            long.principal + short_recovery
         );
         assert_eq!(
             SubtensorModule::get_coldkey_balance(&burn).to_u64(),
@@ -1880,10 +2381,12 @@ fn failed_terminal_fee_burn_keeps_available_inventory_until_a_safe_retry() {
         assert!(!Lending::settle_shorts(netuid, &mut meter()));
         let pending = Vaults::<Test>::get(netuid).unwrap();
         assert_eq!(pending.available_alpha, before.available_alpha);
-        assert!(pending.available_tao > before.available_tao);
+        assert_eq!(pending.available_tao, before.available_tao);
         assert_eq!(pending.pending_tao, fee);
-        assert_eq!(pending.outstanding_alpha, 0);
-        assert!(!Positions::<Test>::contains_key(owner, netuid));
+        assert_eq!(pending.outstanding_alpha, position.principal);
+        let frozen_position = Positions::<Test>::get(owner, netuid).unwrap();
+        assert_eq!(frozen_position.collateral, position.collateral - fee);
+        assert_eq!(frozen_position.principal, position.principal);
         assert!(
             !pallet_lending::Dissolutions::<Test>::get(netuid)
                 .unwrap()
@@ -1971,6 +2474,7 @@ fn terminal_alpha_fee_burn_failure_rolls_back_the_whole_funded_payout_page() {
             500.into()
         ));
         ExistentialDeposit::set(500.into());
+        freeze_basis(netuid, &status);
         let before_status = status.clone();
         let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
         let (done, cursor) = SubtensorModule::destroy_alpha_in_out_stakes_settle_stakes(
@@ -1988,6 +2492,7 @@ fn terminal_alpha_fee_burn_failure_rolls_back_the_whole_funded_payout_page() {
         assert_eq!(Vaults::<Test>::get(netuid).unwrap().pending_alpha, pending);
 
         ExistentialDeposit::set(1.into());
+        freeze_basis(netuid, &status);
         assert!(
             SubtensorModule::destroy_alpha_in_out_stakes_settle_stakes(
                 netuid,
@@ -2026,6 +2531,7 @@ fn deregistration_funds_the_pot_before_valuing_long_collateral() {
             <Test as Config>::SwapInterface::protocol_alpha_reservoir(netuid).to_u64();
         let curve = pallet_subtensor_swap::SwapSuperellipse::<Test>::get(netuid);
         let long_balance = SubtensorModule::get_coldkey_balance(&long_owner).to_u64();
+        SubnetFastMovingPrice::<Test>::insert(netuid, substrate_fixed::types::U64F64::from_num(2));
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
         let frozen = pallet_lending::Dissolutions::<Test>::get(netuid).unwrap();
         let short_owed = frozen
@@ -2039,10 +2545,10 @@ fn deregistration_funds_the_pot_before_valuing_long_collateral() {
         let mut stage_budget = WeightMeter::with_limit(<Test as frame_system::Config>::DbWeight::get().reads_writes(6, 4));
         SubtensorModule::clean_up_data_for_one_dissolved_network(&mut stage_budget, &mut staged);
         assert!(Lending::settle_shorts(netuid, &mut meter()));
-        assert!(!Positions::<Test>::contains_key(short_owner, netuid));
+        assert!(Positions::<Test>::contains_key(short_owner, netuid));
         assert_eq!(
             SubnetTAO::<Test>::get(netuid).to_u64(),
-            tao_before + protocol_tao + vault_before.available_tao + short_owed
+            tao_before + protocol_tao + vault_before.available_tao
         );
         assert_eq!(
             SubnetAlphaIn::<Test>::get(netuid).to_u64(),
@@ -2075,6 +2581,7 @@ fn deregistration_funds_the_pot_before_valuing_long_collateral() {
         let unencumbered_alpha = stake(&long_owner, &long_hotkey, netuid);
         let minimum_ordinary = (u128::from(unencumbered_alpha) * u128::from(pot) / denominator) as u64;
         assert!(minimum_paid > long.principal);
+        freeze_basis(netuid, &status);
         assert!(
             SubtensorModule::destroy_alpha_in_out_stakes_settle_stakes(
                 netuid,
@@ -2102,12 +2609,12 @@ fn deregistration_funds_the_pot_before_valuing_long_collateral() {
         );
         let vault = Vaults::<Test>::get(netuid).unwrap();
         assert_eq!(vault.outstanding_tao, 0);
-        assert_eq!(vault.available_tao, long.principal);
+        assert_eq!(vault.available_tao, long.principal + short_owed);
         assert_eq!(vault.lost_tao, 0);
         assert_ok!(Lending::finish_dissolution(netuid));
         assert_eq!(
             SubtensorModule::get_coldkey_balance(&Lending::recovery_account()).to_u64(),
-            long.principal
+            long.principal + short_owed
         );
         assert!(!Vaults::<Test>::contains_key(netuid));
     });
@@ -2180,6 +2687,7 @@ fn deregistration_accumulates_donated_secondary_hotkey_payouts_before_retiring_a
 
         // One hotkey per page prevents ordinary payout aggregation from hiding
         // a premature retirement on the first callback to this escrow coldkey.
+        freeze_basis(netuid, &status);
         let mut cursor = None;
         let mut done = false;
         let mut funded_pages = 0;
@@ -2551,6 +3059,7 @@ fn oversized_basket_holdings_receive_funded_root_payouts_under_their_original_ho
         let root = SubtensorModule::get_subnet_account_id(NetUid::ROOT).unwrap();
         let issuance = TotalIssuance::<Test>::get();
         let currency_issuance = Balances::total_issuance();
+        freeze_basis(netuid, &status);
         let mut cursor = None;
         let mut done = false;
         let mut expected_root = 0;
