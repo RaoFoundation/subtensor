@@ -1504,13 +1504,14 @@ pub struct LendingWeights;
 impl pallet_lending::weights::WeightInfo for LendingWeights {
     fn open() -> Weight {
         // Retain the existing conservative swap-quote envelope and cover every existing
-        // loan read by long admission with a measured transfer envelope. Cover
+        // loan read by either admission guard with a measured transfer envelope. Cover
         // an increase's additional coupon transfer and pending-fee accounting,
-        // the iterator's terminal read and the aggregate-supply/readiness hook.
+        // the iterator's terminal read, aggregate-supply/readiness hook, and the
+        // alpha guard's eight-read funded-redemption snapshot.
         let scan = (LendingMaxPositionsPerSubnet::get() as u64).saturating_add(1);
         <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::add_stake().saturating_mul(66)
             .saturating_add(<pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::transfer_stake().saturating_mul(5_u64.saturating_add(scan)))
-            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(32,16))
+            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(40,16))
     }
     fn close() -> Weight {
         <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::add_stake().saturating_mul(780)

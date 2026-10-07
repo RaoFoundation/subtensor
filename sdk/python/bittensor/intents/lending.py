@@ -55,6 +55,12 @@ class OpenLoan(Intent):
     charged in fixed collateral units and collected weekly. There are no
     price-triggered liquidations; exhausted collateral forfeits the position.
 
+    Alpha debt must also fit 25% of collateral at a conservative immediate
+    funded-redemption valuation, including payout rounding. TAO debt requires
+    conservative funded collateral backing. New borrowing must preserve each
+    other same-side loan's individual coverage after accrued interest. These
+    opening checks do not guarantee future repayment.
+
     An existing position must have the same side and hotkey. ``collateral``
     adds to its remaining collateral after accrued interest; borrowed principal,
     and the new fixed coupon add to the saved position.

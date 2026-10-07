@@ -97,6 +97,14 @@ fn redemption_supply(netuid: NetUid) -> u128 {
     <SubtensorModule as LendingPoolInterface<U256>>::redemption_alpha_supply(netuid).unwrap()
 }
 
+fn alpha_redemption_basis(netuid: NetUid, available: u64) -> (TaoBalance, u128) {
+    <SubtensorModule as LendingPoolInterface<U256>>::alpha_loan_redemption_basis(
+        netuid,
+        available.into(),
+    )
+    .unwrap()
+}
+
 fn freeze_basis(netuid: NetUid, status: &crate::subnets::dissolution::DissolveCleanupStatus) {
     assert_ok!(Lending::freeze_redemption_basis(
         netuid,
@@ -593,6 +601,135 @@ fn lending_redemption_supply_sums_without_saturating_token_balances() {
         );
         assert_eq!(redemption_supply(netuid), 4 * u128::from(u64::MAX));
     });
+}
+
+#[test]
+fn alpha_loan_basis_counts_only_guaranteed_claims_for_each_subnet_era() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = market(true);
+        SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::from(17));
+        pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::insert(
+            netuid,
+            AlphaBalance::from(23),
+        );
+        pallet_subtensor_swap::BalancerTaoReservoir::<Test>::insert(netuid, TaoBalance::from(29));
+        TotalAlphaStaked::<Test>::insert(netuid, AlphaBalance::from(u64::MAX));
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(u64::MAX));
+        assert_eq!(
+            alpha_redemption_basis(netuid, 31),
+            ((POOL + 29).into(), u128::from(POOL + 17 + 23 + 31))
+        );
+
+        TaoInRefundDeploymentBlock::<Test>::put(1);
+        assert_eq!(alpha_redemption_basis(netuid, 31), ((POOL + 29).into(), 17));
+        SubnetProtocolAlpha::<Test>::remove(netuid);
+        assert_eq!(
+            alpha_redemption_basis(netuid, u64::MAX),
+            ((POOL + 29).into(), 0)
+        );
+    });
+}
+
+#[test]
+fn alpha_loan_basis_matches_saturating_ordinary_pool_balances() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = market(true);
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(u64::MAX - 1));
+        pallet_subtensor_swap::BalancerTaoReservoir::<Test>::insert(netuid, TaoBalance::from(2));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(u64::MAX - 3));
+        SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::from(2));
+        pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::insert(
+            netuid,
+            AlphaBalance::from(2),
+        );
+        assert_eq!(
+            alpha_redemption_basis(netuid, 2),
+            (u64::MAX.into(), u128::from(u64::MAX))
+        );
+        TaoInRefundDeploymentBlock::<Test>::put(1);
+        assert_eq!(alpha_redemption_basis(netuid, 2), (u64::MAX.into(), 2));
+
+        let missing = NetUid::from(999);
+        SubnetProtocolAlpha::<Test>::insert(missing, AlphaBalance::from(u64::MAX));
+        assert_eq!(
+            <SubtensorModule as LendingPoolInterface<U256>>::alpha_loan_redemption_basis(
+                missing,
+                AlphaBalance::from(u64::MAX),
+            ),
+            Err(Error::<Test>::SubnetNotExists.into())
+        );
+    });
+}
+
+#[test]
+fn legacy_free_alpha_cannot_drain_a_funded_pot_without_guaranteed_protocol_claims() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        TaoInRefundDeploymentBlock::<Test>::put(1);
+        let (owner, hotkey) = borrower(197);
+        let vault = Vaults::<Test>::get(netuid).unwrap();
+        let account = Lending::reserve_account(netuid);
+        let custody = Lending::custody_hotkey().unwrap();
+        let owner_cash = Balances::free_balance(owner);
+        let reserve_cash = Balances::free_balance(account);
+        let reserve_alpha = stake(&account, &custody, netuid);
+        assert_eq!(
+            SubnetTAO::<Test>::get(netuid).to_u64() + vault.available_tao,
+            POOL
+        );
+        assert_eq!(alpha_redemption_basis(netuid, vault.available_alpha).1, 0);
+        assert_eq!(
+            Lending::quote_open(netuid, Side::Short, COLLATERAL),
+            Err(pallet_lending::Error::<Test>::InsufficientRedemptionBacking.into())
+        );
+        assert_noop!(
+            Lending::open(
+                RuntimeOrigin::signed(owner),
+                netuid,
+                Side::Short,
+                COLLATERAL,
+                hotkey,
+                0,
+                0
+            ),
+            pallet_lending::Error::<Test>::InsufficientRedemptionBacking
+        );
+        assert!(!Positions::<Test>::contains_key(owner, netuid));
+        assert_eq!(Vaults::<Test>::get(netuid).unwrap(), vault);
+        assert_eq!(Balances::free_balance(owner), owner_cash);
+        assert_eq!(Balances::free_balance(account), reserve_cash);
+        assert_eq!(stake(&account, &custody, netuid), reserve_alpha);
+        assert_eq!(stake(&owner, &hotkey, netuid), 0);
+        assert_total_alpha_staked_invariant(netuid);
+        assert_live_stake_total();
+    });
+}
+
+#[test]
+fn funded_alpha_grants_and_growth_reserve_a_quarter_of_collateral_for_redemption() {
+    for legacy in [false, true] {
+        new_test_ext(1).execute_with(|| {
+            let netuid = funded_market();
+            if legacy {
+                TaoInRefundDeploymentBlock::<Test>::put(1);
+                // A real protocol claim is counted in both ordinary payout eras.
+                SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::from(POOL));
+            }
+            let (owner, hotkey) = borrower(198);
+            open(owner, hotkey, netuid, Side::Short);
+            grow(owner, hotkey, netuid, Side::Short, COLLATERAL);
+            let loan = Positions::<Test>::get(owner, netuid).unwrap();
+            let vault = Vaults::<Test>::get(netuid).unwrap();
+            let (pool_pot, n) = alpha_redemption_basis(netuid, vault.available_alpha);
+            let pot = pool_pot.to_u64().saturating_add(vault.available_tao);
+            let funded = (u128::from(loan.principal) * u128::from(pot)).div_ceil(n)
+                + u128::from(loan.principal);
+            assert!(funded <= u128::from(loan.collateral / 4));
+            assert_eq!(stake(&owner, &hotkey, netuid), loan.principal);
+            assert_single_position(owner, hotkey, netuid);
+            assert_total_alpha_staked_invariant(netuid);
+        });
+    }
 }
 
 #[test]
@@ -1216,6 +1353,7 @@ fn free_alpha_redemption_and_terminal_recovery_use_the_original_pot_for_both_sub
             let netuid = funded_market();
             if legacy {
                 TaoInRefundDeploymentBlock::<Test>::put(1);
+                SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::from(POOL));
             }
             let (owner, hotkey) = borrower(280);
             let (recipient, recipient_hotkey) = borrower(281);
@@ -1257,6 +1395,7 @@ fn free_alpha_redemption_and_terminal_recovery_use_the_original_pot_for_both_sub
             assert_eq!(
                 n,
                 u128::from(loan.principal)
+                    + u128::from(SubnetProtocolAlpha::<Test>::get(netuid).to_u64())
                     + if legacy {
                         0
                     } else {
@@ -1268,6 +1407,7 @@ fn free_alpha_redemption_and_terminal_recovery_use_the_original_pot_for_both_sub
                 ordinary,
                 (u128::from(loan.principal) * u128::from(pot) / n) as u64
             );
+            assert!(ordinary <= loan.collateral / 4);
             assert_eq!(Vaults::<Test>::get(netuid).unwrap().available_tao, 0);
             assert!(Positions::<Test>::contains_key(owner, netuid));
             let funded_base = (u128::from(loan.principal) * u128::from(pot)).div_ceil(n) as u64;
@@ -1286,11 +1426,7 @@ fn free_alpha_redemption_and_terminal_recovery_use_the_original_pot_for_both_sub
             let vault = Vaults::<Test>::get(netuid).unwrap();
             assert_eq!(vault.available_tao, recovered);
             assert_eq!(vault.outstanding_alpha, 0);
-            assert_eq!(
-                vault.lost_alpha > 0,
-                legacy,
-                "an undercovered legacy ADR claim is recorded as reserve credit loss"
-            );
+            assert_eq!(vault.lost_alpha, 0);
             status.set_phase(
                 crate::subnets::dissolution::DissolveCleanupPhase::AlphaInOutStakesAlpha,
             );
@@ -1314,7 +1450,21 @@ fn split_alpha_holder_rounding_cannot_exceed_the_terminal_funded_allowance() {
         let netuid = funded_market();
         TaoInRefundDeploymentBlock::<Test>::put(1);
         let (owner, hotkey) = borrower(300);
-        open(owner, hotkey, netuid, Side::Short);
+        // High collateral safely admits a legacy loan close to its guaranteed
+        // protocol denominator, making split-row rounding visible at a dust pot.
+        SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::from(10 * UNIT));
+        let collateral = 4 * POOL;
+        add_balance_to_coldkey_account(&owner, collateral.into());
+        let quote = Lending::quote_open(netuid, Side::Short, collateral).unwrap();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            Side::Short,
+            collateral,
+            hotkey,
+            quote.principal,
+            quote.opening_value,
+        ));
         let loan = Positions::<Test>::get(owner, netuid).unwrap();
         let piece = loan.principal / 3;
         let mut loan_holders = Vec::new();
@@ -1369,7 +1519,7 @@ fn split_alpha_holder_rounding_cannot_exceed_the_terminal_funded_allowance() {
         let status = run_destroy_alpha_get_total_and_settle(netuid);
         let n = status.subnet_total_alpha_value.unwrap();
         let base = (u128::from(loan.principal) * 4).div_ceil(n) as u64;
-        assert_eq!(base, 2);
+        assert_eq!(base, 1);
         let paid: u64 = loan_holders
             .iter()
             .zip(before)
@@ -3315,12 +3465,12 @@ fn tiny_first_tao_coupon_into_an_alpha_only_vault_is_explicitly_recycled() {
             TaoBalance::ZERO
         );
         let (owner, hotkey) = borrower(122);
-        let quote = Lending::quote_open(netuid, Side::Short, 5 * UNIT).unwrap();
+        let quote = Lending::quote_open(netuid, Side::Short, 10 * UNIT).unwrap();
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner),
             netuid,
             Side::Short,
-            5 * UNIT,
+            10 * UNIT,
             hotkey,
             quote.principal,
             0,

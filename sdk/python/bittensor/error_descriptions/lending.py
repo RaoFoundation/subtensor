@@ -80,12 +80,14 @@ DESCRIPTIONS: dict[str, str] = {
         "opening or increase; the failed call moves no assets."
     ),
     "RedemptionUnavailable": (
-        "The subnet's funded-redemption alpha supply is unavailable or its aggregate staking "
-        "counter is still being migrated. Wait for complete counters before borrowing TAO."
+        "A required conservative funded-redemption bound is unavailable. TAO borrowing also "
+        "waits while the actual-stake aggregate is being migrated. Requote when the required "
+        "bounds and counters are available."
     ),
     "InsufficientRedemptionBacking": (
-        "Unloaned vault TAO cannot safely back this withdrawal and each existing TAO loan "
-        "after accrued interest under the funded-redemption stress. Wait for repayment or "
-        "additional funding."
+        "The loan would exceed conservative funded-redemption coverage after accrued interest. "
+        "Alpha debt needs TAO collateral against its funded claim; TAO debt needs backed alpha "
+        "collateral. Each other same-side loan must remain individually covered. A zero protected "
+        "alpha-claim count with a positive payout pot also refuses alpha borrowing."
     ),
 }

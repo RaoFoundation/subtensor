@@ -197,6 +197,40 @@ mod benchmarks {
         }
     }
 
+    #[benchmark(extra)]
+    fn funded_alpha_admission() {
+        let (_, hotkey, netuid) = setup::<T>();
+        let now = frame_system::Pallet::<T>::block_number();
+        for i in 0..T::MaxPositionsPerSubnet::get() {
+            let owner: T::AccountId = account("existing-alpha-loan", i, 0);
+            Positions::<T>::insert(
+                &owner,
+                netuid,
+                Position {
+                    side: Side::Short,
+                    hotkey: hotkey.clone(),
+                    principal: 1,
+                    collateral: 1_000_000_000,
+                    proceeds: 0,
+                    annual_interest: 1,
+                    last_accrued: now,
+                    interest_remainder: 1,
+                    due: now.saturating_add(T::InterestPeriod::get()),
+                },
+            );
+            OpenByNetuid::<T>::insert(netuid, owner, ());
+        }
+        let vault = Vaults::<T>::get(netuid).unwrap();
+        #[block]
+        {
+            assert!(
+                Pallet::<T>::funded_alpha_limit_for(netuid, 1_000_000_000, &vault, 0, 1, None)
+                    .unwrap()
+                    > 0
+            );
+        }
+    }
+
     #[benchmark]
     fn close() {
         let (owner, hotkey, netuid) = setup::<T>();

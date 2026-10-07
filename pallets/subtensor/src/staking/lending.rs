@@ -56,6 +56,32 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         Ok(supply)
     }
 
+    fn alpha_loan_redemption_basis(
+        netuid: NetUid,
+        remaining_unloaned_alpha: AlphaBalance,
+    ) -> Result<(TaoBalance, u128), DispatchError> {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        // Protocol buffers are restored before ordinary deregistration payouts.
+        // The lending vault's TAO is added by the caller, after this snapshot.
+        let pot = SubnetTAO::<T>::get(netuid)
+            .saturating_add(T::SwapInterface::protocol_tao_reservoir(netuid));
+        let protocol_alpha = SubnetProtocolAlpha::<T>::get(netuid);
+        let eligible =
+            if NetworkRegisteredAt::<T>::get(netuid) > TaoInRefundDeploymentBlock::<T>::get() {
+                // Match the ordinary payout's saturating pool/protocol balance. The
+                // post-grant vault inventory returns to AlphaIn before that payout.
+                SubnetAlphaIn::<T>::get(netuid)
+                    .saturating_add(T::SwapInterface::protocol_alpha_reservoir(netuid))
+                    .saturating_add(remaining_unloaned_alpha)
+                    .saturating_add(protocol_alpha)
+            } else {
+                // Legacy payouts exclude AlphaIn. Holder stake aggregates cannot
+                // lower-bound eligible claims because individual shares round down.
+                protocol_alpha
+            };
+        Ok((pot, u128::from(eligible.to_u64())))
+    }
+
     fn quote_sell(netuid: NetUid, alpha: AlphaBalance) -> Result<TaoBalance, DispatchError> {
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         let quote = T::SwapInterface::sim_swap(netuid, GetTaoForAlpha::<T>::with_amount(alpha))?;

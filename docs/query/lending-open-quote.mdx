@@ -7,8 +7,10 @@ description: "Quote additional fixed debt, opening value and collateral coupon."
 
 Supply the owner and hotkey together to quote a new position or increase
 an existing position with the same side and hotkey. The runtime accrues old
-interest and checks the combined position, including funded-redemption
-backing for TAO loans. Returned principal, annual_interest and opening_value
+interest and checks the combined position. Alpha loans require conservative
+funded-claim coverage; TAO loans require conservative funded collateral
+backing. Both protect each other same-side loan after accrued interest.
+Returned principal, annual_interest and opening_value
 are additions, not totals. Short opening_value is the loan's TAO value at
 the lending EMA, rounded up, and fixes its annual TAO coupon. A simulated
 buy limits alpha principal but opening makes no AMM swap and pays no sale

@@ -65,6 +65,17 @@ export default function PoolLendingRelease() {
               Shorts protect the delivered alpha and its opening TAO valuation separately.
             </li>
             <li>
+              <strong>Alpha loans also require funded-claim coverage.</strong> The combined alpha
+              debt&apos;s conservative immediate deregistration value, including payout rounding,
+              cannot exceed 25% of remaining TAO collateral. The bound overestimates the possible
+              payout pot and counts only guaranteed alpha claims after the proposed withdrawal.
+              Legacy subnets protect only protocol alpha because their ordinary payout excludes pool
+              alpha; newer subnets also protect active and latent pool alpha and remaining unloaned
+              vault alpha. Missing bounds or a zero protected claim count with a positive pot refuse
+              borrowing. Every other alpha loan must remain fully covered by its own collateral
+              after accrued interest. Quotes and opening enforce the same checks.
+            </li>
+            <li>
               <strong>TAO loans also require funded redemption backing.</strong> A new loan cannot
               exceed 25% of its alpha collateral&apos;s conservative funded deregistration value
               after the withdrawal. This assumes all active AMM TAO could be sold out and counts
@@ -148,9 +159,10 @@ export default function PoolLendingRelease() {
           </p>
           <p>
             Terminal recovery from a short cannot exceed its remaining TAO collateral. The 25%
-            opening market LTV does not guarantee coverage of a later funded redemption value, and
-            interest reduces that collateral over time. Conservative terminal valuation cannot
-            create missing funds; the design accepts unrecovered principal as a loss.
+            opening market LTV and conservative funded-claim checks constrain admission, while
+            subsequent pool or claim changes and interest deductions can still weaken coverage.
+            Conservative terminal valuation cannot create missing funds; the design accepts
+            unrecovered principal as a loss.
           </p>
           <p>
             Pending alpha coupons stay ordinary vault stake through global settlement; only their

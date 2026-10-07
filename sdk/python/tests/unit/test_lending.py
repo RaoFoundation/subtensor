@@ -432,7 +432,16 @@ def test_cli_collateral_only_buyback_refusal_does_not_submit(cli_fake):
     assert cli_fake.submissions == []
 
 
-@pytest.mark.parametrize("reason", ["BorrowingLimit", "PositionExists", "InsufficientEscrow"])
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "BorrowingLimit",
+        "PositionExists",
+        "InsufficientEscrow",
+        "InsufficientRedemptionBacking",
+        "RedemptionUnavailable",
+    ],
+)
 def test_cli_refuses_open_when_quote_fails(cli_fake, reason):
     cli_fake.seed_runtime("LendingRuntimeApi", "quote_open_for", {"Err": reason})
     result = runner.invoke(

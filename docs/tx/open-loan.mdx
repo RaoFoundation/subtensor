@@ -13,6 +13,12 @@ borrowed currency. Interest is 100% annually on opening loan value,
 charged in fixed collateral units and collected weekly. There are no
 price-triggered liquidations; exhausted collateral forfeits the position.
 
+Alpha debt must also fit 25% of collateral at a conservative immediate
+funded-redemption valuation, including payout rounding. TAO debt requires
+conservative funded collateral backing. New borrowing must preserve each
+other same-side loan's individual coverage after accrued interest. These
+opening checks do not guarantee future repayment.
+
 An existing position must have the same side and hotkey. `collateral`
 adds to its remaining collateral after accrued interest; borrowed principal,
 and the new fixed coupon add to the saved position.
@@ -27,7 +33,7 @@ position per coldkey and subnet; closing repays its total principal.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L585-L741) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L592-L748) |
 
 ## Parameters
 
@@ -85,7 +91,7 @@ result = sub.execute_tool("open_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open` — [`pallets/lending/src/lib.rs#L588`](/code/pallets/lending/src/lib.rs#L585-L741):
+`Lending.open` — [`pallets/lending/src/lib.rs#L595`](/code/pallets/lending/src/lib.rs#L592-L748):
 
 ```rust
 #[pallet::call_index(0)]
@@ -247,6 +253,6 @@ pub fn open(
 }
 ```
 
-Delegates to [`reserve_account`](/code/pallets/lending/src/lib.rs#L874), [`position_account`](/code/pallets/lending/src/lib.rs#L878), [`custody_hotkey`](/code/pallets/lending/src/lib.rs#L901).
+Delegates to [`reserve_account`](/code/pallets/lending/src/lib.rs#L881), [`position_account`](/code/pallets/lending/src/lib.rs#L885), [`custody_hotkey`](/code/pallets/lending/src/lib.rs#L908).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

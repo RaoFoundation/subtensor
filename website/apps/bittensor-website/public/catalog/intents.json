@@ -696,9 +696,9 @@
         "pallet": "Lending",
         "call": "close",
         "path": "pallets/lending/src/lib.rs",
-        "line": 748,
-        "end_line": 856,
-        "url": "/code/pallets/lending/src/lib.rs#L745-L856",
+        "line": 755,
+        "end_line": 863,
+        "url": "/code/pallets/lending/src/lib.rs#L752-L863",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1956,7 +1956,7 @@
   {
     "name": "open_loan",
     "summary": "Open or increase a fixed-principal subnet loan at up to 25% LTV.",
-    "description": "Open or increase a fixed-principal subnet loan at up to 25% LTV.\n\nA short locks TAO collateral and receives freely usable alpha on its\nselected hotkey. Opening does not sell that alpha or lock sale proceeds.\nA long locks existing free alpha stake and receives transferable TAO.\nBorrowed assets may be sold, transferred or pledged elsewhere. Debt stays in the\nborrowed currency. Interest is 100% annually on opening loan value,\ncharged in fixed collateral units and collected weekly. There are no\nprice-triggered liquidations; exhausted collateral forfeits the position.\n\nAn existing position must have the same side and hotkey. `collateral`\nadds to its remaining collateral after accrued interest; borrowed principal,\nand the new fixed coupon add to the saved position.\nThe old coupon is not repriced. The combined position must pass current\nopening guards, and an already exhausted position cannot be increased.\n\n`min_borrow` is a floor on additional principal. The legacy wire field\n`min_proceeds` bounds the additional short's opening value in TAO,\nmarked at the lending EMA; it does not describe an actual sale.\nThe call is atomic and refuses a smaller loan or opening value. There remains one\nposition per coldkey and subnet; closing repays its total principal.",
+    "description": "Open or increase a fixed-principal subnet loan at up to 25% LTV.\n\nA short locks TAO collateral and receives freely usable alpha on its\nselected hotkey. Opening does not sell that alpha or lock sale proceeds.\nA long locks existing free alpha stake and receives transferable TAO.\nBorrowed assets may be sold, transferred or pledged elsewhere. Debt stays in the\nborrowed currency. Interest is 100% annually on opening loan value,\ncharged in fixed collateral units and collected weekly. There are no\nprice-triggered liquidations; exhausted collateral forfeits the position.\n\nAlpha debt must also fit 25% of collateral at a conservative immediate\nfunded-redemption valuation, including payout rounding. TAO debt requires\nconservative funded collateral backing. New borrowing must preserve each\nother same-side loan's individual coverage after accrued interest. These\nopening checks do not guarantee future repayment.\n\nAn existing position must have the same side and hotkey. `collateral`\nadds to its remaining collateral after accrued interest; borrowed principal,\nand the new fixed coupon add to the saved position.\nThe old coupon is not repriced. The combined position must pass current\nopening guards, and an already exhausted position cannot be increased.\n\n`min_borrow` is a floor on additional principal. The legacy wire field\n`min_proceeds` bounds the additional short's opening value in TAO,\nmarked at the lending EMA; it does not describe an actual sale.\nThe call is atomic and refuses a smaller loan or opening value. There remains one\nposition per coldkey and subnet; closing repays its total principal.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2037,9 +2037,9 @@
         "pallet": "Lending",
         "call": "open",
         "path": "pallets/lending/src/lib.rs",
-        "line": 588,
-        "end_line": 741,
-        "url": "/code/pallets/lending/src/lib.rs#L585-L741",
+        "line": 595,
+        "end_line": 748,
+        "url": "/code/pallets/lending/src/lib.rs#L592-L748",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

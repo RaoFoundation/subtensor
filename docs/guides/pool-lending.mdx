@@ -69,8 +69,36 @@ aggregate borrowing cap must also permit the loan. The caller protects
 additional alpha principal and its opening TAO valuation separately. The legacy
 call field `min_proceeds` now means minimum opening valuation, not sale proceeds.
 
+Alpha borrowing also limits the debt's **conservative immediate funded
+redemption value to 25% of remaining collateral**, including payout rounding.
+This prevents a low market price from granting an alpha claim worth more than
+the posted TAO at the current deregistration state. The calculation overestimates
+the possible ordinary TAO pot and underestimates the guaranteed alpha claims
+sharing it after the proposed alpha withdrawal.
+
+The pot bound counts active and latent pool TAO plus unloaned vault TAO. For
+legacy subnets whose ordinary payouts exclude pool alpha, the protected claim
+lower bound counts only protocol alpha. For newer subnets it also counts active
+and latent pool alpha and the unloaned vault alpha remaining after the proposed
+withdrawal. Ordinary holder aggregates and pending fees do not enlarge this
+protected lower bound. A required bound that cannot be established refuses the
+quote and opening; a zero claim lower bound with a positive pot cannot admit
+alpha borrowing. Thus a funded vault does not guarantee that either loan type
+can currently open.
+
+For positive claim lower bound `N`, pot upper bound `P` and quarter collateral
+`Q`, all in base units, a sufficient combined alpha-debt bound is
+`D ≤ floor(Q × N / (P + N))`. This covers
+`ceil(D × P / N)` plus at most one TAO base unit of payout rounding for each
+borrowed alpha base unit. A conservative snapshot uses the remaining vault
+alpha after the initial candidate loan; clipping that candidate to a smaller
+loan can only improve this backing. Each other existing alpha loan must also
+remain fully covered by its own TAO collateral after rounded-up accrued
+interest. One position's surplus cannot cover another's deficit.
+
 For example, 1,000 TAO collateral can support an opening loan valued at up to
-250 TAO. Suppose its fixed debt is 700 alpha. That debt stays **700 alpha** unless
+250 TAO, subject to the funded-claim limit and inventory. Suppose its fixed debt
+is 200 alpha. That debt stays **200 alpha** unless
 the position borrows more or repays; coupons do not amortize it.
 
 At an ordinary close, the owner returns the total alpha principal from the
@@ -135,7 +163,9 @@ the total principal. Additional borrowed assets are delivered freely too.
 
 The chain collects interest accrued on the existing position before adding the
 new collateral. The combined position must pass current opening limits, not
-just the additional loan by itself. For TAO borrowing this includes the 25%
+just the additional loan by itself. Alpha borrowing includes the 25% conservative
+funded-claim limit and full coverage of other alpha loans. For TAO borrowing this
+includes the 25%
 stressed funded-redemption limit after the additional withdrawal, plus coverage
 of other TAO loans. Growth remains subject to the 10% aggregate borrowing cap
 and available inventory. An already exhausted position cannot be increased.
@@ -211,11 +241,13 @@ executable-depth checks, collateral and borrowing caps provide additional limits
 The chain does not impose a blanket borrowing pause merely because spot and
 the EMA disagree.
 
-TAO loans additionally use funded-redemption backing. A high market price or
-slow EMA does not by itself make alpha safe collateral near deregistration.
-New TAO withdrawals cannot consume the stressed backing needed by existing TAO
-loans. This check constrains new borrowing; it does not guarantee future
-coverage as interest consumes collateral or the alpha claim count changes.
+Both loan types additionally use conservative funded-redemption checks. Alpha
+loans bound the maximum funded claim that borrowed alpha could carry; TAO loans
+bound the minimum stressed payout of pledged alpha. A market price or slow EMA
+alone is insufficient. New borrowing cannot consume the conservative coverage
+required by other existing loans. These checks constrain openings and increases;
+they do not guarantee future coverage as interest consumes collateral or pool
+assets and alpha claims change.
 
 At launch, outstanding borrowing in each asset may not exceed **10% of that
 asset's funded vault inventory**: available inventory plus outstanding fixed

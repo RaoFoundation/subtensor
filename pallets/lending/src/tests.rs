@@ -327,6 +327,27 @@ impl LendingPoolInterface<Account> for MockPool {
         ensure!(supply > 0, DispatchError::Other("redemption unavailable"));
         Ok(supply)
     }
+    fn alpha_loan_redemption_basis(
+        _: NetUid,
+        remaining_unloaned_alpha: AlphaBalance,
+    ) -> Result<(TaoBalance, u128), DispatchError> {
+        ensure!(
+            !read::<bool>(b"test/fail_alpha_basis"),
+            DispatchError::Other("redemption unavailable")
+        );
+        let (pot, supply, includes_vault) = read::<Option<(u64, u128, bool)>>(
+            b"test/alpha_redemption_basis",
+        )
+        .unwrap_or((0, u128::from(u64::MAX), false));
+        let supply = if includes_vault {
+            supply
+                .saturating_add(u128::from(remaining_unloaned_alpha.to_u64()))
+                .min(u128::from(u64::MAX))
+        } else {
+            supply
+        };
+        Ok((pot.into(), supply))
+    }
     fn return_dissolution_reserves(
         netuid: NetUid,
         account: &Account,
@@ -579,6 +600,292 @@ fn indexed_long(owner: u8, principal: u64, collateral: u64) {
         },
     );
     OpenByNetuid::<Test>::insert(netuid(), &owner, ());
+}
+
+#[test]
+fn alpha_opening_rejects_immediate_legacy_redemption_without_guaranteed_claims() {
+    for supply in [0_u128, 1] {
+        ext().execute_with(|| {
+            // Unloaned legacy pool alpha does not share the ordinary payout.
+            // A free borrowed holder must not obtain this large pot for 1,000 TAO.
+            write(
+                b"test/alpha_redemption_basis",
+                Some((100_000_u64, supply, false)),
+            );
+            let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+            assert_eq!(
+                Lending::quote_open(netuid(), Side::Short, 1000),
+                Err(Error::<Test>::InsufficientRedemptionBacking.into())
+            );
+            assert_noop!(
+                Lending::open(
+                    RuntimeOrigin::signed(account(1)),
+                    netuid(),
+                    Side::Short,
+                    1000,
+                    account(1),
+                    1,
+                    0
+                ),
+                Error::<Test>::InsufficientRedemptionBacking
+            );
+            assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+            // This alpha-side refusal leaves ordinary TAO borrowing available.
+            assert!(Lending::quote_open(netuid(), Side::Long, 1000).is_ok());
+        });
+    }
+}
+
+#[test]
+fn alpha_funded_cap_covers_quarter_collateral_even_under_maximum_split_row_dust() {
+    ext().execute_with(|| {
+        write(
+            b"test/alpha_redemption_basis",
+            Some((100_000_u64, 100_000_u128, false)),
+        );
+        let quote = Lending::quote_open(netuid(), Side::Short, 1000).unwrap();
+        assert_eq!(quote.principal, 83);
+        // Actual terminal pot cannot exceed 200,000; actual eligible claims
+        // cannot be below 100,000. Splitting every borrowed atom still fits.
+        let worst =
+            Lending::funded_alpha_value(quote.principal, (200_000, 100_000, u64::MAX)).unwrap();
+        assert_eq!(worst, 249);
+        assert!(worst <= 250);
+        assert!(
+            Lending::funded_alpha_value(quote.principal + 1, (200_000, 100_000, u64::MAX)).unwrap()
+                > 250
+        );
+        open(Side::Short, 1000);
+        assert_eq!(position().annual_interest, 83);
+        assert_eq!(position().proceeds, 0);
+        assert_eq!(swap_count(), 0);
+        assert_ok!(Lending::start_dissolution(netuid()));
+        assert!(Lending::settle_shorts(netuid(), &mut meter()));
+        assert_ok!(Lending::freeze_redemption_basis(
+            netuid(),
+            200_000.into(),
+            100_000,
+            u64::MAX
+        ));
+        assert!(Lending::settle_remaining_longs(netuid(), &mut meter()));
+        assert_eq!(Vaults::<Test>::get(netuid()).unwrap().available_tao, 249);
+        assert_eq!(Vaults::<Test>::get(netuid()).unwrap().lost_alpha, 0);
+        assert_eq!(tao(&account(1)), 999_751);
+    });
+}
+
+#[test]
+fn modern_alpha_cap_values_unloaned_inventory_after_the_proposed_withdrawal() {
+    ext().execute_with(|| {
+        write(
+            b"test/alpha_redemption_basis",
+            Some((1_000_000_u64, 1_000_000_u128, true)),
+        );
+        let quote = Lending::quote_open(netuid(), Side::Short, 1000).unwrap();
+        assert_eq!(quote.principal, 124);
+        let vault = Vaults::<Test>::get(netuid()).unwrap();
+        let actual_lower = 1_000_000 + u128::from(vault.available_alpha - quote.principal);
+        let worst =
+            Lending::funded_alpha_value(quote.principal, (1_100_000, actual_lower, u64::MAX))
+                .unwrap();
+        assert!(worst <= 250);
+        assert!(
+            Lending::funded_alpha_value(
+                quote.principal + 1,
+                (1_100_000, actual_lower - 1, u64::MAX)
+            )
+            .unwrap()
+                > 250
+        );
+        open(Side::Short, 1000);
+        assert_eq!(
+            Vaults::<Test>::get(netuid()).unwrap().available_alpha,
+            100_000 - 124
+        );
+    });
+}
+
+#[test]
+fn alpha_growth_checks_combined_debt_and_cannot_add_funds_to_an_undercovered_mark() {
+    ext().execute_with(|| {
+        write(
+            b"test/alpha_redemption_basis",
+            Some((100_000_u64, 100_000_u128, false)),
+        );
+        open(Side::Short, 1000);
+        let original = position();
+        System::set_block_number(2);
+        let quote =
+            Lending::quote_open_for(&account(1), netuid(), Side::Short, 1000, &account(1)).unwrap();
+        assert_eq!(quote.principal, 83);
+        open(Side::Short, 1000);
+        let grown = position();
+        assert_eq!(grown.principal, 166);
+        assert_eq!(
+            grown.annual_interest,
+            original.annual_interest + quote.annual_interest
+        );
+        assert_eq!(grown.interest_remainder, 83);
+        assert_eq!(grown.due, original.due);
+        assert!(
+            Lending::funded_alpha_value(grown.principal, (200_000, 100_000, u64::MAX)).unwrap()
+                <= 499
+        );
+        write(
+            b"test/alpha_redemption_basis",
+            Some((100_000_u64, 1_u128, false)),
+        );
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert_noop!(
+            Lending::open(
+                RuntimeOrigin::signed(account(1)),
+                netuid(),
+                Side::Short,
+                1000,
+                account(1),
+                1,
+                0
+            ),
+            Error::<Test>::InsufficientRedemptionBacking
+        );
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+        assert_eq!(position(), grown);
+    });
+}
+
+#[test]
+fn alpha_admission_preserves_each_other_shorts_rounded_coupon_coverage() {
+    ext().execute_with(|| {
+        write(
+            b"test/alpha_redemption_basis",
+            Some((100_000_u64, 100_000_u128, false)),
+        );
+        indexed_long(2, 100, 300);
+        Positions::<Test>::mutate(account(2), netuid(), |state| {
+            state.as_mut().unwrap().side = Side::Short
+        });
+        assert_eq!(
+            Lending::quote_open(netuid(), Side::Short, 1000)
+                .unwrap()
+                .principal,
+            83
+        );
+        Positions::<Test>::mutate(account(2), netuid(), |state| {
+            state.as_mut().unwrap().annual_interest = 1
+        });
+        System::set_block_number(2);
+        assert_eq!(
+            Lending::quote_open(netuid(), Side::Short, 1000),
+            Err(Error::<Test>::InsufficientRedemptionBacking.into())
+        );
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert_noop!(
+            Lending::open(
+                RuntimeOrigin::signed(account(1)),
+                netuid(),
+                Side::Short,
+                1000,
+                account(1),
+                1,
+                0
+            ),
+            Error::<Test>::InsufficientRedemptionBacking
+        );
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+        assert_eq!(
+            Positions::<Test>::get(account(2), netuid())
+                .unwrap()
+                .collateral,
+            300
+        );
+    });
+}
+
+#[test]
+fn alpha_funded_scan_is_bounded_and_does_not_pool_collateral_or_expected_recoveries() {
+    ext().execute_with(|| {
+        write(
+            b"test/alpha_redemption_basis",
+            Some((100_000_u64, 100_000_u128, false)),
+        );
+        for n in 2..=5 {
+            indexed_long(n, 1, 1000);
+            Positions::<Test>::mutate(account(n), netuid(), |state| {
+                state.as_mut().unwrap().side = Side::Short
+            });
+        }
+        assert_eq!(
+            Lending::quote_open(netuid(), Side::Short, 1000)
+                .unwrap()
+                .principal,
+            83
+        );
+        indexed_long(6, 1, 1000);
+        assert_eq!(
+            Lending::quote_open(netuid(), Side::Short, 1000),
+            Err(Error::<Test>::TooManyPositions.into())
+        );
+    });
+    ext().execute_with(|| {
+        write(
+            b"test/alpha_redemption_basis",
+            Some((100_000_u64, 100_000_u128, false)),
+        );
+        let quote = Lending::quote_open(netuid(), Side::Short, 1000).unwrap();
+        Vaults::<Test>::mutate(netuid(), |value| {
+            let value = value.as_mut().unwrap();
+            value.pending_tao = 500_000;
+            value.pending_alpha = 500_000;
+            value.outstanding_tao = 500_000;
+        });
+        assert_eq!(Lending::quote_open(netuid(), Side::Short, 1000), Ok(quote));
+        indexed_long(2, 100, 299);
+        Positions::<Test>::mutate(account(2), netuid(), |state| {
+            let state = state.as_mut().unwrap();
+            state.side = Side::Short;
+            state.proceeds = 500_000;
+        });
+        indexed_long(3, 1, 1_000_000);
+        Positions::<Test>::mutate(account(3), netuid(), |state| {
+            state.as_mut().unwrap().side = Side::Short
+        });
+        assert_eq!(
+            Lending::quote_open(netuid(), Side::Short, 1000),
+            Err(Error::<Test>::InsufficientRedemptionBacking.into())
+        );
+    });
+}
+
+#[test]
+fn alpha_funded_arithmetic_caps_cash_domain_and_fails_closed_on_bad_basis() {
+    ext().execute_with(|| {
+        let vault = Vault {
+            available_tao: u64::MAX,
+            available_alpha: u64::MAX,
+            ..Vault::default()
+        };
+        write(
+            b"test/alpha_redemption_basis",
+            Some((u64::MAX, u128::from(u64::MAX), false)),
+        );
+        assert_eq!(
+            Lending::funded_alpha_limit_for(netuid(), u64::MAX, &vault, 0, u64::MAX, None).unwrap(),
+            (u64::MAX / 4) / 2
+        );
+        write(
+            b"test/alpha_redemption_basis",
+            Some((u64::MAX, u128::MAX, false)),
+        );
+        assert_eq!(
+            Lending::funded_alpha_limit_for(netuid(), u64::MAX, &vault, 0, u64::MAX, None),
+            Err(Error::<Test>::Arithmetic.into())
+        );
+        write(b"test/fail_alpha_basis", true);
+        assert_eq!(
+            Lending::quote_open(netuid(), Side::Short, 1000),
+            Err(Error::<Test>::RedemptionUnavailable.into())
+        );
+    });
 }
 
 #[test]
@@ -966,7 +1273,7 @@ fn borrower_can_sell_free_alpha_and_pledge_the_free_proceeds_to_grow() {
 fn short_opening_uses_both_purchase_depth_and_reference_value_without_a_swap() {
     for (alpha_reserve, tao_reserve, reference, expected) in [
         (1_000_000_u64, 100_000_000_u64, 1.0, 2_u64),
-        (100_000_000, 1_000_000, 1.0, 250),
+        (100_000_000, 1_000_000, 1.0, 249),
         (1_000_000, 1_000_000, 0.5, 249),
     ] {
         ext().execute_with(|| {

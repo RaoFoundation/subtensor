@@ -45,6 +45,13 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     /// An upper bound on the alpha claims sharing a funded deregistration payout.
     /// Must fail while aggregate staking counters are incomplete.
     fn redemption_alpha_supply(netuid: NetUid) -> Result<u128, DispatchError>;
+    /// Conservative ordinary deregistration pot (excluding unloaned vault TAO)
+    /// and a guaranteed eligible alpha denominator after the proposed withdrawal.
+    /// Holder aggregates are not a safe lower bound on rounded redemption claims.
+    fn alpha_loan_redemption_basis(
+        netuid: NetUid,
+        remaining_unloaned_alpha: AlphaBalance,
+    ) -> Result<(TaoBalance, u128), DispatchError>;
     /// A conservative executable gross TAO input, including the finite curve boundary.
     fn max_buy_input(_netuid: NetUid) -> TaoBalance {
         u64::MAX.into()
@@ -1047,6 +1054,14 @@ impl<T: Config> Pallet<T> {
                     .min(executable)
                     .checked_sub(old_principal)
                     .ok_or(Error::<T>::InsufficientEscrow)?;
+                let principal = Self::funded_alpha_limit_for(
+                    netuid,
+                    combined_collateral,
+                    &vault,
+                    old_principal,
+                    principal,
+                    existing.map(|(owner, _)| owner),
+                )?;
                 let opening_value = Self::tao_for_alpha(principal, reference.price, true)?;
                 OpeningQuote {
                     principal,
@@ -1103,6 +1118,80 @@ impl<T: Config> Pallet<T> {
             Error::<T>::BorrowingLimit
         );
         Ok(quote)
+    }
+
+    /// Limit immediate funded redemption as well as market-valued alpha credit.
+    /// Value the market candidate's full inventory withdrawal once; clipping it
+    /// down only increases the guaranteed denominator, so needs no quote search.
+    fn funded_alpha_limit_for(
+        netuid: NetUid,
+        collateral: u64,
+        vault: &Vault,
+        old_principal: u64,
+        candidate: u64,
+        growing_owner: Option<&T::AccountId>,
+    ) -> Result<u64, DispatchError> {
+        let remaining_alpha = vault.available_alpha.saturating_sub(candidate);
+        let (pool_pot, supply) =
+            T::Pool::alpha_loan_redemption_basis(netuid, remaining_alpha.into())
+                .map_err(|_| Error::<T>::RedemptionUnavailable)?;
+        // Ordinary cash accounting saturates in the u64 TAO domain. No future
+        // interest or principal repayment is counted as present lending backing.
+        let pot = pool_pot.to_u64().saturating_add(vault.available_tao);
+        if pot == 0 {
+            return Ok(candidate);
+        }
+        ensure!(supply > 0, Error::<T>::InsufficientRedemptionBacking);
+        let target = collateral.checked_div(4).ok_or(Error::<T>::Arithmetic)?;
+        // ceil(q*P/N)+q <= target iff q*(P+N) <= target*N.
+        // The q-atom allowance bounds every possible split-row payout rounding.
+        let denominator = u128::from(pot)
+            .checked_add(supply)
+            .ok_or(Error::<T>::Arithmetic)?;
+        let combined_limit = u128::from(target)
+            .checked_mul(supply)
+            .and_then(|value| value.checked_div(denominator))
+            .ok_or(Error::<T>::Arithmetic)?;
+        let incremental = combined_limit
+            .checked_sub(u128::from(old_principal))
+            .filter(|value| *value > 0)
+            .ok_or(Error::<T>::InsufficientRedemptionBacking)?;
+        let incremental = u64::try_from(incremental).map_err(|_| Error::<T>::Arithmetic)?;
+
+        let now = frame_system::Pallet::<T>::block_number();
+        let bound =
+            usize::try_from(T::MaxPositionsPerSubnet::get()).map_err(|_| Error::<T>::Arithmetic)?;
+        for (index, (owner, ())) in OpenByNetuid::<T>::iter_prefix(netuid).enumerate() {
+            ensure!(index < bound, Error::<T>::TooManyPositions);
+            if growing_owner.is_some_and(|growing| growing == &owner) {
+                continue;
+            }
+            let position =
+                Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::PositionMissing)?;
+            if position.side != Side::Short {
+                continue;
+            }
+            let (interest, remainder) = Self::interest_due(&position, now, false)?;
+            let accrued = Self::add(interest, u64::from(remainder > 0))?;
+            let remaining = position
+                .collateral
+                .checked_sub(accrued)
+                .ok_or(Error::<T>::InsufficientRedemptionBacking)?;
+            let principal = u128::from(position.principal);
+            let owed = Self::ceil_ratio(
+                principal
+                    .checked_mul(u128::from(pot))
+                    .ok_or(Error::<T>::Arithmetic)?,
+                supply,
+            )?
+            .checked_add(principal)
+            .ok_or(Error::<T>::Arithmetic)?;
+            ensure!(
+                owed <= u128::from(remaining),
+                Error::<T>::InsufficientRedemptionBacking
+            );
+        }
+        Ok(candidate.min(incremental))
     }
 
     /// Protect ordinary pro-rata redemption even if all active AMM TAO is sold out.
