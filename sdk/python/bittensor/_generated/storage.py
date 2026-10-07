@@ -483,6 +483,7 @@ class Lending:
     Enabled = Item('Lending', 'Enabled', 'bool')
     Vaults = Item('Lending', 'Vaults', 'Vault')
     VaultCount = Item('Lending', 'VaultCount', 'u32')
+    MinPriceImpactBps = Item('Lending', 'MinPriceImpactBps', 'u16')
     Positions = Item('Lending', 'Positions', 'Position')
     OpenByNetuid = Item('Lending', 'OpenByNetuid', '()')
     PositionCount = Item('Lending', 'PositionCount', 'u32')

@@ -63,6 +63,16 @@ pub trait SwapHandler {
     ) -> Result<(AlphaBalance, TaoBalance), DispatchError> {
         Ok((AlphaBalance::ZERO, TaoBalance::ZERO))
     }
+    /// Tighten a live curve around its current price to a global minimum price
+    /// response for a fee-free reference trade. Returns whether geometry changed.
+    /// The caller must separately transfer any newly unreachable reserve floors.
+    fn tune_min_price_impact(
+        _netuid: NetUid,
+        _reference: TaoBalance,
+        _bps: u16,
+    ) -> Result<bool, DispatchError> {
+        Err(DispatchError::Other("Price-impact tuning is unavailable"))
+    }
     /// Conservative maximum gross TAO purchase input that fills completely.
     fn max_buy_input(_netuid: NetUid) -> TaoBalance {
         u64::MAX.into()

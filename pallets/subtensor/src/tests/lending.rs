@@ -6,11 +6,12 @@ use frame_support::{
     StorageDoubleMap as _, assert_noop, assert_ok, traits::Hooks, weights::WeightMeter,
 };
 use pallet_lending::{LendingPoolInterface, Positions, Side, Vaults};
+use safe_math::FixedExt;
 use sp_core::U256;
 use sp_runtime::traits::AccountIdConversion;
-use substrate_fixed::types::I96F32;
+use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
-use subtensor_swap_interface::{OrderSwapInterface, SwapHandler};
+use subtensor_swap_interface::{Order, OrderSwapInterface, SwapHandler};
 
 const UNIT: u64 = 1_000_000_000;
 const POOL: u64 = 100_000 * UNIT;
@@ -1129,6 +1130,309 @@ fn unfunded_extraction_rolls_back_curve_balances_and_custody() {
         assert!(SubtensorModule::fund_unreachable_reserves(netuid, true).is_err());
         assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
         assert!(!Vaults::<Test>::contains_key(netuid));
+    });
+}
+
+#[test]
+fn price_impact_tuning_conserves_real_assets_and_appends_a_new_vault() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = market(true);
+        let issuance = TotalIssuance::<Test>::get();
+        let currency_issuance = Balances::total_issuance();
+        let alpha_supply =
+            SubnetAlphaIn::<Test>::get(netuid).saturating_add(SubnetAlphaOut::<Test>::get(netuid));
+        let price = <Test as Config>::SwapInterface::current_alpha_price(netuid);
+        let (tao, alpha) =
+            <SubtensorModule as LendingPoolInterface<U256>>::tune_min_price_impact(netuid, 100)
+                .unwrap();
+        assert!(!tao.is_zero() && !alpha.is_zero());
+        let vault = Vaults::<Test>::get(netuid).unwrap();
+        assert_eq!(vault.available_tao, tao.to_u64());
+        assert_eq!(vault.available_alpha, alpha.to_u64());
+        assert_eq!(
+            SubnetTAO::<Test>::get(netuid).saturating_add(tao),
+            POOL.into()
+        );
+        assert_eq!(
+            SubnetAlphaIn::<Test>::get(netuid).saturating_add(alpha),
+            POOL.into()
+        );
+        let custody = Lending::custody_hotkey().unwrap();
+        let account = Lending::reserve_account(netuid);
+        assert_eq!(Balances::free_balance(account), tao);
+        assert_eq!(stake(&account, &custody, netuid), alpha.to_u64());
+        let after_price = <Test as Config>::SwapInterface::current_alpha_price(netuid);
+        assert!(after_price.abs_diff(price).to_bits() <= price.to_bits() / UNIT as u128 + 1);
+        assert_eq!(TotalIssuance::<Test>::get(), issuance);
+        assert_eq!(Balances::total_issuance(), currency_issuance);
+        assert_eq!(
+            SubnetAlphaIn::<Test>::get(netuid).saturating_add(SubnetAlphaOut::<Test>::get(netuid)),
+            alpha_supply
+        );
+        assert_live_stake_total();
+        assert_total_alpha_staked_invariant(netuid);
+    });
+}
+
+#[test]
+fn price_impact_tuning_preserves_live_short_and_long_contracts_and_redemption_backing() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        let (short_owner, short_hotkey) = borrower(240);
+        let (long_owner, long_hotkey) = borrower(241);
+        open(short_owner, short_hotkey, netuid, Side::Short);
+        buy(&long_owner, &long_hotkey, netuid, 2 * COLLATERAL);
+        open(long_owner, long_hotkey, netuid, Side::Long);
+        let short = Positions::<Test>::get(short_owner, netuid).unwrap();
+        let long = Positions::<Test>::get(long_owner, netuid).unwrap();
+        let reference = pallet_lending::References::<Test>::get(netuid);
+        let before_vault = Vaults::<Test>::get(netuid).unwrap();
+        let before_curve = pallet_subtensor_swap::SwapSuperellipse::<Test>::get(netuid).unwrap();
+        let before_price = <Test as Config>::SwapInterface::current_alpha_price(netuid);
+        let before_supply = redemption_supply(netuid);
+        let before_basis = alpha_redemption_basis(netuid, before_vault.available_alpha);
+        let issuance = TotalIssuance::<Test>::get();
+        let currency_issuance = Balances::total_issuance();
+        let alpha_supply =
+            SubnetAlphaIn::<Test>::get(netuid).saturating_add(SubnetAlphaOut::<Test>::get(netuid));
+        assert_ok!(Lending::set_min_price_impact(
+            RuntimeOrigin::root(),
+            netuid,
+            100
+        ));
+        let after_vault = Vaults::<Test>::get(netuid).unwrap();
+        let after_curve = pallet_subtensor_swap::SwapSuperellipse::<Test>::get(netuid).unwrap();
+        assert_ne!(after_curve, before_curve);
+        assert_eq!(pallet_lending::MinPriceImpactBps::<Test>::get(netuid), 100);
+        assert!(after_vault.available_tao > before_vault.available_tao);
+        assert!(after_vault.available_alpha > before_vault.available_alpha);
+        assert_eq!(after_vault.outstanding_tao, before_vault.outstanding_tao);
+        assert_eq!(
+            after_vault.outstanding_alpha,
+            before_vault.outstanding_alpha
+        );
+        assert_eq!(after_vault.pending_tao, before_vault.pending_tao);
+        assert_eq!(after_vault.pending_alpha, before_vault.pending_alpha);
+        assert_eq!(
+            Positions::<Test>::get(short_owner, netuid),
+            Some(short.clone())
+        );
+        assert_eq!(
+            Positions::<Test>::get(long_owner, netuid),
+            Some(long.clone())
+        );
+        assert_eq!(pallet_lending::References::<Test>::get(netuid), reference);
+        assert_eq!(stake(&short_owner, &short_hotkey, netuid), short.principal);
+        assert_eq!(redemption_supply(netuid), before_supply);
+        let after_basis = alpha_redemption_basis(netuid, after_vault.available_alpha);
+        assert_eq!(after_basis.1, before_basis.1);
+        assert_eq!(
+            after_basis.0.to_u64() + after_vault.available_tao,
+            before_basis.0.to_u64() + before_vault.available_tao
+        );
+        let after_price = <Test as Config>::SwapInterface::current_alpha_price(netuid);
+        assert!(
+            after_price.abs_diff(before_price).to_bits()
+                <= before_price.to_bits() / UNIT as u128 + 1
+        );
+        let (buy_ratio, sell_ratio) = after_curve
+            .reference_price_impact(
+                SubnetAlphaIn::<Test>::get(netuid).to_u64(),
+                SubnetTAO::<Test>::get(netuid).to_u64(),
+                500 * UNIT,
+                SwapMinimumReserve::get().get(),
+            )
+            .unwrap();
+        assert!(buy_ratio >= U64F64::from_num(1.01));
+        assert!(sell_ratio <= U64F64::from_num(0.99));
+        // The actual swap engine, with fees excluded, fully fills the reference
+        // after extraction; mathematical phase capacity alone is insufficient.
+        let purchase = Swap::swap(
+            netuid,
+            GetAlphaForTao::<Test>::with_amount(500 * UNIT),
+            Swap::max_price::<TaoBalance>(),
+            true,
+            true,
+        )
+        .unwrap();
+        assert_eq!(purchase.amount_paid_in.to_u64(), 500 * UNIT);
+        assert_eq!(purchase.fee_paid.to_u64(), 0);
+        let equivalent_alpha =
+            u64::try_from((u128::from(500 * UNIT) << 64).div_ceil(after_price.to_bits())).unwrap();
+        let sale = Swap::swap(
+            netuid,
+            GetTaoForAlpha::<Test>::with_amount(equivalent_alpha),
+            Swap::min_price::<TaoBalance>(),
+            true,
+            true,
+        )
+        .unwrap();
+        assert_eq!(sale.amount_paid_in.to_u64(), equivalent_alpha);
+        assert_eq!(sale.fee_paid.to_u64(), 0);
+        assert_eq!(TotalIssuance::<Test>::get(), issuance);
+        assert_eq!(Balances::total_issuance(), currency_issuance);
+        assert_eq!(
+            SubnetAlphaIn::<Test>::get(netuid).saturating_add(SubnetAlphaOut::<Test>::get(netuid)),
+            alpha_supply
+        );
+        let account = Lending::reserve_account(netuid);
+        let custody = Lending::custody_hotkey().unwrap();
+        assert_eq!(
+            Balances::free_balance(account).to_u64(),
+            after_vault.available_tao
+        );
+        assert_eq!(
+            stake(&account, &custody, netuid),
+            after_vault.available_alpha
+        );
+        assert_live_stake_total();
+        assert_total_alpha_staked_invariant(netuid);
+
+        // Debt stays repayable in its original asset after the governance change.
+        for owner in [short_owner, long_owner] {
+            let quote = Lending::quote_close(&owner, netuid, false).unwrap();
+            assert_ok!(Lending::close(
+                RuntimeOrigin::signed(owner),
+                netuid,
+                false,
+                quote.payment,
+                quote.refund,
+            ));
+        }
+        assert_eq!(Vaults::<Test>::get(netuid).unwrap().outstanding_tao, 0);
+        assert_eq!(Vaults::<Test>::get(netuid).unwrap().outstanding_alpha, 0);
+        assert_live_stake_total();
+        assert_total_alpha_staked_invariant(netuid);
+    });
+}
+
+#[test]
+fn price_impact_lowering_and_disabling_never_widen_or_refund_vault_assets() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        assert_ok!(Lending::set_min_price_impact(
+            RuntimeOrigin::root(),
+            netuid,
+            200
+        ));
+        let (owner, hotkey) = borrower(243);
+        add_balance_to_coldkey_account(&owner, POOL.into());
+        let curve_before_buy =
+            pallet_subtensor_swap::SwapSuperellipse::<Test>::get(netuid).unwrap();
+        let capacity = curve_before_buy
+            .max_buy_input_with_reserve_floor(
+                SubnetAlphaIn::<Test>::get(netuid).to_u64(),
+                SubnetTAO::<Test>::get(netuid).to_u64(),
+                SwapMinimumReserve::get().get(),
+            )
+            .unwrap();
+        // Move to a point where another full 500-TAO purchase no longer fits.
+        // Relaxing an existing policy remains possible without reopening walls.
+        buy(&owner, &hotkey, netuid, capacity - 100 * UNIT);
+        let curve = pallet_subtensor_swap::SwapSuperellipse::<Test>::get(netuid);
+        let vault = Vaults::<Test>::get(netuid);
+        let reserves = (
+            SubnetAlphaIn::<Test>::get(netuid),
+            SubnetTAO::<Test>::get(netuid),
+        );
+        assert!(
+            curve
+                .as_ref()
+                .unwrap()
+                .reference_price_impact(
+                    reserves.0.to_u64(),
+                    reserves.1.to_u64(),
+                    500 * UNIT,
+                    SwapMinimumReserve::get().get(),
+                )
+                .is_err()
+        );
+        for target in [100, 1, 0] {
+            assert_ok!(Lending::set_min_price_impact(
+                RuntimeOrigin::root(),
+                netuid,
+                target
+            ));
+            assert_eq!(
+                pallet_subtensor_swap::SwapSuperellipse::<Test>::get(netuid),
+                curve
+            );
+            assert_eq!(Vaults::<Test>::get(netuid), vault);
+            assert_eq!(
+                (
+                    SubnetAlphaIn::<Test>::get(netuid),
+                    SubnetTAO::<Test>::get(netuid)
+                ),
+                reserves
+            );
+            assert_eq!(
+                pallet_lending::MinPriceImpactBps::<Test>::get(netuid),
+                target
+            );
+        }
+        // Automatic vault admission retains its one-time extraction policy.
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert_ok!(SubtensorModule::fund_unreachable_reserves(netuid, true));
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+    });
+}
+
+#[test]
+fn price_impact_thin_boundary_failure_rolls_back_target_curve_and_inventory() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = market(true);
+        setup_reserves(netuid, (500 * UNIT).into(), (500 * UNIT).into());
+        TotalStake::<Test>::put(TaoBalance::from(500 * UNIT));
+        assert_ok!(SubtensorModule::fund_unreachable_reserves(netuid, true));
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert!(Lending::set_min_price_impact(RuntimeOrigin::root(), netuid, 100).is_err());
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+    });
+}
+
+#[test]
+fn price_impact_unfunded_custody_failure_rolls_back_the_entire_adapter_transaction() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = market(false);
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert!(
+            <SubtensorModule as LendingPoolInterface<U256>>::tune_min_price_impact(netuid, 100)
+                .is_err()
+        );
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+        assert!(!Vaults::<Test>::contains_key(netuid));
+    });
+}
+
+#[test]
+fn price_impact_existing_vault_funding_failure_preserves_old_loans_and_target() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        let (owner, hotkey) = borrower(242);
+        open(owner, hotkey, netuid, Side::Short);
+        let account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        assert_ok!(Balances::force_set_balance(
+            RuntimeOrigin::root(),
+            account,
+            TaoBalance::ZERO,
+        ));
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert!(Lending::set_min_price_impact(RuntimeOrigin::root(), netuid, 100).is_err());
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+    });
+}
+
+#[test]
+fn price_impact_adapter_rejects_subnet_lifecycle_locks() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        DissolveCleanupQueue::<Test>::put(vec![netuid]);
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert!(
+            <SubtensorModule as LendingPoolInterface<U256>>::tune_min_price_impact(netuid, 100)
+                .is_err()
+        );
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
     });
 }
 

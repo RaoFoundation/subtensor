@@ -185,6 +185,124 @@ impl<T: Config> Pallet<T> {
         T::CurveInitializationWeight::get()
     }
 
+    /// Tighten current geometry without moving its spot price or widening its
+    /// trade range. A reference is a net, fee-free TAO purchase or equivalently
+    /// valued alpha sale; both must execute fully inside the real reserve floors
+    /// and ordinary price limits. Validate the candidate before storing it.
+    #[frame_support::transactional]
+    pub fn tune_min_price_impact(
+        netuid: NetUid,
+        reference: TaoBalance,
+        bps: u16,
+    ) -> Result<bool, DispatchError> {
+        ensure!(
+            T::SubnetInfo::exists(netuid) && T::SubnetInfo::mechanism(netuid) == 1,
+            Error::<T>::MechanismDoesNotExist
+        );
+        if bps == 0 {
+            return Ok(false);
+        }
+        Self::maybe_initialize_palswap(netuid, None)?;
+        let alpha = u64::from(T::AlphaReserve::reserve(netuid));
+        let tao = u64::from(T::TaoReserve::reserve(netuid));
+        let reference = reference.to_u64();
+        let curve = Self::superellipse(netuid)?;
+        let candidate = curve
+            .with_min_price_impact(alpha, tao, reference, bps)
+            .map_err(|_| Error::<T>::InvalidLiquidityValue)?;
+        // Governance immediately funds the new unreachable floors. Validate the
+        // final trading balances, including input/reserve guards, rather than
+        // assuming the larger pre-withdrawal balances will still be available.
+        let (take_alpha, take_tao) = candidate
+            .extractable_reserves(alpha, tao, T::MinimumReserve::get().get())
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        let final_alpha = alpha
+            .checked_sub(take_alpha)
+            .ok_or(Error::<T>::InsufficientLiquidity)?;
+        let final_tao = tao
+            .checked_sub(take_tao)
+            .ok_or(Error::<T>::InsufficientLiquidity)?;
+        let mut funded = candidate.clone();
+        funded
+            .withdraw_liquidity(take_alpha, take_tao)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        let (buy_ratio, sell_ratio) = funded
+            .reference_price_impact(
+                final_alpha,
+                final_tao,
+                reference,
+                T::MinimumReserve::get().get(),
+            )
+            .map_err(|_| Error::<T>::InsufficientLiquidity)?;
+        let fraction = U64F64::from_num(bps)
+            .checked_div(U64F64::from_num(10_000))
+            .ok_or(Error::<T>::InvalidLiquidityValue)?;
+        ensure!(
+            buy_ratio >= U64F64::from_num(1).saturating_add(fraction)
+                && sell_ratio <= U64F64::from_num(1).saturating_sub(fraction),
+            Error::<T>::InvalidLiquidityValue
+        );
+        let min_price = U64F64::from_num(Self::min_price_inner::<TaoBalance>().to_u64())
+            .checked_div(U64F64::from_num(1_000_000_000_u64))
+            .ok_or(Error::<T>::ReservesOutOfBalance)?;
+        let max_price = U64F64::from_num(Self::max_price_inner::<TaoBalance>().to_u64())
+            .checked_div(U64F64::from_num(1_000_000_000_u64))
+            .ok_or(Error::<T>::ReservesOutOfBalance)?;
+        let current = funded
+            .calculate_price(final_alpha, final_tao)
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        let equivalent_alpha = (u128::from(reference) << 64)
+            .checked_div(current.to_bits())
+            .and_then(|whole| {
+                (u128::from(reference) << 64)
+                    .checked_rem(current.to_bits())
+                    .and_then(|remainder| whole.checked_add(u128::from(remainder != 0)))
+            })
+            .and_then(|amount| u64::try_from(amount).ok())
+            .ok_or(Error::<T>::ReservesOutOfBalance)?;
+        let bought_alpha = funded
+            .buy_output(final_alpha, final_tao, reference)
+            .map_err(|_| Error::<T>::InsufficientLiquidity)?;
+        let sold_tao = funded
+            .sell_output(final_alpha, final_tao, equivalent_alpha)
+            .map_err(|_| Error::<T>::InsufficientLiquidity)?;
+        let buy_price = funded
+            .calculate_price(
+                final_alpha
+                    .checked_sub(bought_alpha)
+                    .ok_or(Error::<T>::InsufficientLiquidity)?,
+                final_tao
+                    .checked_add(reference)
+                    .ok_or(Error::<T>::ReservesOutOfBalance)?,
+            )
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        let sell_price = funded
+            .calculate_price(
+                final_alpha
+                    .checked_add(equivalent_alpha)
+                    .ok_or(Error::<T>::ReservesOutOfBalance)?,
+                final_tao
+                    .checked_sub(sold_tao)
+                    .ok_or(Error::<T>::InsufficientLiquidity)?,
+            )
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        ensure!(
+            sell_price >= min_price && buy_price <= max_price,
+            Error::<T>::PriceLimitExceeded
+        );
+        ensure!(
+            reference <= final_tao.saturating_mul(MAX_SWAP_INPUT_RESERVE_MULTIPLIER)
+                && equivalent_alpha
+                    <= final_alpha.saturating_mul(MAX_SWAP_INPUT_RESERVE_MULTIPLIER),
+            Error::<T>::SwapInputTooLarge
+        );
+        let changed = candidate != curve;
+        if changed {
+            SwapSuperellipse::<T>::insert(netuid, candidate);
+        }
+        Ok(changed)
+    }
+
     /// Debit globally unreachable active reserve balances and translate their
     /// centers by the same amounts. This does not mint, burn or transfer assets:
     /// the runtime bridge materializes already-issued lending custody balances
@@ -652,6 +770,14 @@ impl<T: Config> SwapHandler for Pallet<T> {
         netuid: NetUid,
     ) -> Result<(AlphaBalance, TaoBalance), DispatchError> {
         Pallet::<T>::extract_unreachable_reserves(netuid)
+    }
+
+    fn tune_min_price_impact(
+        netuid: NetUid,
+        reference: TaoBalance,
+        bps: u16,
+    ) -> Result<bool, DispatchError> {
+        Pallet::<T>::tune_min_price_impact(netuid, reference, bps)
     }
 
     fn max_buy_input(netuid: NetUid) -> TaoBalance {

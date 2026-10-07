@@ -1722,3 +1722,8 @@ class Lending:
     def set_enabled(enabled: 'bool') -> Call:
         'Pause new loans. Repayment, collection and terminal settlement remain available.'
         return Call('Lending', 'set_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def set_min_price_impact(netuid: 'NetUid', bps: 'u16') -> Call:
+        'Set a geometric minimum ending-price movement for a net 500-TAO buy and an alpha sale worth 500 TAO at its opening spot price. Root only. Zero disables the policy; lower targets never widen an existing curve. Tightening preserves spot within fixed-point tolerance and moves only newly unreachable, actually funded assets into the existing vault.'
+        return Call('Lending', 'set_min_price_impact', {'netuid': netuid, 'bps': bps})

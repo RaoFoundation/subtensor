@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   title: 'Pool Reserves and Native Lending',
   description:
     'A proposed migration preserves opening price and local sensitivity, creating separate ' +
-    'lending reserves for freely usable alpha borrowing and transferable TAO loans.',
+    'lending reserves, governance price-impact tuning and freely usable subnet loans.',
   alternates: {canonical: '/releases/pool-lending'},
 };
 
@@ -32,11 +32,11 @@ export default function PoolLendingRelease() {
             pool, without additional tightening of its depth.
           </p>
           <p>
-            V1 defers the proposed minimum 1% ending-price movement for a 500-TAO-equivalent trade.
-            It does not expose a pool-depth tuning call. Very small trades preserve their opening
-            price response; finite trades differ because the curve has a different shape. The
-            ellipse still has finite buy and sell endpoints, so complete swaps must fit its
-            remaining range and any caller price limits.
+            Every subnet starts with its minimum price-impact target disabled; a network-wide 1%
+            target remains deferred. Very small trades preserve their opening price response; finite
+            trades differ because the curve has a different shape. The ellipse still has finite buy
+            and sell endpoints, so complete swaps must fit its remaining range and any caller price
+            limits.
           </p>
           <p>
             The migration transfers globally unreachable alpha and TAO balances into separate
@@ -45,6 +45,36 @@ export default function PoolLendingRelease() {
             or token creation. Borrowing is enabled only after the complete migration succeeds; an
             incomplete migration leaves it disabled. Governance can pause new loans without
             disabling repayments.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2 className={styles.subtitle}>A governance dial for price impact</h2>
+          <p>
+            Root governance can set a subnet&apos;s minimum ending spot-price movement with{' '}
+            <code>Lending.set_min_price_impact(netuid, bps)</code>. The fixed reference adds 500 net
+            TAO to the curve on a buy, or sells net alpha worth 500 TAO at the price before that
+            trade. Swap fees are paid in addition to these inputs. Setting 100 basis points selects
+            a 1% minimum in both directions; nonzero settings range from 1 to 5,000 basis points.
+            This measures mechanical price impact, rather than realised volatility or average
+            execution slippage. It does not override fees, caller limits or finite trading
+            endpoints.
+          </p>
+          <p>
+            Tightening contracts the curve&apos;s remaining range around its current trading point,
+            preserving the spot price within fixed-point rounding. Its least-sensitive regions
+            determine a conservative minimum for later complete reference trades, so current impact
+            can exceed the selected minimum. Both reference trades must still fit when the target is
+            set; otherwise the call fails atomically. Curve parameters then stay fixed through
+            swaps, without per-trade recalibration.
+          </p>
+          <p>
+            Newly unreachable alpha and TAO move to the ready lending vault. Existing debt, coupons,
+            collateral and the 24-hour reference stay unchanged. Buy and sell capacity becomes
+            smaller, which can block a short&apos;s optional collateral-funded buyback; wallet
+            repayment of its fixed alpha principal remains available. Lowering the target or setting
+            zero relaxes the policy without widening the curve or returning inventory to the AMM.
+            The dial is unavailable during dissolution and adds no public lending CLI command.
           </p>
         </section>
 

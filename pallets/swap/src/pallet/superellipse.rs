@@ -270,6 +270,174 @@ impl Superellipse {
         Ok(U64F64::from_bits(narrow(div(numerator, denominator)?)?))
     }
 
+    /// Tighten the live curve to a minimum price response in both directions.
+    /// `reference` is net TAO input for buys and the opening TAO value of alpha
+    /// input for sells. The requested response is in basis points, at most 50%.
+    /// Zero disables the target without widening the existing curve.
+    ///
+    /// The geometric bound holds across the entire positive-price branch,
+    /// conditional on a full executable reference trade. Write R² = K/a²:
+    /// min(d ln(p)/d tao) = 3 sqrt(3)/(2R). A bound k >= d/((1-d)reference)
+    /// guarantees a buy response >= exp(k*reference)-1 >= d, and a sale of
+    /// alpha initially worth `reference` changes price by >= 1-1/(1+k*reference).
+    /// Squaring removes all transcendental arithmetic. R never increases under
+    /// rounded swaps; translations also preserve it, so no trading hook is needed.
+    ///
+    /// Only positive coordinates are contracted by a common Q32 factor. This
+    /// keeps the current phase and scales rather than reanchoring a traded pool.
+    /// It moves neither assets nor debt and cannot require recalling vault assets.
+    /// The exact current full-reference quotes are verified as well: atomic and
+    /// fixed-point rounding must not falsely certify the requested response.
+    pub fn with_min_price_impact(
+        &self,
+        alpha: u64,
+        tao: u64,
+        reference: u64,
+        bps: u16,
+    ) -> MathResult<Self> {
+        if bps == 0 {
+            return Ok(self.clone());
+        }
+        if bps > 5_000 || reference == 0 {
+            return Err(EllipseError::InvalidParameters);
+        }
+        let (x, y) = self.coordinates(alpha, tao)?;
+        let price = self.calculate_price(alpha, tao)?;
+        if price.to_bits() == 0 {
+            return Err(EllipseError::InvalidParameters);
+        }
+        let (a2, _) = self.squares()?;
+        let impact = U512::from(bps);
+        let remaining = U512::from(10_000_u16.saturating_sub(bps));
+        let left_scale = mul(U512::from(4), mul(impact, impact)?)?;
+        let reference_q32 = mul(U512::from(reference), U512::from(SCALE))?;
+        let right = mul(
+            mul(U512::from(27), mul(remaining, remaining)?)?,
+            mul(a2, mul(reference_q32, reference_q32)?)?,
+        )?;
+        let meets_bound = |factor: u128| -> MathResult<bool> {
+            let scaled_x = div(mul(x, U512::from(factor))?, U512::from(SCALE))?;
+            let scaled_y = div(mul(y, U512::from(factor))?, U512::from(SCALE))?;
+            Ok(mul(self.invariant(scaled_x, scaled_y)?, left_scale)? <= right)
+        };
+        // Find the largest allowed contraction in at most 33 integer steps.
+        // Coordinates which round to zero are allowed only in the predicate;
+        // the final construction below rejects a degenerate positive branch.
+        let mut low = if meets_bound(SCALE)? { SCALE } else { 0 };
+        let mut high = SCALE;
+        while low < high {
+            let middle = low
+                .checked_add(
+                    high.checked_sub(low)
+                        .ok_or(EllipseError::Overflow)?
+                        .div_ceil(2),
+                )
+                .ok_or(EllipseError::Overflow)?;
+            if meets_bound(middle)? {
+                low = middle;
+            } else {
+                high = middle.checked_sub(1).ok_or(EllipseError::Overflow)?;
+            }
+        }
+        let tuned = if low == SCALE {
+            self.clone()
+        } else {
+            let x = narrow(div(mul(x, U512::from(low))?, U512::from(SCALE))?)?;
+            let y = narrow(div(mul(y, U512::from(low))?, U512::from(SCALE))?)?;
+            if x == 0 || y == 0 {
+                return Err(EllipseError::OutsideDomain);
+            }
+            Self {
+                alpha_scale: self.alpha_scale,
+                tao_scale: self.tao_scale,
+                center_alpha: i128::try_from(
+                    (u128::from(alpha) << 32)
+                        .checked_add(x)
+                        .ok_or(EllipseError::Overflow)?,
+                )
+                .map_err(|_| EllipseError::Overflow)?,
+                center_tao: i128::try_from(
+                    (u128::from(tao) << 32)
+                        .checked_add(y)
+                        .ok_or(EllipseError::Overflow)?,
+                )
+                .map_err(|_| EllipseError::Overflow)?,
+            }
+        };
+        // The price may move by at most one part per billion plus one Q64
+        // quantum from coordinate rounding. Ill-conditioned curves fail closed.
+        let new_price = tuned.calculate_price(alpha, tao)?;
+        let tolerance = price
+            .to_bits()
+            .checked_div(1_000_000_000)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(EllipseError::Overflow)?;
+        if new_price.to_bits().abs_diff(price.to_bits()) > tolerance {
+            return Err(EllipseError::InvalidParameters);
+        }
+        let (buy, sell) = tuned.reference_price_impact(alpha, tao, reference, 0)?;
+        let impact = U64F64::from_num(bps)
+            .checked_div(U64F64::from_num(10_000))
+            .ok_or(EllipseError::Overflow)?;
+        let one = U64F64::from_num(1);
+        if buy < one.checked_add(impact).ok_or(EllipseError::Overflow)?
+            || sell > one.checked_sub(impact).ok_or(EllipseError::Overflow)?
+        {
+            return Err(EllipseError::InvalidParameters);
+        }
+        Ok(tuned)
+    }
+
+    /// Exact full-reference ending/current spot ratios, excluding fees. Buys
+    /// spend `reference` net TAO. Sells use the smallest whole-alpha-atom input
+    /// valued at least that much at the actual current spot. Both legs must fit
+    /// the open branch and preserve physical reserves, including `reserve_floor`.
+    pub fn reference_price_impact(
+        &self,
+        alpha: u64,
+        tao: u64,
+        reference: u64,
+        reserve_floor: u64,
+    ) -> MathResult<(U64F64, U64F64)> {
+        if reference == 0 {
+            return Err(EllipseError::InvalidParameters);
+        }
+        let price = self.calculate_price(alpha, tao)?;
+        let price_bits = U512::from(price.to_bits());
+        if price_bits.is_zero() {
+            return Err(EllipseError::InvalidParameters);
+        }
+        let numerator = mul(U512::from(reference), U512::from(1_u128 << 64))?;
+        let alpha_input = narrow_amount(narrow(div(
+            add(numerator, sub(price_bits, U512::one())?)?,
+            price_bits,
+        )?)?)?;
+        if reference > self.max_buy_input_with_reserve_floor(alpha, tao, reserve_floor)?
+            || alpha_input > self.max_sell_input_with_reserve_floor(alpha, tao, reserve_floor)?
+        {
+            return Err(EllipseError::OutsideDomain);
+        }
+        let bought = self.buy_output(alpha, tao, reference)?;
+        let sold = self.sell_output(alpha, tao, alpha_input)?;
+        if bought == 0 || sold == 0 {
+            return Err(EllipseError::InsufficientReserves);
+        }
+        let buy = self.calculate_price(
+            alpha.checked_sub(bought).ok_or(EllipseError::Overflow)?,
+            tao.checked_add(reference).ok_or(EllipseError::Overflow)?,
+        )?;
+        let sell = self.calculate_price(
+            alpha
+                .checked_add(alpha_input)
+                .ok_or(EllipseError::Overflow)?,
+            tao.checked_sub(sold).ok_or(EllipseError::Overflow)?,
+        )?;
+        Ok((
+            buy.checked_div(price).ok_or(EllipseError::Overflow)?,
+            sell.checked_div(price).ok_or(EllipseError::Overflow)?,
+        ))
+    }
+
     /// Swap an exact net TAO input, returning an alpha payout rounded down.
     pub fn buy_output(&self, alpha: u64, tao: u64, input: u64) -> MathResult<u64> {
         tao.checked_add(input).ok_or(EllipseError::Overflow)?;
@@ -590,6 +758,285 @@ mod tests {
             let expected_slope = 1. / (wq * alpha as f64);
             assert!((slope / expected_slope - 1.).abs() < 0.0001);
         }
+    }
+
+    #[test]
+    fn minimum_price_impact_preserves_price_and_tightens_both_directions() {
+        let (alpha, tao, reference) = (2_880_603_110_475_064, 203_305_249_479_705, 500_000_000_000);
+        let curve = equal(alpha, tao);
+        let original = curve
+            .reference_price_impact(alpha, tao, reference, 1)
+            .unwrap();
+        assert!(original.0 < U64F64::from_num(1.01));
+        let tuned = curve
+            .with_min_price_impact(alpha, tao, reference, 100)
+            .unwrap();
+        let before = curve.calculate_price(alpha, tao).unwrap();
+        let after = tuned.calculate_price(alpha, tao).unwrap();
+        assert!(before.to_bits().abs_diff(after.to_bits()) <= before.to_bits() / 1_000_000_000 + 1);
+        let (buy, sell) = tuned
+            .reference_price_impact(alpha, tao, reference, 1)
+            .unwrap();
+        assert!(buy >= U64F64::from_num(1.01));
+        assert!(sell <= U64F64::from_num(0.99));
+        let (x, y) = curve.coordinates(alpha, tao).unwrap();
+        let (new_x, new_y) = tuned.coordinates(alpha, tao).unwrap();
+        assert!(new_x < x && new_y < y);
+        assert_eq!(tuned.alpha_scale, curve.alpha_scale);
+        assert_eq!(tuned.tao_scale, curve.tao_scale);
+        assert!(
+            tuned.max_buy_input(alpha, tao).unwrap() < curve.max_buy_input(alpha, tao).unwrap()
+        );
+        assert!(
+            tuned.max_sell_input(alpha, tao).unwrap() < curve.max_sell_input(alpha, tao).unwrap()
+        );
+    }
+
+    #[test]
+    fn milder_disabled_and_repeated_targets_never_expand_the_curve() {
+        let (alpha, tao, reference) =
+            (10_000_000_000_000_000, 500_000_000_000_000, 500_000_000_000);
+        let curve = equal(alpha, tao);
+        assert_eq!(curve.with_min_price_impact(0, 0, 0, 0).unwrap(), curve);
+        let tuned = curve
+            .with_min_price_impact(alpha, tao, reference, 100)
+            .unwrap();
+        assert_ne!(tuned, curve);
+        for bps in [0, 1, 50, 100] {
+            assert_eq!(
+                tuned
+                    .with_min_price_impact(alpha, tao, reference, bps)
+                    .unwrap(),
+                tuned
+            );
+        }
+        let stricter = tuned
+            .with_min_price_impact(alpha, tao, reference, 200)
+            .unwrap();
+        let original = tuned.coordinates(alpha, tao).unwrap();
+        let tightened = stricter.coordinates(alpha, tao).unwrap();
+        assert!(tightened.0 < original.0 && tightened.1 < original.1);
+        let strong = equal(10_000_000_000_000, 5_000_000_000_000);
+        assert_eq!(
+            strong
+                .with_min_price_impact(10_000_000_000_000, 5_000_000_000_000, reference, 100)
+                .unwrap(),
+            strong
+        );
+    }
+
+    #[test]
+    fn calibration_uses_live_asymmetric_coordinates_without_reanchoring() {
+        let (mut alpha, mut tao, reference) =
+            (10_000_000_000_000_000, 500_000_000_000_000, 500_000_000_000);
+        let curve = equal(alpha, tao);
+        let input = 100_000_000_000_000;
+        let output = curve.buy_output(alpha, tao, input).unwrap();
+        alpha -= output;
+        tao += input;
+        let before = curve.calculate_price(alpha, tao).unwrap();
+        let (x, y) = curve.coordinates(alpha, tao).unwrap();
+        assert_ne!(
+            x / U512::from(curve.alpha_scale),
+            y / U512::from(curve.tao_scale)
+        );
+        let tuned = curve
+            .with_min_price_impact(alpha, tao, reference, 100)
+            .unwrap();
+        let after = tuned.calculate_price(alpha, tao).unwrap();
+        assert!(before.to_bits().abs_diff(after.to_bits()) <= before.to_bits() / 1_000_000_000 + 1);
+        let (new_x, new_y) = tuned.coordinates(alpha, tao).unwrap();
+        let old_phase = x.low_u128() as f64 / y.low_u128() as f64;
+        let new_phase = new_x.low_u128() as f64 / new_y.low_u128() as f64;
+        assert!((new_phase / old_phase - 1.).abs() < 1e-9);
+        let (buy, sell) = tuned
+            .reference_price_impact(alpha, tao, reference, 1)
+            .unwrap();
+        assert!(buy >= U64F64::from_num(1.01) && sell <= U64F64::from_num(0.99));
+    }
+
+    #[test]
+    fn persistent_floor_covers_the_least_sensitive_phase_and_both_trade_directions() {
+        let (alpha, tao, reference) =
+            (10_000_000_000_000_000, 500_000_000_000_000, 500_000_000_000);
+        let tuned = equal(alpha, tao)
+            .with_min_price_impact(alpha, tao, reference, 100)
+            .unwrap();
+        let (x, y) = tuned.coordinates(alpha, tao).unwrap();
+        let x = x.low_u128() as f64 / SCALE as f64;
+        let y = y.low_u128() as f64 / SCALE as f64;
+        let ratio = tuned.alpha_scale as f64 / tuned.tao_scale as f64;
+        let radius_tao = (y * y + (x / ratio).powi(2)).sqrt();
+        let radius_alpha = radius_tao * ratio;
+        let minimum_slope = 3. * 3_f64.sqrt() / (2. * radius_tao);
+        let required_slope = 0.01 / (0.99 * reference as f64);
+        assert!(minimum_slope >= required_slope);
+        assert!((minimum_slope / required_slope - 1.).abs() < 1e-7);
+        let minimum_phase = 2_f64.sqrt().atan().to_degrees();
+        for degrees in [5., 15., 30., 45., minimum_phase, 70., 80., 85.] {
+            let phase = degrees.to_radians();
+            let alpha = (tuned.center_alpha as f64 / SCALE as f64 - radius_alpha * phase.sin())
+                .floor() as u64;
+            let tao =
+                (tuned.center_tao as f64 / SCALE as f64 - radius_tao * phase.cos()).floor() as u64;
+            let price = tuned.calculate_price(alpha, tao).unwrap().to_num::<f64>();
+            let probe = 1_000_000;
+            let bought = tuned.buy_output(alpha, tao, probe).unwrap();
+            let next = tuned
+                .calculate_price(alpha - bought, tao + probe)
+                .unwrap()
+                .to_num::<f64>();
+            let slope = (next / price).ln() / probe as f64;
+            assert!(slope >= minimum_slope * (1. - 1e-5));
+            let (buy, sell) = tuned
+                .reference_price_impact(alpha, tao, reference, 1)
+                .unwrap();
+            assert!(buy >= U64F64::from_num(1.01), "buy phase {degrees}");
+            assert!(sell <= U64F64::from_num(0.99), "sell phase {degrees}");
+        }
+    }
+
+    #[test]
+    fn inward_rounding_and_liquidity_translations_preserve_the_floor() {
+        let (mut alpha, mut tao, reference) =
+            (10_000_000_000_000_000, 500_000_000_000_000, 500_000_000_000);
+        let mut curve = equal(alpha, tao)
+            .with_min_price_impact(alpha, tao, reference, 100)
+            .unwrap();
+        let before = curve
+            .reference_price_impact(alpha, tao, reference, 1)
+            .unwrap();
+        curve
+            .translate_liquidity(1_000_000_000_000, 100_000_000_000)
+            .unwrap();
+        alpha += 1_000_000_000_000;
+        tao += 100_000_000_000;
+        assert_eq!(
+            curve
+                .reference_price_impact(alpha, tao, reference, 1)
+                .unwrap(),
+            before
+        );
+        let withdrawal = curve.extractable_reserves(alpha, tao, 1).unwrap();
+        curve
+            .withdraw_liquidity(withdrawal.0, withdrawal.1)
+            .unwrap();
+        alpha -= withdrawal.0;
+        tao -= withdrawal.1;
+        assert_eq!(
+            curve
+                .reference_price_impact(alpha, tao, reference, 1)
+                .unwrap(),
+            before
+        );
+        let coordinates = curve.coordinates(alpha, tao).unwrap();
+        let mut last_k = curve.invariant(coordinates.0, coordinates.1).unwrap();
+        for input in [reference, 2 * reference, 5 * reference, 10 * reference] {
+            let bought = curve.buy_output(alpha, tao, input).unwrap();
+            alpha -= bought;
+            tao += input;
+            let coordinates = curve.coordinates(alpha, tao).unwrap();
+            let k = curve.invariant(coordinates.0, coordinates.1).unwrap();
+            assert!(k <= last_k);
+            last_k = k;
+            let sold = curve.sell_output(alpha, tao, bought / 2).unwrap();
+            alpha += bought / 2;
+            tao -= sold;
+            let coordinates = curve.coordinates(alpha, tao).unwrap();
+            let k = curve.invariant(coordinates.0, coordinates.1).unwrap();
+            assert!(k <= last_k);
+            last_k = k;
+            let (buy, sell) = curve
+                .reference_price_impact(alpha, tao, reference, 1)
+                .unwrap();
+            assert!(buy >= U64F64::from_num(1.01) && sell <= U64F64::from_num(0.99));
+            assert_eq!(
+                curve
+                    .with_min_price_impact(alpha, tao, reference, 100)
+                    .unwrap(),
+                curve
+            );
+        }
+    }
+
+    #[test]
+    fn minimum_impact_fails_closed_at_boundaries_and_invalid_precision() {
+        let reference = 500_000_000_000;
+        let curve = equal(10_000_000_000_000_000, 500_000_000_000_000);
+        for bps in [5_001, u16::MAX] {
+            assert_eq!(
+                curve.with_min_price_impact(
+                    10_000_000_000_000_000,
+                    500_000_000_000_000,
+                    reference,
+                    bps
+                ),
+                Err(EllipseError::InvalidParameters)
+            );
+        }
+        let maximum_impact = curve
+            .with_min_price_impact(
+                10_000_000_000_000_000,
+                500_000_000_000_000,
+                reference,
+                5_000,
+            )
+            .unwrap();
+        let (buy, sell) = maximum_impact
+            .reference_price_impact(10_000_000_000_000_000, 500_000_000_000_000, reference, 1)
+            .unwrap();
+        assert!(buy >= U64F64::from_num(1.5) && sell <= U64F64::from_num(0.5));
+        assert_eq!(
+            curve.with_min_price_impact(10_000_000_000_000_000, 500_000_000_000_000, 0, 100),
+            Err(EllipseError::InvalidParameters)
+        );
+        let thin = equal(10_000, 1_000);
+        assert_eq!(
+            thin.with_min_price_impact(10_000, 1_000, 1_000, 100),
+            Err(EllipseError::OutsideDomain)
+        );
+        assert_eq!(
+            thin.reference_price_impact(10_000, 1_000, 100, 950),
+            Err(EllipseError::OutsideDomain)
+        );
+        assert_eq!(
+            equal(2, 1_000).reference_price_impact(2, 1_000, 1, 0),
+            Err(EllipseError::InsufficientReserves)
+        );
+        let maximum = u64::MAX / 2;
+        let full_width = equal(maximum, maximum)
+            .with_min_price_impact(maximum, maximum, reference, 100)
+            .unwrap();
+        assert_eq!(
+            full_width.calculate_price(maximum, maximum).unwrap(),
+            U64F64::from_num(1)
+        );
+        assert!(
+            full_width
+                .reference_price_impact(maximum, maximum, reference, 1)
+                .is_ok()
+        );
+        let ill_conditioned = Superellipse {
+            alpha_scale: SCALE,
+            tao_scale: SCALE,
+            center_alpha: (10_i128 << 32) + 1,
+            center_tao: (10_i128 << 32) + (1_i128 << 64),
+        };
+        assert!(
+            ill_conditioned
+                .with_min_price_impact(10, 10, 1, 100)
+                .is_err()
+        );
+        let overflowing = Superellipse {
+            alpha_scale: u128::MAX,
+            tao_scale: u128::MAX,
+            center_alpha: i128::MAX,
+            center_tao: i128::MAX,
+        };
+        assert_eq!(
+            overflowing.with_min_price_impact(1, 1, reference, 100),
+            Err(EllipseError::Overflow)
+        );
     }
 
     #[test]

@@ -5,6 +5,7 @@ pub trait WeightInfo {
     fn open() -> Weight;
     fn close() -> Weight;
     fn set_enabled() -> Weight;
+    fn set_min_price_impact() -> Weight;
     fn collect() -> Weight;
     fn update_reference() -> Weight;
     fn settle() -> Weight;
@@ -19,6 +20,9 @@ impl WeightInfo for () {
         Weight::zero()
     }
     fn set_enabled() -> Weight {
+        Weight::zero()
+    }
+    fn set_min_price_impact() -> Weight {
         Weight::zero()
     }
     fn collect() -> Weight {

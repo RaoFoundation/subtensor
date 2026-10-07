@@ -73,7 +73,8 @@ COVERED_PALLETS = (
 )
 
 RAW_ONLY: dict[str, set[str]] = {
-    "Lending": {"set_enabled"},  # root governance; the public CLI only opens and closes loans
+    # Root governance; the public lending CLI only opens, closes and lists loans.
+    "Lending": {"set_enabled", "set_min_price_impact"},
     "SubtensorModule": {
         # sudo/admin/root-origin operations — deliberately not agent-executable
         "sudo_set_max_childkey_take",

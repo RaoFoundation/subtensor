@@ -582,6 +582,7 @@ call_filter_group!(
     RootConfigCalls,
     [
         RuntimeCall::Lending(LendingCall::set_enabled),
+        RuntimeCall::Lending(LendingCall::set_min_price_impact),
         RuntimeCall::AdminUtils(AdminUtilsCall::swap_authorities),
         RuntimeCall::AdminUtils(AdminUtilsCall::schedule_grandpa_change),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_default_take),

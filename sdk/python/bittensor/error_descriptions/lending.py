@@ -90,4 +90,8 @@ DESCRIPTIONS: dict[str, str] = {
         "collateral. Each other same-side loan must remain individually covered. A zero protected "
         "alpha-claim count with a positive payout pot also refuses alpha borrowing."
     ),
+    "InvalidPriceImpact": (
+        "The governance price-impact target is outside its allowed range. Use 1 to 5,000 "
+        "basis points for both net 500-TAO reference directions, or 0 to disable the policy."
+    ),
 }

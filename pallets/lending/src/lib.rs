@@ -32,6 +32,14 @@ use weights::WeightInfo;
 /// partial fills, preserve alpha issuance, and make every asset-moving method transactional.
 pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     fn subnet_exists(netuid: NetUid) -> bool;
+    /// Tighten a live pool's geometric price-impact floor and physically append
+    /// newly unreachable assets to its vault. Never recall loans or widen a curve.
+    fn tune_min_price_impact(
+        _netuid: NetUid,
+        _bps: u16,
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError> {
+        Err(DispatchError::Other("Pool price-impact tuning unavailable"))
+    }
     fn owner_allowed(_owner: &AccountId) -> bool {
         true
     }
@@ -338,6 +346,10 @@ pub struct ClosingQuote {
 const EMA_WEIGHT_BITS: u128 = 1_775_790_721_272_497;
 /// Bound internal orders while allowing input-reserve guards to expand after each buy.
 pub const MAX_BUYBACK_STEPS: u32 = 6;
+/// Price-impact policy uses a fixed net reference input, excluding swap fees.
+pub const PRICE_IMPACT_REFERENCE_TAO: u64 = 500_000_000_000;
+/// A sale cannot have a 100% price decline while staying on the positive branch.
+pub const MAX_MIN_PRICE_IMPACT_BPS: u16 = 5_000;
 
 #[frame_support::pallet]
 #[allow(clippy::expect_used)]
@@ -375,6 +387,11 @@ pub mod pallet {
     pub type Vaults<T> = StorageMap<_, Identity, NetUid, Vault, OptionQuery>;
     #[pallet::storage]
     pub type VaultCount<T> = StorageValue<_, u32, ValueQuery>;
+    /// Governance's requested geometric minimum for both reference directions.
+    /// Zero is disabled. Relaxing this policy never returns vault assets or widens
+    /// existing curves. No recurring recalibration is needed on the fixed ellipse.
+    #[pallet::storage]
+    pub type MinPriceImpactBps<T> = StorageMap<_, Identity, NetUid, u16, ValueQuery>;
     #[pallet::storage]
     pub type Positions<T: Config> = StorageDoubleMap<
         _,
@@ -512,6 +529,12 @@ pub mod pallet {
             proceeds: u64,
             annual_interest: u64,
         },
+        MinPriceImpactSet {
+            netuid: NetUid,
+            bps: u16,
+            tao_funded: u64,
+            alpha_funded: u64,
+        },
     }
 
     #[pallet::error]
@@ -538,6 +561,7 @@ pub mod pallet {
         BelowMinimumProceeds,
         RedemptionUnavailable,
         InsufficientRedemptionBacking,
+        InvalidPriceImpact,
     }
 
     #[pallet::hooks]
@@ -869,6 +893,59 @@ pub mod pallet {
             ensure_root(origin)?;
             Enabled::<T>::put(enabled);
             Self::deposit_event(Event::EnabledSet { enabled });
+            Ok(())
+        }
+
+        /// Set a geometric minimum ending-price movement for a net 500-TAO buy
+        /// and an alpha sale worth 500 TAO at its opening spot price. Root only.
+        /// Zero disables the policy; lower targets never widen an existing curve.
+        /// Tightening preserves spot within fixed-point tolerance and moves only
+        /// newly unreachable, actually funded assets into the existing vault.
+        #[pallet::call_index(3)]
+        #[pallet::weight(T::WeightInfo::set_min_price_impact())]
+        #[transactional]
+        pub fn set_min_price_impact(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            bps: u16,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(
+                bps <= MAX_MIN_PRICE_IMPACT_BPS,
+                Error::<T>::InvalidPriceImpact
+            );
+            ensure!(
+                !netuid.is_root() && T::Pool::subnet_exists(netuid),
+                Error::<T>::SubnetUnavailable
+            );
+            ensure!(
+                !Dissolutions::<T>::contains_key(netuid),
+                Error::<T>::AlreadyDissolving
+            );
+            ensure!(
+                Vaults::<T>::contains_key(netuid),
+                Error::<T>::SubnetUnavailable
+            );
+            let (tao, alpha) = if bps == 0 {
+                MinPriceImpactBps::<T>::remove(netuid);
+                (TaoBalance::ZERO, AlphaBalance::ZERO)
+            } else if bps <= MinPriceImpactBps::<T>::get(netuid) {
+                // The previously established global floor persists through swaps.
+                // Relaxing its label cannot require a fresh executable reference
+                // trade when the live pool has since approached a boundary.
+                MinPriceImpactBps::<T>::insert(netuid, bps);
+                (TaoBalance::ZERO, AlphaBalance::ZERO)
+            } else {
+                let funding = T::Pool::tune_min_price_impact(netuid, bps)?;
+                MinPriceImpactBps::<T>::insert(netuid, bps);
+                funding
+            };
+            Self::deposit_event(Event::MinPriceImpactSet {
+                netuid,
+                bps,
+                tao_funded: tao.to_u64(),
+                alpha_funded: alpha.to_u64(),
+            });
             Ok(())
         }
     }
@@ -2333,6 +2410,7 @@ impl<T: Config> Pallet<T> {
             VaultCount::<T>::mutate(|count| *count = count.saturating_sub(1));
         }
         References::<T>::remove(netuid);
+        MinPriceImpactBps::<T>::remove(netuid);
         Dissolutions::<T>::remove(netuid);
         DissolutionCursor::<T>::remove(netuid);
         RedemptionBases::<T>::remove(netuid);

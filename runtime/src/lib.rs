@@ -1521,6 +1521,13 @@ impl pallet_lending::weights::WeightInfo for LendingWeights {
     fn set_enabled() -> Weight {
         <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::sudo_set_root_claim_threshold()
     }
+    fn set_min_price_impact() -> Weight {
+        // A bounded Q32 search has at most 34 global-bound evaluations. Reuse
+        // measured swap arithmetic and reserve-funding envelopes; no local timings.
+        <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::add_stake().saturating_mul(36)
+            .saturating_add(<pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::fund_lending_reserves())
+            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(12, 4))
+    }
     fn collect() -> Weight {
         // Retain the measured swap/transfer envelope for bounded alpha-fee quotes,
         // sale plus exact burn, and the independent pending-TAO burn attempt.

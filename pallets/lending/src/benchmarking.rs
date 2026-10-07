@@ -260,6 +260,17 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn set_min_price_impact() {
+        let (_, _, netuid) = setup::<T>();
+        #[extrinsic_call]
+        _(RawOrigin::Root, netuid, MAX_MIN_PRICE_IMPACT_BPS);
+        assert_eq!(
+            MinPriceImpactBps::<T>::get(netuid),
+            MAX_MIN_PRICE_IMPACT_BPS
+        );
+    }
+
+    #[benchmark]
     fn collect() {
         let (owner, hotkey, netuid) = setup::<T>();
         let collateral = T::Pool::quote_buy(netuid, 64_000_000_000_u64.into())

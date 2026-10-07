@@ -51,6 +51,9 @@ impl weights::WeightInfo for TestWeights {
     fn set_enabled() -> Weight {
         Weight::from_parts(1, 0)
     }
+    fn set_min_price_impact() -> Weight {
+        Weight::from_parts(1, 0)
+    }
     fn collect() -> Weight {
         Weight::from_parts(1, 0)
     }
@@ -259,6 +262,18 @@ impl OrderSwapInterface<Account> for MockPool {
     }
 }
 impl LendingPoolInterface<Account> for MockPool {
+    fn tune_min_price_impact(
+        netuid: NetUid,
+        bps: u16,
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError> {
+        // The real curve/custody path is exercised by Subtensor integration tests.
+        write(&key(b"test/tuned_bps", netuid), bps);
+        ensure!(
+            !read::<bool>(b"test/fail_tuning"),
+            DispatchError::Other("tuning unavailable")
+        );
+        Ok((TaoBalance::ZERO, AlphaBalance::ZERO))
+    }
     fn fast_alpha_price(_: NetUid) -> Option<U64F64> {
         read(b"test/fast_price")
     }
@@ -1720,6 +1735,129 @@ fn disabled_borrowing_preserves_repayment() {
             ),
             Error::<Test>::Disabled
         );
+    });
+}
+
+#[test]
+fn price_impact_policy_is_root_only_and_defaults_disabled() {
+    ext().execute_with(|| {
+        assert_eq!(MinPriceImpactBps::<Test>::get(netuid()), 0);
+        assert_noop!(
+            Lending::set_min_price_impact(RuntimeOrigin::signed(account(1)), netuid(), 100),
+            DispatchError::BadOrigin
+        );
+        assert_noop!(
+            Lending::set_min_price_impact(RuntimeOrigin::root(), netuid(), 5_001),
+            Error::<Test>::InvalidPriceImpact
+        );
+        assert_noop!(
+            Lending::set_min_price_impact(RuntimeOrigin::root(), 0.into(), 100),
+            Error::<Test>::SubnetUnavailable
+        );
+        assert_noop!(
+            Lending::set_min_price_impact(RuntimeOrigin::root(), 999.into(), 100),
+            Error::<Test>::SubnetUnavailable
+        );
+        // A newly registered subnet must first receive its physical lending vault.
+        let fresh: NetUid = 65.into();
+        write(&key(b"test/market", fresh), (100_000_u64, 100_000_u64));
+        assert_noop!(
+            Lending::set_min_price_impact(RuntimeOrigin::root(), fresh, 100),
+            Error::<Test>::SubnetUnavailable
+        );
+        assert_ok!(Lending::set_min_price_impact(
+            RuntimeOrigin::root(),
+            netuid(),
+            100
+        ));
+        assert_eq!(MinPriceImpactBps::<Test>::get(netuid()), 100);
+        System::assert_last_event(
+            Event::MinPriceImpactSet {
+                netuid: netuid(),
+                bps: 100,
+                tao_funded: 0,
+                alpha_funded: 0,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn price_impact_failure_rolls_back_adapter_changes_and_policy() {
+    ext().execute_with(|| {
+        assert_ok!(Lending::set_min_price_impact(
+            RuntimeOrigin::root(),
+            netuid(),
+            100
+        ));
+        let events = System::events();
+        write(b"test/fail_tuning", true);
+        assert_noop!(
+            Lending::set_min_price_impact(RuntimeOrigin::root(), netuid(), 200),
+            DispatchError::Other("tuning unavailable")
+        );
+        assert_eq!(MinPriceImpactBps::<Test>::get(netuid()), 100);
+        assert_eq!(read::<u16>(&key(b"test/tuned_bps", netuid())), 100);
+        assert_eq!(System::events(), events);
+    });
+}
+
+#[test]
+fn disabling_price_impact_does_not_touch_pool_loans_or_reference() {
+    ext().execute_with(|| {
+        open(Side::Long, 1000);
+        let before = position();
+        let reference = References::<Test>::get(netuid()).unwrap();
+        let vault = Vaults::<Test>::get(netuid()).unwrap();
+        assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), false));
+        assert_ok!(Lending::set_min_price_impact(
+            RuntimeOrigin::root(),
+            netuid(),
+            100
+        ));
+        // Relaxing or disabling does not call the pool tuning adapter, even if
+        // a full reference trade no longer fits its remaining curve range.
+        write(b"test/fail_tuning", true);
+        assert_ok!(Lending::set_min_price_impact(
+            RuntimeOrigin::root(),
+            netuid(),
+            50
+        ));
+        assert_eq!(MinPriceImpactBps::<Test>::get(netuid()), 50);
+        assert_ok!(Lending::set_min_price_impact(
+            RuntimeOrigin::root(),
+            netuid(),
+            0
+        ));
+        assert!(!MinPriceImpactBps::<Test>::contains_key(netuid()));
+        assert_eq!(read::<u16>(&key(b"test/tuned_bps", netuid())), 100);
+        assert_eq!(position(), before);
+        assert_eq!(References::<Test>::get(netuid()).unwrap(), reference);
+        assert_eq!(Vaults::<Test>::get(netuid()).unwrap(), vault);
+    });
+}
+
+#[test]
+fn price_impact_policy_cannot_change_during_dissolution_and_is_cleaned_up() {
+    ext().execute_with(|| {
+        assert_ok!(Lending::set_min_price_impact(
+            RuntimeOrigin::root(),
+            netuid(),
+            100
+        ));
+        assert_ok!(Lending::start_dissolution(netuid()));
+        assert_noop!(
+            Lending::set_min_price_impact(RuntimeOrigin::root(), netuid(), 200),
+            Error::<Test>::AlreadyDissolving
+        );
+        assert_noop!(
+            Lending::set_min_price_impact(RuntimeOrigin::root(), netuid(), 0),
+            Error::<Test>::AlreadyDissolving
+        );
+        assert!(Lending::settle_shorts(netuid(), &mut meter()));
+        assert_ok!(Lending::finish_dissolution(netuid()));
+        assert!(!MinPriceImpactBps::<Test>::contains_key(netuid()));
     });
 }
 

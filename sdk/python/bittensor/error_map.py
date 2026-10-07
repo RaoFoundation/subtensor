@@ -69,6 +69,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "LendingPositionsOpen": _C.POLICY_VIOLATION,
     "RedemptionUnavailable": _C.TOO_EARLY,
     "InsufficientRedemptionBacking": _C.INSUFFICIENT_LIQUIDITY,
+    "InvalidPriceImpact": _C.INVALID_ARGUMENT,
     # ── System ──────────────────────────────────────────────────────────
     "InvalidSpecName": _C.INVALID_ARGUMENT,
     "SpecVersionNeedsToIncrease": _C.INVALID_ARGUMENT,

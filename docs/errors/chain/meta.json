@@ -181,6 +181,7 @@
     "InvalidNonce",
     "InvalidOrigin",
     "InvalidPort",
+    "InvalidPriceImpact",
     "InvalidQuote",
     "InvalidRecoveredPublicKey",
     "InvalidRevealCommitHashNotMatch",

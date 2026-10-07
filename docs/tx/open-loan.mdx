@@ -33,7 +33,7 @@ position per coldkey and subnet; closing repays its total principal.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L592-L748) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L616-L772) |
 
 ## Parameters
 
@@ -91,7 +91,7 @@ result = sub.execute_tool("open_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open` — [`pallets/lending/src/lib.rs#L595`](/code/pallets/lending/src/lib.rs#L592-L748):
+`Lending.open` — [`pallets/lending/src/lib.rs#L619`](/code/pallets/lending/src/lib.rs#L616-L772):
 
 ```rust
 #[pallet::call_index(0)]
@@ -253,6 +253,6 @@ pub fn open(
 }
 ```
 
-Delegates to [`reserve_account`](/code/pallets/lending/src/lib.rs#L881), [`position_account`](/code/pallets/lending/src/lib.rs#L885), [`custody_hotkey`](/code/pallets/lending/src/lib.rs#L908).
+Delegates to [`reserve_account`](/code/pallets/lending/src/lib.rs#L958), [`position_account`](/code/pallets/lending/src/lib.rs#L962), [`custody_hotkey`](/code/pallets/lending/src/lib.rs#L985).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -1072,7 +1072,7 @@ impl<T: Config> Pallet<T> {
                 DissolveCleanupPhase::NetworkAlphaAssetCounters => {
                     // Lending generation cleanup may transfer recovered TAO, then removes
                     // vault/reference/index state. Reserve that work before executing it.
-                    let clear_weight = T::DbWeight::get().reads_writes(12, 16).saturating_add(
+                    let clear_weight = T::DbWeight::get().reads_writes(12, 17).saturating_add(
                         <T as Config>::WeightInfo::transfer_stake().saturating_mul(2),
                     );
                     if !weight_meter.can_consume(clear_weight) {

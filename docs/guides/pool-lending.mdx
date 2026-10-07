@@ -1,11 +1,11 @@
 ---
 title: Pool reserves and native lending
-description: How the proposed migration preserves opening price and local sensitivity, creates separate lending reserves and supports fixed principal subnet shorts and TAO loans.
+description: How the proposed migration preserves opening price and local sensitivity, creates separate lending reserves and supports governance price-impact tuning and fixed principal subnet loans.
 ---
 
 This upgrade moves subnet pools to a translated ellipse while preserving each
 pool's opening price and local price sensitivity. Balances outside the new
-curve's trading range fund a separate lending vault. Borrowers can then open
+curve's trading range fund a separate lending vault. Borrowers can then
 receive freely usable alpha against TAO collateral or borrow transferable TAO
 against alpha collateral.
 
@@ -22,17 +22,58 @@ pool's opening price and local price sensitivity. The curve parameters stay
 fixed after swaps, and later liquidity injections preserve the existing curve
 coordinates instead of recalibrating its depth.
 
-V1 does not impose a minimum price movement for a fixed trade size or expose a
-pool-depth tuning call. The proposed 1% ending-price movement for a
-500-TAO-equivalent trade is deferred to a future design. Preserving local
-sensitivity means the price response of a very small trade is unchanged at
-migration; finite trades differ because the ellipse has a different shape.
-Purchases and sales need not have exactly equal percentage impact.
+Migration does not automatically impose a minimum price movement. Each subnet's
+price-impact target starts disabled. Preserving local sensitivity means the
+price response of a very small trade is unchanged at migration; finite trades
+differ because the ellipse has a different shape. Purchases and sales need not
+have exactly equal percentage impact. Governance can enable the tuning mechanism
+described below; a network-wide 1% target remains deferred.
 
 The finite buy and sell boundaries remain. An order must fit the available
 curve range, output reserves and caller price limits. Empty pools and root are
 not funded by this migration. Lending inventory comes from the baseline
 ellipse's unreachable floors, without additional tightening of the curve.
+
+## Governance price-impact dial
+
+Root governance can call `Lending.set_min_price_impact(netuid, bps)` to set a
+subnet's minimum ending spot-price movement for a fixed **500-TAO reference
+trade**. The target applies in both directions: a purchase adding 500 net TAO
+to the curve, and a sale whose net alpha input is worth 500 TAO at the price
+before that trade. Traders pay swap fees in addition to these net reference
+inputs. A value of `100` means 100 basis points, or 1%. Nonzero targets range
+from 1 to 5,000 basis points. The reference size is fixed in V1; this call changes
+the percentage.
+
+This measures mechanical price impact, not realised market volatility or the
+trader's average execution slippage. Fees and average execution prices are
+separate. The guarantee applies when the complete reference trade fits the
+remaining curve range and reserves; it does not make an otherwise blocked trade
+executable or override caller price limits.
+
+Tightening contracts the ellipse's remaining range around its current trading
+point while keeping the opening spot price unchanged within fixed-point rounding.
+It uses the curve's least-sensitive regions to establish a conservative minimum for later
+complete reference trades on either side. Consequently, the current impact can
+be greater than the selected minimum. The parameters remain fixed through
+subsequent swaps: the chain does not recalibrate after every trade. Activation
+requires both full reference trades to fit; a target that would prevent either
+one fails atomically.
+
+The call transfers newly unreachable alpha and TAO floors to the existing
+lending vault, preserving separate active reserves and real lending inventory.
+It requires a ready, funded vault and is unavailable during subnet dissolution.
+Outstanding principal, coupons, borrower collateral and the 24-hour lending
+reference remain unchanged. Tighter curves reduce remaining buy and sell
+capacity. A short's optional collateral-funded buyback can therefore become
+infeasible; repayment of its fixed alpha debt from the saved hotkey remains
+available.
+
+Lowering the target, or setting it to `0`, relaxes or disables the policy. It
+does not widen the curve or return previously extracted inventory to trading
+reserves. A later increase only tightens when the existing curve is insufficient.
+This governance call adds no borrower-facing command: the public lending CLI
+still has only `open`, `close` and `list`.
 
 ## Where lending inventory comes from
 

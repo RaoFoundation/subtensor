@@ -20,7 +20,7 @@ Closing remains available when new borrowing is disabled.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.close`](/code/pallets/lending/src/lib.rs#L752-L863) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.close`](/code/pallets/lending/src/lib.rs#L776-L887) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("close_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.close` — [`pallets/lending/src/lib.rs#L755`](/code/pallets/lending/src/lib.rs#L752-L863):
+`Lending.close` — [`pallets/lending/src/lib.rs#L779`](/code/pallets/lending/src/lib.rs#L776-L887):
 
 ```rust
 #[pallet::call_index(1)]
@@ -191,6 +191,6 @@ pub fn close(
 }
 ```
 
-Delegates to [`position_account`](/code/pallets/lending/src/lib.rs#L885), [`reserve_account`](/code/pallets/lending/src/lib.rs#L881), [`custody_hotkey`](/code/pallets/lending/src/lib.rs#L908).
+Delegates to [`position_account`](/code/pallets/lending/src/lib.rs#L962), [`reserve_account`](/code/pallets/lending/src/lib.rs#L958), [`custody_hotkey`](/code/pallets/lending/src/lib.rs#L985).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

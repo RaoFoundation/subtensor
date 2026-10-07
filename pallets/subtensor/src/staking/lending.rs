@@ -27,6 +27,30 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         SubnetFastMovingPrice::<T>::get(netuid).filter(|price| *price > U64F64::from_num(0))
     }
 
+    #[transactional]
+    fn tune_min_price_impact(
+        netuid: NetUid,
+        bps: u16,
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError> {
+        ensure!(
+            <Self as LendingPoolInterface<T::AccountId>>::subnet_exists(netuid)
+                && !DissolveCleanupQueue::<T>::get().contains(&netuid),
+            Error::<T>::SubnetNotExists
+        );
+        if bps == 0 {
+            return Ok((TaoBalance::ZERO, AlphaBalance::ZERO));
+        }
+        let changed = T::SwapInterface::tune_min_price_impact(
+            netuid,
+            TaoBalance::from(500_000_000_000_u64),
+            bps,
+        )?;
+        if !changed {
+            return Ok((TaoBalance::ZERO, AlphaBalance::ZERO));
+        }
+        Self::fund_unreachable_reserves_inner(netuid, true, true)
+    }
+
     fn redemption_alpha_supply(netuid: NetUid) -> Result<u128, DispatchError> {
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(
@@ -331,25 +355,38 @@ impl<T: Config> Pallet<T> {
     /// This whole operation rolls back if the account transfer, share pool, or vault fails.
     #[transactional]
     pub fn fund_unreachable_reserves(netuid: NetUid, historical: bool) -> DispatchResult {
+        Self::fund_unreachable_reserves_inner(netuid, historical, false).map(|_| ())
+    }
+
+    /// Automatic admission funds each vault once. Explicit governance tightening
+    /// can append newly unreachable physical assets to a mature vault without
+    /// touching outstanding principal, fixed coupons or its price reference.
+    #[transactional]
+    fn fund_unreachable_reserves_inner(
+        netuid: NetUid,
+        historical: bool,
+        fund_existing: bool,
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError> {
         if netuid.is_root()
             || SubnetMechanism::<T>::get(netuid) != 1
-            || T::LendingInterface::has_vault(netuid)
+            || (!fund_existing && T::LendingInterface::has_vault(netuid))
         {
-            return Ok(());
+            return Ok((TaoBalance::ZERO, AlphaBalance::ZERO));
         }
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         // Admission is bounded independently of the number of live subnet pools.
         // A full vault set leaves the pool and its unreachable floors untouched;
         // the ordinary bounded hook retries admission after a slot becomes free.
-        if !T::LendingInterface::has_funding_capacity() {
-            return Ok(());
+        if !T::LendingInterface::has_vault(netuid) && !T::LendingInterface::has_funding_capacity() {
+            ensure!(!fund_existing, Error::<T>::LendingUnavailable);
+            return Ok((TaoBalance::ZERO, AlphaBalance::ZERO));
         }
         if SubnetTAO::<T>::get(netuid).is_zero() || SubnetAlphaIn::<T>::get(netuid).is_zero() {
-            return Ok(());
+            return Ok((TaoBalance::ZERO, AlphaBalance::ZERO));
         }
         let (alpha, tao) = T::SwapInterface::extract_unreachable_reserves(netuid)?;
         if alpha.is_zero() && tao.is_zero() {
-            return Ok(());
+            return Ok((TaoBalance::ZERO, AlphaBalance::ZERO));
         }
         let (vault, hotkey) =
             T::LendingInterface::custody_accounts(netuid).ok_or(Error::<T>::LendingUnavailable)?;
@@ -381,7 +418,8 @@ impl<T: Config> Pallet<T> {
             }
             _ => (T::SwapInterface::current_alpha_price(netuid), false),
         };
-        T::LendingInterface::fund_reserves(netuid, tao, alpha, reference, has_history)
+        T::LendingInterface::fund_reserves(netuid, tao, alpha, reference, has_history)?;
+        Ok((tao, alpha))
     }
 
     /// At most one new subnet per block; mature vaults are never re-extracted implicitly.
