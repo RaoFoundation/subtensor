@@ -474,6 +474,16 @@ pub mod pallet {
             side: Side,
             tao: u64,
         },
+        /// Additional collateral, debt, proceeds and coupon on an existing position.
+        Increased {
+            owner: T::AccountId,
+            netuid: NetUid,
+            side: Side,
+            principal: u64,
+            collateral: u64,
+            proceeds: u64,
+            annual_interest: u64,
+        },
     }
 
     #[pallet::error]
@@ -549,7 +559,8 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Open one fixed-principal loan on a subnet. Amounts use the collateral token's atoms.
+        /// Open or increase one loan on a subnet, using the same side and collateral hotkey.
+        /// Collateral and caller bounds apply to the additional loan, not existing totals.
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::open())]
         #[transactional]
@@ -568,19 +579,25 @@ pub mod pallet {
                 T::Pool::owner_allowed(&owner),
                 Error::<T>::SubnetUnavailable
             );
-            ensure!(
-                !Positions::<T>::contains_key(&owner, netuid),
-                Error::<T>::PositionExists
-            );
-            ensure!(
-                PositionCount::<T>::get(netuid) < T::MaxPositionsPerSubnet::get(),
-                Error::<T>::TooManyPositions
-            );
-            ensure!(
-                TotalPositions::<T>::get() < T::MaxTotalPositions::get(),
-                Error::<T>::TooManyPositions
-            );
-            let quote = Self::quote_open(netuid, side, collateral)?;
+            let existing = Positions::<T>::get(&owner, netuid);
+            if let Some(position) = &existing {
+                Self::ensure_matching_position(position, side, &hotkey)?;
+            } else {
+                ensure!(
+                    PositionCount::<T>::get(netuid) < T::MaxPositionsPerSubnet::get(),
+                    Error::<T>::TooManyPositions
+                );
+                ensure!(
+                    TotalPositions::<T>::get() < T::MaxTotalPositions::get(),
+                    Error::<T>::TooManyPositions
+                );
+            }
+            let quote = Self::quote_open_inner(
+                netuid,
+                side,
+                collateral,
+                existing.as_ref().map(|position| (&owner, position)),
+            )?;
             ensure!(
                 quote.principal >= min_borrow,
                 Error::<T>::BelowMinimumBorrow
@@ -592,6 +609,25 @@ pub mod pallet {
                 );
             }
             let now = frame_system::Pallet::<T>::block_number();
+            let increasing = existing.is_some();
+            let mut position = if let Some(mut position) = existing {
+                // Settle only whole atoms and retain fractional interest. Increasing
+                // a loan cannot erase accrued fees or postpone its scheduled collection.
+                Self::charge_interest(&owner, netuid, &mut position, now, false)?;
+                position
+            } else {
+                Position {
+                    side,
+                    hotkey: hotkey.clone(),
+                    principal: 0,
+                    collateral: 0,
+                    proceeds: 0,
+                    annual_interest: 0,
+                    last_accrued: now,
+                    interest_remainder: 0,
+                    due: now.saturating_add(T::InterestPeriod::get()),
+                }
+            };
             let vault = Self::reserve_account(netuid);
             let escrow = Self::position_account(&owner, netuid);
             let custody = Self::custody_hotkey()?;
@@ -651,41 +687,45 @@ pub mod pallet {
                 }
                 Ok(())
             })?;
-            let due = now.saturating_add(T::InterestPeriod::get());
-            LoanHotkeys::<T>::mutate(&hotkey, |count| *count = count.saturating_add(1));
-            Positions::<T>::insert(
-                &owner,
-                netuid,
-                Position {
+            position.principal = Self::add(position.principal, quote.principal)?;
+            position.collateral = Self::add(position.collateral, collateral)?;
+            position.proceeds = Self::add(position.proceeds, proceeds)?;
+            position.annual_interest = Self::add(position.annual_interest, quote.annual_interest)?;
+            if !increasing {
+                let due = position.due;
+                LoanHotkeys::<T>::mutate(&hotkey, |count| *count = count.saturating_add(1));
+                OpenByNetuid::<T>::insert(netuid, &owner, ());
+                EscrowOwner::<T>::insert(netuid, &escrow, &owner);
+                PositionCount::<T>::mutate(netuid, |n| *n = n.saturating_add(1));
+                TotalPositions::<T>::mutate(|n| *n = n.saturating_add(1));
+                Due::<T>::insert(due, (&owner, netuid), ());
+                NextDue::<T>::mutate(|next| {
+                    if next.is_none_or(|existing| existing > due) {
+                        *next = Some(due);
+                    }
+                });
+            }
+            Positions::<T>::insert(&owner, netuid, position);
+            Self::deposit_event(if increasing {
+                Event::Increased {
+                    owner,
+                    netuid,
                     side,
-                    hotkey,
                     principal: quote.principal,
                     collateral,
                     proceeds,
                     annual_interest: quote.annual_interest,
-                    last_accrued: now,
-                    interest_remainder: 0,
-                    due,
-                },
-            );
-            OpenByNetuid::<T>::insert(netuid, &owner, ());
-            EscrowOwner::<T>::insert(netuid, &escrow, &owner);
-            PositionCount::<T>::mutate(netuid, |n| *n = n.saturating_add(1));
-            TotalPositions::<T>::mutate(|n| *n = n.saturating_add(1));
-            Due::<T>::insert(due, (&owner, netuid), ());
-            NextDue::<T>::mutate(|next| {
-                if next.is_none_or(|existing| existing > due) {
-                    *next = Some(due);
                 }
-            });
-            Self::deposit_event(Event::Opened {
-                owner,
-                netuid,
-                side,
-                principal: quote.principal,
-                collateral,
-                proceeds,
-                annual_interest: quote.annual_interest,
+            } else {
+                Event::Opened {
+                    owner,
+                    netuid,
+                    side,
+                    principal: quote.principal,
+                    collateral,
+                    proceeds,
+                    annual_interest: quote.annual_interest,
+                }
             });
             Ok(())
         }
@@ -907,6 +947,48 @@ impl<T: Config> Pallet<T> {
         side: Side,
         collateral: u64,
     ) -> Result<OpeningQuote, DispatchError> {
+        Self::quote_open_inner(netuid, side, collateral, None)
+    }
+
+    /// Quote additional debt and its coupon for the same path used by `open`.
+    /// The ownerless quote remains available for a genuinely new position.
+    pub fn quote_open_for(
+        owner: &T::AccountId,
+        netuid: NetUid,
+        side: Side,
+        collateral: u64,
+        hotkey: &T::AccountId,
+    ) -> Result<OpeningQuote, DispatchError> {
+        let existing = Positions::<T>::get(owner, netuid);
+        if let Some(position) = &existing {
+            Self::ensure_matching_position(position, side, hotkey)?;
+        }
+        Self::quote_open_inner(
+            netuid,
+            side,
+            collateral,
+            existing.as_ref().map(|position| (owner, position)),
+        )
+    }
+
+    fn ensure_matching_position(
+        position: &Position<T::AccountId, BlockNumberFor<T>>,
+        side: Side,
+        hotkey: &T::AccountId,
+    ) -> DispatchResult {
+        ensure!(
+            position.side == side && position.hotkey == *hotkey,
+            Error::<T>::PositionExists
+        );
+        Ok(())
+    }
+
+    fn quote_open_inner(
+        netuid: NetUid,
+        side: Side,
+        collateral: u64,
+        existing: Option<(&T::AccountId, &Position<T::AccountId, BlockNumberFor<T>>)>,
+    ) -> Result<OpeningQuote, DispatchError> {
         ensure!(
             T::Pool::subnet_exists(netuid) && !Dissolutions::<T>::contains_key(netuid),
             Error::<T>::SubnetUnavailable
@@ -921,12 +1003,34 @@ impl<T: Config> Pallet<T> {
             reference.price.to_bits() > 0,
             Error::<T>::ReferenceUnavailable
         );
-        let quarter = collateral.checked_div(4).ok_or(Error::<T>::Arithmetic)?;
+        let (combined_collateral, old_principal) = if let Some((_, position)) = existing {
+            let now = frame_system::Pallet::<T>::block_number();
+            let (interest, remainder) = Self::interest_due(position, now, false)?;
+            // Reserve a whole atom for the preserved fractional coupon. A loan
+            // whose old collateral is exhausted cannot be revived by discarding fees.
+            let accrued = Self::add(interest, u64::from(remainder > 0))?;
+            let remaining = position
+                .collateral
+                .checked_sub(accrued)
+                .filter(|remaining| *remaining > 0)
+                .ok_or(Error::<T>::InsufficientEscrow)?;
+            // Actual custody retains the fractional atom until it is charged;
+            // validate that addition too, even though valuation reserves the atom.
+            Self::add(Self::sub(position.collateral, interest)?, collateral)?;
+            (Self::add(remaining, collateral)?, position.principal)
+        } else {
+            (collateral, 0)
+        };
+        let quarter = combined_collateral
+            .checked_div(4)
+            .ok_or(Error::<T>::Arithmetic)?;
         ensure!(quarter > 0, Error::<T>::AmountTooSmall);
         let vault = Vaults::<T>::get(netuid).ok_or(Error::<T>::InsufficientReserves)?;
         let quote = match side {
             Side::Short => {
-                let limit = Self::alpha_for_tao(quarter, reference.price, false)?;
+                let limit = Self::alpha_for_tao(quarter, reference.price, false)?
+                    .checked_sub(old_principal)
+                    .ok_or(Error::<T>::InsufficientEscrow)?;
                 // Historical marking limits debt; the real opening sell independently limits
                 // executable exposure. Binary search is bounded by the u64 input domain.
                 let mut low = 0_u64;
@@ -938,7 +1042,8 @@ impl<T: Config> Pallet<T> {
                             .checked_div(2)
                             .unwrap_or_default(),
                     );
-                    let fits = T::Pool::quote_sell(netuid, mid.into())
+                    let combined = Self::add(old_principal, mid)?;
+                    let fits = T::Pool::quote_sell(netuid, combined.into())
                         .is_ok_and(|out| out.to_u64() <= quarter);
                     if fits {
                         low = mid;
@@ -955,9 +1060,20 @@ impl<T: Config> Pallet<T> {
                 }
             }
             Side::Long => {
-                let historical = Self::tao_for_alpha(quarter, reference.price, false)?;
-                let executable = T::Pool::quote_sell(netuid, quarter.into())?.to_u64();
-                let funded = Self::funded_long_limit(netuid, collateral, vault.available_tao)?;
+                let historical = Self::tao_for_alpha(quarter, reference.price, false)?
+                    .checked_sub(old_principal)
+                    .ok_or(Error::<T>::InsufficientEscrow)?;
+                let executable = T::Pool::quote_sell(netuid, quarter.into())?
+                    .to_u64()
+                    .checked_sub(old_principal)
+                    .ok_or(Error::<T>::InsufficientEscrow)?;
+                let funded = Self::funded_long_limit_for(
+                    netuid,
+                    combined_collateral,
+                    vault.available_tao,
+                    old_principal,
+                    existing.map(|(owner, _)| owner),
+                )?;
                 let principal = historical.min(executable).min(funded);
                 OpeningQuote {
                     principal,
@@ -972,6 +1088,14 @@ impl<T: Config> Pallet<T> {
                 && quote.opening_value >= T::MinimumLoanValue::get(),
             Error::<T>::AmountTooSmall
         );
+        // Quotes must reject exactly the checked additions dispatch will perform.
+        if let Some((_, position)) = existing {
+            Self::add(position.principal, quote.principal)?;
+            Self::add(position.annual_interest, quote.annual_interest)?;
+            if side == Side::Short {
+                Self::add(position.proceeds, quote.opening_value)?;
+            }
+        }
         let (available, outstanding) = match side {
             Side::Short => (vault.available_alpha, vault.outstanding_alpha),
             Side::Long => (vault.available_tao, vault.outstanding_tao),
@@ -993,10 +1117,21 @@ impl<T: Config> Pallet<T> {
     /// Only physically unloaned vault TAO is backing; coupons and expected recoveries
     /// are excluded. Surplus collateral belongs to its owner, so every loan is checked
     /// independently rather than pooling borrowers' collateral.
+    #[cfg(any(test, feature = "runtime-benchmarks"))]
     fn funded_long_limit(
         netuid: NetUid,
         collateral: u64,
         backing: u64,
+    ) -> Result<u64, DispatchError> {
+        Self::funded_long_limit_for(netuid, collateral, backing, 0, None)
+    }
+
+    fn funded_long_limit_for(
+        netuid: NetUid,
+        collateral: u64,
+        backing: u64,
+        old_principal: u64,
+        growing_owner: Option<&T::AccountId>,
     ) -> Result<u64, DispatchError> {
         let supply = T::Pool::redemption_alpha_supply(netuid)
             .map_err(|_| Error::<T>::RedemptionUnavailable)?;
@@ -1005,10 +1140,17 @@ impl<T: Config> Pallet<T> {
             .checked_mul(4)
             .and_then(|n| n.checked_add(u128::from(collateral)))
             .ok_or(Error::<T>::Arithmetic)?;
-        // Solve 4 * new_debt * supply <= collateral * (backing - new_debt).
+        // Solve 4 * (old_debt + new_debt) * supply <= collateral * (backing - new_debt).
         let numerator = u128::from(collateral)
             .checked_mul(u128::from(backing))
             .ok_or(Error::<T>::Arithmetic)?;
+        let existing_claim = u128::from(old_principal)
+            .checked_mul(supply)
+            .and_then(|claim| claim.checked_mul(4))
+            .ok_or(Error::<T>::Arithmetic)?;
+        let numerator = numerator
+            .checked_sub(existing_claim)
+            .ok_or(Error::<T>::InsufficientRedemptionBacking)?;
         let funded = numerator
             .checked_div(denominator)
             .ok_or(Error::<T>::Arithmetic)?;
@@ -1023,6 +1165,11 @@ impl<T: Config> Pallet<T> {
             ensure!(count <= max_positions, Error::<T>::TooManyPositions);
             let position =
                 Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::PositionMissing)?;
+            // This owner's combined position already passes the stricter 25% check
+            // with its new collateral. Every other loan still needs independent coverage.
+            if growing_owner == Some(&owner) {
+                continue;
+            }
             if position.side != Side::Long {
                 continue;
             }

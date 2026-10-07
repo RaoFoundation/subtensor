@@ -64,6 +64,105 @@ mod benchmarks {
         assert!(Positions::<T>::contains_key(owner, netuid));
     }
 
+    #[benchmark(extra)]
+    fn increase_short() {
+        let (owner, hotkey, netuid) = setup::<T>();
+        Pallet::<T>::open(
+            RawOrigin::Signed(owner.clone()).into(),
+            netuid,
+            Side::Short,
+            16_000_000_000,
+            hotkey.clone(),
+            1,
+            0,
+        )
+        .unwrap();
+        let before = Positions::<T>::get(&owner, netuid).unwrap();
+        frame_system::Pallet::<T>::set_block_number(
+            before.last_accrued.saturating_add(T::InterestPeriod::get()),
+        );
+        #[extrinsic_call]
+        open(
+            RawOrigin::Signed(owner.clone()),
+            netuid,
+            Side::Short,
+            16_000_000_000,
+            hotkey,
+            1,
+            0,
+        );
+        let after = Positions::<T>::get(owner, netuid).unwrap();
+        assert!(after.principal > before.principal);
+        assert_eq!(after.due, before.due);
+        assert_eq!(PositionCount::<T>::get(netuid), 1);
+    }
+
+    #[benchmark(extra)]
+    fn increase_long() {
+        let (owner, hotkey, netuid) = setup::<T>();
+        // Physically fund enough headroom for two loans in the real and mock pools.
+        let vault = Pallet::<T>::reserve_account(netuid);
+        T::Pool::transfer_tao(&owner, &vault, 400_000_000_000_u64.into()).unwrap();
+        Pallet::<T>::fund_reserves(
+            netuid,
+            400_000_000_000_u64.into(),
+            AlphaBalance::ZERO,
+            T::Pool::current_alpha_price(netuid),
+            true,
+        )
+        .unwrap();
+        let collateral = T::Pool::quote_buy(netuid, 40_000_000_000_u64.into())
+            .unwrap()
+            .to_u64();
+        Pallet::<T>::open(
+            RawOrigin::Signed(owner.clone()).into(),
+            netuid,
+            Side::Long,
+            collateral,
+            hotkey.clone(),
+            1,
+            0,
+        )
+        .unwrap();
+        let before = Positions::<T>::get(&owner, netuid).unwrap();
+        let now = before.last_accrued.saturating_add(T::InterestPeriod::get());
+        frame_system::Pallet::<T>::set_block_number(now);
+        // Fill the bounded admission scan, retaining the growing owner's entry.
+        for i in 1..T::MaxPositionsPerSubnet::get() {
+            let other: T::AccountId = account("increase-existing-long", i, 0);
+            Positions::<T>::insert(
+                &other,
+                netuid,
+                Position {
+                    side: Side::Long,
+                    hotkey: hotkey.clone(),
+                    principal: 1,
+                    collateral: 1_000_000_000,
+                    proceeds: 0,
+                    annual_interest: 1,
+                    last_accrued: now,
+                    interest_remainder: 1,
+                    due: now.saturating_add(T::InterestPeriod::get()),
+                },
+            );
+            OpenByNetuid::<T>::insert(netuid, other, ());
+        }
+        #[extrinsic_call]
+        open(
+            RawOrigin::Signed(owner.clone()),
+            netuid,
+            Side::Long,
+            collateral,
+            hotkey,
+            1,
+            0,
+        );
+        let after = Positions::<T>::get(owner, netuid).unwrap();
+        assert!(after.principal > before.principal);
+        assert_eq!(after.due, before.due);
+        assert_eq!(PositionCount::<T>::get(netuid), 1);
+    }
+
     // Measure the independent long-admission scan in addition to the short's
     // bounded swap quotes. The runtime conservatively composes both envelopes.
     #[benchmark(extra)]

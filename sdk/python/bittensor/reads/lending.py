@@ -16,6 +16,7 @@ VAULTS = Item("Lending", "Vaults", "Vault")
 OPEN_BY_NETUID = Item("Lending", "OpenByNetuid")
 DISSOLUTIONS = Item("Lending", "Dissolutions", "Dissolution")
 QUOTE_OPEN = Method("LendingRuntimeApi", "quote_open")
+QUOTE_OPEN_FOR = Method("LendingRuntimeApi", "quote_open_for")
 QUOTE_CLOSE = Method("LendingRuntimeApi", "quote_close")
 
 
@@ -80,7 +81,8 @@ def _position_record(
 async def lending_position(view, coldkey_ss58: str, netuid: int) -> Optional[dict]:
     """A coldkey's fixed-principal loan on one subnet, or None.
 
-    Principal never falls when interest is collected. Amounts retain their
+    Principal increases when more is borrowed and never falls when interest is
+    collected. This record reports the combined position. Amounts retain their
     currency: short collateral and sale proceeds are TAO, short debt is
     alpha; long collateral is alpha and long debt is TAO. Interest and
     remaining runway are estimates at the selected block, not a close quote.
@@ -144,27 +146,54 @@ async def lending_reserves(view, netuid: int) -> dict:
 
 @read(
     "lending_open_quote",
-    {"netuid": "integer", "side": "string", "collateral": "string"},
+    {
+        "netuid": "integer",
+        "side": "string",
+        "collateral": "string",
+        "coldkey_ss58": "string",
+        "hotkey_ss58": "string",
+    },
     category="Prices & swaps",
     param_docs={
         "netuid": "Subnet to borrow against.",
         "side": "short or long.",
-        "collateral": "Exact collateral amount: TAO for a short, alpha for a long.",
+        "collateral": "Additional collateral amount: TAO for a short, alpha for a long.",
+        "coldkey_ss58": "Owner to quote an opening or increase for; supply its hotkey too.",
+        "hotkey_ss58": "Collateral or repayment hotkey; supply the owner too.",
     },
 )
-async def lending_open_quote(view, netuid: int, side: str, collateral: str) -> dict:
-    """Quote the entire loan using the runtime's fee-inclusive arithmetic.
+async def lending_open_quote(
+    view,
+    netuid: int,
+    side: str,
+    collateral: str,
+    coldkey_ss58: Optional[str] = None,
+    hotkey_ss58: Optional[str] = None,
+) -> dict:
+    """Quote additional debt and interest using the runtime's fee-inclusive arithmetic.
 
-    Includes EMA valuation, executable AMM depth, inventory and utilization
-    checks. A refusal is an error; it never becomes a zero-protection quote.
-    The result is indicative until the opening transaction executes.
+    Supply the owner and hotkey together to quote a new position or increase
+    an existing position with the same side and hotkey. The runtime accrues old
+    interest and checks the combined position, including funded-redemption
+    backing for TAO loans. Returned principal, annual_interest and opening_value
+    are additions, not totals. Omitting both addresses quotes a fresh loan only.
+    A refusal is an error; it never becomes a zero-protection quote. The result
+    is indicative until the transaction executes.
     """
     view = await view.at()
     side = check_side(side)
     amount = cast(
         Balance, tao_amount(collateral) if side == "Short" else alpha_amount(collateral, netuid)
     )
-    raw = _ok(await view.runtime(QUOTE_OPEN, [netuid, side, amount.rao]))
+    if (coldkey_ss58 is None) != (hotkey_ss58 is None):
+        raise BittensorError("an owner-aware lending quote requires both coldkey and hotkey")
+    method = QUOTE_OPEN if coldkey_ss58 is None else QUOTE_OPEN_FOR
+    params = (
+        [netuid, side, amount.rao]
+        if coldkey_ss58 is None
+        else [coldkey_ss58, netuid, side, amount.rao, hotkey_ss58]
+    )
+    raw = _ok(await view.runtime(method, params))
     collateral_unit = 0 if side == "Short" else netuid
     return {
         "principal": view.balance(int(raw["principal"]), netuid if side == "Short" else 0),
@@ -186,7 +215,7 @@ async def lending_open_quote(view, netuid: int, side: str, collateral: str) -> d
 async def lending_close_quote(
     view, coldkey_ss58: str, netuid: int, repay_from_wallet: bool = False
 ) -> dict:
-    """Runtime quote of the full repayment and refund, after accrued interest.
+    """Runtime quote of the combined debt repayment and refund, after accrued interest.
 
     Payment is TAO except for a wallet-repaid short, which returns its fixed
     alpha principal. Refund is TAO for a short and alpha for a long. A short

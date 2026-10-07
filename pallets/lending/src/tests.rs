@@ -395,6 +395,162 @@ fn open(side: Side, collateral: u64) {
 fn position() -> Position<Account, u64> {
     Positions::<Test>::get(account(1), netuid()).unwrap()
 }
+
+#[test]
+fn repeated_growth_preserves_fractional_coupons_and_original_due_on_both_sides() {
+    for side in [Side::Short, Side::Long] {
+        ext().execute_with(|| {
+            open(side, 40);
+            let due = position().due;
+            for now in 2..9 {
+                System::set_block_number(now);
+                if now == 4 {
+                    References::<Test>::mutate(netuid(), |reference| {
+                        reference.as_mut().unwrap().price = if side == Side::Short {
+                            U64F64::from_num(0.5)
+                        } else {
+                            U64F64::from_num(2)
+                        };
+                    });
+                }
+                let before = position();
+                let numerator = u128::from(before.annual_interest)
+                    * u128::from(now - before.last_accrued)
+                    + u128::from(before.interest_remainder);
+                let quote =
+                    Lending::quote_open_for(&account(1), netuid(), side, 80, &account(1)).unwrap();
+                open(side, 80);
+                let after = position();
+                assert_eq!(after.principal, before.principal + quote.principal);
+                assert_eq!(
+                    after.annual_interest,
+                    before.annual_interest + quote.annual_interest
+                );
+                assert_eq!(
+                    after.collateral,
+                    before.collateral + 80 - (numerator / 520) as u64
+                );
+                assert_eq!(after.interest_remainder, (numerator % 520) as u64);
+                assert_eq!(after.due, due);
+                assert_eq!(PositionCount::<Test>::get(netuid()), 1);
+                assert_eq!(TotalPositions::<Test>::get(), 1);
+                assert_eq!(LoanHotkeys::<Test>::get(account(1)), 1);
+                assert_eq!(Due::<Test>::iter().count(), 1);
+            }
+        });
+    }
+}
+
+#[test]
+fn added_collateral_cannot_revive_a_coupon_exhausted_position() {
+    for side in [Side::Short, Side::Long] {
+        ext().execute_with(|| {
+            open(side, 40);
+            System::set_block_number(1 + 520 * 10);
+            assert_eq!(
+                Lending::quote_open_for(&account(1), netuid(), side, 1000, &account(1)),
+                Err(Error::<Test>::InsufficientEscrow.into())
+            );
+            assert_noop!(
+                Lending::open(
+                    RuntimeOrigin::signed(account(1)),
+                    netuid(),
+                    side,
+                    1000,
+                    account(1),
+                    1,
+                    0,
+                ),
+                Error::<Test>::InsufficientEscrow
+            );
+        });
+    }
+}
+
+#[test]
+fn growth_quotes_reject_collateral_coupon_and_proceeds_overflow_before_custody() {
+    for field in [0, 1, 2] {
+        ext().execute_with(|| {
+            let side = if field == 0 { Side::Long } else { Side::Short };
+            open(side, 1000);
+            Positions::<Test>::mutate(account(1), netuid(), |position| {
+                let position = position.as_mut().unwrap();
+                match field {
+                    0 => {
+                        position.collateral = u64::MAX;
+                        position.annual_interest = 0;
+                        position.interest_remainder = 1;
+                    }
+                    1 => position.annual_interest = u64::MAX,
+                    _ => position.proceeds = u64::MAX,
+                }
+            });
+            let added = if field == 0 { 1 } else { 1000 };
+            assert_eq!(
+                Lending::quote_open_for(&account(1), netuid(), side, added, &account(1)),
+                Err(Error::<Test>::Arithmetic.into())
+            );
+            assert_noop!(
+                Lending::open(
+                    RuntimeOrigin::signed(account(1)),
+                    netuid(),
+                    side,
+                    added,
+                    account(1),
+                    1,
+                    0,
+                ),
+                Error::<Test>::Arithmetic
+            );
+        });
+    }
+}
+
+#[test]
+fn grown_debt_uses_exact_funded_boundary_and_preserves_each_other_loans_coverage() {
+    ext().execute_with(|| {
+        write(b"test/redemption_supply", Some(2000_u128));
+        indexed_long(1, 50, 400);
+        let delta =
+            Lending::funded_long_limit_for(netuid(), 800, 1000, 50, Some(&account(1))).unwrap();
+        assert_eq!(delta, 45);
+        assert!(4 * (50 + u128::from(delta)) * 2000 <= 800 * (1000 - u128::from(delta)));
+        assert!(4 * (50 + u128::from(delta + 1)) * 2000 > 800 * (1000 - u128::from(delta + 1)));
+        indexed_long(2, 100, 208);
+        let limited =
+            Lending::funded_long_limit_for(netuid(), 800, 1000, 50, Some(&account(1))).unwrap();
+        assert_eq!(limited, 38);
+        assert!(208 * (1000 - u128::from(limited)) >= 100 * 2000);
+        assert!(208 * (1000 - u128::from(limited + 1)) < 100 * 2000);
+    });
+}
+
+#[test]
+fn global_borrowing_cap_counts_additional_debt_once_and_rejects_later_growth() {
+    ext().execute_with(|| {
+        open(Side::Long, 40_000);
+        let first = position().principal;
+        assert!(first > 9000 && first < 10_000);
+        let quote =
+            Lending::quote_open_for(&account(1), netuid(), Side::Long, 400, &account(1)).unwrap();
+        open(Side::Long, 400);
+        let vault = Vaults::<Test>::get(netuid()).unwrap();
+        assert_eq!(vault.outstanding_tao, first + quote.principal);
+        assert!(vault.outstanding_tao <= 10_000);
+        assert_noop!(
+            Lending::open(
+                RuntimeOrigin::signed(account(1)),
+                netuid(),
+                Side::Long,
+                400,
+                account(1),
+                1,
+                0,
+            ),
+            Error::<Test>::BorrowingLimit
+        );
+    });
+}
 fn idle(now: u64) {
     System::set_block_number(now);
     Lending::on_idle(now, Weight::MAX);
@@ -1116,10 +1272,14 @@ fn deregistration_short_deficit_is_recorded_without_cash_creation() {
 
 #[test]
 fn long_deregistration_recovers_only_actual_funded_redemption() {
-    for payout in [20_u64, 270] {
+    for payout in [20_u64, 700] {
         ext().execute_with(|| {
             open(Side::Long, 1000);
+            let first = position().principal;
+            open(Side::Long, 1000);
             let debt = position().principal;
+            assert!(debt > first);
+            assert_eq!(PositionCount::<Test>::get(netuid()), 1);
             let owner_before = tao(&account(1));
             assert_ok!(Lending::start_dissolution(netuid()));
             assert!(Lending::settle_shorts(netuid(), &mut meter()));
@@ -1301,6 +1461,9 @@ fn global_position_cap_applies_across_subnets_and_close_releases_capacity() {
             0,
         ));
         assert_eq!(TotalPositions::<Test>::get(), 5);
+        open(Side::Long, 100);
+        assert_eq!(TotalPositions::<Test>::get(), 5);
+        assert_eq!(PositionCount::<Test>::get(netuid()), 4);
         mint_alpha(&account(2), &account(2), second, 1000);
         assert_noop!(
             Lending::open(

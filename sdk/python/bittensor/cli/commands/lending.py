@@ -48,19 +48,29 @@ def open_loan(
         help="Maximum fall in quoted principal or short TAO proceeds (percent; default 1%).",
     ),
 ):
-    """Lock collateral and open one short or long on a subnet.
+    """Add collateral and open or increase a short or long on a subnet.
 
     Shorts borrow and sell alpha, keeping TAO proceeds locked. Longs borrow
-    transferable TAO against existing alpha stake. btcli quotes the complete
-    opening first and refuses to submit when a quote is unavailable.
+    transferable TAO against existing alpha stake. An existing position must
+    use the same side and hotkey. btcli quotes additional debt after checking
+    the combined position and refuses to submit when a quote is unavailable.
     """
     context = ctx_of(ctx)
+    owner = context.review_account()
+    if owner is None:
+        context.output.error("select the account that owns this loan before borrowing")
+        raise typer.Exit(2)
     hotkey = context.resolve_address("hotkey_ss58", hotkey_ss58)
     intent = OpenLoan(netuid=netuid, side=side.value, collateral=collateral, hotkey_ss58=hotkey)
     with context.output.activity("quoting the loan…"):
         quote = context.run(
             lambda client: client.read(
-                "lending_open_quote", netuid=netuid, side=side.value, collateral=collateral
+                "lending_open_quote",
+                netuid=netuid,
+                side=side.value,
+                collateral=collateral,
+                coldkey_ss58=owner,
+                hotkey_ss58=hotkey,
             )
         )
     intent.min_borrow = _bound(quote["principal"], max_slippage)
@@ -72,11 +82,11 @@ def open_loan(
             (
                 "Loan",
                 [
-                    ("collateral", str(intent.collateral)),
-                    ("fixed principal", str(quote["principal"])),
-                    ("minimum principal", str(intent.min_borrow)),
-                    ("minimum sale proceeds", str(intent.min_proceeds)),
-                    ("interest per year", str(quote["annual_interest"])),
+                    ("additional collateral", str(intent.collateral)),
+                    ("additional fixed principal", str(quote["principal"])),
+                    ("minimum additional principal", str(intent.min_borrow)),
+                    ("minimum additional sale proceeds", str(intent.min_proceeds)),
+                    ("additional interest per year", str(quote["annual_interest"])),
                 ],
             )
         ],

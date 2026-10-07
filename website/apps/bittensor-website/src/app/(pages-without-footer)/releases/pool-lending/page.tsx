@@ -52,10 +52,10 @@ export default function PoolLendingRelease() {
           <h2 className={styles.subtitle}>Fixed principal, collateral coupons</h2>
           <p>
             A short posts TAO collateral, borrows alpha and sells it through the AMM. The resulting
-            TAO remains locked. Closing buys back the original alpha debt, or the owner supplies
-            that alpha from the saved hotkey, and returns the remaining TAO. A long posts existing
-            alpha collateral and receives freely transferable TAO. Closing repays the original TAO
-            debt and returns the remaining alpha.
+            TAO remains locked. Closing buys back the total alpha debt, or the owner supplies that
+            alpha from the saved hotkey, and returns the remaining TAO. A long posts existing alpha
+            collateral and receives freely transferable TAO. Closing repays the total TAO debt and
+            returns the remaining alpha.
           </p>
           <ul className={styles.list}>
             <li>
@@ -107,10 +107,16 @@ export default function PoolLendingRelease() {
           </p>
           <p>
             Debt never falls merely because interest was collected. Each coldkey can hold one
-            position per subnet. The lending reference is a dedicated geometric EMA with a 24-hour
-            half-life, fixed before the current block&apos;s trades and updated with clipped
-            observations. This limits abrupt valuation changes without claiming that manipulation is
-            impossible.
+            position per subnet. Repeating the open command with the same side and hotkey adds
+            collateral and debt to that position. Accrued interest is collected first and the
+            combined position must pass current opening limits. The new annual coupon adds to
+            earlier coupons without repricing them or restarting the weekly schedule. Quotes
+            describe the additional borrowing; closing repays the total principal.
+          </p>
+          <p>
+            The lending reference is a dedicated geometric EMA with a 24-hour half-life, fixed
+            before the current block&apos;s trades and updated with clipped observations. This
+            limits abrupt valuation changes without claiming that manipulation is impossible.
           </p>
           <p>
             V1 bounds processing to 256 funded subnet vaults, 256 open positions across the chain
@@ -154,8 +160,9 @@ btcli lending list --netuid 64`}
           </pre>
           <p>
             Use the SDK shipped with the lending runtime. Open and close take full runtime quotes
-            and default to a 1% margin on caller protections. Failed quotes stop submission, and
-            failed bounds roll back the complete transaction. The{' '}
+            for the owner and hotkey, and default to a 1% margin on caller protections. The same
+            open command can increase a matching position. Failed quotes stop submission, and failed
+            bounds roll back the complete transaction. The{' '}
             <Link href='/docs/guides/pool-lending' className={styles.inline_link}>
               pool lending guide
             </Link>{' '}

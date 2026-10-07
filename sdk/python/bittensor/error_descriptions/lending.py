@@ -2,8 +2,8 @@
 
 DESCRIPTIONS: dict[str, str] = {
     "Disabled": (
-        "New lending positions are disabled. Governance can enable borrowing; closes remain "
-        "available."
+        "New borrowing, including position increases, is disabled. Governance can enable "
+        "borrowing; closes remain available."
     ),
     "SubnetUnavailable": (
         "The subnet is absent, is root, or is dissolving. Check its lifecycle before borrowing "
@@ -17,7 +17,8 @@ DESCRIPTIONS: dict[str, str] = {
         "The dedicated lending EMA is still warming up. Retry after its valid_after block."
     ),
     "PositionExists": (
-        "This coldkey already has a loan on the subnet. Repay and close it before opening another."
+        "This coldkey's existing subnet loan has a different side or hotkey. Use its saved side "
+        "and hotkey to increase it, or repay and close before opening a different position."
     ),
     "PositionMissing": (
         "This coldkey has no open loan on the subnet. Check lending_position and the signing "
@@ -43,7 +44,8 @@ DESCRIPTIONS: dict[str, str] = {
         "runtime maintenance."
     ),
     "BelowMinimumBorrow": (
-        "Opening principal is below the caller's minimum. Requote; the failed call moves no assets."
+        "Additional principal is below the caller's minimum. Requote; the failed call moves "
+        "no assets."
     ),
     "AboveMaximumPayment": (
         "Repayment exceeds the caller's payment ceiling. Requote the full close before "
@@ -74,8 +76,8 @@ DESCRIPTIONS: dict[str, str] = {
         "finish before reuse."
     ),
     "BelowMinimumProceeds": (
-        "The short's opening sale returns less TAO than the caller's minimum. Requote the full "
-        "opening; the failed call moves no assets."
+        "The additional short sale returns less TAO than the caller's minimum. Requote the "
+        "opening or increase; the failed call moves no assets."
     ),
     "RedemptionUnavailable": (
         "The subnet's funded-redemption alpha supply is unavailable or its aggregate staking "

@@ -178,6 +178,63 @@ async def test_quote_uses_runtime_fee_inclusive_result_and_exact_input():
     assert result["annual_interest"].netuid == 0
 
 
+@pytest.mark.parametrize("side,principal_unit,collateral_unit", [("short", 1, 0), ("long", 0, 1)])
+@pytest.mark.asyncio
+async def test_owner_quote_uses_exact_addition_and_returns_incremental_amounts(
+    side, principal_unit, collateral_unit
+):
+    fake = FakeSubstrate()
+    _seed_position(fake, side, principal=9_000_000_000, annual_interest=8_000_000_000)
+    seen = []
+
+    def quote(params):
+        seen.append(params)
+        return {"Ok": {"principal": 234, "annual_interest": 230, "opening_value": 231}}
+
+    fake.seed_runtime("LendingRuntimeApi", "quote_open_for", quote)
+    fake.seed_runtime("LendingRuntimeApi", "quote_open", {"Err": "must use owner quote"})
+    async with Client("local", substrate=fake) as client:
+        result = await client.read(
+            "lending_open_quote",
+            netuid=1,
+            side=side,
+            collateral="1.000000001",
+            coldkey_ss58=ALICE,
+            hotkey_ss58=ALICE_HOT,
+        )
+    assert seen == [[ALICE, 1, side.capitalize(), 1_000_000_001, ALICE_HOT]]
+    assert result["principal"] == Balance.from_rao(234, principal_unit)
+    assert result["annual_interest"] == Balance.from_rao(230, collateral_unit)
+    assert result["opening_value"] == Balance.from_rao(231)
+
+
+@pytest.mark.parametrize("addresses", [{"coldkey_ss58": ALICE}, {"hotkey_ss58": ALICE_HOT}])
+@pytest.mark.asyncio
+async def test_owner_quote_requires_both_addresses(addresses):
+    fake = FakeSubstrate()
+    async with Client("local", substrate=fake) as client:
+        with pytest.raises(BittensorError, match="requires both coldkey and hotkey"):
+            await client.read(
+                "lending_open_quote", netuid=1, side="short", collateral="100", **addresses
+            )
+
+
+@pytest.mark.asyncio
+async def test_refused_owner_quote_does_not_fall_back_to_fresh_quote():
+    fake = FakeSubstrate()
+    fake.seed_runtime("LendingRuntimeApi", "quote_open_for", {"Err": "PositionExists"})
+    async with Client("local", substrate=fake) as client:
+        with pytest.raises(BittensorError, match="PositionExists"):
+            await client.read(
+                "lending_open_quote",
+                netuid=1,
+                side="short",
+                collateral="100",
+                coldkey_ss58=ALICE,
+                hotkey_ss58=ALICE_HOT,
+            )
+
+
 @pytest.mark.parametrize("raw", [None, {"Err": {"Module": "BorrowingLimit"}}])
 @pytest.mark.asyncio
 async def test_unavailable_quote_never_becomes_unprotected_submission(raw):
@@ -202,6 +259,20 @@ def test_lending_cli_has_exactly_three_commands():
 
 @pytest.mark.parametrize("side", ["short", "long"])
 def test_cli_open_quotes_full_loan_and_sets_floor(cli_fake, side):
+    seen = []
+
+    def quote(params):
+        seen.append(params)
+        return {
+            "Ok": {
+                "principal": 250_000_000,
+                "annual_interest": 250_000_000,
+                "opening_value": 250_000_000,
+            }
+        }
+
+    cli_fake.seed_runtime("LendingRuntimeApi", "quote_open_for", quote)
+    cli_fake.seed_runtime("LendingRuntimeApi", "quote_open", {"Err": "must use owner quote"})
     result = runner.invoke(
         app,
         [
@@ -223,6 +294,11 @@ def test_cli_open_quotes_full_loan_and_sets_floor(cli_fake, side):
     assert plan["op"] == "open_loan"
     assert plan["args"]["min_borrow"] == "0.2475"
     assert plan["args"]["min_proceeds"] == ("0.2475" if side == "short" else "0")
+    assert len(seen) == 1
+    owner, netuid, runtime_side, collateral, hotkey = seen[0]
+    assert owner
+    assert hotkey
+    assert [netuid, runtime_side, collateral] == [1, side.capitalize(), 1_000_000_000_000]
     assert cli_fake.submissions == []
 
 
@@ -238,8 +314,9 @@ def test_cli_close_sets_payment_and_refund_bounds(cli_fake):
     assert cli_fake.submissions == []
 
 
-def test_cli_refuses_open_when_quote_fails(cli_fake):
-    cli_fake.seed_runtime("LendingRuntimeApi", "quote_open", {"Err": "BorrowingLimit"})
+@pytest.mark.parametrize("reason", ["BorrowingLimit", "PositionExists", "InsufficientEscrow"])
+def test_cli_refuses_open_when_quote_fails(cli_fake, reason):
+    cli_fake.seed_runtime("LendingRuntimeApi", "quote_open_for", {"Err": reason})
     result = runner.invoke(
         app,
         [

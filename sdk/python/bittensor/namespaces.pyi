@@ -403,25 +403,30 @@ class Prices(_ReadNamespace):
         """Spot alpha price for every subnet, as TAO per alpha keyed by netuid."""
 
     async def lending_close_quote(self, coldkey_ss58: str, netuid: int, repay_from_wallet: bool = False, *, block: Optional[int] = None) -> dict:
-        """Runtime quote of the full repayment and refund, after accrued interest.
+        """Runtime quote of the combined debt repayment and refund, after accrued interest.
 
         Payment is TAO except for a wallet-repaid short, which returns its fixed
         alpha principal. Refund is TAO for a short and alpha for a long. A short
         AMM buyback must fit within the curve's remaining buy range.
         """
 
-    async def lending_open_quote(self, netuid: int, side: str, collateral: str, *, block: Optional[int] = None) -> dict:
-        """Quote the entire loan using the runtime's fee-inclusive arithmetic.
+    async def lending_open_quote(self, netuid: int, side: str, collateral: str, coldkey_ss58: Optional[str] = None, hotkey_ss58: Optional[str] = None, *, block: Optional[int] = None) -> dict:
+        """Quote additional debt and interest using the runtime's fee-inclusive arithmetic.
 
-        Includes EMA valuation, executable AMM depth, inventory and utilization
-        checks. A refusal is an error; it never becomes a zero-protection quote.
-        The result is indicative until the opening transaction executes.
+        Supply the owner and hotkey together to quote a new position or increase
+        an existing position with the same side and hotkey. The runtime accrues old
+        interest and checks the combined position, including funded-redemption
+        backing for TAO loans. Returned principal, annual_interest and opening_value
+        are additions, not totals. Omitting both addresses quotes a fresh loan only.
+        A refusal is an error; it never becomes a zero-protection quote. The result
+        is indicative until the transaction executes.
         """
 
     async def lending_position(self, coldkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
         """A coldkey's fixed-principal loan on one subnet, or None.
 
-        Principal never falls when interest is collected. Amounts retain their
+        Principal increases when more is borrowed and never falls when interest is
+        collected. This record reports the combined position. Amounts retain their
         currency: short collateral and sale proceeds are TAO, short debt is
         alpha; long collateral is alpha and long debt is TAO. Interest and
         remaining runway are estimates at the selected block, not a close quote.

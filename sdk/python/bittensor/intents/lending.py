@@ -45,7 +45,7 @@ def _contextual_amount(value: Money) -> Money:
 @register
 @dataclass
 class OpenLoan(Intent):
-    """Open one fixed-principal loan on a subnet at 25% initial LTV.
+    """Open or increase a fixed-principal subnet loan at up to 25% LTV.
 
     A short locks TAO collateral, borrows alpha and immediately sells it;
     the TAO proceeds stay in contract custody. A long locks existing free
@@ -54,10 +54,16 @@ class OpenLoan(Intent):
     charged in fixed collateral units and collected weekly. There are no
     price-triggered liquidations; exhausted collateral forfeits the position.
 
-    ``min_borrow`` is a floor on fixed principal, including opening swap fees.
-    ``min_proceeds`` separately bounds the TAO from a short's opening sale.
-    The call is atomic and refuses a smaller loan or sale. One position may be open
-    per coldkey and subnet; close it before opening another.
+    An existing position must have the same side and hotkey. ``collateral``
+    adds to its remaining collateral after accrued interest; borrowed principal,
+    short sale proceeds and the new fixed coupon add to the saved position.
+    The old coupon is not repriced. The combined position must pass current
+    opening guards, and an already exhausted position cannot be increased.
+
+    ``min_borrow`` is a floor on additional principal, including opening swap
+    fees. ``min_proceeds`` separately bounds TAO from the additional short sale.
+    The call is atomic and refuses a smaller loan or sale. There remains one
+    position per coldkey and subnet; closing repays its total principal.
     """
 
     op = "open_loan"
@@ -68,7 +74,7 @@ class OpenLoan(Intent):
     netuid: int = field(metadata={"help": "Subnet to borrow against."})
     side: str = field(metadata={"help": "short: lock TAO; long: lock subnet alpha."})
     collateral: Money = field(
-        metadata={"help": "Collateral to lock: TAO for a short, subnet alpha for a long."}
+        metadata={"help": "Additional collateral to lock: TAO for a short, alpha for a long."}
     )
     hotkey_ss58: Optional[str] = field(
         default=None,
@@ -78,11 +84,11 @@ class OpenLoan(Intent):
     )
     min_borrow: Money = field(
         default=0,
-        metadata={"help": "Minimum fixed principal: subnet alpha for a short, TAO for a long."},
+        metadata={"help": "Minimum additional principal: alpha for a short, TAO for a long."},
     )
     min_proceeds: Money = field(
         default=0,
-        metadata={"help": "Minimum TAO proceeds from a short's opening sale; unused for longs."},
+        metadata={"help": "Minimum TAO from the additional short sale; unused for longs."},
     )
 
     def __post_init__(self):
@@ -118,7 +124,9 @@ class OpenLoan(Intent):
         )
 
     def summary(self) -> str:
-        return f"open {self.side.lower()} on netuid {self.netuid}, lock {self.collateral}"
+        return (
+            f"open or increase {self.side.lower()} on netuid {self.netuid}, add {self.collateral}"
+        )
 
     def spend(self) -> Spend:
         return cast(Balance, self.collateral) if self.side == "Short" else None
@@ -127,7 +135,7 @@ class OpenLoan(Intent):
 @register
 @dataclass
 class CloseLoan(Intent):
-    """Repay the original debt and return remaining collateral on a subnet.
+    """Repay total principal and return remaining collateral on a subnet.
 
     A short normally buys its fixed alpha debt through the AMM using locked
     TAO. ``repay_from_wallet`` instead takes that alpha from the saved hotkey.

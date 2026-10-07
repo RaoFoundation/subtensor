@@ -1715,7 +1715,7 @@ class Lending:
 
     @staticmethod
     def open(netuid: 'NetUid', side: 'Side', collateral: 'u64', hotkey: 'AccountId32', min_borrow: 'u64', min_proceeds: 'u64') -> Call:
-        "Open one fixed-principal loan on a subnet. Amounts use the collateral token's atoms."
+        'Open or increase one loan on a subnet, using the same side and collateral hotkey. Collateral and caller bounds apply to the additional loan, not existing totals.'
         return Call('Lending', 'open', {'netuid': netuid, 'side': side, 'collateral': collateral, 'hotkey': hotkey, 'min_borrow': min_borrow, 'min_proceeds': min_proceeds})
 
     @staticmethod

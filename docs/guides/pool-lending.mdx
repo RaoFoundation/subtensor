@@ -70,15 +70,15 @@ alpha principal and minimum net TAO proceeds; the latter protects the opening
 sale even when the historical reference keeps alpha debt unchanged.
 
 For example, 1,000 TAO collateral can support an opening loan valued at up to
-250 TAO. Suppose its fixed debt is 700 alpha. That debt stays **700 alpha** until
-repayment; coupons do not amortize it.
+250 TAO. Suppose its fixed debt is 700 alpha. That debt stays **700 alpha** unless
+the position borrows more or repays; coupons do not amortize it.
 
 At an ordinary close, the contract buys back the fixed alpha debt using locked
 TAO through at most six internal orders in one atomic operation, returns the
 alpha to the vault and refunds the remaining TAO. If the buyback
 cannot execute within the curve's capacity or the locked funds, that close
 fails without changing the position. Alternatively, the owner can supply the
-original alpha principal from the saved hotkey, avoiding the buyback entirely.
+total alpha principal from the saved hotkey, avoiding the buyback entirely.
 Both paths collect interest accrued through the closing block.
 
 ## Borrow TAO against alpha
@@ -119,9 +119,32 @@ After lending `L` TAO, that collateral's stressed redemption is
 This accounts for the loan's own withdrawal rather than valuing collateral
 against backing that the borrower is about to remove.
 
-Closing requires the owner to repay that original TAO principal from free
+Closing requires the owner to repay the total TAO principal from free
 balance. The remaining alpha collateral is then returned to the saved hotkey.
 The loan does not automatically reverse trades the borrower made elsewhere.
+
+## Increase a position
+
+Use the same `open` command again to add collateral and borrow more. The subnet,
+side and hotkey must match the saved position. There remains one position per
+coldkey and subnet: its collateral, debt and any locked short proceeds grow
+together, and one close repays the total principal.
+
+The chain collects interest accrued on the existing position before adding the
+new collateral. The combined position must pass current opening limits, not
+just the additional loan by itself. For TAO borrowing this includes the 25%
+stressed funded-redemption limit after the additional withdrawal, plus coverage
+of other TAO loans. Growth remains subject to the 10% aggregate borrowing cap
+and available inventory. An already exhausted position cannot be increased.
+
+Each increase fixes a coupon for the additional borrowing at its current
+opening valuation and adds it to the existing annual coupon. Earlier coupons
+are not repriced, fractional interest is carried forward, and the weekly
+collection schedule is not restarted. An increase uses the existing position
+slot. Its quote and caller bounds refer to **additional principal, sale proceeds
+and annual interest**; position reads and `list` report the combined totals.
+The `Increased` event likewise reports the added collateral, principal, proceeds
+and annual coupon rather than the resulting totals.
 
 ## Interest and forfeiture
 
@@ -133,7 +156,8 @@ annual alpha interest. Later market prices do not change the collateral coupon.
 There is no additional fee for opening or closing a loan.
 
 Interest accrues per block. Collection is scheduled weekly and processed within
-the chain's available weight budget. A 250-TAO opening loan pays approximately
+the chain's available weight budget; increasing or closing also collects accrued
+interest. A 250-TAO opening loan pays approximately
 4.79 TAO per seven days on a 365-day year. With 1,000 TAO collateral and no earlier
 close, that corresponds to approximately four years of coupons. It is not
 100% interest on the entire 1,000-TAO collateral.
@@ -261,7 +285,10 @@ btcli lending open --netuid 64 --side short --collateral 1000 -w mywallet
 # Lock 700 free alpha from this hotkey and receive transferable TAO.
 btcli lending open --netuid 64 --side long --collateral 700 --hotkey <hotkey> -w mywallet
 
-# Repay the original debt and release remaining collateral.
+# Add 200 more TAO collateral and increase the same short.
+btcli lending open --netuid 64 --side short --collateral 200 -w mywallet
+
+# Repay total principal and release remaining collateral.
 btcli lending close --netuid 64 -w mywallet
 
 # A short can instead repay with alpha already held on its saved hotkey.
@@ -276,7 +303,9 @@ Open and close obtain full fee-inclusive quotes from the runtime. By default,
 `--max-slippage 1` sets an opening principal floor and, for shorts, a separate
 TAO proceeds floor, or a closing payment ceiling and refund floor, with a 1%
 margin. The entire call rolls back if its bounds fail.
-An unavailable quote stops submission instead of silently dropping protection.
+The CLI quotes using the signing owner and selected hotkey, so an increase is
+checked against the saved position. An unavailable quote stops submission
+instead of silently dropping protection.
 Writes use the existing wallet, review, signing and MEV-shield submission flow.
 
 The SDK also exposes block-pinned reads through `client.read`:
@@ -284,3 +313,7 @@ The SDK also exposes block-pinned reads through `client.read`:
 `lending_open_quote` and `lending_close_quote`. Low-level `OpenLoan` and
 `CloseLoan` intents accept exact amounts and explicit quote bounds for callers
 that build their own transaction flow.
+
+For an owner-aware opening or increase quote, supply both `coldkey_ss58` and
+`hotkey_ss58` to `lending_open_quote`. Omitting both addresses keeps the fresh-loan
+quote; it does not account for an existing position.

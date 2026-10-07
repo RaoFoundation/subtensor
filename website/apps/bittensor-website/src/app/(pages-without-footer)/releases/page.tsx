@@ -30,7 +30,8 @@ const releases: Release[] = [
       'A pool migration preserves opening prices and local sensitivity while creating separate ' +
       'lending reserves from unreachable balances. Additional depth calibration is deferred. ' +
       'Custodial alpha shorts and transferable TAO loans use 25% LTV, with additional funded-redemption ' +
-      'limits protecting TAO-loan collateral. They have fixed principal, weekly collateral ' +
+      'limits protecting TAO-loan collateral. Positions can grow through the same open command. ' +
+      'They have fixed principal, weekly collateral ' +
       'interest that burns TAO, and a 10% borrowing cap per asset. Borrowing requires the complete ' +
       'migration to succeed.',
     href: '/releases/pool-lending',

@@ -50,8 +50,8 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 
 | Operation | Signer | Origin | Summary |
 | --- | --- | --- | --- |
-| [`close-loan`](/docs/tx/close-loan) | coldkey | signed account (pallet role may apply) | Repay the original debt and return remaining collateral on a subnet. |
-| [`open-loan`](/docs/tx/open-loan) | coldkey | signed account (pallet role may apply) | Open one fixed-principal loan on a subnet at 25% initial LTV. |
+| [`close-loan`](/docs/tx/close-loan) | coldkey | signed account (pallet role may apply) | Repay total principal and return remaining collateral on a subnet. |
+| [`open-loan`](/docs/tx/open-loan) | coldkey | signed account (pallet role may apply) | Open or increase a fixed-principal subnet loan at up to 25% LTV. |
 
 ## Multisig
 

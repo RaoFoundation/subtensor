@@ -97,6 +97,392 @@ fn redemption_supply(netuid: NetUid) -> u128 {
     <SubtensorModule as LendingPoolInterface<U256>>::redemption_alpha_supply(netuid).unwrap()
 }
 
+fn grow(
+    owner: U256,
+    hotkey: U256,
+    netuid: NetUid,
+    side: Side,
+    collateral: u64,
+) -> pallet_lending::OpeningQuote {
+    let quote = Lending::quote_open_for(&owner, netuid, side, collateral, &hotkey).unwrap();
+    assert_ok!(Lending::open(
+        RuntimeOrigin::signed(owner),
+        netuid,
+        side,
+        collateral,
+        hotkey,
+        quote.principal,
+        if side == Side::Short {
+            quote.opening_value
+        } else {
+            0
+        },
+    ));
+    quote
+}
+
+fn assert_single_position(owner: U256, hotkey: U256, netuid: NetUid) {
+    let position = Positions::<Test>::get(owner, netuid).unwrap();
+    let escrow = Lending::position_account(&owner, netuid);
+    assert_eq!(Positions::<Test>::iter().count(), 1);
+    assert_eq!(
+        pallet_lending::OpenByNetuid::<Test>::iter_prefix(netuid).count(),
+        1
+    );
+    assert_eq!(
+        pallet_lending::EscrowOwner::<Test>::get(netuid, escrow),
+        Some(owner)
+    );
+    assert_eq!(pallet_lending::PositionCount::<Test>::get(netuid), 1);
+    assert_eq!(pallet_lending::TotalPositions::<Test>::get(), 1);
+    assert_eq!(pallet_lending::LoanHotkeys::<Test>::get(hotkey), 1);
+    assert_eq!(pallet_lending::Due::<Test>::iter().count(), 1);
+    assert!(pallet_lending::Due::<Test>::contains_key(
+        position.due,
+        (owner, netuid)
+    ));
+    assert_eq!(pallet_lending::NextDue::<Test>::get(), Some(position.due));
+    assert_live_stake_total();
+    assert_total_alpha_staked_invariant(netuid);
+}
+
+#[test]
+fn growing_short_preserves_custody_coupon_and_one_position_then_closes_combined_debt() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        let (owner, hotkey) = borrower(210);
+        let original_vault = Vaults::<Test>::get(netuid).unwrap();
+        open(owner, hotkey, netuid, Side::Short);
+        let first = Positions::<Test>::get(owner, netuid).unwrap();
+        let elapsed = 100;
+        System::set_block_number(System::block_number() + elapsed);
+        pallet_lending::References::<Test>::mutate(netuid, |reference| {
+            reference.as_mut().unwrap().price = substrate_fixed::types::U64F64::from_num(2);
+        });
+        let burn = burn_account();
+        let burn_before = Balances::free_balance(burn);
+        let interest_numerator = u128::from(first.annual_interest) * u128::from(elapsed);
+        let paid = (interest_numerator / u128::from(LendingBlocksPerYear::get())) as u64;
+        let remainder = (interest_numerator % u128::from(LendingBlocksPerYear::get())) as u64;
+        let added_collateral = 2 * COLLATERAL;
+        let added = grow(owner, hotkey, netuid, Side::Short, added_collateral);
+        let combined = Positions::<Test>::get(owner, netuid).unwrap();
+        assert_eq!(combined.principal, first.principal + added.principal);
+        assert_eq!(
+            combined.collateral,
+            first.collateral - paid + added_collateral
+        );
+        assert_eq!(combined.proceeds, first.proceeds + added.opening_value);
+        assert_eq!(
+            combined.annual_interest,
+            first.annual_interest + added.annual_interest
+        );
+        assert_eq!(combined.interest_remainder, remainder);
+        assert_eq!(combined.last_accrued, System::block_number());
+        assert_eq!(combined.due, first.due);
+        assert_eq!(Vaults::<Test>::get(netuid).unwrap().pending_tao, paid);
+        assert!(System::events().iter().any(|record| record.event
+            == RuntimeEvent::Lending(pallet_lending::Event::Increased {
+                owner,
+                netuid,
+                side: Side::Short,
+                principal: added.principal,
+                collateral: added_collateral,
+                proceeds: added.opening_value,
+                annual_interest: added.annual_interest,
+            })));
+        let escrow = Lending::position_account(&owner, netuid);
+        assert_eq!(
+            Balances::free_balance(escrow).to_u64(),
+            combined.collateral + combined.proceeds
+        );
+        assert_single_position(owner, hotkey, netuid);
+        Lending::on_idle(System::block_number(), meter().remaining());
+        assert_eq!(
+            Balances::free_balance(burn),
+            burn_before + TaoBalance::from(paid)
+        );
+        let closing = Lending::quote_close(&owner, netuid, false).unwrap();
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            false,
+            closing.payment,
+            closing.refund,
+        ));
+        let vault = Vaults::<Test>::get(netuid).unwrap();
+        assert_eq!(vault.outstanding_alpha, 0);
+        assert_eq!(vault.available_alpha, original_vault.available_alpha);
+        assert!(!Positions::<Test>::contains_key(owner, netuid));
+        assert_eq!(pallet_lending::PositionCount::<Test>::get(netuid), 0);
+        assert_eq!(pallet_lending::TotalPositions::<Test>::get(), 0);
+        assert_eq!(pallet_lending::LoanHotkeys::<Test>::get(hotkey), 0);
+        assert_live_stake_total();
+        assert_total_alpha_staked_invariant(netuid);
+    });
+}
+
+#[test]
+fn real_long_loop_grows_one_loan_under_combined_funded_ltv_and_burns_interest() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        let (owner, hotkey) = borrower(211);
+        buy(&owner, &hotkey, netuid, 200 * UNIT);
+        let initial_alpha = stake(&owner, &hotkey, netuid);
+        let original_vault = Vaults::<Test>::get(netuid).unwrap();
+        open(owner, hotkey, netuid, Side::Long);
+        let first = Positions::<Test>::get(owner, netuid).unwrap();
+        let bought = buy(&owner, &hotkey, netuid, first.principal).to_u64();
+        let before_grow = Vaults::<Test>::get(netuid).unwrap();
+        let supply = redemption_supply(netuid);
+        let combined_collateral = first.collateral + bought;
+        let expected = (u128::from(combined_collateral) * u128::from(before_grow.available_tao)
+            - 4 * u128::from(first.principal) * supply)
+            / (4 * supply + u128::from(combined_collateral));
+        let added = grow(owner, hotkey, netuid, Side::Long, bought);
+        assert_eq!(u128::from(added.principal), expected);
+        let combined = Positions::<Test>::get(owner, netuid).unwrap();
+        let vault = Vaults::<Test>::get(netuid).unwrap();
+        assert_eq!(combined.principal, first.principal + added.principal);
+        assert_eq!(combined.collateral, combined_collateral);
+        assert_eq!(
+            combined.annual_interest,
+            first.annual_interest + added.annual_interest
+        );
+        assert_eq!(combined.proceeds, 0);
+        assert_eq!(combined.due, first.due);
+        assert_eq!(
+            vault.available_tao,
+            before_grow.available_tao - added.principal
+        );
+        assert_eq!(vault.outstanding_tao, combined.principal);
+        assert!(
+            4 * u128::from(combined.principal) * supply
+                <= u128::from(combined.collateral) * u128::from(vault.available_tao)
+        );
+        assert_single_position(owner, hotkey, netuid);
+        let coupon = (u128::from(combined.annual_interest)
+            * u128::from(LendingInterestPeriod::get())
+            / u128::from(LendingBlocksPerYear::get())) as u64;
+        let proceeds =
+            <SubtensorModule as LendingPoolInterface<U256>>::quote_sell(netuid, coupon.into())
+                .unwrap();
+        let burn_before = Balances::free_balance(burn_account());
+        System::set_block_number(combined.due);
+        Lending::on_idle(System::block_number(), meter().remaining());
+        assert_eq!(
+            Balances::free_balance(burn_account()),
+            burn_before + proceeds
+        );
+        let closing = Lending::quote_close(&owner, netuid, false).unwrap();
+        assert_eq!(closing.payment, combined.principal);
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            false,
+            closing.payment,
+            closing.refund,
+        ));
+        let vault = Vaults::<Test>::get(netuid).unwrap();
+        assert_eq!(vault.outstanding_tao, 0);
+        assert_eq!(vault.available_tao, original_vault.available_tao);
+        let total_interest = (u128::from(combined.annual_interest)
+            * u128::from(LendingInterestPeriod::get()))
+        .div_ceil(u128::from(LendingBlocksPerYear::get())) as u64;
+        assert_eq!(
+            stake(&owner, &hotkey, netuid),
+            initial_alpha + bought - total_interest
+        );
+        assert!(!Positions::<Test>::contains_key(owner, netuid));
+        assert_live_stake_total();
+        assert_total_alpha_staked_invariant(netuid);
+    });
+}
+
+#[test]
+fn growing_long_adds_a_new_fixed_alpha_coupon_without_repricing_the_old_loan() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        let (owner, hotkey) = borrower(215);
+        buy(&owner, &hotkey, netuid, 500 * UNIT);
+        open(owner, hotkey, netuid, Side::Long);
+        let first = Positions::<Test>::get(owner, netuid).unwrap();
+        let elapsed = 100;
+        System::set_block_number(System::block_number() + elapsed);
+        pallet_lending::References::<Test>::mutate(netuid, |reference| {
+            reference.as_mut().unwrap().price = substrate_fixed::types::U64F64::from_num(2);
+        });
+        let wallet = Balances::free_balance(owner);
+        let source_alpha = stake(&owner, &hotkey, netuid);
+        let paid = (u128::from(first.annual_interest) * u128::from(elapsed)
+            / u128::from(LendingBlocksPerYear::get())) as u64;
+        let added = grow(owner, hotkey, netuid, Side::Long, COLLATERAL);
+        let combined = Positions::<Test>::get(owner, netuid).unwrap();
+        assert_eq!(
+            combined.annual_interest,
+            first.annual_interest + added.annual_interest
+        );
+        assert!(combined.annual_interest > combined.principal.div_ceil(2));
+        assert_eq!(combined.collateral, first.collateral - paid + COLLATERAL);
+        assert_eq!(combined.due, first.due);
+        assert_eq!(
+            Balances::free_balance(owner),
+            wallet + TaoBalance::from(added.principal)
+        );
+        assert_eq!(stake(&owner, &hotkey, netuid), source_alpha - COLLATERAL);
+        assert_eq!(Vaults::<Test>::get(netuid).unwrap().pending_alpha, paid);
+        assert_eq!(
+            stake(
+                &Lending::position_account(&owner, netuid),
+                &Lending::custody_hotkey().unwrap(),
+                netuid
+            ),
+            combined.collateral
+        );
+        assert_single_position(owner, hotkey, netuid);
+    });
+}
+
+#[test]
+fn growing_position_rejects_side_hotkey_and_quote_mismatches_without_charging_interest() {
+    for side in [Side::Short, Side::Long] {
+        new_test_ext(1).execute_with(|| {
+            let netuid = funded_market();
+            let (owner, hotkey) = borrower(212);
+            let (_, different_hotkey) = borrower(213);
+            if side == Side::Long {
+                buy(&owner, &hotkey, netuid, 500 * UNIT);
+            }
+            open(owner, hotkey, netuid, side);
+            System::set_block_number(System::block_number() + 100);
+            let wrong_side = if side == Side::Short {
+                Side::Long
+            } else {
+                Side::Short
+            };
+            for (requested_side, requested_hotkey) in
+                [(wrong_side, hotkey), (side, different_hotkey)]
+            {
+                assert_noop!(
+                    Lending::open(
+                        RuntimeOrigin::signed(owner),
+                        netuid,
+                        requested_side,
+                        COLLATERAL,
+                        requested_hotkey,
+                        0,
+                        0,
+                    ),
+                    pallet_lending::Error::<Test>::PositionExists
+                );
+            }
+            assert_noop!(
+                Lending::open(
+                    RuntimeOrigin::signed(owner),
+                    netuid,
+                    side,
+                    COLLATERAL,
+                    hotkey,
+                    u64::MAX,
+                    0,
+                ),
+                pallet_lending::Error::<Test>::BelowMinimumBorrow
+            );
+            if side == Side::Short {
+                assert_noop!(
+                    Lending::open(
+                        RuntimeOrigin::signed(owner),
+                        netuid,
+                        side,
+                        COLLATERAL,
+                        hotkey,
+                        0,
+                        u64::MAX,
+                    ),
+                    pallet_lending::Error::<Test>::BelowMinimumProceeds
+                );
+            }
+            assert_single_position(owner, hotkey, netuid);
+        });
+    }
+}
+
+#[test]
+fn failed_growth_transfer_rolls_back_accrued_coupon_and_real_collateral() {
+    for side in [Side::Short, Side::Long] {
+        new_test_ext(1).execute_with(|| {
+            let netuid = funded_market();
+            let (owner, hotkey) = borrower(214);
+            if side == Side::Long {
+                buy(&owner, &hotkey, netuid, 500 * UNIT);
+            }
+            open(owner, hotkey, netuid, side);
+            System::set_block_number(System::block_number() + 100);
+            assert!(Lending::quote_open_for(&owner, netuid, side, COLLATERAL, &hotkey).is_ok());
+            let empty = if side == Side::Short {
+                owner
+            } else {
+                Lending::reserve_account(netuid)
+            };
+            let balance = SubtensorModule::get_coldkey_balance(&empty);
+            assert_ok!(SubtensorModule::transfer_tao(
+                &empty,
+                &U256::from(999),
+                balance
+            ));
+            let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+            assert!(
+                Lending::open(
+                    RuntimeOrigin::signed(owner),
+                    netuid,
+                    side,
+                    COLLATERAL,
+                    hotkey,
+                    0,
+                    0,
+                )
+                .is_err()
+            );
+            assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+            assert_single_position(owner, hotkey, netuid);
+        });
+    }
+}
+
+#[test]
+fn grown_long_deregisters_as_one_merged_debt_against_ordinary_funded_redemption() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = funded_market();
+        let (owner, hotkey) = borrower(216);
+        buy(&owner, &hotkey, netuid, 500 * UNIT);
+        open(owner, hotkey, netuid, Side::Long);
+        grow(owner, hotkey, netuid, Side::Long, COLLATERAL);
+        let combined = Positions::<Test>::get(owner, netuid).unwrap();
+        assert_single_position(owner, hotkey, netuid);
+        System::set_block_number(combined.due);
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        assert!(Lending::settle_shorts(netuid, &mut meter()));
+        run_destroy_alpha_get_total_and_settle(netuid);
+        let funded = Positions::<Test>::get(owner, netuid).unwrap().proceeds;
+        assert!(funded > combined.principal);
+        let wallet_after_ordinary_payout = Balances::free_balance(owner);
+        assert!(Lending::settle_remaining_longs(netuid, &mut meter()));
+        let vault = Vaults::<Test>::get(netuid).unwrap();
+        assert_eq!(vault.outstanding_tao, 0);
+        assert_eq!(vault.available_tao, combined.principal);
+        assert_eq!(vault.lost_tao, 0);
+        assert_eq!(
+            Balances::free_balance(owner),
+            wallet_after_ordinary_payout + TaoBalance::from(funded - combined.principal)
+        );
+        assert!(!Positions::<Test>::contains_key(owner, netuid));
+        assert_eq!(pallet_lending::PositionCount::<Test>::get(netuid), 0);
+        assert_eq!(pallet_lending::TotalPositions::<Test>::get(), 0);
+        assert_eq!(pallet_lending::LoanHotkeys::<Test>::get(hotkey), 0);
+        assert_total_alpha_staked_invariant(netuid);
+    });
+}
+
 #[test]
 fn lending_redemption_supply_counts_actual_claims_and_future_pool_claims() {
     new_test_ext(1).execute_with(|| {
