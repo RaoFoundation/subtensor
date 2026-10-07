@@ -1503,9 +1503,13 @@ parameter_types! {
 pub struct LendingWeights;
 impl pallet_lending::weights::WeightInfo for LendingWeights {
     fn open() -> Weight {
+        // Retain the short's bounded swap-quote envelope and cover every existing
+        // loan read by long admission with a measured transfer envelope. Include
+        // the iterator's terminal read and the aggregate-supply/readiness hook.
+        let scan = (LendingMaxPositionsPerSubnet::get() as u64).saturating_add(1);
         <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::add_stake().saturating_mul(66)
-            .saturating_add(<pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::transfer_stake().saturating_mul(4))
-            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(18,12))
+            .saturating_add(<pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::transfer_stake().saturating_mul(4_u64.saturating_add(scan)))
+            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(24,12))
     }
     fn close() -> Weight {
         <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::add_stake().saturating_mul(780)

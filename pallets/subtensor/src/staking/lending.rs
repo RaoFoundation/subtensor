@@ -23,6 +23,35 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
             && !ColdkeySwapDisputes::<T>::contains_key(owner)
     }
 
+    fn redemption_alpha_supply(netuid: NetUid) -> Result<u128, DispatchError> {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(
+            !crate::migrations::migrate_total_alpha_staked::in_progress::<T>(),
+            Error::<T>::LendingUnavailable
+        );
+        // AlphaOut includes burns and pending emissions that have no redemption
+        // claim. The canonical stake aggregate counts actual funded claims.
+        // Include pool alpha for legacy subnets too: it can become an eligible
+        // holder's claim before deregistration, so excluding it overvalues loans.
+        let supply = u128::from(SubnetAlphaIn::<T>::get(netuid).to_u64())
+            .checked_add(u128::from(SubnetProtocolAlpha::<T>::get(netuid).to_u64()))
+            .and_then(|value| {
+                value.checked_add(u128::from(TotalAlphaStaked::<T>::get(netuid).to_u64()))
+            })
+            .and_then(|value| {
+                // Already materialized protocol alpha is restored to AlphaIn
+                // before the ordinary dissolution denominator is frozen.
+                value.checked_add(u128::from(
+                    T::SwapInterface::protocol_alpha_reservoir(netuid).to_u64(),
+                ))
+            })
+            .ok_or(DispatchError::Arithmetic(
+                sp_runtime::ArithmeticError::Overflow,
+            ))?;
+        ensure!(supply > 0, Error::<T>::AmountTooLow);
+        Ok(supply)
+    }
+
     fn quote_sell(netuid: NetUid, alpha: AlphaBalance) -> Result<TaoBalance, DispatchError> {
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         let quote = T::SwapInterface::sim_swap(netuid, GetTaoForAlpha::<T>::with_amount(alpha))?;

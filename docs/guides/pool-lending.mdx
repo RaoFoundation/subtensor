@@ -88,10 +88,36 @@ loans TAO from the separate vault directly to the coldkey's free balance. That
 TAO may be transferred, used to buy alpha or used elsewhere. Assets purchased
 with it are not assumed to remain in contract custody.
 
-For alpha collateral `A`, the TAO debt is the smaller of `A × E / 4` and the net
+For alpha collateral `A`, the TAO debt cannot exceed `A × E / 4` or the net
 TAO proceeds of a simulated sale of `A / 4`. This simulation does not sell the
-locked collateral. The full quote must execute and pass the vault inventory
-and borrowing-cap checks.
+locked collateral. The full quote must execute. A further funded-redemption
+limit can reduce the loan below both amounts, and vault inventory and the
+aggregate borrowing cap must also permit it.
+
+The funded-redemption limit values the collateral using only TAO that would
+still be available for ordinary deregistration payouts after the new loan.
+It assumes all active AMM TAO could be withdrawn by subsequent alpha sales,
+so only the unloaned TAO vault inventory counts as backing. Outstanding TAO
+principal, pending interest and anticipated recoveries from other positions do
+not count. A conservative count of potential alpha redemption claims determines
+the collateral's share of that backing: pool alpha, protocol alpha, actual staked
+alpha and the protocol alpha buffer restored before deregistration payouts.
+Borrowing TAO waits until the actual-stake aggregate has finished backfilling.
+
+The new TAO loan must be no more than **25% of this stressed funded value**.
+The withdrawal must also leave every existing TAO loan fully covered by its
+own remaining alpha collateral, after deducting interest accrued through the
+current block. Surplus coverage on one loan cannot offset a deficit on another.
+Quotes and loan openings apply the same checks across all borrowers on the
+subnet.
+
+For example, let `B` be the unloaned TAO vault inventory before opening,
+`N` the conservative alpha claim count and `A` the new alpha collateral.
+After lending `L` TAO, that collateral's stressed redemption is
+`A × (B − L) / N`. Applying 25% LTV therefore limits the new loan to
+`L ≤ A × B / (4 × N + A)`, rounded down, before the other opening checks.
+This accounts for the loan's own withdrawal rather than valuing collateral
+against backing that the borrower is about to remove.
 
 Closing requires the owner to repay that original TAO principal from free
 balance. The remaining alpha collateral is then returned to the saved hotkey.
@@ -157,6 +183,12 @@ executable-depth checks, custody and borrowing caps provide additional limits.
 The chain does not impose a blanket borrowing pause merely because spot and
 the EMA disagree.
 
+TAO loans additionally use funded-redemption backing. A high market price or
+slow EMA does not by itself make alpha safe collateral near deregistration.
+New TAO withdrawals cannot consume the stressed backing needed by existing TAO
+loans. This check constrains new borrowing; it does not guarantee future
+coverage as interest consumes collateral or the alpha claim count changes.
+
 At launch, outstanding borrowing in each asset may not exceed **10% of that
 asset's funded vault inventory**: available inventory plus outstanding fixed
 principal. This is an aggregate subnet cap, not a per-user allowance or a share
@@ -204,6 +236,9 @@ owing 50 TAO whose collateral redeems for 70 TAO repays 50 and refunds 20. If it
 redeems for 20 TAO, the chain recovers 20 and records a 30-TAO loss. Freely
 transferred TAO is not reclaimed from elsewhere. Recovery is routed separately
 from the already-fixed payout pot to avoid counting the same funds twice.
+Pledged alpha receives the ordinary funded pro-rata redemption rate, without
+priority over other alpha holders. The conservative opening valuation does
+not create a different payout rate or replace actual funded receipts.
 
 Tiny terminal refunds below the account minimum cannot recreate a reaped
 account. These amounts are recycled explicitly and recorded as `DustForfeited`;

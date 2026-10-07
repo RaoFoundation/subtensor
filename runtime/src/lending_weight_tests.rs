@@ -23,7 +23,9 @@ fn lending_close_and_hooks_fit_runtime_block_budget() {
         .saturating_add(block_step_weight)
         .saturating_add(<pallet_subtensor::weights::SubstrateWeight<Runtime> as SubtensorWeightInfo>::fund_lending_reserves());
     let close = LendingWeights::close();
+    let open = LendingWeights::open();
     assert!(hooks.saturating_add(close).all_lte(MAXIMUM_BLOCK_WEIGHT));
+    assert!(hooks.saturating_add(open).all_lte(MAXIMUM_BLOCK_WEIGHT));
     let Some(normal) = BlockWeights::get()
         .get(frame_support::dispatch::DispatchClass::Normal)
         .max_extrinsic
@@ -31,6 +33,7 @@ fn lending_close_and_hooks_fit_runtime_block_budget() {
         panic!("normal dispatch needs an extrinsic budget");
     };
     assert!(close.all_lte(normal));
+    assert!(open.all_lte(normal));
 }
 
 #[test]

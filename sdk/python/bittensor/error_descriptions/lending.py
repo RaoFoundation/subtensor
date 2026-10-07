@@ -77,4 +77,13 @@ DESCRIPTIONS: dict[str, str] = {
         "The short's opening sale returns less TAO than the caller's minimum. Requote the full "
         "opening; the failed call moves no assets."
     ),
+    "RedemptionUnavailable": (
+        "The subnet's funded-redemption alpha supply is unavailable or its aggregate staking "
+        "counter is still being migrated. Wait for complete counters before borrowing TAO."
+    ),
+    "InsufficientRedemptionBacking": (
+        "Unloaned vault TAO cannot safely back this withdrawal and each existing TAO loan "
+        "after accrued interest under the funded-redemption stress. Wait for repayment or "
+        "additional funding."
+    ),
 }

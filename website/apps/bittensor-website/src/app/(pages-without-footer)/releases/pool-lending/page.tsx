@@ -64,6 +64,14 @@ export default function PoolLendingRelease() {
               also require the caller’s minimum net TAO proceeds.
             </li>
             <li>
+              <strong>TAO loans also require funded redemption backing.</strong> A new loan cannot
+              exceed 25% of its alpha collateral&apos;s conservative funded deregistration value
+              after the withdrawal. This assumes all active AMM TAO could be sold out and counts
+              only unloaned TAO vault inventory. Every existing TAO loan must remain fully covered
+              by its own collateral after accrued interest; one position&apos;s surplus cannot cover
+              another&apos;s deficit. The runtime quote and opening enforce the same limits.
+            </li>
+            <li>
               <strong>100% nominal annual interest on opening loan value.</strong> Coupons are fixed
               in collateral units, accrue per block and are collected weekly. A 250-TAO opening loan
               pays about 4.79 TAO per seven days, not 1,000 TAO annually merely because it has 1,000
@@ -127,6 +135,13 @@ export default function PoolLendingRelease() {
             elsewhere is not assumed to remain in custody. Tiny refunds that cannot recreate a
             reaped account are explicitly recycled and recorded as <code>DustForfeited</code>.
             Cleanup finishes before the subnet identifier can be reused.
+          </p>
+          <p>
+            Alpha collateral receives ordinary funded pro-rata redemption, with no priority over
+            other holders and no promised EMA payout. The additional borrowing check constrains
+            withdrawals rather than changing settlement. Interest deductions and changes in alpha
+            claims can still weaken future coverage, so the design continues to accept credit
+            losses.
           </p>
         </section>
 

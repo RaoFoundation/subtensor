@@ -319,6 +319,11 @@ impl LendingPoolInterface<Account> for MockPool {
     fn quote_buy(netuid: NetUid, amount: TaoBalance) -> Result<AlphaBalance, DispatchError> {
         Self::buy_quote(netuid, amount.to_u64()).map(Into::into)
     }
+    fn redemption_alpha_supply(_: NetUid) -> Result<u128, DispatchError> {
+        let supply = read::<Option<u128>>(b"test/redemption_supply").unwrap_or(1_000);
+        ensure!(supply > 0, DispatchError::Other("redemption unavailable"));
+        Ok(supply)
+    }
     fn return_dissolution_reserves(
         netuid: NetUid,
         account: &Account,
@@ -396,6 +401,259 @@ fn idle(now: u64) {
 }
 fn meter() -> WeightMeter {
     WeightMeter::with_limit(Weight::MAX)
+}
+
+fn indexed_long(owner: u8, principal: u64, collateral: u64) {
+    let owner = account(owner);
+    Positions::<Test>::insert(
+        &owner,
+        netuid(),
+        Position {
+            side: Side::Long,
+            hotkey: owner.clone(),
+            principal,
+            collateral,
+            proceeds: 0,
+            annual_interest: 0,
+            last_accrued: 1,
+            interest_remainder: 0,
+            due: 11,
+        },
+    );
+    OpenByNetuid::<Test>::insert(netuid(), &owner, ());
+}
+
+#[test]
+fn funded_long_limit_is_maximal_at_quarter_of_post_withdrawal_redemption() {
+    ext().execute_with(|| {
+        for (collateral, backing, supply) in [
+            (4_u64, 100_000_u64, 200_001_u128),
+            (1_000, 100_000, 200_001),
+            (7_777, 98_765, 123_457),
+            (u64::MAX, u64::MAX, u128::from(u64::MAX)),
+        ] {
+            write(b"test/redemption_supply", Some(supply));
+            let expected = u128::from(collateral) * u128::from(backing)
+                / (4 * supply + u128::from(collateral));
+            if expected == 0 {
+                assert_eq!(
+                    Lending::funded_long_limit(netuid(), collateral, backing),
+                    Err(Error::<Test>::InsufficientRedemptionBacking.into())
+                );
+                continue;
+            }
+            let loan = Lending::funded_long_limit(netuid(), collateral, backing).unwrap();
+            assert_eq!(u128::from(loan), expected);
+            assert!(
+                4 * u128::from(loan) * supply
+                    <= u128::from(collateral) * u128::from(backing - loan)
+            );
+            let larger = loan + 1;
+            assert!(
+                4 * u128::from(larger) * supply
+                    > u128::from(collateral) * u128::from(backing - larger)
+            );
+        }
+    });
+}
+
+#[test]
+fn long_quote_and_open_use_redemption_backing_after_their_own_withdrawal() {
+    ext().execute_with(|| {
+        write(b"test/redemption_supply", Some(200_001_u128));
+        let quote = Lending::quote_open(netuid(), Side::Long, 1_000).unwrap();
+        assert_eq!(quote.principal, 124);
+        assert!(quote.principal < MockPool::sell_quote(netuid(), 250).unwrap());
+        let before = tao(&account(1));
+        open(Side::Long, 1_000);
+        let vault = Vaults::<Test>::get(netuid()).unwrap();
+        assert_eq!(position().principal, quote.principal);
+        assert_eq!(tao(&account(1)) - before, quote.principal);
+        assert_eq!(vault.available_tao, 100_000 - quote.principal);
+        assert_eq!(vault.outstanding_tao, quote.principal);
+        assert!(
+            4 * u128::from(quote.principal) * 200_001 <= 1_000 * u128::from(vault.available_tao)
+        );
+        assert_eq!(swap_count(), 0);
+    });
+}
+
+#[test]
+fn maintenance_counts_rounded_up_interest_before_the_weekly_collection() {
+    ext().execute_with(|| {
+        write(b"test/redemption_supply", Some(200_000_u128));
+        indexed_long(2, 1_000, 2_002);
+        Positions::<Test>::mutate(account(2), netuid(), |p| {
+            p.as_mut().unwrap().annual_interest = 1;
+        });
+        assert_eq!(
+            Lending::quote_open(netuid(), Side::Long, 1_000)
+                .unwrap()
+                .principal,
+            99
+        );
+        System::set_block_number(2);
+        let old = Positions::<Test>::get(account(2), netuid()).unwrap();
+        assert!(System::block_number() < old.due);
+        let quote = Lending::quote_open(netuid(), Side::Long, 1_000).unwrap();
+        assert_eq!(quote.principal, 49);
+        assert_eq!(Positions::<Test>::get(account(2), netuid()).unwrap(), old);
+        open(Side::Long, 1_000);
+        let backing = Vaults::<Test>::get(netuid()).unwrap().available_tao;
+        assert!(
+            u128::from(old.principal) * 200_000
+                <= u128::from(old.collateral - 1) * u128::from(backing)
+        );
+        assert!(
+            u128::from(old.principal) * 200_000
+                > u128::from(old.collateral - 1) * u128::from(backing - 1)
+        );
+        assert_eq!(burned_tao(), 0);
+    });
+}
+
+#[test]
+fn prior_fractional_interest_is_part_of_redemption_maintenance() {
+    ext().execute_with(|| {
+        write(b"test/redemption_supply", Some(200_000_u128));
+        indexed_long(2, 1_000, 2_002);
+        Positions::<Test>::mutate(account(2), netuid(), |p| {
+            p.as_mut().unwrap().interest_remainder = 1;
+        });
+        assert_eq!(
+            Lending::quote_open(netuid(), Side::Long, 1_000)
+                .unwrap()
+                .principal,
+            49
+        );
+    });
+}
+
+#[test]
+fn each_existing_loan_needs_coverage_without_using_another_borrowers_surplus() {
+    ext().execute_with(|| {
+        write(b"test/redemption_supply", Some(200_000_u128));
+        indexed_long(2, 1_000, 1_000);
+        indexed_long(3, 1, 100_000);
+        // Pooling these claims would appear safe; the first borrower is not covered.
+        let first = Positions::<Test>::get(account(2), netuid()).unwrap();
+        let second = Positions::<Test>::get(account(3), netuid()).unwrap();
+        let debt = u128::from(first.principal) + u128::from(second.principal);
+        let collateral = u128::from(first.collateral) + u128::from(second.collateral);
+        let backing = u128::from(Vaults::<Test>::get(netuid()).unwrap().available_tao);
+        assert!(debt * 200_000 <= collateral * backing);
+        assert_eq!(
+            Lending::quote_open(netuid(), Side::Long, 1_000),
+            Err(Error::<Test>::InsufficientRedemptionBacking.into())
+        );
+        let vault = Vaults::<Test>::get(netuid()).unwrap();
+        let owner_tao = tao(&account(1));
+        let owner_alpha = alpha(&account(1), &account(1), netuid());
+        assert_noop!(
+            Lending::open(
+                RuntimeOrigin::signed(account(1)),
+                netuid(),
+                Side::Long,
+                1_000,
+                account(1),
+                1,
+                0,
+            ),
+            Error::<Test>::InsufficientRedemptionBacking
+        );
+        assert_eq!(Vaults::<Test>::get(netuid()).unwrap(), vault);
+        assert_eq!(tao(&account(1)), owner_tao);
+        assert_eq!(alpha(&account(1), &account(1), netuid()), owner_alpha);
+        assert!(Positions::<Test>::get(account(1), netuid()).is_none());
+        assert_eq!(PositionCount::<Test>::get(netuid()), 0);
+    });
+}
+
+#[test]
+fn coupons_outstanding_debt_and_anticipated_recoveries_do_not_fund_new_loans() {
+    ext().execute_with(|| {
+        write(b"test/redemption_supply", Some(200_001_u128));
+        let quote = Lending::quote_open(netuid(), Side::Long, 1_000).unwrap();
+        indexed_long(2, 9_000, 100_000);
+        Positions::<Test>::mutate(account(2), netuid(), |p| {
+            p.as_mut().unwrap().proceeds = 500_000;
+        });
+        Vaults::<Test>::mutate(netuid(), |vault| {
+            let vault = vault.as_mut().unwrap();
+            vault.outstanding_tao = 9_000;
+            vault.outstanding_alpha = 9_000;
+            vault.pending_tao = 500_000;
+            vault.pending_alpha = 500_000;
+        });
+        mint_tao(&Lending::reserve_account(netuid()), 500_000);
+        mint_tao(&Lending::recovery_account(), 500_000);
+        write(
+            &key(b"test/market", netuid()),
+            (1_000_000_u64, 100_000_000_u64),
+        );
+        assert_eq!(Lending::quote_open(netuid(), Side::Long, 1_000), Ok(quote));
+        open(Side::Long, 1_000);
+        assert_eq!(position().principal, 124);
+    });
+}
+
+#[test]
+fn missing_redemption_or_overflow_fail_closed_without_blocking_shorts() {
+    ext().execute_with(|| {
+        let short = Lending::quote_open(netuid(), Side::Short, 1_000).unwrap();
+        write(b"test/redemption_supply", Some(0_u128));
+        assert_noop!(
+            Lending::open(
+                RuntimeOrigin::signed(account(1)),
+                netuid(),
+                Side::Long,
+                1_000,
+                account(1),
+                1,
+                0,
+            ),
+            Error::<Test>::RedemptionUnavailable
+        );
+        assert_eq!(Lending::quote_open(netuid(), Side::Short, 1_000), Ok(short));
+        open(Side::Short, 1_000);
+    });
+    ext().execute_with(|| {
+        write(b"test/redemption_supply", Some(u128::MAX));
+        assert_noop!(
+            Lending::open(
+                RuntimeOrigin::signed(account(1)),
+                netuid(),
+                Side::Long,
+                1_000,
+                account(1),
+                1,
+                0,
+            ),
+            Error::<Test>::Arithmetic
+        );
+        write(b"test/redemption_supply", Some(u128::MAX / 8));
+        indexed_long(2, 9, 1_000);
+        assert_eq!(
+            Lending::funded_long_limit(netuid(), 1_000, 100_000),
+            Err(Error::<Test>::Arithmetic.into())
+        );
+    });
+}
+
+#[test]
+fn redemption_maintenance_scan_handles_the_bound_and_rejects_extra_entries() {
+    ext().execute_with(|| {
+        write(b"test/redemption_supply", Some(200_000_u128));
+        for owner in 2..=5 {
+            indexed_long(owner, 1_000, 2_002);
+        }
+        assert_eq!(Lending::funded_long_limit(netuid(), 1_000, 100_000), Ok(99));
+        indexed_long(6, 1, 100_000);
+        assert_eq!(
+            Lending::funded_long_limit(netuid(), 1_000, 100_000),
+            Err(Error::<Test>::TooManyPositions.into())
+        );
+    });
 }
 
 #[test]

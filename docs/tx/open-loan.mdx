@@ -19,7 +19,7 @@ per coldkey and subnet; close it before opening another.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L548-L686) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L553-L691) |
 
 ## Parameters
 
@@ -77,7 +77,7 @@ result = sub.execute_tool("open_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open` — [`pallets/lending/src/lib.rs#L551`](/code/pallets/lending/src/lib.rs#L548-L686):
+`Lending.open` — [`pallets/lending/src/lib.rs#L556`](/code/pallets/lending/src/lib.rs#L553-L691):
 
 ```rust
 #[pallet::call_index(0)]
@@ -221,6 +221,6 @@ pub fn open(
 }
 ```
 
-Delegates to [`quote_open`](/code/pallets/lending/src/lib.rs#L900), [`reserve_account`](/code/pallets/lending/src/lib.rs#L819), [`position_account`](/code/pallets/lending/src/lib.rs#L823).
+Delegates to [`quote_open`](/code/pallets/lending/src/lib.rs#L905), [`reserve_account`](/code/pallets/lending/src/lib.rs#L824), [`position_account`](/code/pallets/lending/src/lib.rs#L828).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

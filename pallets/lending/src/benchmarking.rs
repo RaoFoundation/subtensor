@@ -27,7 +27,7 @@ fn setup<T: Config>() -> (T::AccountId, T::AccountId, NetUid) {
         &owner,
         &hotkey,
         netuid,
-        10_000_000_000_u64.into(),
+        100_000_000_000_u64.into(),
         u64::MAX.into(),
         false,
     )
@@ -64,6 +64,40 @@ mod benchmarks {
         assert!(Positions::<T>::contains_key(owner, netuid));
     }
 
+    // Measure the independent long-admission scan in addition to the short's
+    // bounded swap quotes. The runtime conservatively composes both envelopes.
+    #[benchmark(extra)]
+    fn funded_long_admission() {
+        let (_, hotkey, netuid) = setup::<T>();
+        let now = frame_system::Pallet::<T>::block_number();
+        for i in 0..T::MaxPositionsPerSubnet::get() {
+            let owner: T::AccountId = account("existing-long", i, 0);
+            // Populate every record read by the scan; valuation uses its stored
+            // debt and collateral, without a transfer or swap during admission.
+            Positions::<T>::insert(
+                &owner,
+                netuid,
+                Position {
+                    side: Side::Long,
+                    hotkey: hotkey.clone(),
+                    principal: 1,
+                    collateral: 1_000_000_000,
+                    proceeds: 0,
+                    annual_interest: 1,
+                    last_accrued: now,
+                    interest_remainder: 1,
+                    due: now.saturating_add(T::InterestPeriod::get()),
+                },
+            );
+            OpenByNetuid::<T>::insert(netuid, owner, ());
+        }
+        let backing = Vaults::<T>::get(netuid).unwrap().available_tao;
+        #[block]
+        {
+            assert!(Pallet::<T>::funded_long_limit(netuid, 1_000_000_000, backing).unwrap() > 0);
+        }
+    }
+
     #[benchmark]
     fn close() {
         let (owner, hotkey, netuid) = setup::<T>();
@@ -95,7 +129,7 @@ mod benchmarks {
     #[benchmark]
     fn collect() {
         let (owner, hotkey, netuid) = setup::<T>();
-        let collateral = T::Pool::quote_buy(netuid, 8_000_000_000_u64.into())
+        let collateral = T::Pool::quote_buy(netuid, 64_000_000_000_u64.into())
             .unwrap()
             .to_u64();
         Pallet::<T>::open(

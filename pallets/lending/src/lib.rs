@@ -37,6 +37,9 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     }
     fn quote_sell(netuid: NetUid, alpha: AlphaBalance) -> Result<TaoBalance, DispatchError>;
     fn quote_buy(netuid: NetUid, tao: TaoBalance) -> Result<AlphaBalance, DispatchError>;
+    /// An upper bound on the alpha claims sharing a funded deregistration payout.
+    /// Must fail while aggregate staking counters are incomplete.
+    fn redemption_alpha_supply(netuid: NetUid) -> Result<u128, DispatchError>;
     /// A conservative executable gross TAO input, including the finite curve boundary.
     fn max_buy_input(_netuid: NetUid) -> TaoBalance {
         u64::MAX.into()
@@ -495,6 +498,8 @@ pub mod pallet {
         CustodyUnavailable,
         AlreadyDissolving,
         BelowMinimumProceeds,
+        RedemptionUnavailable,
+        InsufficientRedemptionBacking,
     }
 
     #[pallet::hooks]
@@ -918,6 +923,7 @@ impl<T: Config> Pallet<T> {
         );
         let quarter = collateral.checked_div(4).ok_or(Error::<T>::Arithmetic)?;
         ensure!(quarter > 0, Error::<T>::AmountTooSmall);
+        let vault = Vaults::<T>::get(netuid).ok_or(Error::<T>::InsufficientReserves)?;
         let quote = match side {
             Side::Short => {
                 let limit = Self::alpha_for_tao(quarter, reference.price, false)?;
@@ -951,7 +957,8 @@ impl<T: Config> Pallet<T> {
             Side::Long => {
                 let historical = Self::tao_for_alpha(quarter, reference.price, false)?;
                 let executable = T::Pool::quote_sell(netuid, quarter.into())?.to_u64();
-                let principal = historical.min(executable);
+                let funded = Self::funded_long_limit(netuid, collateral, vault.available_tao)?;
+                let principal = historical.min(executable).min(funded);
                 OpeningQuote {
                     principal,
                     annual_interest: Self::alpha_for_tao(principal, reference.price, true)?,
@@ -965,7 +972,6 @@ impl<T: Config> Pallet<T> {
                 && quote.opening_value >= T::MinimumLoanValue::get(),
             Error::<T>::AmountTooSmall
         );
-        let vault = Vaults::<T>::get(netuid).ok_or(Error::<T>::InsufficientReserves)?;
         let (available, outstanding) = match side {
             Side::Short => (vault.available_alpha, vault.outstanding_alpha),
             Side::Long => (vault.available_tao, vault.outstanding_tao),
@@ -981,6 +987,70 @@ impl<T: Config> Pallet<T> {
             Error::<T>::BorrowingLimit
         );
         Ok(quote)
+    }
+
+    /// Protect ordinary pro-rata redemption even if all active AMM TAO is sold out.
+    /// Only physically unloaned vault TAO is backing; coupons and expected recoveries
+    /// are excluded. Surplus collateral belongs to its owner, so every loan is checked
+    /// independently rather than pooling borrowers' collateral.
+    fn funded_long_limit(
+        netuid: NetUid,
+        collateral: u64,
+        backing: u64,
+    ) -> Result<u64, DispatchError> {
+        let supply = T::Pool::redemption_alpha_supply(netuid)
+            .map_err(|_| Error::<T>::RedemptionUnavailable)?;
+        ensure!(supply > 0, Error::<T>::RedemptionUnavailable);
+        let denominator = supply
+            .checked_mul(4)
+            .and_then(|n| n.checked_add(u128::from(collateral)))
+            .ok_or(Error::<T>::Arithmetic)?;
+        // Solve 4 * new_debt * supply <= collateral * (backing - new_debt).
+        let numerator = u128::from(collateral)
+            .checked_mul(u128::from(backing))
+            .ok_or(Error::<T>::Arithmetic)?;
+        let funded = numerator
+            .checked_div(denominator)
+            .ok_or(Error::<T>::Arithmetic)?;
+        let mut limit = u64::try_from(funded).map_err(|_| Error::<T>::Arithmetic)?;
+        let now = frame_system::Pallet::<T>::block_number();
+        let max_positions = T::MaxPositionsPerSubnet::get();
+        let mut count = 0_u32;
+        for (owner, ()) in
+            OpenByNetuid::<T>::iter_prefix(netuid).take(max_positions.saturating_add(1) as usize)
+        {
+            count = count.checked_add(1).ok_or(Error::<T>::Arithmetic)?;
+            ensure!(count <= max_positions, Error::<T>::TooManyPositions);
+            let position =
+                Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::PositionMissing)?;
+            if position.side != Side::Long {
+                continue;
+            }
+            let (interest, _) = Self::interest_due(&position, now, true)?;
+            let remaining = position
+                .collateral
+                .checked_sub(interest)
+                .filter(|remaining| *remaining > 0)
+                .ok_or(Error::<T>::InsufficientRedemptionBacking)?;
+            let claim = u128::from(position.principal)
+                .checked_mul(supply)
+                .ok_or(Error::<T>::Arithmetic)?;
+            let remaining = u128::from(remaining);
+            // Ceiling division without overflowing by adding the divisor first.
+            let quotient = claim.checked_div(remaining).ok_or(Error::<T>::Arithmetic)?;
+            let remainder = claim.checked_rem(remaining).ok_or(Error::<T>::Arithmetic)?;
+            let required = quotient
+                .checked_add(u128::from(remainder != 0))
+                .ok_or(Error::<T>::Arithmetic)?;
+            let required =
+                u64::try_from(required).map_err(|_| Error::<T>::InsufficientRedemptionBacking)?;
+            let allowance = backing
+                .checked_sub(required)
+                .ok_or(Error::<T>::InsufficientRedemptionBacking)?;
+            limit = limit.min(allowance);
+        }
+        ensure!(limit > 0, Error::<T>::InsufficientRedemptionBacking);
+        Ok(limit)
     }
 
     pub fn quote_close(
