@@ -4300,3 +4300,24 @@ fn burn_toggle_obeys_owner_cooldown_and_freeze() {
         );
     });
 }
+
+#[test]
+fn test_sudo_set_basket_min_trade_tao() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(BasketMinTradeTao::<Test>::get(), 500_000_000);
+        assert_noop!(
+            AdminUtils::sudo_set_basket_min_trade_tao(RuntimeOrigin::signed(U256::from(1)), 0),
+            DispatchError::BadOrigin
+        );
+        for min_trade_rao in [100_000_000, 1_000_000_000, 0, u64::MAX] {
+            assert_ok!(AdminUtils::sudo_set_basket_min_trade_tao(
+                RuntimeOrigin::root(),
+                min_trade_rao
+            ));
+            assert_eq!(BasketMinTradeTao::<Test>::get(), min_trade_rao);
+            System::assert_last_event(RuntimeEvent::AdminUtils(
+                crate::Event::BasketMinTradeTaoSet { min_trade_rao },
+            ));
+        }
+    });
+}

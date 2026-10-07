@@ -3153,6 +3153,19 @@ pub mod pallet {
         StorageValue<_, u16, ValueQuery, DefaultBasketDailyTurnoverCap<T>>;
 
     #[pallet::type_value]
+    /// Default minimum basket trade value: 0.5 TAO, in rao.
+    pub fn DefaultBasketMinTradeTao<T: Config>() -> u64 {
+        crate::MIN_BASKET_TRADE_TAO
+    }
+
+    /// Minimum TAO value, in rao, through the middle of each basket trade leg.
+    /// Defaults to 0.5 TAO. Set via `AdminUtils::sudo_set_basket_min_trade_tao`.
+    /// The effective minimum is also bounded below by `DefaultMinStake`.
+    #[pallet::storage]
+    pub type BasketMinTradeTao<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultBasketMinTradeTao<T>>;
+
+    #[pallet::type_value]
     /// Default liquidity cap for basket trading: a holding may not exceed 10% of the
     /// destination pool's alpha reserve (u16-normalized; 6553/65535).
     pub fn DefaultBasketLiquidityCap<T: Config>() -> u16 {
@@ -3959,7 +3972,7 @@ pub trait CommitmentsInterface<AccountId> {
     fn purge_neuron(netuid: NetUid, account: &AccountId);
 }
 
-/// Smallest TAO value allowed through the middle of a `swap_basket` trade. The call costs
+/// Default minimum TAO value through the middle of a `swap_basket` trade. The call costs
 /// about 0.006 TAO at current fee calibration, so admitting every few blocks' worth of a
 /// refilling turnover bucket can spend more on transaction fees than it rebalances. Half a TAO
 /// keeps the trade well above its fee while still allowing modest funds to rebalance incrementally.

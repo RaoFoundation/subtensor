@@ -182,6 +182,11 @@ pub mod pallet {
             /// Largest slice, in rao, either rule may leave unsold (`0` = every skip off).
             forfeit_cap_rao: u64,
         },
+        /// The minimum basket trade value was set.
+        BasketMinTradeTaoSet {
+            /// Minimum TAO value through each trade leg, in rao.
+            min_trade_rao: u64,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -2628,6 +2633,20 @@ pub mod pallet {
                 &[Hyperparameter::CollateralDrainRatio.into()],
             );
 
+            Ok(())
+        }
+
+        /// Sets the minimum TAO value through each basket trade leg, in rao. Root-only.
+        /// Zero disables this additional floor; the general staking minimum still applies.
+        #[pallet::call_index(113)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_min_trade_tao())]
+        pub fn sudo_set_basket_min_trade_tao(
+            origin: OriginFor<T>,
+            min_trade_rao: u64,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            pallet_subtensor::BasketMinTradeTao::<T>::put(min_trade_rao);
+            Self::deposit_event(Event::BasketMinTradeTaoSet { min_trade_rao });
             Ok(())
         }
 

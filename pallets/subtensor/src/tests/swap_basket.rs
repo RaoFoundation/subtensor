@@ -2002,3 +2002,72 @@ fn finding_cash_slot_is_capped_at_concentration_cap() {
         assert!(escrow_alpha(&fund.hotkey, NetUid::ROOT) > 0);
     });
 }
+
+#[test]
+fn configurable_minimum_applies_to_validation_and_execution() {
+    for (batch, amount) in [
+        (false, 80_000_000u64),
+        (true, 80_000_000),
+        (false, 1_000_000),
+        (true, 1_000_000),
+    ] {
+        new_test_ext(1).execute_with(|| {
+            let fund = setup_fund();
+            let call = if batch {
+                RuntimeCall::SubtensorModule(SubtensorCall::swap_basket_many {
+                    hotkey: fund.hotkey,
+                    legs: vec![(fund.netuid_a, fund.netuid_b, amount.into(), 0)]
+                        .try_into()
+                        .unwrap(),
+                })
+            } else {
+                RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+                    hotkey: fund.hotkey,
+                    origin_netuid: fund.netuid_a,
+                    destination_netuid: fund.netuid_b,
+                    amount: amount.into(),
+                    min_amount_out: 0,
+                })
+            };
+            let execute = || {
+                if batch {
+                    SubtensorModule::swap_basket_many(
+                        RuntimeOrigin::signed(fund.coldkey),
+                        fund.hotkey,
+                        vec![(fund.netuid_a, fund.netuid_b, amount.into(), 0)]
+                            .try_into()
+                            .unwrap(),
+                    )
+                } else {
+                    swap(&fund, fund.netuid_a, fund.netuid_b, amount)
+                }
+            };
+            // Default remains 0.5 TAO, with no migration required.
+            assert_eq!(
+                crate::BasketMinTradeTao::<Test>::get(),
+                MIN_BASKET_TRADE_TAO
+            );
+            for minimum in [MIN_BASKET_TRADE_TAO, 1_000_000_000] {
+                crate::BasketMinTradeTao::<Test>::put(minimum);
+                assert_eq!(
+                    validate_basket_call(&fund, &call).unwrap_err(),
+                    CustomTransactionError::StakeAmountTooLow.into()
+                );
+                crate::assert_noop_ignore_postinfo!(execute(), Error::<Test>::AmountTooLow);
+            }
+            // Disabling the basket floor retains the general staking floor.
+            crate::BasketMinTradeTao::<Test>::put(0);
+            if amount < DefaultMinStake::<Test>::get().to_u64() {
+                assert_eq!(
+                    validate_basket_call(&fund, &call).unwrap_err(),
+                    CustomTransactionError::StakeAmountTooLow.into()
+                );
+                crate::assert_noop_ignore_postinfo!(execute(), Error::<Test>::AmountTooLow);
+            } else {
+                crate::BasketMinTradeTao::<Test>::put(50_000_000);
+                assert_ok!(validate_basket_call(&fund, &call));
+                assert_ok!(execute());
+            }
+        });
+    }
+}

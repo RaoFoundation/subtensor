@@ -302,6 +302,7 @@ class SubtensorModule:
     BasketTradingEnabled = Item('SubtensorModule', 'BasketTradingEnabled', 'bool')
     BasketTradingFrozen = Item('SubtensorModule', 'BasketTradingFrozen', '()')
     BasketDailyTurnoverCap = Item('SubtensorModule', 'BasketDailyTurnoverCap', 'u16')
+    BasketMinTradeTao = Item('SubtensorModule', 'BasketMinTradeTao', 'u64')
     BasketLiquidityCap = Item('SubtensorModule', 'BasketLiquidityCap', 'u16')
     BasketClaimRowDustCapTao = Item('SubtensorModule', 'BasketClaimRowDustCapTao', 'u64')
     BasketClaimRowDustBps = Item('SubtensorModule', 'BasketClaimRowDustBps', 'u16')

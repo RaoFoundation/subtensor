@@ -347,6 +347,7 @@ impl<T: Config> Pallet<T> {
     pub fn swap_basket_validation_weight() -> Weight {
         Self::swap_basket_precheck_weight()
             .saturating_add(<T as crate::pallet::Config>::WeightInfo::swap_basket(1))
+            .saturating_add(T::DbWeight::get().reads(1))
     }
 
     /// Reject an uneconomic basket leg during transaction validation, before it can enter the
@@ -382,7 +383,7 @@ impl<T: Config> Pallet<T> {
     fn minimum_basket_trade_tao() -> u64 {
         DefaultMinStake::<T>::get()
             .to_u64()
-            .max(crate::MIN_BASKET_TRADE_TAO)
+            .max(crate::BasketMinTradeTao::<T>::get())
     }
 
     /// Transactional body of [`Self::do_swap_basket`]; any error rolls the whole trade back.
@@ -788,14 +789,15 @@ impl<T: Config> Pallet<T> {
     /// settlement plus the pre-trade realizable-NAV sweep and the two post-trade re-quotes
     /// (origin and destination), as benchmarked.
     ///
-    /// Plus one `BasketLiquidityUsed` get/insert on a non-root destination. Do not invent
+    /// Plus one `BasketLiquidityUsed` get/insert on a non-root destination and
+    /// one `BasketMinTradeTao` read per leg. Do not invent
     /// CPU time here — CI's reference `bench-patch` updates
     /// [`WeightInfo::swap_basket`](crate::weights::WeightInfo::swap_basket).
     pub fn swap_basket_weight(num_holdings: u64) -> Weight {
         <T as crate::pallet::Config>::WeightInfo::swap_basket(
             u32::try_from(num_holdings).unwrap_or(u32::MAX),
         )
-        .saturating_add(T::DbWeight::get().reads_writes(1, 1))
+        .saturating_add(T::DbWeight::get().reads_writes(2, 1))
     }
 
     /// Weight of a multi-leg call: one full basket trade envelope followed by one
@@ -806,7 +808,10 @@ impl<T: Config> Pallet<T> {
             u32::try_from(num_holdings).unwrap_or(u32::MAX),
             num_legs,
         )
-        .saturating_add(T::DbWeight::get().reads_writes(u64::from(num_legs), u64::from(num_legs)))
+        .saturating_add(
+            T::DbWeight::get()
+                .reads_writes(u64::from(num_legs).saturating_mul(2), u64::from(num_legs)),
+        )
     }
 
     /// Pre-dispatch envelope for [`Pallet::swap_basket_many`]: one capped initial sweep,

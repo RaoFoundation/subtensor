@@ -1246,6 +1246,14 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_basket_min_trade_tao() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 100_000_000u64);
+
+        assert_eq!(pallet_subtensor::BasketMinTradeTao::<T>::get(), 100_000_000);
+    }
+
+    #[benchmark]
     fn sudo_set_basket_claim_dust() {
         #[extrinsic_call]
         _(

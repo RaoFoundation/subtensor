@@ -140,6 +140,11 @@ pub trait WeightInfo {
 	fn sudo_set_basket_trading_frozen() -> Weight;
 	fn sudo_set_basket_daily_turnover_cap() -> Weight;
 	fn sudo_set_basket_liquidity_cap() -> Weight;
+	/// Same root check, single storage write and event as the liquidity cap setter.
+	/// CI reference benchmarking replaces this shared envelope with measured weights.
+	fn sudo_set_basket_min_trade_tao() -> Weight {
+		Self::sudo_set_basket_liquidity_cap()
+	}
 }
 
 /// Weights for `pallet_admin_utils` using the Substrate node and recommended hardware.

@@ -2343,6 +2343,8 @@ mod pallet_benchmarks {
         let author = seed_block_author::<T>();
         let author_balance_before = Subtensor::<T>::get_coldkey_balance(&author);
 
+        // Include the configured minimum's storage proof in the trade benchmark.
+        BasketMinTradeTao::<T>::put(crate::MIN_BASKET_TRADE_TAO);
         BasketTradingEnabled::<T>::put(true);
         Subtensor::<T>::init_new_network(NetUid::ROOT, 1);
         Uids::<T>::insert(NetUid::ROOT, &hotkey, 0u16);

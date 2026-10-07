@@ -954,6 +954,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_basket_liquidity_cap', {'cap': cap})
 
     @staticmethod
+    def sudo_set_basket_min_trade_tao(min_trade_rao: 'u64') -> Call:
+        'Sets the minimum TAO value through each basket trade leg, in rao. Root-only. Zero disables this additional floor; the general staking minimum still applies.'
+        return Call('AdminUtils', 'sudo_set_basket_min_trade_tao', {'min_trade_rao': min_trade_rao})
+
+    @staticmethod
     def sudo_set_basket_trading_enabled(enabled: 'bool') -> Call:
         'Enables or disables validator basket trading (`swap_basket`) network-wide. Defaults OFF. Gates only the trade path: deposits, claims, dividend accrual, and reads are unaffected. Root-only.'
         return Call('AdminUtils', 'sudo_set_basket_trading_enabled', {'enabled': enabled})

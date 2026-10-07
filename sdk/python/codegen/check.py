@@ -264,6 +264,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_basket_trading_frozen",
         "sudo_set_basket_daily_turnover_cap",
         "sudo_set_basket_liquidity_cap",
+        "sudo_set_basket_min_trade_tao",
         "sudo_set_basket_claim_dust",
         "sudo_set_sn_owner_hotkey",
         "sudo_set_stake_threshold",
