@@ -53,11 +53,16 @@ retired interval controller.
 btcli sudo get --netuid N --name difficulty
 ```
 
-Root/governance only:
-[`sudo_set_difficulty`](/code/pallets/admin-utils/src/lib.rs#L827-L841)
-in the AdminUtils pallet
-requires the root origin and takes a raw u64. It is not settable by the
-subnet owner via `btcli sudo set`.
+Subnet owner or root/governance:
+[`sudo_set_difficulty`](/code/pallets/admin-utils/src/lib.rs)
+in the AdminUtils pallet takes a raw u64. Owner changes use the standard
+per-parameter cooldown and admin freeze window, and can be delegated through
+an Owner proxy. Root remains able to override the owner cooldown.
+
+To enable PoW on a subnet whose floor is pinned at `u64::MAX`, lower
+`min_difficulty` and then set `difficulty` to the desired starting value.
+Both calls can be submitted atomically with `Utility.batch_all`; changing
+one parameter does not consume the other parameter's cooldown.
 
 ## Related
 

@@ -371,7 +371,15 @@ pub mod pallet {
             netuid: NetUid,
             min_difficulty: u64,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::MinDifficulty.into()],
+            )?;
+            ensure!(
+                !netuid.is_root() || maybe_owner.is_none(),
+                Error::<T>::NotPermittedOnRootSubnet
+            );
             pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
 
             ensure!(
@@ -381,6 +389,11 @@ pub mod pallet {
             pallet_subtensor::Pallet::<T>::set_min_difficulty(netuid, min_difficulty);
             log::debug!(
                 "MinDifficultySet( netuid: {netuid:?} min_difficulty: {min_difficulty:?} ) "
+            );
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::MinDifficulty.into()],
             );
             Ok(())
         }
@@ -965,7 +978,15 @@ pub mod pallet {
             netuid: NetUid,
             difficulty: u64,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::Difficulty.into()],
+            )?;
+            ensure!(
+                !netuid.is_root() || maybe_owner.is_none(),
+                Error::<T>::NotPermittedOnRootSubnet
+            );
             pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
             ensure!(
                 pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
@@ -973,6 +994,11 @@ pub mod pallet {
             );
             pallet_subtensor::Pallet::<T>::set_difficulty(netuid, difficulty);
             log::debug!("DifficultySet( netuid: {netuid:?} difficulty: {difficulty:?} ) ");
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::Difficulty.into()],
+            );
             Ok(())
         }
 

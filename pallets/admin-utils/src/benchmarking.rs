@@ -211,8 +211,11 @@ mod benchmarks {
             1u16,        /*tempo*/
         );
 
+        let owner: T::AccountId = account("pow_owner", 0, 0);
+        pallet_subtensor::SubnetOwner::<T>::insert(NetUid::from(1), &owner);
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
         #[extrinsic_call]
-		_(RawOrigin::Root, 1u16.into()/*netuid*/, 1000u64/*min_difficulty*/)/*sudo_set_min_difficulty*/;
+		_(RawOrigin::Signed(owner), 1u16.into()/*netuid*/, 1000u64/*min_difficulty*/)/*sudo_set_min_difficulty*/;
     }
 
     #[benchmark]
@@ -289,8 +292,11 @@ mod benchmarks {
             1u16,        /*tempo*/
         );
 
+        let owner: T::AccountId = account("pow_owner", 0, 0);
+        pallet_subtensor::SubnetOwner::<T>::insert(NetUid::from(1), &owner);
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
         #[extrinsic_call]
-		_(RawOrigin::Root, 1u16.into()/*netuid*/, 1200000u64/*difficulty*/)/*sudo_set_difficulty*/;
+		_(RawOrigin::Signed(owner), 1u16.into()/*netuid*/, 1200000u64/*difficulty*/)/*sudo_set_difficulty*/;
     }
 
     #[benchmark]

@@ -24,7 +24,7 @@ pruning batch. Use `TrimNullSubnetBatch` repeatedly for a larger shrink.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_trim_to_max_allowed_uids`](/code/pallets/admin-utils/src/lib.rs#L2110-L2136) |
+| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_trim_to_max_allowed_uids`](/code/pallets/admin-utils/src/lib.rs#L2136-L2162) |
 
 ## Parameters
 
@@ -76,7 +76,7 @@ result = sub.execute_tool("trim_subnet", {...}, wallet)
 
 ## On-chain implementation
 
-`AdminUtils.sudo_trim_to_max_allowed_uids` — [`pallets/admin-utils/src/lib.rs#L2116`](/code/pallets/admin-utils/src/lib.rs#L2110-L2136):
+`AdminUtils.sudo_trim_to_max_allowed_uids` — [`pallets/admin-utils/src/lib.rs#L2142`](/code/pallets/admin-utils/src/lib.rs#L2136-L2162):
 
 ```rust
 #[pallet::call_index(78)]

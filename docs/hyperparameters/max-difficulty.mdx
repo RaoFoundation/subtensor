@@ -1,6 +1,6 @@
 ---
 title: max_difficulty
-description: PoW difficulty ceiling under independent PoW pricing; the team minimum takes precedence.
+description: PoW difficulty ceiling under independent PoW pricing; the subnet minimum takes precedence.
 ---
 
 `max_difficulty` is the ceiling over
@@ -24,7 +24,7 @@ walked difficulty up until it hit this ceiling. The mainnet default is
 `u64::MAX / 4` ([`SubtensorInitialMaxDifficulty`](/code/runtime/src/lib.rs#L814)
 in `runtime/src/lib.rs`).
 
-The owner-controlled ceiling for dynamic PoW pricing. Only successful PoW registrations increase difficulty using the shared multiplier; per-block decay uses the shared half-life. The team minimum takes precedence if this maximum is configured below it.
+The owner-controlled ceiling for dynamic PoW pricing. Only successful PoW registrations increase difficulty using the shared multiplier; per-block decay uses the shared half-life. The subnet minimum takes precedence if this maximum is configured below it.
 
 See [`difficulty`](/docs/hyperparameters/difficulty) for the active PoW controller and its shared settings.
 

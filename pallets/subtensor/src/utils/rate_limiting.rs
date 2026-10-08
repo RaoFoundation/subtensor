@@ -217,6 +217,8 @@ pub enum Hyperparameter {
     LiquidAlphaConsensusMode = 34,
     EpochConsensus = 35,
     BurnRegistrationAllowed = 36,
+    MinDifficulty = 37,
+    Difficulty = 38,
 }
 
 impl<T: Config> Pallet<T> {

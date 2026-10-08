@@ -16,7 +16,7 @@ changing the target is a new operation. Survivor UID values can change.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_trim_null_uids_batch`](/code/pallets/admin-utils/src/lib.rs#L2141-L2167) |
+| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_trim_null_uids_batch`](/code/pallets/admin-utils/src/lib.rs#L2167-L2193) |
 
 ## Parameters
 
@@ -68,7 +68,7 @@ result = sub.execute_tool("trim_null_subnet_batch", {...}, wallet)
 
 ## On-chain implementation
 
-`AdminUtils.sudo_trim_null_uids_batch` — [`pallets/admin-utils/src/lib.rs#L2143`](/code/pallets/admin-utils/src/lib.rs#L2141-L2167):
+`AdminUtils.sudo_trim_null_uids_batch` — [`pallets/admin-utils/src/lib.rs#L2169`](/code/pallets/admin-utils/src/lib.rs#L2167-L2193):
 
 ```rust
 #[pallet::call_index(112)]
