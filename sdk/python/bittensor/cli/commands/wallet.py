@@ -77,7 +77,8 @@ keychain_app = typer.Typer(
 )
 
 _CRYPTO_TYPE_HELP = (
-    "Key scheme: ed25519 (0) or sr25519 (1, default). ss58 is the address encoding for both."
+    "Key type: sr25519 (default), ed25519, or hashed (rotating sr25519 behind "
+    "a permanent address). Hashed accounts require chain support."
 )
 
 _SEED_HELP = (
@@ -268,11 +269,11 @@ def create(
     n_words: int = typer.Option(12, "--n-words", help=_N_WORDS_HELP),
     no_password: bool = typer.Option(False, "--no-password", help=_NO_PASSWORD_HELP),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--crypto-type", help=_CRYPTO_TYPE_HELP),
-    hotkey_crypto_type: str = typer.Option(
-        "sr25519",
+    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    hotkey_crypto_type: Optional[str] = typer.Option(
+        None,
         "--hotkey-crypto-type",
-        help="Key scheme for the hotkey: ed25519 or sr25519 (default).",
+        help="Hotkey type; defaults to hashed with --type hashed, otherwise sr25519.",
     ),
 ):
     """Create a new coldkey and hotkey.
@@ -291,7 +292,10 @@ def create(
         hotkey_must_exist=False,
     )
     coldkey_crypto = _resolve_crypto_type(app_ctx, crypto_type)
-    hotkey_crypto = _resolve_crypto_type(app_ctx, hotkey_crypto_type)
+    hotkey_crypto = _resolve_crypto_type(
+        app_ctx,
+        hotkey_crypto_type or ("hashed" if coldkey_crypto == wallets.CRYPTO_HASHED else "sr25519"),
+    )
     mnemonics: dict[str, str] = {}
 
     def _on_mnemonic(role: str, mnemonic: str) -> None:
@@ -321,6 +325,10 @@ def create(
         "coldkey_ss58": wallet.coldkeypub.ss58_address,
         "path": app_ctx.wallet_path,
     }
+    if coldkey_crypto == wallets.CRYPTO_HASHED:
+        fields["hashed_descriptor"] = "0x" + bytes(wallet.coldkeypub.hashed_descriptor).hex()
+    if hotkey_crypto == wallets.CRYPTO_HASHED:
+        fields["hotkey_hashed_descriptor"] = "0x" + bytes(wallet.hotkeypub.hashed_descriptor).hex()
     # Human mode already showed the mnemonics above; JSON carries them in the
     # payload so scripted consumers can capture them.
     app_ctx.output.detail("created wallet", fields, json_fields={**fields, **mnemonics})
@@ -334,7 +342,7 @@ def new_coldkey(
     n_words: int = typer.Option(12, "--n-words", help=_N_WORDS_HELP),
     no_password: bool = typer.Option(False, "--no-password", help=_NO_PASSWORD_HELP),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
 ):
     """Create a new coldkey in the configured wallet.
 
@@ -379,7 +387,7 @@ def new_hotkey(
     ctx: typer.Context,
     n_words: int = typer.Option(12, "--n-words", help=_N_WORDS_HELP),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
 ):
     """Create a new hotkey in the configured wallet.
 
@@ -446,7 +454,7 @@ def regen_coldkey(
     ),
     no_password: bool = typer.Option(False, "--no-password", help=_NO_PASSWORD_HELP),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
 ):
     """Regenerate a coldkey from a mnemonic, seed, private key, or JSON keystore.
 
@@ -516,7 +524,7 @@ def regen_hotkey(
     seed: str = typer.Option(None, "--seed", help=_SEED_HELP),
     private_key: str = typer.Option(None, "--private-key", help=_PRIVATE_KEY_HELP),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
 ):
     """Regenerate a hotkey from a mnemonic, hex seed, or private key.
 
@@ -573,7 +581,7 @@ def regen_coldkey_pub(
         ..., "--public-key", help="Hex-encoded public key matching the ss58 address."
     ),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
 ):
     """Regenerate coldkey public file from ss58 + public key.
 
@@ -607,7 +615,7 @@ def regen_hotkey_pub(
         ..., "--public-key", help="Hex-encoded public key matching the ss58 address."
     ),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
 ):
     """Regenerate hotkey public file from ss58 + public key.
 
@@ -959,12 +967,20 @@ def show_wallet(ctx: typer.Context):
     try:
         detail["coldkey_ss58"] = wallet.coldkeypub.ss58_address
         detail["coldkey_crypto_type"] = wallets.format_crypto_type(wallet.coldkeypub.crypto_type)
+        if wallet.coldkeypub.crypto_type == wallets.CRYPTO_HASHED:
+            detail["hashed_descriptor"] = "0x" + bytes(wallet.coldkeypub.hashed_descriptor).hex()
     except Exception as error:
         detail["coldkey"] = f"unavailable ({error})"
     detail["hotkey"] = app_ctx.hotkey_name
     try:
-        detail["hotkey_ss58"] = wallet.hotkey.ss58_address
-        detail["hotkey_crypto_type"] = wallets.format_crypto_type(wallet.hotkey.crypto_type)
+        try:
+            hotkey = wallet.hotkeypub
+        except FileNotFoundError:
+            hotkey = wallet.hotkey
+        detail["hotkey_ss58"] = hotkey.ss58_address
+        detail["hotkey_crypto_type"] = wallets.format_crypto_type(hotkey.crypto_type)
+        if hotkey.crypto_type == wallets.CRYPTO_HASHED:
+            detail["hotkey_hashed_descriptor"] = "0x" + bytes(hotkey.hashed_descriptor).hex()
     except Exception as error:
         detail["hotkey"] = f"{app_ctx.hotkey_name} — unavailable ({error})"
     detail["path"] = app_ctx.wallet_path
@@ -1442,6 +1458,11 @@ def wallet_transfer(
     all_amount: bool = typer.Option(
         False, "--all", help="Send the entire transferable balance (same as `--amount all`)."
     ),
+    hashed_descriptor: Optional[str] = typer.Option(
+        None,
+        "--hashed-descriptor",
+        help="Public descriptor hex when first funding a remote hashed wallet.",
+    ),
 ):
     """Transfer TAO to another coldkey.
 
@@ -1461,7 +1482,7 @@ def wallet_transfer(
         )
         raise typer.Exit(2)
     amount = resolve_all_amount(app_ctx, amount_tao, all_amount, flag="--amount")
-    app_ctx.submit(Transfer(dest_ss58=dest, amount_tao=amount))
+    app_ctx.submit(Transfer(dest_ss58=dest, amount_tao=amount, hashed_descriptor=hashed_descriptor))
 
 
 @app.command("inspect", rich_help_panel=PANEL_INFO)
@@ -1769,6 +1790,11 @@ def announce_coldkey_swap(
     new_coldkey_ss58: str = typer.Option(
         ..., address_cli_name("new_coldkey_ss58"), help=ss58_param_help("new_coldkey_ss58")
     ),
+    hashed_descriptor: Optional[str] = typer.Option(
+        None,
+        "--hashed-descriptor",
+        help="Public descriptor hex when migrating to a remote hashed wallet.",
+    ),
 ):
     """Announce intent to swap coldkey.
 
@@ -1778,7 +1804,9 @@ def announce_coldkey_swap(
     """
     app_ctx: AppContext = ctx_of(ctx)
     new_coldkey = app_ctx.resolve_address("coldkey_ss58", new_coldkey_ss58)
-    app_ctx.submit(AnnounceColdkeySwap(new_coldkey_ss58=new_coldkey))
+    app_ctx.submit(
+        AnnounceColdkeySwap(new_coldkey_ss58=new_coldkey, hashed_descriptor=hashed_descriptor)
+    )
 
 
 app.add_typer(keychain_app, name="keychain", rich_help_panel=PANEL_SECURITY)

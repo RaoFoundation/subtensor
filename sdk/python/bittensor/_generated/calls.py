@@ -24,6 +24,7 @@ BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
 ConsensusMode = Any
+Descriptor = Any
 Determinism = Any
 EpochConsensus = Any
 EquivocationProof = Any
@@ -1702,3 +1703,12 @@ class LimitOrders:
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
+
+
+class HashedAccounts:
+    """Call builders for the HashedAccounts pallet."""
+
+    @staticmethod
+    def register(descriptor: 'Descriptor') -> Call:
+        'Bind a derived account to its hidden initial key. Anyone may sponsor the permanent storage deposit; the sponsor gains no authority. Idempotent registration never changes an existing authorization.'
+        return Call('HashedAccounts', 'register', {'descriptor': descriptor})

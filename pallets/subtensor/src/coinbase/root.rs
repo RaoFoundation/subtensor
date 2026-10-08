@@ -78,6 +78,7 @@ impl<T: Config> Pallet<T> {
         const PROOF_PER_PERSIST: u64 = 256;
         let persists = n.saturating_mul(2);
         <T as crate::pallet::Config>::WeightInfo::root_register()
+            .saturating_add(Self::hotkey_owner_policy_weight())
             .saturating_add(T::DbWeight::get().reads(1))
             .saturating_add(T::DbWeight::get().reads(persists.saturating_mul(READS_PER_PERSIST)))
             .saturating_add(T::DbWeight::get().writes(persists.saturating_mul(WRITES_PER_PERSIST)))

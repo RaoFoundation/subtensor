@@ -25,6 +25,7 @@ from ._transport.contract import UnsignedExtrinsic
 from ._transport.utils.receipt import nested_dispatch_error
 from .balance import Balance
 from .fee_filters import COLDKEY_FEE_WARNING, charges_coldkey_fee
+from .hashed import descriptor_bytes, with_recipient_registration
 from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
 from .intents.base import BuiltCall, IntentPreflight
@@ -44,7 +45,7 @@ from .signing import (
     public_view,
     resolve_signer,
 )
-from .sp_core import ss58_decode
+from .sp_core import CRYPTO_HASHED, Keypair, ss58_decode
 
 # Transaction-pool rejections that resolve themselves within a block or so (a
 # competing extrinsic at the same nonce, or a race against pool state). Worth
@@ -81,7 +82,14 @@ async def estimate_shielded_carrier_fee(substrate: Substrate, fee_payer: str) ->
     outer = await substrate.compose(
         generated_calls.MevShield.submit_encrypted(ciphertext=bytes(_MAX_SHIELDED_CIPHERTEXT_BYTES))
     )
-    return await substrate.estimate_fee(outer, _FeeAddressView(fee_payer))
+    public = _FeeAddressView(fee_payer)
+    if await substrate.constant("HashedAccounts", "Enabled") is True:
+        record = await substrate.query("HashedAccounts", "Accounts", [fee_payer])
+        if record is not None:
+            public = Keypair.from_hashed_descriptor(descriptor_bytes(record["descriptor"]))
+            if public.ss58_address != fee_payer:
+                raise ValueError("registered hashed descriptor does not match the fee payer")
+    return await substrate.estimate_fee(outer, public)
 
 
 def _is_transient(result: ExtrinsicResult) -> bool:
@@ -202,6 +210,16 @@ async def _compose_intent_call(
         call, extras = built.call, {**extras, **built.extras}
     else:
         call = built
+
+    call, registration = await with_recipient_registration(substrate, wallet, semantic, call)
+    if registration and (
+        proxy_for is not None or intent.semantic_intent() is not intent or semantic.origin == "root"
+    ):
+        raise ValueError(
+            "register the hashed recipient first using a direct sponsor wallet; "
+            "initial registration cannot be wrapped in proxy, multisig or sudo"
+        )
+    extras.update(registration)
 
     wrapped = await nest_origin_wrappers(
         substrate,
@@ -652,7 +670,7 @@ class Executor:
         """
         wallet = as_wallet(wallet)
         intent = _coerce_addresses(intent)
-        call, _extras = await _compose_intent_call(
+        call, extras = await _compose_intent_call(
             self.substrate,
             intent,
             wallet,
@@ -665,6 +683,7 @@ class Executor:
             proxy_for=proxy_for,
             proxy_type=proxy_type,
             call=call,
+            extras=extras,
         )
         if preview.estimated_fee is None:
             # Fee estimation is best-effort; the preview stands without it.
@@ -682,11 +701,12 @@ class Executor:
         proxy_for: Optional[str] = None,
         proxy_type: Optional[str] = None,
         call: Any = None,
+        extras: Optional[dict] = None,
     ) -> IntentPreflight:
         wallet = as_wallet(wallet)
         intent = _coerce_addresses(intent)
         if call is None:
-            call, _extras = await _compose_intent_call(
+            call, extras = await _compose_intent_call(
                 self.substrate,
                 intent,
                 wallet,
@@ -699,12 +719,24 @@ class Executor:
             wallet,
             proxy_for,
         )
-        return await intent.preflight(
+        preview = await intent.preflight(
             self.substrate,
             dispatch_origin,
             fee_payer,
             call=call,
         )
+        if extras and "hashed_registration_deposit_rao" in extras:
+            deposit = Balance.from_rao(extras["hashed_registration_deposit_rao"])
+            preview.effects.insert(
+                0, f"register hashed recipient and reserve {deposit} from the sponsor"
+            )
+            preview.facts.append(("Hashed account registration reserve", str(deposit)))
+            # Existing intent-specific quotes may have priced only the
+            # semantic call. Reprice the complete setup batch.
+            preview.estimated_fee = None
+            if preview.required_free is not None:
+                preview.required_free += deposit
+        return preview
 
     async def plan(
         self,
@@ -739,6 +771,7 @@ class Executor:
             wallet,
             proxy_for=proxy_for,
             call=call,
+            extras=extras,
         )
         warnings: list[str] = list(preflight.warnings)
         if intent.signer == "hotkey" and proxy_for is None and charges_coldkey_fee(call):
@@ -936,6 +969,7 @@ class Executor:
             wallet,
             proxy_for=proxy_for,
             call=call,
+            extras=extras,
         )
         fee = preflight.estimated_fee
         active = self._active_policy(policy)
@@ -1035,8 +1069,13 @@ class Executor:
 
         await _prepare_shielded_signer(keypair)
         nonce = await self.substrate.account_next_index(keypair.ss58_address)
+        inner_options = {"nonce": nonce + 1, "period": period}
+        if keypair.crypto_type == CRYPTO_HASHED:
+            # The carrier consumes generation g and nonce n. Its encrypted
+            # inner call consumes g+1 and n+1 only after the carrier is accepted.
+            inner_options["hashed_generation_offset"] = 1
         inner_bytes, inner_hash = await self.substrate.sign_extrinsic(
-            call, keypair, nonce=nonce + 1, period=period
+            call, keypair, **inner_options
         )
         ciphertext = _core.encrypt_mlkem768(pubkey, inner_bytes, include_key_hash=True)
         outer = await self.substrate.compose(

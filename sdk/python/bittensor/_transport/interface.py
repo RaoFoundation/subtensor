@@ -14,6 +14,7 @@ import logging
 from hashlib import blake2b
 from typing import Any, AsyncIterator, Optional
 
+from ..sp_core import CRYPTO_HASHED
 from .codec import is_valid_ss58_address as _is_valid_ss58_address
 from .codec import multisig_account as _multisig_account
 from .codec import ss58_decode as _ss58_decode
@@ -28,7 +29,13 @@ from .contract import (
     UnsignedExtrinsic,
 )
 from .errors import BlockNotFound, ExtrinsicNotFound, SubstrateRequestException
-from .extrinsics import IMMORTAL, NonceCache, resolve_outcome, watch_status_block
+from .extrinsics import (
+    HASHED_PROOF_LENGTH,
+    IMMORTAL,
+    NonceCache,
+    resolve_outcome,
+    watch_status_block,
+)
 from .extrinsics import attach_signature as _attach_signature
 from .extrinsics import create_signed_extrinsic as _sign_and_assemble
 from .extrinsics import prepare_extrinsic as _prepare_extrinsic
@@ -508,6 +515,7 @@ class SubstrateConnection:
         tip: int = 0,
         tip_asset_id: Optional[int] = None,
         signature: Optional[bytes | str] = None,
+        hashed_generation_offset: int = 0,
     ) -> SignedExtrinsic:
         """Sign a composed call at the current runtime, for submission.
 
@@ -516,6 +524,19 @@ class SubstrateConnection:
         without touching the nonce cache (fee estimation, offline vectors) use
         :meth:`sign_without_nonce_tracking`.
         """
+        if keypair.crypto_type == CRYPTO_HASHED:
+            return await self._sign_hashed(
+                call,
+                keypair,
+                era=era,
+                nonce=nonce,
+                tip=tip,
+                tip_asset_id=tip_asset_id,
+                signature=signature,
+                generation_offset=hashed_generation_offset,
+            )
+        if hashed_generation_offset:
+            raise ValueError("a generation offset is only valid for hashed accounts")
         if nonce is None:
             nonce = await self._nonces.next_for(keypair.ss58_address)
         else:
@@ -546,6 +567,16 @@ class SubstrateConnection:
         For extrinsics that will not be submitted from this session (fee
         estimation, externally-submitted payloads, deterministic test vectors).
         """
+        if keypair.crypto_type == CRYPTO_HASHED:
+            return await self._sign_hashed(
+                call,
+                keypair,
+                era=era,
+                nonce=nonce,
+                tip=tip,
+                tip_asset_id=tip_asset_id,
+                signature=signature,
+            )
         codec = await self._runtimes.codec_at(None)
         era, era_block_hash = await self._normalize_era(era)
         return await _sign_and_assemble(
@@ -554,6 +585,94 @@ class SubstrateConnection:
             keypair,
             era=era,
             nonce=nonce,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+            genesis_hash=await self.genesis_hash(),
+            era_block_hash=era_block_hash,
+            signature=signature,
+        )
+
+    async def _sign_hashed(
+        self,
+        call: Any,
+        keypair: Any,
+        *,
+        nonce: Optional[int],
+        era: Optional[dict | str],
+        tip: int,
+        tip_asset_id: Optional[int],
+        signature: Optional[bytes | str],
+        generation_offset: int = 0,
+    ) -> SignedExtrinsic:
+        """Recover current authority from chain state, never from local counters.
+
+        A rotation and the account nonce are separate state. Pin both reads to
+        the same head; do not pre-sign future generations or pipeline nonces.
+        Rebuilding after a failed dispatch works because rotation is consumed
+        by authorization even when the dispatched call fails.
+        """
+        from ..hashed import descriptor_bytes, raw_bytes
+
+        if generation_offset not in (0, 1):
+            raise ValueError("hashed generation offset must be zero or one for a Shield inner call")
+        block_hash = await self.get_chain_head()
+        codec = await self._runtimes.codec_at(block_hash)
+        if codec.constant("HashedAccounts", "Enabled") is not True:
+            raise SubstrateRequestException("hashed accounts are not enabled on this chain")
+        state, account = await asyncio.gather(
+            self.query("HashedAccounts", "Accounts", [keypair.ss58_address], block_hash=block_hash),
+            self.query("System", "Account", [keypair.ss58_address], block_hash=block_hash),
+        )
+        if state is None:
+            raise SubstrateRequestException(
+                "hashed account is not registered; fund or swap to its local wallet name "
+                "from an existing wallet, or have a sponsor register its public descriptor"
+            )
+        try:
+            if descriptor_bytes(state["descriptor"]) != bytes(keypair.hashed_descriptor):
+                raise ValueError("descriptor mismatch")
+            generation = int(state["generation"])
+            commitment = raw_bytes(state["commitment"])
+            confirmed_nonce = int((account or {}).get("nonce", 0))
+            if not 0 <= generation < 2**64 - 1 - generation_offset or len(commitment) != 32:
+                raise ValueError("invalid generation or commitment")
+        except (KeyError, TypeError, ValueError) as error:
+            raise SubstrateRequestException(
+                "registered hashed account does not match this wallet"
+            ) from error
+
+        if signature is None:
+            pending_nonce = await self._nonces.next_for(keypair.ss58_address, use_cache=False)
+            if pending_nonce != confirmed_nonce:
+                raise SubstrateRequestException(
+                    "hashed account has a pending transaction; "
+                    "wait for inclusion before signing again"
+                )
+            if nonce is not None and nonce != confirmed_nonce + generation_offset:
+                raise SubstrateRequestException(
+                    "hashed accounts must use the current on-chain nonce; refresh and sign again"
+                )
+            current_key = keypair.at_generation(generation)
+            if bytes(current_key.hashed_current_commitment) != commitment:
+                raise SubstrateRequestException(
+                    "derived hashed signing key does not match the current on-chain commitment"
+                )
+            keypair = (
+                current_key.at_generation(generation + generation_offset)
+                if generation_offset
+                else current_key
+            )
+        elif signature == b"\x00" * 64:
+            # The existing fee-estimation seam uses a 64-byte sentinel. Price
+            # the complete General envelope without unlocking a public wallet.
+            signature = generation.to_bytes(8, "little") + b"\x00" * (HASHED_PROOF_LENGTH - 8)
+        era, era_block_hash = await self._normalize_era(era)
+        return await _sign_and_assemble(
+            codec,
+            call,
+            keypair,
+            era=era,
+            nonce=confirmed_nonce + generation_offset,
             tip=tip,
             tip_asset_id=tip_asset_id,
             genesis_hash=await self.genesis_hash(),

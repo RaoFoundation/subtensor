@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .keyfiles import Keyfile, Keypair
-from .sp_core import CRYPTO_SR25519
+from .sp_core import CRYPTO_HASHED, CRYPTO_SR25519
 
 DEFAULT_WALLET_PATH = str(Path.home() / ".bittensor" / "wallets")
 
@@ -18,6 +18,8 @@ def _seed_bytes(seed: str | bytes) -> bytes:
 
 
 def _public_only(keypair: Keypair) -> Keypair:
+    if keypair.crypto_type == CRYPTO_HASHED:
+        return keypair.public_only()
     return Keypair(
         ss58_address=keypair.ss58_address,
         public_key=bytes(keypair.public_key),

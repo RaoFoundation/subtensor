@@ -222,7 +222,9 @@ class Substrate(Protocol):
         """The MEV Shield ML-KEM-768 public key from ``NextKey`` storage, if active."""
         ...
 
-    async def sign_extrinsic(self, call, keypair, *, nonce: int, period: int) -> tuple[bytes, str]:
+    async def sign_extrinsic(
+        self, call, keypair, *, nonce: int, period: int, hashed_generation_offset: int = 0
+    ) -> tuple[bytes, str]:
         """A signed extrinsic's (raw bytes, 0x-hex hash), without submitting."""
         ...
 
@@ -591,7 +593,9 @@ class RpcSubstrate:
             return bytes.fromhex(value.removeprefix("0x"))
         return bytes(value)
 
-    async def sign_extrinsic(self, call, keypair, *, nonce: int, period: int) -> tuple[bytes, str]:
+    async def sign_extrinsic(
+        self, call, keypair, *, nonce: int, period: int, hashed_generation_offset: int = 0
+    ) -> tuple[bytes, str]:
         """Create a signed extrinsic and return its (raw bytes, 0x-hex hash) without submitting.
 
         Used to build the inner extrinsic for MEV-shielded submission, which is
@@ -599,7 +603,11 @@ class RpcSubstrate:
         """
         try:
             extrinsic = await self.raw.create_signed_extrinsic(
-                call, keypair, nonce=nonce, era={"period": period}
+                call,
+                keypair,
+                nonce=nonce,
+                era={"period": period},
+                hashed_generation_offset=hashed_generation_offset,
             )
         except SubstrateRequestException as error:
             raise _public_request_error(error) from error

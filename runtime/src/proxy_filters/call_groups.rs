@@ -17,6 +17,7 @@ use pallet_drand::Call as DrandCall;
 use pallet_ethereum::Call as EthereumCall;
 use pallet_evm::Call as EvmCall;
 use pallet_grandpa::Call as GrandpaCall;
+use pallet_hashed_accounts::Call as HashedAccountsCall;
 use pallet_limit_orders::Call as LimitOrdersCall;
 use pallet_multisig::Call as MultisigCall;
 use pallet_preimage::Call as PreimageCall;
@@ -80,6 +81,13 @@ call_filter_group!(
 call_filter_group!(
     EthereumCalls,
     [RuntimeCall::Ethereum(EthereumCall::transact),]
+);
+
+// Registration reserves the sponsor's funds and requires a direct outer signer.
+// Keep it inventory-only; restricted proxy grants must not sponsor accounts.
+call_filter_group!(
+    HashedAccountsCalls,
+    [RuntimeCall::HashedAccounts(HashedAccountsCall::register),]
 );
 
 call_filter_group!(
@@ -709,6 +717,7 @@ pub(super) type AllCalls = (
 #[cfg(test)]
 type WholesalePalletCalls = (
     InfraCommonCalls,
+    HashedAccountsCalls,
     SudoCalls,
     MultisigCalls,
     MevShieldStoreEncryptedCalls,

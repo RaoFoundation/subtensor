@@ -8,6 +8,7 @@ BACKEND = "bittensor_core"
 
 CRYPTO_ED25519 = _backend.CRYPTO_ED25519
 CRYPTO_SR25519 = _backend.CRYPTO_SR25519
+CRYPTO_HASHED = _backend.CRYPTO_HASHED
 Keypair = _backend.Keypair
 KeyfileError = _backend.KeyfileError
 WrongPasswordError = _backend.WrongPasswordError

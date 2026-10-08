@@ -51,6 +51,27 @@ use macros::{config, dispatches, errors, events, genesis, hooks};
 pub use extensions::*;
 pub use guards::*;
 
+/// Prevent an owner relationship from weakening a hotkey's authorization.
+/// `allows_coldkey_swap` must preserve the invariant established by
+/// `allows_owner`: swapping a coldkey must not weaken any of its hotkeys.
+pub trait HotkeyOwnerPolicy<AccountId> {
+    fn allows_owner(coldkey: &AccountId, hotkey: &AccountId) -> bool;
+    fn allows_coldkey_swap(old: &AccountId, new: &AccountId) -> bool;
+    fn weight() -> Weight;
+}
+
+impl<AccountId> HotkeyOwnerPolicy<AccountId> for () {
+    fn allows_owner(_: &AccountId, _: &AccountId) -> bool {
+        true
+    }
+    fn allows_coldkey_swap(_: &AccountId, _: &AccountId) -> bool {
+        true
+    }
+    fn weight() -> Weight {
+        Weight::zero()
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests;
 

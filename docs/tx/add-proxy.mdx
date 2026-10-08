@@ -14,7 +14,7 @@ only to keys you control or fully trust.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.add_proxy`](/code/pallets/proxy/src/lib.rs#L282-L293) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.add_proxy`](/code/pallets/proxy/src/lib.rs#L305-L316) |
 
 ## Parameters
 
@@ -65,11 +65,11 @@ result = sub.execute_tool("add_proxy", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.add_proxy` — [`pallets/proxy/src/lib.rs#L284`](/code/pallets/proxy/src/lib.rs#L282-L293):
+`Proxy.add_proxy` — [`pallets/proxy/src/lib.rs#L307`](/code/pallets/proxy/src/lib.rs#L305-L316):
 
 ```rust
 #[pallet::call_index(1)]
-#[pallet::weight(T::WeightInfo::add_proxy(T::MaxProxies::get()))]
+#[pallet::weight(T::WeightInfo::add_proxy(T::MaxProxies::get()).saturating_add(T::AccountPolicy::grant_weight()))]
 pub fn add_proxy(
     origin: OriginFor<T>,
     delegate: AccountIdLookupOf<T>,
@@ -82,6 +82,6 @@ pub fn add_proxy(
 }
 ```
 
-Delegates to [`add_proxy_delegate`](/code/pallets/proxy/src/lib.rs#L965).
+Delegates to [`add_proxy_delegate`](/code/pallets/proxy/src/lib.rs#L991).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

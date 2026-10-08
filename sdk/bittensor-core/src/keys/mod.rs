@@ -21,12 +21,16 @@ use zeroize::Zeroizing;
 use crate::error::CoreError;
 
 mod base58;
+mod hashed;
+pub use hashed::HashedKeypair;
 #[cfg(feature = "host")]
 mod encrypted_json;
 
 /// Crypto type codes, matching the py-substrate-interface / btwallet convention.
 pub const CRYPTO_ED25519: u8 = 0;
 pub const CRYPTO_SR25519: u8 = 1;
+/// Versioned rotating commitment wrapper; initially wraps sr25519.
+pub const CRYPTO_HASHED: u8 = 4;
 
 pub const DEFAULT_SS58_FORMAT: u16 = 42;
 
@@ -45,6 +49,8 @@ fn as_bytes<T: AsRef<[u8]>>(value: &T) -> Vec<u8> {
     value.as_ref().to_vec()
 }
 
+/// Decode the 32-byte account identity. Hashed identities are commitments, not
+/// signing public keys; the historical function name remains for compatibility.
 pub fn public_key_from_ss58(ss58_address: &str) -> Result<[u8; 32], CoreError> {
     let account = AccountId32::from_ss58check(ss58_address)
         .map_err(|e| crypto_err(format!("invalid ss58 address: {e:?}")))?;
@@ -131,6 +137,7 @@ fn ed25519_x25519_from_pair(
 pub enum KeypairInner {
     Ed25519(ed25519::Pair),
     Sr25519(sr25519::Pair),
+    Hashed(HashedKeypair),
     PublicOnly {
         public_key: [u8; 32],
         crypto_type: u8,
@@ -142,12 +149,13 @@ impl KeypairInner {
         match self {
             KeypairInner::Ed25519(pair) => Some(pair.to_raw_vec()),
             KeypairInner::Sr25519(pair) => Some(pair.to_raw_vec()),
+            KeypairInner::Hashed(pair) => pair.master_seed().map(|seed| seed.to_vec()),
             KeypairInner::PublicOnly { .. } => None,
         }
     }
 }
 
-/// An sr25519 or ed25519 keypair backed by the workspace's sp-core.
+/// A native keypair or a versioned hashed account backed by workspace crypto.
 pub struct Keypair {
     inner: KeypairInner,
     ss58_format: u16,
@@ -170,7 +178,7 @@ impl Keypair {
         ss58_format: u16,
     ) -> Result<Self, CoreError> {
         match crypto_type {
-            CRYPTO_SR25519 | CRYPTO_ED25519 => {}
+            CRYPTO_SR25519 | CRYPTO_ED25519 | CRYPTO_HASHED => {}
             other => return Err(crypto_err(format!("unknown crypto type {other}"))),
         }
 
@@ -224,6 +232,14 @@ impl Keypair {
                     .map_err(|e| crypto_err(format!("invalid mnemonic: {e:?}")))?;
                 (KeypairInner::Ed25519(pair), seed.to_vec())
             }
+            CRYPTO_HASHED => {
+                let (_, seed) = sr25519::Pair::from_phrase(mnemonic, password)
+                    .map_err(|e| crypto_err(format!("invalid mnemonic: {e:?}")))?;
+                (
+                    KeypairInner::Hashed(HashedKeypair::from_seed(&seed)?),
+                    seed.to_vec(),
+                )
+            }
             other => return Err(crypto_err(format!("unknown crypto type {other}"))),
         };
         Ok(Self {
@@ -250,6 +266,7 @@ impl Keypair {
                 ed25519::Pair::from_seed_slice(seed)
                     .map_err(|e| crypto_err(format!("invalid seed: {e:?}")))?,
             ),
+            CRYPTO_HASHED => KeypairInner::Hashed(HashedKeypair::from_seed(seed)?),
             other => return Err(crypto_err(format!("unknown crypto type {other}"))),
         };
         Ok(Self {
@@ -262,6 +279,11 @@ impl Keypair {
 
     /// Derive a keypair from a secret URI (e.g. "//Alice" or "<mnemonic>//hard/soft").
     pub fn from_uri(uri: &str, crypto_type: u8) -> Result<Self, CoreError> {
+        if crypto_type == CRYPTO_HASHED {
+            return Err(crypto_err(
+                "hashed wallets require a mnemonic or a 32-byte master seed; secret URIs are unsupported",
+            ));
+        }
         let inner = match crypto_type {
             CRYPTO_SR25519 => KeypairInner::Sr25519(
                 sr25519::Pair::from_string(uri, None)
@@ -290,6 +312,10 @@ impl Keypair {
             hex::decode(private_key.trim_start_matches("0x"))
                 .map_err(|_| crypto_err("invalid private_key hex string"))?,
         );
+
+        if crypto_type == CRYPTO_HASHED {
+            return Self::from_seed(&private_key_vec, crypto_type);
+        }
 
         let inner = match crypto_type {
             CRYPTO_SR25519 => {
@@ -343,14 +369,18 @@ impl Keypair {
         match &self.inner {
             KeypairInner::Ed25519(_) => CRYPTO_ED25519,
             KeypairInner::Sr25519(_) => CRYPTO_SR25519,
+            KeypairInner::Hashed(_) => CRYPTO_HASHED,
             KeypairInner::PublicOnly { crypto_type, .. } => *crypto_type,
         }
     }
 
+    /// Stable account identity. For hashed wallets, obtain the active signer
+    /// separately with `hashed_public_key`, only when constructing its proof.
     pub fn public_key_bytes(&self) -> [u8; 32] {
         match &self.inner {
             KeypairInner::Ed25519(pair) => pair.public().0,
             KeypairInner::Sr25519(pair) => pair.public().0,
+            KeypairInner::Hashed(pair) => pair.account_id(),
             KeypairInner::PublicOnly { public_key, .. } => *public_key,
         }
     }
@@ -392,6 +422,9 @@ impl Keypair {
         match &self.inner {
             KeypairInner::Ed25519(pair) => Ok(as_bytes(&pair.sign(message))),
             KeypairInner::Sr25519(pair) => Ok(as_bytes(&pair.sign(message))),
+            KeypairInner::Hashed(_) => Err(crypto_err(
+                "hashed spending keys require sign_hashed with a chain transaction payload; generic message signing is unsupported",
+            )),
             KeypairInner::PublicOnly { .. } => {
                 Err(crypto_err("no private key set to create signatures"))
             }

@@ -15,6 +15,12 @@ pub mod check_nonce;
 pub mod check_nonzero_sender;
 pub mod evm_origin;
 mod fee_filters;
+pub mod hashed_auth;
+mod hashed_evm_runner;
+pub mod hashed_extrinsic;
+mod hashed_owner;
+#[cfg(test)]
+mod hashed_tests;
 mod proxy_filters;
 pub mod small_order;
 pub mod staking_fee;
@@ -66,7 +72,7 @@ use sp_runtime::{
     AccountId32, ApplyExtrinsicResult, ConsensusEngineId, Cow, Percent, generic, impl_opaque_keys,
     traits::{
         AccountIdConversion, AccountIdLookup, BlakeTwo256, Block as BlockT, DispatchInfoOf,
-        Dispatchable, One, PostDispatchInfoOf, UniqueSaturatedInto, Verify,
+        Dispatchable, ExtrinsicCall, One, PostDispatchInfoOf, UniqueSaturatedInto, Verify,
     },
     transaction_validity::{
         TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
@@ -160,6 +166,30 @@ impl pallet_shield::Config for Runtime {
     type RuntimeCall = RuntimeCall;
     type ExtrinsicDecryptor = ();
     type WeightInfo = pallet_shield::weights::SubstrateWeight<Runtime>;
+}
+
+parameter_types! {
+    /// Permanent descriptor plus account record. This uses the chain's existing
+    /// storage-price function; it is separate from unmeasured verification cost.
+    pub const HashedRegistrationDeposit: Balance = deposit(2, 160);
+}
+
+#[cfg(all(not(test), not(feature = "runtime-benchmarks")))]
+parameter_types! { pub const HashedEnabled: bool = false; }
+#[cfg(all(not(test), feature = "runtime-benchmarks"))]
+parameter_types! { pub const HashedEnabled: bool = true; }
+#[cfg(test)]
+parameter_types! { pub static HashedEnabled: bool = false; }
+
+impl pallet_hashed_accounts::Config for Runtime {
+    type Enabled = HashedEnabled;
+    type Currency = Balances;
+    type RegistrationDeposit = HashedRegistrationDeposit;
+    #[cfg(not(test))]
+    type WeightInfo = pallet_hashed_accounts::weights::Uncalibrated;
+    #[cfg(test)]
+    type WeightInfo = hashed_auth::TestWeights;
+    type OnRegister = hashed_auth::OnHashedRegistered;
 }
 
 parameter_types! {
@@ -591,6 +621,7 @@ parameter_types! {
 impl pallet_proxy::Config for Runtime {
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
+    type AccountPolicy = hashed_auth::HashedProxyPolicy;
     type ProxyType = ProxyType;
     type ProxyDepositBase = ProxyDepositBase;
     type ProxyDepositFactor = ProxyDepositFactor;
@@ -988,6 +1019,7 @@ parameter_types! {
 }
 
 impl pallet_subtensor::Config for Runtime {
+    type HotkeyOwnerPolicy = hashed_owner::HashedHotkeyOwnerPolicy;
     type RuntimeCall = RuntimeCall;
     type SudoRuntimeCall = RuntimeCall;
     type Currency = Balances;
@@ -1259,13 +1291,13 @@ impl pallet_evm::Config for Runtime {
     type BlockHashMapping = pallet_ethereum::EthereumBlockHashMapping<Self>;
     type CallOrigin = evm_origin::EnsureAddressTruncatedNonZero;
     type WithdrawOrigin = evm_origin::EnsureAddressTruncatedNonZero;
-    type AddressMapping = pallet_evm::HashedAddressMapping<BlakeTwo256>;
+    type AddressMapping = evm_origin::HashedAddressMapping;
     type Currency = Balances;
     type PrecompilesType = Precompiles<Self>;
     type PrecompilesValue = PrecompilesValue;
     type ChainId = ConfigurableChainId;
     type BlockGasLimit = BlockGasLimit;
-    type Runner = pallet_evm::runner::stack::Runner<Self>;
+    type Runner = hashed_evm_runner::HashedEvmRunner;
     type OnChargeTransaction = SubtensorEvmFeeHandler<Balances, TransactionFeeHandler<Runtime>>;
     type OnCreate = ();
     type FindAuthor = FindAuthorTruncated<Aura>;
@@ -1360,7 +1392,12 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
 
     fn check_self_contained(&self) -> Option<Result<Self::SignedInfo, TransactionValidityError>> {
         match self {
-            RuntimeCall::Ethereum(call) => call.check_self_contained(),
+            RuntimeCall::Ethereum(call) => call.check_self_contained().map(|result| {
+                result.and_then(|signer| {
+                    evm_origin::ensure_legacy_ethereum_allowed(&signer)?;
+                    Ok(signer)
+                })
+            }),
             _ => None,
         }
     }
@@ -1372,7 +1409,12 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
         len: usize,
     ) -> Option<TransactionValidity> {
         match self {
-            RuntimeCall::Ethereum(call) => call.validate_self_contained(info, dispatch_info, len),
+            RuntimeCall::Ethereum(call) => {
+                if let Err(error) = evm_origin::ensure_legacy_ethereum_allowed(info) {
+                    return Some(Err(error));
+                }
+                call.validate_self_contained(info, dispatch_info, len)
+            }
             _ => None,
         }
     }
@@ -1385,6 +1427,9 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
     ) -> Option<Result<(), TransactionValidityError>> {
         match self {
             RuntimeCall::Ethereum(call) => {
+                if let Err(error) = evm_origin::ensure_legacy_ethereum_allowed(info) {
+                    return Some(Err(error));
+                }
                 call.pre_dispatch_self_contained(info, dispatch_info, len)
             }
             _ => None,
@@ -1397,6 +1442,9 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
     ) -> Option<sp_runtime::DispatchResultWithInfo<PostDispatchInfoOf<Self>>> {
         match self {
             call @ RuntimeCall::Ethereum(pallet_ethereum::Call::transact { .. }) => {
+                if evm_origin::ensure_legacy_ethereum_allowed(&info).is_err() {
+                    return Some(Err(sp_runtime::DispatchError::BadOrigin.into()));
+                }
                 Some(call.dispatch(RuntimeOrigin::from(
                     pallet_ethereum::RawOrigin::EthereumTransaction(info),
                 )))
@@ -1461,7 +1509,10 @@ impl frame_support::traits::UnixTime for LimitOrdersUnixTime {
 pub struct LimitOrderSignerFilter;
 impl frame_support::traits::Contains<AccountId> for LimitOrderSignerFilter {
     fn contains(signer: &AccountId) -> bool {
-        !pallet_subtensor::ColdkeySwapAnnouncements::<Runtime>::contains_key(signer)
+        // The current order envelope only supports classical signatures. Never let
+        // that separate authorization path bypass a registered Hashed's policy.
+        !pallet_hashed_accounts::Accounts::<Runtime>::contains_key(signer)
+            && !pallet_subtensor::ColdkeySwapAnnouncements::<Runtime>::contains_key(signer)
             && !pallet_subtensor::ColdkeySwapDisputes::<Runtime>::contains_key(signer)
     }
 }
@@ -1631,6 +1682,7 @@ construct_runtime!(
         MevShield: pallet_shield = 30,
         AlphaAssets: pallet_alpha_assets = 31,
         LimitOrders: pallet_limit_orders = 32,
+        HashedAccounts: pallet_hashed_accounts = 33,
     }
 );
 
@@ -1726,12 +1778,10 @@ type Migrations = (
 );
 
 // Unchecked extrinsic type as expected by this runtime.
-pub type UncheckedExtrinsic =
-    fp_self_contained::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
+pub use hashed_extrinsic::UncheckedExtrinsic;
 
 /// Extrinsic type that has already been checked.
-pub type CheckedExtrinsic =
-    fp_self_contained::CheckedExtrinsic<AccountId, RuntimeCall, TxExtension, H160>;
+pub use hashed_extrinsic::CheckedExtrinsic;
 
 // The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
@@ -1770,6 +1820,7 @@ mod benches {
         [pallet_subtensor_proxy, Proxy]
         [pallet_subtensor_utility, Utility]
         [pallet_limit_orders, LimitOrders]
+        [pallet_hashed_accounts, HashedAccounts]
     );
 }
 
@@ -1835,7 +1886,7 @@ impl_runtime_apis! {
         }
 
         fn metadata_at_version(version: u32) -> Option<OpaqueMetadata> {
-            Runtime::metadata_at_version(version)
+            hashed_extrinsic::metadata_at_version(version)
         }
 
         fn metadata_versions() -> sp_std::vec::Vec<u32> {
@@ -1979,7 +2030,7 @@ impl_runtime_apis! {
         ) -> pallet_transaction_payment_rpc_runtime_api::RuntimeDispatchInfo<Balance> {
             use frame_support::dispatch::GetDispatchInfo;
             use sp_runtime::traits::ExtrinsicLike;
-            staking_fee::query_info(&uxt.0.function, &uxt.get_dispatch_info(), len, uxt.is_bare())
+            staking_fee::query_info(uxt.call(), &uxt.get_dispatch_info(), len, uxt.is_bare())
         }
         fn query_fee_details(
             uxt: <Block as BlockT>::Extrinsic,
@@ -1987,7 +2038,7 @@ impl_runtime_apis! {
         ) -> pallet_transaction_payment::FeeDetails<Balance> {
             use frame_support::dispatch::GetDispatchInfo;
             use sp_runtime::traits::ExtrinsicLike;
-            staking_fee::query_fee_details(&uxt.0.function, &uxt.get_dispatch_info(), len, uxt.is_bare())
+            staking_fee::query_fee_details(uxt.call(), &uxt.get_dispatch_info(), len, uxt.is_bare())
         }
         fn query_weight_to_fee(weight: Weight) -> Balance {
             TransactionPayment::weight_to_fee(weight)
@@ -2243,7 +2294,7 @@ impl_runtime_apis! {
         fn extrinsic_filter(
             xts: Vec<<Block as BlockT>::Extrinsic>,
         ) -> Vec<EthereumTransaction> {
-            xts.into_iter().filter_map(|xt| match xt.0.function {
+            xts.into_iter().filter_map(|xt| match xt.into_call() {
                 RuntimeCall::Ethereum(transact { transaction }) => Some(transaction),
                 _ => None
             }).collect::<Vec<EthereumTransaction>>()

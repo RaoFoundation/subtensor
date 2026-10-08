@@ -27,7 +27,7 @@ fn coerce_message_bytes(message: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
     Err(value_err("message must be str or bytes"))
 }
 
-/// An sr25519 or ed25519 keypair backed by the workspace's sp-core.
+/// A native keypair or versioned hashed account backed by workspace crypto.
 #[pyclass]
 pub struct Keypair {
     pub(crate) inner: keys::Keypair,
@@ -142,6 +142,91 @@ impl Keypair {
         self.inner.ss58_format()
     }
 
+    /// Restore a public hashed account descriptor without private material.
+    #[staticmethod]
+    #[pyo3(signature = (descriptor, ss58_format=DEFAULT_SS58_FORMAT))]
+    fn from_hashed_descriptor(descriptor: &[u8], ss58_format: u16) -> PyResult<Self> {
+        Ok(Self {
+            inner: keys::Keypair::from_hashed_descriptor(descriptor, ss58_format)
+                .map_err(to_py_err)?,
+        })
+    }
+
+    fn public_only(&self) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.public_only().map_err(to_py_err)?,
+        })
+    }
+
+    fn at_generation(&self, generation: u64) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.at_generation(generation).map_err(to_py_err)?,
+        })
+    }
+
+    #[getter]
+    fn hashed_generation(&self) -> PyResult<u64> {
+        self.inner.hashed_generation().map_err(to_py_err)
+    }
+
+    #[getter]
+    fn hashed_descriptor<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self.inner.hashed_descriptor().map_err(to_py_err)?,
+        ))
+    }
+
+    #[getter]
+    fn hashed_public_key<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self.inner.hashed_public_key().map_err(to_py_err)?,
+        ))
+    }
+
+    #[getter]
+    fn hashed_current_commitment<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self.inner.hashed_current_commitment().map_err(to_py_err)?,
+        ))
+    }
+
+    #[getter]
+    fn hashed_next_commitment<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self.inner.hashed_next_commitment().map_err(to_py_err)?,
+        ))
+    }
+
+    fn hashed_commitment<'py>(
+        &self,
+        py: Python<'py>,
+        generation: u64,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self
+                .inner
+                .hashed_commitment(generation)
+                .map_err(to_py_err)?,
+        ))
+    }
+
+    /// Sign the complete unprehashed FRAME transaction implication.
+    fn sign_hashed<'py>(
+        &self,
+        py: Python<'py>,
+        implication: &[u8],
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self.inner.sign_hashed(implication).map_err(to_py_err)?,
+        ))
+    }
+
     /// Sign a message; returns the raw 64-byte signature.
     #[pyo3(signature = (message))]
     fn sign<'py>(
@@ -193,7 +278,7 @@ fn verify(message: &[u8], signature: &[u8], ss58_address: &str, crypto_type: u8)
     keys::verify(message, signature, ss58_address, crypto_type).map_err(to_py_err)
 }
 
-/// Decode an SS58 address to its raw 32-byte public key.
+/// Decode an SS58 address to its 32-byte account identity.
 #[pyfunction]
 fn ss58_decode<'py>(py: Python<'py>, ss58_address: &str) -> PyResult<Bound<'py, PyBytes>> {
     let public_key = keys::public_key_from_ss58(ss58_address).map_err(to_py_err)?;
@@ -303,5 +388,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(save_password_to_environment, m)?)?;
     m.add("CRYPTO_ED25519", keys::CRYPTO_ED25519)?;
     m.add("CRYPTO_SR25519", keys::CRYPTO_SR25519)?;
+    m.add("CRYPTO_HASHED", keys::CRYPTO_HASHED)?;
     Ok(())
 }

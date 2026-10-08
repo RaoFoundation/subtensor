@@ -325,7 +325,12 @@ mod tests {
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SudoCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
-        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                MevShieldStoreEncryptedCalls,
+                OwnerKeyCalls,
+                HashedAccountsCalls,
+            )>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -344,7 +349,12 @@ mod tests {
         let denied = &denied | &group_calls::<(SubtensorValueCalls, SudoCalls)>();
         let denied = &denied | &group_calls::<MultisigCalls>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
-        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                MevShieldStoreEncryptedCalls,
+                OwnerKeyCalls,
+                HashedAccountsCalls,
+            )>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
@@ -537,7 +547,12 @@ mod tests {
             | &group_calls::<ColdkeySwapCalls>();
         let denied = &denied | &group_calls::<(CrowdloanCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
-        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                MevShieldStoreEncryptedCalls,
+                OwnerKeyCalls,
+                HashedAccountsCalls,
+            )>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied

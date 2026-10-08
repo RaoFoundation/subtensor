@@ -1641,6 +1641,7 @@ dependencies = [
  "getrandom 0.2.17",
  "hex",
  "hidapi",
+ "hkdf",
  "ledger-apdu",
  "libloading",
  "merkleized-metadata",
@@ -1659,6 +1660,7 @@ dependencies = [
  "sha2 0.10.9",
  "sodiumoxide",
  "sp-core",
+ "subtensor-hashed",
  "subtensor-macros",
  "tle",
  "twox-hash 2.1.2",
@@ -8820,6 +8822,7 @@ dependencies = [
  "pallet-evm-precompile-simple",
  "pallet-fast-unstake",
  "pallet-grandpa",
+ "pallet-hashed-accounts",
  "pallet-hotfix-sufficients",
  "pallet-insecure-randomness-collective-flip",
  "pallet-limit-orders",
@@ -8851,6 +8854,7 @@ dependencies = [
  "rand_chacha 0.3.1",
  "safe-math",
  "scale-info",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "smallvec",
@@ -8882,6 +8886,7 @@ dependencies = [
  "substrate-wasm-builder",
  "subtensor-chain-extensions",
  "subtensor-custom-rpc-runtime-api",
+ "subtensor-hashed",
  "subtensor-macros",
  "subtensor-precompiles",
  "subtensor-runtime-common",
@@ -10317,6 +10322,23 @@ dependencies = [
  "sp-runtime",
  "sp-session",
  "sp-staking",
+]
+
+[[package]]
+name = "pallet-hashed-accounts"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-keystore",
+ "sp-runtime",
+ "subtensor-hashed",
 ]
 
 [[package]]
@@ -18941,6 +18963,16 @@ dependencies = [
  "sp-runtime",
  "substrate-fixed",
  "subtensor-runtime-common",
+]
+
+[[package]]
+name = "subtensor-hashed"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
 ]
 
 [[package]]

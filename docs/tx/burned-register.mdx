@@ -75,7 +75,7 @@ result = sub.execute_tool("burned_register", {...}, wallet)
 
 ```rust
 #[pallet::call_index(7)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::burned_register())]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::burned_register().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(1)))]
 pub fn burned_register(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -85,6 +85,6 @@ pub fn burned_register(
 }
 ```
 
-Delegates to [`do_register_with_post_info`](/code/pallets/subtensor/src/subnets/registration.rs#L203).
+Delegates to [`do_register_with_post_info`](/code/pallets/subtensor/src/subnets/registration.rs#L205).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

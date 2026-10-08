@@ -16,12 +16,13 @@ from typing import Callable
 from ._transport.codec import is_valid_ss58_address
 from .keyfiles import Keypair, WrongPasswordError, resolve_key_password
 from .settings import SS58_FORMAT
-from .sp_core import CRYPTO_ED25519, CRYPTO_SR25519
+from .sp_core import CRYPTO_ED25519, CRYPTO_HASHED, CRYPTO_SR25519
 from .wallet import DEFAULT_WALLET_PATH, Wallet
 
 CRYPTO_TYPE_NAMES: dict[int, str] = {
     CRYPTO_ED25519: "ed25519",
     CRYPTO_SR25519: "sr25519",
+    CRYPTO_HASHED: "hashed",
 }
 _NAME_TO_CRYPTO_TYPE: dict[str, int] = {name: code for code, name in CRYPTO_TYPE_NAMES.items()}
 DEFAULT_CRYPTO_TYPE = CRYPTO_SR25519
@@ -39,7 +40,7 @@ def is_bittensor_address(value: str) -> bool:
 
 
 def parse_crypto_type(value: str) -> int:
-    """Parse ``ed25519`` / ``sr25519`` (or ``0`` / ``1``) to a wallet crypto type."""
+    """Parse a named wallet key type or its numeric identifier."""
     normalized = value.strip().lower()
     if normalized in _NAME_TO_CRYPTO_TYPE:
         return _NAME_TO_CRYPTO_TYPE[normalized]

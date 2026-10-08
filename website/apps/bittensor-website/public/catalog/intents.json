@@ -112,9 +112,9 @@
         "pallet": "Proxy",
         "call": "add_proxy",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 284,
-        "end_line": 293,
-        "url": "/code/pallets/proxy/src/lib.rs#L282-L293",
+        "line": 307,
+        "end_line": 316,
+        "url": "/code/pallets/proxy/src/lib.rs#L305-L316",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -303,6 +303,10 @@
         "new_coldkey_ss58": {
           "type": "string",
           "description": "Coldkey that will take over everything this coldkey owns once the swap executes; only its hash is published now."
+        },
+        "hashed_descriptor": {
+          "type": "string",
+          "description": "Public descriptor hex for a remote hashed destination's registration."
         }
       },
       "required": [
@@ -897,9 +901,9 @@
         "pallet": "Proxy",
         "call": "create_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 349,
-        "end_line": 381,
-        "url": "/code/pallets/proxy/src/lib.rs#L347-L381",
+        "line": 372,
+        "end_line": 404,
+        "url": "/code/pallets/proxy/src/lib.rs#L370-L404",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1131,9 +1135,9 @@
         "pallet": "Proxy",
         "call": "proxy_announced",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 566,
-        "end_line": 592,
-        "url": "/code/pallets/proxy/src/lib.rs#L557-L592",
+        "line": 589,
+        "end_line": 616,
+        "url": "/code/pallets/proxy/src/lib.rs#L580-L616",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1332,9 +1336,9 @@
         "pallet": "Proxy",
         "call": "kill_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 401,
-        "end_line": 427,
-        "url": "/code/pallets/proxy/src/lib.rs#L399-L427",
+        "line": 424,
+        "end_line": 450,
+        "url": "/code/pallets/proxy/src/lib.rs#L422-L450",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -2116,9 +2120,9 @@
         "pallet": "Proxy",
         "call": "remove_proxies",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 323,
-        "end_line": 327,
-        "url": "/code/pallets/proxy/src/lib.rs#L321-L327",
+        "line": 346,
+        "end_line": 350,
+        "url": "/code/pallets/proxy/src/lib.rs#L344-L350",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -2166,9 +2170,9 @@
         "pallet": "Proxy",
         "call": "remove_proxy",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 304,
-        "end_line": 313,
-        "url": "/code/pallets/proxy/src/lib.rs#L302-L313",
+        "line": 327,
+        "end_line": 336,
+        "url": "/code/pallets/proxy/src/lib.rs#L325-L336",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -4601,6 +4605,10 @@
         "keep_alive": {
           "type": "boolean",
           "description": "Refuse to drop the sender below the existential deposit. Disable it only when you intend to empty the account, which lets the chain reap it."
+        },
+        "hashed_descriptor": {
+          "type": "string",
+          "description": "Public descriptor hex for initial registration of a remote hashed wallet."
         }
       },
       "required": [
@@ -4637,6 +4645,10 @@
         "keep_alive": {
           "type": "boolean",
           "description": "Refuse to drop the sender below the existential deposit. Disable it only when you intend to empty the account, which lets the chain reap it."
+        },
+        "hashed_descriptor": {
+          "type": "string",
+          "description": "Public descriptor hex for initial registration of a remote hashed wallet."
         }
       },
       "required": [
