@@ -584,14 +584,14 @@ class DocsPreviewBundleTests(unittest.TestCase):
         original = os.symlink
         calls = []
 
-        def fail_second(source, destination, **kwargs):
+        def fail_second(source, destination, *args, **kwargs):
             calls.append(destination)
             if len(calls) == 2:
                 raise OSError("simulated link creation failure")
-            original(source, destination, **kwargs)
+            original(source, destination, *args, **kwargs)
 
         with patch("docs_preview_bundle.os.symlink", side_effect=fail_second):
-            with self.assertRaises(BundleError):
+            with self.assertRaisesRegex(BundleError, "simulated link creation failure"):
                 extract_bundle(self.archive, self.destination)
         self.assertEqual(len(calls), 2)
         self.assertFalse(self.destination.exists())
