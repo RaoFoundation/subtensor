@@ -91,6 +91,23 @@ call_filter_group!(
 );
 
 call_filter_group!(
+    HashedAccountChecks,
+    [RuntimeCall::HashedAccounts(
+        HashedAccountsCall::check_registered
+    ),]
+);
+
+// These calls cannot create accounts or spend funds. batch_all retains the
+// proxy origin's filter for every child and rolls back on a rejected child.
+call_filter_group!(
+    RecipientGuardCalls,
+    [
+        RuntimeCall::HashedAccounts(HashedAccountsCall::check_registered),
+        RuntimeCall::Utility(UtilityCall::batch_all),
+    ]
+);
+
+call_filter_group!(
     EvmCalls,
     [
         RuntimeCall::EVM(EvmCall::withdraw),
@@ -718,6 +735,7 @@ pub(super) type AllCalls = (
 type WholesalePalletCalls = (
     InfraCommonCalls,
     HashedAccountsCalls,
+    HashedAccountChecks,
     SudoCalls,
     MultisigCalls,
     MevShieldStoreEncryptedCalls,

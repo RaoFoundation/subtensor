@@ -105,8 +105,7 @@ class Batch(Intent):
                     "batched first-time account setup is not supported"
                 )
             # Flatten guards: the runtime deliberately rejects nested batches.
-            # A one-child batch can initialize after a reorg, so preserve the
-            # maximum reserve in policy/preview even when it is currently zero.
+            # Existing recipients use check-only guards and never reserve funds.
             composed.extend(child_calls)
             if registration:
                 guards = registration["hashed_registration_guards"]

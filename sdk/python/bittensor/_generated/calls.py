@@ -1709,6 +1709,11 @@ class HashedAccounts:
     """Call builders for the HashedAccounts pallet."""
 
     @staticmethod
+    def check_registered(descriptor: 'Descriptor') -> Call:
+        "Check a recipient's registration without reserving funds or creating an account. An atomic payment must fail if a reorg removed its setup."
+        return Call('HashedAccounts', 'check_registered', {'descriptor': descriptor})
+
+    @staticmethod
     def register(descriptor: 'Descriptor') -> Call:
         'Bind a derived account to its hidden initial key. Anyone may sponsor the permanent storage deposit; the sponsor gains no authority. Idempotent registration never changes an existing authorization.'
         return Call('HashedAccounts', 'register', {'descriptor': descriptor})

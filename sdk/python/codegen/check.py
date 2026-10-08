@@ -76,7 +76,7 @@ RAW_ONLY: dict[str, set[str]] = {
     # Ordinary funding and migration intents insert registration automatically
     # when they have the recipient descriptor. Expose standalone sponsorship
     # through the raw call surface, not a second wallet-creation workflow.
-    "HashedAccounts": {"register"},
+    "HashedAccounts": {"register", "check_registered"},
     "SubtensorModule": {
         # sudo/admin/root-origin operations — deliberately not agent-executable
         "sudo_set_max_childkey_take",

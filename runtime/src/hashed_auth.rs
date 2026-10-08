@@ -25,6 +25,9 @@ frame_support::parameter_types! {
 pub struct TestWeights;
 #[cfg(test)]
 impl WeightInfo for TestWeights {
+    fn check_registered() -> Weight {
+        TestVerificationWeight::get()
+    }
     fn register() -> Weight {
         TestVerificationWeight::get()
     }

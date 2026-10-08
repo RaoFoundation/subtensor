@@ -111,6 +111,45 @@ fn proof(
 }
 
 #[test]
+fn recipient_check_is_read_only_and_never_registers_a_missing_account() {
+    new_test_ext().execute_with(|| {
+        let (pair, descriptor, account) = fixture();
+        assert_noop!(
+            HashedAccounts::check_registered(RuntimeOrigin::signed(sponsor()), descriptor),
+            Error::<Test>::NotRegistered
+        );
+        assert_ok!(HashedAccounts::register(
+            RuntimeOrigin::signed(sponsor()),
+            descriptor
+        ));
+        let ticket = HashedAccounts::check_proof(
+            &account,
+            &proof(&pair, &account, 0, [9; 32]),
+            b"implication",
+        )
+        .unwrap();
+        assert_ok!(HashedAccounts::advance(&ticket));
+        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        // Even an unfunded signer can check a rotated account's original descriptor.
+        assert_ok!(HashedAccounts::check_registered(
+            RuntimeOrigin::signed(AccountId32::new([8; 32])),
+            descriptor
+        ));
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+        Accounts::<Test>::remove(&account);
+        assert_noop!(
+            HashedAccounts::check_registered(RuntimeOrigin::signed(sponsor()), descriptor),
+            Error::<Test>::NotRegistered
+        );
+        Enabled::set(false);
+        assert_noop!(
+            HashedAccounts::check_registered(RuntimeOrigin::signed(sponsor()), descriptor),
+            Error::<Test>::Disabled
+        );
+    });
+}
+
+#[test]
 fn registration_is_idempotent_and_sponsor_never_becomes_authority() {
     new_test_ext().execute_with(|| {
         let (pair, descriptor, account) = fixture();

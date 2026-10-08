@@ -15,6 +15,7 @@ from bittensor.intents import Batch, Transfer, TransferAll
 from bittensor.intents.evm import FundEvmKey
 from bittensor.intents.multisig import MultisigIntentAdapter, MultisigThreshold1
 from bittensor.intents.registration import BurnedRegister, RegisterSubnet
+from bittensor.intents.staking import MoveSwapStake, RemoveStake
 from bittensor.receiving import parse_recipient, receiving_address
 from bittensor.sp_core import CRYPTO_HASHED, Keypair
 from bittensor.wallet import Wallet
@@ -127,13 +128,16 @@ async def test_policy_counts_maximum_registration_reserve_before_signing(setup, 
         registered(chain, key)
     policy = Policy(max_spend_tao="1.1")
     plan = await Executor(chain).plan(Transfer(address, 1), wallet, policy=policy)
-    assert any("max_spend" in item for item in plan.violations)
-    assert plan.extras["hashed_registration_max_deposit_rao"] == RESERVE
+    assert any("max_spend" in item for item in plan.violations) == (not exists)
+    assert plan.extras["hashed_registration_max_deposit_rao"] == (0 if exists else RESERVE)
     assert ("hashed_registration" not in plan.extras) == exists
-    assert plan.call.params["calls"][0].function == "register"
-    with pytest.raises(PolicyError):
-        await Executor(chain).execute(Transfer(address, 1), wallet, policy=policy)
-    assert not chain.submissions
+    assert plan.call.params["calls"][0].function == ("check_registered" if exists else "register")
+    if exists:
+        assert (await Executor(chain).execute(Transfer(address, 1), wallet, policy=policy)).success
+    else:
+        with pytest.raises(PolicyError):
+            await Executor(chain).execute(Transfer(address, 1), wallet, policy=policy)
+        assert not chain.submissions
 
 
 @pytest.mark.parametrize("keep_alive", [False, True])
@@ -187,18 +191,61 @@ async def test_registered_batch_flattens_guards_and_deduplicates_reserve(setup):
     registered(chain, key)
     plan = await Executor(chain).plan(Batch([Transfer(address, 1), Transfer(address, 2)]), wallet)
     assert [call.function for call in plan.call.params["calls"]] == [
-        "register",
+        "check_registered",
         "transfer_keep_alive",
-        "register",
+        "check_registered",
         "transfer_keep_alive",
     ]
-    assert plan.extras["hashed_registration_max_deposit_rao"] == RESERVE
-    assert plan.spend.rao == 3 * 10**9 + RESERVE
-    # One child may initialize after a reorg: the conservative reserve must remain.
+    assert plan.extras["hashed_registration_max_deposit_rao"] == 0
+    assert plan.spend.rao == 3 * 10**9
+    # A reorg makes the check fail; it cannot reserve funds or initialize an account.
     one = await Executor(chain).plan(
         Batch([Transfer(address, 1)]), wallet, policy=Policy(max_spend_tao="1.1")
     )
-    assert any("max_spend" in item for item in one.violations)
+    assert not one.violations
+
+
+@pytest.mark.parametrize("operation", ["move_swap", "claim_unstake"])
+@pytest.mark.parametrize("batched", [False, True])
+async def test_registered_composite_operation_has_one_atomic_batch(setup, operation, batched):
+    chain, wallet, key, address = setup
+    registered(chain, key)
+    if operation == "move_swap":
+        intent = MoveSwapStake(BOB, 1, address, 2, 1, slippage_protection=False)
+        expected = ["check_registered", "move_stake", "swap_stake"]
+    else:
+        intent = RemoveStake(address, 0, 1, slippage_protection=False, claim=True)
+        expected = ["check_registered", "claim_root_with_hotkey", "remove_stake"]
+    if batched:
+        intent = Batch([intent])
+    call, _ = await _compose_intent_call(chain, intent, wallet)
+    assert call.function == "batch_all"
+    assert [child.function for child in call.params["calls"]] == expected
+
+
+async def test_atomic_flattening_round_trips_real_scale_calls():
+    from bittensor._generated import calls
+    from bittensor.hashed import atomic_calls
+    from tests.conftest import golden_codec
+
+    codec = golden_codec()
+    chain = FakeSubstrate()
+    chain.decode_scale = AsyncMock(side_effect=codec.decode)
+    chain.compose = AsyncMock(side_effect=lambda call: codec.compose_call(*call))
+    leaf = codec.compose_call(*calls.Balances.transfer_keep_alive(dest=BOB, value=123))
+    nested = codec.compose_call(*calls.Utility.batch_all(calls=[leaf, leaf]))
+    outer = codec.compose_call(*calls.Utility.batch_all(calls=[nested, leaf]))
+    flat = await atomic_calls(chain, outer)
+    recomposed = codec.compose_call(*calls.Utility.batch_all(calls=flat))
+    assert recomposed.data == codec.compose_call(*calls.Utility.batch_all(calls=[leaf] * 3)).data
+    # Flattening must retain a child's proxy origin and its encoded nested call.
+    proxied = codec.compose_call(*calls.Proxy.proxy(real=ALICE, force_proxy_type=None, call=leaf))
+    wrapped = codec.compose_call(*calls.Utility.batch_all(calls=[proxied]))
+    flattened = await atomic_calls(chain, wrapped)
+    assert codec.compose_call(*calls.Utility.batch_all(calls=flattened)).data == wrapped.data
+    for wrapper in ["batch", "force_batch"]:
+        non_atomic = codec.compose_call("Utility", wrapper, {"calls": [leaf]})
+        assert await atomic_calls(chain, non_atomic) == [non_atomic]
 
 
 @pytest.mark.parametrize("form", ["typed", "explicit", "default_hotkey", "evm"])

@@ -421,6 +421,92 @@ fn registered_identity_cannot_use_legacy_signature_path() {
 }
 
 #[test]
+fn recipient_checks_preserve_restricted_proxy_permissions_and_atomicity() {
+    use alloc::boxed::Box;
+    use frame_support::assert_ok;
+    for proxy_type in [ProxyType::NonTransfer, ProxyType::Staking] {
+        ext().execute_with(|| {
+            setup();
+            System::set_block_number(1);
+            let real = AccountId::from(pair(22).public());
+            let delegate = AccountId::from(pair(23).public());
+            let _ = Balances::make_free_balance_be(&real, TaoBalance::new(1_000_000_000_000));
+            assert_ok!(Proxy::add_proxy_delegate(
+                &real,
+                delegate.clone(),
+                proxy_type,
+                0
+            ));
+            pallet_subtensor::NetworksAdded::<Runtime>::insert(NetUid::ROOT, true);
+            pallet_subtensor::SubtokenEnabled::<Runtime>::insert(NetUid::ROOT, true);
+            pallet_subtensor::Owner::<Runtime>::insert(account(), account());
+            let guard =
+                RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::check_registered {
+                    descriptor: descriptor(),
+                });
+            let stake = RuntimeCall::SubtensorModule(pallet_subtensor::Call::add_stake {
+                hotkey: account(),
+                netuid: NetUid::ROOT,
+                amount_staked: TaoBalance::new(1_000_000_000),
+            });
+            let batch = |calls| RuntimeCall::Utility(pallet_utility::Call::batch_all { calls });
+            let dispatch = |call| {
+                assert_ok!(Proxy::proxy(
+                    RuntimeOrigin::signed(delegate.clone()),
+                    real.clone().into(),
+                    Some(proxy_type),
+                    Box::new(call)
+                ));
+                match System::events().last().unwrap().event.clone() {
+                    RuntimeEvent::Proxy(pallet_proxy::Event::ProxyExecuted { result }) => result,
+                    other => panic!("expected proxy result, got {other:?}"),
+                }
+            };
+            assert_ok!(dispatch(batch(vec![guard.clone(), stake.clone()])));
+            assert!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &account(),
+                    &real,
+                    NetUid::ROOT
+                ) > 0.into()
+            );
+            let balance = Balances::free_balance(&real);
+            let reserved = Balances::reserved_balance(&real);
+            // Permission to check does not grant permission to reserve a deposit.
+            assert_eq!(
+                dispatch(batch(vec![
+                    RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register {
+                        descriptor: descriptor()
+                    }),
+                    stake.clone()
+                ])),
+                Err(frame_system::Error::<Runtime>::CallFiltered.into())
+            );
+            // Nor can wrapping a transfer acquire permissions excluded by this proxy.
+            assert_eq!(
+                dispatch(batch(vec![
+                    stake.clone(),
+                    guard.clone(),
+                    RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+                        dest: account().into(),
+                        value: TaoBalance::new(1_000_000_000)
+                    })
+                ])),
+                Err(frame_system::Error::<Runtime>::CallFiltered.into())
+            );
+            pallet_hashed_accounts::Accounts::<Runtime>::remove(account());
+            assert_eq!(
+                dispatch(batch(vec![guard, stake])),
+                Err(pallet_hashed_accounts::Error::<Runtime>::NotRegistered.into())
+            );
+            assert_eq!(Balances::free_balance(&real), balance);
+            assert_eq!(Balances::reserved_balance(&real), reserved);
+            assert!(!HashedAccounts::is_registered(&account()));
+        });
+    }
+}
+
+#[test]
 fn hashed_accounts_only_accept_hashed_proxy_delegates() {
     ext().execute_with(|| {
         setup();

@@ -567,7 +567,7 @@ async def test_registered_destination_is_not_reset_and_remote_descriptor_is_chec
     plan = await Executor(substrate).plan(Transfer(address, 1), sponsor)
     assert plan.call.function == "batch_all"
     guard, payment = plan.call.params["calls"]
-    assert guard.function == "register"
+    assert guard.function == "check_registered"
     assert payment.function == "transfer_keep_alive"
     assert "hashed_registration" not in plan.extras
     with pytest.raises(ValueError, match="does not match"):

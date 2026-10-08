@@ -4,12 +4,16 @@ use frame_support::weights::Weight;
 
 pub trait WeightInfo {
     fn register() -> Weight;
+    fn check_registered() -> Weight;
     fn authorize(call_len: u32) -> Weight;
 }
 
 pub struct Uncalibrated;
 
 impl WeightInfo for Uncalibrated {
+    fn check_registered() -> Weight {
+        Weight::MAX
+    }
     fn register() -> Weight {
         Weight::MAX
     }
@@ -19,6 +23,9 @@ impl WeightInfo for Uncalibrated {
 }
 
 impl WeightInfo for () {
+    fn check_registered() -> Weight {
+        Uncalibrated::check_registered()
+    }
     fn register() -> Weight {
         Uncalibrated::register()
     }

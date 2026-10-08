@@ -49,6 +49,16 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn check_registered() -> Result<(), BenchmarkError> {
+        let (sponsor, descriptor, account, _) = setup::<T>()?;
+        Pallet::<T>::register(RawOrigin::Signed(sponsor.clone()).into(), descriptor)?;
+        #[extrinsic_call]
+        _(RawOrigin::Signed(sponsor), descriptor);
+        assert_eq!(Accounts::<T>::get(account).unwrap().generation, 0);
+        Ok(())
+    }
+
+    #[benchmark]
     fn authorize(n: Linear<0, 10485760>) -> Result<(), BenchmarkError> {
         let (sponsor, descriptor, account, key) = setup::<T>()?;
         Pallet::<T>::register(RawOrigin::Signed(sponsor).into(), descriptor)?;

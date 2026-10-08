@@ -29,7 +29,7 @@ outside this change. Passing functional tests does not remove those limits.
 | Native key derivation → wallet backup | Independent, versioned generation derivation from the original secret; immutable initial descriptor; public-only imports cannot sign | Recovery requires no growing key history. Competing devices still need to coordinate their one pending generation. |
 | Native codec → Python bindings → CLI | One canonical 104-character token containing full genesis, descriptor and checksum; no signing public key | Independent fixed vector and malformed-input tests cover the codec. Unknown versions, damaged tokens and wrong networks fail before composition. |
 | Address book/wallet object → SDK intent | Complete receiving metadata survives contacts, public keyfiles, defaults, display and copying to a new device | Recipient private keys are not read. The internal SS58 account is selected only at the chain boundary. |
-| SDK intent → runtime registration/payment | Idempotent registration guard before payment, even if the registry read already found the account | Runtime tests establish rollback on failed first payment. Concurrent sponsors and a rotation between their payments preserve authority, nonce and provider state. |
+| SDK intent → runtime registration/payment | First-use registration or a check-only guard for an existing recipient, before payment | Runtime tests establish rollback on failed first payment. Concurrent sponsors and a rotation between their payments preserve authority, nonce and provider state. Existing-recipient checks fail after a reorg without reserving funds. |
 | Fee/policy → first payment/send-all | Setup reserve, full batch fee and existential deposit are accounted for; reserve stays permanently locked on the first sponsor | Spend caps include the maximum reserve. Send-all computes its transferable balance after setup. Frozen-balance previews are conservative and can reject some otherwise affordable payments. |
 | Batch/proxy/multisig → runtime origin | New registration is restricted to authenticated direct calls or a supported flat two-call batch | Unsupported first-use wrappers fail before signing or roll back on chain. Existing guards are flattened. Imported multisig bytes cannot bypass typed, explicit, locally known or implicit recipient setup. |
 | Authorization proof → transaction extensions | Account, scheme, generation, next commitment, call and transaction implication are signed together | Tests cover stale/competing generations, tampering, different genesis, invalid nonce/fee/weight rollback, accepted dispatch failure and simulated reverted inclusion. |
@@ -57,11 +57,10 @@ rule. The owner-association protocol must be resolved before activation.
 
 ## Issues corrected during review
 
-- Retained idempotent recipient guards after successful registry reads, so
+- Added check-only recipient guards after successful registry reads, so
   reorgs cannot silently turn a guarded payment into an unregistered transfer.
-- Included registration reserve exposure in spend limits, including flattened
-  one-child batches and repeat recipients, without double-counting the same
-  account's reserve in a batch.
+- Included first-time registration reserves in spend limits. Existing-recipient
+  checks need no reserve and remain usable through restricted proxies.
 - Preserved setup metadata in batch children, wallet objects, public-only
   imports and default in-memory hotkeys. Rejected imported multisig bytes when
   their semantic description cannot establish correct recipient setup.

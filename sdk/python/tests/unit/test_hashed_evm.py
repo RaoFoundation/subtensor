@@ -106,7 +106,7 @@ async def test_protected_funding_guards_and_credits_native_account(protected, am
     built = await FundEvmKey(alias, amount).build(substrate, object())
     assert (built.call.module, built.call.function) == ("Utility", "batch_all")
     registration, transfer = built.call.params["calls"]
-    assert (registration.module, registration.function) == ("HashedAccounts", "register")
+    assert (registration.module, registration.function) == ("HashedAccounts", "check_registered")
     assert registration.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
     assert transfer.function == function
     assert transfer.params["dest"] == key.ss58_address

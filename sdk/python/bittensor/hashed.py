@@ -154,7 +154,7 @@ async def with_recipient_registration(
     recipients: dict[str, Recipient] | None = None,
     as_calls: bool = False,
 ):
-    """Register a known hashed recipient and its operation in one atomic batch.
+    """Guard a known hashed recipient and its operation in one atomic batch.
 
     The caller adds origin wrappers after this step, keeping setup under the
     same sponsor authorization. No mutation or private-key access occurs here,
@@ -191,7 +191,7 @@ async def with_recipient_registration(
                 raise ValueError("hashed descriptor does not match the destination address")
             recipients[parameter] = typed or Recipient(address, address, descriptor)
     if not recipients:
-        return ([call] if as_calls else call), {}
+        return (await atomic_calls(substrate, call) if as_calls else call), {}
     if await substrate.constant("HashedAccounts", "Enabled") is not True:
         raise ValueError("hashed accounts are not enabled on this chain")
     unique = {recipient.account: recipient for recipient in recipients.values()}
@@ -213,20 +213,22 @@ async def with_recipient_registration(
                     "before using this operation"
                 )
             new_accounts.append(address)
+        guard = (
+            calls.HashedAccounts.check_registered
+            if record is not None
+            else calls.HashedAccounts.register
+        )
         registrations.append(
-            await substrate.compose(
-                calls.HashedAccounts.register(descriptor=descriptor_value(recipient.descriptor))
-            )
+            await substrate.compose(guard(descriptor=descriptor_value(recipient.descriptor)))
         )
     deposit = int(await substrate.constant("HashedAccounts", "RegistrationDeposit"))
-    # Always guard, including already registered recipients: a storage read can
-    # be invalidated by a reorg. Idempotence protects authority and avoids a
-    # second reserve. Unsupported new registrations fail inside this atomic batch.
-    guarded = [*registrations, call]
+    # A check-only guard fails closed after a reorg without granting proxies the
+    # authority to sponsor registration. Only first-use registration reserves.
+    guarded = [*registrations, *await atomic_calls(substrate, call)]
     batch = guarded if as_calls else await substrate.compose(calls.Utility.batch_all(calls=guarded))
     extras = {
         "hashed_registration_guards": list(unique),
-        "hashed_registration_max_deposit_rao": deposit * len(unique),
+        "hashed_registration_max_deposit_rao": deposit * len(new_accounts),
     }
     if new_accounts:
         extras.update(
@@ -234,3 +236,48 @@ async def with_recipient_registration(
             hashed_registration_deposit_rao=deposit * len(new_accounts),
         )
     return batch, extras
+
+
+async def atomic_calls(substrate, call: Any) -> list[Any]:
+    """Flatten only same-origin atomic batches; preserve every other wrapper.
+
+    Decoding is necessary for production CallBytes, whose contents are opaque.
+    Recompose decoded children because the transport's display dictionaries are
+    different from the enum values accepted by its SCALE encoder.
+    """
+    from .fee_filters import _arg_value, _call_dict
+
+    decoded = _call_dict(call)
+    if decoded is None:
+        decoded = await substrate.decode_scale("Call", call.data)
+    if (decoded.get("call_module"), decoded.get("call_function")) != ("Utility", "batch_all"):
+        if isinstance(call, dict):
+            call = await substrate.compose(
+                calls.Call(
+                    decoded["call_module"],
+                    decoded["call_function"],
+                    {arg["name"]: _call_variants(arg["value"]) for arg in decoded["call_args"]},
+                )
+            )
+        return [call]
+    flattened = []
+    for child in _arg_value(decoded, "calls"):
+        flattened.extend(await atomic_calls(substrate, child))
+    return flattened
+
+
+def _call_variants(value: Any) -> Any:
+    """Restore nested RuntimeCall enum values without changing their wrappers."""
+    if isinstance(value, dict):
+        if "call_module" in value and "call_function" in value:
+            return {
+                value["call_module"]: {
+                    value["call_function"]: {
+                        arg["name"]: _call_variants(arg["value"]) for arg in value["call_args"]
+                    }
+                }
+            }
+        return {key: _call_variants(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_call_variants(item) for item in value]
+    return value

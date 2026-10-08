@@ -88,8 +88,9 @@ and is shared by Python bindings.
 A sponsor pays the existing storage-price-based registration reserve and fee.
 The reserve stays locked on the sponsor for the permanent registration; it is
 not a transaction execution weight estimate or a spendable recipient balance.
-The preview and spend policy include the maximum possible reserve, even for an
-already registered recipient that could disappear in a reorg. First-payment
+The preview and spend policy include the reserve for first-time registration.
+Already registered recipients use a check-only guard: if a reorg removes their
+registration, the entire operation fails without reserving funds. First-payment
 affordability includes the complete batch fee and the sender's existential
 deposit. A send-all executes after registration and sweeps the remaining
 transferable balance; the permanent reserve also prevents reaping the sponsor.
@@ -98,7 +99,9 @@ First-time setup supports a direct payment or the runtime's permitted direct
 migration/registration operation. Initial setup inside a general batch, proxy,
 multisig or sudo call is rejected with an actionable error. Existing recipient
 guards are flattened inside batches because the runtime rejects nested batches.
-If a reorg makes an unsupported wrapped recipient unregistered, its guard fails
+Restricted proxies may check registration and dispatch atomic batches; every
+child still requires the proxy's existing permissions. They cannot sponsor
+registration. If a reorg makes a wrapped recipient unregistered, its guard fails
 and the atomic operation rolls back. Imported multisig bytes with recipient
 setup metadata are rejected because display metadata cannot prove those bytes
 contain the correct guard. Normal coldkey-swap delay and scope still apply; a

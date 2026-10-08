@@ -183,6 +183,23 @@ pub mod pallet {
             });
             Ok(())
         }
+
+        /// Check a recipient's registration without reserving funds or creating
+        /// an account. An atomic payment must fail if a reorg removed its setup.
+        #[pallet::call_index(1)]
+        #[pallet::weight(T::WeightInfo::check_registered())]
+        pub fn check_registered(origin: OriginFor<T>, descriptor: Descriptor) -> DispatchResult {
+            ensure_signed(origin)?;
+            ensure!(T::Enabled::get(), Error::<T>::Disabled);
+            ensure!(descriptor.is_supported(), Error::<T>::UnsupportedDescriptor);
+            let account = AccountId32::new(subtensor_hashed::account_id(&descriptor));
+            let record = Accounts::<T>::get(account).ok_or(Error::<T>::NotRegistered)?;
+            ensure!(
+                record.descriptor == descriptor,
+                Error::<T>::DescriptorMismatch
+            );
+            Ok(())
+        }
     }
 
     impl<T: Config> Pallet<T> {
