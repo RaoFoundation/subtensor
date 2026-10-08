@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import io
 import json
 import os
 import re
@@ -39,11 +40,15 @@ class Limits:
     max_json_bytes: int = 5 * 1024 * 1024
     max_file_path_references: int = 20_000_000
     max_file_path_references_per_config: int = 10_000
+    max_function_aliases: int = 20_000
+    max_function_alias_manifest_bytes: int = 4 * 1024 * 1024
 
 
 ALLOWED_ROOTS = (".vercel/output",)
 COPY_CHUNK_BYTES = 1024 * 1024
 TAR_BLOCK_BYTES = 512
+FUNCTIONS_ROOT = ".vercel/output/functions"
+FUNCTION_ALIASES_MANIFEST = ".vercel/output/.docs-preview-function-aliases.json"
 
 
 class _FilePathCache:
@@ -369,7 +374,7 @@ def _file_path_map(
     return entries
 
 
-def _validate_vercel_paths(root: Path, limits: Limits) -> None:
+def _validate_vercel_paths(root: Path, limits: Limits) -> dict[str, int]:
     output = root / ".vercel" / "output"
     if not output.is_dir():
         raise BundleError("bundle is missing .vercel/output")
@@ -379,6 +384,7 @@ def _validate_vercel_paths(root: Path, limits: Limits) -> None:
         raise BundleError("bundle has no Vercel function configuration")
 
     reference_count = 0
+    references_by_directory = {}
     cache = _FilePathCache(root)
     for config_path in configs:
         config = _load_json(config_path, limits)
@@ -386,6 +392,9 @@ def _validate_vercel_paths(root: Path, limits: Limits) -> None:
             raise BundleError(f"function configuration is not an object: {config_path}")
         file_path_map = _file_path_map(config_path, config, limits, cache)
         reference_count += len(file_path_map)
+        references_by_directory[config_path.parent.relative_to(root).as_posix()] = len(
+            file_path_map
+        )
         if reference_count > limits.max_file_path_references:
             raise BundleError("too many Vercel filePathMap references")
 
@@ -400,14 +409,174 @@ def _validate_vercel_paths(root: Path, limits: Limits) -> None:
         physical_handler = config_path.parent / handler
         if handler not in file_path_map and not physical_handler.is_file():
             raise BundleError(f"function handler does not exist: {config_path}")
+    return references_by_directory
+
+
+def _function_path(value: object, limits: Limits) -> str:
+    """A canonical function name, never a path into another function's body."""
+    name = _normalise_relative_path(value, "function path", limits.max_path_bytes)
+    parts = name.split("/")
+    if (
+        not parts[-1].endswith(".func")
+        or parts[-1] == ".func"
+        or any(part.endswith(".func") for part in parts[:-1])
+        or any(len(part.encode("utf-8")) > 255 for part in parts)
+    ):
+        raise BundleError(f"invalid function path: {name}")
+    return name
+
+
+def _real_directories(root: Path, relative: str) -> Path:
+    """Check every component without following a symlink, including the root."""
+    current = root
+    components = [None, *relative.split("/")] if relative else [None]
+    for component in components:
+        if component is not None:
+            current = current / component
+        try:
+            mode = current.lstat().st_mode
+        except OSError as error:
+            raise BundleError(f"missing function directory: {current}") from error
+        if not stat.S_ISDIR(mode):
+            raise BundleError(f"function directory is not a real directory: {current}")
+    return current
+
+
+def _validate_function_aliases(
+    root: Path,
+    aliases: object,
+    limits: Limits,
+    *,
+    producer: bool = False,
+) -> dict[str, str]:
+    if not isinstance(aliases, dict) or not aliases:
+        raise BundleError("function aliases must be a non-empty object")
+    if len(aliases) > limits.max_function_aliases:
+        raise BundleError("too many function aliases")
+    functions = _real_directories(root, FUNCTIONS_ROOT)
+    validated = {}
+    for raw_alias, raw_target in aliases.items():
+        alias = _function_path(raw_alias, limits)
+        target = _function_path(raw_target, limits)
+        if target in aliases or target == alias:
+            raise BundleError("function alias targets must not be aliases")
+        alias_path = functions / alias
+        parent = alias.rpartition("/")[0]
+        _real_directories(functions, parent)
+        target_path = _real_directories(functions, target)
+        config = target_path / ".vc-config.json"
+        try:
+            configured = stat.S_ISREG(config.lstat().st_mode)
+        except OSError:
+            configured = False
+        if not configured:
+            raise BundleError("function alias target has no regular configuration")
+        if producer:
+            if not alias_path.is_symlink():
+                raise BundleError("only original function symlinks can be aliases")
+            # Resolving here is only an equality check. The stored target was
+            # independently checked component by component as a real directory.
+            if alias_path.resolve(strict=True) != target_path:
+                raise BundleError("function symlink does not match its direct target")
+        elif os.path.lexists(alias_path):
+            raise BundleError(f"function alias collides with an archive path: {alias}")
+        validated[alias] = target
+    return validated
+
+
+def _original_function_aliases(root: Path, limits: Limits) -> dict[str, str]:
+    functions = _real_directories(root, FUNCTIONS_ROOT)
+    aliases = {}
+    # Do not traverse directory links. Other links retain the existing producer
+    # behavior; this protocol represents only complete .func directory aliases.
+    for directory, directories, files in os.walk(functions, followlinks=False):
+        for name in [*directories, *files]:
+            path = Path(directory) / name
+            if not name.endswith(".func") or not path.is_symlink():
+                continue
+            alias = path.relative_to(functions).as_posix()
+            raw_target = os.readlink(path)
+            target_path = Path(os.path.abspath(path.parent / raw_target))
+            try:
+                target = target_path.relative_to(functions).as_posix()
+            except ValueError as error:
+                raise BundleError("function alias target escapes functions") from error
+            aliases[alias] = target
+            if len(aliases) > limits.max_function_aliases:
+                raise BundleError("too many function aliases")
+    if not aliases:
+        return {}
+    return _validate_function_aliases(root, aliases, limits, producer=True)
+
+
+def _alias_manifest_bytes(aliases: dict[str, str], limits: Limits) -> bytes:
+    payload = json.dumps(
+        {"version": 1, "aliases": aliases}, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    if len(payload) > min(
+        limits.max_function_alias_manifest_bytes, limits.max_json_bytes
+    ):
+        raise BundleError("function alias manifest is too large")
+    return payload
+
+
+def _restore_function_aliases(
+    root: Path,
+    limits: Limits,
+    member_count: int,
+    file_path_references: dict[str, int],
+) -> None:
+    manifest = root / FUNCTION_ALIASES_MANIFEST
+    if not os.path.lexists(manifest):
+        return
+    if not stat.S_ISREG(manifest.lstat().st_mode):
+        raise BundleError("function alias manifest must be a regular file")
+    if manifest.stat().st_size > min(
+        limits.max_function_alias_manifest_bytes, limits.max_json_bytes
+    ):
+        raise BundleError("function alias manifest is too large")
+    raw = manifest.read_bytes()
+    try:
+        value = json.loads(raw, parse_constant=_reject_json_constant)
+    except (UnicodeDecodeError, ValueError) as error:
+        raise BundleError("invalid function alias manifest JSON") from error
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"version", "aliases"}
+        or type(value["version"]) is not int
+        or value["version"] != 1
+    ):
+        raise BundleError("unsupported function alias manifest")
+    aliases = _validate_function_aliases(root, value["aliases"], limits)
+    if raw != _alias_manifest_bytes(aliases, limits):
+        raise BundleError("function alias manifest is not canonical")
+    if member_count + len(aliases) > limits.max_members:
+        raise BundleError("function aliases exceed the member limit")
+    expanded_references = sum(file_path_references.values()) + sum(
+        file_path_references[f"{FUNCTIONS_ROOT}/{target}"]
+        for target in aliases.values()
+    )
+    if expanded_references > limits.max_file_path_references:
+        raise BundleError("function aliases exceed the filePathMap reference limit")
+    # No untrusted links exist during extraction or filePathMap validation.
+    # The private staging directory is complete before these links are made;
+    # any failure is handled by extract_bundle's existing staging cleanup.
+    manifest.unlink()
+    functions = root / FUNCTIONS_ROOT
+    for alias, target in sorted(aliases.items()):
+        path = functions / alias
+        relative_target = os.path.relpath(functions / target, start=path.parent)
+        path.symlink_to(relative_target, target_is_directory=True)
 
 
 def seal_bundle(
     source_root: Path,
     archive: Path,
     limits: Optional[Limits] = None,
+    *,
+    preserve_function_aliases: bool = False,
 ) -> None:
-    """Materialize Vercel file references inside Build Output and seal only it."""
+    """Seal Build Output; alias transport requires an upgraded trusted consumer."""
 
     limits = limits or Limits()
     source_root = source_root.resolve()
@@ -415,6 +584,19 @@ def seal_bundle(
     output = source_root / ".vercel" / "output"
     if not output.is_dir():
         raise BundleError("build is missing .vercel/output")
+    if os.path.lexists(source_root / FUNCTION_ALIASES_MANIFEST):
+        raise BundleError("build contains reserved function alias metadata")
+    try:
+        aliases = (
+            _original_function_aliases(source_root, limits)
+            if preserve_function_aliases
+            else {}
+        )
+    except (OSError, RuntimeError) as error:
+        if isinstance(error, BundleError):
+            raise
+        raise BundleError(f"invalid original function aliases: {error}") from error
+    alias_payload = _alias_manifest_bytes(aliases, limits) if aliases else None
     internal = output / ".docs-preview-files"
     internal.mkdir(parents=True, exist_ok=True)
 
@@ -460,13 +642,25 @@ def seal_bundle(
     if archive.exists():
         raise BundleError(f"archive already exists: {archive}")
     try:
+        excluded = {f"{FUNCTIONS_ROOT}/{alias}" for alias in aliases}
+
+        def regular_tree(member: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
+            return None if member.name.rstrip("/") in excluded else member
+
         with tarfile.open(
             archive,
             mode="w:gz",
             dereference=True,
             compresslevel=1,
         ) as bundle:
-            bundle.add(output, arcname=".vercel/output", recursive=True)
+            bundle.add(
+                output, arcname=".vercel/output", recursive=True, filter=regular_tree
+            )
+            if alias_payload is not None:
+                metadata = tarfile.TarInfo(FUNCTION_ALIASES_MANIFEST)
+                metadata.mode = 0o644
+                metadata.size = len(alias_payload)
+                bundle.addfile(metadata, io.BytesIO(alias_payload))
     except (OSError, tarfile.TarError) as error:
         archive.unlink(missing_ok=True)
         raise BundleError(f"failed to seal bundle: {error}") from error
@@ -581,7 +775,8 @@ def extract_bundle(
 
         if member_count == 0:
             raise BundleError("archive is empty")
-        _validate_vercel_paths(staging, limits)
+        file_path_references = _validate_vercel_paths(staging, limits)
+        _restore_function_aliases(staging, limits, member_count, file_path_references)
         os.replace(staging, destination)
     except Exception as error:
         shutil.rmtree(staging, ignore_errors=True)
@@ -604,6 +799,11 @@ def _parse_args(arguments: Optional[Iterable[str]] = None) -> argparse.Namespace
     )
     seal.add_argument("source_root", type=Path)
     seal.add_argument("archive", type=Path)
+    seal.add_argument(
+        "--preserve-function-aliases",
+        action="store_true",
+        help="emit bounded alias metadata (enable only after the trusted consumer is upgraded)",
+    )
     return parser.parse_args(arguments)
 
 
@@ -613,7 +813,11 @@ def main(arguments: Optional[Iterable[str]] = None) -> int:
         if args.command == "extract":
             extract_bundle(args.archive, args.destination)
         elif args.command == "seal":
-            seal_bundle(args.source_root, args.archive)
+            seal_bundle(
+                args.source_root,
+                args.archive,
+                preserve_function_aliases=args.preserve_function_aliases,
+            )
         else:
             raise AssertionError(args.command)
     except BundleError as error:
