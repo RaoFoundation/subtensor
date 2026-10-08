@@ -8,9 +8,10 @@ import {
     startCall,
     sudoSetLockReductionInterval,
     tao,
+    waitForTransactionCompletion,
 } from "../../utils";
 import { subtensor } from "@polkadot-api/descriptors";
-import type { TypedApi } from "polkadot-api";
+import { Binary, type TypedApi } from "polkadot-api";
 
 describeSuite({
     id: "00_add_stake",
@@ -37,6 +38,22 @@ describeSuite({
             await forceSetBalance(api, coldkeyAddress);
             netuid = await addNewSubnetwork(api, hotkey, coldkey);
             await startCall(api, netuid, coldkey);
+        });
+
+        it({
+            id: "T00",
+            title: "Legacy v4 transactions use only their v16 extension pipeline",
+            test: async () => {
+                // Moonwall's client and the directly imported signer must agree
+                // on pipeline 0. Older PAPI decoders also read the hashed proof
+                // from a v4 transaction, overrunning this deliberately tiny call.
+                const nonce = (await api.query.System.Account.getValue(coldkeyAddress)).nonce;
+                await waitForTransactionCompletion(
+                    api.tx.System.remark({ remark: Binary.fromBytes(new Uint8Array()) }),
+                    coldkey
+                );
+                expect((await api.query.System.Account.getValue(coldkeyAddress)).nonce).toBe(nonce + 1);
+            },
         });
 
         it({

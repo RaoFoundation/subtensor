@@ -23,6 +23,7 @@
     },
     "pnpm": {
         "overrides": {
+            "polkadot-api": "1.23.3",
             "vitest@<3.2.6": "3.2.6",
             "ws@>=8.0.0 <8.21.0": "8.21.0",
             "minimatch@>=10.0.0 <10.2.3": "10.2.3",
@@ -51,7 +52,7 @@
         "@zombienet/orchestrator": "0.0.105",
         "ethereum-cryptography": "3.1.0",
         "mlkem": "^2.7.0",
-        "polkadot-api": "^1.22.0",
+        "polkadot-api": "1.23.3",
         "ps-node": "0.1.6"
     },
     "devDependencies": {
