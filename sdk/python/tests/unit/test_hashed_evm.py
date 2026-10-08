@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from rich.text import Text
 from typer.testing import CliRunner
 
 from bittensor.cli.main import app
@@ -343,7 +344,9 @@ def test_cli_stake_show_rejects_foreign_hotkey_before_evm_rpc(evm_cli, monkeypat
     substrate.query.assert_not_awaited()
 
 
-def test_cli_stake_show_rejects_unverified_rpc_mapping(evm_cli, monkeypatch):
+@pytest.mark.parametrize("styled_output", [False, True])
+def test_cli_stake_show_rejects_unverified_rpc_mapping(evm_cli, monkeypatch, styled_output):
+    monkeypatch.setattr("typer.rich_utils.FORCE_TERMINAL", styled_output)
     monkeypatch.setattr(
         "bittensor.cli.context.AppContext.run",
         lambda *args: pytest.fail("lookup against unrelated native chain"),
@@ -365,7 +368,9 @@ def test_cli_stake_show_rejects_unverified_rpc_mapping(evm_cli, monkeypatch):
         ],
     )
     assert result.exit_code != 0
-    assert "select the chain with --network" in result.output
+    if styled_output:
+        assert "\x1b[" in result.output
+    assert "select the chain with --network" in Text.from_ansi(result.output).plain
 
 
 def test_cli_doctor_recommends_evm_receive_route_without_legacy_mirror(evm_cli, monkeypatch):

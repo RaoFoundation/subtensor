@@ -176,6 +176,160 @@ fn wire_roundtrip_preserves_legacy_and_rejects_unknown_pipeline() {
         assert!(UncheckedExtrinsic::decode(&mut &changed[..]).is_err());
     });
 }
+
+fn wire_prefixes() -> [(&'static str, Vec<u8>); 5] {
+    use sp_runtime::generic::Preamble;
+
+    let bare = |version| {
+        UncheckedExtrinsic::Legacy(
+            sp_runtime::generic::UncheckedExtrinsic {
+                preamble: Preamble::Bare(version),
+                function: call(),
+            }
+            .into(),
+        )
+    };
+    let general: LegacyUnchecked = sp_runtime::generic::UncheckedExtrinsic {
+        preamble: Preamble::General(0, extra(0)),
+        function: call(),
+    }
+    .into();
+    [
+        ("signed v4", legacy(&pair(1), call())),
+        ("bare v4", bare(4)),
+        ("bare v5", bare(5)),
+        ("general v0", UncheckedExtrinsic::Legacy(general)),
+        ("general v1", signed(call(), 0, &pair(10))),
+    ]
+    .map(|(name, extrinsic)| {
+        let encoded = extrinsic.encode();
+        let mut body = encoded.as_slice();
+        codec::Compact::<u32>::decode(&mut body).unwrap();
+        let prefix = body.strip_suffix(call().encode().as_slice()).unwrap();
+        (name, prefix.to_vec())
+    })
+}
+
+fn wire_with_call(prefix: &[u8], encoded_call: &[u8]) -> Vec<u8> {
+    let len = u32::try_from(prefix.len() + encoded_call.len()).unwrap();
+    let mut encoded = codec::Compact(len).encode();
+    encoded.extend_from_slice(prefix);
+    encoded.extend_from_slice(encoded_call);
+    encoded
+}
+
+fn nested_call_bytes(depth: u32, boxed: bool) -> Vec<u8> {
+    let leaf = call().encode();
+    let wrapper = if boxed {
+        RuntimeCall::Sudo(pallet_sudo::Call::sudo {
+            call: alloc::boxed::Box::new(call()),
+        })
+    } else {
+        RuntimeCall::Utility(pallet_utility::Call::batch_all {
+            calls: alloc::vec![call()],
+        })
+    }
+    .encode();
+    let prefix = wrapper.strip_suffix(leaf.as_slice()).unwrap();
+    // Assemble the hostile input iteratively so producing it does not itself
+    // recurse through Encode (or require a deeply nested Rust value).
+    let mut encoded = Vec::new();
+    for _ in 0..depth {
+        encoded.extend_from_slice(prefix);
+    }
+    encoded.extend_from_slice(&leaf);
+    encoded
+}
+
+#[test]
+fn direct_call_decoding_bounds_depth_for_every_wire_format() {
+    ext().execute_with(|| {
+        // No feature activation or signature verification is needed to enforce
+        // this bound: these are direct Decode and serde entry points.
+        for (name, prefix) in wire_prefixes() {
+            for boxed in [true, false] {
+                for depth in [1, frame_support::MAX_EXTRINSIC_DEPTH] {
+                    let encoded = wire_with_call(&prefix, &nested_call_bytes(depth, boxed));
+                    let mut input = encoded.as_slice();
+                    let decoded = UncheckedExtrinsic::decode(&mut input).unwrap_or_else(|error| {
+                        panic!("{name}, boxed={boxed}, depth={depth}: {error}")
+                    });
+                    assert!(input.is_empty());
+                    assert_eq!(decoded.encode(), encoded);
+                }
+
+                let encoded = wire_with_call(
+                    &prefix,
+                    &nested_call_bytes(frame_support::MAX_EXTRINSIC_DEPTH + 1, boxed),
+                );
+                let error = UncheckedExtrinsic::decode(&mut encoded.as_slice()).unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .contains("Maximum recursion depth reached"),
+                    "{name}, boxed={boxed}: {error}"
+                );
+                let json =
+                    alloc::format!("\"0x{}\"", sp_core::hexdisplay::HexDisplay::from(&encoded));
+                let error = serde_json::from_str::<UncheckedExtrinsic>(&json).unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .contains("Maximum recursion depth reached"),
+                    "serde {name}, boxed={boxed}: {error}"
+                );
+            }
+        }
+    });
+}
+
+#[test]
+fn direct_call_decoding_preserves_enclosing_resource_limits() {
+    use codec::{DecodeLimit, DecodeWithMemLimit};
+
+    ext().execute_with(|| {
+        for (name, prefix) in wire_prefixes() {
+            let at_limit = wire_with_call(&prefix, &nested_call_bytes(2, true));
+            assert!(
+                UncheckedExtrinsic::decode_with_depth_limit(2, &mut at_limit.as_slice()).is_ok()
+            );
+            let too_deep = wire_with_call(&prefix, &nested_call_bytes(3, true));
+            let error = UncheckedExtrinsic::decode_with_depth_limit(2, &mut too_deep.as_slice())
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("Maximum recursion depth reached"),
+                "enclosing depth limit {name}: {error}"
+            );
+            let error =
+                UncheckedExtrinsic::decode_with_mem_limit(&mut at_limit.as_slice(), 1).unwrap_err();
+            assert!(
+                error.to_string().contains("Heap memory limit exceeded"),
+                "enclosing memory limit {name}: {error}"
+            );
+        }
+    });
+}
+
+#[test]
+fn direct_call_decoding_keeps_memory_limit_for_every_wire_format() {
+    ext().execute_with(|| {
+        let encoded_call = RuntimeCall::System(SystemCall::remark {
+            remark: alloc::vec![0; 16 * 1024 * 1024 + 1],
+        })
+        .encode();
+        for (name, prefix) in wire_prefixes() {
+            let encoded = wire_with_call(&prefix, &encoded_call);
+            let error = UncheckedExtrinsic::decode(&mut encoded.as_slice()).unwrap_err();
+            assert!(
+                error.to_string().contains("Heap memory limit exceeded"),
+                "{name}: {error}"
+            );
+        }
+    });
+}
+
 #[test]
 fn included_failure_advances_generation_but_invalid_proof_does_not() {
     ext().execute_with(|| {

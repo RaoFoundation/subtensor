@@ -5,7 +5,8 @@
 
 use alloc::vec::Vec;
 use codec::{
-    Compact, CountedInput, Decode, DecodeWithMemLimit, DecodeWithMemTracking, Encode, Input,
+    Compact, CountedInput, Decode, DecodeLimit, DecodeWithMemTracking, Encode, Input,
+    MemTrackingInput,
 };
 use frame_support::{
     dispatch::{DispatchInfo, GetDispatchInfo},
@@ -129,6 +130,15 @@ impl Encode for UncheckedExtrinsic {
     }
 }
 
+fn decode_call<I: Input>(input: &mut I) -> Result<RuntimeCall, codec::Error> {
+    // The upstream extrinsic decoder bounds allocations; Executive separately
+    // bounds depth when re-decoding a transaction. Also protect direct Decode
+    // and serde entry points before they reach Executive. Both wrappers forward
+    // the caller's tracking hooks, preserving any stricter enclosing limits.
+    let mut input = MemTrackingInput::new(input, 16 * 1024 * 1024 + 1);
+    RuntimeCall::decode_with_depth_limit(frame_support::MAX_EXTRINSIC_DEPTH, &mut input)
+}
+
 impl Decode for UncheckedExtrinsic {
     fn decode<I: Input>(input: &mut I) -> Result<Self, codec::Error> {
         let expected: Compact<u32> = Decode::decode(input)?;
@@ -139,13 +149,11 @@ impl Decode for UncheckedExtrinsic {
                 let address = Address::decode(&mut input)?;
                 let signature = Signature::decode(&mut input)?;
                 let extension = TxExtension::decode(&mut input)?;
-                let function =
-                    RuntimeCall::decode_with_mem_limit(&mut input, 16 * 1024 * 1024 + 1)?;
+                let function = decode_call(&mut input)?;
                 Self::new_signed(function, address, signature, extension)
             }
             4 | 5 => {
-                let function =
-                    RuntimeCall::decode_with_mem_limit(&mut input, 16 * 1024 * 1024 + 1)?;
+                let function = decode_call(&mut input)?;
                 Self::Legacy(
                     generic::UncheckedExtrinsic {
                         preamble: Preamble::Bare(format),
@@ -157,8 +165,7 @@ impl Decode for UncheckedExtrinsic {
             0x45 => match input.read_byte()? {
                 0 => {
                     let extension = TxExtension::decode(&mut input)?;
-                    let function =
-                        RuntimeCall::decode_with_mem_limit(&mut input, 16 * 1024 * 1024 + 1)?;
+                    let function = decode_call(&mut input)?;
                     Self::Legacy(
                         generic::UncheckedExtrinsic {
                             preamble: Preamble::General(0, extension),
@@ -169,8 +176,7 @@ impl Decode for UncheckedExtrinsic {
                 }
                 1 => {
                     let extension = HashedTxExtension::decode(&mut input)?;
-                    let function =
-                        RuntimeCall::decode_with_mem_limit(&mut input, 16 * 1024 * 1024 + 1)?;
+                    let function = decode_call(&mut input)?;
                     Self::new_hashed(function, extension.0, extension.1)
                 }
                 _ => return Err("Unsupported transaction extension version".into()),
