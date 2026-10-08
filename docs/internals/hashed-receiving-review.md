@@ -11,10 +11,9 @@ already on the branch and the new receiving-address integration. Unrelated
 fee, dependency and website work in the shared checkout is not included in
 the review verdict.
 
-The supported user flow is one address: create a hashed wallet, share its
-`bth1_` receiving address, and receive a normal transfer from an updated wallet.
-That wallet automatically builds registration and payment as one atomic chain
-operation. The original mnemonic and hashed derivation type recover the same
+Create a hashed wallet, register it, and wait for finalization before publicly
+sharing its `bth1_` receiving address. Wallet creation does not register it.
+The original mnemonic and hashed derivation type recover the same
 identity on another machine; the current generation comes from the chain.
 
 **The security review is not green.** It found a registration denial of service

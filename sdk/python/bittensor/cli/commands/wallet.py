@@ -140,7 +140,9 @@ def _hashed_recovery_hint(app_ctx: AppContext, *crypto_types: int) -> None:
         app_ctx.output.message(
             "Record the wallet type 'hashed' with each recovery phrase. Restore with "
             "`btcli wallet regen-coldkey --type hashed` or "
-            "`btcli wallet regen-hotkey --type hashed`. Share the complete receiving address."
+            "`btcli wallet regen-hotkey --type hashed`. Creating or restoring a wallet does "
+            "not register it on chain. Register each new hashed account and wait for "
+            "finalization before publicly sharing its receiving address."
         )
 
 

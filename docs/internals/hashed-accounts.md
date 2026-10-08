@@ -51,8 +51,11 @@ scheme and initial public-key commitment. Registration publishes this descriptor
 not the current public key. It is permanent and idempotent, and does not let the
 sponsor control the recipient, reset its generation or reset its nonce.
 
-Wallets display a single **104-character `bth1_` receiving address**. The user
-shares that address and the sender uses the normal transfer command. The address
+Use an existing funded wallet to sponsor registration, and wait for finalization
+before publicly sharing the receiving address. Wallet creation and SDK address
+derivation do not register the account.
+
+Wallets display a single **104-character `bth1_` receiving address**. The address
 carries the full chain genesis hash, original descriptor and an error-detection
 checksum. It contains no signing public key and stays unchanged across rotations
 or mnemonic recovery. There is no separate descriptor to exchange or registration
@@ -63,9 +66,9 @@ composes `Utility.batch_all([HashedAccounts.register(descriptor), transfer])`.
 The chain receives its existing AccountId32 and descriptor types; it does not
 guess whether arbitrary 32-byte data is a hash. Registration and payment either
 both succeed or both roll back. The guard remains in later payments even when a
-read shows the recipient is registered: a reorg can invalidate that read. Its
-idempotent execution preserves the current generation, commitment and nonce,
-and does not charge another registration reserve.
+read shows the recipient is registered: a reorg can invalidate that read. This
+check-only guard preserves the current generation, commitment and nonce, and
+fails if registration disappeared without charging another registration reserve.
 
 The new receiving address requires an updated sender wallet. Older wallets do
 not understand it. Do not replace it with the internal SS58 AccountId before

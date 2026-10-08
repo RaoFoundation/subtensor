@@ -54,6 +54,11 @@ def parse_recipient(value: str) -> Recipient:
 
 
 def receiving_address(keypair: Any, genesis_hash: str | bytes) -> str:
+    """Derive a receiving address locally; this does not register the account.
+
+    Register each new hashed account and wait for finalization before publicly
+    sharing its address.
+    """
     if keypair.crypto_type != sp_core.CRYPTO_HASHED:
         return keypair.ss58_address
     return sp_core.encode_hashed_receiving_address(
