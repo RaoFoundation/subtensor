@@ -1,4 +1,6 @@
 # name	SCALE call (one unit of every argument)	fee in rao at 100 bytes on spec 467
+# Owner PoW difficulty calls now include owner/cooldown storage; their pins were
+# deliberately raised to the quoted owner-path fee in PR #3217.
 # Regenerate: FEE_BASELINE_PRINT=1 cargo test -p node-subtensor-runtime --test fee_baseline -- --nocapture
 System.remark	00000401	42488
 System.set_heap_pages	00010100000000000000	67798
@@ -156,7 +158,7 @@ AdminUtils.swap_authorities	1300040101010101010101010101010101010101010101010101
 AdminUtils.sudo_set_default_take	13010100	68512
 AdminUtils.sudo_set_tx_rate_limit	13020100000000000000	68519
 AdminUtils.sudo_set_serving_rate_limit	130301000100000000000000	99130
-AdminUtils.sudo_set_min_difficulty	130401000100000000000000	106802
+AdminUtils.sudo_set_min_difficulty	130401000100000000000000	152662
 AdminUtils.sudo_set_max_difficulty	130501000100000000000000	106842
 AdminUtils.sudo_set_weights_version_key	130601000100000000000000	106862
 AdminUtils.sudo_set_weights_set_rate_limit	130701000100000000000000	77426
@@ -174,7 +176,7 @@ AdminUtils.sudo_set_network_pow_registration_allowed	1314010000	42567
 AdminUtils.sudo_set_target_registrations_per_interval	131501000100	106887
 AdminUtils.sudo_set_min_burn	131601000100000000000000	113966
 AdminUtils.sudo_set_max_burn	131701000100000000000000	113833
-AdminUtils.sudo_set_difficulty	131801000100000000000000	106832
+AdminUtils.sudo_set_difficulty	131801000100000000000000	152662
 AdminUtils.sudo_set_max_allowed_validators	131901000100	113458
 AdminUtils.sudo_set_bonds_moving_average	131a01000100000000000000	106825
 AdminUtils.sudo_set_bonds_penalty	133c01000100	106812

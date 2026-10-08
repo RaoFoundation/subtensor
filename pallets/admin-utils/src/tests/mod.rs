@@ -18,6 +18,7 @@ use sp_runtime::PerU16;
 use substrate_fixed::types::I96F32;
 use subtensor_runtime_common::{MechId, NetUid, TaoBalance, Token};
 pub mod mock;
+mod pow_difficulty;
 mod swap_basket_liquidity_cap;
 use mock::*;
 
@@ -889,17 +890,13 @@ fn test_sudo_set_difficulty() {
         ));
         assert_eq!(SubtensorModule::get_difficulty_as_u64(netuid), to_be_set);
 
-        // Test that SN owner can't set difficulty
         pallet_subtensor::SubnetOwner::<Test>::insert(netuid, U256::from(1));
-        assert_eq!(
-            AdminUtils::sudo_set_difficulty(
-                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
-                netuid,
-                init_value
-            ),
-            Err(DispatchError::BadOrigin)
-        );
-        assert_eq!(SubtensorModule::get_difficulty_as_u64(netuid), to_be_set); // no change
+        assert_ok!(AdminUtils::sudo_set_difficulty(
+            RuntimeOrigin::signed(U256::from(1)),
+            netuid,
+            init_value
+        ));
+        assert_eq!(SubtensorModule::get_difficulty_as_u64(netuid), init_value);
     });
 }
 

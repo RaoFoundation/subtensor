@@ -156,13 +156,13 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "min_difficulty": Hyperparam(
         "difficulty",
-        "Team-controlled floor for independently adjusted PoW difficulty. u64::MAX "
+        "Owner-controlled floor for independently adjusted PoW difficulty. u64::MAX "
         "pins difficulty at maximum, effectively disabling PoW registration.",
         short="PoW registration difficulty floor",
     ),
     "max_difficulty": Hyperparam(
         "difficulty",
-        "PoW difficulty ceiling under independent registration pricing; the team floor "
+        "PoW difficulty ceiling under independent registration pricing; the subnet floor "
         "takes precedence. u64::MAX allows the full u64 range.",
         short="PoW registration difficulty ceiling",
     ),

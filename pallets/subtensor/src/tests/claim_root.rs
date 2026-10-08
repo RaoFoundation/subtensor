@@ -6,11 +6,11 @@ use crate::weights::WeightInfo;
 use crate::{
     AlphaV2, BasketClaimed, BasketRate, BasketRedeemedTao, BasketShares, BurnIncreaseMult,
     DefaultMinRootClaimAmount, Error, Keys, LastEpochBlock, MAX_ROOT_CLAIM_HOTKEY_WORK,
-    MAX_ROOT_CLAIM_HOTKEY_WORK_TESTNET, MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK,
-    NetworksAdded, NumStakingColdkeys, PendingBasketDeposits, RegistrationsThisInterval,
-    RootAlphaDividendsPerSubnet, RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex,
-    StakingHotkeys, SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice, SubnetOwnerHotkey,
-    SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
+    MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK, NetworksAdded, NumStakingColdkeys,
+    PendingBasketDeposits, RegistrationsThisInterval, RootAlphaDividendsPerSubnet,
+    RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn,
+    SubnetAlphaOut, SubnetMovingPrice, SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO,
+    SubnetworkN, Tempo, TotalStake, Uids,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -292,7 +292,7 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
 }
 
 #[test]
-fn test_claim_root_hotkey_work_limit_is_raised_only_on_finney_testnet() {
+fn test_claim_root_hotkey_work_limit_is_bounded_on_finney_testnet() {
     new_test_ext(1).execute_with(|| {
         const FINNEY_TESTNET_GENESIS_HASH: [u8; 32] =
             hex_literal::hex!("8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105");
@@ -308,7 +308,7 @@ fn test_claim_root_hotkey_work_limit_is_raised_only_on_finney_testnet() {
         );
         assert_eq!(
             SubtensorModule::root_claim_hotkey_declared_work(),
-            MAX_ROOT_CLAIM_HOTKEY_WORK_TESTNET
+            MAX_ROOT_CLAIM_HOTKEY_WORK
         );
 
         frame_system::BlockHash::<Test>::insert(0_u64, H256::from_low_u64_be(0xdeadbeef));

@@ -97,6 +97,30 @@ fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
 }
 
 #[test]
+fn testnet_claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
+    new_test_ext().execute_with(|| {
+        frame_system::BlockHash::<Runtime>::insert(
+            0_u32,
+            "8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+                .parse::<sp_core::H256>()
+                .expect("valid testnet genesis hash"),
+        );
+        // The old testnet-only reservation failed even for an empty basket.
+        let oversized = expected_root_claim_weight(1_025);
+        let max = BlockWeights::get()
+            .get(DispatchClass::Normal)
+            .max_extrinsic
+            .expect("normal extrinsic limit exists");
+        assert!(!oversized.all_lte(max));
+
+        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root_with_hotkey {
+            hotkey: AccountId::new([1u8; 32]),
+        });
+        assert_call_fits_normal_limit(call);
+    });
+}
+
+#[test]
 fn swap_basket_many_at_leg_cap_fits_normal_extrinsic_limit() {
     new_test_ext().execute_with(|| {
         let hotkey = AccountId::new([1u8; 32]);

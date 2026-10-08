@@ -19,7 +19,7 @@ fail. Read current values back with the `subnet_hyperparameters` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_epoch_consensus`](/code/pallets/admin-utils/src/lib.rs#L1478-L1505), [`AdminUtils.sudo_set_tempo`](/code/pallets/admin-utils/src/lib.rs#L1149-L1164), [`AdminUtils.sudo_set_immunity_period`](/code/pallets/admin-utils/src/lib.rs#L539-L567), [`AdminUtils.sudo_set_min_allowed_weights`](/code/pallets/admin-utils/src/lib.rs#L572-L600), [`AdminUtils.sudo_set_weights_version_key`](/code/pallets/admin-utils/src/lib.rs#L424-L454), [`AdminUtils.sudo_set_activity_cutoff_factor`](/code/pallets/admin-utils/src/lib.rs#L748-L764), [`AdminUtils.sudo_set_min_burn`](/code/pallets/admin-utils/src/lib.rs#L883-L917), [`AdminUtils.sudo_set_max_burn`](/code/pallets/admin-utils/src/lib.rs#L922-L956), [`AdminUtils.sudo_set_bonds_moving_average`](/code/pallets/admin-utils/src/lib.rs#L1020-L1054), [`AdminUtils.sudo_set_bonds_penalty`](/code/pallets/admin-utils/src/lib.rs#L1059-L1085), [`AdminUtils.sudo_set_serving_rate_limit`](/code/pallets/admin-utils/src/lib.rs#L341-L362), [`AdminUtils.sudo_set_commit_reveal_weights_interval`](/code/pallets/admin-utils/src/lib.rs#L1555-L1584), [`AdminUtils.sudo_set_max_allowed_uids`](/code/pallets/admin-utils/src/lib.rs#L605-L654), [`AdminUtils.sudo_set_burn_increase_mult`](/code/pallets/admin-utils/src/lib.rs#L2429-L2469), [`AdminUtils.sudo_set_burn_half_life`](/code/pallets/admin-utils/src/lib.rs#L2387-L2425), [`AdminUtils.sudo_set_collateral_lock_share`](/code/pallets/admin-utils/src/lib.rs#L2553-L2588), [`AdminUtils.sudo_set_collateral_drain_ratio`](/code/pallets/admin-utils/src/lib.rs#L2596-L2637), [`AdminUtils.sudo_set_adjustment_alpha`](/code/pallets/admin-utils/src/lib.rs#L508-L534), [`AdminUtils.sudo_set_rho`](/code/pallets/admin-utils/src/lib.rs#L675-L697), [`AdminUtils.sudo_set_max_difficulty`](/code/pallets/admin-utils/src/lib.rs#L391-L419), [`AdminUtils.sudo_set_alpha_sigmoid_steepness`](/code/pallets/admin-utils/src/lib.rs#L1809-L1843), [`AdminUtils.sudo_set_min_childkey_take_per_subnet`](/code/pallets/admin-utils/src/lib.rs#L1326-L1360), [`AdminUtils.sudo_set_owner_immune_neuron_limit`](/code/pallets/admin-utils/src/lib.rs#L1995-L2015), [`AdminUtils.sudo_set_alpha_values`](/code/pallets/admin-utils/src/lib.rs#L1427-L1452), [`AdminUtils.sudo_set_commit_reveal_weights_enabled`](/code/pallets/admin-utils/src/lib.rs#L1365-L1392), [`AdminUtils.sudo_set_liquid_alpha_enabled`](/code/pallets/admin-utils/src/lib.rs#L1403-L1424), [`AdminUtils.sudo_set_network_registration_allowed`](/code/pallets/admin-utils/src/lib.rs#L769-L813), [`AdminUtils.sudo_set_network_pow_registration_allowed`](/code/pallets/admin-utils/src/lib.rs#L818-L851), [`AdminUtils.sudo_set_yuma3_enabled`](/code/pallets/admin-utils/src/lib.rs#L1854-L1877), [`AdminUtils.sudo_set_bonds_reset_enabled`](/code/pallets/admin-utils/src/lib.rs#L1888-L1911), [`AdminUtils.sudo_set_toggle_transfer`](/code/pallets/admin-utils/src/lib.rs#L1647-L1669), [`AdminUtils.sudo_set_owner_cut_enabled`](/code/pallets/admin-utils/src/lib.rs#L2473-L2493), [`AdminUtils.sudo_set_owner_cut_auto_lock_enabled`](/code/pallets/admin-utils/src/lib.rs#L2497-L2517) |
+| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_epoch_consensus`](/code/pallets/admin-utils/src/lib.rs#L1514-L1541), [`AdminUtils.sudo_set_tempo`](/code/pallets/admin-utils/src/lib.rs#L1185-L1200), [`AdminUtils.sudo_set_immunity_period`](/code/pallets/admin-utils/src/lib.rs#L557-L585), [`AdminUtils.sudo_set_min_allowed_weights`](/code/pallets/admin-utils/src/lib.rs#L590-L618), [`AdminUtils.sudo_set_weights_version_key`](/code/pallets/admin-utils/src/lib.rs#L442-L472), [`AdminUtils.sudo_set_activity_cutoff_factor`](/code/pallets/admin-utils/src/lib.rs#L766-L782), [`AdminUtils.sudo_set_min_burn`](/code/pallets/admin-utils/src/lib.rs#L901-L935), [`AdminUtils.sudo_set_max_burn`](/code/pallets/admin-utils/src/lib.rs#L940-L974), [`AdminUtils.sudo_set_bonds_moving_average`](/code/pallets/admin-utils/src/lib.rs#L1056-L1090), [`AdminUtils.sudo_set_bonds_penalty`](/code/pallets/admin-utils/src/lib.rs#L1095-L1121), [`AdminUtils.sudo_set_serving_rate_limit`](/code/pallets/admin-utils/src/lib.rs#L341-L362), [`AdminUtils.sudo_set_commit_reveal_weights_interval`](/code/pallets/admin-utils/src/lib.rs#L1591-L1620), [`AdminUtils.sudo_set_max_allowed_uids`](/code/pallets/admin-utils/src/lib.rs#L623-L672), [`AdminUtils.sudo_set_burn_increase_mult`](/code/pallets/admin-utils/src/lib.rs#L2465-L2505), [`AdminUtils.sudo_set_burn_half_life`](/code/pallets/admin-utils/src/lib.rs#L2423-L2461), [`AdminUtils.sudo_set_collateral_lock_share`](/code/pallets/admin-utils/src/lib.rs#L2589-L2624), [`AdminUtils.sudo_set_collateral_drain_ratio`](/code/pallets/admin-utils/src/lib.rs#L2632-L2673), [`AdminUtils.sudo_set_adjustment_alpha`](/code/pallets/admin-utils/src/lib.rs#L526-L552), [`AdminUtils.sudo_set_rho`](/code/pallets/admin-utils/src/lib.rs#L693-L715), [`AdminUtils.sudo_set_max_difficulty`](/code/pallets/admin-utils/src/lib.rs#L409-L437), [`AdminUtils.sudo_set_alpha_sigmoid_steepness`](/code/pallets/admin-utils/src/lib.rs#L1845-L1879), [`AdminUtils.sudo_set_min_childkey_take_per_subnet`](/code/pallets/admin-utils/src/lib.rs#L1362-L1396), [`AdminUtils.sudo_set_owner_immune_neuron_limit`](/code/pallets/admin-utils/src/lib.rs#L2031-L2051), [`AdminUtils.sudo_set_alpha_values`](/code/pallets/admin-utils/src/lib.rs#L1463-L1488), [`AdminUtils.sudo_set_commit_reveal_weights_enabled`](/code/pallets/admin-utils/src/lib.rs#L1401-L1428), [`AdminUtils.sudo_set_liquid_alpha_enabled`](/code/pallets/admin-utils/src/lib.rs#L1439-L1460), [`AdminUtils.sudo_set_network_registration_allowed`](/code/pallets/admin-utils/src/lib.rs#L787-L831), [`AdminUtils.sudo_set_network_pow_registration_allowed`](/code/pallets/admin-utils/src/lib.rs#L836-L869), [`AdminUtils.sudo_set_yuma3_enabled`](/code/pallets/admin-utils/src/lib.rs#L1890-L1913), [`AdminUtils.sudo_set_bonds_reset_enabled`](/code/pallets/admin-utils/src/lib.rs#L1924-L1947), [`AdminUtils.sudo_set_toggle_transfer`](/code/pallets/admin-utils/src/lib.rs#L1683-L1705), [`AdminUtils.sudo_set_owner_cut_enabled`](/code/pallets/admin-utils/src/lib.rs#L2509-L2529), [`AdminUtils.sudo_set_owner_cut_auto_lock_enabled`](/code/pallets/admin-utils/src/lib.rs#L2533-L2553) |
 
 ## Parameters
 
@@ -76,38 +76,38 @@ result = sub.execute_tool("set_hyperparameter", {...}, wallet)
 
 | Chain call | Source |
 | --- | --- |
-| `AdminUtils.sudo_set_epoch_consensus` | [`pallets/admin-utils/src/lib.rs#L1483`](/code/pallets/admin-utils/src/lib.rs#L1478-L1505) |
-| `AdminUtils.sudo_set_tempo` | [`pallets/admin-utils/src/lib.rs#L1160`](/code/pallets/admin-utils/src/lib.rs#L1149-L1164) |
-| `AdminUtils.sudo_set_immunity_period` | [`pallets/admin-utils/src/lib.rs#L541`](/code/pallets/admin-utils/src/lib.rs#L539-L567) |
-| `AdminUtils.sudo_set_min_allowed_weights` | [`pallets/admin-utils/src/lib.rs#L574`](/code/pallets/admin-utils/src/lib.rs#L572-L600) |
-| `AdminUtils.sudo_set_weights_version_key` | [`pallets/admin-utils/src/lib.rs#L426`](/code/pallets/admin-utils/src/lib.rs#L424-L454) |
-| `AdminUtils.sudo_set_activity_cutoff_factor` | [`pallets/admin-utils/src/lib.rs#L750`](/code/pallets/admin-utils/src/lib.rs#L748-L764) |
-| `AdminUtils.sudo_set_min_burn` | [`pallets/admin-utils/src/lib.rs#L885`](/code/pallets/admin-utils/src/lib.rs#L883-L917) |
-| `AdminUtils.sudo_set_max_burn` | [`pallets/admin-utils/src/lib.rs#L924`](/code/pallets/admin-utils/src/lib.rs#L922-L956) |
-| `AdminUtils.sudo_set_bonds_moving_average` | [`pallets/admin-utils/src/lib.rs#L1022`](/code/pallets/admin-utils/src/lib.rs#L1020-L1054) |
-| `AdminUtils.sudo_set_bonds_penalty` | [`pallets/admin-utils/src/lib.rs#L1061`](/code/pallets/admin-utils/src/lib.rs#L1059-L1085) |
+| `AdminUtils.sudo_set_epoch_consensus` | [`pallets/admin-utils/src/lib.rs#L1519`](/code/pallets/admin-utils/src/lib.rs#L1514-L1541) |
+| `AdminUtils.sudo_set_tempo` | [`pallets/admin-utils/src/lib.rs#L1196`](/code/pallets/admin-utils/src/lib.rs#L1185-L1200) |
+| `AdminUtils.sudo_set_immunity_period` | [`pallets/admin-utils/src/lib.rs#L559`](/code/pallets/admin-utils/src/lib.rs#L557-L585) |
+| `AdminUtils.sudo_set_min_allowed_weights` | [`pallets/admin-utils/src/lib.rs#L592`](/code/pallets/admin-utils/src/lib.rs#L590-L618) |
+| `AdminUtils.sudo_set_weights_version_key` | [`pallets/admin-utils/src/lib.rs#L444`](/code/pallets/admin-utils/src/lib.rs#L442-L472) |
+| `AdminUtils.sudo_set_activity_cutoff_factor` | [`pallets/admin-utils/src/lib.rs#L768`](/code/pallets/admin-utils/src/lib.rs#L766-L782) |
+| `AdminUtils.sudo_set_min_burn` | [`pallets/admin-utils/src/lib.rs#L903`](/code/pallets/admin-utils/src/lib.rs#L901-L935) |
+| `AdminUtils.sudo_set_max_burn` | [`pallets/admin-utils/src/lib.rs#L942`](/code/pallets/admin-utils/src/lib.rs#L940-L974) |
+| `AdminUtils.sudo_set_bonds_moving_average` | [`pallets/admin-utils/src/lib.rs#L1058`](/code/pallets/admin-utils/src/lib.rs#L1056-L1090) |
+| `AdminUtils.sudo_set_bonds_penalty` | [`pallets/admin-utils/src/lib.rs#L1097`](/code/pallets/admin-utils/src/lib.rs#L1095-L1121) |
 | `AdminUtils.sudo_set_serving_rate_limit` | [`pallets/admin-utils/src/lib.rs#L343`](/code/pallets/admin-utils/src/lib.rs#L341-L362) |
-| `AdminUtils.sudo_set_commit_reveal_weights_interval` | [`pallets/admin-utils/src/lib.rs#L1557`](/code/pallets/admin-utils/src/lib.rs#L1555-L1584) |
-| `AdminUtils.sudo_set_max_allowed_uids` | [`pallets/admin-utils/src/lib.rs#L607`](/code/pallets/admin-utils/src/lib.rs#L605-L654) |
-| `AdminUtils.sudo_set_burn_increase_mult` | [`pallets/admin-utils/src/lib.rs#L2431`](/code/pallets/admin-utils/src/lib.rs#L2429-L2469) |
-| `AdminUtils.sudo_set_burn_half_life` | [`pallets/admin-utils/src/lib.rs#L2389`](/code/pallets/admin-utils/src/lib.rs#L2387-L2425) |
-| `AdminUtils.sudo_set_collateral_lock_share` | [`pallets/admin-utils/src/lib.rs#L2555`](/code/pallets/admin-utils/src/lib.rs#L2553-L2588) |
-| `AdminUtils.sudo_set_collateral_drain_ratio` | [`pallets/admin-utils/src/lib.rs#L2598`](/code/pallets/admin-utils/src/lib.rs#L2596-L2637) |
-| `AdminUtils.sudo_set_adjustment_alpha` | [`pallets/admin-utils/src/lib.rs#L510`](/code/pallets/admin-utils/src/lib.rs#L508-L534) |
-| `AdminUtils.sudo_set_rho` | [`pallets/admin-utils/src/lib.rs#L677`](/code/pallets/admin-utils/src/lib.rs#L675-L697) |
-| `AdminUtils.sudo_set_max_difficulty` | [`pallets/admin-utils/src/lib.rs#L393`](/code/pallets/admin-utils/src/lib.rs#L391-L419) |
-| `AdminUtils.sudo_set_alpha_sigmoid_steepness` | [`pallets/admin-utils/src/lib.rs#L1811`](/code/pallets/admin-utils/src/lib.rs#L1809-L1843) |
-| `AdminUtils.sudo_set_min_childkey_take_per_subnet` | [`pallets/admin-utils/src/lib.rs#L1328`](/code/pallets/admin-utils/src/lib.rs#L1326-L1360) |
-| `AdminUtils.sudo_set_owner_immune_neuron_limit` | [`pallets/admin-utils/src/lib.rs#L1997`](/code/pallets/admin-utils/src/lib.rs#L1995-L2015) |
-| `AdminUtils.sudo_set_alpha_values` | [`pallets/admin-utils/src/lib.rs#L1429`](/code/pallets/admin-utils/src/lib.rs#L1427-L1452) |
-| `AdminUtils.sudo_set_commit_reveal_weights_enabled` | [`pallets/admin-utils/src/lib.rs#L1367`](/code/pallets/admin-utils/src/lib.rs#L1365-L1392) |
-| `AdminUtils.sudo_set_liquid_alpha_enabled` | [`pallets/admin-utils/src/lib.rs#L1405`](/code/pallets/admin-utils/src/lib.rs#L1403-L1424) |
-| `AdminUtils.sudo_set_network_registration_allowed` | [`pallets/admin-utils/src/lib.rs#L771`](/code/pallets/admin-utils/src/lib.rs#L769-L813) |
-| `AdminUtils.sudo_set_network_pow_registration_allowed` | [`pallets/admin-utils/src/lib.rs#L820`](/code/pallets/admin-utils/src/lib.rs#L818-L851) |
-| `AdminUtils.sudo_set_yuma3_enabled` | [`pallets/admin-utils/src/lib.rs#L1856`](/code/pallets/admin-utils/src/lib.rs#L1854-L1877) |
-| `AdminUtils.sudo_set_bonds_reset_enabled` | [`pallets/admin-utils/src/lib.rs#L1890`](/code/pallets/admin-utils/src/lib.rs#L1888-L1911) |
-| `AdminUtils.sudo_set_toggle_transfer` | [`pallets/admin-utils/src/lib.rs#L1649`](/code/pallets/admin-utils/src/lib.rs#L1647-L1669) |
-| `AdminUtils.sudo_set_owner_cut_enabled` | [`pallets/admin-utils/src/lib.rs#L2475`](/code/pallets/admin-utils/src/lib.rs#L2473-L2493) |
-| `AdminUtils.sudo_set_owner_cut_auto_lock_enabled` | [`pallets/admin-utils/src/lib.rs#L2499`](/code/pallets/admin-utils/src/lib.rs#L2497-L2517) |
+| `AdminUtils.sudo_set_commit_reveal_weights_interval` | [`pallets/admin-utils/src/lib.rs#L1593`](/code/pallets/admin-utils/src/lib.rs#L1591-L1620) |
+| `AdminUtils.sudo_set_max_allowed_uids` | [`pallets/admin-utils/src/lib.rs#L625`](/code/pallets/admin-utils/src/lib.rs#L623-L672) |
+| `AdminUtils.sudo_set_burn_increase_mult` | [`pallets/admin-utils/src/lib.rs#L2467`](/code/pallets/admin-utils/src/lib.rs#L2465-L2505) |
+| `AdminUtils.sudo_set_burn_half_life` | [`pallets/admin-utils/src/lib.rs#L2425`](/code/pallets/admin-utils/src/lib.rs#L2423-L2461) |
+| `AdminUtils.sudo_set_collateral_lock_share` | [`pallets/admin-utils/src/lib.rs#L2591`](/code/pallets/admin-utils/src/lib.rs#L2589-L2624) |
+| `AdminUtils.sudo_set_collateral_drain_ratio` | [`pallets/admin-utils/src/lib.rs#L2634`](/code/pallets/admin-utils/src/lib.rs#L2632-L2673) |
+| `AdminUtils.sudo_set_adjustment_alpha` | [`pallets/admin-utils/src/lib.rs#L528`](/code/pallets/admin-utils/src/lib.rs#L526-L552) |
+| `AdminUtils.sudo_set_rho` | [`pallets/admin-utils/src/lib.rs#L695`](/code/pallets/admin-utils/src/lib.rs#L693-L715) |
+| `AdminUtils.sudo_set_max_difficulty` | [`pallets/admin-utils/src/lib.rs#L411`](/code/pallets/admin-utils/src/lib.rs#L409-L437) |
+| `AdminUtils.sudo_set_alpha_sigmoid_steepness` | [`pallets/admin-utils/src/lib.rs#L1847`](/code/pallets/admin-utils/src/lib.rs#L1845-L1879) |
+| `AdminUtils.sudo_set_min_childkey_take_per_subnet` | [`pallets/admin-utils/src/lib.rs#L1364`](/code/pallets/admin-utils/src/lib.rs#L1362-L1396) |
+| `AdminUtils.sudo_set_owner_immune_neuron_limit` | [`pallets/admin-utils/src/lib.rs#L2033`](/code/pallets/admin-utils/src/lib.rs#L2031-L2051) |
+| `AdminUtils.sudo_set_alpha_values` | [`pallets/admin-utils/src/lib.rs#L1465`](/code/pallets/admin-utils/src/lib.rs#L1463-L1488) |
+| `AdminUtils.sudo_set_commit_reveal_weights_enabled` | [`pallets/admin-utils/src/lib.rs#L1403`](/code/pallets/admin-utils/src/lib.rs#L1401-L1428) |
+| `AdminUtils.sudo_set_liquid_alpha_enabled` | [`pallets/admin-utils/src/lib.rs#L1441`](/code/pallets/admin-utils/src/lib.rs#L1439-L1460) |
+| `AdminUtils.sudo_set_network_registration_allowed` | [`pallets/admin-utils/src/lib.rs#L789`](/code/pallets/admin-utils/src/lib.rs#L787-L831) |
+| `AdminUtils.sudo_set_network_pow_registration_allowed` | [`pallets/admin-utils/src/lib.rs#L838`](/code/pallets/admin-utils/src/lib.rs#L836-L869) |
+| `AdminUtils.sudo_set_yuma3_enabled` | [`pallets/admin-utils/src/lib.rs#L1892`](/code/pallets/admin-utils/src/lib.rs#L1890-L1913) |
+| `AdminUtils.sudo_set_bonds_reset_enabled` | [`pallets/admin-utils/src/lib.rs#L1926`](/code/pallets/admin-utils/src/lib.rs#L1924-L1947) |
+| `AdminUtils.sudo_set_toggle_transfer` | [`pallets/admin-utils/src/lib.rs#L1685`](/code/pallets/admin-utils/src/lib.rs#L1683-L1705) |
+| `AdminUtils.sudo_set_owner_cut_enabled` | [`pallets/admin-utils/src/lib.rs#L2511`](/code/pallets/admin-utils/src/lib.rs#L2509-L2529) |
+| `AdminUtils.sudo_set_owner_cut_auto_lock_enabled` | [`pallets/admin-utils/src/lib.rs#L2535`](/code/pallets/admin-utils/src/lib.rs#L2533-L2553) |
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
