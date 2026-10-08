@@ -158,3 +158,24 @@ fn pow_difficulty_root_subnet_remains_governance_only() {
         });
     }
 }
+
+#[test]
+fn pow_difficulty_weights_cover_the_measured_owner_storage_envelope() {
+    let reference =
+        <<Test as crate::Config>::WeightInfo as crate::WeightInfo>::sudo_set_adjustment_alpha();
+    let calls = [
+        crate::Call::<Test>::sudo_set_min_difficulty {
+            netuid: NetUid::from(1),
+            min_difficulty: 100,
+        },
+        crate::Call::<Test>::sudo_set_difficulty {
+            netuid: NetUid::from(1),
+            difficulty: 100,
+        },
+    ];
+    for call in calls {
+        let declared = call.get_dispatch_info().call_weight;
+        assert!(declared.ref_time() >= reference.ref_time());
+        assert!(declared.proof_size() >= reference.proof_size());
+    }
+}

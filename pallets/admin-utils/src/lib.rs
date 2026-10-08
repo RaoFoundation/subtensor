@@ -365,7 +365,12 @@ pub mod pallet {
         /// It is only callable by the root account or subnet owner.
         /// The extrinsic will call the Subtensor pallet to set the minimum difficulty.
         #[pallet::call_index(4)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_min_difficulty())]
+        // The measured adjustment-alpha owner setter has the same storage shape:
+        // owner, cooldown, admin window, subnet existence, one u64 write + event.
+        // Budget its owner proofs and cooldown write while retaining the legacy
+        // weight as a lower bound; reference benchmarking can refine this envelope.
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_min_difficulty()
+            .max(<T as pallet::Config>::WeightInfo::sudo_set_adjustment_alpha()))]
         pub fn sudo_set_min_difficulty(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -972,7 +977,12 @@ pub mod pallet {
         /// It is only callable by the root account or subnet owner.
         /// The extrinsic will call the Subtensor pallet to set the difficulty.
         #[pallet::call_index(24)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_difficulty())]
+        // The measured adjustment-alpha owner setter has the same storage shape:
+        // owner, cooldown, admin window, subnet existence, one u64 write + event.
+        // Budget its owner proofs and cooldown write while retaining the legacy
+        // weight as a lower bound; reference benchmarking can refine this envelope.
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_difficulty()
+            .max(<T as pallet::Config>::WeightInfo::sudo_set_adjustment_alpha()))]
         pub fn sudo_set_difficulty(
             origin: OriginFor<T>,
             netuid: NetUid,
