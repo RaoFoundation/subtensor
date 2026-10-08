@@ -207,10 +207,13 @@ def call(
         role = evm_precompiles.caller_role(precompile_name, function)
         if role:
             info = _key_info(app_ctx, key)
-            preview_fields["caller mirror"] = f"{info.ss58_mirror} acts as the {role}"
+            preview_fields["caller"] = (
+                f"{info.address}'s runtime-mapped native account acts as the {role}"
+            )
         if precompile_name == "subnet" and function == "registerNetwork":
             app_ctx.output.message(
-                "warning: the caller mirror becomes the subnet owner, and some owner "
+                "warning: the caller's mapped native account becomes the subnet owner, "
+                "and some owner "
                 "operations (notably start-call, which activates emissions) have no "
                 "precompile — they require a native coldkey signature"
             )

@@ -33,6 +33,7 @@ from ..intents.registration import (
 )
 from ..intents.staking import _root_claimable_rao
 from ..ledger import LedgerError, LedgerSigner
+from ..receiving import is_receiving_address, parse_recipient, receiving_address
 from ..result import (
     REMEDIATION,
     BittensorError,
@@ -43,7 +44,7 @@ from ..result import (
     RpcConnectionError,
     RpcPolicyError,
 )
-from ..settings import error_docs_url
+from ..settings import FINNEY_GENESIS_HASH, error_docs_url, resolve_endpoint
 from ..signing import public_view
 from ..vault import VaultSigner
 from ..wallets import is_bittensor_address
@@ -63,16 +64,17 @@ def ss58_param_help(param: str) -> str:
     """Help text for an address-typed CLI option (see AppContext.resolve_address)."""
     book = "address-book or proxy-book name, "
     if "hotkey" in param:
-        text = f"ss58 address, {book}or a local hotkey name (HOTKEY or WALLET/HOTKEY)."
+        text = f"receiving address or ss58, {book}or a local hotkey name (HOTKEY or WALLET/HOTKEY)."
         if param == "hotkey_ss58":
             text += " Defaults to your wallet's hotkey."
     else:
         text = (
-            f"ss58 address, {book}saved multisig name, or a local wallet name (uses its coldkey)."
+            f"receiving address or ss58, {book}saved multisig name, "
+            "or a local wallet name (uses its coldkey)."
         )
         if param in ("dest_ss58", "dest_coldkey_ss58"):
             text = (
-                "Destination account (a coldkey, not a hotkey): ss58 address, "
+                "Destination account (a coldkey, not a hotkey): receiving address or ss58, "
                 f"{book}saved multisig name, or a local wallet name. "
                 "Omit this flag on a terminal to pick from the address book."
             )
@@ -126,6 +128,11 @@ class ResolvedAddress:
     address: str
     source: str
     name: Optional[str] = None
+
+    @property
+    def account(self) -> str:
+        """The chain account, without discarding the receiving address in this object."""
+        return parse_recipient(self.address).account
 
 
 @dataclass
@@ -201,6 +208,7 @@ class AppContext:
     _extension_bridge_ws_url: Optional[str] = None
     _ledger_signer: Optional[object] = None
     _vault_signer: Optional[VaultSigner] = None
+    _receiving_genesis: Optional[tuple[str, str]] = None
     # Multisig names currently being derived by ``resolve_address`` — breaks
     # the recursion when a saved multisig lists itself among its signatories.
     _resolving_multisigs: set = field(default_factory=set)
@@ -220,6 +228,32 @@ class AppContext:
     def wallet(self):
         """Open the configured wallet handle (no key unlock; that happens on signing)."""
         return wallets.open_wallet(self.wallet_name, self.hotkey_name, self.wallet_path)
+
+    def receiving_genesis_hash(self) -> str:
+        """Bind public receiving addresses to this network before writing keyfiles."""
+        if self._receiving_genesis and self._receiving_genesis[0] == self.network:
+            return self._receiving_genesis[1]
+        label, _ = resolve_endpoint(self.network)
+        genesis = (
+            FINNEY_GENESIS_HASH
+            if label in ("finney", "archive")
+            else self.run(lambda client: client._substrate.block_hash(0))
+        )
+        try:
+            encoded = bytes.fromhex(genesis.removeprefix("0x"))
+            if len(encoded) != 32:
+                raise ValueError("invalid length")
+        except (AttributeError, TypeError, ValueError) as error:
+            raise ValueError("could not determine this network's 32-byte genesis hash") from error
+        genesis = "0x" + encoded.hex()
+        self._receiving_genesis = (self.network, genesis)
+        return genesis
+
+    def wallet_address(self, public) -> str:
+        """Display/share complete receiving information using public metadata only."""
+        if public.crypto_type != wallets.CRYPTO_HASHED:
+            return public.ss58_address
+        return receiving_address(public, self.receiving_genesis_hash())
 
     def uses_extension_signer(self) -> bool:
         return (self.signer_backend or "").strip().lower() == "extension"
@@ -345,10 +379,16 @@ class AppContext:
 
     def _resolve_signer_account_ref(self, ref: str) -> Optional[str]:
         """Resolve a signer identity to ss58: raw address, address-book name, or wallet."""
+        if is_receiving_address(ref):
+            parse_recipient(ref)
+            raise ValueError("hashed receiving addresses cannot use an external signer backend")
         if is_bittensor_address(ref):
             return str(ref)
         booked = cfg.get_address(ref)
         if booked:
+            if is_receiving_address(booked):
+                parse_recipient(booked)
+                raise ValueError("hashed receiving addresses cannot use an external signer backend")
             return booked
         try:
             return wallets.open_wallet(name=ref, path=self.wallet_path).coldkeypub.ss58_address
@@ -539,6 +579,13 @@ class AppContext:
         propagate with their original context.
         """
         kind = "hotkey" if "hotkey" in param else "coldkey"
+        if is_receiving_address(value):
+            recipient = parse_recipient(value)
+            booked = next(
+                (e["name"] for e in cfg.load_addresses() if e.get("address") == recipient.address),
+                None,
+            )
+            return ResolvedAddress(recipient.address, "receiving address", booked)
         if is_bittensor_address(value):
             booked = next(
                 (e["name"] for e in cfg.load_addresses() if e.get("address") == value), None
@@ -547,7 +594,9 @@ class AppContext:
 
         booked = cfg.get_address(value)
         if booked:
-            return ResolvedAddress(booked, f"address-book entry {value!r}", value)
+            return ResolvedAddress(
+                parse_recipient(booked).address, f"address-book entry {value!r}", value
+            )
 
         proxy_entry = cfg.get_proxy(value)
         proxied = proxy_entry.get("address") if proxy_entry else None
@@ -562,13 +611,16 @@ class AppContext:
         if kind == "hotkey":
             wallet_name, _, hotkey = value.rpartition("/")
             handle = wallets.open_wallet(wallet_name or self.wallet_name, hotkey, self.wallet_path)
-            return ResolvedAddress(handle.hotkey.ss58_address, f"hotkey {value!r}", value)
+            return ResolvedAddress(
+                self.wallet_address(public_view(handle, "hotkey")), f"hotkey {value!r}", value
+            )
 
-        address = wallets.open_wallet(name=value, path=self.wallet_path).coldkeypub.ss58_address
+        public = wallets.open_wallet(name=value, path=self.wallet_path).coldkeypub
+        address = self.wallet_address(public)
         return ResolvedAddress(address, f"wallet {value!r}", value)
 
     def resolve_address(self, param: str, value: Optional[str]) -> Optional[str]:
-        """Resolve an address-typed CLI value (any ``*_ss58`` param) to an ss58 address.
+        """Resolve a CLI account reference while preserving complete receiving information.
 
         Six accepted forms:
         - a raw ss58 address: used as-is;
@@ -614,7 +666,7 @@ class AppContext:
             return resolved.address
         try:
             if param == "hotkey_ss58":
-                address = self.wallet().hotkey.ss58_address
+                address = self.wallet_address(public_view(self.wallet(), "hotkey"))
                 self.output.name_address(address, f"{self.wallet_name}/{self.hotkey_name}")
                 self.output.classify_address(address, "hotkey")
                 return address
@@ -626,7 +678,7 @@ class AppContext:
                     self.output.name_address(derived, self.wallet_name)
                     self.output.classify_address(derived, "coldkey")
                     return derived
-                address = self.wallet().coldkeypub.ss58_address
+                address = self.wallet_address(self.wallet().coldkeypub)
                 self.output.name_address(address, self.wallet_name)
                 self.output.classify_address(address, "coldkey")
                 return address

@@ -23,6 +23,8 @@ use crate::error::CoreError;
 mod base58;
 mod hashed;
 pub use hashed::HashedKeypair;
+mod receiving;
+pub use receiving::{decode_hashed_receiving_address, encode_hashed_receiving_address};
 #[cfg(feature = "host")]
 mod encrypted_json;
 

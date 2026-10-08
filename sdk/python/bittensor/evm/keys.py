@@ -44,7 +44,7 @@ class EvmKeyInfo:
 
     name: str
     address: str  # 0x-prefixed h160
-    ss58_mirror: str  # where its native-side balance lives
+    ss58_mirror: str  # deterministic legacy mirror; resolve chain aliases before funding
     path: str
 
 

@@ -195,8 +195,9 @@ def doctor(
         fields["nonce"] = _run_evm(app_ctx, lambda: rpc.get_nonce(info.address))
         if wei == 0:
             app_ctx.output.message(
-                f"key {info.name} has no balance — fund it with `btcli evm fund` "
-                f"(or transfer TAO to its mirror {info.ss58_mirror})"
+                f"key {info.name} has no balance — send TAO to {info.address} "
+                "from an EVM wallet on this network. For native funding, "
+                "`btcli evm fund` checks the selected network's receiving route."
             )
     app_ctx.output.detail(f"EVM endpoint: {network.name}", fields)
 

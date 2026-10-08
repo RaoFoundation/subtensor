@@ -15,6 +15,7 @@ from ....evm import keys as evm_keys
 from ....evm import networks as evm_networks
 from ....evm import rpc as evm_rpc
 from ....evm import transactions as evm_transactions
+from ....receiving import is_receiving_address
 from ...context import AppContext
 
 PANEL_KEYS = "EVM keys"
@@ -67,7 +68,9 @@ def _key_info(app_ctx: AppContext, value: Optional[str]) -> evm_keys.EvmKeyInfo:
 
 
 def _address_of(app_ctx: AppContext, value: Optional[str], *, param: str) -> str:
-    if value and (value.startswith("0x") or evm_addresses.is_h160("0x" + value)):
+    if value and (
+        value.startswith("0x") or evm_addresses.is_h160("0x" + value) or is_receiving_address(value)
+    ):
         try:
             return evm_addresses.normalize_h160(value)
         except ValueError as error:
@@ -273,7 +276,8 @@ def _key_fields(info: evm_keys.EvmKeyInfo) -> dict[str, Any]:
     return {
         "name": info.name,
         "address": info.address,
-        "ss58 mirror": info.ss58_mirror,
+        "legacy ss58 mirror (internal)": info.ss58_mirror,
+        "native receiving address": "use `btcli evm mirror` to resolve the current chain mapping",
         "keystore": info.path,
     }
 
@@ -283,5 +287,6 @@ def _key_json(info: evm_keys.EvmKeyInfo) -> dict[str, Any]:
         "name": info.name,
         "address": info.address,
         "ss58_mirror": info.ss58_mirror,
+        "ss58_mirror_is_legacy": True,
         "keystore": info.path,
     }

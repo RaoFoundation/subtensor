@@ -28,6 +28,29 @@ def _public_only(keypair: Keypair) -> Keypair:
     )
 
 
+def _restore_public_key(address: str | None, public_key: str | None, crypto_type: int) -> Keypair:
+    from .receiving import is_receiving_address, parse_recipient
+
+    if address is not None and is_receiving_address(address):
+        recipient = parse_recipient(address)
+        keypair = Keypair.from_hashed_descriptor(recipient.descriptor)
+        if public_key is not None:
+            encoded = bytes.fromhex(public_key.removeprefix("0x"))
+            if encoded != bytes(keypair.public_key):
+                raise ValueError("public key does not match the receiving address")
+        return keypair
+    if crypto_type == CRYPTO_HASHED:
+        raise ValueError(
+            "hashed watch-only recovery requires the complete receiving address; "
+            "copy it from `btcli wallet show`"
+        )
+    return Keypair(
+        ss58_address=address,
+        public_key=bytes.fromhex(public_key.removeprefix("0x")) if public_key else None,
+        crypto_type=crypto_type,
+    )
+
+
 class Wallet:
     """A named wallet directory under ``~/.bittensor/wallets/<name>/``.
 
@@ -326,11 +349,7 @@ class Wallet:
         del suppress
         if ss58_address is None and public_key is None:
             raise ValueError("either ss58_address or public_key must be passed")
-        keypair = Keypair(
-            ss58_address=ss58_address,
-            public_key=bytes.fromhex(public_key.removeprefix("0x")) if public_key else None,
-            crypto_type=crypto_type,
-        )
+        keypair = _restore_public_key(ss58_address, public_key, crypto_type)
         self._set_coldkeypub(keypair, overwrite)
         return self
 
@@ -346,11 +365,7 @@ class Wallet:
         del suppress
         if ss58_address is None and public_key is None:
             raise ValueError("either ss58_address or public_key must be passed")
-        keypair = Keypair(
-            ss58_address=ss58_address,
-            public_key=bytes.fromhex(public_key.removeprefix("0x")) if public_key else None,
-            crypto_type=crypto_type,
-        )
+        keypair = _restore_public_key(ss58_address, public_key, crypto_type)
         self._set_hotkeypub(keypair, overwrite)
         return self
 

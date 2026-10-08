@@ -25,6 +25,7 @@ from ...intents import (
 )
 from ...keyfiles import WrongPasswordError
 from ...masked_input import masked_input
+from ...receiving import parse_recipient
 from ...settings import BLOCKTIME, DOCS_URL, query_docs_url, resolve_endpoint
 from ...timelock import format_duration
 from .. import multisig_helpers as ms_helpers
@@ -120,6 +121,47 @@ _JSON_PASSWORD_HELP = (
 
 _SEED_RE = re.compile(r"(0x)?[0-9a-fA-F]{64}")
 _PRIVATE_KEY_RE = re.compile(r"(0x)?[0-9a-fA-F]{128}")
+
+
+def _prepare_receiving_address(app_ctx: AppContext, *crypto_types: int) -> None:
+    """Resolve network identity before a hashed creation or recovery writes files."""
+    if wallets.CRYPTO_HASHED in crypto_types:
+        app_ctx.receiving_genesis_hash()
+
+
+def _address_fields(app_ctx: AppContext, public, *, role: str = "") -> dict[str, str]:
+    suffix = "address" if public.crypto_type == wallets.CRYPTO_HASHED else "ss58"
+    key = f"{role}_{suffix}" if role else suffix
+    return {key: app_ctx.wallet_address(public)}
+
+
+def _hashed_recovery_hint(app_ctx: AppContext, *crypto_types: int) -> None:
+    if wallets.CRYPTO_HASHED in crypto_types and not app_ctx.output.json_mode:
+        app_ctx.output.message(
+            "Record the wallet type 'hashed' with each recovery phrase. Restore with "
+            "`btcli wallet regen-coldkey --type hashed` or "
+            "`btcli wallet regen-hotkey --type hashed`. Share the complete receiving address."
+        )
+
+
+def _public_recovery_type(
+    app_ctx: AppContext, address: str, public_key: str | None, crypto_type: int
+) -> int:
+    recipient = parse_recipient(address)
+    if recipient.descriptor is not None:
+        if recipient.genesis_hash != bytes.fromhex(app_ctx.receiving_genesis_hash()[2:]):
+            raise ValueError(
+                "receiving address belongs to another network; select its network with --network"
+            )
+        return wallets.CRYPTO_HASHED
+    if crypto_type == wallets.CRYPTO_HASHED:
+        raise ValueError(
+            "hashed watch-only recovery requires the complete receiving address; "
+            "copy it from `btcli wallet show`"
+        )
+    if public_key is None:
+        raise ValueError("--public-key is required when recovering from a legacy ss58 address")
+    return crypto_type
 
 
 def _resolve_key_secret(
@@ -296,6 +338,7 @@ def create(
         app_ctx,
         hotkey_crypto_type or ("hashed" if coldkey_crypto == wallets.CRYPTO_HASHED else "sr25519"),
     )
+    _prepare_receiving_address(app_ctx, coldkey_crypto, hotkey_crypto)
     mnemonics: dict[str, str] = {}
 
     def _on_mnemonic(role: str, mnemonic: str) -> None:
@@ -322,16 +365,15 @@ def create(
         "hotkey": app_ctx.hotkey_name,
         "coldkey_crypto_type": wallets.format_crypto_type(coldkey_crypto),
         "hotkey_crypto_type": wallets.format_crypto_type(hotkey_crypto),
-        "coldkey_ss58": wallet.coldkeypub.ss58_address,
+        **_address_fields(app_ctx, wallet.coldkeypub, role="coldkey"),
         "path": app_ctx.wallet_path,
     }
-    if coldkey_crypto == wallets.CRYPTO_HASHED:
-        fields["hashed_descriptor"] = "0x" + bytes(wallet.coldkeypub.hashed_descriptor).hex()
     if hotkey_crypto == wallets.CRYPTO_HASHED:
-        fields["hotkey_hashed_descriptor"] = "0x" + bytes(wallet.hotkeypub.hashed_descriptor).hex()
+        fields.update(_address_fields(app_ctx, wallet.hotkeypub, role="hotkey"))
     # Human mode already showed the mnemonics above; JSON carries them in the
     # payload so scripted consumers can capture them.
     app_ctx.output.detail("created wallet", fields, json_fields={**fields, **mnemonics})
+    _hashed_recovery_hint(app_ctx, coldkey_crypto, hotkey_crypto)
     app_ctx.output.mnemonic_clear_hint()
 
 
@@ -353,6 +395,7 @@ def new_coldkey(
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(app_ctx, help_text="Wallet to create the coldkey in.", must_exist=False)
     crypto = _resolve_crypto_type(app_ctx, crypto_type)
+    _prepare_receiving_address(app_ctx, crypto)
     mnemonics: dict[str, str] = {}
 
     def _on_mnemonic(mnemonic: str) -> None:
@@ -375,9 +418,10 @@ def new_coldkey(
     fields = {
         "wallet": app_ctx.wallet_name,
         "crypto_type": wallets.format_crypto_type(crypto),
-        "ss58": wallet.coldkeypub.ss58_address,
+        **_address_fields(app_ctx, wallet.coldkeypub),
     }
     app_ctx.output.detail("created coldkey", fields, json_fields={**fields, **mnemonics})
+    _hashed_recovery_hint(app_ctx, crypto)
     app_ctx.output.mnemonic_clear_hint()
 
 
@@ -404,6 +448,7 @@ def new_hotkey(
         hotkey_must_exist=False,
     )
     crypto = _resolve_crypto_type(app_ctx, crypto_type)
+    _prepare_receiving_address(app_ctx, crypto)
     mnemonics: dict[str, str] = {}
 
     def _on_mnemonic(mnemonic: str) -> None:
@@ -423,9 +468,10 @@ def new_hotkey(
         "wallet": app_ctx.wallet_name,
         "hotkey": app_ctx.hotkey_name,
         "crypto_type": wallets.format_crypto_type(crypto),
-        "ss58": wallet.hotkey.ss58_address,
+        **_address_fields(app_ctx, wallet.hotkeypub),
     }
     app_ctx.output.detail("created hotkey", fields, json_fields={**fields, **mnemonics})
+    _hashed_recovery_hint(app_ctx, crypto)
     app_ctx.output.mnemonic_clear_hint()
 
 
@@ -464,6 +510,7 @@ def regen_coldkey(
     files on disk and prompts for a new encryption password unless --no-password
     is given. When importing from JSON, the key type is read from the keystore;
     --crypto-type applies only to mnemonic/seed/private-key regeneration.
+    Use --type hashed to restore a hashed wallet; another type derives a different address.
     """
     app_ctx: AppContext = ctx_of(ctx)
     warn_argv_secrets(
@@ -485,6 +532,7 @@ def regen_coldkey(
     )
     confirm_wallet(app_ctx, help_text="Wallet to regenerate the coldkey in.", must_exist=False)
     crypto = _resolve_crypto_type(app_ctx, crypto_type)
+    _prepare_receiving_address(app_ctx, crypto)
     try:
         wallet = wallets.regen_coldkey(
             mnemonic=mnemonic,
@@ -506,7 +554,7 @@ def regen_coldkey(
         {
             "coldkey": app_ctx.wallet_name,
             "crypto_type": wallets.format_crypto_type(reported_crypto),
-            "ss58": wallet.coldkeypub.ss58_address,
+            **_address_fields(app_ctx, wallet.coldkeypub),
             "path": app_ctx.wallet_path,
         },
     )
@@ -550,6 +598,7 @@ def regen_hotkey(
         hotkey_must_exist=False,
     )
     crypto = _resolve_crypto_type(app_ctx, crypto_type)
+    _prepare_receiving_address(app_ctx, crypto)
     wallet = wallets.regen_hotkey(
         mnemonic=mnemonic,
         seed=seed,
@@ -566,7 +615,7 @@ def regen_hotkey(
             "coldkey": app_ctx.wallet_name,
             "hotkey": app_ctx.hotkey_name,
             "crypto_type": wallets.format_crypto_type(crypto),
-            "ss58": wallet.hotkey.ss58_address,
+            **_address_fields(app_ctx, wallet.hotkeypub),
             "path": app_ctx.wallet_path,
         },
     )
@@ -576,33 +625,42 @@ def regen_hotkey(
 @with_globals
 def regen_coldkey_pub(
     ctx: typer.Context,
-    ss58: str = typer.Option(..., "--ss58", help="ss58 address of the coldkey."),
-    public_key: str = typer.Option(
-        ..., "--public-key", help="Hex-encoded public key matching the ss58 address."
+    ss58: str = typer.Option(..., "--address", "--ss58", help="Receiving address of the coldkey."),
+    public_key: Optional[str] = typer.Option(
+        None, "--public-key", help="Hex public key; required only for a legacy ss58 address."
     ),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
     crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
 ):
-    """Regenerate coldkey public file from ss58 + public key.
+    """Regenerate a coldkey public file from its complete receiving address.
 
     Writes only the coldkeypub file (no secret material), which is enough for
     watch-only operations like checking balances. The wallet cannot sign
     until the full coldkey is regenerated from its mnemonic or seed.
+    Legacy ss58 addresses also require --public-key.
     """
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(app_ctx, help_text="Wallet to regenerate the coldkeypub in.", must_exist=False)
     crypto = _resolve_crypto_type(app_ctx, crypto_type)
-    wallets.regen_coldkey_pub(
-        ss58=ss58,
-        public_key_hex=public_key,
-        name=app_ctx.wallet_name,
-        path=app_ctx.wallet_path,
-        overwrite=overwrite,
-        crypto_type=crypto,
-    )
+    try:
+        crypto = _public_recovery_type(app_ctx, ss58, public_key, crypto)
+        wallet = wallets.regen_coldkey_pub(
+            ss58=ss58,
+            public_key_hex=public_key,
+            name=app_ctx.wallet_name,
+            path=app_ctx.wallet_path,
+            overwrite=overwrite,
+            crypto_type=crypto,
+        )
+    except ValueError as error:
+        app_ctx.output.error(str(error))
+        raise typer.Exit(1)
     app_ctx.output.detail(
         "regenerated coldkeypub",
-        {"ss58": ss58, "crypto_type": wallets.format_crypto_type(crypto)},
+        {
+            **_address_fields(app_ctx, wallet.coldkeypub),
+            "crypto_type": wallets.format_crypto_type(crypto),
+        },
     )
 
 
@@ -610,17 +668,18 @@ def regen_coldkey_pub(
 @with_globals
 def regen_hotkey_pub(
     ctx: typer.Context,
-    ss58: str = typer.Option(..., "--ss58", help="ss58 address of the hotkey."),
-    public_key: str = typer.Option(
-        ..., "--public-key", help="Hex-encoded public key matching the ss58 address."
+    ss58: str = typer.Option(..., "--address", "--ss58", help="Receiving address of the hotkey."),
+    public_key: Optional[str] = typer.Option(
+        None, "--public-key", help="Hex public key; required only for a legacy ss58 address."
     ),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
     crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
 ):
-    """Regenerate hotkey public file from ss58 + public key.
+    """Regenerate a hotkey public file from its complete receiving address.
 
     Writes only the hotkeypub file (no secret material). The hotkey cannot
     sign until the full hotkey is regenerated from its mnemonic or seed.
+    Legacy ss58 addresses also require --public-key.
     """
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(
@@ -631,18 +690,26 @@ def regen_hotkey_pub(
         hotkey_must_exist=False,
     )
     crypto = _resolve_crypto_type(app_ctx, crypto_type)
-    wallets.regen_hotkey_pub(
-        ss58=ss58,
-        public_key_hex=public_key,
-        name=app_ctx.wallet_name,
-        hotkey=app_ctx.hotkey_name,
-        path=app_ctx.wallet_path,
-        overwrite=overwrite,
-        crypto_type=crypto,
-    )
+    try:
+        crypto = _public_recovery_type(app_ctx, ss58, public_key, crypto)
+        wallet = wallets.regen_hotkey_pub(
+            ss58=ss58,
+            public_key_hex=public_key,
+            name=app_ctx.wallet_name,
+            hotkey=app_ctx.hotkey_name,
+            path=app_ctx.wallet_path,
+            overwrite=overwrite,
+            crypto_type=crypto,
+        )
+    except ValueError as error:
+        app_ctx.output.error(str(error))
+        raise typer.Exit(1)
     app_ctx.output.detail(
         "regenerated hotkeypub",
-        {"ss58": ss58, "crypto_type": wallets.format_crypto_type(crypto)},
+        {
+            **_address_fields(app_ctx, wallet.hotkeypub),
+            "crypto_type": wallets.format_crypto_type(crypto),
+        },
     )
 
 
@@ -804,7 +871,7 @@ def unlock_wallet(ctx: typer.Context):
             {
                 "wallet": app_ctx.wallet_name,
                 "encrypted": False,
-                "ss58": wallet.coldkeypub.ss58_address,
+                **_address_fields(app_ctx, wallet.coldkeypub),
             },
         )
         return
@@ -847,7 +914,7 @@ def unlock_wallet(ctx: typer.Context):
         {
             "wallet": app_ctx.wallet_name,
             "encrypted": True,
-            "ss58": keypair.ss58_address,
+            **_address_fields(app_ctx, keypair),
         },
     )
 
@@ -965,10 +1032,8 @@ def show_wallet(ctx: typer.Context):
     # exists and say what is missing instead of failing on the first absence.
     detail: dict[str, Any] = {}
     try:
-        detail["coldkey_ss58"] = wallet.coldkeypub.ss58_address
+        detail.update(_address_fields(app_ctx, wallet.coldkeypub, role="coldkey"))
         detail["coldkey_crypto_type"] = wallets.format_crypto_type(wallet.coldkeypub.crypto_type)
-        if wallet.coldkeypub.crypto_type == wallets.CRYPTO_HASHED:
-            detail["hashed_descriptor"] = "0x" + bytes(wallet.coldkeypub.hashed_descriptor).hex()
     except Exception as error:
         detail["coldkey"] = f"unavailable ({error})"
     detail["hotkey"] = app_ctx.hotkey_name
@@ -977,14 +1042,14 @@ def show_wallet(ctx: typer.Context):
             hotkey = wallet.hotkeypub
         except FileNotFoundError:
             hotkey = wallet.hotkey
-        detail["hotkey_ss58"] = hotkey.ss58_address
+        detail.update(_address_fields(app_ctx, hotkey, role="hotkey"))
         detail["hotkey_crypto_type"] = wallets.format_crypto_type(hotkey.crypto_type)
-        if hotkey.crypto_type == wallets.CRYPTO_HASHED:
-            detail["hotkey_hashed_descriptor"] = "0x" + bytes(hotkey.hashed_descriptor).hex()
     except Exception as error:
         detail["hotkey"] = f"{app_ctx.hotkey_name} — unavailable ({error})"
     detail["path"] = app_ctx.wallet_path
-    if "coldkey_ss58" not in detail and "hotkey_ss58" not in detail:
+    if not {"coldkey_ss58", "hotkey_ss58", "coldkey_address", "hotkey_address"}.intersection(
+        detail
+    ):
         app_ctx.output.error(
             f"wallet {app_ctx.wallet_name!r} has no readable keys",
             note=detail.get("coldkey"),
@@ -999,15 +1064,25 @@ def list_wallets(ctx: typer.Context):
     """List wallets on disk, saved multisigs, the address book, and the proxy book."""
     app_ctx: AppContext = ctx_of(ctx)
     coldkeys = wallets.list_wallets_detailed(app_ctx.wallet_path)
+
+    def listed_address(name, key, hotkey=None):
+        if key.crypto_type != wallets.CRYPTO_HASHED:
+            return key.ss58
+        wallet = wallets.open_wallet(
+            name=name, hotkey=hotkey or "default", path=app_ctx.wallet_path
+        )
+        public = wallet.hotkeypub if hotkey else wallet.coldkeypub
+        return app_ctx.wallet_address(public)
+
     records = [
         {
             "coldkey": ck.name,
-            "ss58": ck.ss58,
+            "ss58": listed_address(ck.name, ck),
             "crypto_type": wallets.format_crypto_type(ck.crypto_type),
             "hotkeys": [
                 {
                     "name": hk.name,
-                    "ss58": hk.ss58,
+                    "ss58": listed_address(ck.name, hk, hk.name),
                     "crypto_type": wallets.format_crypto_type(hk.crypto_type),
                 }
                 for hk in ck.hotkeys
@@ -1461,14 +1536,15 @@ def wallet_transfer(
     hashed_descriptor: Optional[str] = typer.Option(
         None,
         "--hashed-descriptor",
-        help="Public descriptor hex when first funding a remote hashed wallet.",
+        help="Compatibility option for an old hashed SS58 destination; complete receiving "
+        "addresses include this information automatically.",
     ),
 ):
     """Transfer TAO to another coldkey.
 
     On a terminal you can omit `--dest` and `--amount`: the CLI lists address-book
     contacts and other wallets, then asks for the amount. `--dest` is a coldkey
-    (ss58, address-book name, or local wallet name), not a hotkey.
+    (receiving address, ss58, address-book name, or local wallet name), not a hotkey.
     """
     app_ctx: AppContext = ctx_of(ctx)
     answers: dict = {"dest_ss58": dest_ss58}
@@ -1793,7 +1869,8 @@ def announce_coldkey_swap(
     hashed_descriptor: Optional[str] = typer.Option(
         None,
         "--hashed-descriptor",
-        help="Public descriptor hex when migrating to a remote hashed wallet.",
+        help="Compatibility option for an old hashed SS58 destination; complete receiving "
+        "addresses include this information automatically.",
     ),
 ):
     """Announce intent to swap coldkey.

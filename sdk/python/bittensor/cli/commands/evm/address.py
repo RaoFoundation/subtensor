@@ -23,18 +23,30 @@ def mirror(
     ctx: typer.Context,
     address: Optional[str] = typer.Argument(None, help=EVM_ADDRESS_HELP),
 ):
-    """The ss58 mirror of an EVM address — where its native-side balance lives.
+    """The current native receiving address of an EVM account.
 
-    Transfer TAO to the mirror (from btcli, an exchange, or any substrate
-    wallet) and it appears as the EVM account's balance. Computed as
-    ss58(blake2_256("evm:" ++ address)).
+    Protected aliases return their full receiving address. With hashed aliases
+    enabled, unprotected aliases must be funded through an EVM-side transfer.
     """
     app_ctx = ctx_of(ctx)
     h160 = _address_of(app_ctx, address, param="ADDRESS")
+    recipient = app_ctx.run(
+        lambda client: evm_addresses.resolve_evm_funding_recipient(client._substrate, h160)
+    )
     app_ctx.output.detail(
         None,
-        {"address": h160, "ss58 mirror": evm_addresses.h160_to_ss58(h160)},
-        json_fields={"address": h160, "ss58_mirror": evm_addresses.h160_to_ss58(h160)},
+        {
+            "address": h160,
+            (
+                "native receiving address" if recipient.descriptor else "ss58 mirror"
+            ): recipient.address,
+        },
+        json_fields={
+            "address": h160,
+            (
+                "native_receiving_address" if recipient.descriptor else "ss58_mirror"
+            ): recipient.address,
+        },
     )
 
 
@@ -70,18 +82,46 @@ def deposit_address(ctx: typer.Context):
     app_ctx = ctx_of(ctx)
     coldkey = app_ctx.resolve_address("coldkey_ss58", None)
     assert coldkey is not None
-    truncated = evm_addresses.ss58_to_h160_truncated(coldkey)
+    truncated, recipient = app_ctx.run(
+        lambda client: evm_addresses.resolve_evm_deposit(client._substrate, coldkey)
+    )
+    if recipient.descriptor is not None:
+        app_ctx.output.detail(
+            f"EVM deposit address for {app_ctx.wallet_name}",
+            {
+                "coldkey": coldkey,
+                "evm_deposit_address": truncated,
+                "native_receiving_address": recipient.address,
+                "claim_required": False,
+            },
+        )
+        app_ctx.output.message(
+            "EVM deposits are credited directly to this native account; no claim is needed"
+        )
+        return
+    enabled = app_ctx.run(lambda client: client._substrate.constant("HashedAccounts", "Enabled"))
+    if enabled is True:
+        app_ctx.output.detail(
+            f"EVM deposit address for {app_ctx.wallet_name}",
+            {
+                "coldkey": coldkey,
+                "evm_deposit_address": truncated,
+                "claim_required": True,
+                "native_mirror_funding": "unsupported; send from an EVM wallet to the H160 address",
+            },
+        )
+        return
     app_ctx.output.detail(
         f"EVM deposit address for {app_ctx.wallet_name}",
         {
             "coldkey": coldkey,
             "evm deposit address": truncated,
-            "its ss58 mirror": evm_addresses.h160_to_ss58(truncated),
+            "its ss58 mirror": recipient.account,
         },
         json_fields={
             "coldkey": coldkey,
             "evm_deposit_address": truncated,
-            "mirror_ss58": evm_addresses.h160_to_ss58(truncated),
+            "mirror_ss58": recipient.account,
         },
     )
     app_ctx.output.message(

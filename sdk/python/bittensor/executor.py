@@ -25,11 +25,18 @@ from ._transport.contract import UnsignedExtrinsic
 from ._transport.utils.receipt import nested_dispatch_error
 from .balance import Balance
 from .fee_filters import COLDKEY_FEE_WARNING, charges_coldkey_fee
-from .hashed import descriptor_bytes, with_recipient_registration
+from .hashed import (
+    descriptor_bytes,
+    has_receiving_setup_inputs,
+    prepare_recipient_intent,
+    with_recipient_registration,
+)
 from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
+from .intents._money import UNBOUNDED
 from .intents.base import BuiltCall, IntentPreflight
 from .intents.proxy import check_proxy_type
+from .receiving import account_for_read, coerce_payment_address
 from .result import (
     ChainError,
     ExtrinsicResult,
@@ -40,7 +47,6 @@ from .settings import DEFAULT_ERA_PERIOD, MEV_SHIELD_ERA_PERIOD
 from .signing import (
     WalletLike,
     as_wallet,
-    coerce_address,
     is_address_param,
     public_view,
     resolve_signer,
@@ -147,19 +153,20 @@ async def _prepare_shielded_signer(keypair) -> None:
         await result
 
 
-def _coerce_addresses(intent: Intent) -> Intent:
+async def _coerce_addresses(substrate: Substrate, intent: Intent) -> Intent:
     """Normalize the intent's ``*_ss58`` / ``*_ss58s`` fields: a ``Wallet``,
     keypair, or signer passed where an address string is expected becomes its
-    ss58 address (hotkey fields take the wallet's hotkey, others its coldkey).
+    receiving address (hotkey fields take the wallet's hotkey, others its
+    coldkey). Hashed inputs retain their complete descriptor until construction.
     Returns a new intent only when something needed coercing."""
     changes = {}
     for field in dataclass_fields(intent):
         if not is_address_param(field.name):
             continue
         value = getattr(intent, field.name)
-        if value is None or isinstance(value, str):
+        if value is None:
             continue
-        coerced = coerce_address(value, field.name)
+        coerced = await coerce_payment_address(substrate, value, field.name)
         if coerced is not value:
             changes[field.name] = coerced
     return replace(intent, **changes) if changes else intent
@@ -189,9 +196,17 @@ async def _compose_intent_call(
     proxy_type: Optional[str] = None,
 ) -> tuple[Any, dict]:
     """Compose semantic call -> sudo -> proxy -> execution adapter."""
+    proxy_for = await account_for_read(substrate, proxy_for)
     extras: dict = {"proxy_for": proxy_for} if proxy_for is not None else {}
+    semantic = await _coerce_addresses(substrate, intent.semantic_intent())
+    prepared, recipients = await prepare_recipient_intent(substrate, semantic)
     pinned = getattr(intent, "inner_call_data", None)
     if pinned:
+        if await has_receiving_setup_inputs(substrate, wallet, semantic):
+            raise ValueError(
+                "cannot verify recipient setup in imported multisig call bytes; "
+                "use a supported receiving-address payment flow"
+            )
         # Later multisig rounds approve round 1's exact bytes. Rebuilds are
         # not always stable (timelock commits, ``--all`` balances) and would
         # throw before wrap_call can apply the pin.
@@ -200,19 +215,20 @@ async def _compose_intent_call(
             return wrapped.call, {**extras, **wrapped.extras}
         return wrapped, extras
 
-    semantic = _coerce_addresses(intent.semantic_intent())
     # Proxy is the dispatch origin of the inner call. The multisig adapter's
     # origin_view is the multisig itself — correct only when there is no
     # proxy wrap. With both, build against the proxied account.
     origin = _intent_origin_view(substrate, intent, wallet, proxy_for)
-    built = await semantic.build(substrate, origin)
+    built = await prepared.build(substrate, origin)
     if isinstance(built, BuiltCall):
         call, extras = built.call, {**extras, **built.extras}
     else:
         call = built
 
-    call, registration = await with_recipient_registration(substrate, wallet, semantic, call)
-    if registration and (
+    call, registration = await with_recipient_registration(
+        substrate, wallet, prepared, call, recipients=recipients
+    )
+    if (registration.get("hashed_registration") or extras.get("hashed_registration")) and (
         proxy_for is not None or intent.semantic_intent() is not intent or semantic.origin == "root"
     ):
         raise ValueError(
@@ -631,9 +647,19 @@ class Executor:
         """The call-level override, else the client-wide policy."""
         return policy or self.policy
 
-    def _violations(self, intent: Intent, fee: Any, policy: Optional[Policy]) -> list[str]:
+    @staticmethod
+    def _setup_reserve(extras: Optional[dict]) -> Balance:
+        return Balance.from_rao(int((extras or {}).get("hashed_registration_max_deposit_rao", 0)))
+
+    def _violations(
+        self, intent: Intent, fee: Any, policy: Optional[Policy], extras: Optional[dict] = None
+    ) -> list[str]:
         active = self._active_policy(policy)
-        return active.check(intent, fee) if active else []
+        return (
+            active.check(intent, fee, additional_spend=self._setup_reserve(extras))
+            if active
+            else []
+        )
 
     def _enforce(
         self,
@@ -641,8 +667,9 @@ class Executor:
         fee: Any,
         policy: Optional[Policy],
         blocks: Optional[list[str]] = None,
+        extras: Optional[dict] = None,
     ) -> None:
-        violations = self._violations(intent, fee, policy)
+        violations = self._violations(intent, fee, policy, extras)
         violations.extend(blocks or [])
         if violations:
             raise PolicyError(violations)
@@ -669,7 +696,8 @@ class Executor:
         (best-effort — a failed estimate leaves the field None).
         """
         wallet = as_wallet(wallet)
-        intent = _coerce_addresses(intent)
+        proxy_for = await account_for_read(self.substrate, proxy_for)
+        intent = await _coerce_addresses(self.substrate, intent)
         call, extras = await _compose_intent_call(
             self.substrate,
             intent,
@@ -704,7 +732,8 @@ class Executor:
         extras: Optional[dict] = None,
     ) -> IntentPreflight:
         wallet = as_wallet(wallet)
-        intent = _coerce_addresses(intent)
+        proxy_for = await account_for_read(self.substrate, proxy_for)
+        intent = await _coerce_addresses(self.substrate, intent)
         if call is None:
             call, extras = await _compose_intent_call(
                 self.substrate,
@@ -719,23 +748,73 @@ class Executor:
             wallet,
             proxy_for,
         )
-        preview = await intent.preflight(
+        prepared, recipients = await prepare_recipient_intent(
+            self.substrate, intent.semantic_intent()
+        )
+        # Wrappers own their preview; ordinary intents must receive chain
+        # addresses for state queries without changing the stored user input.
+        preview_intent = prepared if intent.semantic_intent() is intent else intent
+        preview = await preview_intent.preflight(
             self.substrate,
             dispatch_origin,
             fee_payer,
             call=call,
         )
+        for recipient in recipients.values():
+            preview.effects = [
+                effect.replace(recipient.account, recipient.address) for effect in preview.effects
+            ]
+        maximum = self._setup_reserve(extras)
+        if maximum.rao:
+            preview.facts.append(
+                ("Account setup reserve (maximum, permanently locked if needed)", str(maximum))
+            )
+            if not (extras or {}).get("hashed_registration"):
+                preview.effects.insert(
+                    0, "recipient is already set up; no new reserve unless chain state rolls back"
+                )
         if extras and "hashed_registration_deposit_rao" in extras:
             deposit = Balance.from_rao(extras["hashed_registration_deposit_rao"])
             preview.effects.insert(
-                0, f"register hashed recipient and reserve {deposit} from the sponsor"
+                0, f"set up recipient and permanently reserve {deposit} from the sender"
             )
-            preview.facts.append(("Hashed account registration reserve", str(deposit)))
+            preview.facts.append(("Account setup reserve", str(deposit)))
             # Existing intent-specific quotes may have priced only the
             # semantic call. Reprice the complete setup batch.
             preview.estimated_fee = None
             if preview.required_free is not None:
                 preview.required_free += deposit
+            if prepared.op in ("transfer", "transfer_all"):
+                # Quote the whole batch before unlocking a signer. The runtime
+                # transfer_all remains after registration, so it sweeps only
+                # the remainder after reserving setup and charging the fee.
+                account = await self.substrate.query("System", "Account", [dispatch_origin])
+                data = (account or {}).get("data") or {}
+                free = int(data.get("free", 0))
+                frozen = int(data.get("frozen", 0))
+                # The new reserve keeps a Balances consumer even when the
+                # sender requested allow-death, so ED must remain funded.
+                minimum = int(await self.substrate.constant("Balances", "ExistentialDeposit") or 0)
+                try:
+                    fee = await self.substrate.estimate_fee(
+                        call, self._public_keypair(wallet, intent.signer)
+                    )
+                except Exception as error:
+                    preview.blocks.append(
+                        f"could not quote first-payment fee before account setup: {error}"
+                    )
+                else:
+                    spend = prepared.spend()
+                    amount = spend.rao if isinstance(spend, Balance) else 0
+                    required = amount + deposit.rao + fee.rao + max(frozen, minimum)
+                    preview.required_free = Balance.from_rao(required)
+                    preview.available_free = Balance.from_rao(free)
+                    preview.estimated_fee = fee
+                    if free < required:
+                        preview.blocks.append(
+                            "insufficient spendable balance for payment, account setup reserve "
+                            "and transaction fee"
+                        )
         return preview
 
     async def plan(
@@ -756,7 +835,8 @@ class Executor:
         optionally forces the exact proxy type to match (``force_proxy_type``).
         """
         wallet = as_wallet(wallet)
-        intent = _coerce_addresses(intent)
+        proxy_for = await account_for_read(self.substrate, proxy_for)
+        intent = await _coerce_addresses(self.substrate, intent)
         call, extras = await _compose_intent_call(
             self.substrate,
             intent,
@@ -786,9 +866,12 @@ class Executor:
         effects = list(preflight.effects)
         if proxy_for is not None:
             effects.append(f"dispatched via proxy as {proxy_for} (signed by {signer_address})")
-        violations = self._violations(intent, fee, policy)
+        violations = self._violations(intent, fee, policy, extras)
         violations.extend(preflight.blocks)
 
+        spend = intent.semantic_intent().spend()
+        if spend is not UNBOUNDED and self._setup_reserve(extras).rao:
+            spend = (spend or Balance.from_rao(0)) + self._setup_reserve(extras)
         return Plan(
             op=intent.op,
             summary=intent.summary(),
@@ -800,7 +883,7 @@ class Executor:
             violations=violations,
             call=call,
             extras=extras,
-            spend=intent.semantic_intent().spend(),
+            spend=spend,
             args={k: v for k, v in intent.to_dict().items() if k != "op"},
         )
 
@@ -842,6 +925,7 @@ class Executor:
         return the queue receipt instead. ``registration_timeout`` and the
         optional ``on_progress(dict)`` callback apply only to that wait.
         """
+        proxy_for = await account_for_read(self.substrate, proxy_for)
         if intent.semantic_intent().mev_shield_required:
             return await self.submit_shielded(
                 intent,
@@ -881,7 +965,7 @@ class Executor:
         result = _with_nested_dispatch_failure(result)
         if result.success:
             data = dict(result.data)
-            semantic_intent = _coerce_addresses(intent.semantic_intent())
+            semantic_intent = await _coerce_addresses(self.substrate, intent.semantic_intent())
             if semantic_intent.op == "create_pure_proxy":
                 data.update(_pure_created_data(result))
             data.update(plan.extras)
@@ -893,8 +977,10 @@ class Executor:
             and wait_for_registration
             and (wait_for_inclusion or wait_for_finalization)
         ):
-            resolved_intent = _coerce_addresses(intent)
-            semantic_intent = _coerce_addresses(resolved_intent.semantic_intent())
+            resolved_intent = await _coerce_addresses(self.substrate, intent)
+            semantic_intent = await _coerce_addresses(
+                self.substrate, resolved_intent.semantic_intent()
+            )
             resolved_wallet = as_wallet(wallet)
             owner, _fee_payer = _intent_accounts(
                 self.substrate,
@@ -908,6 +994,7 @@ class Executor:
                 resolved_wallet,
                 proxy_for,
             )
+            semantic_intent, _ = await prepare_recipient_intent(self.substrate, semantic_intent)
             hotkey = semantic_intent.hotkey_address(
                 origin_view, getattr(semantic_intent, "hotkey_ss58", None)
             )
@@ -958,8 +1045,9 @@ class Executor:
         not replace the proxy wrap.
         """
         wallet = as_wallet(wallet)
-        intent = _coerce_addresses(intent)
-        semantic_intent = _coerce_addresses(intent.semantic_intent())
+        proxy_for = await account_for_read(self.substrate, proxy_for)
+        intent = await _coerce_addresses(self.substrate, intent)
+        semantic_intent = await _coerce_addresses(self.substrate, intent.semantic_intent())
         call, extras = await _compose_intent_call(
             self.substrate, intent, wallet, proxy_for=proxy_for, proxy_type=proxy_type
         )
@@ -1010,7 +1098,7 @@ class Executor:
                         f"reserve ({preflight.required_free}) but not that reserve plus the "
                         f"MEV-shield carrier fee (~{Balance.from_rao(combined_rao)})"
                     )
-        self._enforce(intent, fee, policy, blocks)
+        self._enforce(intent, fee, policy, blocks, extras)
 
         keypair = resolve_signer(wallet, intent.signer)
         result = await self._submit_encrypted_call(
@@ -1033,6 +1121,7 @@ class Executor:
                 wallet,
                 proxy_for,
             )
+            semantic_intent, _ = await prepare_recipient_intent(self.substrate, semantic_intent)
             hotkey = semantic_intent.hotkey_address(
                 origin_view, getattr(semantic_intent, "hotkey_ss58", None)
             )

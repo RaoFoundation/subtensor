@@ -326,6 +326,148 @@ mod tests {
     }
 
     #[test]
+    fn restored_current_key_verifies_but_old_and_sibling_keys_do_not() {
+        let original = Keypair::from_mnemonic(PHRASE, CRYPTO_HASHED, None).unwrap();
+        let previous = original.at_generation(40).unwrap();
+        let current = original.at_generation(41).unwrap();
+        let recovered = Keypair::from_mnemonic(PHRASE, CRYPTO_HASHED, None)
+            .unwrap()
+            .at_generation(41)
+            .unwrap();
+        let implication = b"\x01restored device transaction";
+        let proof = Proof::decode(&mut &recovered.sign_hashed(implication).unwrap()[..]).unwrap();
+        let payload = transaction_payload(
+            &current.public_key_bytes(),
+            Scheme::Sr25519,
+            proof.generation,
+            &proof.next_commitment,
+            implication,
+        );
+        assert_eq!(proof.generation, 41);
+        assert_eq!(
+            previous.hashed_next_commitment().unwrap(),
+            current.hashed_current_commitment().unwrap()
+        );
+        assert_eq!(
+            proof.next_commitment,
+            original.hashed_commitment(42).unwrap()
+        );
+        let signature = sr25519::Signature::from_raw(proof.signature);
+        assert!(sr25519::Pair::verify(
+            &signature,
+            payload,
+            &sr25519::Public::from_raw(current.hashed_public_key().unwrap())
+        ));
+        let sibling = Keypair::from_seed(&[19; 32], CRYPTO_HASHED)
+            .unwrap()
+            .at_generation(41)
+            .unwrap();
+        for other in [previous, sibling] {
+            assert_ne!(
+                key_commitment(Scheme::Sr25519, &other.hashed_public_key().unwrap()),
+                current.hashed_current_commitment().unwrap()
+            );
+            let other_proof =
+                Proof::decode(&mut &other.sign_hashed(implication).unwrap()[..]).unwrap();
+            let other_signature = sr25519::Signature::from_raw(other_proof.signature);
+            // These are valid signatures from the old/sibling wallet, not
+            // random invalid bytes. Neither controls the expected current key.
+            let other_payload = transaction_payload(
+                &other.public_key_bytes(),
+                Scheme::Sr25519,
+                other_proof.generation,
+                &other_proof.next_commitment,
+                implication,
+            );
+            assert!(sr25519::Pair::verify(
+                &other_signature,
+                other_payload,
+                &sr25519::Public::from_raw(other_proof.public_key)
+            ));
+            let expected_payload = transaction_payload(
+                &current.public_key_bytes(),
+                Scheme::Sr25519,
+                41,
+                &other_proof.next_commitment,
+                implication,
+            );
+            assert!(!sr25519::Pair::verify(
+                &other_signature,
+                expected_payload,
+                &sr25519::Public::from_raw(current.hashed_public_key().unwrap())
+            ));
+        }
+        // Signing alone does not claim chain acceptance or consume a counter.
+        assert_eq!(recovered.hashed_generation().unwrap(), 41);
+        let retry =
+            Proof::decode(&mut &recovered.sign_hashed(b"replacement transaction").unwrap()[..])
+                .unwrap();
+        assert_eq!(retry.generation, 41);
+        assert_eq!(retry.public_key, proof.public_key);
+        assert_eq!(retry.next_commitment, proof.next_commitment);
+    }
+
+    #[test]
+    fn recovery_requires_the_same_mnemonic_and_derivation_passphrase() {
+        const OTHER_PHRASE: &str =
+            "legal winner thank year wave sausage worth useful legal winner thank yellow";
+        let original = Keypair::from_mnemonic(PHRASE, CRYPTO_HASHED, Some("correct passphrase"))
+            .unwrap()
+            .at_generation(73)
+            .unwrap();
+        let recovered = Keypair::from_mnemonic(PHRASE, CRYPTO_HASHED, Some("correct passphrase"))
+            .unwrap()
+            .at_generation(73)
+            .unwrap();
+        assert_eq!(
+            recovered.hashed_descriptor().unwrap(),
+            original.hashed_descriptor().unwrap()
+        );
+        assert_eq!(
+            recovered.hashed_current_commitment().unwrap(),
+            original.hashed_current_commitment().unwrap()
+        );
+        for incorrect in [
+            Keypair::from_mnemonic(PHRASE, CRYPTO_HASHED, None).unwrap(),
+            Keypair::from_mnemonic(PHRASE, CRYPTO_HASHED, Some("wrong passphrase")).unwrap(),
+            Keypair::from_mnemonic(OTHER_PHRASE, CRYPTO_HASHED, Some("correct passphrase"))
+                .unwrap(),
+        ] {
+            // BIP39 passphrases and other valid phrases create different
+            // wallets; the chain commitment is what detects the wrong backup.
+            assert_ne!(incorrect.ss58_address(), original.ss58_address());
+            assert_ne!(
+                incorrect.hashed_commitment(73).unwrap(),
+                original.hashed_current_commitment().unwrap()
+            );
+        }
+        assert!(Keypair::from_mnemonic("not a valid mnemonic", CRYPTO_HASHED, None).is_err());
+    }
+
+    #[test]
+    fn final_usable_generation_commits_terminal_key_without_wrapping() {
+        let wallet = Keypair::from_seed(&[23; 32], CRYPTO_HASHED).unwrap();
+        let last = wallet.at_generation(u64::MAX - 1).unwrap();
+        let terminal = wallet.at_generation(u64::MAX).unwrap();
+        let proof =
+            Proof::decode(&mut &last.sign_hashed(b"last authorization").unwrap()[..]).unwrap();
+        assert_eq!(proof.generation, u64::MAX - 1);
+        assert_eq!(
+            proof.next_commitment,
+            terminal.hashed_current_commitment().unwrap()
+        );
+        assert_ne!(
+            proof.next_commitment,
+            wallet.hashed_current_commitment().unwrap()
+        );
+        assert!(terminal.hashed_next_commitment().is_err());
+        assert!(terminal
+            .sign_hashed(b"must never wrap to generation zero")
+            .is_err());
+        assert_eq!(wallet.hashed_generation().unwrap(), 0);
+    }
+
+    #[test]
     fn public_descriptor_preserves_identity_without_exposing_signer() {
         let key = Keypair::from_seed(&[3; 32], CRYPTO_HASHED).unwrap();
         let public = key.public_only().unwrap();
@@ -357,11 +499,6 @@ mod tests {
         let mut trailing = key.hashed_descriptor().unwrap();
         trailing.push(0);
         assert!(Keypair::from_hashed_descriptor(&trailing, DEFAULT_SS58_FORMAT).is_err());
-        assert!(key
-            .at_generation(u64::MAX)
-            .unwrap()
-            .sign_hashed(b"transaction")
-            .is_err());
         assert!(Keypair::from_uri("//Alice", CRYPTO_HASHED).is_err());
     }
 }

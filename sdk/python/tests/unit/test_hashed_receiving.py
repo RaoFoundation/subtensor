@@ -1,0 +1,299 @@
+"""Receiving-address boundaries using real native keys and the SDK call harness.
+
+The fake substrate records calls; FRAME tests separately prove atomic dispatch.
+These tests exercise information preservation and rejection before signing.
+"""
+
+from unittest.mock import AsyncMock
+
+import pytest
+
+from bittensor import Balance, Client, Policy, PolicyError
+from bittensor.executor import Executor, _compose_intent_call
+from bittensor.hashed import descriptor_value
+from bittensor.intents import Batch, Transfer, TransferAll
+from bittensor.intents.evm import FundEvmKey
+from bittensor.intents.multisig import MultisigIntentAdapter, MultisigThreshold1
+from bittensor.intents.registration import BurnedRegister, RegisterSubnet
+from bittensor.receiving import parse_recipient, receiving_address
+from bittensor.sp_core import CRYPTO_HASHED, Keypair
+from bittensor.wallet import Wallet
+from tests.harness.fake_substrate import FakeSubstrate
+from tests.harness.samples import ALICE, BOB, dev_wallet
+
+GENESIS = bytes(32)
+RESERVE = 200_000_000
+
+
+@pytest.fixture
+def setup():
+    chain = FakeSubstrate()
+    chain.seed_constant("HashedAccounts", "Enabled", True)
+    chain.seed_constant("HashedAccounts", "RegistrationDeposit", RESERVE)
+    chain.seed("System", "Account", [ALICE], {"data": {"free": 10**12, "frozen": 0}})
+    key = Keypair.create_from_seed(bytes([91]) * 32, CRYPTO_HASHED)
+    return chain, dev_wallet(), key, receiving_address(key, GENESIS)
+
+
+def registered(chain, key, generation=17):
+    chain.seed(
+        "HashedAccounts",
+        "Accounts",
+        [key.ss58_address],
+        {
+            "descriptor": descriptor_value(bytes(key.hashed_descriptor)),
+            "generation": generation,
+            "commitment": key.at_generation(generation).hashed_current_commitment,
+        },
+    )
+
+
+def pinned(semantic):
+    return MultisigIntentAdapter(
+        dispatch=MultisigThreshold1(other_signatories=[BOB], call=semantic.to_dict()),
+        semantic=semantic,
+        inner_call_data="0x0000",
+    )
+
+
+def test_address_preserves_original_descriptor_after_rotation(setup):
+    _, _, key, address = setup
+    recipient = parse_recipient(address)
+    assert len(address) == 104
+    assert recipient.account == key.ss58_address
+    assert recipient.descriptor == bytes(key.hashed_descriptor)
+    assert recipient.genesis_hash == GENESIS
+    assert receiving_address(key.at_generation(123), GENESIS) == address
+
+
+async def test_remote_payment_keeps_complete_input_and_registers_before_funding(setup):
+    chain, wallet, key, address = setup
+    intent = Transfer(address, 1)
+    plan = await Executor(chain).plan(intent, wallet)
+    assert not plan.violations
+    assert intent.dest_ss58 == address
+    assert plan.args["dest_ss58"] == address
+    assert plan.call.function == "batch_all"
+    guard, payment = plan.call.params["calls"]
+    assert guard.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
+    assert payment.params["dest"] == key.ss58_address
+    assert payment.params["value"] == 10**9
+    assert plan.spend.rao == 10**9 + RESERVE
+    result = await Executor(chain).execute(intent, wallet)
+    assert result.success
+    assert chain.last_call == plan.call
+
+
+async def test_remote_wallet_object_uses_only_its_public_file(tmp_path, setup, monkeypatch):
+    chain, wallet, _, _ = setup
+    remote = Wallet("remote", path=str(tmp_path / "another-machine"))
+    remote.regenerate_coldkey(
+        seed=bytes([92]) * 32, crypto_type=CRYPTO_HASHED, use_password=False, suppress=True
+    )
+    monkeypatch.setattr(
+        Wallet,
+        "coldkey",
+        property(lambda _: pytest.fail("recipient private key must not be accessed")),
+    )
+    plan = await Executor(chain).plan(Transfer(remote, 1), wallet)
+    assert plan.extras["hashed_registration"] == remote.coldkeypub.ss58_address
+    assert plan.args["dest_ss58"].startswith("bth1_")
+
+
+@pytest.mark.parametrize("case", ["network", "checksum", "version", "whitespace", "disabled"])
+async def test_bad_receiving_addresses_fail_before_composition_or_submission(setup, case):
+    chain, wallet, key, address = setup
+    chain.compose = AsyncMock(wraps=chain.compose)
+    if case == "network":
+        address = receiving_address(key, bytes([1]) * 32)
+    elif case == "checksum":
+        address = address[:-2] + ("A" if address[-2] != "A" else "B") + address[-1]
+    elif case == "version":
+        address = "bth2_" + address[5:]
+    elif case == "whitespace":
+        address = " " + address
+    else:
+        chain.seed_constant("HashedAccounts", "Enabled", False)
+    with pytest.raises(ValueError):
+        await Executor(chain).execute(Transfer(address, 1), wallet)
+    chain.compose.assert_not_awaited()
+    assert not chain.submissions
+
+
+@pytest.mark.parametrize("exists", [False, True])
+async def test_policy_counts_maximum_registration_reserve_before_signing(setup, exists):
+    chain, wallet, key, address = setup
+    if exists:
+        registered(chain, key)
+    policy = Policy(max_spend_tao="1.1")
+    plan = await Executor(chain).plan(Transfer(address, 1), wallet, policy=policy)
+    assert any("max_spend" in item for item in plan.violations)
+    assert plan.extras["hashed_registration_max_deposit_rao"] == RESERVE
+    assert ("hashed_registration" not in plan.extras) == exists
+    assert plan.call.params["calls"][0].function == "register"
+    with pytest.raises(PolicyError):
+        await Executor(chain).execute(Transfer(address, 1), wallet, policy=policy)
+    assert not chain.submissions
+
+
+@pytest.mark.parametrize("keep_alive", [False, True])
+async def test_first_payment_requires_fee_reserve_and_existential_deposit(setup, keep_alive):
+    chain, wallet, _, address = setup
+    required = 10**9 + RESERVE + chain.fee.rao + 500
+    intent = Transfer(address, 1, keep_alive=keep_alive)
+    for delta, blocked in [(-1, True), (0, False)]:
+        chain.seed("System", "Account", [ALICE], {"data": {"free": required + delta}})
+        preview = await Executor(chain).preflight(intent, wallet)
+        assert preview.required_free.rao == required
+        assert bool(preview.blocks) == blocked
+    chain.estimate_fee = AsyncMock(side_effect=RuntimeError("offline"))
+    with pytest.raises(PolicyError, match="could not quote"):
+        await Executor(chain).execute(intent, wallet)
+    assert not chain.submissions
+
+
+async def test_send_all_stays_a_runtime_sweep_after_reserving_setup(setup):
+    chain, wallet, _, address = setup
+    plan = await Executor(chain).plan(TransferAll(address, keep_alive=False), wallet)
+    guard, sweep = plan.call.params["calls"]
+    assert guard.function == "register"
+    assert sweep.function == "transfer_all"
+    assert sweep.params["keep_alive"] is False
+    assert "value" not in sweep.params
+
+
+@pytest.mark.parametrize("form", ["typed", "explicit", "local"])
+async def test_first_setup_inside_batch_is_rejected_for_every_recipient_form(
+    setup, monkeypatch, form
+):
+    chain, wallet, key, address = setup
+    if form == "typed":
+        transfer = Transfer(address, 1)
+    else:
+        transfer = Transfer(key.ss58_address, 1)
+        if form == "explicit":
+            transfer.hashed_descriptor = bytes(key.hashed_descriptor).hex()
+        else:
+            monkeypatch.setattr(
+                "bittensor.hashed._local_descriptor", lambda *_: bytes(key.hashed_descriptor)
+            )
+    with pytest.raises(ValueError, match="first payment"):
+        await Executor(chain).execute(Batch([transfer]), wallet)
+    assert not chain.submissions
+
+
+async def test_registered_batch_flattens_guards_and_deduplicates_reserve(setup):
+    chain, wallet, key, address = setup
+    registered(chain, key)
+    plan = await Executor(chain).plan(Batch([Transfer(address, 1), Transfer(address, 2)]), wallet)
+    assert [call.function for call in plan.call.params["calls"]] == [
+        "register",
+        "transfer_keep_alive",
+        "register",
+        "transfer_keep_alive",
+    ]
+    assert plan.extras["hashed_registration_max_deposit_rao"] == RESERVE
+    assert plan.spend.rao == 3 * 10**9 + RESERVE
+    # One child may initialize after a reorg: the conservative reserve must remain.
+    one = await Executor(chain).plan(
+        Batch([Transfer(address, 1)]), wallet, policy=Policy(max_spend_tao="1.1")
+    )
+    assert any("max_spend" in item for item in one.violations)
+
+
+@pytest.mark.parametrize("form", ["typed", "explicit", "default_hotkey", "evm"])
+@pytest.mark.parametrize("in_batch", [False, True])
+async def test_imported_multisig_bytes_cannot_bypass_recipient_information(setup, form, in_batch):
+    chain, wallet, key, address = setup
+    if form == "typed":
+        semantic = Transfer(address, 1)
+    elif form == "explicit":
+        semantic = Transfer(
+            key.ss58_address, 1, hashed_descriptor=bytes(key.hashed_descriptor).hex()
+        )
+    elif form == "default_hotkey":
+        wallet.hotkey = key
+        semantic = BurnedRegister(netuid=1)
+    else:
+        semantic = FundEvmKey("0x" + "12" * 20, 1)
+    if in_batch:
+        semantic = Batch([semantic])
+    adapter = pinned(semantic)
+    adapter.wrap_call = AsyncMock()
+    with pytest.raises(ValueError, match="imported multisig"):
+        await _compose_intent_call(chain, adapter, wallet)
+    adapter.wrap_call.assert_not_awaited()
+    assert not chain.submissions
+
+
+async def test_default_in_memory_hashed_hotkey_retains_setup_descriptor(setup):
+    chain, wallet, key, _ = setup
+    wallet.hotkey = key
+    call, extras = await _compose_intent_call(chain, BurnedRegister(netuid=1), wallet)
+    assert extras["hashed_registration"] == key.ss58_address
+    guard, registration = call.params["calls"]
+    assert guard.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
+    assert registration.params["hotkey"] == key.ss58_address
+
+
+async def test_registry_descriptor_mismatch_is_rejected(setup):
+    chain, wallet, key, address = setup
+    other = Keypair.create_from_seed(bytes([93]) * 32, CRYPTO_HASHED)
+    chain.seed(
+        "HashedAccounts",
+        "Accounts",
+        [key.ss58_address],
+        {"descriptor": descriptor_value(bytes(other.hashed_descriptor))},
+    )
+    with pytest.raises(ValueError, match="registered hashed descriptor"):
+        await Executor(chain).execute(Transfer(address, 1), wallet)
+    assert not chain.submissions
+
+
+async def test_reads_resolve_network_bound_addresses_on_client_and_snapshot(setup):
+    chain, _, key, address = setup
+    client = Client("local", substrate=chain)
+    chain.seed("System", "Account", [key.ss58_address], {"data": {"free": 123456}})
+    for view in (client, await client.at(50)):
+        assert await view.read("balance", coldkey_ss58=address) == Balance.from_rao(123456)
+        with pytest.raises(ValueError, match="different network"):
+            await view.read("balance", coldkey_ss58=receiving_address(key, bytes([9]) * 32))
+
+
+async def test_proxy_identity_is_normalized_without_losing_payment_guard(setup):
+    chain, wallet, key, address = setup
+    registered(chain, key)
+    plan = await Executor(chain).plan(Transfer(address, 1), wallet, proxy_for=address)
+    assert plan.call.function == "proxy"
+    assert plan.call.params["real"] == key.ss58_address
+    assert plan.call.params["call"].function == "batch_all"
+
+
+async def test_subnet_completion_uses_resolved_proxy_owner_and_hotkey(setup, monkeypatch):
+    chain, wallet, key, address = setup
+    registered(chain, key)
+    chain.seed("System", "Account", [key.ss58_address], {"data": {"free": 10**12}})
+    completion = AsyncMock()
+    monkeypatch.setattr("bittensor.executor._complete_subnet_registration", completion)
+    await Executor(chain).execute(RegisterSubnet(hotkey_ss58=address), wallet, proxy_for=address)
+    assert completion.await_count == 1
+    assert completion.await_args.kwargs["owner"] == key.ss58_address
+    assert completion.await_args.kwargs["hotkey"] == key.ss58_address
+
+
+@pytest.mark.parametrize("wrapper", ["batch", "multisig"])
+async def test_wrapped_preflight_queries_the_internal_account(setup, monkeypatch, wrapper):
+    chain, _, key, address = setup
+    registered(chain, key)
+    semantic = BurnedRegister(netuid=1, hotkey_ss58=address)
+    seen = []
+    original = BurnedRegister.preflight
+
+    async def checked(self, *args, **kwargs):
+        seen.append(self.hotkey_ss58)
+        return await original(self, *args, **kwargs)
+
+    monkeypatch.setattr(BurnedRegister, "preflight", checked)
+    wrapped = Batch([semantic]) if wrapper == "batch" else pinned(semantic)
+    await wrapped.preflight(chain, ALICE, ALICE)
+    assert seen == [key.ss58_address]

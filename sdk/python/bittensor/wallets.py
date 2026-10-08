@@ -347,7 +347,7 @@ def new_hotkey(
 
 def regen_coldkey_pub(
     ss58: str,
-    public_key_hex: str,
+    public_key_hex: str | None = None,
     name: str = "default",
     path: str = DEFAULT_WALLET_PATH,
     *,
@@ -367,7 +367,7 @@ def regen_coldkey_pub(
 
 def regen_hotkey_pub(
     ss58: str,
-    public_key_hex: str,
+    public_key_hex: str | None = None,
     name: str = "default",
     hotkey: str = "default",
     path: str = DEFAULT_WALLET_PATH,

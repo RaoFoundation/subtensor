@@ -27,7 +27,10 @@ ownership do not move on each transaction. Coldkey and hotkey remain separate
 wallet roles and retain separate recovery phrases. `--type hashed` selects the
 hashed scheme for both roles unless the hotkey scheme is explicitly overridden.
 
-Wallet creation and mnemonic recovery are offline. On a supporting chain the
+Wallet creation and mnemonic recovery are offline for network presets whose
+genesis hash is bundled with the SDK. A custom network needs one genesis lookup
+before keyfiles are written, so its receiving address cannot name the wrong
+chain. Key derivation itself remains offline. On a supporting chain the
 SDK reads the current account generation, verifies its commitment against the
 locally derived key and obtains the current transaction nonce before signing.
 There is no growing secret key history to back up. Restore the original mnemonic
@@ -48,21 +51,83 @@ scheme and initial public-key commitment. Registration publishes this descriptor
 not the current public key. It is permanent and idempotent, and does not let the
 sponsor control the recipient, reset its generation or reset its nonce.
 
-Registration must precede funding. A raw, unregistered AccountId32 hash may also
-be interpreted as a legacy elliptic-curve public key; a hashed address alone
-cannot turn off that route. The SDK can compose a single atomic registration and
-funding/swap-announcement batch when it has the recipient descriptor, including
-from a local wallet. A remote recipient must share the public descriptor as well
-as the address for first-time setup. After registration, ordinary transfers to
-the address require no descriptor. Existing senders do not automatically know
-that an arbitrary unregistered SS58 address is intended to be hashed.
+Wallets display a single **104-character `bth1_` receiving address**. The user
+shares that address and the sender uses the normal transfer command. The address
+carries the full chain genesis hash, original descriptor and an error-detection
+checksum. It contains no signing public key and stays unchanged across rotations
+or mnemonic recovery. There is no separate descriptor to exchange or registration
+service to operate.
+
+An updated sender wallet decodes the address, checks the connected chain and
+composes `Utility.batch_all([HashedAccounts.register(descriptor), transfer])`.
+The chain receives its existing AccountId32 and descriptor types; it does not
+guess whether arbitrary 32-byte data is a hash. Registration and payment either
+both succeed or both roll back. The guard remains in later payments even when a
+read shows the recipient is registered: a reorg can invalidate that read. Its
+idempotent execution preserves the current generation, commitment and nonce,
+and does not charge another registration reserve.
+
+The new receiving address requires an updated sender wallet. Older wallets do
+not understand it. Do not replace it with the internal SS58 AccountId before
+registration: that loses the setup information and may expose the account to a
+legacy signing interpretation. Native keypair `ss58_address` remains an internal
+chain identifier for compatibility; use the receiving-address API for sharing.
+Contacts, previews and supported high-level SDK calls preserve the complete
+receiving address until call construction. Raw call paths that cannot retain
+setup information reject it.
+
+The wire format is `bth1_` followed by canonical, unpadded base64url of
+`genesis_hash[32] || SCALE(descriptor)[34] || checksum[8]`. The checksum is the
+first eight bytes of BLAKE2-256 over
+`b"bittensor/hashed/v1/receiving" || genesis_hash || descriptor`. It detects
+copying mistakes; it does not authenticate a payee. Unknown versions, malformed
+encoding, unsupported schemes, zero commitments and a different connected
+genesis fail before payment construction. The codec lives in the native SDK
+and is shared by Python bindings.
 
 A sponsor pays the existing storage-price-based registration reserve and fee.
 The reserve stays locked on the sponsor for the permanent registration; it is
 not a transaction execution weight estimate or a spendable recipient balance.
-No registration through arbitrary
-proxy/derivative wrappers is supported. Normal coldkey-swap delay and scope still
-apply; a liquid transfer alone does not move stake or external relationships.
+The preview and spend policy include the maximum possible reserve, even for an
+already registered recipient that could disappear in a reorg. First-payment
+affordability includes the complete batch fee and the sender's existential
+deposit. A send-all executes after registration and sweeps the remaining
+transferable balance; the permanent reserve also prevents reaping the sponsor.
+
+First-time setup supports a direct payment or the runtime's permitted direct
+migration/registration operation. Initial setup inside a general batch, proxy,
+multisig or sudo call is rejected with an actionable error. Existing recipient
+guards are flattened inside batches because the runtime rejects nested batches.
+If a reorg makes an unsupported wrapped recipient unregistered, its guard fails
+and the atomic operation rolls back. Imported multisig bytes with recipient
+setup metadata are rejected because display metadata cannot prove those bytes
+contain the correct guard. Normal coldkey-swap delay and scope still apply; a
+liquid transfer alone does not move stake or external relationships.
+
+**Activation blocker:** a third party can use the existing unconsented hotkey
+association call to assign a published, not-yet-registered account to a classical
+coldkey. Hashed registration then rejects that owner. The atomic payment fails
+without sending funds, but the advertised address cannot activate. The runtime
+test documents this denial of service; it does not resolve it. Fix the ownership
+consent/preassociation policy before enabling the feature. Removing existing
+ownership records would risk stake and accounting relationships and is not an
+acceptable local workaround.
+
+## EVM receiving boundary
+
+Registered protected H160 aliases map to their complete hashed native accounts.
+SDK native funding resolves and validates this mapping, then uses the same
+guarded receiving-address transfer. EVM deposits into a protected alias already
+credit its native account, so a legacy claim/withdraw route is refused.
+
+When hashed aliases are enabled, native funding to an absent alias is refused:
+a concurrent registration could change the account behind that H160 after a
+wallet read. Use an EVM-side transfer for those H160 recipients until there is
+an atomic runtime funding route. Disabled chains retain their legacy behavior.
+An offline `ss58_mirror` property denotes the legacy mapping only and must not be
+treated as a protected alias's deposit address. An arbitrary EVM RPC override
+does not establish the matching native genesis, so its balance output omits
+unverified native receiving guidance.
 
 ## Transaction and recovery contract
 
@@ -114,6 +179,10 @@ a fee estimate.
 - Review the complete authority graph: coldkey/hotkey consent, swaps, proxies,
   derived accounts, EVM and off-chain protocols. Existing classical consensus and
   delegated authority do not become quantum-resistant through this account type.
+- Resolve the preassociation denial of service before accepting newly published
+  receiving addresses on an enabled chain.
+- Upgrade sender wallets and receiving integrations together. Standard SS58-only
+  wallets, exchanges and explorers cannot infer the missing descriptor.
 - Validate explorer/indexer decoding of the additional v5 pipeline.
 - Publish the native core and Python SDK together with an updated native minimum
   dependency version, so installed wallets have the new key APIs.

@@ -1187,7 +1187,7 @@
   {
     "name": "fund_evm_key",
     "summary": "Fund an EVM (h160) address with TAO from the signing coldkey.",
-    "description": "Fund an EVM (h160) address with TAO from the signing coldkey.\n\nAn EVM account's native balance lives at its ss58 *mirror* address\n(`blake2_256(\"evm:\" ++ h160)`). This intent computes the mirror and\ntransfers TAO to it; the funds then appear as the EVM account's balance\nin MetaMask or any Ethereum tool (displayed with 18 decimals there:\n1 TAO = 1e18). Like any transfer this is irreversible \u2014 and only the\nholder of the EVM private key can move the funds afterwards, so\ndouble-check the address.",
+    "description": "Fund an EVM (h160) address with TAO from the signing coldkey.\n\nAn ordinary EVM account's native balance lives at its legacy ss58 mirror.\nRegistered hashed aliases instead share their full native account's balance.\nThis intent resolves the chain's active mapping and transfers TAO to it;\nthe funds then appear as the EVM account's balance\nin MetaMask or any Ethereum tool (displayed with 18 decimals there:\n1 TAO = 1e18). Like any transfer this is irreversible, so double-check\nthe address. Protected aliases require their native hashed authorization.\nWhen hashed aliases are enabled, native funding of unprotected aliases is\nrefused: their mapping cannot be guarded against a concurrent registration.\nSend to those H160 addresses from an EVM wallet instead.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,

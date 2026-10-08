@@ -177,6 +177,13 @@ impl Keypair {
         ))
     }
 
+    /// Self-contained receiving address bound to the full chain genesis hash.
+    fn hashed_receiving_address(&self, genesis_hash: &[u8]) -> PyResult<String> {
+        self.inner
+            .hashed_receiving_address(genesis_hash)
+            .map_err(to_py_err)
+    }
+
     #[getter]
     fn hashed_public_key<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         Ok(PyBytes::new(
@@ -294,6 +301,26 @@ fn ss58_encode(public_key: &[u8], ss58_format: u16) -> PyResult<String> {
     Ok(keys::ss58_from_public(public_key, ss58_format))
 }
 
+/// Encode the initial public descriptor and complete destination genesis hash.
+#[pyfunction]
+fn encode_hashed_receiving_address(descriptor: &[u8], genesis_hash: &[u8]) -> PyResult<String> {
+    keys::encode_hashed_receiving_address(descriptor, genesis_hash).map_err(to_py_err)
+}
+
+/// Return `(genesis_hash, descriptor)`; callers must verify the destination chain.
+#[pyfunction]
+fn decode_hashed_receiving_address<'py>(
+    py: Python<'py>,
+    address: &str,
+) -> PyResult<(Bound<'py, PyBytes>, Bound<'py, PyBytes>)> {
+    let (genesis_hash, descriptor) =
+        keys::decode_hashed_receiving_address(address).map_err(to_py_err)?;
+    Ok((
+        PyBytes::new(py, &genesis_hash),
+        PyBytes::new(py, &descriptor),
+    ))
+}
+
 #[pyfunction]
 fn serialized_keypair_to_keyfile_data<'py>(
     py: Python<'py>,
@@ -371,6 +398,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(verify, m)?)?;
     m.add_function(wrap_pyfunction!(ss58_decode, m)?)?;
     m.add_function(wrap_pyfunction!(ss58_encode, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_hashed_receiving_address, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_hashed_receiving_address, m)?)?;
     // Backwards-compatible aliases for pre-migration bittensor.sp_core names.
     m.add("verify_signature", m.getattr("verify")?)?;
     m.add("decode_ss58", m.getattr("ss58_decode")?)?;
