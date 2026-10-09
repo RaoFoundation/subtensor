@@ -9,7 +9,7 @@ from .._generated.storage import Item
 from ..balance import Balance
 from ..intents._money import alpha_amount, tao_amount
 from ..intents.lending import POSITIONS, check_side
-from ..result import BittensorError
+from ..result import BittensorError, chain_error_from_dispatch
 from .base import read
 
 VAULTS = Item("Lending", "Vaults", "Vault")
@@ -24,7 +24,10 @@ def _ok(raw: Any) -> dict:
     if not isinstance(raw, dict):
         raise BittensorError("lending quote unavailable; use a node with the lending runtime")
     if "Err" in raw:
-        raise BittensorError(f"lending quote refused: {raw['Err']}")
+        error = raw["Err"]
+        if isinstance(error, dict) and "Module" in error and not isinstance(error["Module"], dict):
+            raise BittensorError("invalid lending quote error response")
+        raise chain_error_from_dispatch(error)
     result = raw.get("Ok", raw)
     if not isinstance(result, dict):
         raise BittensorError("invalid lending quote response")

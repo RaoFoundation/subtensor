@@ -377,6 +377,9 @@ network and wallet; the examples below use subnet 64 as an example, not a
 statement that its lending vault is enabled or has sufficient inventory.
 
 ```bash
+# Prompt for collateral with an estimated minimum for a 1-TAO loan opening value.
+btcli lending open --netuid 64 --side short --hotkey <hotkey> -w mywallet
+
 # Lock 1,000 TAO and receive freely usable borrowed alpha on this hotkey.
 btcli lending open --netuid 64 --side short --collateral 1000 -w mywallet
 
@@ -397,6 +400,22 @@ btcli lending list --netuid 64
 btcli lending list --netuid 64 --coldkey <coldkey>
 ```
 
+When `--collateral` is omitted on an interactive terminal, the CLI resolves the
+wallet and hotkey first, then estimates the minimum additional collateral for
+a loan opening value of at least 1 TAO (or the runtime's minimum if higher).
+The estimate is offered as the collateral prompt's default; press Enter to
+accept it or enter another amount. For shorts, this is the TAO opening value
+of borrowed alpha, not sale proceeds. For longs, it is the borrowed TAO amount.
+Collateral is entered in TAO for shorts and subnet alpha for longs.
+
+The estimate uses runtime quotes at one block, including the owner's existing
+position, redemption coverage and borrowing limits. It is a quote of the
+required collateral, not a check that the wallet holds that collateral.
+The selected amount is quoted again before submission because chain state can
+change. A warming reference or insufficient inventory can prevent an estimate;
+the CLI reports the failure instead of offering an unverified amount. Scripts
+must provide `--collateral` explicitly.
+
 Open and close obtain complete quotes from the runtime. By default,
 `--max-slippage 1` sets an opening principal floor and, for shorts, a separate
 opening TAO valuation floor, or a closing payment ceiling and refund floor, with a 1%
@@ -404,6 +423,11 @@ margin. The entire call rolls back if its bounds fail.
 The CLI quotes using the signing owner and selected hotkey, so an increase is
 checked against the saved position. An unavailable quote stops submission
 instead of silently dropping protection.
+Quote refusals are decoded into named errors with explanations, including
+`ReferenceWarmingUp`, `AmountTooSmall` and `InsufficientRedemptionBacking`.
+`AmountTooSmall` can mean that the calculated loan opening value is below the
+minimum even when the collateral itself exceeds 1 TAO. Use `btcli explain
+AmountTooSmall` for the error description.
 Writes use the existing wallet, review, signing and MEV-shield submission flow.
 
 The SDK also exposes block-pinned reads through `client.read`:

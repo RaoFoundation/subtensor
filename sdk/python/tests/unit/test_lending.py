@@ -8,12 +8,13 @@ import pytest
 from typer.main import get_command
 from typer.testing import CliRunner
 
+from bittensor._generated.errors import ERRORS
 from bittensor.balance import Balance, UnitMismatchError
-from bittensor.cli.commands.lending import _bound
+from bittensor.cli.commands.lending import _bound, _minimum_collateral
 from bittensor.cli.main import app
 from bittensor.client import Client
 from bittensor.intents import CloseLoan, OpenLoan, Policy
-from bittensor.result import BittensorError
+from bittensor.result import BittensorError, ChainError
 from tests.harness.fake_substrate import DEFAULT_STORAGE, FakeSubstrate
 from tests.harness.samples import ALICE, ALICE_HOT, dev_wallet
 from tests.unit.test_cli_commands import fake as _cli_fake
@@ -22,10 +23,129 @@ from tests.unit.test_cli_commands import isolated_cli, wallet_dir  # noqa: F401
 runner = CliRunner()
 
 
+def _seed_minimum_quotes(fake, threshold, ceiling=(1 << 64) - 1, target=1_000_000_000):
+    fake.seed_constant("Lending", "MinimumLoanValue", target)
+    calls = []
+
+    def quote(params):
+        calls.append(params)
+        amount = params[3]
+        if amount > ceiling:
+            return {"Err": {"Module": {"index": 33, "error": "0x08000000"}}}
+        value = amount * target // threshold
+        if value < target:
+            return {"Err": {"Module": {"index": 33, "error": "0x06000000"}}}
+        return {"Ok": {"principal": value, "opening_value": value, "annual_interest": value}}
+
+    fake.seed_runtime("LendingRuntimeApi", "quote_open_for", quote)
+    return calls
+
+
+@pytest.mark.parametrize("side,unit", [("short", 0), ("long", 1)])
+@pytest.mark.asyncio
+async def test_minimum_collateral_search_is_exact_and_owner_aware(side, unit):
+    fake = FakeSubstrate()
+    threshold = 95_500_000_001
+    calls = _seed_minimum_quotes(fake, threshold)
+    _seed_position(fake, side.title())
+    async with Client("local", substrate=fake) as client:
+        minimum, target = await _minimum_collateral(client, 1, side, ALICE, ALICE_HOT)
+    assert minimum == Balance.from_rao(threshold, unit)
+    assert target == Balance.from_rao(1_000_000_000)
+    assert all(p[0] == ALICE and p[1] == 1 and p[4] == ALICE_HOT for p in calls)
+    assert len(calls) <= 128
+
+
+@pytest.mark.asyncio
+async def test_minimum_collateral_search_does_not_skip_a_narrow_inventory_window():
+    fake = FakeSubstrate()
+    threshold = 95_500_000_001
+    _seed_minimum_quotes(fake, threshold, ceiling=threshold + 1000)
+    async with Client("local", substrate=fake) as client:
+        minimum, _ = await _minimum_collateral(client, 1, "short", ALICE, ALICE_HOT)
+    assert minimum.rao == threshold
+
+
+@pytest.mark.asyncio
+async def test_minimum_collateral_search_refuses_when_inventory_cannot_fund_target():
+    fake = FakeSubstrate()
+    _seed_minimum_quotes(fake, 95_500_000_001, ceiling=95_500_000_000)
+    async with Client("local", substrate=fake) as client:
+        with pytest.raises(BittensorError, match="inventory"):
+            await _minimum_collateral(client, 1, "short", ALICE, ALICE_HOT)
+
+
+@pytest.mark.asyncio
+async def test_minimum_collateral_search_respects_higher_runtime_minimum():
+    fake = FakeSubstrate()
+    _seed_minimum_quotes(fake, 200_000_000_000, target=2_000_000_000)
+    async with Client("local", substrate=fake) as client:
+        minimum, target = await _minimum_collateral(client, 1, "short", ALICE, ALICE_HOT)
+    assert minimum.rao == 200_000_000_000
+    assert target.rao == 2_000_000_000
+
+
+@pytest.mark.asyncio
+async def test_minimum_collateral_search_preserves_reference_failures():
+    fake = FakeSubstrate()
+    fake.seed_constant("Lending", "MinimumLoanValue", 1_000_000_000)
+    fake.seed_runtime(
+        "LendingRuntimeApi",
+        "quote_open_for",
+        {"Err": {"Module": {"index": 33, "error": "0x03000000"}}},
+    )
+    async with Client("local", substrate=fake) as client:
+        with pytest.raises(ChainError) as failure:
+            await _minimum_collateral(client, 1, "short", ALICE, ALICE_HOT)
+    assert failure.value.name == "ReferenceWarmingUp"
+
+
 @pytest.fixture()
 def cli_fake(request, monkeypatch):
     request.getfixturevalue("isolated_cli")
     return _cli_fake.__wrapped__(None, monkeypatch)
+
+
+def test_cli_collateral_prompt_shows_estimate_and_requotes_selection(cli_fake, monkeypatch):
+    from bittensor.cli import prompt
+    from bittensor.cli.commands import lending
+
+    monkeypatch.setattr(lending, "interactive", lambda _ctx: True)
+    monkeypatch.setattr(prompt, "interactive", lambda _ctx: True)
+    calls = _seed_minimum_quotes(cli_fake, 95_500_000_001)
+    result = runner.invoke(
+        app,
+        [
+            "--dry-run",
+            "--yes",
+            "lending",
+            "open",
+            "--netuid",
+            "1",
+            "--side",
+            "short",
+            "--hotkey",
+            ALICE_HOT,
+        ],
+        input="\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "95.500000001" in result.output
+    assert "Estimated minimum additional collateral" in result.output
+    assert "borrowed alpha" in result.output
+    assert calls[-1][3] == 95_500_000_001
+    assert cli_fake.submissions == []
+
+
+def test_missing_collateral_in_scripts_does_not_estimate_or_prompt(cli_fake):
+    def unexpected_quote(_params):
+        pytest.fail("missing script option must fail before querying")
+
+    cli_fake.seed_runtime("LendingRuntimeApi", "quote_open_for", unexpected_quote)
+    result = runner.invoke(app, ["--json", "lending", "open", "--netuid", "1", "--side", "short"])
+    assert result.exit_code == 2
+    assert "--collateral" in result.output
+    assert cli_fake.submissions == []
 
 
 def _seed_position(substrate: FakeSubstrate, side: str = "Short", **updates):
@@ -460,6 +580,70 @@ def test_cli_refuses_open_when_quote_fails(cli_fake, reason):
         ],
     )
     assert result.exit_code != 0
+    assert cli_fake.submissions == []
+
+
+@pytest.mark.parametrize(
+    "index,info",
+    [(index, info) for index, info in ERRORS.items() if info.pallet == "Lending"],
+    ids=[info.name for info in ERRORS.values() if info.pallet == "Lending"],
+)
+@pytest.mark.asyncio
+async def test_lending_module_quote_errors_have_names_and_descriptions(index, info):
+    fake = FakeSubstrate()
+    module, error = index
+    fake.seed_runtime(
+        "LendingRuntimeApi",
+        "quote_open",
+        {"Err": {"Module": {"index": module, "error": bytes([error, 0, 0, 0]).hex()}}},
+    )
+    async with Client("local", substrate=fake) as client:
+        with pytest.raises(ChainError) as failure:
+            await client.read("lending_open_quote", netuid=1, side="short", collateral="10")
+    assert failure.value.name == info.name
+    assert failure.value.description
+    assert "Module" not in str(failure.value)
+
+
+@pytest.mark.parametrize("method", ["quote_open_for", "quote_close"])
+@pytest.mark.asyncio
+async def test_owner_and_close_quotes_decode_module_errors(method):
+    fake = FakeSubstrate()
+    _seed_position(fake)
+    fake.seed_runtime(
+        "LendingRuntimeApi", method, {"Err": {"Module": {"index": 33, "error": "0x0e000000"}}}
+    )
+    async with Client("local", substrate=fake) as client:
+        with pytest.raises(ChainError) as failure:
+            if method == "quote_close":
+                await client.read("lending_close_quote", coldkey_ss58=ALICE, netuid=1)
+            else:
+                await client.read(
+                    "lending_open_quote",
+                    netuid=1,
+                    side="short",
+                    collateral="10",
+                    coldkey_ss58=ALICE,
+                    hotkey_ss58=ALICE_HOT,
+                )
+    assert failure.value.name == "InsufficientEscrow"
+
+
+@pytest.mark.parametrize("error_index,name", [(3, "ReferenceWarmingUp"), (6, "AmountTooSmall")])
+def test_cli_renders_decoded_lending_quote_error_without_submitting(cli_fake, error_index, name):
+    cli_fake.seed_runtime(
+        "LendingRuntimeApi",
+        "quote_open_for",
+        {"Err": {"Module": {"index": 33, "error": f"0x{error_index:02x}000000"}}},
+    )
+    result = runner.invoke(
+        app,
+        ["lending", "open", "--netuid", "1", "--side", "short", "--collateral", "10"],
+    )
+    assert result.exit_code != 0
+    assert name in result.output
+    assert "Module" not in result.output
+    assert "0x" not in result.output
     assert cli_fake.submissions == []
 
 
