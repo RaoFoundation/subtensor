@@ -580,7 +580,9 @@ class RpcSubstrate:
 
     async def account_next_index(self, address: str) -> int:
         """Next valid nonce for an account, including transactions in the pool."""
-        return await self._read(lambda raw: raw.get_account_next_index(address))
+        # Other clients and Shield inner transactions may advance the account.
+        # This is a read, not a reservation from the local pipelining cache.
+        return await self._read(lambda raw: raw.get_account_next_index(address, use_cache=False))
 
     # Writes -----------------------------------------------------------------
 

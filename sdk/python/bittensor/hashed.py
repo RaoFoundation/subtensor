@@ -137,7 +137,14 @@ async def has_receiving_setup_inputs(substrate, wallet: Any, intent: Any, depth:
     if semantic.op == "fund_evm_key":
         # Its recipient is resolved dynamically from the alias registry, not an
         # address field. Imported bytes may encode the obsolete mirror instead.
-        return await substrate.constant("HashedAccounts", "Enabled") is True
+        enabled = await substrate.constant("HashedAccounts", "Enabled")
+        if enabled is not False:
+            return enabled is True
+        # Disabling registration does not remove existing alias bindings.
+        from .evm.addresses import resolve_evm_recipient
+
+        recipient = await resolve_evm_recipient(substrate, semantic.evm_address)
+        return recipient.descriptor is not None
     _, recipients = await prepare_recipient_intent(substrate, semantic)
     if recipients or getattr(semantic, "hashed_descriptor", None) is not None:
         return True
@@ -164,9 +171,9 @@ async def with_recipient_registration(
     same sponsor authorization. No mutation or private-key access occurs here,
     so plan/dry-run has the same call and fee as submission.
 
-    A final coldkey swap must remain a direct call under the pending-swap lock.
-    Require its destination's permanent registration in finalized state instead
-    of adding a check-only batch that the lock would reject.
+    Final coldkey swaps and fee-free PoW registrations must remain direct calls.
+    Require the recipient's permanent registration in finalized state instead
+    of adding a batch that the lock rejects or that loses the PoW fee exemption.
     """
     from .signing import public_view
 
@@ -203,9 +210,10 @@ async def with_recipient_registration(
     if await substrate.constant("HashedAccounts", "Enabled") is not True:
         raise ValueError("hashed accounts are not enabled on this chain")
     finalized_hash = None
-    if intent.op == "swap_coldkey_announced":
+    if intent.op in ("swap_coldkey_announced", "pow_register"):
+        operation = "coldkey swap" if intent.op == "swap_coldkey_announced" else "PoW registration"
         if as_calls:
-            raise ValueError("submit the coldkey swap directly, not inside a batch")
+            raise ValueError(f"submit the {operation} directly, not inside a batch")
         finalized_hash = await substrate.block_hash(await substrate.finalized_block_number())
         if not finalized_hash:
             raise ValueError("could not verify finalized hashed destination registration")
@@ -222,7 +230,7 @@ async def with_recipient_registration(
             if finalized_hash is not None:
                 raise ValueError(
                     "hashed destination registration is not finalized; register the recipient "
-                    "and wait for finalization before executing the coldkey swap"
+                    f"and wait for finalization before executing the {operation}"
                 )
             if (
                 parameter not in recipients

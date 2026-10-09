@@ -61,9 +61,10 @@ def hashed_proof_length(crypto_type: int) -> int:
 class NonceCache:
     """Per-account next-nonce cache for pipelined submissions.
 
-    The first request for an account asks the node (``account_nextIndex``);
-    subsequent requests increment locally so concurrent submissions get
-    distinct consecutive nonces. A failed submission must clear the account:
+    Each reservation reconciles the node's ``account_nextIndex`` with local
+    reservations so other clients and Shield inner transactions can advance
+    the account while concurrent submissions get distinct consecutive nonces.
+    A failed submission must clear the account:
     the chain never consumed that nonce.
     """
 
@@ -76,10 +77,8 @@ class NonceCache:
         if not use_cache:
             return await self._session.request("account_nextIndex", [address])
         async with self._lock:
-            if address not in self._nonces:
-                self._nonces[address] = await self._session.request("account_nextIndex", [address])
-            else:
-                self._nonces[address] += 1
+            observed = await self._session.request("account_nextIndex", [address])
+            self._nonces[address] = max(observed, self._nonces.get(address, -1) + 1)
             return self._nonces[address]
 
     def pin(self, address: str, nonce: int) -> None:

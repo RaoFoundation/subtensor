@@ -20,7 +20,7 @@ from bittensor.evm.addresses import (
     ss58_to_h160_truncated,
     ss58_to_pubkey,
 )
-from bittensor.hashed import descriptor_value
+from bittensor.hashed import descriptor_value, has_receiving_setup_inputs
 from bittensor.intents import EvmWithdraw, FundEvmKey
 from bittensor.receiving import parse_recipient, receiving_address
 from bittensor.result import BittensorError
@@ -421,3 +421,4 @@ async def test_disabled_unbound_alias_keeps_legacy_funding(protected):
     substrate.seed("HashedAccounts", "EvmAliases", [alias], None)
     call = await FundEvmKey(alias, 1).build(substrate, object())
     assert call.params["dest"] == h160_to_ss58(alias)
+    assert not await has_receiving_setup_inputs(substrate, object(), FundEvmKey(alias, 1))

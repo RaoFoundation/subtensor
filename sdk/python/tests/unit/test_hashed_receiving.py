@@ -15,7 +15,7 @@ from bittensor.intents import Batch, Transfer, TransferAll
 from bittensor.intents.coldkey import AnnounceColdkeySwap, SwapColdkeyAnnounced
 from bittensor.intents.evm import FundEvmKey
 from bittensor.intents.multisig import MultisigIntentAdapter, MultisigThreshold1
-from bittensor.intents.registration import BurnedRegister, RegisterSubnet
+from bittensor.intents.registration import BurnedRegister, PowRegister, RegisterSubnet
 from bittensor.intents.staking import MoveSwapStake, RemoveStake
 from bittensor.receiving import parse_recipient, receiving_address
 from bittensor.sp_core import CRYPTO_HASHED, Keypair
@@ -346,7 +346,7 @@ async def test_atomic_flattening_round_trips_real_scale_calls():
         assert await atomic_calls(chain, non_atomic) == [non_atomic]
 
 
-@pytest.mark.parametrize("form", ["typed", "explicit", "default_hotkey", "evm"])
+@pytest.mark.parametrize("form", ["typed", "explicit", "default_hotkey", "evm", "evm_disabled"])
 @pytest.mark.parametrize("in_batch", [False, True])
 async def test_imported_multisig_bytes_cannot_bypass_recipient_information(setup, form, in_batch):
     chain, wallet, key, address = setup
@@ -361,6 +361,12 @@ async def test_imported_multisig_bytes_cannot_bypass_recipient_information(setup
         semantic = BurnedRegister(netuid=1)
     else:
         semantic = FundEvmKey("0x" + "12" * 20, 1)
+        if form == "evm_disabled":
+            chain.seed_constant("HashedAccounts", "Enabled", False)
+            registered(chain, key)
+            alias = "0x" + bytes(key.public_key)[:20].hex()
+            chain.seed("HashedAccounts", "EvmAliases", [alias], key.ss58_address)
+            semantic = FundEvmKey(alias, 1)
     if in_batch:
         semantic = Batch([semantic])
     adapter = pinned(semantic)
@@ -379,6 +385,32 @@ async def test_default_in_memory_hashed_hotkey_retains_setup_descriptor(setup):
     guard, registration = call.params["calls"]
     assert guard.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
     assert registration.params["hotkey"] == key.ss58_address
+
+
+async def test_pow_keeps_direct_fee_free_call_after_finalized_registration(setup):
+    chain, wallet, key, _ = setup
+    wallet.hotkey = key
+    registered(chain, key)
+    chain.query = AsyncMock(wraps=chain.query)
+    intent = PowRegister(netuid=1, work_block=1, nonce=0, work_hex="00" * 32)
+    call, extras = await _compose_intent_call(chain, intent, wallet)
+    assert (call.module, call.function) == ("SubtensorModule", "pow_register")
+    assert extras["hashed_registration_finalized_at"]
+    registry_reads = [
+        c for c in chain.query.call_args_list if c.args[:2] == ("HashedAccounts", "Accounts")
+    ]
+    assert registry_reads
+    assert all(
+        c.kwargs["block_hash"] == extras["hashed_registration_finalized_at"] for c in registry_reads
+    )
+
+
+async def test_pow_requires_sponsored_registration_before_mining_submission(setup):
+    chain, wallet, key, _ = setup
+    wallet.hotkey = key
+    intent = PowRegister(netuid=1, work_block=1, nonce=0, work_hex="00" * 32)
+    with pytest.raises(ValueError, match=r"register.*finaliz"):
+        await _compose_intent_call(chain, intent, wallet)
 
 
 async def test_registry_descriptor_mismatch_is_rejected(setup):

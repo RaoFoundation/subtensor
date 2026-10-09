@@ -98,6 +98,35 @@ def test_sync_sdk_exposes_the_same_public_miner():
     assert intent.work_block == 2
 
 
+@pytest.mark.parametrize("crypto_type", [4, 5])
+async def test_miner_resolves_receiving_addresses_but_preserves_hotkey_descriptor(crypto_type):
+    from bittensor.receiving import receiving_address
+    from bittensor.sp_core import Keypair
+
+    substrate = _pow_substrate()
+    hot = Keypair.create_from_seed(bytes([19]) * 32, crypto_type)
+    cold = Keypair.create_from_seed(bytes([20]) * 32, crypto_type)
+    substrate.seed("SubtensorModule", "Uids", [1, hot.ss58_address], None)
+    genesis = await substrate.block_hash(0)
+    hot_address = receiving_address(hot, genesis)
+    intent = await mine_registration(
+        substrate,
+        1,
+        hot_address,
+        receiving_address(cold, genesis),
+        workers=1,
+        max_seconds=10,
+        backend="cpu",
+    )
+    prefix = registration_prefix(
+        1, await substrate.block_hash(2), hot.ss58_address, cold.ss58_address
+    )
+    assert bytes.fromhex(intent.work_hex) == registration_seal(prefix, intent.nonce)
+    assert intent.hotkey_ss58 == hot_address
+    with pytest.raises(ValueError, match="different network"):
+        await mine_registration(substrate, 1, hot_address, receiving_address(cold, bytes([1]) * 32))
+
+
 @pytest.mark.asyncio
 async def test_miner_waits_for_next_block_when_registration_capacity_is_used(monkeypatch):
     import asyncio

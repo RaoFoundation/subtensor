@@ -14,6 +14,9 @@ btcli wallet regen-coldkey --crypto-type mldsa
 and hotkey unless `--hotkey-crypto-type` overrides it. Existing keyfiles retain
 their scheme; ordinary commands read that scheme automatically.
 
+These APIs require `bittensor-core>=0.1.7`; publish the native package and the
+matching Python SDK together.
+
 ML-DSA accounts require ML-DSA proxy delegates and, when used as hotkeys,
 ML-DSA coldkey owners. Registration rejects a weaker existing owner, and a
 coldkey swap cannot downgrade that protection. ML-DSA authorities can still
@@ -42,6 +45,12 @@ Their receiving addresses carry the network and public registration descriptor,
 without revealing a spending public key. Funding and migration commands retain
 that descriptor and use the existing registration flow. EVM access uses the
 registered account's native authorization and permanent alias.
+
+For fee-free PoW admission, a sponsor must first register both hashed or
+ML-DSA keys and wait for finalization. The coldkey can then have a zero balance:
+`btcli subnets register --pow` submits the direct PoW call without a registration
+batch. The storage registration reserve is paid by the sponsor; PoW does not
+waive that separate setup cost. Ed25519 and Sr25519 keys need no such setup.
 
 The SDK reads the current generation and nonce from chain before signing.
 Inclusion advances the generation even when the dispatched call fails. Dropping
