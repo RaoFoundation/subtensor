@@ -1,3 +1,4 @@
+import type { AccountInfo } from "@polkadot/types/interfaces";
 import { beforeAll, describeSuite, expect } from "@moonwall/cli";
 import type { ApiPromise } from "@polkadot/api";
 import type { KeyringPair } from "@moonwall/util";
@@ -81,7 +82,9 @@ describeSuite({
             title: "LimitBuy executes with an ed25519 readable (clear-signing) signature",
             test: async () => {
                 const stakeBefore = await devGetAlphaStake(polkadotJs, edHotKey.address, edSigner.address, netuid);
-                const taoBalanceBefore = (await polkadotJs.query.system.account(edSigner.address)).data.free.toBigInt();
+                const taoBalanceBefore = (
+                    await polkadotJs.query.system.account<AccountInfo>(edSigner.address)
+                ).data.free.toBigInt();
 
                 const signed = buildReadableSignedOrder(polkadotJs, {
                     signer: edSigner,
@@ -115,7 +118,9 @@ describeSuite({
                 expect(stakeAfter).toBeGreaterThan(stakeBefore);
 
                 // ed25519 signer's TAO balance should have decreased.
-                const taoBalanceAfter = (await polkadotJs.query.system.account(edSigner.address)).data.free.toBigInt();
+                const taoBalanceAfter = (
+                    await polkadotJs.query.system.account<AccountInfo>(edSigner.address)
+                ).data.free.toBigInt();
                 expect(taoBalanceAfter).toBeLessThan(taoBalanceBefore);
             },
         });
@@ -125,7 +130,9 @@ describeSuite({
             title: "LimitBuy executes with an sr25519 readable (clear-signing) signature",
             test: async () => {
                 const stakeBefore = await devGetAlphaStake(polkadotJs, srHotKey.address, srSigner.address, netuid);
-                const taoBalanceBefore = (await polkadotJs.query.system.account(srSigner.address)).data.free.toBigInt();
+                const taoBalanceBefore = (
+                    await polkadotJs.query.system.account<AccountInfo>(srSigner.address)
+                ).data.free.toBigInt();
 
                 const signed = buildReadableSignedOrder(polkadotJs, {
                     signer: srSigner,
@@ -156,7 +163,9 @@ describeSuite({
                 const stakeAfter = await devGetAlphaStake(polkadotJs, srHotKey.address, srSigner.address, netuid);
                 expect(stakeAfter).toBeGreaterThan(stakeBefore);
 
-                const taoBalanceAfter = (await polkadotJs.query.system.account(srSigner.address)).data.free.toBigInt();
+                const taoBalanceAfter = (
+                    await polkadotJs.query.system.account<AccountInfo>(srSigner.address)
+                ).data.free.toBigInt();
                 expect(taoBalanceAfter).toBeLessThan(taoBalanceBefore);
             },
         });

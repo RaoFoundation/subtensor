@@ -113,8 +113,8 @@ describeSuite({
 
                 const txResponse = await ethWallet.sendTransaction(tx);
                 const receipt = await txResponse.wait();
-                expect(receipt).toBeDefined();
-                expect(receipt!.status).toEqual(1);
+                if (receipt == null) throw new Error("Transaction was not mined");
+                expect(receipt.status).toEqual(1);
 
                 const senderBalanceAfter = await getEthBalance(provider, ethWallet.address);
                 const receiverBalanceAfter = await getEthBalance(provider, ethWallet2.address);
@@ -222,8 +222,7 @@ describeSuite({
                     gas_limit: BigInt(1000000),
                     max_fee_per_gas: [BigInt(10e9), BigInt(0), BigInt(0), BigInt(0)],
                     max_priority_fee_per_gas: undefined,
-                    // PAPI encodes this field with the Binary codec despite the Uint8Array annotation.
-                    input: Binary.fromText("") as unknown as Uint8Array,
+                    input: Binary.fromText(""),
                     nonce: undefined,
                     access_list: [],
                     authorization_list: [],
@@ -425,7 +424,7 @@ describeSuite({
                         gas_limit: BigInt(1000000),
                         max_fee_per_gas: [BigInt(10e9), BigInt(0), BigInt(0), BigInt(0)],
                         max_priority_fee_per_gas: undefined,
-                        input: Binary.fromText("") as unknown as Uint8Array,
+                        input: Binary.fromText(""),
                         nonce: undefined,
                         access_list: [],
                         authorization_list: [],

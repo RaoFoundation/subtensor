@@ -86,13 +86,7 @@ describeSuite({
             title: "LimitBuy with relayer none renders the exact golden string",
             test: () => {
                 const msg = formatOrderMessage(makeOrder({}));
-                const expected =
-                    "TAO.com order v1: Limit buy 1234567 on subnet 7, " +
-                    "limit price 2000000000, expiry 9999999, " +
-                    `hotkey ${BOB_SS58}, ` +
-                    `fee 5000000 to ${DAVE_SS58}, ` +
-                    "relayer none, max slippage none, chain 945, " +
-                    `partial fills false, signer ${ALICE_SS58}`;
+                const expected = `TAO.com order v1: Limit buy 1234567 on subnet 7, limit price 2000000000, expiry 9999999, hotkey ${BOB_SS58}, fee 5000000 to ${DAVE_SS58}, relayer none, max slippage none, chain 945, partial fills false, signer ${ALICE_SS58}`;
                 expect(msg).toBe(expected);
                 assertAllPrintableAscii(msg);
             },
@@ -118,13 +112,7 @@ describeSuite({
                         partial_fills_enabled: true,
                     })
                 );
-                const expected =
-                    "TAO.com order v1: Stop-loss 500 on subnet 2, " +
-                    "trigger price 750000000, expiry 42, " +
-                    `hotkey ${DAVE_SS58}, ` +
-                    `fee 0 to ${ALICE_SS58}, ` +
-                    "relayer none, max slippage 10000000, chain 945, " +
-                    `partial fills true, signer ${CHARLIE_SS58}`;
+                const expected = `TAO.com order v1: Stop-loss 500 on subnet 2, trigger price 750000000, expiry 42, hotkey ${DAVE_SS58}, fee 0 to ${ALICE_SS58}, relayer none, max slippage 10000000, chain 945, partial fills true, signer ${CHARLIE_SS58}`;
                 expect(msg).toBe(expected);
                 assertAllPrintableAscii(msg);
             },
@@ -150,14 +138,7 @@ describeSuite({
                         partial_fills_enabled: false,
                     })
                 );
-                const expected =
-                    "TAO.com order v1: Take-profit 88 on subnet 1, " +
-                    "trigger price 1000000000, expiry 100000, " +
-                    `hotkey ${DAVE_SS58}, ` +
-                    `fee 1 to ${DAVE_SS58}, ` +
-                    `relayer ${BOB_SS58}+${CHARLIE_SS58}, ` +
-                    "max slippage none, chain 945, " +
-                    `partial fills false, signer ${ALICE_SS58}`;
+                const expected = `TAO.com order v1: Take-profit 88 on subnet 1, trigger price 1000000000, expiry 100000, hotkey ${DAVE_SS58}, fee 1 to ${DAVE_SS58}, relayer ${BOB_SS58}+${CHARLIE_SS58}, max slippage none, chain 945, partial fills false, signer ${ALICE_SS58}`;
                 expect(msg).toBe(expected);
                 assertAllPrintableAscii(msg);
             },
@@ -178,13 +159,7 @@ describeSuite({
                         max_slippage: null,
                     })
                 );
-                const expected =
-                    "TAO.com order v1: Limit buy 1000 on subnet 7, " +
-                    "limit price 18446744073709551615, expiry 18446744073709551615, " +
-                    `hotkey ${BOB_SS58}, ` +
-                    `fee 0 to ${DAVE_SS58}, ` +
-                    "relayer [], max slippage none, chain 945, " +
-                    `partial fills false, signer ${ALICE_SS58}`;
+                const expected = `TAO.com order v1: Limit buy 1000 on subnet 7, limit price 18446744073709551615, expiry 18446744073709551615, hotkey ${BOB_SS58}, fee 0 to ${DAVE_SS58}, relayer [], max slippage none, chain 945, partial fills false, signer ${ALICE_SS58}`;
                 expect(msg).toBe(expected);
                 assertAllPrintableAscii(msg);
             },
