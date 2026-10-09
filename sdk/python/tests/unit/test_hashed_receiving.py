@@ -206,8 +206,11 @@ async def test_registered_batch_flattens_guards_and_deduplicates_reserve(setup):
     assert not one.violations
 
 
+@pytest.mark.parametrize("intent_type", [SwapColdkeyAnnounced, AnnounceColdkeySwap])
 @pytest.mark.parametrize("form", ["typed", "local"])
-async def test_coldkey_swap_uses_finalized_registration_without_a_batch(setup, monkeypatch, form):
+async def test_coldkey_swap_uses_finalized_registration_without_a_batch(
+    setup, monkeypatch, form, intent_type
+):
     chain, wallet, key, address = setup
     registered(chain, key)
     if form == "local":
@@ -217,11 +220,11 @@ async def test_coldkey_swap_uses_finalized_registration_without_a_batch(setup, m
         )
     chain.query = AsyncMock(wraps=chain.query)
     finalized_hash = await chain.block_hash(await chain.finalized_block_number())
-    intent = SwapColdkeyAnnounced(address)
+    intent = intent_type(address)
     plan = await Executor(chain).plan(intent, wallet)
     assert plan.call.module == "SubtensorModule"
-    assert plan.call.function == "swap_coldkey_announced"
-    assert plan.call.params == {"new_coldkey": key.ss58_address}
+    assert plan.call.function == intent.op
+    assert plan.call == await intent_type(key.ss58_address).build(chain, wallet)
     assert plan.extras["hashed_registration_finalized_at"] == finalized_hash
     assert "hashed_registration_guards" not in plan.extras
     assert "hashed_registration_max_deposit_rao" not in plan.extras
@@ -232,8 +235,11 @@ async def test_coldkey_swap_uses_finalized_registration_without_a_batch(setup, m
     assert chain.last_call == plan.call
 
 
+@pytest.mark.parametrize("intent_type", [SwapColdkeyAnnounced, AnnounceColdkeySwap])
 @pytest.mark.parametrize("finalized_state", ["missing", "mismatch", "unavailable"])
-async def test_coldkey_swap_rejects_unverified_finalized_destination(setup, finalized_state):
+async def test_coldkey_swap_rejects_unverified_finalized_destination(
+    setup, finalized_state, intent_type
+):
     chain, wallet, key, address = setup
     # A matching best-head registration is insufficient: it may be reorged out.
     registered(chain, key)
@@ -242,6 +248,8 @@ async def test_coldkey_swap_rejects_unverified_finalized_destination(setup, fina
 
     async def query_at(module, storage_function, params=None, block_hash=None):
         if (module, storage_function) == ("HashedAccounts", "Accounts"):
+            if block_hash is None:
+                return await query(module, storage_function, params, block_hash)
             assert block_hash == finalized_hash
             if finalized_state == "unavailable":
                 raise RuntimeError("finalized state unavailable")
@@ -258,11 +266,12 @@ async def test_coldkey_swap_rejects_unverified_finalized_destination(setup, fina
         "unavailable": (RuntimeError, "finalized state unavailable"),
     }[finalized_state]
     with pytest.raises(error, match=message):
-        await Executor(chain).execute(SwapColdkeyAnnounced(address), wallet)
+        await Executor(chain).execute(intent_type(address), wallet)
     assert not chain.submissions
 
 
-async def test_coldkey_swap_missing_finalized_hash_cannot_fall_back_to_head(setup):
+@pytest.mark.parametrize("intent_type", [SwapColdkeyAnnounced, AnnounceColdkeySwap])
+async def test_coldkey_swap_missing_finalized_hash_cannot_fall_back_to_head(setup, intent_type):
     chain, wallet, key, address = setup
     registered(chain, key)
     block_hash = chain.block_hash
@@ -272,26 +281,24 @@ async def test_coldkey_swap_missing_finalized_hash_cannot_fall_back_to_head(setu
 
     chain.block_hash = AsyncMock(side_effect=missing_finalized_hash)
     with pytest.raises(ValueError, match="could not verify finalized"):
-        await Executor(chain).execute(SwapColdkeyAnnounced(address), wallet)
+        await Executor(chain).execute(intent_type(address), wallet)
     assert not chain.submissions
 
 
-async def test_hashed_coldkey_swap_cannot_be_rewrapped_in_a_batch(setup):
+@pytest.mark.parametrize("intent_type", [SwapColdkeyAnnounced, AnnounceColdkeySwap])
+async def test_hashed_coldkey_swap_cannot_be_rewrapped_in_a_batch(setup, intent_type):
     chain, wallet, key, address = setup
     registered(chain, key)
     with pytest.raises(ValueError, match="submit the coldkey swap directly"):
-        await Executor(chain).execute(Batch([SwapColdkeyAnnounced(address)]), wallet)
+        await Executor(chain).execute(Batch([intent_type(address)]), wallet)
     assert not chain.submissions
 
 
-@pytest.mark.parametrize("exists", [False, True])
-async def test_coldkey_announcement_keeps_atomic_registration_guard(setup, exists):
-    chain, wallet, key, address = setup
-    if exists:
-        registered(chain, key)
+async def test_first_coldkey_announcement_keeps_atomic_registration_setup(setup):
+    chain, wallet, _, address = setup
     plan = await Executor(chain).plan(AnnounceColdkeySwap(address), wallet)
     guard, announcement = plan.call.params["calls"]
-    assert guard.function == ("check_registered" if exists else "register")
+    assert guard.function == "register"
     assert announcement.function == "announce_coldkey_swap"
 
 

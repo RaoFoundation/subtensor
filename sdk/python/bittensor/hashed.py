@@ -171,7 +171,8 @@ async def with_recipient_registration(
     same sponsor authorization. No mutation or private-key access occurs here,
     so plan/dry-run has the same call and fee as submission.
 
-    Final coldkey swaps and fee-free PoW registrations must remain direct calls.
+    Coldkey operations with finalized destinations and fee-free PoW registration
+    use direct calls. Initial announcements may atomically register a new recipient.
     Require the recipient's permanent registration in finalized state instead
     of adding a batch that the lock rejects or that loses the PoW fee exemption.
     """
@@ -210,8 +211,15 @@ async def with_recipient_registration(
     if await substrate.constant("HashedAccounts", "Enabled") is not True:
         raise ValueError("hashed accounts are not enabled on this chain")
     finalized_hash = None
-    if intent.op in ("swap_coldkey_announced", "pow_register"):
-        operation = "coldkey swap" if intent.op == "swap_coldkey_announced" else "PoW registration"
+    direct = intent.op in ("swap_coldkey_announced", "pow_register")
+    if intent.op == "announce_coldkey_swap":
+        # Existing announcements lock out Utility.batch_all, even when it only
+        # checks registration. Keep first-use setup atomic, but require finality
+        # and a direct call once the destination has a permanent registration.
+        destination = recipients["new_coldkey_ss58"].account
+        direct = await substrate.query("HashedAccounts", "Accounts", [destination]) is not None
+    if direct:
+        operation = "PoW registration" if intent.op == "pow_register" else "coldkey swap"
         if as_calls:
             raise ValueError(f"submit the {operation} directly, not inside a batch")
         finalized_hash = await substrate.block_hash(await substrate.finalized_block_number())

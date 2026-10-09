@@ -305,16 +305,22 @@ async def test_four_scheme_wallet_lifecycle(tmp_path, scheme):
         await submit(
             bt.calls.AdminUtils.sudo_set_coldkey_swap_announcement_delay(duration=2), root=True
         )
-        result = await client.execute(bt.intents.AnnounceColdkeySwap(destination), recovered)
-        assert result.success, result.to_dict()
-        start = await client._substrate.raw._session.request("chain_getHeader", [])
-        deadline = time.monotonic() + 90
-        while True:
-            head = await client._substrate.raw._session.request("chain_getHeader", [])
-            if int(head["number"], 16) >= int(start["number"], 16) + 3:
-                break
-            assert time.monotonic() < deadline, "chain stopped during coldkey swap delay"
-            await asyncio.sleep(0.2)
+        await submit(
+            bt.calls.AdminUtils.sudo_set_coldkey_swap_reannouncement_delay(duration=0), root=True
+        )
+        # Re-announcing under the active swap lock must remain a direct call;
+        # the first announcement may still sponsor a new destination atomically.
+        for _ in range(2):
+            result = await client.execute(bt.intents.AnnounceColdkeySwap(destination), recovered)
+            assert result.success, result.to_dict()
+            start = await client._substrate.raw._session.request("chain_getHeader", [])
+            deadline = time.monotonic() + 90
+            while True:
+                head = await client._substrate.raw._session.request("chain_getHeader", [])
+                if int(head["number"], 16) >= int(start["number"], 16) + 3:
+                    break
+                assert time.monotonic() < deadline, "chain stopped during coldkey swap delay"
+                await asyncio.sleep(0.2)
         result = await client.execute(bt.intents.SwapColdkeyAnnounced(destination), recovered)
         assert result.success, result.to_dict()
         assert (
