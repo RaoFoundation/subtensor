@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: mev_shield_store_encrypted
+expression: fee
+---
+5042089

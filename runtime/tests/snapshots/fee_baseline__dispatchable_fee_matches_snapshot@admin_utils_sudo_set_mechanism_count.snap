@@ -1,0 +1,7 @@
+---
+source: runtime/tests/fee_baseline.rs
+assertion_line: 405
+description: admin_utils_sudo_set_mechanism_count
+expression: fee
+---
+299031

@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_transfer_stake_and_hotkey
+expression: fee
+---
+403589

@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: multisig_poke_deposit
+expression: fee
+---
+80207
