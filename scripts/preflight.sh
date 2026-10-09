@@ -263,6 +263,7 @@ fi
 if [[ $ALL == true ]] || changed '^ts-tests/'; then
   if [[ -d ts-tests/node_modules ]]; then
     step "pnpm run fmt (ts-tests)" in_dir ts-tests pnpm run fmt
+    step "pnpm run test:papi (ts-tests)" in_dir ts-tests pnpm run test:papi
   else
     fail "ts-tests locked env" "missing. Run: (cd ts-tests && pnpm install --frozen-lockfile)"
   fi

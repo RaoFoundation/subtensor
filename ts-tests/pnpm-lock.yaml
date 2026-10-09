@@ -17,6 +17,14 @@ overrides:
   uuid@>=10.0.0 <11.1.1: 11.1.1
   esbuild@>=0.27.3 <0.28.1: 0.28.1
 
+patchedDependencies:
+  '@polkadot-api/observable-client@0.17.3':
+    hash: 95d610d3203aef8be0fb05d5e4bb45c073aae2c65a1e9c44462e015fec52a4e2
+    path: patches/@polkadot-api__observable-client@0.17.3.patch
+  polkadot-api@1.23.3:
+    hash: 9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5
+    path: patches/polkadot-api@1.23.3.patch
+
 importers:
 
   .:
@@ -35,7 +43,7 @@ importers:
         version: 1.2.3
       '@polkadot-api/sdk-ink':
         specifier: ^0.5.1
-        version: 0.5.1(@polkadot-api/ink-contracts@0.4.6)(polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)(typescript@5.8.3)(zod@3.25.76)
+        version: 0.5.1(@polkadot-api/ink-contracts@0.4.6)(polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)(typescript@5.8.3)(zod@3.25.76)
       '@polkadot-api/substrate-bindings':
         specifier: ^0.17.0
         version: 0.17.0
@@ -68,7 +76,7 @@ importers:
         version: 2.7.0
       polkadot-api:
         specifier: 1.23.3
-        version: 1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
+        version: 1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
       ps-node:
         specifier: 0.1.6
         version: 0.1.6
@@ -157,7 +165,7 @@ importers:
     optionalDependencies:
       '@polkadot-api/descriptors':
         specifier: file:.papi/descriptors
-        version: file:.papi/descriptors(polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))
+        version: file:.papi/descriptors(polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))
 
 packages:
 
@@ -5917,7 +5925,7 @@ snapshots:
       jsonc-parser: 3.3.1
       minimatch: 10.2.3
       pino: 10.3.1
-      polkadot-api: 1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
+      polkadot-api: 1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
       react: 19.2.7
       reflect-metadata: 0.2.2
       semver: 7.8.2
@@ -5993,7 +6001,7 @@ snapshots:
       '@zombienet/utils': 0.0.30(@types/node@24.13.1)(chokidar@3.6.0)(typescript@5.8.3)
       bottleneck: 2.19.5
       ethers: 6.16.0
-      polkadot-api: 1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
+      polkadot-api: 1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
       viem: 2.41.2(typescript@5.8.3)(zod@3.25.76)
       vitest: 3.2.6(@types/debug@4.1.12)(@types/node@24.13.1)(@vitest/ui@3.2.6)(jsdom@23.2.0)(tsx@4.22.4)(yaml@2.8.3)
       web3: 4.16.0(encoding@0.1.13)(typescript@5.8.3)(zod@3.25.76)
@@ -6311,7 +6319,7 @@ snapshots:
       '@polkadot-api/known-chains': 0.9.18
       '@polkadot-api/legacy-provider': 0.3.8(rxjs@7.8.2)
       '@polkadot-api/metadata-compatibility': 0.4.4
-      '@polkadot-api/observable-client': 0.17.3(rxjs@7.8.2)
+      '@polkadot-api/observable-client': 0.17.3(patch_hash=95d610d3203aef8be0fb05d5e4bb45c073aae2c65a1e9c44462e015fec52a4e2)(rxjs@7.8.2)
       '@polkadot-api/polkadot-sdk-compat': 2.4.1
       '@polkadot-api/sm-provider': 0.1.16(@polkadot-api/smoldot@0.3.15)
       '@polkadot-api/smoldot': 0.3.15
@@ -6350,14 +6358,14 @@ snapshots:
       '@polkadot-api/substrate-bindings': 0.17.0
       '@polkadot-api/utils': 0.2.0
 
-  '@polkadot-api/common-sdk-utils@0.1.0(polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)':
+  '@polkadot-api/common-sdk-utils@0.1.0(polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)':
     dependencies:
-      polkadot-api: 1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
+      polkadot-api: 1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
       rxjs: 7.8.2
 
-  '@polkadot-api/descriptors@file:.papi/descriptors(polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))':
+  '@polkadot-api/descriptors@file:.papi/descriptors(polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))':
     dependencies:
-      polkadot-api: 1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
+      polkadot-api: 1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
     optional: true
 
   '@polkadot-api/ink-contracts@0.4.6':
@@ -6423,7 +6431,7 @@ snapshots:
       '@polkadot-api/metadata-builders': 0.13.9
       '@polkadot-api/substrate-bindings': 0.17.0
 
-  '@polkadot-api/observable-client@0.17.3(rxjs@7.8.2)':
+  '@polkadot-api/observable-client@0.17.3(patch_hash=95d610d3203aef8be0fb05d5e4bb45c073aae2c65a1e9c44462e015fec52a4e2)(rxjs@7.8.2)':
     dependencies:
       '@polkadot-api/metadata-builders': 0.13.9
       '@polkadot-api/substrate-bindings': 0.17.0
@@ -6458,14 +6466,14 @@ snapshots:
     dependencies:
       '@polkadot-api/json-rpc-provider': 0.0.4
 
-  '@polkadot-api/sdk-ink@0.5.1(@polkadot-api/ink-contracts@0.4.6)(polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)(typescript@5.8.3)(zod@3.25.76)':
+  '@polkadot-api/sdk-ink@0.5.1(@polkadot-api/ink-contracts@0.4.6)(polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)(typescript@5.8.3)(zod@3.25.76)':
     dependencies:
       '@ethereumjs/rlp': 10.1.2
-      '@polkadot-api/common-sdk-utils': 0.1.0(polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)
+      '@polkadot-api/common-sdk-utils': 0.1.0(polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3))(rxjs@7.8.2)
       '@polkadot-api/ink-contracts': 0.4.6
       '@polkadot-api/substrate-bindings': 0.16.6
       abitype: 1.2.4(typescript@5.8.3)(zod@3.25.76)
-      polkadot-api: 1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
+      polkadot-api: 1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)
       rxjs: 7.8.2
       viem: 2.38.0(typescript@5.8.3)(zod@3.25.76)
     transitivePeerDependencies:
@@ -9436,7 +9444,7 @@ snapshots:
 
   pnpm@10.34.5: {}
 
-  polkadot-api@1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3):
+  polkadot-api@1.23.3(patch_hash=9dc1ac9f63918f308ee5b78e79e323050b39cc87530d112e8a5147e118bfa8b5)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3):
     dependencies:
       '@polkadot-api/cli': 0.18.1(postcss@8.5.15)(tsx@4.22.4)(yaml@2.8.3)
       '@polkadot-api/ink-contracts': 0.4.6
@@ -9445,7 +9453,7 @@ snapshots:
       '@polkadot-api/logs-provider': 0.0.6
       '@polkadot-api/metadata-builders': 0.13.9
       '@polkadot-api/metadata-compatibility': 0.4.4
-      '@polkadot-api/observable-client': 0.17.3(rxjs@7.8.2)
+      '@polkadot-api/observable-client': 0.17.3(patch_hash=95d610d3203aef8be0fb05d5e4bb45c073aae2c65a1e9c44462e015fec52a4e2)(rxjs@7.8.2)
       '@polkadot-api/pjs-signer': 0.6.19
       '@polkadot-api/polkadot-sdk-compat': 2.4.1
       '@polkadot-api/polkadot-signer': 0.1.6

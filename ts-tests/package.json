@@ -12,6 +12,7 @@
         "fmt:fix": "biome format --write .",
         "lint": "biome lint . && tsc --noEmit",
         "lint:fix": "biome lint --write .",
+        "test:papi": "node --test scripts/test-papi-block-tracking.mjs",
         "generate-types": "polkadot-api add subtensor --wsUrl ws://localhost:9944 --skip-codegen && polkadot-api",
         "generate-ink-types": "polkadot-api ink add ./ink/bittensor.json && polkadot-api"
     },
@@ -34,6 +35,10 @@
             "yaml@>=2.0.0 <2.8.3": "2.8.3",
             "uuid@>=10.0.0 <11.1.1": "11.1.1",
             "esbuild@>=0.27.3 <0.28.1": "0.28.1"
+        },
+        "patchedDependencies": {
+            "@polkadot-api/observable-client@0.17.3": "patches/@polkadot-api__observable-client@0.17.3.patch",
+            "polkadot-api@1.23.3": "patches/polkadot-api@1.23.3.patch"
         }
     },
     "dependencies": {
