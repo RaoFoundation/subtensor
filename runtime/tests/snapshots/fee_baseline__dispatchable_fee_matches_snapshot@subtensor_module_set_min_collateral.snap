@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_set_min_collateral
+expression: fee
+---
+97339

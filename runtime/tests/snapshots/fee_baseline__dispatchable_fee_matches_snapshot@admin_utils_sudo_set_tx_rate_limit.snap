@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: admin_utils_sudo_set_tx_rate_limit
+expression: fee
+---
+68519

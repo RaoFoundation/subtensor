@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: safe_mode_enter
+expression: fee
+---
+140707
