@@ -94,17 +94,34 @@ def _collateral_prompt(context, netuid: int, side: str, owner: str, hotkey: str)
         ),
     )
     if interactive(context):
+
+        async def estimate(client):
+            # Return quote failures before AppContext.run turns them into an exit:
+            # estimation is advisory; the selected collateral still needs a quote.
+            try:
+                return await _minimum_collateral(client, netuid, side, owner, hotkey)
+            except BittensorError as error:
+                return error
+
         with context.output.activity("estimating minimum collateral…"):
-            minimum, target = context.run(
-                lambda client: _minimum_collateral(client, netuid, side, owner, hotkey)
+            result = context.run(estimate)
+        if isinstance(result, BittensorError):
+            reason = result.name or str(result) if isinstance(result, ChainError) else str(result)
+            context.output.message(f"Minimum collateral estimate unavailable: {reason}.")
+            if isinstance(result, ChainError) and result.description:
+                context.output.message(result.description)
+            spec.help += (
+                " Enter collateral manually; a fresh runtime quote must pass before submission."
             )
-        value = format(minimum.decimal, "f")
-        spec.help += (
-            f" Estimated minimum additional collateral: {minimum} for {target} "
-            + ("of borrowed alpha's opening value." if side == "short" else "of borrowed TAO.")
-            + " Based on a current quote; the amount is requoted before submission."
-        )
-        spec.default = value
+        else:
+            minimum, target = result
+            value = format(minimum.decimal, "f")
+            spec.help += (
+                f" Estimated minimum additional collateral: {minimum} for {target} "
+                + ("of borrowed alpha's opening value." if side == "short" else "of borrowed TAO.")
+                + " Based on a current quote; the amount is requoted before submission."
+            )
+            spec.default = value
     answers = {"collateral": None}
     fill_missing(context, [spec], answers)
     return format(answers["collateral"].decimal, "f")

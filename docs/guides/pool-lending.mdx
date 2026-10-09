@@ -412,9 +412,12 @@ The estimate uses runtime quotes at one block, including the owner's existing
 position, redemption coverage and borrowing limits. It is a quote of the
 required collateral, not a check that the wallet holds that collateral.
 The selected amount is quoted again before submission because chain state can
-change. A warming reference or insufficient inventory can prevent an estimate;
-the CLI reports the failure instead of offering an unverified amount. Scripts
-must provide `--collateral` explicitly.
+change. If estimation fails, the CLI explains the failure and still prompts for
+manual collateral, without offering an unverified default. This also allows an
+existing loan to grow when the estimator's initial probe is too small to cover
+its existing debt. Manual entry does not bypass admission: the selected amount
+must pass a fresh runtime quote before submission. Scripts must provide
+`--collateral` explicitly.
 
 Open and close obtain complete quotes from the runtime. By default,
 `--max-slippage 1` sets an opening principal floor and, for shorts, a separate

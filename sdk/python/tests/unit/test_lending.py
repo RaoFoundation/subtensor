@@ -137,6 +137,96 @@ def test_cli_collateral_prompt_shows_estimate_and_requotes_selection(cli_fake, m
     assert cli_fake.submissions == []
 
 
+@pytest.mark.parametrize("side", ["short", "long"])
+@pytest.mark.parametrize(
+    "error_index,name", [(14, "InsufficientEscrow"), (21, "InsufficientRedemptionBacking")]
+)
+def test_cli_growth_estimate_failure_allows_larger_manual_collateral(
+    cli_fake, monkeypatch, side, error_index, name
+):
+    from bittensor.cli import prompt
+    from bittensor.cli.commands import lending
+
+    monkeypatch.setattr(lending, "interactive", lambda _ctx: True)
+    monkeypatch.setattr(prompt, "interactive", lambda _ctx: True)
+    _seed_position(cli_fake, side.title())
+    cli_fake.seed_constant("Lending", "MinimumLoanValue", 1_000_000_000)
+    calls = []
+
+    def quote(params):
+        calls.append(params[3])
+        if params[3] < 10_000_000_000:
+            return {"Err": {"Module": {"index": 33, "error": f"0x{error_index:02x}000000"}}}
+        return {
+            "Ok": {
+                "principal": 1_000_000_000,
+                "opening_value": 1_000_000_000,
+                "annual_interest": 1_000_000_000,
+            }
+        }
+
+    cli_fake.seed_runtime("LendingRuntimeApi", "quote_open_for", quote)
+    result = runner.invoke(
+        app,
+        [
+            "--dry-run",
+            "--yes",
+            "lending",
+            "open",
+            "--netuid",
+            "1",
+            "--side",
+            side,
+            "--hotkey",
+            ALICE_HOT,
+        ],
+        input="10\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "Minimum collateral estimate unavailable" in result.output
+    assert name in result.output
+    assert "Enter collateral manually" in result.output
+    assert "Estimated minimum additional collateral" not in result.output
+    assert calls == [1_000_000_000, 10_000_000_000]
+    assert cli_fake.submissions == []
+
+
+def test_manual_collateral_after_failed_estimate_still_requires_valid_quote(cli_fake, monkeypatch):
+    from bittensor.cli import prompt
+    from bittensor.cli.commands import lending
+
+    monkeypatch.setattr(lending, "interactive", lambda _ctx: True)
+    monkeypatch.setattr(prompt, "interactive", lambda _ctx: True)
+    cli_fake.seed_constant("Lending", "MinimumLoanValue", 1_000_000_000)
+    calls = []
+
+    def quote(params):
+        calls.append(params[3])
+        return {"Err": {"Module": {"index": 33, "error": "0x15000000"}}}
+
+    cli_fake.seed_runtime("LendingRuntimeApi", "quote_open_for", quote)
+    result = runner.invoke(
+        app,
+        [
+            "--yes",
+            "lending",
+            "open",
+            "--netuid",
+            "1",
+            "--side",
+            "short",
+            "--hotkey",
+            ALICE_HOT,
+        ],
+        input="10\n",
+    )
+    assert result.exit_code != 0
+    assert "Enter collateral manually" in result.output
+    assert "InsufficientRedemptionBacking" in result.output
+    assert calls == [1_000_000_000, 10_000_000_000]
+    assert cli_fake.submissions == []
+
+
 def test_missing_collateral_in_scripts_does_not_estimate_or_prompt(cli_fake):
     def unexpected_quote(_params):
         pytest.fail("missing script option must fail before querying")
