@@ -20,13 +20,13 @@
 
 use frame_support::dispatch::GetDispatchInfo;
 use insta::assert_snapshot;
-use insta::{with_settings, Comparator, Snapshot};
-use node_subtensor_runtime::transaction_payment_wrapper::{fee_dispatch_info, FeeWeightDiscount};
+use insta::{Comparator, Snapshot, with_settings};
+use node_subtensor_runtime::transaction_payment_wrapper::{FeeWeightDiscount, fee_dispatch_info};
 use node_subtensor_runtime::{
     BuildStorage, Runtime, RuntimeCall, RuntimeGenesisConfig, System, SystemCall,
     TransactionPayment,
 };
-use rstest::{fixture, rstest, Context};
+use rstest::{Context, fixture, rstest};
 use subtensor_runtime_common::{AlphaBalance, MechId, NetUid, TaoBalance, Token};
 
 /// Encoded extrinsic length every pin is quoted at.
@@ -473,7 +473,7 @@ fn evm_transaction_fee_matches_snapshot(
     use node_subtensor_runtime::{Balances, Executive, RuntimeOrigin, UncheckedExtrinsic};
     use pallet_evm::{AddressMapping, FeeCalculator};
     use precompile_utils::solidity::encode_with_selector;
-    use sp_core::{ecdsa, Pair, H160, H256, U256};
+    use sp_core::{H160, H256, Pair, U256, ecdsa};
     use subtensor_precompiles::{
         BalanceTransferPrecompile, PrecompileExt, ProxyPrecompile, StakingPrecompileV2,
     };
