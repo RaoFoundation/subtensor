@@ -89,8 +89,9 @@ _SEED_HELP = (
 )
 
 _PRIVATE_KEY_HELP = (
-    "64-byte hex private key as stored in a decrypted coldkey/hotkey keyfile "
-    "(128 hex characters, optional 0x prefix). This is not the same as --seed: "
+    "Hex privateKey from a decrypted keyfile: 32 bytes for ed/hashed/ms, "
+    "64 bytes for sr (legacy 64-byte ed keys also accepted), optional 0x prefix. "
+    "Select the original --crypto-type. This is not generally the same as --seed: "
     "the first 32 bytes of an sr25519 private key are not a usable seed. Avoid "
     "passing on the command line (it leaks to shell history and the process list)."
 )
@@ -177,6 +178,7 @@ def _resolve_key_secret(
     mnemonic: Optional[str],
     seed: Optional[str],
     private_key: Optional[str] = None,
+    crypto_type: int = wallets.DEFAULT_CRYPTO_TYPE,
 ) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Settle mnemonic / seed / private_key for a regen command.
 
@@ -188,9 +190,21 @@ def _resolve_key_secret(
         app_ctx.output.error("pass only one of `--mnemonic`, `--seed`, or `--private-key`")
         raise typer.Exit(2)
     if private_key is not None:
-        if not _PRIVATE_KEY_RE.fullmatch(private_key):
+        lengths = (
+            (32,)
+            if crypto_type in wallets.HASHED_CRYPTO_TYPES
+            else (32, 64)
+            if crypto_type == wallets.CRYPTO_ED25519
+            else (64,)
+        )
+        valid = (32 in lengths and _SEED_RE.fullmatch(private_key)) or (
+            64 in lengths and _PRIVATE_KEY_RE.fullmatch(private_key)
+        )
+        if not valid:
+            expected = " or ".join(str(length) for length in lengths)
             app_ctx.output.error(
-                "private key must be 64 bytes of hex (128 hex characters, optional 0x prefix)"
+                f"private key must be {expected} bytes of hex for "
+                f"{wallets.format_crypto_type(crypto_type)} (optional 0x prefix)"
             )
             raise typer.Exit(2)
         return None, None, private_key
@@ -213,7 +227,7 @@ def _resolve_key_secret(
         raise typer.Exit(2)
     answer = typer.prompt(f"{kind} mnemonic, hex seed, or private key", hide_input=True).strip()
     if _PRIVATE_KEY_RE.fullmatch(answer):
-        return None, None, answer
+        return _resolve_key_secret(app_ctx, kind, None, None, answer, crypto_type)
     if _SEED_RE.fullmatch(answer):
         return None, answer, None
     return answer, None, None
@@ -226,6 +240,7 @@ def _resolve_coldkey_source(
     private_key: Optional[str],
     json_path: Optional[str],
     json_password: Optional[str],
+    crypto_type: int = wallets.DEFAULT_CRYPTO_TYPE,
 ) -> tuple[Optional[str], Optional[str], Optional[str], Optional[tuple[str, str]]]:
     """Resolve exactly one coldkey source: mnemonic, seed, private key, or JSON."""
     provided = sum(bool(value) for value in (mnemonic, seed, private_key, json_path))
@@ -256,7 +271,7 @@ def _resolve_coldkey_source(
         return None, None, None, (json_data, json_password)
 
     mnemonic, seed, private_key = _resolve_key_secret(
-        app_ctx, "Coldkey", mnemonic, seed, private_key
+        app_ctx, "Coldkey", mnemonic, seed, private_key, crypto_type
     )
     return mnemonic, seed, private_key, None
 
@@ -535,6 +550,7 @@ def regen_coldkey(
             "--json-password": json_password,
         },
     )
+    crypto = _resolve_crypto_type(app_ctx, crypto_type)
     mnemonic, seed, private_key, json_keystore = _resolve_coldkey_source(
         app_ctx,
         mnemonic,
@@ -542,9 +558,9 @@ def regen_coldkey(
         private_key,
         json_path,
         json_password,
+        crypto,
     )
     confirm_wallet(app_ctx, help_text="Wallet to regenerate the coldkey in.", must_exist=False)
-    crypto = _resolve_crypto_type(app_ctx, crypto_type)
     _prepare_receiving_address(app_ctx, crypto)
     try:
         wallet = wallets.regen_coldkey(
@@ -600,8 +616,9 @@ def regen_hotkey(
         app_ctx.output,
         {"--mnemonic": mnemonic, "--seed": seed, "--private-key": private_key},
     )
+    crypto = _resolve_crypto_type(app_ctx, crypto_type)
     mnemonic, seed, private_key = _resolve_key_secret(
-        app_ctx, "Hotkey", mnemonic, seed, private_key
+        app_ctx, "Hotkey", mnemonic, seed, private_key, crypto
     )
     confirm_wallet(
         app_ctx,
@@ -610,7 +627,6 @@ def regen_hotkey(
         hotkey_help="Name for the regenerated hotkey.",
         hotkey_must_exist=False,
     )
-    crypto = _resolve_crypto_type(app_ctx, crypto_type)
     _prepare_receiving_address(app_ctx, crypto)
     wallet = wallets.regen_hotkey(
         mnemonic=mnemonic,

@@ -307,3 +307,120 @@ def test_legacy_creation_and_contact_outputs_keep_ss58(wallet_path):
         == details["coldkey_ss58"]
     )
     assert wallet.coldkeypub.crypto_type == CRYPTO_SR25519
+
+
+@pytest.mark.parametrize("scheme,code", [("hashed", 4), ("ms", 5)])
+def test_named_protected_multisig_signatories_and_saved_presets(wallet_path, scheme, code):
+    from bittensor._transport.codec import multisig_account
+    from bittensor.cli import multisig_helpers
+    from tests.harness.samples import BOB
+
+    wallet = Wallet("recipient", path=str(wallet_path))
+    wallet.regenerate_coldkey(
+        seed=bytes([19]) * 32, crypto_type=code, use_password=False, suppress=True
+    )
+    address = receiving_address(wallet.coldkeypub, FINNEY_GENESIS_HASH)
+    config.add_address({"name": "member", "address": address})
+    config.add_multisig(
+        {"name": "team", "threshold": 2, "signatories": ["recipient", "member", BOB]}
+    )
+    ctx = _context(wallet_path)
+    expected = [wallet.coldkeypub.ss58_address, BOB]
+    assert ctx.resolve_signatory_list(f"recipient,member,{BOB}") == expected
+    assert multisig_helpers.resolve_multisig(ctx, multisig_name="team")[1] == expected
+    derived = multisig_account(expected, 2).ss58_address
+    assert ctx._saved_multisig_address("team") == derived
+    assert ("team", derived) in multisig_helpers.saved_multisig_accounts(ctx)
+
+
+@pytest.mark.parametrize("consumer", ["signatories", "preset"])
+def test_multisig_receiving_identity_rejects_wrong_network(wallet_path, consumer):
+    from tests.harness.samples import BOB
+
+    wrong = receiving_address(_public(), OTHER_GENESIS)
+    config.add_address({"name": "wrong", "address": wrong})
+    ctx = _context(wallet_path)
+    with pytest.raises((ValueError, typer.Exit)):
+        if consumer == "signatories":
+            ctx.resolve_signatory_list(f"wrong,{BOB}")
+        else:
+            config.add_multisig(
+                {"name": "wrong-team", "threshold": 2, "signatories": ["wrong", BOB]}
+            )
+            ctx._saved_multisig_address("wrong-team")
+
+
+@pytest.mark.parametrize("code", [4, 5])
+def test_cli_multisig_add_and_show_with_named_protected_member(wallet_path, monkeypatch, code):
+    from bittensor._transport.codec import multisig_account
+    from tests.harness.samples import BOB
+
+    wallet = Wallet("recipient", path=str(wallet_path))
+    wallet.regenerate_coldkey(
+        seed=bytes([21]) * 32, crypto_type=code, use_password=False, suppress=True
+    )
+    substrate = FakeSubstrate()
+    monkeypatch.setattr(
+        "bittensor.cli.context.Client", lambda network, **kw: Client(network, substrate=substrate)
+    )
+    result = _invoke(
+        "multisig", "add", "team", "--threshold", "2", "--signatories", f"recipient,{BOB}"
+    )
+    assert result.exit_code == 0, result.output
+    expected = multisig_account([wallet.coldkeypub.ss58_address, BOB], 2).ss58_address
+    assert json.loads(result.output)["multisig_address"] == expected
+    shown = _invoke("multisig", "show", "team")
+    assert shown.exit_code == 0, shown.output
+    assert json.loads(shown.output)["multisig_address"] == expected
+
+
+@pytest.mark.parametrize("code", [4, 5])
+def test_cli_evm_associate_uses_protected_account_identity(wallet_path, monkeypatch, code):
+    from types import SimpleNamespace
+
+    from eth_account import Account
+
+    from bittensor.cli.commands.evm import association
+    from bittensor.evm.transactions import association_proof
+
+    wallet = Wallet("recipient", path=str(wallet_path))
+    wallet.regenerate_hotkey(seed=bytes([22]) * 32, crypto_type=code, suppress=True)
+    account = Account.from_key(bytes([23]) * 32)
+    monkeypatch.setattr(
+        association, "_key_info", lambda *_: SimpleNamespace(address=account.address)
+    )
+    monkeypatch.setattr(association, "_unlock", lambda *_: account)
+    substrate = FakeSubstrate()
+    monkeypatch.setattr(
+        "bittensor.cli.context.Client", lambda network, **kw: Client(network, substrate=substrate)
+    )
+    submitted = []
+    monkeypatch.setattr(AppContext, "submit", lambda self, intent, **kw: submitted.append(intent))
+    result = _invoke("evm", "associate", "--netuid", "1")
+    assert result.exit_code == 0, result.output
+    intent = submitted[0]
+    assert (
+        intent.signature
+        == association_proof(account, wallet.hotkey.ss58_address, intent.block_number)[0]
+    )
+
+
+def test_cli_evm_associate_rejects_wrong_network_before_unlock(wallet_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from bittensor.cli.commands.evm import association
+
+    monkeypatch.setattr(
+        association, "_key_info", lambda *_: SimpleNamespace(address="0x" + "11" * 20)
+    )
+    monkeypatch.setattr(
+        AppContext, "resolve_address", lambda *_: receiving_address(_public(), OTHER_GENESIS)
+    )
+
+    def unexpected(*_):
+        raise AssertionError("must reject before key unlock")
+
+    monkeypatch.setattr(association, "_unlock", unexpected)
+    result = _invoke("evm", "associate", "--netuid", "1")
+    assert result.exit_code != 0
+    assert "different network" in result.output

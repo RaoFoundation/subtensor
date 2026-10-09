@@ -14,6 +14,7 @@ from .. import config as cfg
 from .. import wallets
 from .._generated import storage as st
 from .._transport.codec import multisig_account
+from ..receiving import is_receiving_address
 from ..result import ChainError, ExtrinsicResult
 from ..wallets import is_bittensor_address
 
@@ -61,11 +62,19 @@ def hex_bytes(value: bytes | str) -> str:
 
 def _soft_resolve_coldkey(app_ctx, ref: str) -> Optional[str]:
     """Resolve a coldkey ref without exiting the CLI."""
+    if is_receiving_address(ref):
+        try:
+            return app_ctx.identity_address(ref)
+        except ValueError:
+            return None
     if is_bittensor_address(ref):
         return ref
     booked = cfg.get_address(ref)
     if booked:
-        return booked
+        try:
+            return app_ctx.identity_address(booked)
+        except ValueError:
+            return None
     try:
         return wallets.open_wallet(name=ref, path=app_ctx.wallet_path).coldkeypub.ss58_address
     except Exception:
@@ -227,7 +236,7 @@ def _resolve_stored_signatories(app_ctx, refs: list[str]) -> list[str]:
     """Resolve a saved multisig signer list (ss58, book names, or wallets)."""
     resolved: list[str] = []
     for ref in refs:
-        address = app_ctx.resolve_address("coldkey_ss58", ref)
+        address = app_ctx.resolve_account("coldkey_ss58", ref)
         if not address:
             raise ValueError(f"cannot resolve signatory {ref!r} in multisig preset")
         resolved.append(address)
@@ -290,10 +299,9 @@ def resolve_multisig(
 def derive_saved_multisig_address(app_ctx, name: str) -> Optional[str]:
     """Derived ss58 of the saved multisig ``name``, or None when not in the book.
 
-    Fully offline: signatory refs (ss58, book names, wallet names) resolve
-    locally and the account id derivation is deterministic, so read-only
-    commands can treat a multisig book name like any other address without a
-    chain connection.
+    Signatory identities resolve locally, checking any receiving-address network
+    binding before deterministic derivation. Custom networks may require a
+    genesis lookup; classical addresses and the known mainnet genesis are offline.
     """
     entry = cfg.get_multisig(name)
     if entry is None:

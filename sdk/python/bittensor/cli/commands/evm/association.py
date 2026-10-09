@@ -35,7 +35,7 @@ def associate(
     """
     app_ctx = ctx_of(ctx)
     info = _key_info(app_ctx, key)
-    hotkey = app_ctx.resolve_address("hotkey_ss58", None)
+    hotkey = app_ctx.resolve_account("hotkey_ss58", None)
     assert hotkey is not None
     summary = f"associate EVM key {info.address} with the hotkey on netuid {netuid}"
 

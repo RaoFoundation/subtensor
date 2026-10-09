@@ -255,6 +255,24 @@ class AppContext:
             return public.ss58_address
         return receiving_address(public, self.receiving_genesis_hash())
 
+    def identity_address(self, address: str) -> str:
+        """Resolve account identity without discarding a receiving network binding."""
+        recipient = parse_recipient(address)
+        if recipient.genesis_hash is not None:
+            genesis = bytes.fromhex(self.receiving_genesis_hash().removeprefix("0x"))
+            if recipient.genesis_hash != genesis:
+                raise ValueError("receiving address belongs to a different network")
+        return recipient.account
+
+    def resolve_account(self, param: str, value: Optional[str]) -> Optional[str]:
+        """Resolve an identity consumer; payments must keep using resolve_address."""
+        address = self.resolve_address(param, value)
+        try:
+            return self.identity_address(address) if address is not None else None
+        except ValueError as error:
+            self.output.error(str(error))
+            raise typer.Exit(1)
+
     def uses_extension_signer(self) -> bool:
         return (self.signer_backend or "").strip().lower() == "extension"
 
@@ -739,7 +757,7 @@ class AppContext:
             raise ValueError("need at least one signatory")
         resolved: list[str] = []
         for part in parts:
-            address = self.resolve_address("coldkey_ss58", part)
+            address = self.resolve_account("coldkey_ss58", part)
             if not address:
                 raise ValueError(f"cannot resolve {part!r}")
             resolved.append(address)

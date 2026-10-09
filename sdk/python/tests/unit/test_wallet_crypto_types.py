@@ -110,3 +110,50 @@ def test_unsupported_scheme_fails_before_creating_keys(wallet_path, name):
     assert result.exit_code != 0
     assert "unknown crypto type" in result.output
     assert not wallet_path.exists()
+
+
+@pytest.mark.parametrize("scheme,code", [("ed", 0), ("sr", 1), ("hashed", 4), ("ms", 5)])
+@pytest.mark.parametrize("role", ["coldkey", "hotkey"])
+def test_cli_recovers_exported_private_key(wallet_path, scheme, code, role):
+    from bittensor.sp_core import serialized_keypair_to_keyfile_data
+
+    original = Keypair.create_from_seed(bytes([31]) * 32, code)
+    exported = json.loads(serialized_keypair_to_keyfile_data(original))["privateKey"]
+    args = [f"regen-{role}", "--crypto-type", scheme, "--private-key", exported]
+    if role == "coldkey":
+        args.append("--no-password")
+    result = invoke(*args)
+    assert result.exit_code == 0, result.output
+    restored = getattr(Wallet("schemes", path=str(wallet_path)), role)
+    assert restored.crypto_type == code
+    assert restored.ss58_address == original.ss58_address
+    if code in HASHED_CRYPTO_TYPES:
+        assert restored.hashed_descriptor == original.hashed_descriptor
+        restored, original = restored.at_generation(1), original.at_generation(1)
+    assert restored.verify(b"restored key", original.sign(b"restored key"))
+
+
+@pytest.mark.parametrize("scheme", ["hashed", "ms"])
+@pytest.mark.parametrize("role", ["coldkey", "hotkey"])
+def test_cli_rejects_long_rotating_private_key_before_writing(wallet_path, scheme, role):
+    secret = "ab" * 64
+    result = invoke(f"regen-{role}", "--crypto-type", scheme, "--private-key", secret)
+    assert result.exit_code == 2, result.output
+    assert "32 bytes" in result.output
+    assert secret not in result.output
+    assert not wallet_path.exists()
+
+
+@pytest.mark.parametrize("role", ["coldkey", "hotkey"])
+def test_cli_ed_recovery_preserves_legacy_64_byte_backups(wallet_path, role):
+    original = Keypair.create_from_seed(bytes([32]) * 32, CRYPTO_ED25519)
+    backup = (bytes([32]) * 32 + bytes(original.public_key)).hex()
+    args = [f"regen-{role}", "--crypto-type", "ed", "--private-key", backup]
+    if role == "coldkey":
+        args.append("--no-password")
+    result = invoke(*args)
+    assert result.exit_code == 0, result.output
+    assert (
+        getattr(Wallet("schemes", path=str(wallet_path)), role).ss58_address
+        == original.ss58_address
+    )
