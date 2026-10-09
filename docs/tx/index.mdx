@@ -46,6 +46,13 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | --- | --- | --- | --- |
 | [`evm-withdraw`](/docs/tx/evm-withdraw) | coldkey | signed account (pallet role may apply) | Claim TAO deposited to the coldkey's truncated EVM mirror. |
 
+## Lending
+
+| Operation | Signer | Origin | Summary |
+| --- | --- | --- | --- |
+| [`close-loan`](/docs/tx/close-loan) | coldkey | signed account (pallet role may apply) | Repay total principal and return remaining collateral on a subnet. |
+| [`open-loan`](/docs/tx/open-loan) | coldkey | signed account (pallet role may apply) | Open or increase a fixed-principal subnet loan at up to 25% LTV. |
+
 ## Multisig
 
 | Operation | Signer | Origin | Summary |

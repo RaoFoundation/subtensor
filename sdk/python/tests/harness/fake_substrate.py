@@ -55,6 +55,17 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "SubnetLocked"): 10**9,
     ("SubtensorModule", "SubnetEmissionEnabled"): True,
     ("System", "Account"): {"data": {"free": 0, "reserved": 0, "frozen": 0}},
+    ("Lending", "Positions"): {
+        "side": "Short",
+        "hotkey": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+        "principal": 250_000_000,
+        "collateral": 1_000_000_000,
+        "proceeds": 0,
+        "annual_interest": 250_000_000,
+        "last_accrued": 100,
+        "interest_remainder": 0,
+        "due": 50_500,
+    },
     ("Timestamp", "Now"): 1_700_000_000_000,
 }
 
@@ -62,6 +73,7 @@ DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {
     ("Aura", "SlotDuration"): 12_000,
     ("Balances", "ExistentialDeposit"): 500,
     ("SubtensorModule", "InitialStartCallDelay"): 100,
+    ("Lending", "BlocksPerYear"): 365 * 7200,
 }
 
 # Runtime-API results answered when the test seeds nothing. Chosen so intent
@@ -71,6 +83,21 @@ DEFAULT_RUNTIME: dict[tuple[str, str], Any] = {
     ("SwapRuntimeApi", "current_alpha_price"): 10**9,  # 1 TAO per alpha
     ("SubnetRegistrationRuntimeApi", "get_network_registration_cost"): 10**9,
     ("BetaBasketRuntimeApi", "get_validator_basket"): [],
+    ("LendingRuntimeApi", "quote_open"): {
+        "Ok": {
+            "principal": 250_000_000,
+            "annual_interest": 250_000_000,
+            "opening_value": 250_000_000,
+        }
+    },
+    ("LendingRuntimeApi", "quote_open_for"): {
+        "Ok": {
+            "principal": 250_000_000,
+            "annual_interest": 250_000_000,
+            "opening_value": 250_000_000,
+        }
+    },
+    ("LendingRuntimeApi", "quote_close"): {"Ok": {"payment": 250_000_000, "refund": 1_000_000_000}},
 }
 
 GENESIS_HASH = "0x" + "00" * 32

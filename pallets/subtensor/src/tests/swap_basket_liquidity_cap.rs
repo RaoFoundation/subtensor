@@ -14,7 +14,8 @@
 
 use crate::staking::BasketFlushWork;
 use crate::tests::claim_root::{
-    escrow_alpha, flush_baskets, register_on_root, zero_claim_threshold,
+    buy_impact_slice, escrow_alpha, flush_baskets, register_on_root, sell_impact_slice,
+    zero_claim_threshold,
 };
 use crate::tests::mock::*;
 use crate::{
@@ -48,6 +49,7 @@ fn make_pool(hotkey: &U256, coldkey: &U256, tao: u64, alpha: u64) -> NetUid {
     SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(alpha));
     let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
     add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(tao));
+    assert_ok!(SubtensorModule::fund_unreachable_reserves(netuid, false));
     SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(tao as f64 / alpha as f64));
     SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(tao as f64 / alpha as f64));
     netuid
@@ -75,21 +77,30 @@ fn nav(hotkey: &U256) -> u64 {
     SubtensorModule::get_validator_basket_nav_tao(hotkey).to_u64()
 }
 
-/// The counterparty sells alpha until spot is back at the moving price (constant product:
-/// `A' = sqrt(k / p)`), so the fund's next slice sees an un-moved reference.
+/// Restore the reference through an actual, price-limited sale. Both geometry and
+/// fee-adjusted fill accounting are observed, and the final spot is checked explicitly.
 fn sell_back_to_ema(netuid: NetUid) {
-    let r = SubnetTAO::<Test>::get(netuid).to_u64() as f64;
-    let a = SubnetAlphaIn::<Test>::get(netuid).to_u64() as f64;
-    let target = SubnetMovingPrice::<Test>::get(netuid).to_num::<f64>();
-    let to_sell = (((r * a / target).sqrt() - a).max(0.0) * 1.003) as u64;
-    if to_sell > 0 {
-        assert_ok!(SubtensorModule::swap_alpha_for_tao(
-            netuid,
-            to_sell.into(),
-            <Test as crate::Config>::SwapInterface::min_price::<TaoBalance>(),
-            false,
-        ));
+    let target = SubnetMovingPrice::<Test>::get(netuid).to_num::<U64F64>();
+    let spot = <Test as crate::Config>::SwapInterface::current_alpha_price(netuid);
+    if spot <= target {
+        return;
     }
+    let curve = pallet_subtensor_swap::Pallet::<Test>::superellipse(netuid).unwrap();
+    let alpha = SubnetAlphaIn::<Test>::get(netuid).to_u64();
+    let tao = SubnetTAO::<Test>::get(netuid).to_u64();
+    let input = curve.max_sell_input(alpha, tao).unwrap();
+    let limit = TaoBalance::from((target * U64F64::from_num(TAO)).ceil().to_num::<u64>());
+    assert_ok!(SubtensorModule::swap_alpha_for_tao(
+        netuid,
+        input.into(),
+        limit,
+        false
+    ));
+    let restored = <Test as crate::Config>::SwapInterface::current_alpha_price(netuid);
+    assert!(
+        restored >= target && restored <= target * U64F64::from_num(1.000001),
+        "counterparty must restore EMA: target {target:?}, actual {restored:?}"
+    );
 }
 
 /// The thin-pool drain: 9 τ slices (< 1% of the reserve, so < 2% marginal move) into a
@@ -157,17 +168,17 @@ fn held_share_bps(hotkey: &U256, netuid: NetUid) -> u64 {
     (u128::from(held) * 10_000 / u128::from(reserve.max(1))) as u64
 }
 
-/// Build a position the way a manager must on a real pool: slices of ~0.9% of the TAO
-/// reserve (< 2% marginal move), letting the moving price catch up to spot between slices.
+/// Build a position using 0.5% ending spot moves, letting both price anchors catch
+/// up to spot between slices. Physical reserves include translated geometry.
 /// Returns the slice that was refused and the error.
 fn buy_slices_until_refused(
     coldkey: U256,
     hotkey: U256,
     netuid: NetUid,
 ) -> (u64, sp_runtime::DispatchError) {
-    for _ in 0..200 {
+    for _ in 0..1_000 {
         pin_ema_to_spot(netuid);
-        let slice = SubnetTAO::<Test>::get(netuid).to_u64() * 9 / 1000;
+        let slice = buy_impact_slice(netuid, U64F64::from_num(1.005));
         if let Err(err) =
             SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, netuid, slice, 0)
         {
@@ -290,17 +301,19 @@ fn hold(hotkey: &U256, netuid: NetUid, alpha: u64) {
     );
 }
 
-/// Appreciate `netuid` by moving the pool along its constant-product curve: TAO reserve
-/// × `num`, alpha reserve ÷ `num` (price × `num²`). The moving price is pinned to the new
-/// spot so the band is not what decides the outcome. The subnet account is topped up so
-/// sells can physically pay out.
+/// Appreciate the live curve by an actual purchase to a chosen price multiple,
+/// then let the reference anchors catch up. Reserves are never rewritten by ratio.
 fn appreciate(netuid: NetUid, num: u64) {
-    let tao = SubnetTAO::<Test>::get(netuid).to_u64() * num;
-    let alpha = SubnetAlphaIn::<Test>::get(netuid).to_u64() / num;
-    SubnetTAO::<Test>::insert(netuid, TaoBalance::from(tao));
-    SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(alpha));
+    let factor = U64F64::from_num(num * num);
+    let input = buy_impact_slice(netuid, factor);
     let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
-    add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(tao));
+    add_balance_to_coldkey_account(&subnet_account, input.into());
+    assert_ok!(SubtensorModule::swap_tao_for_alpha(
+        netuid,
+        input.into(),
+        u64::MAX.into(),
+        false
+    ));
     pin_ema_to_spot(netuid);
 }
 
@@ -324,6 +337,9 @@ fn winner_env(coldkey: U256, hotkey: U256) -> (NetUid, NetUid) {
     BasketTradingEnabled::<Test>::put(true);
     BasketDailyTurnoverCap::<Test>::put(u16::MAX);
     BasketConcentrationCap::<Test>::put(u16::MAX / 2 + 1);
+    // These tests isolate concentration; a winner may exceed the independent
+    // active-reserve liquidity cap after an actual price appreciation.
+    BasketLiquidityCap::<Test>::put(u16::MAX);
     SubtensorModule::set_tao_weight(u64::MAX);
     let a = make_pool(
         &U256::from(11),
@@ -374,24 +390,23 @@ fn test_over_cap_winner_only_blocks_further_buys() {
         );
         assert_eq!(escrow_alpha(&hotkey, a), winner);
 
-        // Allowed: take profit into another subnet, and into cash.
+        // Allowed: take profit into another subnet, and into cash. Keep each
+        // slice within both the 0.5% price band and 5% of the winner's holding;
+        // a deep baseline curve can quote far more alpha than this fund owns.
+        let slice = sell_impact_slice(a, U64F64::from_num(0.995)).min(winner / 20);
+        assert!(slice > 0 && slice < winner / 10);
         assert_ok!(SubtensorModule::do_swap_basket(
-            coldkey,
-            hotkey,
-            a,
-            b,
-            100 * TAO,
-            0
+            coldkey, hotkey, a, b, slice, 0
         ));
         assert_ok!(SubtensorModule::do_swap_basket(
             coldkey,
             hotkey,
             a,
             NetUid::ROOT,
-            100 * TAO,
+            slice,
             0
         ));
-        assert_eq!(escrow_alpha(&hotkey, a), winner - 200 * TAO);
+        assert_eq!(escrow_alpha(&hotkey, a), winner - 2 * slice);
         assert!(nav_share_bps(&hotkey, a) > 5_000, "still over cap");
 
         // Allowed: trades that do not touch the winner, in both directions.
@@ -413,7 +428,7 @@ fn test_over_cap_winner_only_blocks_further_buys() {
             10 * TAO,
             0
         ));
-        assert_eq!(escrow_alpha(&hotkey, a), winner - 200 * TAO);
+        assert_eq!(escrow_alpha(&hotkey, a), winner - 2 * slice);
     });
 }
 
@@ -537,7 +552,11 @@ fn test_over_liquidity_cap_winner_only_blocks_further_buys() {
             (10_000 * TAO).into(),
         );
         make_fund_with_cash(coldkey, hotkey, 10_000 * TAO);
-        hold(&hotkey, thin, 90_000 * TAO);
+        hold(
+            &hotkey,
+            thin,
+            SubnetAlphaIn::<Test>::get(thin).to_u64() * 9 / 100,
+        );
         hold(&hotkey, deep, 1_000 * TAO);
         mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
@@ -547,11 +566,9 @@ fn test_over_liquidity_cap_winner_only_blocks_further_buys() {
         );
         assert!(held_share_bps(&hotkey, thin) < 1_000);
 
-        // Run-up: alpha leaves the pool, the fund's 90k α is now 22.5% of the reserve.
+        // Run-up: an actual purchase removes reachable alpha, so the unchanged
+        // holding now exceeds the cap against the live active reserve.
         appreciate(thin, 2);
-        // (`appreciate` halves the reserve: 500k α; buy-side pressure in the mock only.)
-        SubnetAlphaIn::<Test>::insert(thin, AlphaBalance::from(400_000 * TAO));
-        pin_ema_to_spot(thin);
         let share = held_share_bps(&hotkey, thin);
         assert!(share > 2_000, "share {share} bps");
         let winner = escrow_alpha(&hotkey, thin);
@@ -567,7 +584,7 @@ fn test_over_liquidity_cap_winner_only_blocks_further_buys() {
         );
 
         // Allowed: take profit (one band-sized slice) and trade the other holdings.
-        let slice = SubnetAlphaIn::<Test>::get(thin).to_u64() * 9 / 1000;
+        let slice = sell_impact_slice(thin, U64F64::from_num(0.995));
         assert_ok!(SubtensorModule::do_swap_basket(
             coldkey,
             hotkey,
@@ -635,7 +652,7 @@ fn test_profit_taking_after_run_up_is_paced_by_fast_anchor() {
             1_000_000 * TAO,
         );
         make_fund_with_cash(coldkey, hotkey, 100 * TAO);
-        hold(&hotkey, a, 1_000_000 * TAO);
+        hold(&hotkey, a, 400_000 * TAO);
         // Run-up ×4 that the fast anchor has followed (pinned to spot by `appreciate`),
         // with the slow EMA left where it was (price 1.0): spot is 4× the slow EMA.
         appreciate(a, 2);
@@ -654,7 +671,7 @@ fn test_profit_taking_after_run_up_is_paced_by_fast_anchor() {
             let mut legs = 0;
             let mut sold = 0u64;
             loop {
-                let slice = SubnetAlphaIn::<Test>::get(a).to_u64() * 9 / 1000;
+                let slice = sell_impact_slice(a, U64F64::from_num(0.99));
                 match SubtensorModule::do_swap_basket(coldkey, hotkey, a, NetUid::ROOT, slice, 0) {
                     Ok(_) => {
                         legs += 1;

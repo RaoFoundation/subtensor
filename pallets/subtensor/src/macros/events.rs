@@ -907,5 +907,14 @@ mod events {
             /// Pending pre-compaction commits cancelled in this step.
             cleared_commits: u32,
         },
+        /// A terminal pro-rata payment could not create its recipient account.
+        DissolutionDustRecycled {
+            /// Dissolved subnet.
+            netuid: NetUid,
+            /// Recipient whose sub-existential payment was recycled.
+            recipient: T::AccountId,
+            /// TAO removed from the pot and recycled, never reported as credited.
+            amount: TaoBalance,
+        },
     }
 }

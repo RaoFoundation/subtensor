@@ -44,6 +44,7 @@ ProxyType = Any
 PulsesPayload = Any
 RecycleOrBurnEnum = Any
 RuntimeCall = Any
+Side = Any
 TaoBalance = Any
 TickIndex = Any
 Timepoint = Any
@@ -1702,3 +1703,27 @@ class LimitOrders:
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
+
+
+class Lending:
+    """Call builders for the Lending pallet."""
+
+    @staticmethod
+    def close(netuid: 'NetUid', repay_from_wallet: 'bool', max_payment: 'u64', min_refund: 'u64') -> Call:
+        'Repay the fixed principal and release remaining collateral. A short may buy back from escrow or supply alpha from its opening hotkey; a long supplies free TAO.'
+        return Call('Lending', 'close', {'netuid': netuid, 'repay_from_wallet': repay_from_wallet, 'max_payment': max_payment, 'min_refund': min_refund})
+
+    @staticmethod
+    def open(netuid: 'NetUid', side: 'Side', collateral: 'u64', hotkey: 'AccountId32', min_borrow: 'u64', min_proceeds: 'u64') -> Call:
+        'Open or increase one loan on a subnet, using the same side and collateral hotkey. Collateral and caller bounds apply to the additional loan, not existing totals.'
+        return Call('Lending', 'open', {'netuid': netuid, 'side': side, 'collateral': collateral, 'hotkey': hotkey, 'min_borrow': min_borrow, 'min_proceeds': min_proceeds})
+
+    @staticmethod
+    def set_enabled(enabled: 'bool') -> Call:
+        'Pause new loans. Repayment, collection and terminal settlement remain available.'
+        return Call('Lending', 'set_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def set_min_price_impact(netuid: 'NetUid', bps: 'u16') -> Call:
+        'Set a geometric minimum ending-price movement for a net 500-TAO buy and an alpha sale worth 500 TAO at its opening spot price. Root only. Zero disables the policy; lower targets never widen an existing curve. Tightening preserves spot within fixed-point tolerance and moves only newly unreachable, actually funded assets into the existing vault.'
+        return Call('Lending', 'set_min_price_impact', {'netuid': netuid, 'bps': bps})

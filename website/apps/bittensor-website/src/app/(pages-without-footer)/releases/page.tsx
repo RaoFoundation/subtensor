@@ -23,6 +23,21 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'proposal',
+    date: 'Not yet deployed',
+    title: 'Pool Reserves and Native Lending',
+    summary:
+      'A pool migration preserves opening prices and local sensitivity while creating separate ' +
+      'lending reserves from unreachable balances. A governance dial can tighten minimum price ' +
+      'impact for 500-TAO trades; targets start disabled. ' +
+      'Freely usable alpha borrowing and transferable TAO loans use 25% LTV, with additional funded-redemption ' +
+      'limits protecting alpha-debt claims and TAO-loan collateral. Positions can grow through the same open command. ' +
+      'They have fixed principal, weekly collateral ' +
+      'interest that burns TAO, and a 10% borrowing cap per asset. Borrowing requires the complete ' +
+      'migration to succeed.',
+    href: '/releases/pool-lending',
+  },
+  {
     tag: 'next',
     date: 'Upcoming',
     title: 'Null Consensus',

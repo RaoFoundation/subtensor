@@ -20,6 +20,7 @@ mod evm;
 mod failed_call_refunds;
 mod hotkey_lineage;
 mod leasing;
+mod lending;
 mod locks;
 mod math;
 mod mechanism;

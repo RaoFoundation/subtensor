@@ -432,6 +432,7 @@ impl pallet_subtensor::Config for Test {
     type InitialEmaPriceHalvingPeriod = InitialEmaPriceHalvingPeriod;
     type InitialStartCallDelay = InitialStartCallDelay;
     type SwapInterface = pallet_subtensor_swap::Pallet<Self>;
+    type LendingInterface = ();
     type KeySwapOnSubnetCost = InitialKeySwapOnSubnetCost;
     type HotkeySwapOnSubnetInterval = HotkeySwapOnSubnetInterval;
     type ProxyInterface = FakeProxier;
@@ -464,6 +465,7 @@ impl pallet_subtensor_swap::Config for Test {
     type MaxFeeRate = SwapMaxFeeRate;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
+    type CurveInitializationWeight = SwapCurveInitializationWeight;
     type WeightInfo = ();
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
@@ -771,4 +773,9 @@ pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
 pub(crate) fn setup_reserves(netuid: NetUid, tao: TaoBalance, alpha: AlphaBalance) {
     SubnetTAO::<Test>::set(netuid, tao);
     SubnetAlphaIn::<Test>::set(netuid, alpha);
+    // Reserve resets create a fresh fixture pool; its curve is initialized lazily.
+    pallet_subtensor_swap::SwapSuperellipse::<Test>::remove(netuid);
+    pallet_subtensor_swap::PalSwapInitialized::<Test>::remove(netuid);
 }
+
+frame_support::parameter_types! { pub SwapCurveInitializationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }

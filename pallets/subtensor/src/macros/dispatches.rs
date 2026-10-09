@@ -2380,12 +2380,13 @@ mod dispatches {
         /// The `ColdkeySwapAnnounced` event is emitted on successful announcement.
         ///
         #[pallet::call_index(125)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::announce_coldkey_swap())]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::announce_coldkey_swap().saturating_add(T::DbWeight::get().reads(1)))]
         pub fn announce_coldkey_swap(
             origin: OriginFor<T>,
             new_coldkey_hash: T::Hash,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
+            ensure!(!<T::LendingInterface as pallet_lending::LendingInterface<T::AccountId>>::has_positions(&who), Error::<T>::LendingPositionsOpen);
             let now = <frame_system::Pallet<T>>::block_number();
 
             if let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) {
@@ -2915,5 +2916,6 @@ mod dispatches {
         ) -> DispatchResult {
             Self::do_set_min_collateral(origin, netuid, hotkey, min_locked)
         }
+        // Call index 146 remains reserved for the deferred pool-depth calibration.
     }
 }

@@ -19,6 +19,7 @@ mod hooks {
             let hotkey_swap_clean_up_weight = Self::clean_up_hotkey_swap_records(block_number);
 
             let block_step_result = Self::block_step();
+            let lending_funding_weight = Self::fund_one_new_lending_vault();
             // Advance the paged beta-index sweep right after the block step (deposit
             // queue drained), charging its bounded page into the hook weight.
             let beta_index_sweep_weight = Self::advance_beta_index_sweep_weight();
@@ -39,6 +40,7 @@ mod hooks {
                     block_step_weight
                         .saturating_add(hotkey_swap_clean_up_weight)
                         .saturating_add(beta_index_sweep_weight)
+                        .saturating_add(lending_funding_weight)
                 }
                 Err(e) => {
                     // --- If the block step was unsuccessful, return the weight anyway.
@@ -46,6 +48,7 @@ mod hooks {
                     block_step_weight
                         .saturating_add(hotkey_swap_clean_up_weight)
                         .saturating_add(beta_index_sweep_weight)
+                        .saturating_add(lending_funding_weight)
                 }
             }
         }

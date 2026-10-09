@@ -1035,8 +1035,11 @@ fn test_swap_basket_buy_refused_when_own_impact_exceeds_band() {
 fn test_swap_basket_sell_refused_when_own_impact_exceeds_band() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        SubnetTAO::<Test>::insert(fund.netuid_a, TaoBalance::from(10_000_000u64));
-        SubnetAlphaIn::<Test>::insert(fund.netuid_a, AlphaBalance::from(10_000_000u64));
+        setup_reserves(
+            fund.netuid_a,
+            TaoBalance::from(30_000_000_000u64),
+            AlphaBalance::from(30_000_000_000u64),
+        );
         crate::assert_noop_ignore_postinfo!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::SlippageTooHigh
@@ -1752,21 +1755,27 @@ fn spot(netuid: NetUid) -> f64 {
 /// A counterparty sells (fee-free) exactly enough alpha into `netuid` to bring spot back
 /// down to `target_price`, pulling the fund's TAO out of the pool.
 fn counterparty_sells_back_to(netuid: NetUid, target_price: f64) {
-    let tao = SubnetTAO::<Test>::get(netuid).to_u64() as f64;
-    let alpha_in = SubnetAlphaIn::<Test>::get(netuid).to_u64() as f64;
-    // Constant product: k = tao * alpha; at the target price alpha' = sqrt(k / p).
-    let target_alpha = (tao * alpha_in / target_price).sqrt();
-    let sell = target_alpha - alpha_in;
-    if sell < 1.0 {
+    let current = <Test as crate::Config>::SwapInterface::current_alpha_price(netuid);
+    if current <= U64F64::from_num(target_price) {
         return;
     }
+    let curve = pallet_subtensor_swap::Pallet::<Test>::superellipse(netuid).unwrap();
+    let sell = curve
+        .max_sell_input(
+            SubnetAlphaIn::<Test>::get(netuid).to_u64(),
+            SubnetTAO::<Test>::get(netuid).to_u64(),
+        )
+        .unwrap();
+    let limit = (target_price * 1_000_000_000f64).ceil() as u64;
     let out = SubtensorModule::swap_alpha_for_tao(
         netuid,
-        AlphaBalance::from(sell as u64),
-        <Test as crate::Config>::SwapInterface::min_price::<TaoBalance>(),
+        AlphaBalance::from(sell),
+        TaoBalance::from(limit),
         true,
     )
     .expect("counterparty sale fills");
+    let restored = spot(netuid);
+    assert!(restored >= target_price && restored <= target_price * 1.000001);
     // The counterparty walks away with the TAO (leaves the pot).
     assert_ok!(SubtensorModule::transfer_tao_from_subnet(
         netuid,

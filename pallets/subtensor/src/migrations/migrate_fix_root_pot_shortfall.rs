@@ -175,6 +175,7 @@ pub mod fix_root_pot_shortfall {
         total_issuance: u64,
         balances_issuance: u64,
         total_stake: u64,
+        extracted_tao: u64,
     }
 
     pub struct Migration<T: Config>(PhantomData<T>);
@@ -200,6 +201,7 @@ pub mod fix_root_pot_shortfall {
                 total_issuance: TotalIssuance::<T>::get().to_u64(),
                 balances_issuance: <T as Config>::Currency::total_issuance().to_u64(),
                 total_stake: TotalStake::<T>::get().to_u64(),
+                extracted_tao: crate::NetworksAdded::<T>::iter().filter(|(_,live)| *live).fold(0_u64, |sum,(n,_)| sum.saturating_add(<T::SwapInterface as subtensor_swap_interface::SwapHandler>::extracted_tao(n).to_u64())),
             }
             .encode())
         }
@@ -259,8 +261,9 @@ pub mod fix_root_pot_shortfall {
                 );
             }
             ensure!(
-                total_stake == before.total_stake.saturating_add(expected_mint),
-                "TotalStake must rise by exactly the minted amount"
+                total_stake.checked_add(crate::NetworksAdded::<T>::iter().filter(|(_,live)| *live).fold(0_u64, |sum,(n,_)| sum.saturating_add(<T::SwapInterface as subtensor_swap_interface::SwapHandler>::extracted_tao(n).to_u64())))
+                    == before.total_stake.checked_add(before.extracted_tao).and_then(|sum|sum.checked_add(expected_mint)),
+                "TotalStake plus newly extracted reserves must rise by exactly the minted amount"
             );
             ensure!(
                 total_issuance == before.total_issuance.saturating_add(expected_mint),

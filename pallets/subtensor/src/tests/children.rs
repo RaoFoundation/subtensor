@@ -3153,9 +3153,18 @@ fn test_parent_child_chain_emission() {
         SubtensorModule::set_ck_burn(0);
         Tempo::<Test>::insert(netuid, 1);
 
-        // Setup large LPs to prevent slippage
-        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000_000_u64));
-        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000_000_u64));
+        // Isolate parent/child emission accounting from the configurable price impact.
+        let reserve = 1_000_000_000_000_000_u64;
+        mock::setup_reserves(netuid, reserve.into(), reserve.into());
+        pallet_subtensor_swap::SwapSuperellipse::<Test>::insert(
+            netuid,
+            pallet_subtensor_swap::Superellipse::from_weights(
+                reserve,
+                reserve,
+                sp_runtime::Perquintill::from_percent(50),
+            )
+            .unwrap(),
+        );
 
         // Set owner cut to 0
         SubtensorModule::set_subnet_owner_cut(0_u16);

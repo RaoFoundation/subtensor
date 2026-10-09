@@ -57,6 +57,8 @@ unwrap-used = "deny"
 useless_conversion = "allow"     # until polkadot is patched
 
 [workspace.dependencies]
+pallet-lending = { path = "pallets/lending", default-features = false }
+pallet-lending-runtime-api = { path = "pallets/lending/runtime-api", default-features = false }
 pallet-alpha-assets = { path = "pallets/alpha-assets", default-features = false }
 node-subtensor-runtime = { path = "runtime", default-features = false }
 pallet-admin-utils = { path = "pallets/admin-utils", default-features = false }

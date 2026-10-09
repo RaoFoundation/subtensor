@@ -1,6 +1,8 @@
 use crate::{Config, HasMigrationRun, NetworksAdded, SubnetTAO, TotalStake};
 use frame_support::{traits::Get, weights::Weight};
 use subtensor_runtime_common::{TaoBalance, Token};
+#[cfg(feature = "try-runtime")]
+use subtensor_swap_interface::SwapHandler;
 
 pub(crate) const MIGRATION_NAME: &[u8] = b"migrate_resync_total_stake";
 /// Second one-shot resync (spec 468): a subnet dissolution on finney (block 9111229, subnet
@@ -94,6 +96,7 @@ mod resync_wrapper {
     #[derive(Encode, Decode)]
     struct PreUpgradeState {
         live_subnet_tao: u64,
+        extracted_tao: u64,
         total_issuance: u64,
         already_ran: bool,
     }
@@ -109,6 +112,11 @@ mod resync_wrapper {
         fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
             Ok(PreUpgradeState {
                 live_subnet_tao: live_subnet_tao::<T>().0.to_u64(),
+                extracted_tao: NetworksAdded::<T>::iter()
+                    .filter(|(_, live)| *live)
+                    .fold(0_u64, |sum, (n, _)| {
+                        sum.saturating_add(T::SwapInterface::extracted_tao(n).to_u64())
+                    }),
                 total_issuance: TotalIssuance::<T>::get().to_u64(),
                 already_ran: HasMigrationRun::<T>::get(P::NAME.to_vec()),
             }
@@ -125,8 +133,14 @@ mod resync_wrapper {
             );
             let live = live_subnet_tao::<T>().0.to_u64();
             ensure!(
-                live == before.live_subnet_tao,
-                "resync must not change the subnet reserves it sums"
+                live.checked_add(
+                    NetworksAdded::<T>::iter().filter(|(_, live)| *live).fold(
+                        0_u64,
+                        |sum, (n, _)| sum
+                            .saturating_add(T::SwapInterface::extracted_tao(n).to_u64())
+                    )
+                ) == before.live_subnet_tao.checked_add(before.extracted_tao),
+                "resync and funding must conserve active plus newly extracted subnet reserves"
             );
             if !before.already_ran {
                 ensure!(

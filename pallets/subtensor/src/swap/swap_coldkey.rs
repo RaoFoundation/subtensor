@@ -19,11 +19,12 @@ impl<T: Config> Pallet<T> {
     /// per position moved plus the per-hotkey bookkeeping reads (watermark, unlock age,
     /// root stake) for every `StakingHotkeys` entry.
     fn coldkey_swap_weight(base: Weight, work: ColdkeySwapWork) -> Weight {
-        base.saturating_add(
-            <T as crate::pallet::Config>::WeightInfo::transfer_stake()
-                .saturating_mul(u64::from(work.positions)),
-        )
-        .saturating_add(T::DbWeight::get().reads(u64::from(work.hotkeys).saturating_mul(3)))
+        base.saturating_add(T::DbWeight::get().reads(2))
+            .saturating_add(
+                <T as crate::pallet::Config>::WeightInfo::transfer_stake()
+                    .saturating_mul(u64::from(work.positions)),
+            )
+            .saturating_add(T::DbWeight::get().reads(u64::from(work.hotkeys).saturating_mul(3)))
     }
 
     /// The largest swap one call admits, used as the pre-dispatch envelope.
@@ -94,7 +95,7 @@ impl<T: Config> Pallet<T> {
     /// the admission scan (one `StakingHotkeys` read plus one read per position) when
     /// refused as too heavy, and the admitted work when a later step rolled it back.
     fn coldkey_swap_failed_weight(work: Option<ColdkeySwapWork>, admitted: bool) -> Weight {
-        let precheck = T::DbWeight::get().reads(4);
+        let precheck = T::DbWeight::get().reads(6);
         match work {
             None => precheck,
             Some(work) if !admitted => precheck.saturating_add(
@@ -121,6 +122,10 @@ impl<T: Config> Pallet<T> {
         // rows and mid-hotkey `BasketClaimed` writes. Moving root stake + only the new
         // watermark would leave legacy claims on the dead coldkey.
         Self::ensure_beta_basket_seed_idle().map_err(refused)?;
+        if <T::LendingInterface as pallet_lending::LendingInterface<T::AccountId>>::has_positions(old_coldkey)
+            || <T::LendingInterface as pallet_lending::LendingInterface<T::AccountId>>::has_positions(new_coldkey) {
+            return Err(refused(Error::<T>::LendingPositionsOpen));
+        }
         if !StakingHotkeys::<T>::get(new_coldkey).is_empty() {
             return Err(refused(Error::<T>::ColdKeyAlreadyAssociated));
         }

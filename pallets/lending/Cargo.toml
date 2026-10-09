@@ -1,0 +1,53 @@
+[package]
+name = "pallet-lending"
+publish = false
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+codec = { workspace = true, features = ["derive"] }
+frame-benchmarking = { workspace = true, optional = true }
+frame-support.workspace = true
+frame-system.workspace = true
+scale-info.workspace = true
+sp-runtime.workspace = true
+substrate-fixed.workspace = true
+subtensor-runtime-common.workspace = true
+subtensor-macros.workspace = true
+subtensor-swap-interface.workspace = true
+
+[dev-dependencies]
+sp-core.workspace = true
+sp-io.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "scale-info/std",
+    "sp-runtime/std",
+    "substrate-fixed/std",
+    "subtensor-runtime-common/std",
+    "subtensor-swap-interface/std",
+    "sp-core/std",
+    "sp-io/std",
+]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+    "subtensor-runtime-common/runtime-benchmarks",
+    "subtensor-swap-interface/runtime-benchmarks",
+]
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "sp-runtime/try-runtime",
+]

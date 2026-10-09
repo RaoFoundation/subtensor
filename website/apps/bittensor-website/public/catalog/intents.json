@@ -62,9 +62,9 @@
         "pallet": "SubtensorModule",
         "call": "add_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2875,
-        "end_line": 2883,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2873-L2883",
+        "line": 2876,
+        "end_line": 2884,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2874-L2884",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -319,8 +319,8 @@
         "call": "announce_coldkey_swap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 2384,
-        "end_line": 2410,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2382-L2410",
+        "end_line": 2411,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2382-L2411",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -623,10 +623,83 @@
         "pallet": "SubtensorModule",
         "call": "clear_coldkey_swap_announcement",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2599,
-        "end_line": 2614,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2597-L2614",
+        "line": 2600,
+        "end_line": 2615,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2598-L2615",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "close_loan",
+    "summary": "Repay total principal and return remaining collateral on a subnet.",
+    "description": "Repay total principal and return remaining collateral on a subnet.\n\nA short normally repays its fixed alpha debt from the saved hotkey.\n`repay_from_wallet=False` instead buys that alpha through the AMM using\nonly remaining TAO collateral, after accrued interest. Opening created no\nlocked sale proceeds, and an optional buyback cannot spend external funds.\nA long always repays TAO from the owner's free balance. Both charge\naccrued interest through the closing block and then refund the remainder.\nA failed repayment, payment ceiling or refund floor rolls back the call.\n\n`max_payment` is TAO for AMM short closes and long repayment, or alpha\nfor a wallet-repaid short. `min_refund` is TAO for shorts and alpha for\nlongs. Units are checked against the owner's actual stored position.\nClosing remains available when new borrowing is disabled.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "close"
+      ]
+    ],
+    "docs_url": "/docs/tx/close-loan",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the position to repay."
+        },
+        "max_payment": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Maximum repayment: TAO, or alpha for a wallet-repaid short."
+        },
+        "min_refund": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Minimum returned collateral: TAO for shorts, alpha for longs."
+        },
+        "repay_from_wallet": {
+          "type": "boolean",
+          "description": "Repay short alpha from its saved hotkey; false buys with collateral."
+        }
+      },
+      "required": [
+        "netuid",
+        "max_payment"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx close-loan --netuid <int> --max-payment <amount|all>",
+    "python_class": "CloseLoan",
+    "markdown_url": "/llms.mdx/docs/tx/close-loan/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "close",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 779,
+        "end_line": 887,
+        "url": "/code/pallets/lending/src/lib.rs#L776-L887",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
   },
@@ -982,9 +1055,9 @@
         "pallet": "SubtensorModule",
         "call": "dispute_coldkey_swap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2469,
-        "end_line": 2486,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2467-L2486",
+        "line": 2470,
+        "end_line": 2487,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2468-L2487",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1398,9 +1471,9 @@
         "pallet": "SubtensorModule",
         "call": "lock_stake",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2670,
-        "end_line": 2678,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2668-L2678",
+        "line": 2671,
+        "end_line": 2679,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2669-L2679",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1445,9 +1518,9 @@
         "pallet": "SubtensorModule",
         "call": "move_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2694,
-        "end_line": 2701,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2692-L2701",
+        "line": 2695,
+        "end_line": 2702,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2693-L2702",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1879,6 +1952,97 @@
     "cli": "btcli tx multisig-threshold-1 --other-signatories <a,b,c> --call '<json>'",
     "python_class": "MultisigThreshold1",
     "markdown_url": "/llms.mdx/docs/tx/multisig-threshold-1/content.md"
+  },
+  {
+    "name": "open_loan",
+    "summary": "Open or increase a fixed-principal subnet loan at up to 25% LTV.",
+    "description": "Open or increase a fixed-principal subnet loan at up to 25% LTV.\n\nA short locks TAO collateral and receives freely usable alpha on its\nselected hotkey. Opening does not sell that alpha or lock sale proceeds.\nA long locks existing free alpha stake and receives transferable TAO.\nBorrowed assets may be sold, transferred or pledged elsewhere. Debt stays in the\nborrowed currency. Interest is 100% annually on opening loan value,\ncharged in fixed collateral units and collected weekly. There are no\nprice-triggered liquidations; exhausted collateral forfeits the position.\n\nAlpha debt must also fit 25% of collateral at a conservative immediate\nfunded-redemption valuation, including payout rounding. TAO debt requires\nconservative funded collateral backing. New borrowing must preserve each\nother same-side loan's individual coverage after accrued interest. These\nopening checks do not guarantee future repayment.\n\nAn existing position must have the same side and hotkey. `collateral`\nadds to its remaining collateral after accrued interest; borrowed principal,\nand the new fixed coupon add to the saved position.\nThe old coupon is not repriced. The combined position must pass current\nopening guards, and an already exhausted position cannot be increased.\n\n`min_borrow` is a floor on additional principal. The legacy wire field\n`min_proceeds` bounds the additional short's opening value in TAO,\nmarked at the lending EMA; it does not describe an actual sale.\nThe call is atomic and refuses a smaller loan or opening value. There remains one\nposition per coldkey and subnet; closing repays its total principal.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "open"
+      ]
+    ],
+    "docs_url": "/docs/tx/open-loan",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet to borrow against."
+        },
+        "side": {
+          "type": "string",
+          "description": "short: lock TAO; long: lock subnet alpha."
+        },
+        "collateral": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Additional collateral to lock: TAO for a short, alpha for a long."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey receiving short alpha or holding long collateral and repayment alpha."
+        },
+        "min_borrow": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Minimum additional principal: alpha for a short, TAO for a long."
+        },
+        "min_proceeds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Minimum additional short opening value in TAO; unused for longs."
+        }
+      },
+      "required": [
+        "netuid",
+        "side",
+        "collateral"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx open-loan --netuid <int> --side <value> --collateral <amount|all>",
+    "python_class": "OpenLoan",
+    "markdown_url": "/llms.mdx/docs/tx/open-loan/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "open",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 619,
+        "end_line": 772,
+        "url": "/code/pallets/lending/src/lib.rs#L616-L772",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "pow_register",
@@ -3588,9 +3752,9 @@
         "pallet": "SubtensorModule",
         "call": "set_min_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2910,
-        "end_line": 2917,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2908-L2917",
+        "line": 2911,
+        "end_line": 2918,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2909-L2918",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3635,9 +3799,9 @@
         "pallet": "SubtensorModule",
         "call": "set_perpetual_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2710,
-        "end_line": 2717,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2708-L2717",
+        "line": 2711,
+        "end_line": 2718,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2709-L2718",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3677,9 +3841,9 @@
         "pallet": "SubtensorModule",
         "call": "set_reject_locked_alpha",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2766,
-        "end_line": 2771,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2764-L2771",
+        "line": 2767,
+        "end_line": 2772,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2765-L2772",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4073,9 +4237,9 @@
         "pallet": "SubtensorModule",
         "call": "add_stake_burn",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2583,
-        "end_line": 2591,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2581-L2591",
+        "line": 2584,
+        "end_line": 2592,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2582-L2592",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4354,9 +4518,9 @@
         "pallet": "SubtensorModule",
         "call": "swap_coldkey_announced",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2422,
-        "end_line": 2458,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2420-L2458",
+        "line": 2423,
+        "end_line": 2459,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2421-L2459",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4735,9 +4899,9 @@
         "pallet": "SubtensorModule",
         "call": "transfer_stake_and_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2812,
-        "end_line": 2835,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2805-L2835",
+        "line": 2813,
+        "end_line": 2836,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2806-L2836",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]

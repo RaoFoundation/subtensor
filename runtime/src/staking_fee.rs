@@ -1,12 +1,14 @@
 //! Fee discounts that leave admission and execution weight alone.
 //!
-//! Four subsidies, applied per fee-bearing leaf call (descending through batch and
+//! Five subsidies, applied per fee-bearing leaf call (descending through batch and
 //! proxy wrappers whose declared weight includes their inner calls):
 //! 1. the `StakingHotkeys` scan is billed at [`STAKING_HOTKEYS_FEE_ALLOWANCE`] keys;
 //! 2. root claims are billed at [`ROOT_CLAIM_FEE_ALLOWANCE`] claim units;
 //! 3. basket deposits and trades are billed over [`BASKET_FEE_ALLOWANCE`] fund rows;
 //! 4. every call whose declared weight grew after spec 459 is billed at most its 459
 //!    declared weight ([`fee_weight_cap_459`]).
+//! 5. the lending-position guard on coldkey swap announcements keeps its full execution
+//!    weight, while its added database read is subsidized to preserve the existing fee.
 
 use crate::transaction_payment_wrapper::{FeeWeightDiscount, fee_dispatch_info};
 use crate::{Balance, Runtime, RuntimeCall, TransactionPayment, Weight};
@@ -193,12 +195,24 @@ fn claim_discount(call: &RuntimeCall) -> Weight {
     }
 }
 
+fn lending_guard_discount(call: &RuntimeCall) -> Weight {
+    match call {
+        RuntimeCall::SubtensorModule(SubtensorCall::announce_coldkey_swap { .. }) => {
+            // The dispatch declaration adds exactly this read for `has_positions`.
+            // Subsidize only its fee; admission and execution still account for it.
+            <Runtime as frame_system::Config>::DbWeight::get().reads(1)
+        }
+        _ => Weight::zero(),
+    }
+}
+
 /// The weight one leaf call is billed for, given its declared `call_weight`.
 pub fn leaf_fee_weight(call: &RuntimeCall, declared: Weight) -> Weight {
     let fee_weight = declared
         .saturating_sub(staking_scan_discount(call))
         .saturating_sub(claim_discount(call))
-        .saturating_sub(basket_discount(call));
+        .saturating_sub(basket_discount(call))
+        .saturating_sub(lending_guard_discount(call));
     match fee_weight_cap_459(call) {
         Some(cap) => fee_weight.min(cap),
         None => fee_weight,
@@ -381,6 +395,91 @@ mod tests {
 
     fn extension() -> Weight {
         <Runtime as pallet_subtensor::Config>::WeightInfo::check_coldkey_swap_extension()
+    }
+
+    fn announce_coldkey_swap() -> RuntimeCall {
+        RuntimeCall::SubtensorModule(SubtensorCall::announce_coldkey_swap {
+            new_coldkey_hash: Default::default(),
+        })
+    }
+
+    #[test]
+    fn lending_guard_preserves_announcement_fees_and_full_execution_weight() {
+        new_test_ext().execute_with(|| {
+            let call = announce_coldkey_swap();
+            let old_weight =
+                <Runtime as pallet_subtensor::Config>::WeightInfo::announce_coldkey_swap()
+                    .saturating_add(extension());
+            let guard_weight = <Runtime as frame_system::Config>::DbWeight::get().reads(1);
+            let info = call.get_dispatch_info();
+            assert_eq!(info.call_weight, old_weight.saturating_add(guard_weight));
+            assert_eq!(discount(&call), guard_weight);
+            assert_eq!(Runtime::fee_discount_overhead(&call), Weight::zero());
+            let old_info = DispatchInfo {
+                call_weight: old_weight,
+                ..info
+            };
+            let quote = query_info(&call, &info, 100, false);
+            assert_eq!(quote.weight, info.total_weight());
+            assert_eq!(
+                quote.partial_fee,
+                TransactionPayment::compute_fee(100, &old_info, Balance::ZERO)
+            );
+
+            let tip = Balance::new(1_000_000);
+            let payment = ChargeTransactionPaymentWrapper::<Runtime>::new(tip);
+            let info = DispatchInfo {
+                extension_weight: payment.weight(&call),
+                ..info
+            };
+            let old_info = DispatchInfo {
+                call_weight: old_weight,
+                ..info
+            };
+            let before = Balances::free_balance(signer());
+            let post = payment
+                .test_run(
+                    RuntimeOrigin::signed(signer()),
+                    &call,
+                    &info,
+                    100,
+                    0,
+                    |_| {
+                        Ok(PostDispatchInfo {
+                            actual_weight: Some(info.call_weight),
+                            pays_fee: Pays::Yes,
+                        })
+                    },
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                before.saturating_sub(Balances::free_balance(signer())),
+                TransactionPayment::compute_fee(100, &old_info, tip)
+            );
+            assert_eq!(
+                post.actual_weight,
+                Some(info.total_weight()),
+                "fee subsidy must not reclaim the lending guard's execution weight"
+            );
+        });
+    }
+
+    #[test]
+    fn wrapped_announcements_subsidize_each_lending_guard_once() {
+        new_test_ext().execute_with(|| {
+            let inner = announce_coldkey_swap();
+            let one = discount(&inner);
+            let call = RuntimeCall::Proxy(ProxyCall::proxy {
+                real: signer().into(),
+                force_proxy_type: None,
+                call: Box::new(RuntimeCall::Utility(UtilityCall::batch_all {
+                    calls: vec![inner.clone(), inner],
+                })),
+            });
+            assert_eq!(discount(&call), one.saturating_mul(2));
+            assert_eq!(Runtime::fee_discount_overhead(&call), Weight::zero());
+        });
     }
 
     /// Each claim call with the envelope its dispatch declares.

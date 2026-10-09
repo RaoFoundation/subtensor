@@ -414,5 +414,9 @@ mod errors {
         CommitPayloadTooLarge,
         /// The subnet's shared Null timelock queue has reached its byte or count budget.
         CommitQueueFull,
+        /// Lending custody is unavailable in this runtime.
+        LendingUnavailable,
+        /// Close lending positions before changing keys.
+        LendingPositionsOpen,
     }
 }

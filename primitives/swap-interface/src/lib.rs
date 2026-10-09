@@ -56,7 +56,43 @@ pub trait SwapHandler {
         netuid: NetUid,
         tao_delta: TaoBalance,
         alpha_delta: AlphaBalance,
-    ) -> (TaoBalance, AlphaBalance);
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError>;
+    /// Debit only globally unreachable reserve floors; the caller must transfer custody.
+    fn extract_unreachable_reserves(
+        _netuid: NetUid,
+    ) -> Result<(AlphaBalance, TaoBalance), DispatchError> {
+        Ok((AlphaBalance::ZERO, TaoBalance::ZERO))
+    }
+    /// Tighten a live curve around its current price to a global minimum price
+    /// response for a fee-free reference trade. Returns whether geometry changed.
+    /// The caller must separately transfer any newly unreachable reserve floors.
+    fn tune_min_price_impact(
+        _netuid: NetUid,
+        _reference: TaoBalance,
+        _bps: u16,
+    ) -> Result<bool, DispatchError> {
+        Err(DispatchError::Other("Price-impact tuning is unavailable"))
+    }
+    /// Conservative maximum gross TAO purchase input that fills completely.
+    fn max_buy_input(_netuid: NetUid) -> TaoBalance {
+        u64::MAX.into()
+    }
+    /// Cumulative extraction used by upgrade conservation checks.
+    fn extracted_tao(_netuid: NetUid) -> TaoBalance {
+        TaoBalance::ZERO
+    }
+    /// Read-only upgrade inspection: cumulative alpha/TAO extraction, an opaque
+    /// curve fingerprint, and whether any unreachable reserve can still be funded.
+    fn reserve_funding_state(
+        netuid: NetUid,
+    ) -> Result<(AlphaBalance, TaoBalance, [u8; 32], bool), DispatchError> {
+        Ok((
+            AlphaBalance::ZERO,
+            Self::extracted_tao(netuid),
+            [0; 32],
+            false,
+        ))
+    }
     fn protocol_alpha_reservoir(netuid: NetUid) -> AlphaBalance;
     fn protocol_tao_reservoir(netuid: NetUid) -> TaoBalance;
     fn clear_protocol_liquidity_reservoirs(netuid: NetUid);

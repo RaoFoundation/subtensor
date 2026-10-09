@@ -45,6 +45,7 @@ pub mod migrate_network_lock_cost_2500;
 pub mod migrate_network_lock_reduction_interval;
 pub mod migrate_orphaned_storage_items;
 pub mod migrate_pending_emissions;
+pub mod migrate_pool_lending;
 pub mod migrate_populate_locking_coldkeys;
 pub mod migrate_populate_owned_hotkeys;
 pub mod migrate_rao;

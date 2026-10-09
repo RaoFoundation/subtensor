@@ -68,9 +68,13 @@ describeSuite({
             test: async () => {
                 const stakeBefore = await devGetAlphaStake(polkadotJs, aliceHotKey.address, alice.address, netuid);
                 const taoBalanceBefore = (await polkadotJs.query.system.account(alice.address)).data.free.toBigInt();
+                const triggerPrice = BigInt(
+                    (await polkadotJs.call.swapRuntimeApi.currentAlphaPrice(netuid)).toString()
+                );
+                expect(triggerPrice).toBeGreaterThan(0n);
 
-                // limit_price = 100_000_000_000 (100.0 TAO/alpha in ×10⁹ scale) — safely above the
-                // actual pool price on the freshly registered dynamic subnet after devAddStake(tao(1000)).
+                // Trigger at the actual AMM price, including the finite curve's response to the
+                // setup purchase. A fixed Balancer-era threshold need not exceed that price.
                 // max_slippage is unset (None) so the effective AMM floor is 0; the limit_price here
                 // only controls the StopLoss trigger condition, not the swap execution price.
                 const signed = buildSignedOrder(polkadotJs, {
@@ -79,7 +83,7 @@ describeSuite({
                     netuid,
                     orderType: "StopLoss",
                     amount: tao(100),
-                    limitPrice: 100_000_000_000n,
+                    limitPrice: triggerPrice,
                     expiry: FAR_FUTURE,
                     feeRate: 0,
                     feeRecipient: alice.address,

@@ -327,6 +327,7 @@ impl pallet_subtensor_swap::Config for Runtime {
     type MaxFeeRate = SwapMaxFeeRate;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
+    type CurveInitializationWeight = SwapCurveInitializationWeight;
     type WeightInfo = ();
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
@@ -515,6 +516,7 @@ impl pallet_subtensor::Config for Runtime {
     type InitialEmaPriceHalvingPeriod = InitialEmaPriceHalvingPeriod;
     type InitialStartCallDelay = InitialStartCallDelay;
     type SwapInterface = Swap;
+    type LendingInterface = ();
     type KeySwapOnSubnetCost = InitialKeySwapOnSubnetCost;
     type HotkeySwapOnSubnetInterval = HotkeySwapOnSubnetInterval;
     type ProxyInterface = ();
@@ -669,3 +671,5 @@ pub(crate) fn substrate_to_evm(amount: u64) -> U256 {
         .expect("runtime balance conversion should work")
         .into_u256()
 }
+
+frame_support::parameter_types! { pub SwapCurveInitializationWeight: frame_support::weights::Weight = frame_support::weights::Weight::zero(); }

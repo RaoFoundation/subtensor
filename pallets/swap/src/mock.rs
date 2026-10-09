@@ -16,7 +16,7 @@ use sp_runtime::{
 };
 use std::{cell::RefCell, collections::HashMap};
 use subtensor_runtime_common::{
-    AlphaBalance, BalanceOps, NetUid, SubnetInfo, TaoBalance, TokenReserve,
+    AlphaBalance, BalanceOps, NetUid, SubnetInfo, TaoBalance, Token, TokenReserve,
 };
 use subtensor_swap_interface::Order;
 
@@ -67,6 +67,7 @@ parameter_types! {
     pub const MaxFeeRate: u16 = 10000; // 15.26%
     pub const MinimumLiquidity: u64 = 1_000;
     pub const MinimumReserves: NonZeroU64 = NonZeroU64::new(1).unwrap();
+    pub const CurveInitializationWeight: Weight = Weight::from_parts(0, 0);
 }
 
 thread_local! {
@@ -105,8 +106,14 @@ impl TokenReserve<TaoBalance> for TaoReserve {
         .into()
     }
 
-    fn increase_provided(_: NetUid, _: TaoBalance) {}
-    fn decrease_provided(_: NetUid, _: TaoBalance) {}
+    fn increase_provided(netuid: NetUid, amount: TaoBalance) {
+        let reserve = Self::reserve(netuid).saturating_add(amount);
+        Self::set_mock_reserve(netuid, reserve);
+    }
+    fn decrease_provided(netuid: NetUid, amount: TaoBalance) {
+        let reserve = Self::reserve(netuid).saturating_sub(amount);
+        Self::set_mock_reserve(netuid, reserve);
+    }
 }
 
 #[derive(Clone)]
@@ -135,8 +142,14 @@ impl TokenReserve<AlphaBalance> for AlphaReserve {
         }
     }
 
-    fn increase_provided(_: NetUid, _: AlphaBalance) {}
-    fn decrease_provided(_: NetUid, _: AlphaBalance) {}
+    fn increase_provided(netuid: NetUid, amount: AlphaBalance) {
+        let reserve = Self::reserve(netuid).saturating_add(amount);
+        Self::set_mock_reserve(netuid, reserve);
+    }
+    fn decrease_provided(netuid: NetUid, amount: AlphaBalance) {
+        let reserve = Self::reserve(netuid).saturating_sub(amount);
+        Self::set_mock_reserve(netuid, reserve);
+    }
 }
 
 pub type GetAlphaForTao = subtensor_swap_interface::GetAlphaForTao<TaoReserve, AlphaReserve>;
@@ -275,12 +288,15 @@ impl crate::pallet::Config for Test {
     type MinimumLiquidity = MinimumLiquidity;
     type MinimumReserve = MinimumReserves;
     type WeightInfo = ();
+    type CurveInitializationWeight = CurveInitializationWeight;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
 }
 
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
+    MOCK_TAO_RESERVES.with(|reserves| reserves.borrow_mut().clear());
+    MOCK_ALPHA_RESERVES.with(|reserves| reserves.borrow_mut().clear());
     sp_tracing::try_init_simple();
     let storage = system::GenesisConfig::<Test>::default()
         .build_storage()

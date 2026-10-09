@@ -15,6 +15,7 @@ pub(crate) use claim_root::RootClaimOutcome;
 pub mod decrease_take;
 pub mod helpers;
 pub mod increase_take;
+mod lending;
 pub mod lock;
 pub mod move_stake;
 pub mod order_swap;

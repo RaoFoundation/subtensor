@@ -74,9 +74,9 @@ fn get_total_alpha_value_undercounts_when_weight_limited() {
         let true_total = ref_status.subnet_total_alpha_value.unwrap();
         assert!(true_total > 0, "test setup produced no alpha value");
 
-        // --- Buggy path: tiny budget (2 reads/block), resumed via `last_key` across batches,
-        //     exactly as `on_idle` does block-by-block.
-        let per_block_budget = <Test as frame_system::Config>::DbWeight::get().reads(2);
+        // Tiny scan budget: two reads plus the row counter's read/write bookkeeping,
+        // resumed via `last_key` exactly as `on_idle` does block-by-block.
+        let per_block_budget = <Test as frame_system::Config>::DbWeight::get().reads_writes(3, 1);
         let mut status = dissolve_cleanup_status(netuid);
         let mut last_key: Option<Vec<u8>> = None;
         let mut batches = 0u32;

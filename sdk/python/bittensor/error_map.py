@@ -44,6 +44,32 @@ class ErrorCode(str, Enum):
 _C = ErrorCode
 
 NAME_TO_CODE: dict[str, ErrorCode] = {
+    # ── Reserve lending ────────────────────────────────────────────────
+    "Disabled": _C.DISABLED,
+    "SubnetUnavailable": _C.SUBNET_NOT_EXISTS,
+    "ReferenceUnavailable": _C.TOO_EARLY,
+    "ReferenceWarmingUp": _C.TOO_EARLY,
+    "PositionExists": _C.ALREADY_EXISTS,
+    "PositionMissing": _C.NOT_FOUND,
+    "AmountTooSmall": _C.INVALID_ARGUMENT,
+    "InsufficientReserves": _C.INSUFFICIENT_LIQUIDITY,
+    "BorrowingLimit": _C.LIMIT_EXCEEDED,
+    "TooManyPositions": _C.LIMIT_EXCEEDED,
+    "TooManySubnets": _C.LIMIT_EXCEEDED,
+    "BelowMinimumBorrow": _C.INSUFFICIENT_LIQUIDITY,
+    "BelowMinimumProceeds": _C.INSUFFICIENT_LIQUIDITY,
+    "AboveMaximumPayment": _C.INSUFFICIENT_LIQUIDITY,
+    "BelowMinimumRefund": _C.INSUFFICIENT_LIQUIDITY,
+    "InsufficientEscrow": _C.INSUFFICIENT_BALANCE,
+    "InvalidQuote": _C.INSUFFICIENT_LIQUIDITY,
+    "Arithmetic": _C.INTERNAL,
+    "CustodyUnavailable": _C.INTERNAL,
+    "AlreadyDissolving": _C.TOO_EARLY,
+    "LendingUnavailable": _C.DISABLED,
+    "LendingPositionsOpen": _C.POLICY_VIOLATION,
+    "RedemptionUnavailable": _C.TOO_EARLY,
+    "InsufficientRedemptionBacking": _C.INSUFFICIENT_LIQUIDITY,
+    "InvalidPriceImpact": _C.INVALID_ARGUMENT,
     # ── System ──────────────────────────────────────────────────────────
     "InvalidSpecName": _C.INVALID_ARGUMENT,
     "SpecVersionNeedsToIncrease": _C.INVALID_ARGUMENT,

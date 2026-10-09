@@ -758,6 +758,13 @@ fn test_terminate_lease_settles_deferred_dividends() {
         let contributor_before = stake(&contributor);
 
         run_to_block(end_block);
+        // The test controls transfer eligibility at settlement, after the intervening
+        // emission swaps have been allowed to move the AMM price.
+        mock::setup_reserves(
+            lease.netuid,
+            100_000_000_000_u64.into(),
+            1_000_000_000_000_u64.into(),
+        );
         let hotkey = U256::from(3);
         let _ = SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
         assert_ok!(SubtensorModule::terminate_lease(

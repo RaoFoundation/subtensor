@@ -17,6 +17,7 @@ use pallet_drand::Call as DrandCall;
 use pallet_ethereum::Call as EthereumCall;
 use pallet_evm::Call as EvmCall;
 use pallet_grandpa::Call as GrandpaCall;
+use pallet_lending::Call as LendingCall;
 use pallet_limit_orders::Call as LimitOrdersCall;
 use pallet_multisig::Call as MultisigCall;
 use pallet_preimage::Call as PreimageCall;
@@ -136,6 +137,16 @@ call_filter_group!(
         RuntimeCall::Swap(SwapCall::modify_position),
         RuntimeCall::Swap(SwapCall::disable_lp),
         RuntimeCall::Swap(SwapCall::set_fee_rate),
+    ]
+);
+
+// Loans move collateral and borrowed value. Keep them inventory-only so an
+// existing restricted proxy does not gain borrowing or repayment authority.
+call_filter_group!(
+    LendingValueCalls,
+    [
+        RuntimeCall::Lending(LendingCall::open),
+        RuntimeCall::Lending(LendingCall::close),
     ]
 );
 
@@ -573,6 +584,8 @@ call_filter_group!(
 call_filter_group!(
     RootConfigCalls,
     [
+        RuntimeCall::Lending(LendingCall::set_enabled),
+        RuntimeCall::Lending(LendingCall::set_min_price_impact),
         RuntimeCall::AdminUtils(AdminUtilsCall::swap_authorities),
         RuntimeCall::AdminUtils(AdminUtilsCall::schedule_grandpa_change),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_default_take),
@@ -715,6 +728,7 @@ type WholesalePalletCalls = (
     EvmCalls,
     CrowdloanCalls,
     ContractsCalls,
+    LendingValueCalls,
 );
 
 // Balances + pallet-subtensor, split by proxy membership.

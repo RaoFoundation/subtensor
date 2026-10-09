@@ -39,6 +39,12 @@ pub trait WeightInfo {
     // Reference CI replaces these fallback aliases before release.
     fn pow_register() -> Weight { Self::register() }
     fn check_pow_registration() -> Weight { Self::register() }
+    /// Two extraction square roots and exact custody transfers, using reference envelopes.
+    fn fund_lending_reserves() -> Weight {
+        let cpu = Self::remove_stake().saturating_sub(RocksDbWeight::get().reads_writes(39, 16));
+        Weight::from_parts(cpu.ref_time(), 0).saturating_mul(3)
+            .saturating_add(Self::transfer_stake().saturating_mul(2))
+    }
 	fn register() -> Weight;
 	fn set_weights() -> Weight;
 	fn add_stake() -> Weight;

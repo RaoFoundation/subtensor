@@ -34,6 +34,14 @@ impl<T: Config> Pallet<T> {
                 .saturating_add(T::DbWeight::get().writes(39_u64))
         };
         base.saturating_add(Self::basket_claimed_swap_weight(old_hotkey, netuid))
+            .saturating_add(T::DbWeight::get().reads(2))
+            .saturating_add(if !keep_stake && <T::LendingInterface as pallet_lending::LendingInterface<T::AccountId>>::has_hotkey_positions(old_hotkey) {
+                // Lending globally bounds this scan independently of stake rows.
+                T::DbWeight::get().reads_writes(
+                    u64::from(<T::LendingInterface as pallet_lending::LendingInterface<T::AccountId>>::max_positions()).saturating_add(3),
+                    u64::from(<T::LendingInterface as pallet_lending::LendingInterface<T::AccountId>>::max_positions()).saturating_add(2),
+                )
+            } else { Weight::zero() })
     }
 
     /// Pre-dispatch weight for moving basket rows on a root-touching hotkey swap.
@@ -92,7 +100,7 @@ impl<T: Config> Pallet<T> {
             }
             _ => 0,
         };
-        T::DbWeight::get().reads(basket_rows.saturating_add(20))
+        T::DbWeight::get().reads(basket_rows.saturating_add(23))
     }
 
     /// Read and merge the old hotkey's V1/V2 stake rows once. V2 keeps the
@@ -164,6 +172,12 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResultWithPostInfo {
         // // 1. Ensure the origin is signed and get the coldkey
         let coldkey = ensure_signed(origin)?;
+        ensure!(
+            !<T::LendingInterface as pallet_lending::LendingInterface<T::AccountId>>::has_positions(
+                &coldkey
+            ),
+            Error::<T>::LendingPositionsOpen
+        );
 
         // 2-8. Read-only pre-checks. A single-subnet swap refused here is charged those
         // reads, not the benchmarked stake-moving envelope. An all-subnet swap's checks walk
@@ -385,7 +399,7 @@ impl<T: Config> Pallet<T> {
 
                 // Per-subnet path after common checks.
                 if let Some(netuid) = netuid {
-                    return Self::swap_hotkey_on_subnet(
+                    let result = Self::swap_hotkey_on_subnet(
                         &coldkey,
                         old_hotkey,
                         new_hotkey,
@@ -393,7 +407,11 @@ impl<T: Config> Pallet<T> {
                         weight,
                         keep_stake,
                         prepared_stake.as_ref(),
-                    );
+                    )?;
+                    if !keep_stake {
+                        <T::LendingInterface as pallet_lending::LendingInterface<T::AccountId>>::on_hotkey_swap(old_hotkey, new_hotkey, Some(netuid))?;
+                    }
+                    return Ok(result);
                 }
 
                 // All-subnets path: enforce per-subnet hotkey-swap cooldown.
@@ -505,6 +523,10 @@ impl<T: Config> Pallet<T> {
                     old_hotkey: old_hotkey.clone(),
                     new_hotkey: new_hotkey.clone(),
                 });
+
+                if !keep_stake {
+                    <T::LendingInterface as pallet_lending::LendingInterface<T::AccountId>>::on_hotkey_swap(old_hotkey, new_hotkey, netuid)?;
+                }
 
                 // Stake-moving paths retain the generated pre-dispatch benchmark weight.
                 // `keep_stake` does not inspect stake prefixes and may keep its dynamic refund.

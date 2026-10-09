@@ -238,7 +238,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 477,
+    spec_version: 478,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1057,6 +1057,7 @@ impl pallet_subtensor::Config for Runtime {
     type InitialEmaPriceHalvingPeriod = InitialEmaPriceHalvingPeriod;
     type InitialStartCallDelay = InitialStartCallDelay;
     type SwapInterface = Swap;
+    type LendingInterface = Lending;
     type KeySwapOnSubnetCost = SubtensorInitialKeySwapOnSubnetCost;
     type HotkeySwapOnSubnetInterval = HotkeySwapOnSubnetInterval;
     type ProxyInterface = Proxier;
@@ -1089,6 +1090,7 @@ impl pallet_subtensor_swap::Config for Runtime {
     type MaxFeeRate = SwapMaxFeeRate;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
+    type CurveInitializationWeight = SwapCurveInitializationWeight;
     type WeightInfo = pallet_subtensor_swap::weights::SubstrateWeight<Runtime>;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = SwapBenchmarkHelper;
@@ -1483,6 +1485,99 @@ fn limit_order_signers_are_blocked_during_recovery_or_dispute() {
     });
 }
 
+// Fixed-principal subnet lending. Time constants use the chain's 12-second blocks.
+parameter_types! {
+    pub const LendingPalletId: PalletId = PalletId(*b"bt/loans");
+    pub const LendingMinimumLoanValue: u64 = 1_000_000_000;
+    pub const LendingInterestPeriod: BlockNumber = 50_400;
+    pub const LendingBlocksPerYear: u64 = 2_628_000;
+    pub const LendingReferenceWarmup: BlockNumber = 7_200;
+    pub const LendingMaxPositionsPerSubnet: u32 = 128;
+    pub const LendingMaxTotalPositions: u32 = 256;
+    pub const LendingMaxFundedSubnets: u32 = 256;
+}
+
+/// Conservative compositions of existing reference measurements. New dispatch and hook
+/// benchmarks are registered for replacement on the repository's reference hardware.
+/// Multipliers count bounded quote evaluations and transfers, rather than invented timings.
+pub struct LendingWeights;
+impl pallet_lending::weights::WeightInfo for LendingWeights {
+    fn open() -> Weight {
+        // Retain the existing conservative swap-quote envelope and cover every existing
+        // loan read by either admission guard with a measured transfer envelope. Cover
+        // an increase's additional coupon transfer and pending-fee accounting,
+        // the iterator's terminal read, aggregate-supply/readiness hook, and the
+        // alpha guard's eight-read funded-redemption snapshot.
+        let scan = (LendingMaxPositionsPerSubnet::get() as u64).saturating_add(1);
+        <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::add_stake().saturating_mul(66)
+            .saturating_add(<pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::transfer_stake().saturating_mul(5_u64.saturating_add(scan)))
+            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(40,16))
+    }
+    fn close() -> Weight {
+        <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::add_stake().saturating_mul(780)
+            .saturating_add(<pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::transfer_stake().saturating_mul(5))
+            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(16,12))
+    }
+    fn set_enabled() -> Weight {
+        <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::sudo_set_root_claim_threshold()
+    }
+    fn set_min_price_impact() -> Weight {
+        // A bounded Q32 search has at most 34 global-bound evaluations. Reuse
+        // measured swap arithmetic and reserve-funding envelopes; no local timings.
+        <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::add_stake().saturating_mul(36)
+            .saturating_add(<pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::fund_lending_reserves())
+            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(12, 4))
+    }
+    fn collect() -> Weight {
+        // Retain the measured swap/transfer envelope for bounded alpha-fee quotes,
+        // sale plus exact burn, and the independent pending-TAO burn attempt.
+        <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::add_stake().saturating_mul(130)
+            .saturating_add(<pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::transfer_stake().saturating_mul(5))
+            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(21,16))
+    }
+    fn update_reference() -> Weight {
+        // EMA logarithm/exponential arithmetic fits the existing swap CPU envelope.
+        // Its quote storage accesses do not occur here; account for EMA storage separately.
+        let reference = <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::add_stake();
+        let cpu = reference.saturating_sub(
+            <Runtime as frame_system::Config>::DbWeight::get().reads_writes(35, 18),
+        );
+        Weight::from_parts(cpu.ref_time(), 0)
+            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(10, 1))
+    }
+    fn settle() -> Weight {
+        // Alpha-debt cash settlement also reads its frozen ordinary redemption basis.
+        <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::transfer_stake().saturating_mul(4)
+            .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads_writes(17,12))
+    }
+}
+
+impl pallet_lending::Config for Runtime {
+    type Pool = SubtensorModule;
+    type PalletId = LendingPalletId;
+    type MinimumLoanValue = LendingMinimumLoanValue;
+    type InterestPeriod = LendingInterestPeriod;
+    type BlocksPerYear = LendingBlocksPerYear;
+    type ReferenceWarmup = LendingReferenceWarmup;
+    type MaxPositionsPerSubnet = LendingMaxPositionsPerSubnet;
+    type MaxTotalPositions = LendingMaxTotalPositions;
+    type MaxFundedSubnets = LendingMaxFundedSubnets;
+    type WeightInfo = LendingWeights;
+}
+
+pub struct SwapCurveInitializationWeight;
+impl Get<Weight> for SwapCurveInitializationWeight {
+    fn get() -> Weight {
+        let reference = <pallet_subtensor::weights::SubstrateWeight<Runtime> as pallet_subtensor::weights::WeightInfo>::remove_stake();
+        let cpu = reference.saturating_sub(
+            <Runtime as frame_system::Config>::DbWeight::get().reads_writes(39, 16),
+        );
+        // Retain the conservative reference CPU envelope for baseline curve initialization.
+        // Initialization computes in memory; database work is accounted separately.
+        Weight::from_parts(cpu.ref_time(), 0).saturating_mul(40)
+    }
+}
+
 impl pallet_limit_orders::Config for Runtime {
     type SwapInterface = SubtensorModule;
     type OrderSignerFilter = LimitOrderSignerFilter;
@@ -1631,6 +1726,7 @@ construct_runtime!(
         MevShield: pallet_shield = 30,
         AlphaAssets: pallet_alpha_assets = 31,
         LimitOrders: pallet_limit_orders = 32,
+        Lending: pallet_lending = 33,
     }
 );
 
@@ -1723,6 +1819,8 @@ type Migrations = (
     pallet_subtensor::migrations::migrate_resync_total_stake::resync_total_stake_v2::Migration<
         Runtime,
     >,
+    pallet_subtensor_swap::migrations::migrate_balancer_to_superellipse::Migration<Runtime>,
+    pallet_subtensor::migrations::migrate_pool_lending::Migration<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.
@@ -1766,6 +1864,7 @@ mod benches {
         [pallet_drand, Drand]
         [pallet_crowdloan, Crowdloan]
         [pallet_subtensor_swap, Swap]
+        [pallet_lending, Lending]
         [pallet_shield, MevShield]
         [pallet_subtensor_proxy, Proxy]
         [pallet_subtensor_utility, Utility]
@@ -1815,6 +1914,18 @@ fn generate_genesis_json() -> Vec<u8> {
 type EventRecord = frame_system::EventRecord<RuntimeEvent, Hash>;
 
 impl_runtime_apis! {
+    impl pallet_lending_runtime_api::LendingRuntimeApi<Block, AccountId> for Runtime {
+        fn quote_open(netuid: u16, side: pallet_lending::Side, collateral: u64) -> Result<pallet_lending::OpeningQuote, sp_runtime::DispatchError> {
+            Lending::quote_open(netuid.into(), side, collateral)
+        }
+        fn quote_open_for(owner: AccountId, netuid: u16, side: pallet_lending::Side, collateral: u64, hotkey: AccountId) -> Result<pallet_lending::OpeningQuote, sp_runtime::DispatchError> {
+            Lending::quote_open_for(&owner, netuid.into(), side, collateral, &hotkey)
+        }
+        fn quote_close(owner: AccountId, netuid: u16, repay_from_wallet: bool) -> Result<pallet_lending::ClosingQuote, sp_runtime::DispatchError> {
+            Lending::quote_close(&owner, netuid.into(), repay_from_wallet)
+        }
+    }
+
     impl sp_api::Core<Block> for Runtime {
         fn version() -> RuntimeVersion {
             VERSION
@@ -2898,3 +3009,6 @@ fn test_into_evm_balance_overflow() {
     let result = SubtensorEvmBalanceConverter::into_evm_balance(substrate_balance);
     assert_eq!(result, Some(expected_evm_balance)); // Should return the scaled value
 }
+
+#[cfg(test)]
+mod lending_weight_tests;

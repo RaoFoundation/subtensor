@@ -53,7 +53,7 @@ type SubnetLeaseAllowed = (
 /// Contracts, and Crowdloan calls that can move value indirectly, Multisig
 /// wrappers (they re-dispatch on a fresh origin that drops this filter),
 /// `MevShield::store_encrypted` (decrypt-and-dispatch drops the filter),
-/// owner-key rotation, and basket trading (which needs the explicit
+/// owner-key rotation, lending, and basket trading (which needs the explicit
 /// `BasketTrading` grant). Sudo is excluded because a sudo-key principal
 /// would otherwise hand the delegate root, including forced transfers.
 /// `SudoCalls` is inventory-only: no restricted proxy grants it.
@@ -77,7 +77,7 @@ type NonTransferAllowed = (
 
 /// `NonFungible`: nothing that moves, locks, burns or spends TAO/alpha, no key
 /// swaps, no sudo, no Multisig wrappers (fresh-origin re-dispatch), no
-/// `store_encrypted`, and no owner-key rotation.
+/// `store_encrypted`, no lending, and no owner-key rotation.
 type NonFungibleAllowed = (
     InfraCommonCalls,
     AdminAll,
@@ -96,6 +96,7 @@ type NonFungibleAllowed = (
 /// wrappers (they re-dispatch a caller-supplied call as the real coldkey),
 /// Multisig wrappers, `store_encrypted`, owner-key rotation, or basket
 /// trading (which needs the explicit `BasketTrading` grant).
+/// Lending stays inventory-only; existing delegates gain no new loan authority.
 type NonCriticalAllowed = (
     InfraCommonCalls,
     EvmCalls,
@@ -324,7 +325,7 @@ mod tests {
             | &(&group_calls::<StakeTransferCalls>() | &group_calls::<ColdkeySwapCalls>());
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SudoCalls, MultisigCalls)>();
-        let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<(BasketTradingCalls, LendingValueCalls)>();
         let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
@@ -343,7 +344,7 @@ mod tests {
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SubtensorValueCalls, SudoCalls)>();
         let denied = &denied | &group_calls::<MultisigCalls>();
-        let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<(BasketTradingCalls, LendingValueCalls)>();
         let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
@@ -536,12 +537,111 @@ mod tests {
             | &(&group_calls::<RootRegistrationCalls>() | &group_calls::<CriticalNetworkCalls>()))
             | &group_calls::<ColdkeySwapCalls>();
         let denied = &denied | &group_calls::<(CrowdloanCalls, MultisigCalls)>();
-        let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<(BasketTradingCalls, LendingValueCalls)>();
         let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied
         );
+    }
+
+    #[test]
+    fn lending_value_calls_require_any_proxy_and_metadata_agrees() {
+        use subtensor_runtime_common::{AccountId, NetUid};
+
+        let netuid = NetUid::from(1);
+        let calls = [
+            RuntimeCall::Lending(pallet_lending::Call::open {
+                netuid,
+                side: pallet_lending::Side::Short,
+                collateral: 1_000_000_000,
+                hotkey: AccountId::new([7; 32]),
+                min_borrow: 1,
+                min_proceeds: 0,
+            }),
+            RuntimeCall::Lending(pallet_lending::Call::open {
+                netuid,
+                side: pallet_lending::Side::Long,
+                collateral: 1_000_000_000,
+                hotkey: AccountId::new([7; 32]),
+                min_borrow: 1,
+                min_proceeds: 0,
+            }),
+            RuntimeCall::Lending(pallet_lending::Call::close {
+                netuid,
+                repay_from_wallet: false,
+                max_payment: u64::MAX,
+                min_refund: 0,
+            }),
+        ];
+        assert_eq!(
+            group_calls::<LendingValueCalls>(),
+            expected(&["Lending::open", "Lending::close"])
+        );
+        for proxy_type in all_proxy_types() {
+            let advertised = allowed_calls(proxy_type);
+            for call in &calls {
+                let metadata = call.get_call_metadata();
+                let name = format!("{}::{}", metadata.pallet_name, metadata.function_name);
+                let expected = proxy_type == ProxyType::Any;
+                assert_eq!(proxy_type.filter(call), expected, "{proxy_type:?}: {name}");
+                assert_eq!(
+                    advertised.contains(&name),
+                    expected,
+                    "{proxy_type:?}: {name}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn lending_root_configuration_remains_inert_for_signed_proxies() {
+        use subtensor_runtime_common::AccountId;
+
+        let calls = [
+            RuntimeCall::Lending(pallet_lending::Call::set_enabled { enabled: true }),
+            RuntimeCall::Lending(pallet_lending::Call::set_min_price_impact {
+                netuid: 1.into(),
+                bps: 100,
+            }),
+        ];
+        for call in &calls {
+            assert!(RootConfigCalls::contains(call));
+            let metadata = call.get_call_metadata();
+            let name = format!("{}::{}", metadata.pallet_name, metadata.function_name);
+            for proxy_type in all_proxy_types() {
+                let expected = matches!(
+                    proxy_type,
+                    ProxyType::Any
+                        | ProxyType::NonTransfer
+                        | ProxyType::NonFungible
+                        | ProxyType::NonCritical
+                );
+                assert_eq!(proxy_type.filter(call), expected, "{proxy_type:?}: {name}");
+                assert_eq!(
+                    allowed_calls(proxy_type).contains(&name),
+                    expected,
+                    "{proxy_type:?}: {name}"
+                );
+            }
+        }
+
+        // An advertised root-admin grant never upgrades a proxy's signed origin.
+        sp_io::TestExternalities::default().execute_with(|| {
+            let owner = AccountId::new([7; 32]);
+            assert_eq!(
+                crate::Lending::set_enabled(crate::RuntimeOrigin::signed(owner.clone()), true),
+                Err(sp_runtime::DispatchError::BadOrigin)
+            );
+            assert_eq!(
+                crate::Lending::set_min_price_impact(
+                    crate::RuntimeOrigin::signed(owner),
+                    1.into(),
+                    100,
+                ),
+                Err(sp_runtime::DispatchError::BadOrigin)
+            );
+        });
     }
 
     #[test]

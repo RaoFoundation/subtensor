@@ -700,6 +700,21 @@ impl<T: Config> Pallet<T> {
         let r = T::DbWeight::get().reads(1);
         let mut read_all = true;
 
+        // Keep the resumable row count outside the codec-frozen cleanup status.
+        // Ordinary largest-remainder payouts can add at most one rao per row;
+        // lending uses this count as a conservative terminal rounding allowance.
+        if weight_meter
+            .try_consume(T::DbWeight::get().reads_writes(1, 1))
+            .is_err()
+        {
+            return (false, last_key);
+        }
+        let mut eligible_rows = if status.subnet_total_alpha_value.is_some() {
+            DissolutionEligibleAlphaRows::<T>::get(netuid)
+        } else {
+            0
+        };
+
         let mut total_alpha_value_u128: u128;
 
         if let Some(value) = status.subnet_total_alpha_value {
@@ -780,6 +795,7 @@ impl<T: Config> Pallet<T> {
                 if val_u64 > 0 {
                     let val_u128 = val_u64 as u128;
                     total_alpha_value_u128 = total_alpha_value_u128.saturating_add(val_u128);
+                    eligible_rows = eligible_rows.saturating_add(1);
                 }
             }
 
@@ -791,29 +807,62 @@ impl<T: Config> Pallet<T> {
         }
 
         status.subnet_total_alpha_value = Some(total_alpha_value_u128);
+        DissolutionEligibleAlphaRows::<T>::insert(netuid, eligible_rows);
 
         (read_all, last_completed_key)
     }
 
+    /// Payout accounting and lending recovery commit together; failed currency transfers
+    /// or callbacks retry this page without claiming an unfunded distribution.
     pub fn destroy_alpha_in_out_stakes_settle_stakes(
         netuid: NetUid,
         weight_meter: &mut WeightMeter,
         last_key: Option<Vec<u8>>,
         status: &mut DissolveCleanupStatus,
     ) -> (bool, Option<Vec<u8>>) {
+        use frame_support::storage::{TransactionOutcome, with_transaction};
+        let before = status.clone();
+        let retry = last_key.clone();
+        let result = with_transaction(|| {
+            let result = Self::settle_alpha_payouts(netuid, weight_meter, last_key, status);
+            if result.is_ok() {
+                TransactionOutcome::Commit(result)
+            } else {
+                TransactionOutcome::Rollback(result)
+            }
+        });
+        match result {
+            Ok(done) => done,
+            Err(error) => {
+                *status = before;
+                log::warn!("Dissolution payout {netuid:?} will retry: {error:?}");
+                (false, retry)
+            }
+        }
+    }
+
+    fn settle_alpha_payouts(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+        status: &mut DissolveCleanupStatus,
+    ) -> Result<(bool, Option<Vec<u8>>), DispatchError> {
         let r = T::DbWeight::get().reads(1);
         let w = T::DbWeight::get().writes(1);
-        let weight_for_tansfer_tao = T::DbWeight::get().reads_writes(11, 3);
+        let weight_for_tansfer_tao = T::DbWeight::get()
+            .reads_writes(20, 5)
+            // A lending fee recipient also burns its actual redemption receipt.
+            .saturating_add(<T as Config>::WeightInfo::transfer_stake().saturating_mul(4));
         let mut read_all = true;
 
         let mut stakers: Vec<(T::AccountId, T::AccountId, u128)> = Vec::new();
         let Some(total_alpha_value_u128) = status.subnet_total_alpha_value else {
             log::warn!("DissolveCleanupStatus.subnet_total_alpha_value not set");
-            return (false, None);
+            return Ok((false, None));
         };
         let Some(mut distributed_tao_value_u128) = status.subnet_distributed_tao else {
             log::warn!("DissolveCleanupStatus.subnet_distributed_tao not set");
-            return (false, None);
+            return Ok((false, None));
         };
 
         let mut hotkeys_in_subnet: Vec<T::AccountId> = Vec::new();
@@ -878,7 +927,7 @@ impl<T: Config> Pallet<T> {
                     let mut need_to_consume_weight = w;
 
                     // if the coldkey is not in the set, we need to consume the weight for the transfer_tao_from_subnet function call
-                    if !coldkeys.contains(&cold) {
+                    if cold == Self::get_beta_escrow_account_id() || !coldkeys.contains(&cold) {
                         need_to_consume_weight =
                             need_to_consume_weight.saturating_add(weight_for_tansfer_tao);
                         coldkeys.insert(cold.clone());
@@ -909,8 +958,9 @@ impl<T: Config> Pallet<T> {
         let pot_u64: u64 = pot_tao.into();
 
         struct Portion<A, C> {
-            _hot: A,
+            hot: A,
             cold: C,
+            alpha: AlphaBalance,
             share: u64, // TAO to credit to coldkey balance
             rem: u128,  // remainder for largest‑remainder method
         }
@@ -933,8 +983,12 @@ impl<T: Config> Pallet<T> {
                 let rem: u128 = prod.checked_rem(total_alpha_value_u128).unwrap_or_default();
                 total_rem = total_rem.saturating_add(rem);
                 portions.push(Portion {
-                    _hot: hot.clone(),
+                    hot: hot.clone(),
                     cold: cold.clone(),
+                    alpha: AlphaBalance::from(
+                        u64::try_from(*alpha_val)
+                            .map_err(|_| Error::<T>::NotEnoughStakeToWithdraw)?,
+                    ),
                     share: share_u64,
                     rem,
                 });
@@ -958,7 +1012,45 @@ impl<T: Config> Pallet<T> {
 
             // Aggregate the transfer amount for each coldkey
             let mut transfer_map = BTreeMap::<T::AccountId, TaoBalance>::new();
+            let basket_escrow = Self::get_beta_escrow_account_id();
             for p in portions {
+                if p.cold == basket_escrow {
+                    // Retire this already-valued alpha before crediting cash. Otherwise a
+                    // root claim between cleanup pages could observe both representations.
+                    let removed = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                        &p.hot,
+                        &basket_escrow,
+                        netuid,
+                        p.alpha,
+                    );
+                    ensure!(removed == p.alpha, Error::<T>::NotEnoughStakeToWithdraw);
+                    // A finite curve endpoint can leave a basket holding unsold.
+                    // Its funded redemption still belongs to this validator's fund,
+                    // rather than the shared escrow's unassigned free balance.
+                    let root = Self::get_subnet_account_id(NetUid::ROOT)
+                        .ok_or(Error::<T>::RootNetworkDoesNotExist)?;
+                    let tao = TaoBalance::from(p.share);
+                    let subnet =
+                        Self::get_subnet_account_id(netuid).ok_or(Error::<T>::SubnetNotExists)?;
+                    let credited = Self::transfer_lending_tao_or_recycle_dust(&subnet, &root, tao)?;
+                    if !credited.is_zero() {
+                        Self::credit_root_slot(&p.hot, &basket_escrow, credited);
+                        Self::deposit_event(Event::BasketHoldingConverted {
+                            hotkey: p.hot,
+                            netuid,
+                            tao: credited,
+                        });
+                    } else {
+                        Self::deposit_event(Event::DissolutionDustRecycled {
+                            netuid,
+                            recipient: basket_escrow.clone(),
+                            amount: tao,
+                        });
+                    }
+                    distributed_tao_value_u128 =
+                        distributed_tao_value_u128.saturating_add(u128::from(p.share));
+                    continue;
+                }
                 if transfer_map.contains_key(&p.cold) {
                     transfer_map.insert(
                         p.cold.clone(),
@@ -974,17 +1066,27 @@ impl<T: Config> Pallet<T> {
 
             // Credit each share directly to coldkey free balance.
             for transfer in transfer_map.iter() {
-                // Cannot fail the whole transaction if this transfer fails
+                let subnet =
+                    Self::get_subnet_account_id(netuid).ok_or(Error::<T>::SubnetNotExists)?;
+                let credited =
+                    Self::transfer_lending_tao_or_recycle_dust(&subnet, transfer.0, *transfer.1)?;
+                if credited < *transfer.1 {
+                    Self::deposit_event(Event::DissolutionDustRecycled {
+                        netuid,
+                        recipient: transfer.0.clone(),
+                        amount: transfer.1.saturating_sub(credited),
+                    });
+                }
+                <T::LendingInterface as pallet_lending::LendingInterface<T::AccountId>>::on_alpha_redemption(netuid, transfer.0, credited)?;
                 distributed_tao_value_u128 = distributed_tao_value_u128
                     .saturating_add(transfer.1.to_u128().unwrap_or(0_u128));
-                let _ = Self::transfer_tao_from_subnet(netuid, transfer.0, *transfer.1);
             }
         }
 
         // ignore the weight for handling the final operation, we must set the correct status for the next run
         status.subnet_distributed_tao = Some(distributed_tao_value_u128);
 
-        (read_all, last_completed_key)
+        Ok((read_all, last_completed_key))
     }
 
     pub fn destroy_alpha_in_out_stakes_clean_alpha(

@@ -19,6 +19,10 @@ const LOW_EDGE_CEILING = 20_000_000_000_000_000n;
 // reserve ratio itself).
 const EDGE_TAO_RESERVE = 1_000_000_000n;
 const EDGE_ALPHA_RESERVE = 1_000_000_000_000n;
+const PERQUINTILL = 1_000_000_000_000_000_000n;
+const Q32 = 1n << 32n;
+const Q64 = 1n << 64n;
+const SUPERELLIPSE_FIELDS = "(u128,u128,i128,i128)";
 
 const keyring = new Keyring({ type: "sr25519" });
 const alice = keyring.addFromUri(process.env.SUDO_URI ?? "//Alice");
@@ -118,6 +122,8 @@ function assertMetadataAvailable() {
     ["Swap.BalancerAlphaReservoir", api.query.swap?.balancerAlphaReservoir],
     ["Sudo.sudo", api.tx.sudo?.sudo],
     ["System.setStorage", api.tx.system?.setStorage],
+    ["System.killStorage", api.tx.system?.killStorage],
+    ["Utility.batchAll", api.tx.utility?.batchAll],
   ].filter(([, value]) => !value);
 
   assert.equal(
@@ -167,6 +173,14 @@ async function runEdgeWeightScenario(netuid, quoteWeight, label) {
   const { blockHash } = await sudoSetStorage(
     [
       [api.query.swap.swapBalancer.key(netuid), balancerValueHex(quoteWeight)],
+      // The live pool now uses a cached translated ellipse. Changing only its
+      // reserves and archived Balancer weight would place it outside its domain.
+      // Match Superellipse::from_weights at these same forced reserve amounts;
+      // this tiny pool cannot execute the 500-TAO calibration reference.
+      ...(api.query.swap.swapSuperellipse ? [[
+        api.query.swap.swapSuperellipse.key(netuid),
+        superellipseValueHex(EDGE_ALPHA_RESERVE, EDGE_TAO_RESERVE, quoteWeight),
+      ]] : []),
       [api.query.subtensorModule.subnetTAO.key(netuid), storageValueHex("u64", EDGE_TAO_RESERVE)],
       [api.query.subtensorModule.subnetAlphaIn.key(netuid), storageValueHex("u64", EDGE_ALPHA_RESERVE)],
       [api.query.swap.balancerTaoReservoir.key(netuid), storageValueHex("u64", 0n)],
@@ -269,6 +283,10 @@ async function emissionSnapshot(netuid, blockHash = null) {
   const taoBig = tao.toBigInt();
   const taoReservoirBig = taoReservoir.toBigInt();
 
+  if (api.query.swap.swapSuperellipse) {
+    await assertSuperellipsePrice(netuid, blockHash);
+  }
+
   return {
     block: header.number.toString(),
     tao: taoBig,
@@ -287,13 +305,14 @@ function maxZero(value) {
 }
 
 async function captureOriginals(netuid) {
-  const [tempo, balancer, subnetTao, subnetAlphaIn, taoReservoir, alphaReservoir] = await Promise.all([
+  const [tempo, balancer, subnetTao, subnetAlphaIn, taoReservoir, alphaReservoir, curve] = await Promise.all([
     api.query.subtensorModule.tempo(netuid),
     api.query.swap.swapBalancer(netuid),
     api.query.subtensorModule.subnetTAO(netuid),
     api.query.subtensorModule.subnetAlphaIn(netuid),
     api.query.swap.balancerTaoReservoir(netuid),
     api.query.swap.balancerAlphaReservoir(netuid),
+    api.query.swap.swapSuperellipse ? api.query.swap.swapSuperellipse(netuid) : null,
   ]);
 
   return {
@@ -303,19 +322,32 @@ async function captureOriginals(netuid) {
     subnetAlphaIn: subnetAlphaIn.toBigInt(),
     taoReservoir: taoReservoir.toBigInt(),
     alphaReservoir: alphaReservoir.toBigInt(),
+    superellipseHex: curve?.isSome ? curve.unwrap().toHex() : null,
   };
 }
 
 async function restoreOriginals(netuid, original) {
-  await sudoSetStorage(
-    [
-      [api.query.subtensorModule.tempo.key(netuid), storageValueHex("u16", original.tempo)],
-      [api.query.swap.swapBalancer.key(netuid), original.balancerHex],
-      [api.query.subtensorModule.subnetTAO.key(netuid), storageValueHex("u64", original.subnetTao)],
-      [api.query.subtensorModule.subnetAlphaIn.key(netuid), storageValueHex("u64", original.subnetAlphaIn)],
-      [api.query.swap.balancerTaoReservoir.key(netuid), storageValueHex("u64", original.taoReservoir)],
-      [api.query.swap.balancerAlphaReservoir.key(netuid), storageValueHex("u64", original.alphaReservoir)],
-    ],
+  const entries = [
+    [api.query.subtensorModule.tempo.key(netuid), storageValueHex("u16", original.tempo)],
+    [api.query.swap.swapBalancer.key(netuid), original.balancerHex],
+    [api.query.subtensorModule.subnetTAO.key(netuid), storageValueHex("u64", original.subnetTao)],
+    [api.query.subtensorModule.subnetAlphaIn.key(netuid), storageValueHex("u64", original.subnetAlphaIn)],
+    [api.query.swap.balancerTaoReservoir.key(netuid), storageValueHex("u64", original.taoReservoir)],
+    [api.query.swap.balancerAlphaReservoir.key(netuid), storageValueHex("u64", original.alphaReservoir)],
+  ];
+  const calls = [];
+  if (api.query.swap.swapSuperellipse) {
+    const key = api.query.swap.swapSuperellipse.key(netuid);
+    if (original.superellipseHex !== null) {
+      entries.push([key, original.superellipseHex]);
+    } else {
+      calls.push(api.tx.system.killStorage([key]));
+    }
+  }
+  calls.unshift(api.tx.system.setStorage(entries));
+  await submitAndWait(
+    alice,
+    api.tx.sudo.sudo(api.tx.utility.batchAll(calls)),
     `sudo restore edge-emission storage on netuid ${netuid}`
   );
   console.log(`restored original balancer storage for netuid ${netuid}`);
@@ -435,6 +467,43 @@ function waitForFinalizedBlock() {
 function balancerValueHex(quoteWeight) {
   const quote = api.createType("Perquintill", quoteWeight.toString());
   return u8aToHex(api.createType("PalletSubtensorSwapBalancer", { quote }).toU8a());
+}
+
+function superellipseValueHex(alpha, tao, quoteWeight) {
+  // SCALE encoding follows the frozen Superellipse field order. Its centers
+  // and scales are Q32 atomic units, not floating-point token amounts.
+  const alphaScale = (2n * quoteWeight * alpha * Q32) / PERQUINTILL;
+  const taoScale = (2n * (PERQUINTILL - quoteWeight) * tao * Q32) / PERQUINTILL;
+  return api.createType(SUPERELLIPSE_FIELDS, [
+    alphaScale,
+    taoScale,
+    alpha * Q32 + alphaScale,
+    tao * Q32 + taoScale,
+  ]).toHex();
+}
+
+async function assertSuperellipsePrice(netuid, blockHash) {
+  const at = (query) => blockHash ? query.at(blockHash, netuid) : query(netuid);
+  const [stored, alpha, tao] = await Promise.all([
+    at(api.query.swap.swapSuperellipse),
+    at(api.query.subtensorModule.subnetAlphaIn),
+    at(api.query.subtensorModule.subnetTAO),
+  ]);
+  assert.ok(stored.isSome, `netuid ${netuid} has no active superellipse`);
+  const [alphaScale, taoScale, centerAlpha, centerTao] = Array.from(
+    api.createType(SUPERELLIPSE_FIELDS, stored.unwrap().toU8a()),
+    (value: any): bigint => BigInt(value.toString()),
+  );
+  const x = centerAlpha - BigInt(alpha.toString()) * Q32;
+  const y = centerTao - BigInt(tao.toString()) * Q32;
+  assert.ok(alphaScale > 0n && taoScale > 0n && x > 0n && y > 0n,
+    `netuid ${netuid} ellipse must remain on its positive-price branch`);
+  const expectedQ64 = (taoScale * taoScale * x * Q64) / (alphaScale * alphaScale * y);
+  const expected = (expectedQ64 * 1_000_000_000n) / Q64;
+  const actual = BigInt((await api._rpcCore.provider.send(
+    "swap_currentAlphaPrice", [netuid, blockHash],
+  )).toString());
+  assert.equal(actual, expected, `netuid ${netuid} stored ellipse and runtime price disagree`);
 }
 
 function storageValueHex(type, value) {

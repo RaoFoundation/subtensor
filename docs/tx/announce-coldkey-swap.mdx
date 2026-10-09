@@ -23,7 +23,7 @@ an unauthorized one with `dispute_coldkey_swap`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.announce_coldkey_swap`](/code/pallets/subtensor/src/macros/dispatches.rs#L2382-L2410) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.announce_coldkey_swap`](/code/pallets/subtensor/src/macros/dispatches.rs#L2382-L2411) |
 
 ## Parameters
 
@@ -72,16 +72,17 @@ result = sub.execute_tool("announce_coldkey_swap", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.announce_coldkey_swap` — [`pallets/subtensor/src/macros/dispatches.rs#L2384`](/code/pallets/subtensor/src/macros/dispatches.rs#L2382-L2410):
+`SubtensorModule.announce_coldkey_swap` — [`pallets/subtensor/src/macros/dispatches.rs#L2384`](/code/pallets/subtensor/src/macros/dispatches.rs#L2382-L2411):
 
 ```rust
 #[pallet::call_index(125)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::announce_coldkey_swap())]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::announce_coldkey_swap().saturating_add(T::DbWeight::get().reads(1)))]
 pub fn announce_coldkey_swap(
     origin: OriginFor<T>,
     new_coldkey_hash: T::Hash,
 ) -> DispatchResult {
     let who = ensure_signed(origin)?;
+    ensure!(!<T::LendingInterface as pallet_lending::LendingInterface<T::AccountId>>::has_positions(&who), Error::<T>::LendingPositionsOpen);
     let now = <frame_system::Pallet<T>>::block_number();
 
     if let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) {
@@ -106,6 +107,6 @@ pub fn announce_coldkey_swap(
 }
 ```
 
-Delegates to [`get_key_swap_cost`](/code/pallets/subtensor/src/utils/misc.rs#L833), [`charge_swap_cost`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L248).
+Delegates to [`get_key_swap_cost`](/code/pallets/subtensor/src/utils/misc.rs#L833), [`charge_swap_cost`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L253).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

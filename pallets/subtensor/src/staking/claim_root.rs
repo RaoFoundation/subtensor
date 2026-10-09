@@ -1533,8 +1533,8 @@ impl<T: Config> Pallet<T> {
     ///
     /// Escrow alpha is sold once per fund and held as root stake under the same escrow.
     /// Fund shares, rates, and watermarks are untouched — NAV is continuous across the
-    /// conversion (minus slippage). A terminally shallow holding is explicitly written off;
-    /// any unknown failure is logged and leaves the slot for generic teardown. Returns
+    /// conversion (minus slippage). An unswappable holding remains for funded pro-rata
+    /// redemption into its fund's root slot during generic stake settlement. Returns
     /// `(done, next_cursor)`.
     pub fn convert_subnet_basket_holdings_to_root(
         netuid: NetUid,
@@ -1589,6 +1589,13 @@ impl<T: Config> Pallet<T> {
                 }
             };
 
+        // Once deregistration starts, even unswappable alpha receives its funded
+        // pro-rata redemption. Retain it for that path instead of writing it off.
+        let dissolving = !Self::if_subnet_exist(netuid);
+        if terminal_garbage && dissolving {
+            return false;
+        }
+
         with_transaction(|| {
             Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
                 hotkey,
@@ -1618,7 +1625,10 @@ impl<T: Config> Pallet<T> {
                     if T::SwapInterface::classify_failure(&err)
                         == SwapFailureKind::TerminalLiquidity =>
                 {
-                    // A late shallow-pool failure is safe to write off because the sale
+                    if dissolving {
+                        return TransactionOutcome::Rollback(Err(err));
+                    }
+                    // A live shallow-pool failure is safe to write off because the sale
                     // helper atomically rolled back every attempted chunk.
                     Self::burn_subnet_alpha(netuid, holding_alpha);
                     Self::deposit_event(Event::BasketAlphaWrittenOff {
@@ -1681,12 +1691,28 @@ impl<T: Config> Pallet<T> {
         Ok(tao)
     }
 
-    /// Execute a fee-free protocol alpha sale in reserve-bounded chunks. This is both the
-    /// money-moving implementation and the engine used under a rollback overlay for NAV quotes,
-    /// so an oversized full holding is valued exactly as it would be liquidated.
+    /// Execute a fee-free protocol alpha sale in reserve-bounded chunks.
+    /// Every input atom must be consumed or the whole sale rolls back.
     pub(crate) fn swap_basket_alpha_for_tao_chunks(
         netuid: NetUid,
         alpha: AlphaBalance,
+    ) -> Result<TaoBalance, DispatchError> {
+        Self::basket_alpha_for_tao_chunks(netuid, alpha, true)
+    }
+
+    /// Read-only callers roll this back: stop at a finite endpoint and value
+    /// only the TAO the holding can actually realize, retaining unsold alpha.
+    pub(crate) fn quote_basket_alpha_for_tao_chunks(
+        netuid: NetUid,
+        alpha: AlphaBalance,
+    ) -> Result<TaoBalance, DispatchError> {
+        Self::basket_alpha_for_tao_chunks(netuid, alpha, false)
+    }
+
+    fn basket_alpha_for_tao_chunks(
+        netuid: NetUid,
+        alpha: AlphaBalance,
+        require_full: bool,
     ) -> Result<TaoBalance, DispatchError> {
         with_transaction(|| {
             let result = (|| {
@@ -1724,6 +1750,11 @@ impl<T: Config> Pallet<T> {
                         .amount_paid_in
                         .to_u64()
                         .saturating_add(out.fee_paid.to_u64());
+                    if !require_full && consumed < chunk {
+                        return Ok(total_tao
+                            .saturating_add(out.amount_paid_out.to_u64())
+                            .into());
+                    }
                     ensure!(consumed > 0, Error::<T>::AmountTooLow);
                     remaining = remaining.saturating_sub(consumed);
                     total_tao = total_tao.saturating_add(out.amount_paid_out.to_u64());
