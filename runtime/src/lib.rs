@@ -1392,12 +1392,14 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
 
     fn check_self_contained(&self) -> Option<Result<Self::SignedInfo, TransactionValidityError>> {
         match self {
-            RuntimeCall::Ethereum(call) => call.check_self_contained().map(|result| {
-                result.and_then(|signer| {
-                    evm_origin::ensure_legacy_ethereum_allowed(&signer)?;
-                    Ok(signer)
+            RuntimeCall::Ethereum(call @ pallet_ethereum::Call::transact { transaction }) => {
+                call.check_self_contained().map(|result| {
+                    result.and_then(|signer| {
+                        evm_origin::ensure_ethereum_transaction_allowed(&signer, transaction)?;
+                        Ok(signer)
+                    })
                 })
-            }),
+            }
             _ => None,
         }
     }
@@ -1409,8 +1411,10 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
         len: usize,
     ) -> Option<TransactionValidity> {
         match self {
-            RuntimeCall::Ethereum(call) => {
-                if let Err(error) = evm_origin::ensure_legacy_ethereum_allowed(info) {
+            RuntimeCall::Ethereum(call @ pallet_ethereum::Call::transact { transaction }) => {
+                if let Err(error) =
+                    evm_origin::ensure_ethereum_transaction_allowed(info, transaction)
+                {
                     return Some(Err(error));
                 }
                 call.validate_self_contained(info, dispatch_info, len)
@@ -1426,8 +1430,10 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
         len: usize,
     ) -> Option<Result<(), TransactionValidityError>> {
         match self {
-            RuntimeCall::Ethereum(call) => {
-                if let Err(error) = evm_origin::ensure_legacy_ethereum_allowed(info) {
+            RuntimeCall::Ethereum(call @ pallet_ethereum::Call::transact { transaction }) => {
+                if let Err(error) =
+                    evm_origin::ensure_ethereum_transaction_allowed(info, transaction)
+                {
                     return Some(Err(error));
                 }
                 call.pre_dispatch_self_contained(info, dispatch_info, len)
@@ -1441,13 +1447,16 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
         info: Self::SignedInfo,
     ) -> Option<sp_runtime::DispatchResultWithInfo<PostDispatchInfoOf<Self>>> {
         match self {
-            call @ RuntimeCall::Ethereum(pallet_ethereum::Call::transact { .. }) => {
-                if evm_origin::ensure_legacy_ethereum_allowed(&info).is_err() {
+            RuntimeCall::Ethereum(pallet_ethereum::Call::transact { transaction }) => {
+                if evm_origin::ensure_ethereum_transaction_allowed(&info, &transaction).is_err() {
                     return Some(Err(sp_runtime::DispatchError::BadOrigin.into()));
                 }
-                Some(call.dispatch(RuntimeOrigin::from(
-                    pallet_ethereum::RawOrigin::EthereumTransaction(info),
-                )))
+                Some(
+                    RuntimeCall::Ethereum(pallet_ethereum::Call::transact { transaction })
+                        .dispatch(RuntimeOrigin::from(
+                            pallet_ethereum::RawOrigin::EthereumTransaction(info),
+                        )),
+                )
             }
             _ => None,
         }

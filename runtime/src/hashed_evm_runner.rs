@@ -19,16 +19,14 @@ pub struct HashedEvmRunner;
 fn reject_protected_authorities(
     mut authorities: impl Iterator<Item = H160>,
 ) -> Result<(), RunnerError<Error>> {
-    // Avoid even recovering authorities through the iterator in production
-    // until alias lookup/recovery costs are calibrated for activation.
-    if !cfg!(any(test, feature = "runtime-benchmarks")) {
-        return Ok(());
-    }
+    // Always enforce existing bindings, independently of whether this build
+    // permits registering new accounts. Another sender can carry an authority's
+    // delegation, and execution must recheck lists previously admitted to a pool.
     if authorities.any(|address| hashed_owner(&address).is_some()) {
         return Err(RunnerError {
             error: Error::Undefined,
-            // This path is release-gated with the rest of Hashed authorization.
-            // Reference benchmarking must replace the uncalibrated sentinel.
+            // Fail closed until reference benchmarking replaces this sentinel.
+            // Registration stays disabled until EVM metering is calibrated too.
             weight: Weight::MAX,
         });
     }

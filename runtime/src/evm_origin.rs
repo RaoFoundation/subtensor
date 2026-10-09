@@ -24,13 +24,9 @@ use sp_runtime::{
 
 /// The full account is authoritative; the truncated alias is only an EVM address.
 pub fn hashed_owner(address: &H160) -> Option<AccountId32> {
-    // Prelaunch only: no production hashed accounts can be registered yet.
-    // Keep unmeasured alias reads off existing EVM execution paths. Activation
-    // must permanently enable this adapter and account for every mapping read;
-    // this is not an emergency switch safe to disable after accounts exist.
-    if !cfg!(any(test, feature = "runtime-benchmarks")) {
-        return None;
-    }
+    // Bindings are permanent, including when new registrations are disabled.
+    // Neither build flags nor HashedEnabled may restore the legacy mapping or
+    // classical signing authority over an already registered account.
     pallet_hashed_accounts::EvmAliases::<crate::Runtime>::get(address.0)
 }
 
@@ -93,6 +89,25 @@ pub fn prepare_hashed_alias(account: &AccountId32) -> DispatchResult {
 pub fn ensure_legacy_ethereum_allowed(address: &H160) -> Result<(), TransactionValidityError> {
     if hashed_owner(address).is_some() {
         return Err(InvalidTransaction::BadSigner.into());
+    }
+    Ok(())
+}
+
+/// Ethereum admission does not call the EVM runner's `validate`. Check delegated
+/// authorities here as well as at execution, including after pool admission.
+pub fn ensure_ethereum_transaction_allowed(
+    signer: &H160,
+    transaction: &ethereum::TransactionV3,
+) -> Result<(), TransactionValidityError> {
+    ensure_legacy_ethereum_allowed(signer)?;
+    if let ethereum::TransactionV3::EIP7702(transaction) = transaction {
+        for authorization in &transaction.authorization_list {
+            // EVM execution ignores invalid signatures. They grant no authority
+            // and must not prevent checking subsequent valid authorizations.
+            if let Ok(authority) = authorization.authorizing_address() {
+                ensure_legacy_ethereum_allowed(&authority)?;
+            }
+        }
     }
     Ok(())
 }
