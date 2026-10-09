@@ -159,6 +159,10 @@ async def with_recipient_registration(
     The caller adds origin wrappers after this step, keeping setup under the
     same sponsor authorization. No mutation or private-key access occurs here,
     so plan/dry-run has the same call and fee as submission.
+
+    A final coldkey swap must remain a direct call under the pending-swap lock.
+    Require its destination's permanent registration in finalized state instead
+    of adding a check-only batch that the lock would reject.
     """
     from .signing import public_view
 
@@ -194,25 +198,40 @@ async def with_recipient_registration(
         return (await atomic_calls(substrate, call) if as_calls else call), {}
     if await substrate.constant("HashedAccounts", "Enabled") is not True:
         raise ValueError("hashed accounts are not enabled on this chain")
+    finalized_hash = None
+    if intent.op == "swap_coldkey_announced":
+        if as_calls:
+            raise ValueError("submit the coldkey swap directly, not inside a batch")
+        finalized_hash = await substrate.block_hash(await substrate.finalized_block_number())
+        if not finalized_hash:
+            raise ValueError("could not verify finalized hashed destination registration")
     unique = {recipient.account: recipient for recipient in recipients.values()}
     registrations, new_accounts = [], []
     for address, recipient in unique.items():
-        record = await substrate.query("HashedAccounts", "Accounts", [address])
+        record = await substrate.query(
+            "HashedAccounts", "Accounts", [address], block_hash=finalized_hash
+        )
         if record is not None:
             if descriptor_bytes(record["descriptor"]) != recipient.descriptor:
                 raise ValueError("registered hashed descriptor does not match the destination")
         else:
+            if finalized_hash is not None:
+                raise ValueError(
+                    "hashed destination registration is not finalized; register the recipient "
+                    "and wait for finalization before executing the coldkey swap"
+                )
             if (
                 parameter not in recipients
                 or recipients[parameter].account != address
                 or len(unique) != 1
-                or intent.op == "swap_coldkey_announced"
             ):
                 raise ValueError(
                     "recipient is not registered; send it a direct payment "
                     "before using this operation"
                 )
             new_accounts.append(address)
+        if finalized_hash is not None:
+            continue
         guard = (
             calls.HashedAccounts.check_registered
             if record is not None
@@ -221,6 +240,10 @@ async def with_recipient_registration(
         registrations.append(
             await substrate.compose(guard(descriptor=descriptor_value(recipient.descriptor)))
         )
+    if finalized_hash is not None:
+        # Registrations cannot be removed or have their descriptor changed.
+        # Finality therefore supplies the safety normally provided by the guard.
+        return call, {"hashed_registration_finalized_at": finalized_hash}
     deposit = int(await substrate.constant("HashedAccounts", "RegistrationDeposit"))
     # A check-only guard fails closed after a reorg without granting proxies the
     # authority to sponsor registration. Only first-use registration reserves.
