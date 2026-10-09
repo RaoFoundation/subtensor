@@ -16,16 +16,20 @@ from typing import Callable
 from ._transport.codec import is_valid_ss58_address
 from .keyfiles import Keypair, WrongPasswordError, resolve_key_password
 from .settings import SS58_FORMAT
-from .sp_core import CRYPTO_ED25519, CRYPTO_HASHED, CRYPTO_SR25519
+from .sp_core import CRYPTO_ED25519, CRYPTO_HASHED, CRYPTO_MLDSA, CRYPTO_SR25519
+from .sp_core import HASHED_CRYPTO_TYPES as HASHED_CRYPTO_TYPES
 from .wallet import DEFAULT_WALLET_PATH, Wallet
 
 CRYPTO_TYPE_NAMES: dict[int, str] = {
     CRYPTO_ED25519: "ed25519",
     CRYPTO_SR25519: "sr25519",
     CRYPTO_HASHED: "hashed",
+    CRYPTO_MLDSA: "mldsa",
 }
 _NAME_TO_CRYPTO_TYPE: dict[str, int] = {name: code for code, name in CRYPTO_TYPE_NAMES.items()}
-_NAME_TO_CRYPTO_TYPE.update({"ed": CRYPTO_ED25519, "sr": CRYPTO_SR25519})
+_NAME_TO_CRYPTO_TYPE.update(
+    {"ed": CRYPTO_ED25519, "sr": CRYPTO_SR25519, "ms": CRYPTO_MLDSA, "ml-dsa": CRYPTO_MLDSA}
+)
 DEFAULT_CRYPTO_TYPE = CRYPTO_SR25519
 
 
@@ -173,6 +177,7 @@ def sign_message(
     password_file: str | None = None,
     macos_prompt: bool = False,
     keychain: bool = False,
+    hashed_generation: int | None = None,
 ) -> dict[str, str]:
     """Sign a message with a wallet key; returns the signer address and bare-hex signature.
 
@@ -190,18 +195,45 @@ def sign_message(
         macos_prompt=macos_prompt,
         keychain=keychain,
     )
+    return sign_message_key(message, keypair, hashed_generation=hashed_generation)
+
+
+def sign_message_key(
+    message: str, keypair: Keypair, *, hashed_generation: int | None = None
+) -> dict[str, str]:
+    """Sign with an unlocked key; a classical hashed key needs its finalized generation."""
+    if keypair.crypto_type == CRYPTO_HASHED:
+        if hashed_generation is None or hashed_generation < 1:
+            raise ValueError(
+                "hashed message signing requires a finalized transaction "
+                "retiring generation zero first"
+            )
+        keypair = keypair.at_generation(hashed_generation)
     signature = keypair.sign(message.encode())
     return {"ss58": keypair.ss58_address, "signature": bytes(signature).hex()}
 
 
-def verify_message(message: str, signature: str, ss58_address: str) -> bool:
-    """Check a 0x-hex signature over ``message`` against an address's public key."""
+def verify_message(
+    message: str, signature: str, ss58_address: str, crypto_type: int | None = None
+) -> bool:
+    """Verify explicit schemes, or detect Ed/Sr and self-contained account proofs."""
     try:
-        keypair = Keypair(ss58_address=ss58_address)
-        return keypair.verify(message.encode(), bytes.fromhex(signature.removeprefix("0x")))
-    except ValueError:
-        # Malformed hex or address: not verified, per the boolean contract.
-        return False
+        raw = bytes.fromhex(signature.removeprefix("0x"))
+        from .receiving import parse_recipient
+
+        address = parse_recipient(ss58_address).account
+        candidates = (crypto_type,) if crypto_type is not None else tuple(CRYPTO_TYPE_NAMES)
+        for candidate in candidates:
+            try:
+                if Keypair(ss58_address=address, crypto_type=candidate).verify(
+                    message.encode(), raw
+                ):
+                    return True
+            except ValueError:
+                continue
+    except (ValueError, TypeError):
+        pass
+    return False
 
 
 def open_wallet(
@@ -218,7 +250,7 @@ def create(
     hotkey: str = "default",
     path: str = DEFAULT_WALLET_PATH,
     *,
-    n_words: int = 12,
+    n_words: int | None = None,
     use_password: bool = True,
     overwrite: bool = False,
     coldkey_crypto_type: int = DEFAULT_CRYPTO_TYPE,
@@ -307,7 +339,7 @@ def new_coldkey(
     name: str = "default",
     path: str = DEFAULT_WALLET_PATH,
     *,
-    n_words: int = 12,
+    n_words: int | None = None,
     use_password: bool = True,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
@@ -330,7 +362,7 @@ def new_hotkey(
     hotkey: str = "default",
     path: str = DEFAULT_WALLET_PATH,
     *,
-    n_words: int = 12,
+    n_words: int | None = None,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
     on_mnemonic: Callable[[str], None] | None = None,

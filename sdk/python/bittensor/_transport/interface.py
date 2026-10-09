@@ -14,7 +14,7 @@ import logging
 from hashlib import blake2b
 from typing import Any, AsyncIterator, Optional
 
-from ..sp_core import CRYPTO_HASHED
+from ..sp_core import HASHED_CRYPTO_TYPES
 from .codec import is_valid_ss58_address as _is_valid_ss58_address
 from .codec import multisig_account as _multisig_account
 from .codec import ss58_decode as _ss58_decode
@@ -30,9 +30,9 @@ from .contract import (
 )
 from .errors import BlockNotFound, ExtrinsicNotFound, SubstrateRequestException
 from .extrinsics import (
-    HASHED_PROOF_LENGTH,
     IMMORTAL,
     NonceCache,
+    hashed_proof_length,
     resolve_outcome,
     watch_status_block,
 )
@@ -524,7 +524,7 @@ class SubstrateConnection:
         without touching the nonce cache (fee estimation, offline vectors) use
         :meth:`sign_without_nonce_tracking`.
         """
-        if keypair.crypto_type == CRYPTO_HASHED:
+        if keypair.crypto_type in HASHED_CRYPTO_TYPES:
             return await self._sign_hashed(
                 call,
                 keypair,
@@ -567,7 +567,7 @@ class SubstrateConnection:
         For extrinsics that will not be submitted from this session (fee
         estimation, externally-submitted payloads, deterministic test vectors).
         """
-        if keypair.crypto_type == CRYPTO_HASHED:
+        if keypair.crypto_type in HASHED_CRYPTO_TYPES:
             return await self._sign_hashed(
                 call,
                 keypair,
@@ -665,7 +665,9 @@ class SubstrateConnection:
         elif signature == b"\x00" * 64:
             # The existing fee-estimation seam uses a 64-byte sentinel. Price
             # the complete General envelope without unlocking a public wallet.
-            signature = generation.to_bytes(8, "little") + b"\x00" * (HASHED_PROOF_LENGTH - 8)
+            signature = generation.to_bytes(8, "little") + b"\x00" * (
+                hashed_proof_length(keypair.crypto_type) - 8
+            )
         era, era_block_hash = await self._normalize_era(era)
         return await _sign_and_assemble(
             codec,

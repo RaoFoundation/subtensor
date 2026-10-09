@@ -33,6 +33,11 @@ pub const CRYPTO_ED25519: u8 = 0;
 pub const CRYPTO_SR25519: u8 = 1;
 /// Versioned rotating commitment wrapper; initially wraps sr25519.
 pub const CRYPTO_HASHED: u8 = 4;
+pub const CRYPTO_MLDSA: u8 = 5;
+
+pub fn is_hashed_crypto(crypto_type: u8) -> bool {
+    matches!(crypto_type, CRYPTO_HASHED | CRYPTO_MLDSA)
+}
 
 pub const DEFAULT_SS58_FORMAT: u16 = 42;
 
@@ -103,6 +108,12 @@ fn verify_with_crypto(
                 .map_err(|_| crypto_err("invalid ed25519 signature length"))?;
             Ok(ed25519::Pair::verify(&sig, message, &public))
         }
+        CRYPTO_HASHED | CRYPTO_MLDSA => Ok(hashed::verify_message(
+            crypto_type,
+            public_key,
+            message,
+            signature,
+        )),
         other => Err(crypto_err(format!("unknown crypto type {other}"))),
     }
 }
@@ -180,7 +191,7 @@ impl Keypair {
         ss58_format: u16,
     ) -> Result<Self, CoreError> {
         match crypto_type {
-            CRYPTO_SR25519 | CRYPTO_ED25519 | CRYPTO_HASHED => {}
+            CRYPTO_SR25519 | CRYPTO_ED25519 | CRYPTO_HASHED | CRYPTO_MLDSA => {}
             other => return Err(crypto_err(format!("unknown crypto type {other}"))),
         }
 
@@ -234,11 +245,11 @@ impl Keypair {
                     .map_err(|e| crypto_err(format!("invalid mnemonic: {e:?}")))?;
                 (KeypairInner::Ed25519(pair), seed.to_vec())
             }
-            CRYPTO_HASHED => {
+            CRYPTO_HASHED | CRYPTO_MLDSA => {
                 let (_, seed) = sr25519::Pair::from_phrase(mnemonic, password)
                     .map_err(|e| crypto_err(format!("invalid mnemonic: {e:?}")))?;
                 (
-                    KeypairInner::Hashed(HashedKeypair::from_seed(&seed)?),
+                    KeypairInner::Hashed(HashedKeypair::from_seed(&seed, crypto_type)?),
                     seed.to_vec(),
                 )
             }
@@ -268,7 +279,9 @@ impl Keypair {
                 ed25519::Pair::from_seed_slice(seed)
                     .map_err(|e| crypto_err(format!("invalid seed: {e:?}")))?,
             ),
-            CRYPTO_HASHED => KeypairInner::Hashed(HashedKeypair::from_seed(seed)?),
+            CRYPTO_HASHED | CRYPTO_MLDSA => {
+                KeypairInner::Hashed(HashedKeypair::from_seed(seed, crypto_type)?)
+            }
             other => return Err(crypto_err(format!("unknown crypto type {other}"))),
         };
         Ok(Self {
@@ -281,7 +294,7 @@ impl Keypair {
 
     /// Derive a keypair from a secret URI (e.g. "//Alice" or "<mnemonic>//hard/soft").
     pub fn from_uri(uri: &str, crypto_type: u8) -> Result<Self, CoreError> {
-        if crypto_type == CRYPTO_HASHED {
+        if is_hashed_crypto(crypto_type) {
             return Err(crypto_err(
                 "hashed wallets require a mnemonic or a 32-byte master seed; secret URIs are unsupported",
             ));
@@ -315,7 +328,7 @@ impl Keypair {
                 .map_err(|_| crypto_err("invalid private_key hex string"))?,
         );
 
-        if crypto_type == CRYPTO_HASHED {
+        if is_hashed_crypto(crypto_type) {
             return Self::from_seed(&private_key_vec, crypto_type);
         }
 
@@ -371,7 +384,7 @@ impl Keypair {
         match &self.inner {
             KeypairInner::Ed25519(_) => CRYPTO_ED25519,
             KeypairInner::Sr25519(_) => CRYPTO_SR25519,
-            KeypairInner::Hashed(_) => CRYPTO_HASHED,
+            KeypairInner::Hashed(key) => key.crypto_type(),
             KeypairInner::PublicOnly { crypto_type, .. } => *crypto_type,
         }
     }
@@ -424,9 +437,7 @@ impl Keypair {
         match &self.inner {
             KeypairInner::Ed25519(pair) => Ok(as_bytes(&pair.sign(message))),
             KeypairInner::Sr25519(pair) => Ok(as_bytes(&pair.sign(message))),
-            KeypairInner::Hashed(_) => Err(crypto_err(
-                "hashed spending keys require sign_hashed with a chain transaction payload; generic message signing is unsupported",
-            )),
+            KeypairInner::Hashed(_) => self.sign_hashed_message(message),
             KeypairInner::PublicOnly { .. } => {
                 Err(crypto_err("no private key set to create signatures"))
             }

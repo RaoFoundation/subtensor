@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .keyfiles import Keyfile, Keypair
-from .sp_core import CRYPTO_HASHED, CRYPTO_SR25519
+from .sp_core import CRYPTO_MLDSA, CRYPTO_SR25519, HASHED_CRYPTO_TYPES
 
 DEFAULT_WALLET_PATH = str(Path.home() / ".bittensor" / "wallets")
 
@@ -18,7 +18,7 @@ def _seed_bytes(seed: str | bytes) -> bytes:
 
 
 def _public_only(keypair: Keypair) -> Keypair:
-    if keypair.crypto_type == CRYPTO_HASHED:
+    if keypair.crypto_type in HASHED_CRYPTO_TYPES:
         return keypair.public_only()
     return Keypair(
         ss58_address=keypair.ss58_address,
@@ -39,7 +39,7 @@ def _restore_public_key(address: str | None, public_key: str | None, crypto_type
             if encoded != bytes(keypair.public_key):
                 raise ValueError("public key does not match the receiving address")
         return keypair
-    if crypto_type == CRYPTO_HASHED:
+    if crypto_type in HASHED_CRYPTO_TYPES:
         raise ValueError(
             "hashed watch-only recovery requires the complete receiving address; "
             "copy it from `btcli wallet show`"
@@ -193,7 +193,7 @@ class Wallet:
 
     def create_new_coldkey(
         self,
-        n_words: int = 12,
+        n_words: int | None = None,
         use_password: bool = True,
         overwrite: bool = False,
         suppress: bool = False,
@@ -202,7 +202,9 @@ class Wallet:
         crypto_type: int = CRYPTO_SR25519,
         on_mnemonic: Callable[[str], None] | None = None,
     ) -> Wallet:
-        mnemonic = Keypair.generate_mnemonic(n_words)
+        mnemonic = Keypair.generate_mnemonic(
+            (24 if crypto_type == CRYPTO_MLDSA else 12) if n_words is None else n_words
+        )
         keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
         # on_mnemonic lets a caller (the CLI) render the mnemonic itself
         # instead of this library printing it raw to stdout.
@@ -224,7 +226,7 @@ class Wallet:
 
     def create_new_hotkey(
         self,
-        n_words: int = 12,
+        n_words: int | None = None,
         use_password: bool = False,
         overwrite: bool = False,
         suppress: bool = False,
@@ -233,7 +235,9 @@ class Wallet:
         crypto_type: int = CRYPTO_SR25519,
         on_mnemonic: Callable[[str], None] | None = None,
     ) -> Wallet:
-        mnemonic = Keypair.generate_mnemonic(n_words)
+        mnemonic = Keypair.generate_mnemonic(
+            (24 if crypto_type == CRYPTO_MLDSA else 12) if n_words is None else n_words
+        )
         keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
         if on_mnemonic is not None:
             on_mnemonic(mnemonic)

@@ -86,7 +86,7 @@ def _pick_target(
                 ).hotkeypub
             ),
         )
-        if hk.crypto_type == wallets.CRYPTO_HASHED
+        if hk.crypto_type in wallets.HASHED_CRYPTO_TYPES
         else hk
         for hk in local
     ]
@@ -276,7 +276,7 @@ def _dest_choices(app_ctx: AppContext) -> list[_DestChoice]:
         if coldkey.name == app_ctx.wallet_name:
             continue
         address = coldkey.ss58
-        if coldkey.crypto_type == wallets.CRYPTO_HASHED:
+        if coldkey.crypto_type in wallets.HASHED_CRYPTO_TYPES:
             public = wallets.open_wallet(name=coldkey.name, path=app_ctx.wallet_path).coldkeypub
             address = app_ctx.wallet_address(public)
         _add(coldkey.name, address, "wallet")

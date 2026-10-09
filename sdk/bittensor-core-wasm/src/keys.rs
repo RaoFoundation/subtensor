@@ -14,12 +14,16 @@ use crate::errors::{to_js_err, value_err};
 pub enum CryptoType {
     Ed25519 = 0,
     Sr25519 = 1,
+    Hashed = 4,
+    MlDsa = 5,
 }
 
 fn crypto_code(crypto_type: Option<CryptoType>) -> u8 {
     match crypto_type.unwrap_or(CryptoType::Sr25519) {
         CryptoType::Ed25519 => keys::CRYPTO_ED25519,
         CryptoType::Sr25519 => keys::CRYPTO_SR25519,
+        CryptoType::Hashed => keys::CRYPTO_HASHED,
+        CryptoType::MlDsa => keys::CRYPTO_MLDSA,
     }
 }
 
@@ -102,6 +106,55 @@ impl Keypair {
         let inner = keys::Keypair::from_private_key(private_key, crypto_code(crypto_type))
             .map_err(to_js_err)?;
         Ok(Self { inner })
+    }
+
+    /// Restore a watch-only rotating account, including its stable identity.
+    #[wasm_bindgen(js_name = fromHashedDescriptor)]
+    pub fn from_hashed_descriptor(
+        descriptor: &[u8],
+        ss58_format: Option<u16>,
+    ) -> Result<Keypair, JsValue> {
+        Ok(Self {
+            inner: keys::Keypair::from_hashed_descriptor(
+                descriptor,
+                ss58_format.unwrap_or(DEFAULT_SS58_FORMAT),
+            )
+            .map_err(to_js_err)?,
+        })
+    }
+
+    /// Select the generation read from chain without mutating the wallet.
+    #[wasm_bindgen(js_name = atGeneration)]
+    pub fn at_generation(&self, generation: u64) -> Result<Keypair, JsValue> {
+        Ok(Self {
+            inner: self.inner.at_generation(generation).map_err(to_js_err)?,
+        })
+    }
+
+    #[wasm_bindgen(getter, js_name = hashedDescriptor)]
+    pub fn hashed_descriptor(&self) -> Result<Vec<u8>, JsValue> {
+        self.inner.hashed_descriptor().map_err(to_js_err)
+    }
+
+    #[wasm_bindgen(getter, js_name = hashedCurrentCommitment)]
+    pub fn hashed_current_commitment(&self) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .hashed_current_commitment()
+            .map(|value| value.to_vec())
+            .map_err(to_js_err)
+    }
+
+    #[wasm_bindgen(js_name = hashedReceivingAddress)]
+    pub fn hashed_receiving_address(&self, genesis: &[u8]) -> Result<String, JsValue> {
+        self.inner
+            .hashed_receiving_address(genesis)
+            .map_err(to_js_err)
+    }
+
+    /// Sign the full implication for General extension version 1 (hashed) or 2 (ML-DSA).
+    #[wasm_bindgen(js_name = signHashed)]
+    pub fn sign_hashed(&self, implication: &[u8]) -> Result<Vec<u8>, JsValue> {
+        self.inner.sign_hashed(implication).map_err(to_js_err)
     }
 
     /// Generate a fresh mnemonic with `nWords` (12/15/18/21/24; default 12).

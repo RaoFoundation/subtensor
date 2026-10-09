@@ -251,7 +251,7 @@ class AppContext:
 
     def wallet_address(self, public) -> str:
         """Display/share complete receiving information using public metadata only."""
-        if public.crypto_type != wallets.CRYPTO_HASHED:
+        if public.crypto_type not in wallets.HASHED_CRYPTO_TYPES:
             return public.ss58_address
         return receiving_address(public, self.receiving_genesis_hash())
 

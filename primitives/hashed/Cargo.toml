@@ -5,15 +5,20 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+fips204 = { version = "=0.4.6", default-features = false, features = ["ml-dsa-65"] }
 codec = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
 sp-core.workspace = true
 sp-io = { workspace = true, optional = true }
+
+[dev-dependencies]
+hex = { workspace = true, features = ["alloc"] }
+serde_json = { workspace = true, features = ["std"] }
 
 [lints]
 workspace = true
 
 [features]
 default = ["std", "verify"]
-std = ["codec/std", "scale-info/std", "sp-core/std", "sp-io?/std"]
+std = ["hex/std", "serde_json/std", "codec/std", "scale-info/std", "sp-core/std", "sp-io?/std"]
 verify = ["dep:sp-io"]

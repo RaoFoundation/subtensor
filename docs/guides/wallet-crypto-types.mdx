@@ -1,0 +1,74 @@
+---
+title: Wallet crypto types
+description: Create, recover, sign, and transact with Ed25519, Sr25519, hashed, and ML-DSA wallets.
+---
+
+Choose a scheme when creating or recovering a wallet:
+
+```bash
+btcli wallet create --crypto-type mldsa
+btcli wallet regen-coldkey --crypto-type mldsa
+```
+
+`--type` remains an alias for `--crypto-type`. The choice applies to both coldkey
+and hotkey unless `--hotkey-crypto-type` overrides it. Existing keyfiles retain
+their scheme; ordinary commands read that scheme automatically.
+
+| Choice | Aliases | Authorization |
+| --- | --- | --- |
+| `sr25519` | `sr` | Existing Sr25519 account; default |
+| `ed25519` | `ed` | Existing Ed25519 account |
+| `hashed` | | Permanent account with rotating Sr25519 keys |
+| `mldsa` | `ms`, `ml-dsa` | Permanent account with rotating ML-DSA-65 keys |
+
+New ML-DSA wallets default to 24-word mnemonics (256 bits of entropy). Other
+schemes retain their 12-word default. Keep the ML-DSA default for new wallets;
+a shorter phrase reduces the entropy protecting the master seed.
+
+Record the selected scheme with the mnemonic. The same mnemonic under another
+scheme derives a different account. Existing hashed wallet recovery and
+transaction bytes remain unchanged. Selecting `mldsa` does not upgrade an
+existing Sr25519 account in place; use the existing coldkey migration flow to
+move to a newly created account.
+
+Hashed and ML-DSA accounts require runtime support and registration. Register
+and wait for finalization before publicly sharing their receiving address.
+Their receiving addresses carry the network and public registration descriptor,
+without revealing a spending public key. Funding and migration commands retain
+that descriptor and use the existing registration flow. EVM access uses the
+registered account's native authorization and permanent alias.
+
+The SDK reads the current generation and nonce from chain before signing.
+Inclusion advances the generation even when the dispatched call fails. Dropping
+a transaction before inclusion advances neither generation nor nonce; retrying
+uses the chain's unchanged state and does not require updating a wallet backup.
+
+**Use `mldsa` for post-quantum wallet signatures.** Its security does not depend
+on keeping a public key secret after submission. A dropped Sr25519 transaction
+still exposes its public key: hashing and rotation do not make classical
+signatures quantum-resistant. This addition does not change consensus keys or
+claim post-quantum security for the entire chain.
+
+## Message signatures
+
+`btcli wallet sign --message "challenge"` uses the wallet's stored scheme.
+`btcli wallet verify --message "challenge" --signature HEX --ss58 ADDRESS`
+detects the supported scheme, or accepts `--crypto-type` to require one.
+
+Hashed account message signatures contain the original descriptor, identity
+public key, and a domain-separated signature. They cannot authorize a runtime
+transaction. A classical hashed wallet must first include a transaction that
+retires generation zero; the CLI checks finalized state before revealing that
+retired key. SDK callers pass that finalized generation as `hashed_generation`
+to `wallets.sign_message`, or select it with `key.at_generation(generation)`.
+ML-DSA message signing works without a chain query, including before registration.
+
+ML-DSA transaction proofs contain 5,301 bytes; message envelopes contain 5,303
+bytes. HTTP integrations must allow the larger hex signature header (10,608
+characters including `0x`). Existing Ed25519 and Sr25519 message signatures
+remain 64 bytes. External verifiers must support the selected scheme and its
+message envelope; an older verifier cannot verify a new signature format.
+
+Production registration remains disabled until the authorization benchmarks are
+measured on reference hardware and the runtime is activated. ML-DSA has its own
+`authorize_mldsa` benchmark and weight entry; unmeasured weights fail closed.

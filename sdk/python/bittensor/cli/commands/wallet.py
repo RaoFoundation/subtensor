@@ -78,7 +78,8 @@ keychain_app = typer.Typer(
 )
 
 _CRYPTO_TYPE_HELP = (
-    "Key type: sr / sr25519 (default), ed / ed25519, or hashed (rotating sr25519 behind "
+    "Key type: sr/sr25519 (default), ed/ed25519, ms/mldsa (ML-DSA-65), or hashed "
+    "(rotating sr25519 behind "
     "a permanent address). Hashed accounts require chain support."
 )
 
@@ -125,22 +126,26 @@ _PRIVATE_KEY_RE = re.compile(r"(0x)?[0-9a-fA-F]{128}")
 
 def _prepare_receiving_address(app_ctx: AppContext, *crypto_types: int) -> None:
     """Resolve network identity before a hashed creation or recovery writes files."""
-    if wallets.CRYPTO_HASHED in crypto_types:
+    if any(kind in wallets.HASHED_CRYPTO_TYPES for kind in crypto_types):
         app_ctx.receiving_genesis_hash()
 
 
 def _address_fields(app_ctx: AppContext, public, *, role: str = "") -> dict[str, str]:
-    suffix = "address" if public.crypto_type == wallets.CRYPTO_HASHED else "ss58"
+    suffix = "address" if public.crypto_type in wallets.HASHED_CRYPTO_TYPES else "ss58"
     key = f"{role}_{suffix}" if role else suffix
     return {key: app_ctx.wallet_address(public)}
 
 
 def _hashed_recovery_hint(app_ctx: AppContext, *crypto_types: int) -> None:
-    if wallets.CRYPTO_HASHED in crypto_types and not app_ctx.output.json_mode:
+    if (
+        any(kind in wallets.HASHED_CRYPTO_TYPES for kind in crypto_types)
+        and not app_ctx.output.json_mode
+    ):
         app_ctx.output.message(
-            "Record the wallet type 'hashed' with each recovery phrase. Restore with "
-            "`btcli wallet regen-coldkey --type hashed` or "
-            "`btcli wallet regen-hotkey --type hashed`. Creating or restoring a wallet does "
+            "Record the selected crypto type with each recovery phrase (hashed or mldsa). "
+            "Restore with "
+            "`btcli wallet regen-coldkey --crypto-type <type>` or "
+            "`btcli wallet regen-hotkey --crypto-type <type>`. Creating or restoring a wallet does "
             "not register it on chain. Register each new hashed account and wait for "
             "finalization before publicly sharing its receiving address."
         )
@@ -155,8 +160,8 @@ def _public_recovery_type(
             raise ValueError(
                 "receiving address belongs to another network; select its network with --network"
             )
-        return wallets.CRYPTO_HASHED
-    if crypto_type == wallets.CRYPTO_HASHED:
+        return wallets.Keypair.from_hashed_descriptor(recipient.descriptor).crypto_type
+    if crypto_type in wallets.HASHED_CRYPTO_TYPES:
         raise ValueError(
             "hashed watch-only recovery requires the complete receiving address; "
             "copy it from `btcli wallet show`"
@@ -310,7 +315,9 @@ def _report_unlock_error(app_ctx: AppContext, error: BaseException) -> None:
 @with_globals
 def create(
     ctx: typer.Context,
-    n_words: int = typer.Option(12, "--n-words", help=_N_WORDS_HELP),
+    n_words: Optional[int] = typer.Option(
+        None, "--n-words", help=_N_WORDS_HELP + " Default: 24 for ML-DSA, 12 for other schemes."
+    ),
     no_password: bool = typer.Option(False, "--no-password", help=_NO_PASSWORD_HELP),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
     crypto_type: str = typer.Option("sr25519", "--crypto-type", "--type", help=_CRYPTO_TYPE_HELP),
@@ -370,7 +377,7 @@ def create(
         **_address_fields(app_ctx, wallet.coldkeypub, role="coldkey"),
         "path": app_ctx.wallet_path,
     }
-    if hotkey_crypto == wallets.CRYPTO_HASHED:
+    if hotkey_crypto in wallets.HASHED_CRYPTO_TYPES:
         fields.update(_address_fields(app_ctx, wallet.hotkeypub, role="hotkey"))
     # Human mode already showed the mnemonics above; JSON carries them in the
     # payload so scripted consumers can capture them.
@@ -383,7 +390,9 @@ def create(
 @with_globals
 def new_coldkey(
     ctx: typer.Context,
-    n_words: int = typer.Option(12, "--n-words", help=_N_WORDS_HELP),
+    n_words: Optional[int] = typer.Option(
+        None, "--n-words", help=_N_WORDS_HELP + " Default: 24 for ML-DSA, 12 for other schemes."
+    ),
     no_password: bool = typer.Option(False, "--no-password", help=_NO_PASSWORD_HELP),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
     crypto_type: str = typer.Option("sr25519", "--crypto-type", "--type", help=_CRYPTO_TYPE_HELP),
@@ -431,7 +440,9 @@ def new_coldkey(
 @with_globals
 def new_hotkey(
     ctx: typer.Context,
-    n_words: int = typer.Option(12, "--n-words", help=_N_WORDS_HELP),
+    n_words: Optional[int] = typer.Option(
+        None, "--n-words", help=_N_WORDS_HELP + " Default: 24 for ML-DSA, 12 for other schemes."
+    ),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
     crypto_type: str = typer.Option("sr25519", "--crypto-type", "--type", help=_CRYPTO_TYPE_HELP),
 ):
@@ -739,14 +750,29 @@ def sign(
         allow_multisig=False,
     )
     try:
-        signed = wallets.sign_message(
-            message,
-            name=app_ctx.wallet_name,
-            hotkey=app_ctx.hotkey_name,
-            path=app_ctx.wallet_path,
-            use="hotkey" if use_hotkey else "coldkey",
-            **_unlock_options(app_ctx),
+        # Resolve the actual signing key first. A stale companion file must
+        # never supply another account's generation and expose an active key.
+        keypair = wallets.signing_keypair(
+            app_ctx.wallet(), "hotkey" if use_hotkey else "coldkey", **_unlock_options(app_ctx)
         )
+        generation = None
+        if keypair.crypto_type == wallets.CRYPTO_HASHED:
+
+            async def retired_generation(client):
+                from ...hashed import descriptor_bytes
+
+                block = await client.finalized_block()
+                state = await client.query(
+                    ("HashedAccounts", "Accounts"), [keypair.ss58_address], block=block
+                )
+                if state is None or descriptor_bytes(state["descriptor"]) != bytes(
+                    keypair.hashed_descriptor
+                ):
+                    raise ValueError("hashed wallet is not registered on the selected chain")
+                return int(state["generation"])
+
+            generation = app_ctx.run(retired_generation)
+        signed = wallets.sign_message_key(message, keypair, hashed_generation=generation)
     except (ValueError, OSError, WrongPasswordError) as error:
         _report_unlock_error(app_ctx, error)
     # Classic btcli field names + bare hex (no 0x).
@@ -767,12 +793,23 @@ def verify(
     signature: str = typer.Option(
         ..., "--signature", help="Hex signature (with or without a 0x prefix)."
     ),
+    crypto_type: Optional[str] = typer.Option(
+        None,
+        "--crypto-type",
+        "--type",
+        help="Signature scheme; detected automatically when omitted.",
+    ),
     ss58: str = typer.Option(..., "--ss58", help="Address the message was signed with."),
 ):
     """Verify a message signature against an address."""
     app_ctx: AppContext = ctx_of(ctx)
     try:
-        ok = wallets.verify_message(message, signature, ss58)
+        ok = wallets.verify_message(
+            message,
+            signature,
+            ss58,
+            wallets.parse_crypto_type(crypto_type) if crypto_type is not None else None,
+        )
     except (ValueError, TypeError) as error:
         app_ctx.output.error(f"invalid signature or address: {error}")
         raise typer.Exit(1)
@@ -1068,7 +1105,7 @@ def list_wallets(ctx: typer.Context):
     coldkeys = wallets.list_wallets_detailed(app_ctx.wallet_path)
 
     def listed_address(name, key, hotkey=None):
-        if key.crypto_type != wallets.CRYPTO_HASHED:
+        if key.crypto_type not in wallets.HASHED_CRYPTO_TYPES:
             return key.ss58
         wallet = wallets.open_wallet(
             name=name, hotkey=hotkey or "default", path=app_ctx.wallet_path

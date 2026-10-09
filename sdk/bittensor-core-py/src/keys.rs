@@ -193,6 +193,14 @@ impl Keypair {
     }
 
     #[getter]
+    fn hashed_signing_public_key<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self.inner.hashed_signing_public_key().map_err(to_py_err)?,
+        ))
+    }
+
+    #[getter]
     fn hashed_current_commitment<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         Ok(PyBytes::new(
             py,
@@ -418,5 +426,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("CRYPTO_ED25519", keys::CRYPTO_ED25519)?;
     m.add("CRYPTO_SR25519", keys::CRYPTO_SR25519)?;
     m.add("CRYPTO_HASHED", keys::CRYPTO_HASHED)?;
+    m.add("CRYPTO_MLDSA", keys::CRYPTO_MLDSA)?;
     Ok(())
 }

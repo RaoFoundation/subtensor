@@ -19,7 +19,7 @@ from .receiving import (
     is_receiving_address,
     parse_recipient,
 )
-from .sp_core import CRYPTO_HASHED, Keypair
+from .sp_core import HASHED_CRYPTO_TYPES, Keypair
 
 _REGISTRATION_TARGETS = {
     "transfer": "dest_ss58",
@@ -74,21 +74,25 @@ def raw_bytes(value: Any) -> bytes:
 
 def descriptor_bytes(value: dict) -> bytes:
     """Validate the versioned public descriptor decoded from chain storage."""
-    if value["version"] != 1 or value["scheme"] not in ("Sr25519", {"Sr25519": None}):
+    scheme = value["scheme"]
+    if isinstance(scheme, dict) and len(scheme) == 1:
+        scheme = next(iter(scheme))
+    schemes = {"Sr25519": 1, "MlDsa65": 2}
+    if value["version"] != 1 or not isinstance(scheme, str) or scheme not in schemes:
         raise ValueError("unsupported hashed descriptor")
     commitment = raw_bytes(value["initial_commitment"])
     if len(commitment) != 32:
         raise ValueError("hashed key commitments must contain 32 bytes")
-    return b"\x01\x01" + commitment
+    return bytes((1, schemes[scheme])) + commitment
 
 
 def descriptor_value(descriptor: bytes) -> dict:
     """Convert the native key's SCALE descriptor to runtime call parameters."""
-    if len(descriptor) != 34 or descriptor[:2] != b"\x01\x01":
+    if len(descriptor) != 34 or descriptor[0] != 1 or descriptor[1] not in (1, 2):
         raise ValueError("unsupported hashed descriptor")
     return {
         "version": 1,
-        "scheme": "Sr25519",
+        "scheme": {1: "Sr25519", 2: "MlDsa65"}[descriptor[1]],
         "initial_commitment": "0x" + descriptor[2:].hex(),
     }
 
@@ -109,7 +113,7 @@ def _local_descriptor(wallet: Any, address: str) -> bytes | None:
                 key = public_file.get_keypair()
             except (OSError, ValueError, KeyfileError):
                 continue
-            if key.ss58_address == address and key.crypto_type == CRYPTO_HASHED:
+            if key.ss58_address == address and key.crypto_type in HASHED_CRYPTO_TYPES:
                 return bytes(key.hashed_descriptor)
     return None
 
@@ -121,7 +125,7 @@ def has_local_hashed_recipient(wallet: Any, intent: Any) -> bool:
     parameter = _REGISTRATION_TARGETS.get(intent.op)
     address = getattr(intent, parameter, None) if parameter else None
     if address is None and parameter == "hotkey_ss58":
-        return public_view(wallet, "hotkey").crypto_type == CRYPTO_HASHED
+        return public_view(wallet, "hotkey").crypto_type in HASHED_CRYPTO_TYPES
     return isinstance(address, str) and _local_descriptor(wallet, address) is not None
 
 
@@ -174,7 +178,7 @@ async def with_recipient_registration(
         if address is None and parameter == "hotkey_ss58":
             public = public_view(wallet, "hotkey")
             address = public.ss58_address
-            if public.crypto_type == CRYPTO_HASHED:
+            if public.crypto_type in HASHED_CRYPTO_TYPES:
                 default_descriptor = bytes(public.hashed_descriptor)
         if not isinstance(address, str):
             raise ValueError("recipient account address is missing")

@@ -17,7 +17,7 @@ use sodiumoxide::crypto::secretbox;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::CoreError;
-use crate::keys::{ensure_sodium, Keypair, CRYPTO_ED25519, CRYPTO_HASHED, CRYPTO_SR25519};
+use crate::keys::{ensure_sodium, is_hashed_crypto, Keypair, CRYPTO_ED25519, CRYPTO_SR25519};
 
 const NACL_SALT: &[u8] = b"\x13q\x83\xdf\xf1Z\t\xbc\x9c\x90\xb5Q\x879\xe9\xb1";
 const LEGACY_SALT: &[u8] = b"Iguesscyborgslikemyselfhaveatendencytobeparanoidaboutourorigins";
@@ -202,7 +202,7 @@ pub fn serialized_keypair_to_keyfile_data(keypair: &Keypair) -> Result<Vec<u8>, 
 
     data.insert("ss58Address", json!(keypair.ss58_address()));
     data.insert("cryptoType", json!(keypair.crypto_type()));
-    if keypair.crypto_type() == CRYPTO_HASHED {
+    if is_hashed_crypto(keypair.crypto_type()) {
         if let Ok(descriptor) = keypair.hashed_descriptor() {
             data.insert(
                 "hashedDescriptor",
@@ -294,7 +294,7 @@ fn keypair_from_raw_text(text: &str) -> Option<Keypair> {
     None
 }
 
-fn deserialize_hashed(keyfile: &serde_json::Value) -> Result<Keypair, CoreError> {
+fn deserialize_hashed(keyfile: &serde_json::Value, crypto_type: u8) -> Result<Keypair, CoreError> {
     let public = match keyfile.get("hashedDescriptor") {
         Some(serde_json::Value::String(encoded)) => {
             let descriptor = hex::decode(encoded.trim_start_matches("0x"))
@@ -308,7 +308,7 @@ fn deserialize_hashed(keyfile: &serde_json::Value) -> Result<Keypair, CoreError>
         let phrase = phrase
             .as_str()
             .ok_or_else(|| key_err("invalid hashed secretPhrase"))?;
-        Some(Keypair::from_mnemonic(phrase, CRYPTO_HASHED, None)?)
+        Some(Keypair::from_mnemonic(phrase, crypto_type, None)?)
     } else if let Some(seed) = keyfile
         .get("secretSeed")
         .or_else(|| keyfile.get("privateKey"))
@@ -320,7 +320,7 @@ fn deserialize_hashed(keyfile: &serde_json::Value) -> Result<Keypair, CoreError>
             hex::decode(seed.trim_start_matches("0x"))
                 .map_err(|_| key_err("invalid hashed master seed encoding"))?,
         );
-        Some(Keypair::from_seed(&seed, CRYPTO_HASHED)?)
+        Some(Keypair::from_seed(&seed, crypto_type)?)
     } else {
         None
     };
@@ -339,9 +339,12 @@ fn deserialize_hashed(keyfile: &serde_json::Value) -> Result<Keypair, CoreError>
             private
         }
         (None, Some(public)) => public,
-        (None, None) => Keypair::new(stored_ss58(keyfile), None, CRYPTO_HASHED, 42)?,
+        (None, None) => Keypair::new(stored_ss58(keyfile), None, crypto_type, 42)?,
         (Some(_), None) => return Err(key_err("missing hashed descriptor")),
     };
+    if keypair.crypto_type() != crypto_type {
+        return Err(key_err("cryptoType does not match hashedDescriptor"));
+    }
     if let Some(address) = stored_ss58(keyfile) {
         if keypair.ss58_address() != address {
             return Err(key_err("ss58Address does not match hashedDescriptor"));
@@ -404,11 +407,11 @@ pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> Result<Keyp
         })
         .unwrap_or(CRYPTO_SR25519);
 
-    if crypto_type == CRYPTO_HASHED {
-        return deserialize_hashed(&keyfile_dict);
+    if is_hashed_crypto(crypto_type) {
+        return deserialize_hashed(&keyfile_dict, crypto_type);
     }
     if keyfile_dict.get("hashedDescriptor").is_some() {
-        return Err(key_err("hashedDescriptor requires cryptoType 4"));
+        return Err(key_err("hashedDescriptor requires cryptoType 4 or 5"));
     }
 
     if let Some(secret_phrase) = keyfile_dict
@@ -464,10 +467,33 @@ mod tests {
 
     use super::*;
     use crate::keys::CRYPTO_ED25519;
+    use crate::keys::CRYPTO_HASHED;
 
     fn test_mnemonic() -> String {
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
             .to_string()
+    }
+
+    #[test]
+    fn mldsa_keyfiles_preserve_identity_and_reject_scheme_substitution() {
+        let key =
+            Keypair::from_mnemonic(&test_mnemonic(), crate::keys::CRYPTO_MLDSA, None).unwrap();
+        for original in [key.public_only().unwrap(), key] {
+            let encoded = serialized_keypair_to_keyfile_data(&original).unwrap();
+            let restored = deserialize_keypair_from_keyfile_data(&encoded).unwrap();
+            assert_eq!(restored.crypto_type(), crate::keys::CRYPTO_MLDSA);
+            assert_eq!(
+                restored.hashed_descriptor().unwrap(),
+                original.hashed_descriptor().unwrap()
+            );
+            assert_eq!(restored.private_key_bytes(), original.private_key_bytes());
+            let mut changed: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+            changed["cryptoType"] = serde_json::json!(CRYPTO_HASHED);
+            assert!(
+                deserialize_keypair_from_keyfile_data(&serde_json::to_vec(&changed).unwrap())
+                    .is_err()
+            );
+        }
     }
 
     #[test]

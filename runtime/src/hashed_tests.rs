@@ -1158,3 +1158,255 @@ fn preassociated_classical_owner_blocks_activation_without_funding_the_account()
         // the activation denial caused by an earlier classical owner assignment.
     });
 }
+
+mod mldsa {
+    use super::*;
+    use subtensor_hashed::fips204::{
+        ml_dsa_65,
+        traits::{KeyGen, SerDes, Signer},
+    };
+
+    fn key(generation: u8) -> (ml_dsa_65::PublicKey, ml_dsa_65::PrivateKey) {
+        ml_dsa_65::KG::keygen_from_seed(&[generation; 32])
+    }
+    fn descriptor() -> Descriptor {
+        Descriptor {
+            version: 1,
+            scheme: Scheme::MlDsa65,
+            initial_commitment: subtensor_hashed::key_commitment(
+                Scheme::MlDsa65,
+                &key(0).0.into_bytes(),
+            ),
+        }
+    }
+    fn account() -> AccountId {
+        AccountId::new(subtensor_hashed::account_id(&descriptor()))
+    }
+    fn setup() {
+        HashedEnabled::set(true);
+        hashed_auth::TestVerificationWeight::set(Weight::zero());
+        let sponsor = pair(22);
+        let sponsor_id = AccountId::from(sponsor.public());
+        let _ = Balances::make_free_balance_be(&sponsor_id, TaoBalance::new(1_000_000_000_000));
+        let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+            calls: alloc::vec![
+                RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register {
+                    descriptor: descriptor()
+                }),
+                RuntimeCall::Balances(BalancesCall::transfer_keep_alive {
+                    dest: account().into(),
+                    value: TaoBalance::new(10_000_000_000)
+                }),
+            ],
+        });
+        frame_support::assert_ok!(Executive::apply_extrinsic(legacy(&sponsor, call)).unwrap());
+    }
+    fn signed(call: RuntimeCall, generation: u8, nonce: u32) -> UncheckedExtrinsic {
+        let extra = extra(nonce);
+        let implication = (2u8, &call, &extra, extra.implicit().unwrap()).encode();
+        let next_commitment =
+            subtensor_hashed::key_commitment(Scheme::MlDsa65, &key(generation + 1).0.into_bytes());
+        let payload = subtensor_hashed::transaction_payload(
+            account().as_ref(),
+            Scheme::MlDsa65,
+            <u64 as From<u8>>::from(generation),
+            &next_commitment,
+            &implication,
+        );
+        let (public, private) = key(generation);
+        UncheckedExtrinsic::new_mldsa(
+            call,
+            hashed_auth::AuthorizeMlDsa {
+                account: account(),
+                proof: subtensor_hashed::MlDsaProof {
+                    generation: <u64 as From<u8>>::from(generation),
+                    public_key: public.into_bytes(),
+                    next_commitment,
+                    signature: private
+                        .try_sign_with_seed(
+                            &[0; 32],
+                            &payload,
+                            subtensor_hashed::MLDSA_TRANSACTION_CONTEXT,
+                        )
+                        .unwrap(),
+                },
+            },
+            extra,
+        )
+    }
+
+    #[test]
+    fn python_sdk_bytes_execute_and_rotate_through_the_runtime() {
+        ext().execute_with(|| {
+            HashedEnabled::set(true);
+            hashed_auth::TestVerificationWeight::set(Weight::zero());
+            let fixture: serde_json::Value =
+                serde_json::from_str(include_str!("../tests/fixtures/mldsa-python-v5.json"))
+                    .unwrap();
+            assert_eq!(fixture["spec_version"], VERSION.spec_version);
+            assert_eq!(fixture["transaction_version"], VERSION.transaction_version);
+            let encoded = hex::decode(fixture["descriptor"].as_str().unwrap()).unwrap();
+            let descriptor = Descriptor::decode(&mut encoded.as_slice()).unwrap();
+            let account = AccountId::new(subtensor_hashed::account_id(&descriptor));
+            assert_eq!(
+                hex::encode(AsRef::<[u8; 32]>::as_ref(&account)),
+                fixture["account"].as_str().unwrap()
+            );
+            let sponsor = pair(22);
+            let _ = Balances::make_free_balance_be(
+                &AccountId::from(sponsor.public()),
+                TaoBalance::new(1_000_000_000_000),
+            );
+            let register = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+                calls: alloc::vec![
+                    RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register {
+                        descriptor
+                    }),
+                    RuntimeCall::Balances(BalancesCall::transfer_keep_alive {
+                        dest: account.clone().into(),
+                        value: TaoBalance::new(10_000_000_000)
+                    }),
+                ],
+            });
+            frame_support::assert_ok!(
+                Executive::apply_extrinsic(legacy(&sponsor, register)).unwrap()
+            );
+            for encoded in fixture["extrinsics"].as_array().unwrap() {
+                let bytes = hex::decode(encoded.as_str().unwrap()).unwrap();
+                let tx = UncheckedExtrinsic::decode(&mut bytes.as_slice()).unwrap();
+                frame_support::assert_ok!(Executive::apply_extrinsic(tx).unwrap());
+            }
+            assert_eq!(HashedAccounts::accounts(&account).unwrap().generation, 2);
+            assert_eq!(System::account_nonce(account), 3);
+        });
+    }
+
+    #[test]
+    fn boxed_mldsa_proof_respects_the_decoder_allocation_budget() {
+        ext().execute_with(|| {
+            let encoded = signed(call(), 0, 0).encode();
+            let mut input = encoded.as_slice();
+            let mut limited = codec::MemTrackingInput::new(
+                &mut input,
+                core::mem::size_of::<hashed_extrinsic::MlDsaUnchecked>() - 1,
+            );
+            assert!(UncheckedExtrinsic::decode(&mut limited).is_err());
+        });
+    }
+
+    #[test]
+    fn registration_dropped_retry_inclusion_rotation_and_replay() {
+        ext().execute_with(|| {
+            setup();
+            let before = HashedAccounts::accounts(account()).unwrap();
+            let tx = signed(call(), 0, 1);
+            assert_eq!(
+                UncheckedExtrinsic::decode(&mut tx.encode().as_slice()).unwrap(),
+                tx
+            );
+            // Pool validation and a discarded payload never retire a key.
+            let checked = tx.clone().check(&ChainContext::default()).unwrap();
+            assert_eq!(tx.get_dispatch_info(), checked.get_dispatch_info());
+            assert!(
+                checked
+                    .validate::<Runtime>(
+                        TransactionSource::External,
+                        &checked.get_dispatch_info(),
+                        tx.encoded_size()
+                    )
+                    .is_ok()
+            );
+            assert_eq!(HashedAccounts::accounts(account()).unwrap(), before);
+            let retry = signed(call(), 0, 1);
+            frame_support::assert_ok!(Executive::apply_extrinsic(retry.clone()).unwrap());
+            assert_eq!(HashedAccounts::accounts(account()).unwrap().generation, 1);
+            assert_eq!(System::account_nonce(account()), 2);
+            assert!(Executive::apply_extrinsic(tx).is_err());
+            assert!(Executive::apply_extrinsic(retry).is_err());
+            frame_support::assert_ok!(Executive::apply_extrinsic(signed(call(), 1, 2)).unwrap());
+            assert_eq!(HashedAccounts::accounts(account()).unwrap().generation, 2);
+        });
+    }
+
+    #[test]
+    fn rejects_tampering_bad_nonce_and_disabled_without_rotating() {
+        ext().execute_with(|| {
+            setup();
+            let before = HashedAccounts::accounts(account()).unwrap();
+            for field in 0..5 {
+                let mut tx = signed(call(), 0, 1);
+                let UncheckedExtrinsic::MlDsa(inner) = &mut tx else {
+                    unreachable!()
+                };
+                let sp_runtime::generic::Preamble::General(_, (authorization, _)) =
+                    &mut inner.0.preamble
+                else {
+                    unreachable!()
+                };
+                match field {
+                    0 => authorization.proof.signature[0] ^= 1,
+                    1 => authorization.proof.public_key[0] ^= 1,
+                    2 => authorization.proof.next_commitment[0] ^= 1,
+                    3 => authorization.account = AccountId::new([99; 32]),
+                    _ => {
+                        inner.0.function = RuntimeCall::System(frame_system::Call::remark {
+                            remark: b"different call".to_vec(),
+                        })
+                    }
+                }
+                assert!(Executive::apply_extrinsic(tx).is_err());
+                assert_eq!(HashedAccounts::accounts(account()).unwrap(), before);
+            }
+            assert!(Executive::apply_extrinsic(signed(call(), 0, 9)).is_err());
+            assert_eq!(HashedAccounts::accounts(account()).unwrap(), before);
+            HashedEnabled::set(false);
+            assert!(Executive::apply_extrinsic(signed(call(), 0, 1)).is_err());
+            assert_eq!(HashedAccounts::accounts(account()).unwrap(), before);
+        });
+    }
+
+    #[test]
+    fn included_dispatch_failure_consumes_mldsa_generation() {
+        ext().execute_with(|| {
+            setup();
+            let transfer = RuntimeCall::Balances(BalancesCall::transfer_keep_alive {
+                dest: AccountId::new([88; 32]).into(),
+                value: TaoBalance::new(u64::MAX),
+            });
+            assert!(
+                Executive::apply_extrinsic(signed(transfer, 0, 1))
+                    .unwrap()
+                    .is_err()
+            );
+            assert_eq!(HashedAccounts::accounts(account()).unwrap().generation, 1);
+            assert_eq!(System::account_nonce(account()), 2);
+            frame_support::assert_ok!(Executive::apply_extrinsic(signed(call(), 1, 2)).unwrap());
+        });
+    }
+
+    #[test]
+    fn mldsa_proofs_reject_truncation_trailing_bytes_and_wrong_pipeline() {
+        ext().execute_with(|| {
+            let bytes = signed(call(), 0, 0).encode();
+            for len in [0, 2, 40, 1992, bytes.len() - 1] {
+                assert!(UncheckedExtrinsic::decode(&mut &bytes[..len]).is_err());
+            }
+            let mut input = bytes.as_slice();
+            let prefix = codec::Compact::<u32>::decode(&mut input).unwrap();
+            let mut body = input.to_vec();
+            body[1] = 1;
+            let mut changed = prefix.encode();
+            changed.extend(body);
+            assert!(UncheckedExtrinsic::decode(&mut changed.as_slice()).is_err());
+            let mut trailing = bytes;
+            trailing.push(0);
+            assert!(
+                serde_json::from_value::<UncheckedExtrinsic>(serde_json::json!(format!(
+                    "0x{}",
+                    hex::encode(trailing)
+                )))
+                .is_err()
+            );
+        });
+    }
+}

@@ -217,9 +217,9 @@ pub mod pallet {
         }
 
         /// Read-only transaction validation. This never advances the key.
-        pub fn check_proof(
+        pub fn check_proof<const P: usize, const S: usize>(
             account: &AccountId32,
-            proof: &Proof,
+            proof: &subtensor_hashed::AuthorizationProof<P, S>,
             implication: &[u8],
         ) -> Result<ValidatedProof, DispatchError> {
             ensure!(T::Enabled::get(), Error::<T>::Disabled);

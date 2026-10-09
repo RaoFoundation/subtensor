@@ -28,7 +28,7 @@ import inspect
 from hashlib import blake2b
 from typing import Any, Optional
 
-from ..sp_core import CRYPTO_HASHED
+from ..sp_core import CRYPTO_MLDSA, HASHED_CRYPTO_TYPES
 from .codec import RuntimeCodec
 from .contract import SignedExtrinsic, SigningContext, UnsignedExtrinsic
 from .errors import SubstrateRequestException
@@ -52,6 +52,10 @@ from .utils.receipt import (
 
 IMMORTAL = "00"
 HASHED_PROOF_LENGTH = 136
+
+
+def hashed_proof_length(crypto_type: int) -> int:
+    return 5301 if crypto_type == CRYPTO_MLDSA else HASHED_PROOF_LENGTH
 
 
 class NonceCache:
@@ -155,7 +159,7 @@ def prepare_extrinsic(
     self-contained: it can cross a process boundary (QR display, file export)
     and later be reunited with a signature via :func:`attach_signature`.
     """
-    if crypto_type == CRYPTO_HASHED:
+    if crypto_type in HASHED_CRYPTO_TYPES:
         raise ValueError(
             "hashed accounts require live generation synchronization; use the local wallet signer"
         )
@@ -230,7 +234,7 @@ def attach_signature(
     anywhere — an in-process keypair, an extension, a QR round-trip. The call
     is spliced back in from its raw bytes, so nothing needs re-composing.
     """
-    if unsigned.crypto_type == CRYPTO_HASHED:
+    if unsigned.crypto_type in HASHED_CRYPTO_TYPES:
         raise ValueError("hashed accounts require the synchronized local wallet signing path")
     signature, signature_version = _normalize_signature(signature, unsigned.crypto_type)
     data, extrinsic_hash = codec.encode_signed_extrinsic(
@@ -292,7 +296,7 @@ async def create_signed_extrinsic(
     ``signature`` short-circuits signing (externally-signed or fee-estimation
     paths); a 65-byte value carries the signature version in its first byte.
     """
-    if keypair.crypto_type == CRYPTO_HASHED:
+    if keypair.crypto_type in HASHED_CRYPTO_TYPES:
         return create_hashed_extrinsic(
             codec,
             call,
@@ -371,16 +375,26 @@ def create_hashed_extrinsic(
         era_block_hash=era_block_hash,
     )
     if proof is None:
-        proof = bytes(keypair.sign_hashed(b"\x01" + call_data + extra + implicit))
+        proof = bytes(
+            keypair.sign_hashed(
+                bytes((2 if keypair.crypto_type == CRYPTO_MLDSA else 1,))
+                + call_data
+                + extra
+                + implicit
+            )
+        )
     elif isinstance(proof, str):
         proof = bytes.fromhex(proof.removeprefix("0x"))
-    if len(proof) != HASHED_PROOF_LENGTH:
-        raise ValueError("hashed authorization requires a complete 136-byte rotation proof")
+    if len(proof) != hashed_proof_length(keypair.crypto_type):
+        raise ValueError(
+            "hashed authorization requires a complete "
+            f"{hashed_proof_length(keypair.crypto_type)}-byte rotation proof"
+        )
     data, extrinsic_hash = codec.encode_signed_extrinsic(
         call_data,
         public_key=account,
         signature=proof,
-        signature_version=CRYPTO_HASHED,
+        signature_version=keypair.crypto_type,
         era=era,
         nonce=nonce,
         tip=tip,

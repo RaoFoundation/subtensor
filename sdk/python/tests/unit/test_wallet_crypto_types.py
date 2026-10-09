@@ -9,7 +9,14 @@ from typer.testing import CliRunner
 
 from bittensor import wallets
 from bittensor.cli.main import app
-from bittensor.sp_core import CRYPTO_ED25519, CRYPTO_HASHED, CRYPTO_SR25519, Keypair
+from bittensor.sp_core import (
+    CRYPTO_ED25519,
+    CRYPTO_HASHED,
+    CRYPTO_MLDSA,
+    CRYPTO_SR25519,
+    HASHED_CRYPTO_TYPES,
+    Keypair,
+)
 from bittensor.wallet import Wallet
 
 
@@ -36,6 +43,8 @@ def invoke(*args):
         ("sr", CRYPTO_SR25519),
         ("sr25519", CRYPTO_SR25519),
         ("hashed", CRYPTO_HASHED),
+        ("mldsa", CRYPTO_MLDSA),
+        ("ms", CRYPTO_MLDSA),
     ],
 )
 def test_cli_selection_applies_to_both_keys_and_mnemonic_recovery(wallet_path, name, code):
@@ -46,11 +55,12 @@ def test_cli_selection_applies_to_both_keys_and_mnemonic_recovery(wallet_path, n
     for role in ("coldkey", "hotkey"):
         key = getattr(wallet, role)
         public = getattr(wallet, role + "pub")
+        assert len(details[role + "_mnemonic"].split()) == (24 if code == CRYPTO_MLDSA else 12)
         recovered = Keypair.create_from_mnemonic(details[role + "_mnemonic"], code)
         assert key.crypto_type == public.crypto_type == recovered.crypto_type == code
         assert key.ss58_address == public.ss58_address == recovered.ss58_address
         assert details[role + "_crypto_type"] == wallets.format_crypto_type(code)
-        if code == CRYPTO_HASHED:
+        if code in HASHED_CRYPTO_TYPES:
             assert bytes(key.hashed_descriptor) == bytes(recovered.hashed_descriptor)
         else:
             payload = b"wallet selection survives signing and recovery"
@@ -69,7 +79,7 @@ def test_cli_explicit_hotkey_override(wallet_path, cold, hot, cold_code, hot_cod
     assert wallet.hotkey.crypto_type == hot_code
 
 
-@pytest.mark.parametrize("code", [CRYPTO_ED25519, CRYPTO_SR25519, CRYPTO_HASHED])
+@pytest.mark.parametrize("code", [CRYPTO_ED25519, CRYPTO_SR25519, CRYPTO_HASHED, CRYPTO_MLDSA])
 def test_sdk_create_uses_selected_scheme_for_both_keys(wallet_path, code):
     wallet = wallets.create(
         name="schemes",
@@ -94,7 +104,7 @@ def test_sdk_explicit_ed25519_override_is_not_treated_as_missing(wallet_path):
     assert wallet.hotkey.crypto_type == CRYPTO_ED25519
 
 
-@pytest.mark.parametrize("name", ["ms", "unknown"])
+@pytest.mark.parametrize("name", ["unknown"])
 def test_unsupported_scheme_fails_before_creating_keys(wallet_path, name):
     result = invoke("create", "--crypto-type", name, "--no-password")
     assert result.exit_code != 0

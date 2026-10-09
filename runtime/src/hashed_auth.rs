@@ -25,6 +25,9 @@ frame_support::parameter_types! {
 pub struct TestWeights;
 #[cfg(test)]
 impl WeightInfo for TestWeights {
+    fn authorize_mldsa(_: u32) -> Weight {
+        TestVerificationWeight::get()
+    }
     fn check_registered() -> Weight {
         TestVerificationWeight::get()
     }
@@ -37,21 +40,32 @@ impl WeightInfo for TestWeights {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, TypeInfo)]
-pub struct AuthorizeAccount {
+pub struct AuthorizeAccount<const P: usize = 32, const S: usize = 64> {
     pub account: AccountId,
-    pub proof: subtensor_hashed::Proof,
+    pub proof: subtensor_hashed::AuthorizationProof<P, S>,
 }
 
-impl TransactionExtension<RuntimeCall> for AuthorizeAccount {
-    const IDENTIFIER: &'static str = "AuthorizeHashedAccount";
+pub type AuthorizeMlDsa = AuthorizeAccount<1952, 3309>;
+
+impl<const P: usize, const S: usize> TransactionExtension<RuntimeCall> for AuthorizeAccount<P, S> {
+    const IDENTIFIER: &'static str = if P == 32 {
+        "AuthorizeHashedAccount"
+    } else {
+        "AuthorizeMlDsaAccount"
+    };
     type Implicit = ();
     type Val = pallet_hashed_accounts::ValidatedProof;
     type Pre = ();
 
     fn weight(&self, call: &RuntimeCall) -> Weight {
-        <Runtime as pallet_hashed_accounts::Config>::WeightInfo::authorize(
-            u32::try_from(call.encoded_size()).unwrap_or(u32::MAX),
-        )
+        let len = u32::try_from(call.encoded_size()).unwrap_or(u32::MAX);
+        if P == 32 && S == 64 {
+            <Runtime as pallet_hashed_accounts::Config>::WeightInfo::authorize(len)
+        } else if P == 1952 && S == 3309 {
+            <Runtime as pallet_hashed_accounts::Config>::WeightInfo::authorize_mldsa(len)
+        } else {
+            Weight::MAX
+        }
     }
 
     fn validate(
@@ -115,6 +129,12 @@ impl pallet_hashed_accounts::OnRegister for OnHashedRegistered {
             }
             crate::UncheckedExtrinsic::Hashed(outer) => {
                 let Preamble::General(1, (authorization, _)) = outer.0.preamble else {
+                    return Err(invalid);
+                };
+                (authorization.account, outer.0.function)
+            }
+            crate::UncheckedExtrinsic::MlDsa(outer) => {
+                let Preamble::General(2, (authorization, _)) = outer.0.preamble else {
                     return Err(invalid);
                 };
                 (authorization.account, outer.0.function)

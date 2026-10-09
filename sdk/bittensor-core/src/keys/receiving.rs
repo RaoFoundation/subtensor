@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn unsupported_descriptors_are_rejected_even_with_a_valid_checksum() {
-        for (offset, replacement) in [(0, 0), (0, 2), (1, 0), (1, 2), (1, 255)] {
+        for (offset, replacement) in [(0, 0), (0, 2), (1, 0), (1, 3), (1, 255)] {
             let mut invalid = descriptor();
             invalid[offset] = replacement;
             assert!(encode_hashed_receiving_address(&invalid, &[0; 32]).is_err());

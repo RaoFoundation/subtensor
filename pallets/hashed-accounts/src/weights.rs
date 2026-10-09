@@ -6,11 +6,15 @@ pub trait WeightInfo {
     fn register() -> Weight;
     fn check_registered() -> Weight;
     fn authorize(call_len: u32) -> Weight;
+    fn authorize_mldsa(call_len: u32) -> Weight;
 }
 
 pub struct Uncalibrated;
 
 impl WeightInfo for Uncalibrated {
+    fn authorize_mldsa(_: u32) -> Weight {
+        Weight::MAX
+    }
     fn check_registered() -> Weight {
         Weight::MAX
     }
@@ -23,6 +27,9 @@ impl WeightInfo for Uncalibrated {
 }
 
 impl WeightInfo for () {
+    fn authorize_mldsa(call_len: u32) -> Weight {
+        Uncalibrated::authorize_mldsa(call_len)
+    }
     fn check_registered() -> Weight {
         Uncalibrated::check_registered()
     }

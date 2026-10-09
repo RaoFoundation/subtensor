@@ -22,7 +22,7 @@ use serde_json::{json, Value as JsonValue};
 use crate::codec::extrinsic::{era_birth, TxParams};
 use crate::codec::value::Value;
 use crate::error::CoreError;
-use crate::keys::{Keypair, CRYPTO_HASHED};
+use crate::keys::{is_hashed_crypto, Keypair, CRYPTO_MLDSA};
 use crate::mlkem;
 use crate::runtime::type_string::TypeSpec;
 use crate::runtime::{Runtime, RuntimeApiMethodInfo, StorageInfo};
@@ -549,7 +549,7 @@ impl Client {
             era_block_hash,
             metadata_hash: None,
         };
-        let signature = if signer.crypto_type() == CRYPTO_HASHED {
+        let signature = if is_hashed_crypto(signer.crypto_type()) {
             let state_hash = self.block_hash(None)?;
             let record = self.query(
                 "HashedAccounts",
@@ -576,7 +576,11 @@ impl Client {
                 .checked_add(generation_offset)
                 .ok_or_else(|| CoreError::Policy("hashed signing generation exhausted".into()))?;
             let selected = active.at_generation(generation)?;
-            let payload = runtime.hashed_signature_implication(call_data, &params)?;
+            let payload = if signer.crypto_type() == CRYPTO_MLDSA {
+                runtime.mldsa_signature_implication(call_data, &params)?
+            } else {
+                runtime.hashed_signature_implication(call_data, &params)?
+            };
             selected.sign_hashed(&payload)?
         } else {
             let payload = runtime.signature_payload(call_data, &params)?;

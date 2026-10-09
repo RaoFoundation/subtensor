@@ -51,7 +51,7 @@ from .signing import (
     public_view,
     resolve_signer,
 )
-from .sp_core import CRYPTO_HASHED, Keypair, ss58_decode
+from .sp_core import HASHED_CRYPTO_TYPES, Keypair, ss58_decode
 
 # Transaction-pool rejections that resolve themselves within a block or so (a
 # competing extrinsic at the same nonce, or a race against pool state). Worth
@@ -1159,7 +1159,7 @@ class Executor:
         await _prepare_shielded_signer(keypair)
         nonce = await self.substrate.account_next_index(keypair.ss58_address)
         inner_options = {"nonce": nonce + 1, "period": period}
-        if keypair.crypto_type == CRYPTO_HASHED:
+        if keypair.crypto_type in HASHED_CRYPTO_TYPES:
             # The carrier consumes generation g and nonce n. Its encrypted
             # inner call consumes g+1 and n+1 only after the carrier is accepted.
             inner_options["hashed_generation_offset"] = 1

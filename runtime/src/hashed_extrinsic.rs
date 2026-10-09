@@ -3,7 +3,7 @@
 //! otherwise decodes one extension type for both formats, which cannot preserve
 //! v4 compatibility when an authorization proof is added to v5.
 
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use codec::{
     Compact, CountedInput, Decode, DecodeLimit, DecodeWithMemTracking, Encode, Input,
     MemTrackingInput,
@@ -26,10 +26,15 @@ use sp_runtime::{
     },
 };
 
-use crate::hashed_auth::AuthorizeAccount;
+use crate::hashed_auth::{AuthorizeAccount, AuthorizeMlDsa};
 use crate::{AccountId, Address, ChainContext, Runtime, RuntimeCall, Signature, TxExtension};
 
 pub type HashedTxExtension = (AuthorizeAccount, TxExtension);
+pub type MlDsaTxExtension = (AuthorizeMlDsa, TxExtension);
+pub type MlDsaUnchecked =
+    fp_self_contained::UncheckedExtrinsic<Address, RuntimeCall, Signature, MlDsaTxExtension>;
+type MlDsaChecked =
+    fp_self_contained::CheckedExtrinsic<AccountId, RuntimeCall, MlDsaTxExtension, H160>;
 pub type LegacyUnchecked =
     fp_self_contained::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
 pub type HashedUnchecked =
@@ -42,6 +47,7 @@ type HashedChecked =
 pub enum UncheckedExtrinsic {
     Legacy(LegacyUnchecked),
     Hashed(HashedUnchecked),
+    MlDsa(Box<MlDsaUnchecked>),
 }
 
 impl UncheckedExtrinsic {
@@ -74,10 +80,25 @@ impl UncheckedExtrinsic {
         )
     }
 
+    pub fn new_mldsa(
+        call: RuntimeCall,
+        authorization: AuthorizeMlDsa,
+        extension: TxExtension,
+    ) -> Self {
+        Self::MlDsa(Box::new(
+            generic::UncheckedExtrinsic {
+                preamble: Preamble::General(2, (authorization, extension)),
+                function: call,
+            }
+            .into(),
+        ))
+    }
+
     pub fn into_call(self) -> RuntimeCall {
         match self {
             Self::Legacy(xt) => xt.0.function,
             Self::Hashed(xt) => xt.0.function,
+            Self::MlDsa(xt) => xt.0.function,
         }
     }
 }
@@ -103,6 +124,16 @@ pub fn metadata_at_version(version: u32) -> Option<sp_core::OpaqueMetadata> {
                 implicit: extension.implicit,
             }),
     );
+    let mldsa_index = u32::try_from(ir.extrinsic.extensions.len()).ok()?;
+    ir.extrinsic.extensions.extend(
+        <AuthorizeMlDsa as TransactionExtension<RuntimeCall>>::metadata()
+            .into_iter()
+            .map(|extension| metadata_ir::TransactionExtensionMetadataIR {
+                identifier: extension.identifier,
+                ty: extension.ty,
+                implicit: extension.implicit,
+            }),
+    );
     let mut prefixed = metadata_ir::into_v16(ir);
     let RuntimeMetadata::V16(metadata) = &mut prefixed.1 else {
         return None;
@@ -114,6 +145,12 @@ pub fn metadata_at_version(version: u32) -> Option<sp_core::OpaqueMetadata> {
     legacy.retain(|index| index.0 < authorization_index);
     let mut hashed = alloc::vec![codec::Compact(authorization_index)];
     hashed.extend(legacy.iter().copied());
+    let mut mldsa = alloc::vec![codec::Compact(mldsa_index)];
+    mldsa.extend(legacy.iter().copied());
+    metadata
+        .extrinsic
+        .transaction_extensions_by_version
+        .insert(2, mldsa);
     metadata
         .extrinsic
         .transaction_extensions_by_version
@@ -126,6 +163,7 @@ impl Encode for UncheckedExtrinsic {
         match self {
             Self::Legacy(xt) => xt.encode(),
             Self::Hashed(xt) => xt.encode(),
+            Self::MlDsa(xt) => xt.encode(),
         }
     }
 }
@@ -179,6 +217,14 @@ impl Decode for UncheckedExtrinsic {
                     let function = decode_call(&mut input)?;
                     Self::new_hashed(function, extension.0, extension.1)
                 }
+                2 => {
+                    // The variant is boxed so legacy transactions remain small.
+                    // Charge that allocation to the enclosing decoder's budget.
+                    input.on_before_alloc_mem(core::mem::size_of::<MlDsaUnchecked>())?;
+                    let extension = MlDsaTxExtension::decode(&mut input)?;
+                    let function = decode_call(&mut input)?;
+                    Self::new_mldsa(function, extension.0, extension.1)
+                }
                 _ => return Err("Unsupported transaction extension version".into()),
             },
             _ => return Err("Invalid extrinsic format".into()),
@@ -206,6 +252,7 @@ impl ExtrinsicLike for UncheckedExtrinsic {
         match self {
             Self::Legacy(xt) => xt.is_bare(),
             Self::Hashed(_) => false,
+            Self::MlDsa(_) => false,
         }
     }
 }
@@ -216,6 +263,7 @@ impl ExtrinsicCall for UncheckedExtrinsic {
         match self {
             Self::Legacy(xt) => &xt.0.function,
             Self::Hashed(xt) => &xt.0.function,
+            Self::MlDsa(xt) => &xt.0.function,
         }
     }
 }
@@ -230,6 +278,7 @@ impl GetDispatchInfo for UncheckedExtrinsic {
                     .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads(1));
             }
             Self::Hashed(xt) => info.extension_weight = xt.0.extension_weight(),
+            Self::MlDsa(xt) => info.extension_weight = xt.0.extension_weight(),
             _ => {}
         }
         info
@@ -266,6 +315,7 @@ impl From<UncheckedExtrinsic> for OpaqueExtrinsic {
         match xt {
             UncheckedExtrinsic::Legacy(xt) => xt.into(),
             UncheckedExtrinsic::Hashed(xt) => xt.into(),
+            UncheckedExtrinsic::MlDsa(xt) => (*xt).into(),
         }
     }
 }
@@ -291,6 +341,7 @@ impl<'de> serde::Deserialize<'de> for UncheckedExtrinsic {
 pub enum CheckedExtrinsic {
     Legacy(LegacyChecked),
     Hashed(HashedChecked),
+    MlDsa(Box<MlDsaChecked>),
 }
 
 impl Checkable<ChainContext> for UncheckedExtrinsic {
@@ -309,6 +360,17 @@ impl Checkable<ChainContext> for UncheckedExtrinsic {
                 }
                 Ok(CheckedExtrinsic::Hashed(xt.check(context)?))
             }
+            Self::MlDsa(xt) => {
+                // Frontier's self-contained branch bypasses extensions entirely.
+                // EVM access by a Hashed must use an authenticated native route.
+                if matches!(xt.0.function, RuntimeCall::Ethereum(_)) {
+                    return Err(InvalidTransaction::Call.into());
+                }
+                if !matches!(xt.0.preamble, Preamble::General(2, _)) {
+                    return Err(InvalidTransaction::BadProof.into());
+                }
+                Ok(CheckedExtrinsic::MlDsa(Box::new((*xt).check(context)?)))
+            }
         }
     }
 
@@ -322,7 +384,7 @@ impl Checkable<ChainContext> for UncheckedExtrinsic {
                 xt.unchecked_into_checked_i_know_what_i_am_doing(context)?,
             )),
             // Hashed authorization is never bypassed during upgrade replay.
-            Self::Hashed(_) => self.check(context),
+            Self::Hashed(_) | Self::MlDsa(_) => self.check(context),
         }
     }
 }
@@ -363,6 +425,14 @@ impl GetDispatchInfo for CheckedExtrinsic {
                     _ => frame_support::weights::Weight::MAX,
                 };
             }
+            Self::MlDsa(xt) => {
+                info.extension_weight = match &xt.signed {
+                    fp_self_contained::CheckedSignature::GenericDelegated(
+                        ExtrinsicFormat::General(_, extension),
+                    ) => extension.weight(&xt.function),
+                    _ => frame_support::weights::Weight::MAX,
+                };
+            }
             _ => {}
         }
         info
@@ -384,6 +454,7 @@ impl Applyable for CheckedExtrinsic {
                 xt.validate::<U>(source, info, len)
             }
             Self::Hashed(xt) => xt.validate::<U>(source, info, len),
+            Self::MlDsa(xt) => xt.validate::<U>(source, info, len),
         }
     }
 
@@ -408,6 +479,17 @@ impl Applyable for CheckedExtrinsic {
                 })
                 .map_err(|_| InvalidTransaction::ExhaustsResources)?
             }
+            Self::MlDsa(xt) => {
+                frame_support::storage::transactional::with_transaction_opaque_err(|| {
+                    let result = xt.apply::<U>(info, len);
+                    if result.is_ok() {
+                        frame_support::storage::TransactionOutcome::Commit(result)
+                    } else {
+                        frame_support::storage::TransactionOutcome::Rollback(result)
+                    }
+                })
+                .map_err(|_| InvalidTransaction::ExhaustsResources)?
+            }
         }
     }
 
@@ -415,6 +497,7 @@ impl Applyable for CheckedExtrinsic {
         match self {
             Self::Legacy(xt) => &xt.function,
             Self::Hashed(xt) => &xt.function,
+            Self::MlDsa(xt) => &xt.function,
         }
     }
 }

@@ -59,7 +59,7 @@ def receiving_address(keypair: Any, genesis_hash: str | bytes) -> str:
     Register each new hashed account and wait for finalization before publicly
     sharing its address.
     """
-    if keypair.crypto_type != sp_core.CRYPTO_HASHED:
+    if keypair.crypto_type not in sp_core.HASHED_CRYPTO_TYPES:
         return keypair.ss58_address
     return sp_core.encode_hashed_receiving_address(
         bytes(keypair.hashed_descriptor), genesis_bytes(genesis_hash)
@@ -100,6 +100,6 @@ async def coerce_payment_address(substrate: Any, value: Any, param: str) -> Any:
     key = value
     if isinstance(value, (Wallet, KeyedWallet)) and not isinstance(value, Signer):
         key = public_view(value, "hotkey" if "hotkey" in param else "coldkey")
-    if getattr(key, "crypto_type", None) == sp_core.CRYPTO_HASHED:
+    if getattr(key, "crypto_type", None) in sp_core.HASHED_CRYPTO_TYPES:
         return receiving_address(key, await substrate.block_hash(0))
     return as_ss58(value, param)

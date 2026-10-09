@@ -31,6 +31,8 @@ pub const TRANSACTION_DOMAIN: &[u8] = b"bittensor/hashed/v1/transaction";
 pub enum Scheme {
     #[codec(index = 1)]
     Sr25519,
+    #[codec(index = 2)]
+    MlDsa65,
 }
 
 #[derive(
@@ -61,11 +63,11 @@ impl Descriptor {
 #[derive(
     Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen,
 )]
-pub struct Proof {
+pub struct AuthorizationProof<const PUBLIC: usize, const SIGNATURE: usize> {
     pub generation: u64,
-    pub public_key: [u8; 32],
+    pub public_key: [u8; PUBLIC],
     pub next_commitment: [u8; 32],
-    pub signature: [u8; 64],
+    pub signature: [u8; SIGNATURE],
 }
 
 fn domain_hash(domain: &[u8], value: impl Encode) -> [u8; 32] {
@@ -78,7 +80,7 @@ pub fn account_id(descriptor: &Descriptor) -> [u8; 32] {
     domain_hash(ACCOUNT_DOMAIN, descriptor)
 }
 
-pub fn key_commitment(scheme: Scheme, public_key: &[u8; 32]) -> [u8; 32] {
+pub fn key_commitment<const N: usize>(scheme: Scheme, public_key: &[u8; N]) -> [u8; 32] {
     domain_hash(KEY_DOMAIN, (VERSION, scheme, public_key))
 }
 
@@ -105,8 +107,23 @@ pub fn transaction_payload(
     )
 }
 
+pub const MLDSA_PUBLIC_LEN: usize = 1952;
+pub const MLDSA_SIGNATURE_LEN: usize = 3309;
+pub type Proof = AuthorizationProof<32, 64>;
+pub type MlDsaProof = AuthorizationProof<MLDSA_PUBLIC_LEN, MLDSA_SIGNATURE_LEN>;
+pub use fips204;
+
+/// The context is part of the ML-DSA signature and cannot be repurposed for
+/// off-chain messages even when both uses involve the same generation key.
+pub const MLDSA_TRANSACTION_CONTEXT: &[u8] = b"bittensor/hashed/v1/transaction";
+
 #[cfg(feature = "verify")]
-pub fn verify(account: &[u8; 32], scheme: Scheme, proof: &Proof, implication_bytes: &[u8]) -> bool {
+pub fn verify<const P: usize, const S: usize>(
+    account: &[u8; 32],
+    scheme: Scheme,
+    proof: &AuthorizationProof<P, S>,
+    implication_bytes: &[u8],
+) -> bool {
     let payload = transaction_payload(
         account,
         scheme,
@@ -115,23 +132,86 @@ pub fn verify(account: &[u8; 32], scheme: Scheme, proof: &Proof, implication_byt
         implication_bytes,
     );
     match scheme {
-        Scheme::Sr25519 => sp_io::crypto::sr25519_verify(
-            &sp_core::sr25519::Signature::from_raw(proof.signature),
+        Scheme::Sr25519 => {
+            let (Ok(signature), Ok(public)) = (
+                proof.signature.as_slice().try_into(),
+                proof.public_key.as_slice().try_into(),
+            ) else {
+                return false;
+            };
+            sp_io::crypto::sr25519_verify(
+                &sp_core::sr25519::Signature::from_raw(signature),
+                &payload,
+                &sp_core::sr25519::Public::from_raw(public),
+            )
+        }
+        Scheme::MlDsa65 => verify_mldsa(
+            &proof.public_key,
+            &proof.signature,
             &payload,
-            &sp_core::sr25519::Public::from_raw(proof.public_key),
+            MLDSA_TRANSACTION_CONTEXT,
         ),
     }
 }
 
+pub fn verify_mldsa(public: &[u8], signature: &[u8], message: &[u8], context: &[u8]) -> bool {
+    use fips204::{
+        ml_dsa_65::PublicKey,
+        traits::{SerDes, Verifier},
+    };
+    let (Ok(public), Ok(signature)) = (public.try_into(), signature.try_into()) else {
+        return false;
+    };
+    PublicKey::try_from_bytes(public).is_ok_and(|key| key.verify(message, signature, context))
+}
+
 #[cfg(all(test, feature = "verify"))]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
     use super::*;
     use sp_core::Pair;
 
     #[test]
+    fn nist_external_mldsa65_vectors_and_context_binding() {
+        let vectors: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/data/nist-mldsa65.json")).unwrap();
+        for case in vectors["tests"].as_array().unwrap() {
+            let bytes = |name: &str| hex::decode(case[name].as_str().unwrap()).unwrap();
+            let public = bytes("pk");
+            let signature = bytes("signature");
+            let message = bytes("message");
+            let context = bytes("context");
+            assert_eq!(
+                verify_mldsa(&public, &signature, &message, &context),
+                case["testPassed"].as_bool().unwrap(),
+                "NIST case {}",
+                case["tcId"]
+            );
+            assert!(!verify_mldsa(
+                &public,
+                &signature,
+                &message,
+                b"different context"
+            ));
+            assert!(!verify_mldsa(
+                &public[..1951],
+                &signature,
+                &message,
+                &context
+            ));
+            assert!(!verify_mldsa(
+                &public,
+                &signature[..3308],
+                &message,
+                &context
+            ));
+        }
+    }
+
+    #[test]
     fn unknown_schemes_and_versions_are_rejected() {
         assert!(Scheme::decode(&mut &[0u8][..]).is_err());
-        assert!(Scheme::decode(&mut &[2u8][..]).is_err());
+        assert!(Scheme::decode(&mut &[3u8][..]).is_err());
         assert!(
             !Descriptor {
                 version: 2,

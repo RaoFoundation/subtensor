@@ -12,7 +12,7 @@ use crate::codec::decode::{compact_u128, Cursor};
 use crate::codec::encode::compact;
 use crate::codec::value::Value;
 use crate::error::CoreError;
-use crate::keys::{ss58_from_public, CRYPTO_HASHED};
+use crate::keys::{is_hashed_crypto, ss58_from_public, CRYPTO_MLDSA};
 use crate::runtime::Runtime;
 
 /// Everything one signature payload / signed extrinsic needs beyond the call.
@@ -269,6 +269,16 @@ impl Runtime {
         Ok(implication)
     }
 
+    pub fn mldsa_signature_implication(
+        &self,
+        call_data: &[u8],
+        params: &TxParams,
+    ) -> Result<Vec<u8>, CoreError> {
+        let mut implication = self.hashed_signature_implication(call_data, params)?;
+        implication[0] = 2;
+        Ok(implication)
+    }
+
     fn require_hashed_accounts(&self) -> Result<(), CoreError> {
         if self.pallet("HashedAccounts").is_none() {
             return Err(CoreError::NotInRuntime("HashedAccounts".into()));
@@ -289,16 +299,28 @@ impl Runtime {
         signature_version: u8,
         params: &TxParams,
     ) -> Result<(Vec<u8>, [u8; 32]), CoreError> {
-        if signature_version == CRYPTO_HASHED {
+        if is_hashed_crypto(signature_version) {
             self.require_hashed_accounts()?;
-            if signature.len() != 136 {
-                return Err(CoreError::Codec(
-                    "hashed authorization proof must be 136 bytes".into(),
-                ));
+            let proof_len = if signature_version == CRYPTO_MLDSA {
+                5301
+            } else {
+                136
+            };
+            if signature.len() != proof_len {
+                return Err(CoreError::Codec(format!(
+                    "hashed authorization proof must be {proof_len} bytes"
+                )));
             }
             // General-v5 extension version 1: AccountId32 + Proof + the
             // unchanged legacy extension extras. No MultiAddress prefix.
-            let mut body = vec![0x45, 1];
+            let mut body = vec![
+                0x45,
+                if signature_version == CRYPTO_MLDSA {
+                    2
+                } else {
+                    1
+                },
+            ];
             body.extend_from_slice(&public_key);
             body.extend_from_slice(signature);
             body.extend_from_slice(&self.encode_payload_section(Slot::Extrinsic, params)?);
@@ -392,10 +414,10 @@ impl Runtime {
                 "unsupported extrinsic format {version_byte}"
             )));
         }
-        let hashed = if general {
+        let extension_version = if general {
             match body_cursor.byte()? {
-                0 => false, // Historical General extension pipeline.
-                1 => true,
+                0 => 0, // Historical General extension pipeline.
+                version @ (1 | 2) => version,
                 _ => {
                     return Err(CoreError::Codec(
                         "unsupported general extension version".into(),
@@ -403,7 +425,7 @@ impl Runtime {
                 }
             }
         } else {
-            false
+            0
         };
 
         let mut fields: Vec<(String, Value)> = vec![
@@ -413,7 +435,7 @@ impl Runtime {
                 Value::Int(i128::try_from(length).unwrap_or(0)),
             ),
         ];
-        if hashed {
+        if extension_version != 0 {
             self.require_hashed_accounts()?;
             let account: [u8; 32] = body_cursor
                 .take(32)?
@@ -425,7 +447,19 @@ impl Runtime {
             ));
             fields.push((
                 "signature".into(),
-                Value::record(vec![("Hashed".into(), Value::hex(body_cursor.take(136)?))]),
+                Value::record(vec![(
+                    if extension_version == 2 {
+                        "MlDsa"
+                    } else {
+                        "Hashed"
+                    }
+                    .into(),
+                    Value::hex(body_cursor.take(if extension_version == 2 {
+                        5301
+                    } else {
+                        136
+                    })?),
+                )]),
             ));
         }
         if signed {
@@ -529,6 +563,7 @@ mod hashed_tests {
 
     use super::*;
     use crate::keys::Keypair;
+    use crate::keys::CRYPTO_HASHED;
 
     fn runtime(hashed: bool) -> Runtime {
         let fixture: serde_json::Value =
@@ -624,6 +659,64 @@ mod hashed_tests {
                 key.public_key_bytes(),
                 &proof[..64],
                 CRYPTO_HASHED,
+                &params()
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn mldsa_wire_roundtrip_keeps_call_extensions_and_proof_separate() {
+        let runtime = runtime(true);
+        let call = runtime
+            .compose_call(
+                "System",
+                "remark",
+                &Value::record(vec![("remark".into(), Value::Bytes(vec![7; 300]))]),
+            )
+            .unwrap();
+        let key = Keypair::from_seed(&[4; 32], CRYPTO_MLDSA)
+            .unwrap()
+            .at_generation(12)
+            .unwrap();
+        let implication = runtime
+            .mldsa_signature_implication(&call, &params())
+            .unwrap();
+        assert!(implication.len() > 256);
+        assert_eq!(implication[0], 2);
+        let proof = key.sign_hashed(&implication).unwrap();
+        let (encoded, _) = runtime
+            .encode_signed_extrinsic(
+                &call,
+                key.public_key_bytes(),
+                &proof,
+                CRYPTO_MLDSA,
+                &params(),
+            )
+            .unwrap();
+        let mut body = Cursor::new(&encoded);
+        let _ = compact_u128(&mut body).unwrap();
+        assert_eq!(body.byte().unwrap(), 0x45);
+        assert_eq!(body.byte().unwrap(), 2);
+        assert_eq!(body.take(32).unwrap(), key.public_key_bytes());
+        assert_eq!(body.take(5301).unwrap(), proof);
+        let decoded = runtime.decode_extrinsic(&encoded, true).unwrap();
+        let Value::Dict(fields) = decoded else {
+            panic!("record expected")
+        };
+        assert!(fields.contains(&(Value::str("address"), Value::str(key.ss58_address()))));
+        assert!(fields
+            .iter()
+            .any(|(name, value)| name == &Value::str("nonce")
+                && matches!(value, Value::Uint(4) | Value::Int(4))));
+        let mut malformed = encoded;
+        malformed.push(0);
+        assert!(runtime.decode_extrinsic(&malformed, true).is_err());
+        assert!(runtime
+            .encode_signed_extrinsic(
+                &call,
+                key.public_key_bytes(),
+                &proof[..64],
+                CRYPTO_MLDSA,
                 &params()
             )
             .is_err());
