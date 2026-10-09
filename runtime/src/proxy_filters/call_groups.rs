@@ -30,7 +30,7 @@ use pallet_subtensor_utility::Call as UtilityCall;
 use pallet_sudo::Call as SudoCall;
 use pallet_timestamp::Call as TimestampCall;
 use subtensor_macros::call_filter_group;
-use subtensor_runtime_common::{SMALL_ALPHA_TRANSFER_LIMIT, SMALL_TRANSFER_LIMIT};
+use subtensor_runtime_common::SMALL_TRANSFER_LIMIT;
 
 call_filter_group!(
     SystemCalls,
@@ -275,14 +275,26 @@ call_filter_group!(
     ]
 );
 
-// Ordinary balance transfers — moving your own free balance.
+// Ordinary balance transfers — moving your own free balance. `small_transfer`
+// is the whitelisted, once-per-block variant the `SmallTransfer` proxy is
+// limited to; the `Transfer` proxy grants it unconditionally.
 call_filter_group!(
     BalanceTransferCalls,
     [
         RuntimeCall::Balances(BalancesCall::transfer_keep_alive),
         RuntimeCall::Balances(BalancesCall::transfer_allow_death),
         RuntimeCall::Balances(BalancesCall::transfer_all),
+        RuntimeCall::SubtensorModule(SubtensorCall::small_transfer),
     ]
+);
+
+// Whitelisting a `small_transfer` destination is a spending grant, like
+// `Proxy::set_real_pays_fee`: inventory-only, no restricted proxy may set it.
+call_filter_group!(
+    SmallTransferAdminCalls,
+    [RuntimeCall::SubtensorModule(
+        SubtensorCall::set_small_transfer_destination
+    )]
 );
 
 // Privileged, root-only balance operations (force transfer/unreserve, burn,
@@ -650,16 +662,13 @@ call_filter_group!(
 // and the client-facing metadata in lockstep.
 // ============================================================================
 
-// `SmallTransfer`: amount-bounded balance and stake transfers.
+// `SmallTransfer`: only the amount-bounded TAO transfer to the coldkey's
+// whitelisted destination. The destination and the once-per-block limit are
+// enforced inside `small_transfer` (keyed on the delegating coldkey, which the
+// stateless filter cannot see); the amount cap is enforced both here and there.
 call_filter_group!(SmallTransferCalls, [
-    RuntimeCall::Balances(BalancesCall::transfer_keep_alive)
-        where value < SMALL_TRANSFER_LIMIT,
-    RuntimeCall::Balances(BalancesCall::transfer_allow_death)
-        where value < SMALL_TRANSFER_LIMIT,
-    RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake)
-        where alpha_amount < SMALL_ALPHA_TRANSFER_LIMIT,
-    RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake_and_hotkey)
-        where alpha_amount < SMALL_ALPHA_TRANSFER_LIMIT,
+    RuntimeCall::SubtensorModule(SubtensorCall::small_transfer)
+        where amount < SMALL_TRANSFER_LIMIT,
 ]);
 
 // `SudoUncheckedSetCode`: a single sudo call, only when it wraps
@@ -724,6 +733,7 @@ type SubtensorSplitCalls = (
     BalanceMaintenanceCalls,
     StakeManagementCalls,
     StakeTransferCalls,
+    SmallTransferAdminCalls,
     PowRegistrationCalls,
     BurnedRegistrationCalls,
     RootRegistrationCalls,

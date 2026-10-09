@@ -53,8 +53,10 @@ Prefer the narrowest type that covers the job:
   makes it the natural "manager" proxy.
 * **Transfer** — balance transfers and stake transfers (`transfer_stake` /
   `transfer_stake_and_hotkey`) only.
-  **SmallTransfer** is the same but caps each transfer below 0.5 TAO
-  (0.5 alpha for stake transfers).
+  **SmallTransfer** may only dispatch `SubtensorModule.small_transfer`: TAO
+  only, below 0.5 TAO per call, to the single destination the coldkey
+  whitelisted with `set_small_transfer_destination`, at most once per block
+  per coldkey whichever delegate submits it.
 * **Staking** — stake add / remove / move / swap / unstake-all and their
   limit variants, plus [`set_root_claim_type`](/code/pallets/subtensor/src/macros/dispatches.rs#L1937-L1951). Its allowlist does *not*
   include [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L314-L362), so batched staking through a Staking proxy

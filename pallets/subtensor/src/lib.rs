@@ -2300,6 +2300,12 @@ pub mod pallet {
     pub type LastRateLimitedBlock<T: Config> =
         StorageMap<_, Identity, RateLimitKey<T::AccountId>, u64, ValueQuery, DefaultZeroU64<T>>;
 
+    /// MAP ( coldkey ) --> the only account `small_transfer` may pay from that coldkey.
+    /// Set by the coldkey itself; unset means a `SmallTransfer` proxy can move nothing.
+    #[pallet::storage]
+    pub type SmallTransferDestination<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, T::AccountId, OptionQuery>;
+
     // Subnet Locks
     /// MAP ( netuid ) --> transfer_toggle
     #[pallet::storage]
@@ -3945,6 +3951,9 @@ pub enum RateLimitKey<AccountId> {
     // "Add stake and burn" rate limit
     #[codec(index = 6)]
     AddStakeBurn(NetUid),
+    // `small_transfer` rate limit per paying coldkey
+    #[codec(index = 7)]
+    SmallTransfer(AccountId),
 }
 
 pub trait ProxyInterface<AccountId> {

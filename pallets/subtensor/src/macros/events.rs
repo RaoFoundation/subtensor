@@ -907,5 +907,12 @@ mod events {
             /// Pending pre-compaction commits cancelled in this step.
             cleared_commits: u32,
         },
+        /// A coldkey set or cleared the destination its `small_transfer` calls may pay.
+        SmallTransferDestinationSet {
+            /// The paying coldkey.
+            coldkey: T::AccountId,
+            /// The whitelisted destination, or `None` when cleared.
+            destination: Option<T::AccountId>,
+        },
     }
 }

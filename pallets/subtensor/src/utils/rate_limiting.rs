@@ -18,6 +18,7 @@ pub enum TransactionType {
     MaxUidsTrimming,
     AddStakeBurn,
     TempoUpdate,
+    SmallTransfer,
 }
 
 impl TransactionType {
@@ -30,7 +31,8 @@ impl TransactionType {
             Self::MechanismCountUpdate => MechanismCountSetRateLimit::<T>::get(),
             Self::MechanismEmission => MechanismEmissionRateLimit::<T>::get(),
             Self::MaxUidsTrimming => MaxUidsTrimmingRateLimit::<T>::get(),
-            Self::Unknown => 0, // Default to no limit for unknown types (no limit)
+            Self::SmallTransfer => 1, // one call per coldkey per block
+            Self::Unknown => 0,       // Default to no limit for unknown types (no limit)
             _ => 0,
         }
     }
@@ -98,6 +100,9 @@ impl TransactionType {
             Self::OwnerHyperparamUpdate(hparam) => Pallet::<T>::get_rate_limited_last_block(
                 &RateLimitKey::OwnerHyperparamUpdate(netuid, *hparam),
             ),
+            Self::SmallTransfer => Pallet::<T>::get_rate_limited_last_block(
+                &RateLimitKey::SmallTransfer(hotkey.clone()),
+            ),
             _ => {
                 let tx_type: u16 = (*self).into();
                 TransactionKeyLastBlock::<T>::get((hotkey, netuid, tx_type))
@@ -121,6 +126,10 @@ impl TransactionType {
             ),
             Self::OwnerHyperparamUpdate(hparam) => Pallet::<T>::set_rate_limited_last_block(
                 &RateLimitKey::OwnerHyperparamUpdate(netuid, *hparam),
+                block,
+            ),
+            Self::SmallTransfer => Pallet::<T>::set_rate_limited_last_block(
+                &RateLimitKey::SmallTransfer(key.clone()),
                 block,
             ),
             _ => {
@@ -147,6 +156,7 @@ impl From<TransactionType> for u16 {
             TransactionType::MaxUidsTrimming => 9,
             TransactionType::AddStakeBurn => 10,
             TransactionType::TempoUpdate => 11,
+            TransactionType::SmallTransfer => 12,
         }
     }
 }
@@ -166,6 +176,7 @@ impl From<u16> for TransactionType {
             9 => TransactionType::MaxUidsTrimming,
             10 => TransactionType::AddStakeBurn,
             11 => TransactionType::TempoUpdate,
+            12 => TransactionType::SmallTransfer,
             _ => TransactionType::Unknown,
         }
     }

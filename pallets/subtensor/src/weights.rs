@@ -96,6 +96,8 @@ pub trait WeightInfo {
 	fn transfer_stake_and_hotkey() -> Weight;
 	fn add_collateral() -> Weight;
 	fn set_min_collateral() -> Weight;
+	fn set_small_transfer_destination() -> Weight;
+	fn small_transfer() -> Weight;
 	fn swap_stake() -> Weight;
 	fn batch_commit_weights() -> Weight;
 	fn batch_set_weights() -> Weight;
@@ -2226,6 +2228,21 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(39_027_000, 4502)
 			.saturating_add(T::DbWeight::get().reads(5_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	// Hand-estimated pending a benchmark run (`run-benchmarks` label).
+	/// Storage: `SubtensorModule::SmallTransferDestination` (r:0 w:1)
+	fn set_small_transfer_destination() -> Weight {
+		Weight::from_parts(8_000_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	// Hand-estimated pending a benchmark run (`run-benchmarks` label).
+	/// Storage: `SubtensorModule::SmallTransferDestination` (r:1 w:0)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
+	/// Storage: `System::Account` (r:2 w:2)
+	fn small_transfer() -> Weight {
+		Weight::from_parts(60_000_000, 6196)
+			.saturating_add(T::DbWeight::get().reads(4_u64))
+			.saturating_add(T::DbWeight::get().writes(3_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:2 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -6536,6 +6553,21 @@ impl WeightInfo for () {
 		Weight::from_parts(39_027_000, 4502)
 			.saturating_add(RocksDbWeight::get().reads(5_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	// Hand-estimated pending a benchmark run (`run-benchmarks` label).
+	/// Storage: `SubtensorModule::SmallTransferDestination` (r:0 w:1)
+	fn set_small_transfer_destination() -> Weight {
+		Weight::from_parts(8_000_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	// Hand-estimated pending a benchmark run (`run-benchmarks` label).
+	/// Storage: `SubtensorModule::SmallTransferDestination` (r:1 w:0)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
+	/// Storage: `System::Account` (r:2 w:2)
+	fn small_transfer() -> Weight {
+		Weight::from_parts(60_000_000, 6196)
+			.saturating_add(RocksDbWeight::get().reads(4_u64))
+			.saturating_add(RocksDbWeight::get().writes(3_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:2 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)

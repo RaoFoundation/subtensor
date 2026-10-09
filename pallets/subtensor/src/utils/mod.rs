@@ -4,6 +4,7 @@ pub mod evm;
 pub mod identity;
 pub mod misc;
 pub mod rate_limiting;
+pub mod small_transfer;
 #[cfg(feature = "try-runtime")]
 pub mod try_state;
 pub mod voting_power;

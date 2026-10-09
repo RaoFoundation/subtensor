@@ -2915,5 +2915,54 @@ mod dispatches {
         ) -> DispatchResult {
             Self::do_set_min_collateral(origin, netuid, hotkey, min_locked)
         }
+
+        /// Sets or clears the single account that `small_transfer` may pay
+        /// from the signer's balance.
+        ///
+        /// This is the whitelist a `SmallTransfer` proxy is bound to: a
+        /// delegate can only move TAO to this destination. No restricted proxy
+        /// type may dispatch this call; it is for the coldkey itself.
+        ///
+        /// # Arguments
+        /// * `origin`: Signed by the paying coldkey.
+        /// * `destination`: The whitelisted account, or `None` to clear it.
+        ///
+        /// # Events
+        /// Emits `SmallTransferDestinationSet`.
+        #[pallet::call_index(153)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_small_transfer_destination())]
+        pub fn set_small_transfer_destination(
+            origin: OriginFor<T>,
+            destination: Option<T::AccountId>,
+        ) -> DispatchResult {
+            Self::do_set_small_transfer_destination(origin, destination)
+        }
+
+        /// Transfers less than `SMALL_TRANSFER_LIMIT` TAO from the signer to
+        /// its whitelisted destination, keeping the signer alive.
+        ///
+        /// This is the only call a `SmallTransfer` proxy may dispatch. The
+        /// destination must equal the one set with
+        /// `set_small_transfer_destination`, and a coldkey may make at most one
+        /// such transfer per block, whichever delegate submits it.
+        ///
+        /// # Arguments
+        /// * `origin`: Signed by the paying coldkey (directly or through a proxy).
+        /// * `destination`: Must match the coldkey's whitelisted destination.
+        /// * `amount`: TAO to send, strictly below `SMALL_TRANSFER_LIMIT`.
+        ///
+        /// # Errors
+        /// * `SmallTransferAmountTooHigh`: `amount` is at or above the limit.
+        /// * `SmallTransferDestinationNotAllowed`: no destination is set, or it differs.
+        /// * `SmallTransferRateLimitExceeded`: the coldkey already paid in this block.
+        #[pallet::call_index(154)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::small_transfer())]
+        pub fn small_transfer(
+            origin: OriginFor<T>,
+            destination: T::AccountId,
+            amount: TaoBalance,
+        ) -> DispatchResult {
+            Self::do_small_transfer(origin, destination, amount)
+        }
     }
 }

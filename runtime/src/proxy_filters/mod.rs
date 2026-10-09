@@ -325,7 +325,12 @@ mod tests {
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SudoCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
-        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                MevShieldStoreEncryptedCalls,
+                OwnerKeyCalls,
+                SmallTransferAdminCalls,
+            )>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -344,7 +349,12 @@ mod tests {
         let denied = &denied | &group_calls::<(SubtensorValueCalls, SudoCalls)>();
         let denied = &denied | &group_calls::<MultisigCalls>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
-        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                MevShieldStoreEncryptedCalls,
+                OwnerKeyCalls,
+                SmallTransferAdminCalls,
+            )>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
@@ -537,7 +547,12 @@ mod tests {
             | &group_calls::<ColdkeySwapCalls>();
         let denied = &denied | &group_calls::<(CrowdloanCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
-        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                MevShieldStoreEncryptedCalls,
+                OwnerKeyCalls,
+                SmallTransferAdminCalls,
+            )>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied
@@ -747,18 +762,14 @@ mod tests {
                 "Balances::transfer_keep_alive",
                 "Balances::transfer_allow_death",
                 "Balances::transfer_all",
+                "SubtensorModule::small_transfer",
                 "SubtensorModule::transfer_stake",
                 "SubtensorModule::transfer_stake_and_hotkey",
             ])
         );
         assert_eq!(
             allowed_calls(ProxyType::SmallTransfer),
-            expected(&[
-                "Balances::transfer_keep_alive",
-                "Balances::transfer_allow_death",
-                "SubtensorModule::transfer_stake",
-                "SubtensorModule::transfer_stake_and_hotkey",
-            ])
+            expected(&["SubtensorModule::small_transfer"])
         );
         assert_eq!(
             allowed_calls(ProxyType::Staking),
@@ -884,12 +895,17 @@ mod tests {
         use pallet_balances::Call as BalancesCall;
         use pallet_subtensor::Call as SubtensorCall;
         use subtensor_runtime_common::{
-            AccountId, AlphaBalance, NetUid, SMALL_ALPHA_TRANSFER_LIMIT, SMALL_TRANSFER_LIMIT,
-            TaoBalance,
+            AccountId, AlphaBalance, NetUid, SMALL_TRANSFER_LIMIT, TaoBalance,
         };
 
         let dest = AccountId::new([2u8; 32]);
 
+        let small_transfer = |amount: TaoBalance| {
+            RuntimeCall::SubtensorModule(SubtensorCall::small_transfer {
+                destination: dest.clone(),
+                amount,
+            })
+        };
         let balance_transfer = |value: TaoBalance| {
             RuntimeCall::Balances(BalancesCall::transfer_allow_death {
                 dest: dest.clone().into(),
@@ -909,19 +925,22 @@ mod tests {
         // Strictly-below the limit is allowed; at the limit is denied.
         assert!(proxy_type_filter(
             &ProxyType::SmallTransfer,
+            &small_transfer(TaoBalance::from(1))
+        ));
+        assert!(!proxy_type_filter(
+            &ProxyType::SmallTransfer,
+            &small_transfer(SMALL_TRANSFER_LIMIT)
+        ));
+
+        // Raw balance and stake transfers bypass the whitelist and the
+        // per-block limit, so `SmallTransfer` no longer admits them at any amount.
+        assert!(!proxy_type_filter(
+            &ProxyType::SmallTransfer,
             &balance_transfer(TaoBalance::from(1))
         ));
         assert!(!proxy_type_filter(
             &ProxyType::SmallTransfer,
-            &balance_transfer(SMALL_TRANSFER_LIMIT)
-        ));
-        assert!(proxy_type_filter(
-            &ProxyType::SmallTransfer,
             &stake_transfer(AlphaBalance::from(1))
-        ));
-        assert!(!proxy_type_filter(
-            &ProxyType::SmallTransfer,
-            &stake_transfer(SMALL_ALPHA_TRANSFER_LIMIT)
         ));
 
         // A non-transfer call is never a small transfer.
@@ -931,8 +950,34 @@ mod tests {
         // `Transfer` is unconditional: the at-limit amount still passes.
         assert!(proxy_type_filter(
             &ProxyType::Transfer,
+            &small_transfer(SMALL_TRANSFER_LIMIT)
+        ));
+        assert!(proxy_type_filter(
+            &ProxyType::Transfer,
             &balance_transfer(SMALL_TRANSFER_LIMIT)
         ));
+    }
+
+    /// Whitelisting a `small_transfer` destination is a spending grant: only
+    /// the coldkey itself (or an `Any` proxy) may set it. In particular the
+    /// `SmallTransfer` delegate must not be able to redirect its own payments.
+    #[test]
+    fn small_transfer_destination_is_owner_only() {
+        use pallet_subtensor::Call as SubtensorCall;
+        use subtensor_runtime_common::AccountId;
+
+        let set_destination =
+            RuntimeCall::SubtensorModule(SubtensorCall::set_small_transfer_destination {
+                destination: Some(AccountId::new([2u8; 32])),
+            });
+
+        for proxy_type in all_proxy_types() {
+            assert_eq!(
+                proxy_type_filter(&proxy_type, &set_destination),
+                proxy_type == ProxyType::Any,
+                "{proxy_type:?} must not admit set_small_transfer_destination"
+            );
+        }
     }
 
     /// `BasketTrading` admits only the single- and multi-leg basket trade calls, no other
