@@ -544,6 +544,62 @@ fn metered_call(code: Vec<u8>, gas_limit: u64) -> fp_evm::CallInfo {
 }
 
 #[test]
+fn mapping_charges_preserve_the_recipient_call_stipend() {
+    // CALL with value forwards zero gas plus the 2,300 stipend; a zero-value
+    // Solidity send/transfer explicitly forwards 2,300. CALLCODE also transfers
+    // value (to self) and must preserve the same callee gas budget.
+    for opcode in [0xf1, 0xf2] {
+        for value in [0_u32, 1_000_000_000] {
+            ext().execute_with(|| {
+                let payer = H160::repeat_byte(71);
+                let recipient = H160::repeat_byte(72);
+                fund(&Mapping::into_account_id(payer));
+                fund(&Mapping::into_account_id(recipient));
+                // GAS; PUSH1 1; PUSH1 0; PUSH1 0; LOG2; STOP. The two-topic
+                // log consumes 1,136 gas and records the gas available on entry.
+                pallet_evm::AccountCodes::<Runtime>::insert(
+                    recipient,
+                    vec![0x5a, 0x60, 1, 0x60, 0, 0x60, 0, 0xa2, 0],
+                );
+                let mut code = vec![0x60, 0, 0x60, 0, 0x60, 0, 0x60, 0, 0x63];
+                code.extend(value.to_be_bytes());
+                code.push(0x73); // PUSH20 recipient
+                code.extend(recipient.as_bytes());
+                code.push(0x61); // PUSH2 forwarded gas
+                code.extend((if value == 0 { 2_300_u16 } else { 0 }).to_be_bytes());
+                code.extend([opcode, 0x60, 0, 0x52, 0x60, 32, 0x60, 0, 0xf3]);
+                let result = metered_call(code, 100_000);
+                assert!(result.exit_reason.is_succeed(), "{:?}", result.exit_reason);
+                assert_eq!(
+                    U256::from_big_endian(&result.value),
+                    U256::one(),
+                    "opcode={opcode:#x}, value={value}, result={result:?}"
+                );
+                assert_eq!(result.logs.len(), 1);
+                assert_eq!(result.logs[0].topics[1], H256::from_low_u64_be(2_298));
+                assert_eq!(
+                    Balances::free_balance(Mapping::into_account_id(recipient)),
+                    TaoBalance::new(
+                        1_000_000_000_000
+                            + if opcode == 0xf1 {
+                                u64::from(value / 1_000_000_000)
+                            } else {
+                                0
+                            }
+                    )
+                );
+                // Nine transaction reads plus three CALL/CALLCODE reads: moving
+                // the charge must neither omit it nor charge it twice.
+                assert_eq!(
+                    result.weight_info.unwrap().ref_time_usage.unwrap(),
+                    12 * Mapping::extra_read_weight().ref_time()
+                );
+            });
+        }
+    }
+}
+
+#[test]
 fn warm_balance_reads_pay_mapping_gas_and_weight_with_registration_disabled() {
     for instruction in [vec![0x47, 0x50], vec![0x30, 0x31, 0x50]] {
         let run = |count| ext().execute_with(|| metered_call(instruction.repeat(count), 1_000_000));
@@ -745,7 +801,7 @@ fn unchanged_mapping_precompile_returns_registered_owner_and_charges_its_lookup(
         let result = call_precompile(source, H160::from_low_u64_be(2060), input, 100_000);
         assert!(result.exit_reason.is_succeed(), "{:?}", result.exit_reason);
         assert_eq!(result.value, AsRef::<[u8; 32]>::as_ref(&owner));
-        // Seven fixed reads, two value-transfer mappings, one precompile mapping.
+        // Nine prepaid reads (including transfer), one precompile mapping.
         assert_eq!(
             result.weight_info.unwrap().ref_time_usage.unwrap(),
             10 * Mapping::extra_read_weight().ref_time()

@@ -31,6 +31,34 @@ class MlDsaCodec:
         return b"\x45\x02" + public_key + signature + call, "0xhash"
 
 
+@pytest.mark.parametrize("selected", [None, CRYPTO_ED25519, CRYPTO_SR25519, CRYPTO_HASHED])
+def test_receiving_address_never_falls_back_to_a_weaker_message_scheme(monkeypatch, selected):
+    key = Keypair.create_from_mnemonic(MNEMONIC, CRYPTO_MLDSA)
+    address = receiving_address(key, GENESIS)
+
+    class ClassicalForgery:
+        """Model a broken classical verifier; no quantum hardware is needed."""
+
+        from_hashed_descriptor = staticmethod(Keypair.from_hashed_descriptor)
+
+        def __init__(self, *, ss58_address, crypto_type):
+            self.crypto_type = crypto_type
+
+        def verify(self, message, signature):
+            return self.crypto_type in (CRYPTO_ED25519, CRYPTO_SR25519)
+
+    monkeypatch.setattr(wallets, "Keypair", ClassicalForgery)
+    assert not wallets.verify_message("challenge", "00" * 64, address, selected)
+
+
+def test_bare_account_message_verification_requires_a_trusted_scheme():
+    key = Keypair.create_from_mnemonic(MNEMONIC, CRYPTO_ED25519)
+    signature = bytes(key.sign(b"challenge")).hex()
+    with pytest.raises(ValueError, match=r"trusted.*crypto_type"):
+        wallets.verify_message("challenge", signature, key.ss58_address)
+    assert wallets.verify_message("challenge", signature, key.ss58_address, CRYPTO_ED25519)
+
+
 def test_mldsa_descriptors_receiving_addresses_and_public_recovery():
     key = Keypair.create_from_mnemonic(MNEMONIC, CRYPTO_MLDSA)
     descriptor = bytes(key.hashed_descriptor)
@@ -100,12 +128,21 @@ def test_message_signing_and_explicit_or_automatic_verification(tmp_path, crypto
         path=str(tmp_path),
         hashed_generation=1 if crypto_type == CRYPTO_HASHED else None,
     )
-    assert wallets.verify_message("challenge", signed["signature"], signed["ss58"])
+    with pytest.raises(ValueError, match=r"trusted.*crypto_type"):
+        wallets.verify_message("challenge", signed["signature"], signed["ss58"])
+    if crypto_type in (CRYPTO_HASHED, CRYPTO_MLDSA):
+        assert wallets.verify_message(
+            "challenge", signed["signature"], receiving_address(wallet.coldkeypub, GENESIS)
+        )
     assert wallets.verify_message("challenge", signed["signature"], signed["ss58"], crypto_type)
     assert not wallets.verify_message("changed", signed["signature"], signed["ss58"], crypto_type)
-    assert not wallets.verify_message("challenge", signed["signature"] + "00", signed["ss58"])
+    assert not wallets.verify_message(
+        "challenge", signed["signature"] + "00", signed["ss58"], crypto_type
+    )
     other = Keypair.create_from_seed(bytes([99]) * 32, crypto_type)
-    assert not wallets.verify_message("challenge", signed["signature"], other.ss58_address)
+    assert not wallets.verify_message(
+        "challenge", signed["signature"], other.ss58_address, crypto_type
+    )
 
 
 @pytest.mark.parametrize("scheme", ["ed", "sr", "hashed", "mldsa"])
@@ -164,7 +201,9 @@ def test_cli_message_round_trip_uses_finalized_state_only_for_classical_hashed(
                 *flags,
             ],
         )
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == (0 if flags else 1), result.output
+        if not flags:
+            assert "trusted crypto_type" in result.output
 
 
 @pytest.mark.parametrize("crypto_type", [CRYPTO_HASHED, CRYPTO_MLDSA])
@@ -188,6 +227,7 @@ def test_protected_hotkey_http_authentication(crypto_type):
         method="POST",
         path="/generate",
         self_hotkey_ss58=receiver.ss58_address,
+        expected_crypto_type=crypto_type,
         now_ns=nonce,
     )
     assert caller.hotkey_ss58 == sender.ss58_address
@@ -199,6 +239,40 @@ def test_protected_hotkey_http_authentication(crypto_type):
             method="POST",
             path="/generate",
             self_hotkey_ss58=receiver.ss58_address,
+            expected_crypto_type=crypto_type,
+            now_ns=nonce,
+        )
+
+
+def test_http_auth_rejects_classical_forgery_against_a_trusted_mldsa_identity(monkeypatch):
+    from bittensor import http_auth
+
+    sender = Keypair.create_from_mnemonic(MNEMONIC, CRYPTO_MLDSA)
+    receiver = Keypair.create_from_uri("//Bob")
+    nonce = 1_800_000_000_000_000_000
+    headers = http_auth.sign(
+        sender,
+        method="POST",
+        path="/generate",
+        body=b"body",
+        receiver_ss58=receiver.ss58_address,
+        nonce_ns=nonce,
+    )
+    headers[http_auth.HEADER_CRYPTO] = "sr25519"
+    headers[http_auth.HEADER_SIGNATURE] = "00" * 64
+
+    def classical_verifier(*args):
+        pytest.fail("an ML-DSA identity must never reach a classical signature verifier")
+
+    monkeypatch.setattr(http_auth, "_sp_core_verify", classical_verifier)
+    with pytest.raises(http_auth.BadSignature, match="trusted sender scheme"):
+        http_auth.verify(
+            headers,
+            b"body",
+            method="POST",
+            path="/generate",
+            self_hotkey_ss58=receiver.ss58_address,
+            expected_crypto_type=CRYPTO_MLDSA,
             now_ns=nonce,
         )
 

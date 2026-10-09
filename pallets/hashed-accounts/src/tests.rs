@@ -37,7 +37,7 @@ parameter_types! {
 
 pub struct RegistrationGuard;
 impl OnRegister for RegistrationGuard {
-    fn on_register(_: &AccountId32, _: &AccountId32) -> DispatchResult {
+    fn on_register(_: &AccountId32, _: &AccountId32, _: &Descriptor) -> DispatchResult {
         if RejectRegistration::get() {
             Err(sp_runtime::DispatchError::Other("incompatible authority"))
         } else {

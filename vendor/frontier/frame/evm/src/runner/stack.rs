@@ -1413,7 +1413,8 @@ where
 	}
 
 	fn transfer(&mut self, transfer: Transfer) -> Result<(), ExitError> {
-		self.record_mapping_reads(2)?;
+		// Prepaid by the calling opcode or transaction intrinsic cost. Charging
+		// here would consume the recipient's already allocated CALL stipend.
 		let source = T::AddressMapping::into_account_id(transfer.source);
 		let target = T::AddressMapping::into_account_id(transfer.target);
 
@@ -1517,11 +1518,15 @@ where
 	) -> Result<(), ExitError> {
 		let reads = match opcode {
 			Opcode::BALANCE | Opcode::SELFBALANCE | Opcode::EXTCODEHASH => 1,
-			Opcode::CALL | Opcode::CALLCODE | Opcode::DELEGATECALL | Opcode::STATICCALL => 1,
-			// Three basic reads and the caller/destination nonce updates.
-			Opcode::CREATE | Opcode::CREATE2 => 5,
-			// Target emptiness, two source balance reads, deferred deletion.
-			Opcode::SUICIDE => 4,
+			// Charge both transfer mappings before allocating the callee's gas,
+			// even for zero value (the executor still calls transfer).
+			Opcode::CALL | Opcode::CALLCODE => 3,
+			Opcode::DELEGATECALL | Opcode::STATICCALL => 1,
+			// Three basic reads, two nonce updates and two transfer mappings.
+			Opcode::CREATE | Opcode::CREATE2 => 7,
+			// Target emptiness, two source balance reads, deferred deletion and
+			// two transfer mappings.
+			Opcode::SUICIDE => 6,
 			_ => 0,
 		};
 		self.record_mapping_reads(reads)?;

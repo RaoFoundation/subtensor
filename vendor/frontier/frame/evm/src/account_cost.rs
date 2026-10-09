@@ -30,10 +30,11 @@ pub fn transaction_weight<T: Config>(create: bool, authorizations: usize) -> Wei
 	// dispatch guard, fee withdrawal and refund. Native paths use at most this.
 	// CALL adds its nonce update. CREATE adds two nonce updates and five basic
 	// reads (address derivation, including tracing, caller balance, collision).
+	// Both prepay two transfer mappings, before entering the execution frame.
 	// An authorization adds two policy reads, two basic reads, and its nonce
 	// and code updates. Prepay these so exhaustion cannot split the two writes.
 	weight::<T>(
-		(if create { 13_u64 } else { 7_u64 })
+		(if create { 15_u64 } else { 9_u64 })
 			.saturating_add((authorizations as u64).saturating_mul(6)),
 	)
 }
@@ -42,10 +43,10 @@ pub fn config<T: Config>(config: &EvmConfig) -> EvmConfig {
 	let mut config = config.clone();
 	config.gas_transaction_call = config
 		.gas_transaction_call
-		.saturating_add(gas::<T>(weight::<T>(7)));
+		.saturating_add(gas::<T>(transaction_weight::<T>(false, 0)));
 	config.gas_transaction_create = config
 		.gas_transaction_create
-		.saturating_add(gas::<T>(weight::<T>(13)));
+		.saturating_add(gas::<T>(transaction_weight::<T>(true, 0)));
 	let authorization = gas::<T>(weight::<T>(6));
 	config.gas_per_empty_account_cost = config
 		.gas_per_empty_account_cost

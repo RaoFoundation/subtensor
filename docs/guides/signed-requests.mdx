@@ -24,6 +24,7 @@ headers = bt.http_auth.sign(
 caller = bt.http_auth.verify(
     request_headers, body_bytes,
     method="POST", path="/generate", self_hotkey_ss58=my_hotkey,
+    expected_crypto_type=trusted_sender_crypto_type,
 )
 caller.hotkey_ss58    # the authenticated sender — score it, rate-limit it, gate it
 ```
@@ -31,6 +32,13 @@ caller.hotkey_ss58    # the authenticated sender — score it, rate-limit it, ga
 `verify` raises an `AuthError` subclass on failure — `MalformedAuth`,
 `WrongReceiver`, `StaleRequest`, `ReplayedRequest`, or `BadSignature` — with
 messages safe to return to the unauthenticated caller.
+
+Resolve `trusted_sender_crypto_type` from server-owned configuration or the
+account registry for the claimed sender. Never copy `X-Bittensor-Crypto` into
+`expected_crypto_type`: the header is attacker-controlled, and a bare SS58
+address does not encode its scheme. Verification rejects a conflicting header
+before checking the signature. This pin is required for every scheme, including
+ML-DSA; the wire format and existing signature bytes are unchanged.
 
 ## The wire format (btauth/1)
 
@@ -46,7 +54,7 @@ exact):
 | `X-Bittensor-Hotkey` | sender hotkey, ss58 |
 | `X-Bittensor-Receiver` | receiver hotkey, ss58 (optional — see below) |
 | `X-Bittensor-Nonce` | unix time in **nanoseconds**, decimal string |
-| `X-Bittensor-Crypto` | `ed25519` — omitted entirely for sr25519 |
+| `X-Bittensor-Crypto` | `ed25519`, `hashed`, or `mldsa` — omitted entirely for sr25519 |
 | `X-Bittensor-Signature` | `0x` + lowercase hex signature |
 
 The signature is over the UTF-8 bytes of exactly eight lines joined by `\n`
@@ -54,7 +62,7 @@ The signature is over the UTF-8 bytes of exactly eight lines joined by `\n`
 
 ```
 btauth/1
-<scheme: "sr25519" or "ed25519">
+<scheme: "sr25519", "ed25519", "hashed", or "mldsa">
 <HTTP method, uppercase>
 <request target: path plus ?query, exactly as sent>
 <sha256 of the raw body bytes, lowercase hex>
@@ -74,11 +82,14 @@ malicious miner cannot proxy a validator's request to another miner. sr25519
 signatures use the substrate signing context (`b"substrate"` in schnorrkel) —
 the same as chain extrinsics; ed25519 is plain RFC 8032. Signatures must be
 over the exact payload bytes, never a wrapped or re-encoded form.
+Hashed and ML-DSA keys sign those payload bytes using their domain-separated
+message envelopes; see [wallet crypto types](/docs/guides/wallet-crypto-types).
 
 Verification, in order:
 
 1. **Shape** — all required headers present and parseable, version is `1`,
-   the scheme (if present) is known.
+   the scheme (if present) is known and matches the server's trusted scheme
+   for the claimed sender.
 2. **Receiver** — the `X-Bittensor-Receiver` value must equal the server's
    hotkey. Servers reject unbound requests by default
    (`require_receiver=False` opts out).
@@ -86,11 +97,10 @@ Verification, in order:
    (default 10) and `allowed_skew` seconds in the future (default 2).
 4. **Signature** — rebuild the payload from the *received* method, path, and
    body (always recompute the body hash), decode the sender's ss58, and
-   verify under the declared scheme **only**. Never fall back to trying the
-   other scheme: sr25519 and ed25519 public keys are both 32-byte
-   curve25519-family points, and try-both verification opens an
-   algorithm-confusion surface. The scheme inside the signed payload closes
-   it.
+   verify under the trusted scheme **only**. Never fall back to another scheme.
+   Binding the scheme inside the signed payload prevents substitution of an
+   existing signature; pinning it independently also prevents classical
+   forgeries from impersonating an ML-DSA account hash.
 5. **Replay** — the `(hotkey, nonce)` pair must not have been accepted before
    within the window. The store is consulted only after the signature
    verifies, so unauthenticated traffic cannot poison it. The default is an
@@ -113,6 +123,8 @@ import bittensor as bt
 from fastapi import Depends, FastAPI, HTTPException, Request
 
 MY_HOTKEY = bt.Wallet(name="my_coldkey", hotkey="my_hotkey").hotkey.ss58_address
+# Populate this from trusted configuration or a synchronized account registry.
+TRUSTED_SENDER_SCHEMES: dict[str, int] = {}
 
 app = FastAPI()
 
@@ -125,11 +137,17 @@ async def authenticated(request: Request) -> bt.http_auth.Caller:
     if request.scope["query_string"]:
         target += "?" + request.scope["query_string"].decode()
     try:
+        expected_scheme = TRUSTED_SENDER_SCHEMES.get(
+            request.headers.get(bt.http_auth.HEADER_HOTKEY, "")
+        )
+        if expected_scheme is None:
+            raise HTTPException(status_code=401, detail="Unknown sender scheme")
         return bt.http_auth.verify(
             request.headers, body,
             method=request.method,
             path=target,
             self_hotkey_ss58=MY_HOTKEY,
+            expected_crypto_type=expected_scheme,
         )
     except bt.http_auth.AuthError as e:
         raise HTTPException(status_code=401, detail=str(e))

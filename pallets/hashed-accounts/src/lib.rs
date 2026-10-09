@@ -30,7 +30,11 @@ pub type BalanceOf<T> = <<T as Config>::Currency as Currency<AccountId32>>::Bala
 /// example, reject preexisting EVM aliases and authority assignments that would
 /// provide a second way to authorize this account. Called transactionally.
 pub trait OnRegister {
-    fn on_register(account: &AccountId32, sponsor: &AccountId32) -> DispatchResult;
+    fn on_register(
+        account: &AccountId32,
+        sponsor: &AccountId32,
+        descriptor: &Descriptor,
+    ) -> DispatchResult;
 
     #[cfg(feature = "runtime-benchmarks")]
     fn setup_benchmark(_: &AccountId32, _: &AccountId32, _: &Descriptor) -> DispatchResult {
@@ -39,7 +43,7 @@ pub trait OnRegister {
 }
 
 impl OnRegister for () {
-    fn on_register(_: &AccountId32, _: &AccountId32) -> DispatchResult {
+    fn on_register(_: &AccountId32, _: &AccountId32, _: &Descriptor) -> DispatchResult {
         Ok(())
     }
 }
@@ -158,7 +162,7 @@ pub mod pallet {
                 EvmAliases::<T>::get(alias).is_none_or(|existing| existing == account),
                 Error::<T>::AliasCollision
             );
-            T::OnRegister::on_register(&account, &sponsor)?;
+            T::OnRegister::on_register(&account, &sponsor, &descriptor)?;
             let deposit = T::RegistrationDeposit::get();
             T::Currency::reserve(&sponsor, deposit)?;
             frame_system::Pallet::<T>::inc_providers(&account);

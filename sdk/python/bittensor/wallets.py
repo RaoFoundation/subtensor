@@ -216,24 +216,34 @@ def sign_message_key(
 def verify_message(
     message: str, signature: str, ss58_address: str, crypto_type: int | None = None
 ) -> bool:
-    """Verify explicit schemes, or detect Ed/Sr and self-contained account proofs."""
+    """Verify using a trusted scheme, never one inferred from the signature.
+
+    Receiving addresses bind their descriptor's scheme. Bare SS58 addresses
+    require ``crypto_type`` from trusted configuration or the account registry.
+    """
+    from .receiving import parse_recipient
+
     try:
         raw = bytes.fromhex(signature.removeprefix("0x"))
-        from .receiving import parse_recipient
-
-        address = parse_recipient(ss58_address).account
-        candidates = (crypto_type,) if crypto_type is not None else tuple(CRYPTO_TYPE_NAMES)
-        for candidate in candidates:
-            try:
-                if Keypair(ss58_address=address, crypto_type=candidate).verify(
-                    message.encode(), raw
-                ):
-                    return True
-            except ValueError:
-                continue
+        recipient = parse_recipient(ss58_address)
+        if recipient.descriptor is not None:
+            key = Keypair.from_hashed_descriptor(recipient.descriptor)
+            if crypto_type is not None and crypto_type != key.crypto_type:
+                return False
+            return key.verify(message.encode(), raw)
     except (ValueError, TypeError):
-        pass
-    return False
+        return False
+    if crypto_type is None:
+        raise ValueError(
+            "bare SS58 verification requires a trusted crypto_type "
+            "(--crypto-type), or use a descriptor-bearing receiving address"
+        )
+    try:
+        return Keypair(ss58_address=recipient.account, crypto_type=crypto_type).verify(
+            message.encode(), raw
+        )
+    except (ValueError, TypeError):
+        return False
 
 
 def open_wallet(

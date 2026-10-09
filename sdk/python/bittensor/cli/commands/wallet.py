@@ -797,7 +797,10 @@ def verify(
         None,
         "--crypto-type",
         "--type",
-        help="Signature scheme; detected automatically when omitted.",
+        help=(
+            "Trusted signature scheme; required for bare SS58 addresses. "
+            "Receiving addresses bind it."
+        ),
     ),
     ss58: str = typer.Option(..., "--ss58", help="Address the message was signed with."),
 ):

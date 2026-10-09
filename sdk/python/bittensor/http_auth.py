@@ -24,6 +24,7 @@ Server side::
         request_headers, raw_body,
         method="POST", path="/generate",
         self_hotkey_ss58=my_hotkey,
+        expected_crypto_type=trusted_sender_crypto_type,
     )
     caller.hotkey_ss58   # the authenticated sender
 
@@ -246,6 +247,7 @@ def verify(
     method: str,
     path: str,
     self_hotkey_ss58: str,
+    expected_crypto_type: int,
     max_age: float = DEFAULT_MAX_AGE,
     allowed_skew: float = DEFAULT_ALLOWED_SKEW,
     require_receiver: bool = True,
@@ -262,10 +264,15 @@ def verify(
     Checks, in order: header shape (:class:`MalformedAuth`), receiver binding
     (:class:`WrongReceiver`), freshness — ``max_age`` seconds back,
     ``allowed_skew`` seconds of forward clock drift (:class:`StaleRequest`),
-    the signature under the declared scheme only, never try-both
+    the signature under the server's trusted scheme only, never try-both
     (:class:`BadSignature`), and replay (:class:`ReplayedRequest`). The replay
     store is written only after the signature verifies, so unauthenticated
     traffic cannot poison it against a legitimate sender.
+
+    ``expected_crypto_type`` must come from trusted configuration or a registry
+    lookup for the claimed sender, never from the request's crypto header. Bare
+    SS58 identities do not encode a scheme; accepting the header alone would
+    allow classical signatures to impersonate an ML-DSA identity.
     """
     lowered = {key.lower(): value for key, value in headers.items()}
 
@@ -289,6 +296,10 @@ def verify(
     # Rebuild the canonical scheme name rather than echoing the header value,
     # so the signed bytes are never client-influenced beyond the scheme choice.
     scheme = CRYPTO_TYPE_NAMES[crypto_type]
+    if expected_crypto_type not in CRYPTO_TYPE_NAMES:
+        raise ValueError("unsupported trusted sender crypto type")
+    if crypto_type != expected_crypto_type:
+        raise BadSignature("declared signature scheme does not match the trusted sender scheme")
     raw_signature = lowered.get(HEADER_SIGNATURE.lower())
     if raw_signature is None:
         raise MalformedAuth(f"missing {HEADER_SIGNATURE}")

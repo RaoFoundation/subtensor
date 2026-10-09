@@ -1166,6 +1166,160 @@ mod mldsa {
         traits::{KeyGen, SerDes, Signer},
     };
 
+    #[test]
+    fn classical_hashed_authority_cannot_control_mldsa_accounts() {
+        ext().execute_with(|| {
+            setup();
+            super::setup();
+            let real = account();
+            let classical = super::account();
+            frame_support::assert_noop!(
+                Proxy::add_proxy_delegate(&real, classical.clone(), ProxyType::Any, 0),
+                pallet_proxy::Error::<Runtime>::AccountPolicyViolation
+            );
+            // Model a grant made before the scheme guard. Execution must also
+            // reject it, including the announced-proxy entry point.
+            pallet_proxy::Proxies::<Runtime>::insert(
+                &real,
+                (
+                    frame_support::BoundedVec::try_from(alloc::vec![
+                        pallet_proxy::ProxyDefinition {
+                            delegate: classical.clone(),
+                            proxy_type: ProxyType::Any,
+                            delay: 0,
+                        }
+                    ])
+                    .unwrap(),
+                    TaoBalance::new(0),
+                ),
+            );
+            frame_support::assert_noop!(
+                Proxy::proxy(
+                    RuntimeOrigin::signed(classical.clone()),
+                    real.clone().into(),
+                    None,
+                    Box::new(call())
+                ),
+                pallet_proxy::Error::<Runtime>::AccountPolicyViolation
+            );
+            frame_support::assert_noop!(
+                Proxy::proxy_announced(
+                    RuntimeOrigin::signed(classical.clone()),
+                    classical.clone().into(),
+                    real.clone().into(),
+                    None,
+                    Box::new(call())
+                ),
+                pallet_proxy::Error::<Runtime>::AccountPolicyViolation
+            );
+            frame_support::assert_noop!(
+                SubtensorModule::set_hotkey_owner(&classical, &real),
+                pallet_subtensor::Error::<Runtime>::HotkeyOwnerPolicyViolation
+            );
+            frame_support::assert_noop!(
+                SubtensorModule::create_account_if_non_existent(&classical, &real),
+                pallet_subtensor::Error::<Runtime>::HotkeyOwnerPolicyViolation
+            );
+            assert_eq!(
+                SubtensorModule::do_swap_coldkey_tracked(&real, &classical)
+                    .unwrap_err()
+                    .1,
+                pallet_subtensor::Error::<Runtime>::HotkeyOwnerPolicyViolation.into()
+            );
+        });
+    }
+
+    #[test]
+    fn registration_rejects_a_classical_hashed_owner_of_an_mldsa_hotkey() {
+        ext().execute_with(|| {
+            super::setup();
+            let sponsor = pair(22);
+            let sponsor_id = AccountId::from(sponsor.public());
+            let _ = Balances::make_free_balance_be(&sponsor_id, TaoBalance::new(1_000_000_000_000));
+            pallet_subtensor::Owner::<Runtime>::insert(account(), super::account());
+            assert_eq!(
+                Executive::apply_extrinsic(legacy(
+                    &sponsor,
+                    first_funding(descriptor(), TaoBalance::new(1_000_000_000))
+                ))
+                .unwrap(),
+                Err(sp_runtime::DispatchError::Other(
+                    "HashedHotkeyRequiresHashedOwner"
+                ))
+            );
+            assert_no_received_account(&account());
+            assert_eq!(Balances::reserved_balance(&sponsor_id), TaoBalance::new(0));
+            assert_eq!(
+                pallet_subtensor::Owner::<Runtime>::get(account()),
+                super::account()
+            );
+        });
+    }
+
+    #[test]
+    fn mldsa_owners_and_delegates_remain_usable_and_allow_coldkey_upgrades() {
+        ext().execute_with(|| {
+            setup();
+            super::setup();
+            let sponsor = pair(23);
+            let sponsor_id = AccountId::from(sponsor.public());
+            let _ = Balances::make_free_balance_be(&sponsor_id, TaoBalance::new(1_000_000_000_000));
+            let hotkey_descriptor = Descriptor {
+                initial_commitment: subtensor_hashed::key_commitment(
+                    Scheme::MlDsa65,
+                    &key(90).0.into_bytes(),
+                ),
+                ..descriptor()
+            };
+            let hotkey = AccountId::new(subtensor_hashed::account_id(&hotkey_descriptor));
+            // An ML-DSA owner is compatible both before and after registration;
+            // the classical sponsor paying for registration gains no authority.
+            frame_support::assert_ok!(SubtensorModule::create_account_if_non_existent(
+                &account(),
+                &hotkey
+            ));
+            frame_support::assert_ok!(
+                Executive::apply_extrinsic(legacy(
+                    &sponsor,
+                    first_funding(hotkey_descriptor, TaoBalance::new(1_000_000_000)),
+                ))
+                .unwrap()
+            );
+            frame_support::assert_ok!(SubtensorModule::set_hotkey_owner(&account(), &hotkey));
+            frame_support::assert_ok!(Proxy::add_proxy_delegate(
+                &account(),
+                hotkey.clone(),
+                ProxyType::Any,
+                0
+            ));
+            frame_support::assert_ok!(Proxy::proxy(
+                RuntimeOrigin::signed(hotkey),
+                account().into(),
+                None,
+                Box::new(call())
+            ));
+        });
+        ext().execute_with(|| {
+            setup();
+            super::setup();
+            // A classical hashed coldkey can upgrade to an ML-DSA coldkey while
+            // retaining its owned hotkeys.
+            let classical_hotkey = AccountId::from(pair(24).public());
+            frame_support::assert_ok!(SubtensorModule::create_account_if_non_existent(
+                &super::account(),
+                &classical_hotkey
+            ));
+            frame_support::assert_ok!(SubtensorModule::do_swap_coldkey_tracked(
+                &super::account(),
+                &account()
+            ));
+            assert_eq!(
+                pallet_subtensor::Owner::<Runtime>::get(classical_hotkey),
+                account()
+            );
+        });
+    }
+
     fn key(generation: u8) -> (ml_dsa_65::PublicKey, ml_dsa_65::PrivateKey) {
         ml_dsa_65::KG::keygen_from_seed(&[generation; 32])
     }

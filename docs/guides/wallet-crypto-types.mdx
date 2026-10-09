@@ -14,6 +14,11 @@ btcli wallet regen-coldkey --crypto-type mldsa
 and hotkey unless `--hotkey-crypto-type` overrides it. Existing keyfiles retain
 their scheme; ordinary commands read that scheme automatically.
 
+ML-DSA accounts require ML-DSA proxy delegates and, when used as hotkeys,
+ML-DSA coldkey owners. Registration rejects a weaker existing owner, and a
+coldkey swap cannot downgrade that protection. ML-DSA authorities can still
+control classical hashed accounts, allowing upgrades toward the stronger scheme.
+
 | Choice | Aliases | Authorization |
 | --- | --- | --- |
 | `sr25519` | `sr` | Existing Sr25519 account; default |
@@ -53,7 +58,11 @@ claim post-quantum security for the entire chain.
 
 `btcli wallet sign --message "challenge"` uses the wallet's stored scheme.
 `btcli wallet verify --message "challenge" --signature HEX --ss58 ADDRESS`
-detects the supported scheme, or accepts `--crypto-type` to require one.
+uses the scheme bound into a descriptor-bearing receiving address. For a bare
+SS58 address, supply `--crypto-type` from trusted knowledge of the signer:
+for example, `--crypto-type mldsa`. The verifier never guesses the scheme from
+the signature or falls back to a classical scheme. An explicit scheme that
+conflicts with a receiving address is rejected.
 
 Hashed account message signatures contain the original descriptor, identity
 public key, and a domain-separated signature. They cannot authorize a runtime
@@ -68,6 +77,9 @@ bytes. HTTP integrations must allow the larger hex signature header (10,608
 characters including `0x`). Existing Ed25519 and Sr25519 message signatures
 remain 64 bytes. External verifiers must support the selected scheme and its
 message envelope; an older verifier cannot verify a new signature format.
+HTTP servers must pass `expected_crypto_type` to `http_auth.verify`, using
+trusted configuration or a registry lookup for the claimed sender. The request's
+crypto header is not a trusted source for that decision.
 
 Production registration remains disabled until the authorization benchmarks are
 measured on reference hardware and the runtime is activated. ML-DSA has its own

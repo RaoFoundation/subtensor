@@ -106,7 +106,11 @@ impl<const P: usize, const S: usize> TransactionExtension<RuntimeCall> for Autho
 pub struct OnHashedRegistered;
 
 impl pallet_hashed_accounts::OnRegister for OnHashedRegistered {
-    fn on_register(account: &AccountId, sponsor: &AccountId) -> DispatchResult {
+    fn on_register(
+        account: &AccountId,
+        sponsor: &AccountId,
+        descriptor: &subtensor_hashed::Descriptor,
+    ) -> DispatchResult {
         use sp_runtime::generic::Preamble;
         let invalid = DispatchError::Other("InvalidHashedRegistrationContext");
         ensure!(account != sponsor, invalid);
@@ -166,12 +170,12 @@ impl pallet_hashed_accounts::OnRegister for OnHashedRegistered {
             _ => false,
         };
         ensure!(allowed, invalid);
-        // Registration may not preserve a classical coldkey's alternative
-        // authority over this identity when it was previously used as a hotkey.
+        // The account record is not written yet. Check the incoming scheme so
+        // registration cannot preserve a weaker preexisting hotkey owner.
         ensure!(
             pallet_subtensor::Owner::<Runtime>::try_get(account)
                 .ok()
-                .is_none_or(|owner| crate::HashedAccounts::is_registered(&owner)),
+                .is_none_or(|owner| authority_satisfies_scheme(descriptor.scheme, &owner)),
             DispatchError::Other("HashedHotkeyRequiresHashedOwner")
         );
         crate::evm_origin::prepare_hashed_alias(account)?;
@@ -228,12 +232,30 @@ impl pallet_hashed_accounts::OnRegister for OnHashedRegistered {
     }
 }
 
-/// Prevent a classical delegate from bypassing the hashed account's policy.
+/// Every alternative authority must preserve the protected account's scheme.
+/// ML-DSA can control either protected scheme; rotating Sr25519 cannot control
+/// ML-DSA. Ordinary accounts retain their existing ownership/proxy behavior.
+pub(crate) fn compatible_authority(account: &AccountId, authority: &AccountId) -> bool {
+    pallet_hashed_accounts::Accounts::<Runtime>::get(account)
+        .is_none_or(|record| authority_satisfies_scheme(record.descriptor.scheme, authority))
+}
+
+fn authority_satisfies_scheme(required: subtensor_hashed::Scheme, authority: &AccountId) -> bool {
+    use subtensor_hashed::Scheme;
+    pallet_hashed_accounts::Accounts::<Runtime>::get(authority).is_some_and(|record| {
+        matches!(
+            (required, record.descriptor.scheme),
+            (Scheme::Sr25519, Scheme::Sr25519 | Scheme::MlDsa65)
+                | (Scheme::MlDsa65, Scheme::MlDsa65)
+        )
+    })
+}
+
+/// Prevent weaker delegates from bypassing a protected account's policy.
 pub struct HashedProxyPolicy;
 impl frame_support::traits::Contains<(AccountId, AccountId)> for HashedProxyPolicy {
     fn contains((real, delegate): &(AccountId, AccountId)) -> bool {
-        !crate::HashedAccounts::is_registered(real)
-            || crate::HashedAccounts::is_registered(delegate)
+        compatible_authority(real, delegate)
     }
 }
 impl crate::pallet_proxy::ProxyAccountPolicy<AccountId> for HashedProxyPolicy {
