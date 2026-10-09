@@ -8,13 +8,13 @@ publish = false
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(substrate_runtime)'] }
 
 [lints.clippy]
-arithmetic-side-effects = "deny"
-expect-used = "deny"
-indexing-slicing = "deny"
+arithmetic_side_effects = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
 manual_inspect = "allow"
 result_large_err = "allow"
 type_complexity = "allow"
-unwrap-used = "deny"
+unwrap_used = "deny"
 useless_conversion = "allow"
 
 [dependencies]

@@ -17,3 +17,6 @@ path = "src/weight_compare.rs"
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }
 syn = { workspace = true, features = ["full", "parsing"] }
+
+[lints]
+workspace = true
