@@ -78,7 +78,7 @@ keychain_app = typer.Typer(
 )
 
 _CRYPTO_TYPE_HELP = (
-    "Key type: sr25519 (default), ed25519, or hashed (rotating sr25519 behind "
+    "Key type: sr / sr25519 (default), ed / ed25519, or hashed (rotating sr25519 behind "
     "a permanent address). Hashed accounts require chain support."
 )
 
@@ -313,11 +313,11 @@ def create(
     n_words: int = typer.Option(12, "--n-words", help=_N_WORDS_HELP),
     no_password: bool = typer.Option(False, "--no-password", help=_NO_PASSWORD_HELP),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    crypto_type: str = typer.Option("sr25519", "--crypto-type", "--type", help=_CRYPTO_TYPE_HELP),
     hotkey_crypto_type: Optional[str] = typer.Option(
         None,
         "--hotkey-crypto-type",
-        help="Hotkey type; defaults to hashed with --type hashed, otherwise sr25519.",
+        help="Hotkey type; defaults to --crypto-type. Override to use a different scheme.",
     ),
 ):
     """Create a new coldkey and hotkey.
@@ -338,7 +338,7 @@ def create(
     coldkey_crypto = _resolve_crypto_type(app_ctx, crypto_type)
     hotkey_crypto = _resolve_crypto_type(
         app_ctx,
-        hotkey_crypto_type or ("hashed" if coldkey_crypto == wallets.CRYPTO_HASHED else "sr25519"),
+        crypto_type if hotkey_crypto_type is None else hotkey_crypto_type,
     )
     _prepare_receiving_address(app_ctx, coldkey_crypto, hotkey_crypto)
     mnemonics: dict[str, str] = {}
@@ -386,7 +386,7 @@ def new_coldkey(
     n_words: int = typer.Option(12, "--n-words", help=_N_WORDS_HELP),
     no_password: bool = typer.Option(False, "--no-password", help=_NO_PASSWORD_HELP),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    crypto_type: str = typer.Option("sr25519", "--crypto-type", "--type", help=_CRYPTO_TYPE_HELP),
 ):
     """Create a new coldkey in the configured wallet.
 
@@ -433,7 +433,7 @@ def new_hotkey(
     ctx: typer.Context,
     n_words: int = typer.Option(12, "--n-words", help=_N_WORDS_HELP),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    crypto_type: str = typer.Option("sr25519", "--crypto-type", "--type", help=_CRYPTO_TYPE_HELP),
 ):
     """Create a new hotkey in the configured wallet.
 
@@ -502,7 +502,7 @@ def regen_coldkey(
     ),
     no_password: bool = typer.Option(False, "--no-password", help=_NO_PASSWORD_HELP),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    crypto_type: str = typer.Option("sr25519", "--crypto-type", "--type", help=_CRYPTO_TYPE_HELP),
 ):
     """Regenerate a coldkey from a mnemonic, seed, private key, or JSON keystore.
 
@@ -574,7 +574,7 @@ def regen_hotkey(
     seed: str = typer.Option(None, "--seed", help=_SEED_HELP),
     private_key: str = typer.Option(None, "--private-key", help=_PRIVATE_KEY_HELP),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    crypto_type: str = typer.Option("sr25519", "--crypto-type", "--type", help=_CRYPTO_TYPE_HELP),
 ):
     """Regenerate a hotkey from a mnemonic, hex seed, or private key.
 
@@ -632,7 +632,7 @@ def regen_coldkey_pub(
         None, "--public-key", help="Hex public key; required only for a legacy ss58 address."
     ),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    crypto_type: str = typer.Option("sr25519", "--crypto-type", "--type", help=_CRYPTO_TYPE_HELP),
 ):
     """Regenerate a coldkey public file from its complete receiving address.
 
@@ -675,7 +675,7 @@ def regen_hotkey_pub(
         None, "--public-key", help="Hex public key; required only for a legacy ss58 address."
     ),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
-    crypto_type: str = typer.Option("sr25519", "--type", "--crypto-type", help=_CRYPTO_TYPE_HELP),
+    crypto_type: str = typer.Option("sr25519", "--crypto-type", "--type", help=_CRYPTO_TYPE_HELP),
 ):
     """Regenerate a hotkey public file from its complete receiving address.
 

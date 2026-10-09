@@ -1227,7 +1227,7 @@ fn weight_per_gas() -> Weight {
 parameter_types! {
     pub BlockGasLimit: U256 = U256::from(BLOCK_GAS_LIMIT);
     pub const GasLimitPovSizeRatio: u64 = 0;
-    pub PrecompilesValue: Precompiles<Runtime> = Precompiles::<_>::new();
+    pub PrecompilesValue: evm_origin::MeteredPrecompiles = evm_origin::MeteredPrecompiles::new(Precompiles::<Runtime>::new());
     pub WeightPerGas: Weight = weight_per_gas();
 }
 
@@ -1293,7 +1293,7 @@ impl pallet_evm::Config for Runtime {
     type WithdrawOrigin = evm_origin::EnsureAddressTruncatedNonZero;
     type AddressMapping = evm_origin::HashedAddressMapping;
     type Currency = Balances;
-    type PrecompilesType = Precompiles<Self>;
+    type PrecompilesType = evm_origin::MeteredPrecompiles;
     type PrecompilesValue = PrecompilesValue;
     type ChainId = ConfigurableChainId;
     type BlockGasLimit = BlockGasLimit;
@@ -1392,14 +1392,7 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
 
     fn check_self_contained(&self) -> Option<Result<Self::SignedInfo, TransactionValidityError>> {
         match self {
-            RuntimeCall::Ethereum(call @ pallet_ethereum::Call::transact { transaction }) => {
-                call.check_self_contained().map(|result| {
-                    result.and_then(|signer| {
-                        evm_origin::ensure_ethereum_transaction_allowed(&signer, transaction)?;
-                        Ok(signer)
-                    })
-                })
-            }
+            RuntimeCall::Ethereum(call) => call.check_self_contained(),
             _ => None,
         }
     }
@@ -1411,14 +1404,7 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
         len: usize,
     ) -> Option<TransactionValidity> {
         match self {
-            RuntimeCall::Ethereum(call @ pallet_ethereum::Call::transact { transaction }) => {
-                if let Err(error) =
-                    evm_origin::ensure_ethereum_transaction_allowed(info, transaction)
-                {
-                    return Some(Err(error));
-                }
-                call.validate_self_contained(info, dispatch_info, len)
-            }
+            RuntimeCall::Ethereum(call) => call.validate_self_contained(info, dispatch_info, len),
             _ => None,
         }
     }
@@ -1430,12 +1416,7 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
         len: usize,
     ) -> Option<Result<(), TransactionValidityError>> {
         match self {
-            RuntimeCall::Ethereum(call @ pallet_ethereum::Call::transact { transaction }) => {
-                if let Err(error) =
-                    evm_origin::ensure_ethereum_transaction_allowed(info, transaction)
-                {
-                    return Some(Err(error));
-                }
+            RuntimeCall::Ethereum(call) => {
                 call.pre_dispatch_self_contained(info, dispatch_info, len)
             }
             _ => None,
@@ -1447,17 +1428,11 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
         info: Self::SignedInfo,
     ) -> Option<sp_runtime::DispatchResultWithInfo<PostDispatchInfoOf<Self>>> {
         match self {
-            RuntimeCall::Ethereum(pallet_ethereum::Call::transact { transaction }) => {
-                if evm_origin::ensure_ethereum_transaction_allowed(&info, &transaction).is_err() {
-                    return Some(Err(sp_runtime::DispatchError::BadOrigin.into()));
-                }
-                Some(
-                    RuntimeCall::Ethereum(pallet_ethereum::Call::transact { transaction })
-                        .dispatch(RuntimeOrigin::from(
-                            pallet_ethereum::RawOrigin::EthereumTransaction(info),
-                        )),
-                )
-            }
+            RuntimeCall::Ethereum(pallet_ethereum::Call::transact { transaction }) => Some(
+                RuntimeCall::Ethereum(pallet_ethereum::Call::transact { transaction }).dispatch(
+                    RuntimeOrigin::from(pallet_ethereum::RawOrigin::EthereumTransaction(info)),
+                ),
+            ),
             _ => None,
         }
     }

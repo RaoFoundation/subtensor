@@ -1,212 +1,26 @@
-//! Reject EIP-7702's classical account delegation for registered Hashed aliases.
-//!
-//! The runner is shared by native EVM calls and Ethereum transactions. Checking
-//! only the outer sender would miss an authorization carried by another sender.
+//! Use Frontier's bounded, metered authorization checks and address mapping costs.
+//! Recovery is shared with execution; no runtime adapter repeats signatures.
 
-use alloc::vec::Vec;
-use ethereum::AuthorizationList;
-use frame_support::weights::Weight;
-use pallet_evm::runner::{Runner, RunnerError};
-use sp_core::{H160, H256, U256};
+pub type HashedEvmRunner = pallet_evm::runner::stack::Runner<crate::Runtime>;
 
-use crate::{
-    Runtime,
-    evm_origin::{ensure_authorization_list_size, hashed_owner},
+#[cfg(test)]
+use {
+    crate::Runtime,
+    alloc::vec::Vec,
+    ethereum::AuthorizationList,
+    frame_support::weights::Weight,
+    pallet_evm::runner::{Runner, RunnerError},
+    sp_core::{H160, H256, U256},
 };
-
-type StackRunner = pallet_evm::runner::stack::Runner<Runtime>;
+#[cfg(test)]
 type Error = pallet_evm::Error<Runtime>;
-
-pub struct HashedEvmRunner;
-
-fn reject_protected_authorities(
-    mut authorities: impl Iterator<Item = H160>,
-) -> Result<(), RunnerError<Error>> {
-    // Always enforce existing bindings, independently of whether this build
-    // permits registering new accounts. Another sender can carry an authority's
-    // delegation, and execution must recheck lists previously admitted to a pool.
-    if authorities.any(|address| hashed_owner(&address).is_some()) {
-        return Err(RunnerError {
-            error: Error::Undefined,
-            // Fail closed until reference benchmarking replaces this sentinel.
-            // Registration stays disabled until EVM metering is calibrated too.
-            weight: Weight::MAX,
-        });
-    }
-    Ok(())
-}
-
+#[cfg(test)]
 fn check_authorizations(list: &AuthorizationList) -> Result<(), RunnerError<Error>> {
-    check_authorization_list_size(list.len())?;
-    reject_protected_authorities(
-        list.iter()
-            .filter_map(|item| item.authorizing_address().ok()),
-    )
+    HashedEvmRunner::recover_authorizations(list).map(|_| ())
 }
-
+#[cfg(test)]
 fn check_authorization_list_size(len: usize) -> Result<(), RunnerError<Error>> {
-    ensure_authorization_list_size(len).map_err(|error| RunnerError {
-        error: error.into(),
-        // Preserve the fail-closed sentinel until reference metering is ready.
-        weight: Weight::MAX,
-    })
-}
-
-impl Runner<Runtime> for HashedEvmRunner {
-    type Error = Error;
-
-    fn validate(
-        source: H160,
-        target: Option<H160>,
-        input: Vec<u8>,
-        value: U256,
-        gas_limit: u64,
-        max_fee_per_gas: Option<U256>,
-        max_priority_fee_per_gas: Option<U256>,
-        nonce: Option<U256>,
-        access_list: Vec<(H160, Vec<H256>)>,
-        authorization_list: Vec<(U256, H160, U256, Option<H160>)>,
-        is_transactional: bool,
-        weight_limit: Option<Weight>,
-        proof_size_base_cost: Option<u64>,
-        evm_config: &fp_evm::Config,
-    ) -> Result<(), RunnerError<Self::Error>> {
-        check_authorization_list_size(authorization_list.len())?;
-        reject_protected_authorities(authorization_list.iter().filter_map(|item| item.3))?;
-        StackRunner::validate(
-            source,
-            target,
-            input,
-            value,
-            gas_limit,
-            max_fee_per_gas,
-            max_priority_fee_per_gas,
-            nonce,
-            access_list,
-            authorization_list,
-            is_transactional,
-            weight_limit,
-            proof_size_base_cost,
-            evm_config,
-        )
-    }
-
-    fn call(
-        source: H160,
-        target: H160,
-        input: Vec<u8>,
-        value: U256,
-        gas_limit: u64,
-        max_fee_per_gas: Option<U256>,
-        max_priority_fee_per_gas: Option<U256>,
-        nonce: Option<U256>,
-        access_list: Vec<(H160, Vec<H256>)>,
-        authorization_list: AuthorizationList,
-        is_transactional: bool,
-        validate: bool,
-        weight_limit: Option<Weight>,
-        proof_size_base_cost: Option<u64>,
-        config: &fp_evm::Config,
-    ) -> Result<fp_evm::CallInfo, RunnerError<Self::Error>> {
-        check_authorizations(&authorization_list)?;
-        StackRunner::call(
-            source,
-            target,
-            input,
-            value,
-            gas_limit,
-            max_fee_per_gas,
-            max_priority_fee_per_gas,
-            nonce,
-            access_list,
-            authorization_list,
-            is_transactional,
-            validate,
-            weight_limit,
-            proof_size_base_cost,
-            config,
-        )
-    }
-
-    fn create(
-        source: H160,
-        init: Vec<u8>,
-        value: U256,
-        gas_limit: u64,
-        max_fee_per_gas: Option<U256>,
-        max_priority_fee_per_gas: Option<U256>,
-        nonce: Option<U256>,
-        access_list: Vec<(H160, Vec<H256>)>,
-        whitelist: Vec<H160>,
-        disable_whitelist_check: bool,
-        authorization_list: AuthorizationList,
-        is_transactional: bool,
-        validate: bool,
-        weight_limit: Option<Weight>,
-        proof_size_base_cost: Option<u64>,
-        config: &fp_evm::Config,
-    ) -> Result<fp_evm::CreateInfo, RunnerError<Self::Error>> {
-        check_authorizations(&authorization_list)?;
-        StackRunner::create(
-            source,
-            init,
-            value,
-            gas_limit,
-            max_fee_per_gas,
-            max_priority_fee_per_gas,
-            nonce,
-            access_list,
-            whitelist,
-            disable_whitelist_check,
-            authorization_list,
-            is_transactional,
-            validate,
-            weight_limit,
-            proof_size_base_cost,
-            config,
-        )
-    }
-
-    fn create2(
-        source: H160,
-        init: Vec<u8>,
-        salt: H256,
-        value: U256,
-        gas_limit: u64,
-        max_fee_per_gas: Option<U256>,
-        max_priority_fee_per_gas: Option<U256>,
-        nonce: Option<U256>,
-        access_list: Vec<(H160, Vec<H256>)>,
-        whitelist: Vec<H160>,
-        disable_whitelist_check: bool,
-        authorization_list: AuthorizationList,
-        is_transactional: bool,
-        validate: bool,
-        weight_limit: Option<Weight>,
-        proof_size_base_cost: Option<u64>,
-        config: &fp_evm::Config,
-    ) -> Result<fp_evm::CreateInfo, RunnerError<Self::Error>> {
-        check_authorizations(&authorization_list)?;
-        StackRunner::create2(
-            source,
-            init,
-            salt,
-            value,
-            gas_limit,
-            max_fee_per_gas,
-            max_priority_fee_per_gas,
-            nonce,
-            access_list,
-            whitelist,
-            disable_whitelist_check,
-            authorization_list,
-            is_transactional,
-            validate,
-            weight_limit,
-            proof_size_base_cost,
-            config,
-        )
-    }
+    HashedEvmRunner::check_authorization_size(len)
 }
 
 #[cfg(test)]
@@ -240,7 +54,7 @@ mod tests {
         match result {
             Err(error) => {
                 assert!(matches!(error.error, Error::Undefined));
-                assert_eq!(error.weight, Weight::MAX);
+                assert_ne!(error.weight, Weight::MAX);
             }
             Ok(_) => panic!("protected EIP-7702 authorization reached EVM execution"),
         }

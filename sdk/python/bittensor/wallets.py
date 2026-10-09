@@ -25,6 +25,7 @@ CRYPTO_TYPE_NAMES: dict[int, str] = {
     CRYPTO_HASHED: "hashed",
 }
 _NAME_TO_CRYPTO_TYPE: dict[str, int] = {name: code for code, name in CRYPTO_TYPE_NAMES.items()}
+_NAME_TO_CRYPTO_TYPE.update({"ed": CRYPTO_ED25519, "sr": CRYPTO_SR25519})
 DEFAULT_CRYPTO_TYPE = CRYPTO_SR25519
 
 
@@ -40,7 +41,7 @@ def is_bittensor_address(value: str) -> bool:
 
 
 def parse_crypto_type(value: str) -> int:
-    """Parse a named wallet key type or its numeric identifier."""
+    """Parse a wallet scheme, its short name (ed/sr), or its numeric identifier."""
     normalized = value.strip().lower()
     if normalized in _NAME_TO_CRYPTO_TYPE:
         return _NAME_TO_CRYPTO_TYPE[normalized]
@@ -221,11 +222,12 @@ def create(
     use_password: bool = True,
     overwrite: bool = False,
     coldkey_crypto_type: int = DEFAULT_CRYPTO_TYPE,
-    hotkey_crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    hotkey_crypto_type: int | None = None,
     on_mnemonic: Callable[[str, str], None] | None = None,
 ) -> Wallet:
     """Create a new coldkey and hotkey for ``name``/``hotkey``.
 
+    Both keys use ``coldkey_crypto_type`` unless ``hotkey_crypto_type`` is given.
     ``on_mnemonic`` receives ``("coldkey" | "hotkey", mnemonic)`` for each new
     key and replaces the default plain-stdout echo of the mnemonics.
     """
@@ -241,7 +243,7 @@ def create(
         n_words=n_words,
         use_password=False,
         overwrite=overwrite,
-        crypto_type=hotkey_crypto_type,
+        crypto_type=coldkey_crypto_type if hotkey_crypto_type is None else hotkey_crypto_type,
         on_mnemonic=(lambda m: on_mnemonic("hotkey", m)) if on_mnemonic else None,
     )
     return wallet

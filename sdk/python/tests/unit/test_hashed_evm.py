@@ -50,11 +50,10 @@ def protected():
     return substrate, key, alias
 
 
-@pytest.mark.parametrize("enabled", [None, False])
-async def test_disabled_or_older_chain_uses_legacy_mapping_without_alias_reads(protected, enabled):
+async def test_older_chain_uses_legacy_mapping_without_alias_reads(protected):
     substrate, _, alias = protected
-    substrate.seed_constant("HashedAccounts", "Enabled", enabled)
-    substrate.query = AsyncMock(side_effect=AssertionError("alias lookup while disabled"))
+    substrate.seed_constant("HashedAccounts", "Enabled", None)
+    substrate.query = AsyncMock(side_effect=AssertionError("alias lookup on older chain"))
     recipient = await resolve_evm_funding_recipient(substrate, alias)
     assert recipient.address == recipient.account == h160_to_ss58(alias)
     assert recipient.descriptor is None
@@ -62,9 +61,13 @@ async def test_disabled_or_older_chain_uses_legacy_mapping_without_alias_reads(p
     assert call.params["dest"] == h160_to_ss58(alias)
 
 
+@pytest.mark.parametrize("enabled", [True, False])
 @pytest.mark.parametrize("encoding", ["ss58", "hex", "bytes", "list"])
-async def test_protected_mapping_validates_and_returns_full_receiving_address(protected, encoding):
+async def test_protected_mapping_validates_and_returns_full_receiving_address(
+    protected, encoding, enabled
+):
     substrate, key, alias = protected
+    substrate.seed_constant("HashedAccounts", "Enabled", enabled)
     raw = bytes(key.public_key)
     bound = {"ss58": key.ss58_address, "hex": "0x" + raw.hex(), "bytes": raw, "list": list(raw)}[
         encoding
@@ -79,9 +82,11 @@ async def test_protected_mapping_validates_and_returns_full_receiving_address(pr
     assert all(call.kwargs["block_hash"] == head for call in substrate.query.call_args_list)
 
 
+@pytest.mark.parametrize("enabled", [True, False])
 @pytest.mark.parametrize("failure", ["short", "wrong_prefix", "missing_record", "wrong_descriptor"])
-async def test_malformed_protected_mapping_fails_closed(protected, failure):
+async def test_malformed_protected_mapping_fails_closed(protected, failure, enabled):
     substrate, key, alias = protected
+    substrate.seed_constant("HashedAccounts", "Enabled", enabled)
     if failure == "short":
         substrate.seed("HashedAccounts", "EvmAliases", [alias], bytes(31))
     elif failure == "wrong_prefix":
@@ -302,17 +307,14 @@ def test_cli_stake_show_reads_the_runtime_mapped_coldkey(
     )
     assert result.exit_code == 0, result.output
     data = bytes.fromhex(requests[0]["data"][2:])
-    account = key.ss58_address if enabled else h160_to_ss58(alias)
+    account = key.ss58_address
     assert data[4:36] == bytes.fromhex(ss58_to_pubkey(hotkey_key.ss58_address)[2:])
     assert data[36:68] == bytes.fromhex(ss58_to_pubkey(account)[2:])
     fields = json.loads(result.output)
     assert fields["stake_rao"] == 123
     assert fields["hotkey"] == hotkey
-    if enabled:
-        assert parse_recipient(fields["coldkey_address"]).account == account
-        assert "coldkey_mirror" not in fields
-    else:
-        assert fields["coldkey_mirror"] == account
+    assert parse_recipient(fields["coldkey_address"]).account == account
+    assert "coldkey_mirror" not in fields
 
 
 def test_cli_stake_show_rejects_foreign_hotkey_before_evm_rpc(evm_cli, monkeypatch):
@@ -346,6 +348,8 @@ def test_cli_stake_show_rejects_foreign_hotkey_before_evm_rpc(evm_cli, monkeypat
 
 @pytest.mark.parametrize("styled_output", [False, True])
 def test_cli_stake_show_rejects_unverified_rpc_mapping(evm_cli, monkeypatch, styled_output):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm")
     monkeypatch.setattr("typer.rich_utils.FORCE_TERMINAL", styled_output)
     monkeypatch.setattr(
         "bittensor.cli.context.AppContext.run",
@@ -395,3 +399,25 @@ def test_cli_doctor_recommends_evm_receive_route_without_legacy_mirror(evm_cli, 
     advice = " ".join(messages)
     assert alias in advice and "from an EVM wallet on this network" in advice
     assert h160_to_ss58(alias) not in advice
+
+
+@pytest.mark.parametrize("amount", [1, "all"])
+async def test_disabled_existing_alias_cannot_fund_abandoned_mirror(protected, amount):
+    substrate, key, alias = protected
+    substrate.seed_constant("HashedAccounts", "Enabled", False)
+    recipient = await resolve_evm_funding_recipient(substrate, alias)
+    assert recipient.account == key.ss58_address
+    assert recipient.descriptor == bytes(key.hashed_descriptor)
+    substrate.compose = AsyncMock(side_effect=AssertionError("unsafe funding composed"))
+    with pytest.raises(
+        ValueError, match="hashed receiving addresses are not supported on this chain"
+    ):
+        await FundEvmKey(alias, amount).build(substrate, object())
+
+
+async def test_disabled_unbound_alias_keeps_legacy_funding(protected):
+    substrate, _, alias = protected
+    substrate.seed_constant("HashedAccounts", "Enabled", False)
+    substrate.seed("HashedAccounts", "EvmAliases", [alias], None)
+    call = await FundEvmKey(alias, 1).build(substrate, object())
+    assert call.params["dest"] == h160_to_ss58(alias)

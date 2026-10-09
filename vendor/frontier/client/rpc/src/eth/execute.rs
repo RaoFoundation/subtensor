@@ -540,9 +540,6 @@ where
 		let client = Arc::clone(&self.client);
 		let block_data_cache = Arc::clone(&self.block_data_cache);
 
-		// Define the lower bound of estimate
-		const MIN_GAS_PER_TX: U256 = U256([21_000, 0, 0, 0]);
-
 		// Get substrate hash and runtime api
 		let (substrate_hash, api) = match frontier_backend_client::native_block_id::<B, C>(
 			self.client.as_ref(),
@@ -569,22 +566,8 @@ where
 		// Adapt request for gas estimation.
 		let request = EC::EstimateGasAdapter::adapt_request(request);
 
-		// For simple transfer to simple account, return MIN_GAS_PER_TX directly
-		let is_simple_transfer = match &request.data() {
-			None => true,
-			Some(vec) => vec.0.is_empty(),
-		};
-		if is_simple_transfer {
-			if let Some(to) = request.to {
-				let to_code = api
-					.account_code_at(substrate_hash, to)
-					.map_err(|err| internal_err(format!("runtime error: {err}")))?;
-				if to_code.is_empty() {
-					return Ok(MIN_GAS_PER_TX);
-				}
-			}
-		}
-
+		// Runtime account mapping and EIP-7702 may add costs even for an
+		// empty-calldata transfer. Estimate against the active runtime.
 		let block_gas_limit = {
 			let block = block_data_cache.current_block(substrate_hash).await;
 			block
@@ -1158,7 +1141,7 @@ where
 			// On binary search, evm estimate mode is disabled
 			let estimate_mode = false;
 			// Define the lower bound of the binary search
-			let mut lowest = MIN_GAS_PER_TX;
+			let mut lowest = U256::from(21_000);
 
 			// Start close to the used gas for faster binary search
 			let mut mid = std::cmp::min(used_gas * 3, (highest + lowest) / 2);

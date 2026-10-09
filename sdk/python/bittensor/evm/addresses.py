@@ -84,8 +84,9 @@ def h160_to_ss58(evm_address: str, ss58_format: int = SS58_FORMAT) -> str:
 async def resolve_evm_recipient(substrate: Any, evm_address: str) -> Recipient:
     """Resolve an EVM balance account and retain any required registration guard.
 
-    Unknown/disabled support preserves the legacy mapping. Once support is
-    enabled, malformed alias bindings fail closed. Funding callers must retain
+    Chains without hashed-account support preserve the legacy mapping. Existing
+    bindings remain authoritative even when new registrations are disabled;
+    malformed alias bindings always fail closed. Funding callers must retain
     a protected recipient's full receiving address through normal transfer
     composition, including its idempotent registration guard.
     """
@@ -93,7 +94,7 @@ async def resolve_evm_recipient(substrate: Any, evm_address: str) -> Recipient:
 
     address = normalize_h160(evm_address)
     legacy = h160_to_ss58(address)
-    if await substrate.constant("HashedAccounts", "Enabled") is not True:
+    if await substrate.constant("HashedAccounts", "Enabled") is None:
         return Recipient(legacy, legacy)
     head = await substrate.block_hash()
     bound = await substrate.query("HashedAccounts", "EvmAliases", [address], block_hash=head)
