@@ -9,7 +9,10 @@ use frame_support::weights::Weight;
 use pallet_evm::runner::{Runner, RunnerError};
 use sp_core::{H160, H256, U256};
 
-use crate::{Runtime, evm_origin::hashed_owner};
+use crate::{
+    Runtime,
+    evm_origin::{ensure_authorization_list_size, hashed_owner},
+};
 
 type StackRunner = pallet_evm::runner::stack::Runner<Runtime>;
 type Error = pallet_evm::Error<Runtime>;
@@ -34,10 +37,19 @@ fn reject_protected_authorities(
 }
 
 fn check_authorizations(list: &AuthorizationList) -> Result<(), RunnerError<Error>> {
+    check_authorization_list_size(list.len())?;
     reject_protected_authorities(
         list.iter()
             .filter_map(|item| item.authorizing_address().ok()),
     )
+}
+
+fn check_authorization_list_size(len: usize) -> Result<(), RunnerError<Error>> {
+    ensure_authorization_list_size(len).map_err(|error| RunnerError {
+        error: error.into(),
+        // Preserve the fail-closed sentinel until reference metering is ready.
+        weight: Weight::MAX,
+    })
 }
 
 impl Runner<Runtime> for HashedEvmRunner {
@@ -59,6 +71,7 @@ impl Runner<Runtime> for HashedEvmRunner {
         proof_size_base_cost: Option<u64>,
         evm_config: &fp_evm::Config,
     ) -> Result<(), RunnerError<Self::Error>> {
+        check_authorization_list_size(authorization_list.len())?;
         reject_protected_authorities(authorization_list.iter().filter_map(|item| item.3))?;
         StackRunner::validate(
             source,
@@ -231,6 +244,17 @@ mod tests {
             }
             Ok(_) => panic!("protected EIP-7702 authorization reached EVM execution"),
         }
+    }
+
+    #[test]
+    fn oversized_authorizations_are_rejected_before_recovery_and_storage_access() {
+        // Deliberately omit externalities: a recovered authority reaching the
+        // alias lookup would panic. Oversized lists must fail before that scan.
+        let item = authorization();
+        for count in [256, 4096] {
+            assert_guarded(check_authorizations(&alloc::vec![item.clone(); count]));
+        }
+        assert!(check_authorization_list_size(255).is_ok());
     }
 
     #[test]

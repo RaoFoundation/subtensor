@@ -275,6 +275,57 @@ fn delegated_ethereum_call(authorization_list: ethereum::AuthorizationList) -> R
 }
 
 #[test]
+fn ethereum_authorization_limit_is_checked_before_authority_recovery() {
+    ext().execute_with(|| {
+        let item = authorization(33);
+        let authority = item.authorizing_address().unwrap();
+        let at_limit = delegated_ethereum_call(vec![item.clone(); 255]);
+        let signer = at_limit.check_self_contained().unwrap().unwrap();
+
+        // A protected first entry would produce BadSigner if recovery and
+        // authority checks ran before the size guard.
+        let owner = bind(authority);
+        let before = System::account(&owner);
+        for count in [256, 4096] {
+            let call = delegated_ethereum_call(vec![item.clone(); count]);
+            let info = call.get_dispatch_info();
+            let len = call.encoded_size();
+            let expected = InvalidTransaction::Custom(
+                fp_evm::TransactionValidationError::AuthorizationListTooLarge as u8,
+            );
+            assert_eq!(call.check_self_contained().unwrap(), Err(expected.into()));
+            assert_eq!(
+                call.validate_self_contained(&signer, &info, len).unwrap(),
+                Err(expected.into())
+            );
+            assert_eq!(
+                call.pre_dispatch_self_contained(&signer, &info, len)
+                    .unwrap(),
+                Err(expected.into())
+            );
+            assert_eq!(
+                call.apply_self_contained(signer)
+                    .unwrap()
+                    .unwrap_err()
+                    .error,
+                DispatchError::BadOrigin
+            );
+        }
+        assert_eq!(System::account(&owner), before);
+
+        // The last permitted entry must still be checked, not truncated away.
+        let mut list = vec![authorization(34); 254];
+        list.push(item);
+        assert_eq!(
+            delegated_ethereum_call(list)
+                .check_self_contained()
+                .unwrap(),
+            Err(InvalidTransaction::BadSigner.into())
+        );
+    });
+}
+
+#[test]
 fn ethereum_admission_rechecks_third_party_delegations_after_registration() {
     ext().execute_with(|| {
         let protected = authorization(33);

@@ -93,12 +93,29 @@ pub fn ensure_legacy_ethereum_allowed(address: &H160) -> Result<(), TransactionV
     Ok(())
 }
 
+/// Match Frontier's `CheckEvmTransaction::with_eip7702_authorization_list` limit.
+/// Check the length before recovering any authorization signatures, including
+/// paths that run before Frontier's weight checks or skip runner validation.
+pub(crate) fn ensure_authorization_list_size(
+    len: usize,
+) -> Result<(), fp_evm::TransactionValidationError> {
+    const MAX_AUTHORIZATION_LIST_SIZE: usize = 255;
+    if len > MAX_AUTHORIZATION_LIST_SIZE {
+        return Err(fp_evm::TransactionValidationError::AuthorizationListTooLarge);
+    }
+    Ok(())
+}
+
 /// Ethereum admission does not call the EVM runner's `validate`. Check delegated
 /// authorities here as well as at execution, including after pool admission.
 pub fn ensure_ethereum_transaction_allowed(
     signer: &H160,
     transaction: &ethereum::TransactionV3,
 ) -> Result<(), TransactionValidityError> {
+    if let ethereum::TransactionV3::EIP7702(transaction) = transaction {
+        ensure_authorization_list_size(transaction.authorization_list.len())
+            .map_err(|error| InvalidTransaction::Custom(error as u8))?;
+    }
     ensure_legacy_ethereum_allowed(signer)?;
     if let ethereum::TransactionV3::EIP7702(transaction) = transaction {
         for authorization in &transaction.authorization_list {
