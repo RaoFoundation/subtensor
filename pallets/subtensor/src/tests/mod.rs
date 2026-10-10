@@ -34,6 +34,7 @@ mod recycle_alpha;
 mod registration;
 mod remove_data_tests;
 mod serving;
+mod small_transfer;
 mod stake_into_basket;
 mod staking;
 mod staking2;

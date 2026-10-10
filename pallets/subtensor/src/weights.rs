@@ -96,6 +96,8 @@ pub trait WeightInfo {
 	fn transfer_stake_and_hotkey() -> Weight;
 	fn add_collateral() -> Weight;
 	fn set_min_collateral() -> Weight;
+	fn set_small_transfer_destination() -> Weight;
+	fn small_transfer() -> Weight;
 	fn swap_stake() -> Weight;
 	fn batch_commit_weights() -> Weight;
 	fn batch_set_weights() -> Weight;
@@ -2225,6 +2227,31 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Minimum execution time: 36_968_000 picoseconds.
 		Weight::from_parts(39_027_000, 4502)
 			.saturating_add(T::DbWeight::get().reads(5_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::SmallTransferDestination` (r:0 w:1)
+	/// Proof: `SubtensorModule::SmallTransferDestination` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn set_small_transfer_destination() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 14_000_000 picoseconds.
+		Weight::from_parts(14_000_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::SmallTransferDestination` (r:1 w:0)
+	/// Proof: `SubtensorModule::SmallTransferDestination` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
+	fn small_transfer() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `805`
+		//  Estimated: `4270`
+		// Minimum execution time: 96_000_000 picoseconds.
+		Weight::from_parts(100_000_000, 4270)
+			.saturating_add(T::DbWeight::get().reads(3_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:2 w:0)
@@ -6535,6 +6562,31 @@ impl WeightInfo for () {
 		// Minimum execution time: 36_968_000 picoseconds.
 		Weight::from_parts(39_027_000, 4502)
 			.saturating_add(RocksDbWeight::get().reads(5_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::SmallTransferDestination` (r:0 w:1)
+	/// Proof: `SubtensorModule::SmallTransferDestination` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn set_small_transfer_destination() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 14_000_000 picoseconds.
+		Weight::from_parts(14_000_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::SmallTransferDestination` (r:1 w:0)
+	/// Proof: `SubtensorModule::SmallTransferDestination` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
+	fn small_transfer() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `805`
+		//  Estimated: `4270`
+		// Minimum execution time: 96_000_000 picoseconds.
+		Weight::from_parts(100_000_000, 4270)
+			.saturating_add(RocksDbWeight::get().reads(3_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:2 w:0)

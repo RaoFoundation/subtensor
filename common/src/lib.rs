@@ -49,9 +49,9 @@ pub type Hash = sp_core::H256;
 
 pub type Nonce = u32;
 
-/// Transfers below SMALL_TRANSFER_LIMIT are considered small transfers
+/// `SubtensorModule::small_transfer` (the only call a `SmallTransfer` proxy may
+/// dispatch) must move strictly less than this amount of TAO.
 pub const SMALL_TRANSFER_LIMIT: Balance = TaoBalance::new(500_000_000); // 0.5 TAO
-pub const SMALL_ALPHA_TRANSFER_LIMIT: AlphaBalance = AlphaBalance::new(500_000_000); // 0.5 Alpha
 
 #[freeze_struct("4184c565055c66a7")]
 #[repr(transparent)]

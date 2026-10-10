@@ -1510,6 +1510,46 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn set_small_transfer_destination() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let destination: T::AccountId = account("dest", 0, 1);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            Some(destination.clone()),
+        );
+
+        assert_eq!(
+            SmallTransferDestination::<T>::get(&coldkey),
+            Some(destination)
+        );
+    }
+
+    #[benchmark]
+    fn small_transfer() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let destination: T::AccountId = account("dest", 0, 1);
+        let amount = TaoBalance::from(1_000_000u64);
+
+        add_balance_to_coldkey_account::<T>(&coldkey, amount.saturating_mul(10.into()));
+        add_balance_to_coldkey_account::<T>(&destination, amount);
+        SmallTransferDestination::<T>::insert(&coldkey, &destination);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            destination.clone(),
+            amount,
+        );
+
+        assert_eq!(
+            LastRateLimitedBlock::<T>::get(RateLimitKey::SmallTransfer(coldkey)),
+            Subtensor::<T>::get_current_block_as_u64()
+        );
+    }
+
+    #[benchmark]
     fn swap_stake() {
         let coldkey: T::AccountId = whitelisted_caller();
         let hot: T::AccountId = account("A", 0, 9);

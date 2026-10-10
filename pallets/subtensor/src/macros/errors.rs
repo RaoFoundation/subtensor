@@ -414,5 +414,12 @@ mod errors {
         CommitPayloadTooLarge,
         /// The subnet's shared Null timelock queue has reached its byte or count budget.
         CommitQueueFull,
+        /// `small_transfer` amount is not strictly below `SMALL_TRANSFER_LIMIT`.
+        SmallTransferAmountTooHigh,
+        /// `small_transfer` destination differs from the coldkey's whitelisted
+        /// destination, or no destination is set.
+        SmallTransferDestinationNotAllowed,
+        /// The coldkey already made a `small_transfer` in this block.
+        SmallTransferRateLimitExceeded,
     }
 }
