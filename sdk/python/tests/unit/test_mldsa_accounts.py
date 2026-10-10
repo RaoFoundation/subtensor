@@ -12,7 +12,17 @@ from bittensor.cli.context import AppContext
 from bittensor.cli.main import app
 from bittensor.hashed import descriptor_bytes, descriptor_value
 from bittensor.receiving import parse_recipient, receiving_address
-from bittensor.sp_core import CRYPTO_ED25519, CRYPTO_HASHED, CRYPTO_MLDSA, CRYPTO_SR25519, Keypair
+from bittensor.sp_core import (
+    CLASSICAL_HASHED_CRYPTO_TYPES,
+    CRYPTO_ED25519,
+    CRYPTO_HASHED,
+    CRYPTO_HASHED_ED25519,
+    CRYPTO_MLDSA,
+    CRYPTO_MLDSA_STANDARD,
+    CRYPTO_SR25519,
+    HASHED_CRYPTO_TYPES,
+    Keypair,
+)
 from bittensor.wallet import Wallet
 from tests.unit.test_hashed_accounts import GENESIS, MNEMONIC, _connection
 
@@ -112,25 +122,33 @@ def test_mldsa_transport_rejects_incomplete_or_oversized_proofs(length):
 
 
 @pytest.mark.parametrize(
-    "crypto_type", [CRYPTO_ED25519, CRYPTO_SR25519, CRYPTO_HASHED, CRYPTO_MLDSA]
+    "crypto_type",
+    [
+        CRYPTO_ED25519,
+        CRYPTO_SR25519,
+        CRYPTO_HASHED,
+        CRYPTO_MLDSA,
+        CRYPTO_HASHED_ED25519,
+        CRYPTO_MLDSA_STANDARD,
+    ],
 )
 def test_message_signing_and_explicit_or_automatic_verification(tmp_path, crypto_type):
     wallet = Wallet("signer", path=str(tmp_path))
     wallet.regenerate_coldkey(
         mnemonic=MNEMONIC, crypto_type=crypto_type, use_password=False, suppress=True
     )
-    if crypto_type == CRYPTO_HASHED:
+    if crypto_type in CLASSICAL_HASHED_CRYPTO_TYPES:
         with pytest.raises(ValueError, match="generation zero"):
             wallets.sign_message("challenge", name="signer", path=str(tmp_path))
     signed = wallets.sign_message(
         "challenge",
         name="signer",
         path=str(tmp_path),
-        hashed_generation=1 if crypto_type == CRYPTO_HASHED else None,
+        hashed_generation=1 if crypto_type in CLASSICAL_HASHED_CRYPTO_TYPES else None,
     )
     with pytest.raises(ValueError, match=r"trusted.*crypto_type"):
         wallets.verify_message("challenge", signed["signature"], signed["ss58"])
-    if crypto_type in (CRYPTO_HASHED, CRYPTO_MLDSA):
+    if crypto_type in HASHED_CRYPTO_TYPES:
         assert wallets.verify_message(
             "challenge", signed["signature"], receiving_address(wallet.coldkeypub, GENESIS)
         )

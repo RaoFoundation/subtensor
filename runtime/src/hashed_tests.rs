@@ -1612,3 +1612,118 @@ mod mldsa {
         });
     }
 }
+
+mod composable_accounts {
+    use super::*;
+    use sp_core::ed25519;
+    use subtensor_hashed::fips204::{
+        ml_dsa_65,
+        traits::{KeyGen, SerDes, Signer},
+    };
+
+    fn register(descriptor: Descriptor) -> AccountId {
+        System::set_block_number(1);
+        pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
+        hashed_auth::TestVerificationWeight::set(Weight::zero());
+        let sponsor = pair(22);
+        let _ = Balances::make_free_balance_be(
+            &AccountId::from(sponsor.public()),
+            TaoBalance::new(1_000_000_000_000),
+        );
+        let account = AccountId::new(subtensor_hashed::account_id(&descriptor));
+        let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+            calls: alloc::vec![
+                RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register { descriptor }),
+                RuntimeCall::Balances(BalancesCall::transfer_keep_alive {
+                    dest: account.clone().into(),
+                    value: TaoBalance::new(10_000_000_000)
+                }),
+            ],
+        });
+        frame_support::assert_ok!(Executive::apply_extrinsic(legacy(&sponsor, call)).unwrap());
+        account
+    }
+
+    #[test]
+    fn hashed_ed25519_rotates_through_executive_and_rejects_replay() {
+        ext().execute_with(|| {
+            let key = ed25519::Pair::from_seed(&[51; 32]);
+            let next = ed25519::Pair::from_seed(&[52; 32]);
+            let descriptor = Descriptor {
+                version: 1,
+                scheme: Scheme::Ed25519,
+                initial_commitment: subtensor_hashed::key_commitment(
+                    Scheme::Ed25519,
+                    &key.public().0,
+                ),
+            };
+            let account = register(descriptor);
+            let call = call();
+            let extra = extra(1);
+            let implication = (1u8, &call, &extra, extra.implicit().unwrap()).encode();
+            let next_commitment =
+                subtensor_hashed::key_commitment(Scheme::Ed25519, &next.public().0);
+            let payload = subtensor_hashed::transaction_payload(
+                account.as_ref(),
+                Scheme::Ed25519,
+                0,
+                &next_commitment,
+                &implication,
+            );
+            let proof = Proof {
+                generation: 0,
+                public_key: key.public().0,
+                next_commitment,
+                signature: key.sign(&payload).0,
+            };
+            let xt = UncheckedExtrinsic::new_hashed(
+                call,
+                AuthorizeAccount {
+                    account: account.clone(),
+                    proof,
+                },
+                extra,
+            );
+            frame_support::assert_ok!(Executive::apply_extrinsic(xt.clone()).unwrap());
+            let record = HashedAccounts::accounts(&account).unwrap();
+            assert_eq!(record.generation, 1);
+            assert_eq!(record.commitment, next_commitment);
+            assert_eq!(System::account_nonce(&account), 2);
+            assert!(Executive::apply_extrinsic(xt).is_err());
+            assert_eq!(HashedAccounts::accounts(&account).unwrap(), record);
+        });
+    }
+
+    #[test]
+    fn standard_mldsa_keeps_key_and_advances_replay_sequence_even_on_dispatch_failure() {
+        ext().execute_with(|| {
+            let (public, private) = ml_dsa_65::KG::keygen_from_seed(&[53; 32]);
+            let public_key = public.into_bytes();
+            let commitment = subtensor_hashed::key_commitment(Scheme::MlDsa65, &public_key);
+            let descriptor = Descriptor { version: 2, scheme: Scheme::MlDsa65, initial_commitment: commitment };
+            let account = register(descriptor);
+            super::setup();
+            assert!(!hashed_auth::compatible_authority(&account, &super::account()));
+            for generation in 0u32..2 {
+                let call = if generation == 0 { call() } else { RuntimeCall::Balances(BalancesCall::transfer_keep_alive { dest: super::account().into(), value: TaoBalance::new(u64::MAX) }) };
+                let extra = extra(generation + 1);
+                let implication = (2u8, &call, &extra, extra.implicit().unwrap()).encode();
+                let payload = subtensor_hashed::transaction_payload(account.as_ref(), Scheme::MlDsa65, generation.into(), &commitment, &implication);
+                let proof = subtensor_hashed::MlDsaProof { generation: generation.into(), public_key, next_commitment: commitment,
+                    signature: private.try_sign_with_seed(&[0; 32], &payload, subtensor_hashed::MLDSA_TRANSACTION_CONTEXT).unwrap() };
+                let mut changed = proof.clone();
+                changed.next_commitment = [9; 32];
+                frame_support::assert_noop!(HashedAccounts::check_proof(&account, &changed, &implication), pallet_hashed_accounts::Error::<Runtime>::InvalidNextCommitment);
+                let xt = UncheckedExtrinsic::new_mldsa(call, hashed_auth::AuthorizeMlDsa { account: account.clone(), proof }, extra);
+                assert_eq!(Executive::apply_extrinsic(xt.clone()).unwrap().is_ok(), generation == 0);
+                let record = HashedAccounts::accounts(&account).unwrap();
+                assert_eq!(record.generation, <u64 as From<u32>>::from(generation) + 1);
+                assert_eq!(record.commitment, commitment);
+                assert_eq!(System::account_nonce(&account), generation + 2);
+                assert!(Executive::apply_extrinsic(xt).is_err());
+                assert_eq!(HashedAccounts::accounts(&account).unwrap(), record);
+            }
+            assert!(System::events().iter().any(|e| matches!(&e.event, RuntimeEvent::HashedAccounts(pallet_hashed_accounts::Event::Authorized { account: who, generation: 2 }) if who == &account)));
+        });
+    }
+}

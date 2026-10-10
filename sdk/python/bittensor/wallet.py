@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .keyfiles import Keyfile, Keypair
-from .sp_core import CRYPTO_MLDSA, CRYPTO_SR25519, HASHED_CRYPTO_TYPES
+from .sp_core import CRYPTO_SR25519, HASHED_CRYPTO_TYPES, MLDSA_CRYPTO_TYPES, account_crypto_type
 
 DEFAULT_WALLET_PATH = str(Path.home() / ".bittensor" / "wallets")
 
@@ -201,9 +201,11 @@ class Wallet:
         coldkey_password: str | None = None,
         crypto_type: int = CRYPTO_SR25519,
         on_mnemonic: Callable[[str], None] | None = None,
+        account_type: str | None = None,
     ) -> Wallet:
+        crypto_type = account_crypto_type(crypto_type, account_type)
         mnemonic = Keypair.generate_mnemonic(
-            (24 if crypto_type == CRYPTO_MLDSA else 12) if n_words is None else n_words
+            (24 if crypto_type in MLDSA_CRYPTO_TYPES else 12) if n_words is None else n_words
         )
         keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
         # on_mnemonic lets a caller (the CLI) render the mnemonic itself
@@ -234,9 +236,11 @@ class Wallet:
         hotkey_password: str | None = None,
         crypto_type: int = CRYPTO_SR25519,
         on_mnemonic: Callable[[str], None] | None = None,
+        account_type: str | None = None,
     ) -> Wallet:
+        crypto_type = account_crypto_type(crypto_type, account_type)
         mnemonic = Keypair.generate_mnemonic(
-            (24 if crypto_type == CRYPTO_MLDSA else 12) if n_words is None else n_words
+            (24 if crypto_type in MLDSA_CRYPTO_TYPES else 12) if n_words is None else n_words
         )
         keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
         if on_mnemonic is not None:
@@ -267,8 +271,10 @@ class Wallet:
         save_coldkey_to_env: bool = False,
         coldkey_password: str | None = None,
         crypto_type: int = CRYPTO_SR25519,
+        account_type: str | None = None,
         **_: Any,
     ) -> Wallet:
+        crypto_type = account_crypto_type(crypto_type, account_type)
         if mnemonic is not None:
             if not suppress:
                 print(f"Regenerating coldkey from mnemonic\nMnemonic: {mnemonic}")
@@ -314,8 +320,10 @@ class Wallet:
         save_hotkey_to_env: bool = False,
         hotkey_password: str | None = None,
         crypto_type: int = CRYPTO_SR25519,
+        account_type: str | None = None,
         **_: Any,
     ) -> Wallet:
+        crypto_type = account_crypto_type(crypto_type, account_type)
         if mnemonic is not None:
             if not suppress:
                 print(f"Regenerating hotkey from mnemonic\nMnemonic: {mnemonic}")
@@ -348,8 +356,10 @@ class Wallet:
         overwrite: bool = False,
         suppress: bool = True,
         crypto_type: int = CRYPTO_SR25519,
+        account_type: str | None = None,
         **_: Any,
     ) -> Wallet:
+        crypto_type = account_crypto_type(crypto_type, account_type)
         del suppress
         if ss58_address is None and public_key is None:
             raise ValueError("either ss58_address or public_key must be passed")
@@ -364,8 +374,10 @@ class Wallet:
         overwrite: bool = False,
         suppress: bool = True,
         crypto_type: int = CRYPTO_SR25519,
+        account_type: str | None = None,
         **_: Any,
     ) -> Wallet:
+        crypto_type = account_crypto_type(crypto_type, account_type)
         del suppress
         if ss58_address is None and public_key is None:
             raise ValueError("either ss58_address or public_key must be passed")

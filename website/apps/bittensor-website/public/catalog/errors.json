@@ -2091,7 +2091,7 @@
     },
     "GenerationExhausted": {
       "code": "limit_exceeded",
-      "description": "The hashed account has reached the maximum supported generation and cannot rotate again. Do not wrap or reset the counter; further authorization requires a protocol upgrade.",
+      "description": "The account has reached the maximum authorization sequence and cannot sign again. Do not wrap or reset the counter; further authorization requires a protocol upgrade.",
       "docs_url": "/docs/errors/chain/GenerationExhausted",
       "markdown_url": "/llms.mdx/docs/errors/chain/GenerationExhausted/content.md",
       "pallets": [
@@ -2747,7 +2747,7 @@
     },
     "InvalidNextCommitment": {
       "code": "invalid_argument",
-      "description": "The next signing-key commitment is invalid or repeats the current commitment. Derive the next generation independently using the wallet's versioned derivation.",
+      "description": "The next commitment violates the account mode. Hashed accounts require a new nonzero commitment; standard ML-DSA accounts must retain the current commitment. Restore the wallet with its original signing scheme and account mode.",
       "docs_url": "/docs/errors/chain/InvalidNextCommitment",
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidNextCommitment/content.md",
       "pallets": [
@@ -6251,7 +6251,7 @@
     },
     "WrongGeneration": {
       "code": "invalid_argument",
-      "description": "The rotation proof uses a different generation from HashedAccounts.Accounts. Wait for pending transactions, refresh chain state, and derive the current key again.",
+      "description": "The authorization proof uses a different sequence from HashedAccounts.Accounts. Wait for pending transactions and refresh chain state before signing again.",
       "docs_url": "/docs/errors/chain/WrongGeneration",
       "markdown_url": "/llms.mdx/docs/errors/chain/WrongGeneration/content.md",
       "pallets": [

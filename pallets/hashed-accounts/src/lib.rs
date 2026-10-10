@@ -111,6 +111,11 @@ pub mod pallet {
             account: AccountId32,
             generation: u64,
         },
+        /// A fixed-key account consumed an authorization sequence number.
+        Authorized {
+            account: AccountId32,
+            generation: u64,
+        },
     }
 
     #[pallet::error]
@@ -127,7 +132,7 @@ pub mod pallet {
         WrongGeneration,
         /// The revealed public key does not match the active key commitment.
         WrongCommitment,
-        /// The next commitment is zero or reuses the currently active commitment.
+        /// The next commitment violates the account mode (rotate or retain the key).
         InvalidNextCommitment,
         /// The key generation counter cannot advance any further.
         GenerationExhausted,
@@ -249,7 +254,12 @@ pub mod pallet {
                 Error::<T>::WrongCommitment
             );
             ensure!(
-                proof.next_commitment != [0; 32] && proof.next_commitment != record.commitment,
+                proof.next_commitment != [0; 32]
+                    && if record.descriptor.rotates() {
+                        proof.next_commitment != record.commitment
+                    } else {
+                        proof.next_commitment == record.commitment
+                    },
                 Error::<T>::InvalidNextCommitment
             );
             ensure!(
@@ -293,10 +303,18 @@ pub mod pallet {
                 record.commitment = validated.next_commitment;
                 Ok(())
             })?;
-            Self::deposit_event(Event::Rotated {
-                account: validated.account.clone(),
-                generation,
-            });
+            let event = if validated.next_commitment == validated.commitment {
+                Event::Authorized {
+                    account: validated.account.clone(),
+                    generation,
+                }
+            } else {
+                Event::Rotated {
+                    account: validated.account.clone(),
+                    generation,
+                }
+            };
+            Self::deposit_event(event);
             Ok(())
         }
     }

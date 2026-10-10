@@ -33,6 +33,8 @@ pub enum Scheme {
     Sr25519,
     #[codec(index = 2)]
     MlDsa65,
+    #[codec(index = 3)]
+    Ed25519,
 }
 
 #[derive(
@@ -54,12 +56,18 @@ pub struct Descriptor {
 }
 
 impl Descriptor {
+    /// Version 2 is fixed-key ML-DSA; version 1 rotates the selected scheme.
+    pub fn rotates(&self) -> bool {
+        self.version == VERSION
+    }
+
     pub fn is_supported(&self) -> bool {
-        self.version == VERSION && self.initial_commitment != [0; 32]
+        (self.version == VERSION || (self.version == 2 && self.scheme == Scheme::MlDsa65))
+            && self.initial_commitment != [0; 32]
     }
 }
 
-/// V1 sr25519 proof. Future key families require their own bounded proof format.
+/// Bounded Sr25519/Ed25519 proof; larger signature schemes use their own format.
 #[derive(
     Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen,
 )]
@@ -145,6 +153,19 @@ pub fn verify<const P: usize, const S: usize>(
                 &sp_core::sr25519::Public::from_raw(public),
             )
         }
+        Scheme::Ed25519 => {
+            let (Ok(signature), Ok(public)) = (
+                proof.signature.as_slice().try_into(),
+                proof.public_key.as_slice().try_into(),
+            ) else {
+                return false;
+            };
+            sp_io::crypto::ed25519_verify(
+                &sp_core::ed25519::Signature::from_raw(signature),
+                &payload,
+                &sp_core::ed25519::Public::from_raw(public),
+            )
+        }
         Scheme::MlDsa65 => verify_mldsa(
             &proof.public_key,
             &proof.signature,
@@ -211,7 +232,7 @@ mod tests {
     #[test]
     fn unknown_schemes_and_versions_are_rejected() {
         assert!(Scheme::decode(&mut &[0u8][..]).is_err());
-        assert!(Scheme::decode(&mut &[3u8][..]).is_err());
+        assert!(Scheme::decode(&mut &[4u8][..]).is_err());
         assert!(
             !Descriptor {
                 version: 2,

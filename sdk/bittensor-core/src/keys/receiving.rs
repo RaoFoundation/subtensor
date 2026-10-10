@@ -174,7 +174,12 @@ mod tests {
 
     #[test]
     fn addresses_are_stable_across_networks_and_rotation() {
-        for crypto_type in [CRYPTO_HASHED, CRYPTO_MLDSA] {
+        for crypto_type in [
+            CRYPTO_HASHED,
+            CRYPTO_MLDSA,
+            crate::keys::CRYPTO_HASHED_ED25519,
+            crate::keys::CRYPTO_MLDSA_STANDARD,
+        ] {
             let key = Keypair::from_seed(&[17; 32], crypto_type).unwrap();
             let genesis = [11; 32];
             let address = key.hashed_receiving_address(&genesis).unwrap();
@@ -208,7 +213,7 @@ mod tests {
 
     #[test]
     fn unsupported_descriptors_are_rejected_even_with_a_valid_checksum() {
-        for (offset, replacement) in [(0, 0), (0, 2), (1, 0), (1, 3), (1, 255)] {
+        for (offset, replacement) in [(0, 0), (0, 2), (1, 0), (1, 4), (1, 255)] {
             let mut invalid = descriptor();
             invalid[offset] = replacement;
             assert!(encode_hashed_receiving_address(&invalid, &[0; 32]).is_err());

@@ -25,6 +25,9 @@ frame_support::parameter_types! {
 pub struct TestWeights;
 #[cfg(test)]
 impl WeightInfo for TestWeights {
+    fn authorize_ed25519(_: u32) -> Weight {
+        TestVerificationWeight::get()
+    }
     fn authorize_mldsa(_: u32) -> Weight {
         TestVerificationWeight::get()
     }
@@ -60,7 +63,9 @@ impl<const P: usize, const S: usize> TransactionExtension<RuntimeCall> for Autho
     fn weight(&self, call: &RuntimeCall) -> Weight {
         let len = u32::try_from(call.encoded_size()).unwrap_or(u32::MAX);
         if P == 32 && S == 64 {
-            <Runtime as pallet_hashed_accounts::Config>::WeightInfo::authorize(len)
+            <Runtime as pallet_hashed_accounts::Config>::WeightInfo::authorize(len).max(
+                <Runtime as pallet_hashed_accounts::Config>::WeightInfo::authorize_ed25519(len),
+            )
         } else if P == 1952 && S == 3309 {
             <Runtime as pallet_hashed_accounts::Config>::WeightInfo::authorize_mldsa(len)
         } else {
@@ -234,8 +239,8 @@ impl pallet_hashed_accounts::OnRegister for OnHashedRegistered {
 }
 
 /// Every alternative authority must preserve the protected account's scheme.
-/// ML-DSA can control either protected scheme; rotating Sr25519 cannot control
-/// ML-DSA. Ordinary accounts retain their existing ownership/proxy behavior.
+/// ML-DSA can control every protected scheme; classical schemes cannot control
+/// ML-DSA, in either account mode. Ordinary accounts retain their existing ownership/proxy behavior.
 pub(crate) fn compatible_authority(account: &AccountId, authority: &AccountId) -> bool {
     pallet_hashed_accounts::Accounts::<Runtime>::get(account)
         .is_none_or(|record| authority_satisfies_scheme(record.descriptor.scheme, authority))
@@ -246,8 +251,10 @@ fn authority_satisfies_scheme(required: subtensor_hashed::Scheme, authority: &Ac
     pallet_hashed_accounts::Accounts::<Runtime>::get(authority).is_some_and(|record| {
         matches!(
             (required, record.descriptor.scheme),
-            (Scheme::Sr25519, Scheme::Sr25519 | Scheme::MlDsa65)
-                | (Scheme::MlDsa65, Scheme::MlDsa65)
+            (
+                Scheme::Sr25519 | Scheme::Ed25519,
+                Scheme::Sr25519 | Scheme::Ed25519 | Scheme::MlDsa65
+            ) | (Scheme::MlDsa65, Scheme::MlDsa65)
         )
     })
 }

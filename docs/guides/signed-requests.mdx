@@ -54,7 +54,7 @@ exact):
 | `X-Bittensor-Hotkey` | sender hotkey, ss58 |
 | `X-Bittensor-Receiver` | receiver hotkey, ss58 (optional — see below) |
 | `X-Bittensor-Nonce` | unix time in **nanoseconds**, decimal string |
-| `X-Bittensor-Crypto` | `ed25519`, `hashed`, or `mldsa` — omitted entirely for sr25519 |
+| `X-Bittensor-Crypto` | `ed25519`, `hashed`, `mldsa`, `hashed-ed25519`, or `mldsa-standard` — omitted entirely for sr25519 |
 | `X-Bittensor-Signature` | `0x` + lowercase hex signature |
 
 The signature is over the UTF-8 bytes of exactly eight lines joined by `\n`
@@ -62,7 +62,7 @@ The signature is over the UTF-8 bytes of exactly eight lines joined by `\n`
 
 ```
 btauth/1
-<scheme: "sr25519", "ed25519", "hashed", or "mldsa">
+<scheme: "sr25519", "ed25519", "hashed", "mldsa", "hashed-ed25519", or "mldsa-standard">
 <HTTP method, uppercase>
 <request target: path plus ?query, exactly as sent>
 <sha256 of the raw body bytes, lowercase hex>

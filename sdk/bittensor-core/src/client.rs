@@ -22,7 +22,7 @@ use serde_json::{json, Value as JsonValue};
 use crate::codec::extrinsic::{era_birth, TxParams};
 use crate::codec::value::Value;
 use crate::error::CoreError;
-use crate::keys::{is_hashed_crypto, Keypair, CRYPTO_MLDSA};
+use crate::keys::{is_hashed_crypto, is_mldsa_crypto, Keypair};
 use crate::mlkem;
 use crate::runtime::type_string::TypeSpec;
 use crate::runtime::{Runtime, RuntimeApiMethodInfo, StorageInfo};
@@ -576,7 +576,7 @@ impl Client {
                 .checked_add(generation_offset)
                 .ok_or_else(|| CoreError::Policy("hashed signing generation exhausted".into()))?;
             let selected = active.at_generation(generation)?;
-            let payload = if signer.crypto_type() == CRYPTO_MLDSA {
+            let payload = if is_mldsa_crypto(signer.crypto_type()) {
                 runtime.mldsa_signature_implication(call_data, &params)?
             } else {
                 runtime.hashed_signature_implication(call_data, &params)?

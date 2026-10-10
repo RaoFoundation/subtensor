@@ -425,7 +425,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (33, 3): ErrorInfo('HashedAccounts', 'NotRegistered', 'Register the hashed account before submitting its authorization proof.'),
     (33, 4): ErrorInfo('HashedAccounts', 'WrongGeneration', "The proof does not use the account's currently active key generation."),
     (33, 5): ErrorInfo('HashedAccounts', 'WrongCommitment', 'The revealed public key does not match the active key commitment.'),
-    (33, 6): ErrorInfo('HashedAccounts', 'InvalidNextCommitment', 'The next commitment is zero or reuses the currently active commitment.'),
+    (33, 6): ErrorInfo('HashedAccounts', 'InvalidNextCommitment', 'The next commitment violates the account mode (rotate or retain the key).'),
     (33, 7): ErrorInfo('HashedAccounts', 'GenerationExhausted', 'The key generation counter cannot advance any further.'),
     (33, 8): ErrorInfo('HashedAccounts', 'InvalidSignature', 'The signature does not authorize this account and complete transaction.'),
     (33, 9): ErrorInfo('HashedAccounts', 'AliasCollision', 'Another account already owns the derived EVM alias.'),

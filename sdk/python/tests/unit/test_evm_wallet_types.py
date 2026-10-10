@@ -26,7 +26,9 @@ from tests.harness.fake_substrate import FakeSubstrate
 from tests.harness.receiving import legacy_receiving_address
 
 
-@pytest.fixture(params=[0, 1, 4, 5], ids=["ed", "sr", "hashed", "ms"])
+@pytest.fixture(
+    params=[0, 1, 4, 5, 6, 7], ids=["ed", "sr", "hashed", "ms", "hashed-ed", "standard-ms"]
+)
 def wallet_case(request, tmp_path, monkeypatch):
     for variable in ("BTCLI_CONFIG", "BTCLI_ADDRESSES_PATH"):
         monkeypatch.setenv(variable, str(tmp_path / variable))

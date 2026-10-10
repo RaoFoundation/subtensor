@@ -706,11 +706,15 @@ def _run_app(app: typer.Typer) -> None:
             if isinstance(error, click_exceptions.BadOptionUsage) and error.option_name in {
                 "--crypto-type",
                 "--hotkey-crypto-type",
-                "--type",
             }:
                 error.message += (
                     " Choose sr (sr25519), ed (ed25519), hashed, or ms (mldsa / ml-dsa)."
                 )
+            if isinstance(error, click_exceptions.BadOptionUsage) and error.option_name in {
+                "--type",
+                "--hotkey-type",
+            }:
+                error.message += " Choose standard (fixed key) or hashed (rotating keys)."
             # Mirrors typer's standalone handling: NoArgsIsHelpError prints the
             # help itself; everything else gets the rich usage-error box.
             if error.__class__.__name__ == "NoArgsIsHelpError":

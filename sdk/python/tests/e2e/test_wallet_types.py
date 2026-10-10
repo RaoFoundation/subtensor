@@ -1,4 +1,4 @@
-"""Four-scheme lifecycle on an isolated, activated Alice-root development chain."""
+"""Composable scheme/mode lifecycle on an isolated, activated Alice-root development chain."""
 
 from __future__ import annotations
 
@@ -26,8 +26,9 @@ pytestmark = [
 ]
 
 
-@pytest.mark.parametrize("scheme", ["ed", "sr", "hashed", "ms"])
-async def test_four_scheme_wallet_lifecycle(tmp_path, scheme):
+@pytest.mark.parametrize("scheme", ["ed", "sr", "ms"])
+@pytest.mark.parametrize("mode", ["standard", "hashed"])
+async def test_composable_wallet_lifecycle(tmp_path, scheme, mode):
     env = {**os.environ, "BTCLI_CONFIG": str(tmp_path / "config.json")}
     wallet_path = str(tmp_path / "wallets")
 
@@ -53,9 +54,11 @@ async def test_four_scheme_wallet_lifecycle(tmp_path, scheme):
         assert process.returncode == 0, out.decode() + err.decode()
         return json.loads(out)
 
-    created = await cli("wallet", "create", "--crypto-type", scheme, "--no-password")
+    created = await cli(
+        "wallet", "create", "--crypto-type", scheme, "--type", mode, "--no-password"
+    )
     wallet = bt.Wallet("four-types", path=wallet_path)
-    code = bt.wallets.parse_crypto_type(scheme)
+    code = bt.wallets.parse_crypto_type(scheme, mode)
     assert wallet.coldkey.crypto_type == wallet.hotkey.crypto_type == code
     hashed = code in HASHED_CRYPTO_TYPES
     alice = dev_wallet()

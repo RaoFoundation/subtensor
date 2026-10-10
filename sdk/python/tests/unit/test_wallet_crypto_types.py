@@ -18,6 +18,7 @@ from bittensor.sp_core import (
     CRYPTO_SR25519,
     HASHED_CRYPTO_TYPES,
     Keypair,
+    serialized_keypair_to_keyfile_data,
 )
 from bittensor.wallet import Wallet
 
@@ -41,7 +42,6 @@ def invoke(*args):
     ("command", "option"),
     [
         ("create", "--crypto-type"),
-        ("create", "--type"),
         ("create", "--hotkey-crypto-type"),
         ("regen-coldkey", "--crypto-type"),
         ("regen-hotkey", "--crypto-type"),
@@ -108,7 +108,7 @@ def test_cli_selection_applies_to_both_keys_and_mnemonic_recovery(wallet_path, n
     [("ed", "sr", CRYPTO_ED25519, CRYPTO_SR25519), ("hashed", "ed", CRYPTO_HASHED, CRYPTO_ED25519)],
 )
 def test_cli_explicit_hotkey_override(wallet_path, cold, hot, cold_code, hot_code):
-    result = invoke("create", "--type", cold, "--hotkey-crypto-type", hot, "--no-password")
+    result = invoke("create", "--crypto-type", cold, "--hotkey-crypto-type", hot, "--no-password")
     assert result.exit_code == 0, result.output
     wallet = Wallet("schemes", path=str(wallet_path))
     assert wallet.coldkey.crypto_type == cold_code
@@ -193,3 +193,75 @@ def test_cli_ed_recovery_preserves_legacy_64_byte_backups(wallet_path, role):
         getattr(Wallet("schemes", path=str(wallet_path)), role).ss58_address
         == original.ss58_address
     )
+
+
+@pytest.mark.parametrize("option", ["--type", "--hotkey-type"])
+def test_missing_account_type_lists_modes(wallet_path, monkeypatch, capsys, option):
+    monkeypatch.setattr(sys, "argv", ["btcli", "wallet", "create", option])
+    with pytest.raises(SystemExit) as error:
+        run_app(app)
+    assert error.value.code == 2
+    output = capsys.readouterr().err
+    assert "standard" in output and "hashed" in output
+    assert not wallet_path.exists()
+
+
+@pytest.mark.parametrize("scheme", ["sr", "ed", "ms"])
+@pytest.mark.parametrize("mode", ["standard", "hashed"])
+def test_explicit_scheme_and_mode_create_recover_and_sign(wallet_path, scheme, mode):
+    result = invoke("create", "--crypto-type", scheme, "--type", mode, "--no-password")
+    assert result.exit_code == 0, result.output
+    details = json.loads(result.output)
+    wallet = Wallet("schemes", path=str(wallet_path))
+    code = wallets.parse_crypto_type(scheme, mode)
+    for role in ("coldkey", "hotkey"):
+        key = getattr(wallet, role)
+        assert key.crypto_type == code
+        assert key.account_type == mode
+        assert details[role + "_account_type"] == mode
+        address = key.ss58_address
+        for recovery_args in [
+            ["--mnemonic", details[role + "_mnemonic"]],
+            ["--private-key", json.loads(serialized_keypair_to_keyfile_data(key))["privateKey"]],
+        ]:
+            result = invoke(
+                "regen-" + role,
+                "--crypto-type",
+                scheme,
+                "--type",
+                mode,
+                *(["--no-password"] if role == "coldkey" else []),
+                "--overwrite",
+                *recovery_args,
+            )
+            assert result.exit_code == 0, result.output
+            restored = getattr(Wallet("schemes", path=str(wallet_path)), role)
+            assert restored.ss58_address == address
+            assert restored.crypto_type == code
+        signer = key.at_generation(1) if code in HASHED_CRYPTO_TYPES else key
+        signature = signer.sign(b"composable accounts")
+        assert key.verify(b"composable accounts", signature)
+        assert not key.verify(b"different message", signature)
+    shown = json.loads(invoke("show").output)
+    assert shown["coldkey_account_type"] == mode
+    listed = json.loads(invoke("list").output)
+    assert mode in json.dumps(listed)
+
+
+def test_hotkey_account_mode_can_override_coldkey_mode(wallet_path):
+    result = invoke(
+        "create",
+        "--crypto-type",
+        "ms",
+        "--type",
+        "standard",
+        "--hotkey-crypto-type",
+        "ed",
+        "--hotkey-type",
+        "hashed",
+        "--no-password",
+    )
+    assert result.exit_code == 0, result.output
+    wallet = Wallet("schemes", path=str(wallet_path))
+    assert wallet.coldkey.crypto_type == wallets.parse_crypto_type("ms", "standard")
+    assert wallet.hotkey.crypto_type == wallets.parse_crypto_type("ed", "hashed")

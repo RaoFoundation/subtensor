@@ -34,9 +34,40 @@ pub const CRYPTO_SR25519: u8 = 1;
 /// Versioned rotating commitment wrapper; initially wraps sr25519.
 pub const CRYPTO_HASHED: u8 = 4;
 pub const CRYPTO_MLDSA: u8 = 5;
+pub const CRYPTO_HASHED_ED25519: u8 = 6;
+pub const CRYPTO_MLDSA_STANDARD: u8 = 7;
+
+pub fn is_mldsa_crypto(crypto_type: u8) -> bool {
+    matches!(crypto_type, CRYPTO_MLDSA | CRYPTO_MLDSA_STANDARD)
+}
 
 pub fn is_hashed_crypto(crypto_type: u8) -> bool {
-    matches!(crypto_type, CRYPTO_HASHED | CRYPTO_MLDSA)
+    matches!(
+        crypto_type,
+        CRYPTO_HASHED | CRYPTO_MLDSA | CRYPTO_HASHED_ED25519 | CRYPTO_MLDSA_STANDARD
+    )
+}
+
+/// Compose account mode with a signing scheme; omitted mode preserves legacy codes.
+pub fn account_crypto_type(crypto_type: u8, mode: Option<&str>) -> Result<u8, CoreError> {
+    let Some(mode) = mode else {
+        return Ok(crypto_type);
+    };
+    let scheme = match crypto_type {
+        CRYPTO_SR25519 | CRYPTO_HASHED => CRYPTO_SR25519,
+        CRYPTO_ED25519 | CRYPTO_HASHED_ED25519 => CRYPTO_ED25519,
+        CRYPTO_MLDSA | CRYPTO_MLDSA_STANDARD => CRYPTO_MLDSA,
+        _ => return Err(crypto_err("unsupported signing scheme")),
+    };
+    match (mode, scheme) {
+        ("standard", CRYPTO_SR25519) => Ok(CRYPTO_SR25519),
+        ("standard", CRYPTO_ED25519) => Ok(CRYPTO_ED25519),
+        ("standard", CRYPTO_MLDSA) => Ok(CRYPTO_MLDSA_STANDARD),
+        ("hashed", CRYPTO_SR25519) => Ok(CRYPTO_HASHED),
+        ("hashed", CRYPTO_ED25519) => Ok(CRYPTO_HASHED_ED25519),
+        ("hashed", CRYPTO_MLDSA) => Ok(CRYPTO_MLDSA),
+        _ => Err(crypto_err("account type must be standard or hashed")),
+    }
 }
 
 pub const DEFAULT_SS58_FORMAT: u16 = 42;
@@ -108,12 +139,9 @@ fn verify_with_crypto(
                 .map_err(|_| crypto_err("invalid ed25519 signature length"))?;
             Ok(ed25519::Pair::verify(&sig, message, &public))
         }
-        CRYPTO_HASHED | CRYPTO_MLDSA => Ok(hashed::verify_message(
-            crypto_type,
-            public_key,
-            message,
-            signature,
-        )),
+        CRYPTO_HASHED | CRYPTO_MLDSA | CRYPTO_HASHED_ED25519 | CRYPTO_MLDSA_STANDARD => Ok(
+            hashed::verify_message(crypto_type, public_key, message, signature),
+        ),
         other => Err(crypto_err(format!("unknown crypto type {other}"))),
     }
 }
@@ -183,6 +211,25 @@ pub struct Keypair {
 }
 
 impl Keypair {
+    pub fn account_type(&self) -> &'static str {
+        if matches!(
+            self.crypto_type(),
+            CRYPTO_HASHED | CRYPTO_HASHED_ED25519 | CRYPTO_MLDSA
+        ) {
+            "hashed"
+        } else {
+            "standard"
+        }
+    }
+
+    pub fn signing_scheme(&self) -> &'static str {
+        match self.crypto_type() {
+            CRYPTO_HASHED | CRYPTO_SR25519 => "sr25519",
+            CRYPTO_HASHED_ED25519 | CRYPTO_ED25519 => "ed25519",
+            CRYPTO_MLDSA | CRYPTO_MLDSA_STANDARD => "mldsa",
+            _ => "unknown",
+        }
+    }
     /// Public-only or full keypair from SS58 address and/or raw public key bytes.
     pub fn new(
         ss58_address: Option<&str>,
@@ -191,7 +238,12 @@ impl Keypair {
         ss58_format: u16,
     ) -> Result<Self, CoreError> {
         match crypto_type {
-            CRYPTO_SR25519 | CRYPTO_ED25519 | CRYPTO_HASHED | CRYPTO_MLDSA => {}
+            CRYPTO_SR25519
+            | CRYPTO_ED25519
+            | CRYPTO_HASHED
+            | CRYPTO_MLDSA
+            | CRYPTO_HASHED_ED25519
+            | CRYPTO_MLDSA_STANDARD => {}
             other => return Err(crypto_err(format!("unknown crypto type {other}"))),
         }
 
@@ -245,7 +297,7 @@ impl Keypair {
                     .map_err(|e| crypto_err(format!("invalid mnemonic: {e:?}")))?;
                 (KeypairInner::Ed25519(pair), seed.to_vec())
             }
-            CRYPTO_HASHED | CRYPTO_MLDSA => {
+            CRYPTO_HASHED | CRYPTO_MLDSA | CRYPTO_HASHED_ED25519 | CRYPTO_MLDSA_STANDARD => {
                 let (_, seed) = sr25519::Pair::from_phrase(mnemonic, password)
                     .map_err(|e| crypto_err(format!("invalid mnemonic: {e:?}")))?;
                 (
@@ -279,7 +331,7 @@ impl Keypair {
                 ed25519::Pair::from_seed_slice(seed)
                     .map_err(|e| crypto_err(format!("invalid seed: {e:?}")))?,
             ),
-            CRYPTO_HASHED | CRYPTO_MLDSA => {
+            CRYPTO_HASHED | CRYPTO_MLDSA | CRYPTO_HASHED_ED25519 | CRYPTO_MLDSA_STANDARD => {
                 KeypairInner::Hashed(HashedKeypair::from_seed(seed, crypto_type)?)
             }
             other => return Err(crypto_err(format!("unknown crypto type {other}"))),

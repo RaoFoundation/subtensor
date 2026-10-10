@@ -404,7 +404,10 @@ async def test_wrong_mnemonic_never_unlocks_or_signs_for_the_original_account(tm
 
 @pytest.mark.parametrize(
     "hotkey_option,expected_hotkey",
-    [([], CRYPTO_HASHED), (["--hotkey-crypto-type", "sr25519"], CRYPTO_SR25519)],
+    [
+        ([], CRYPTO_HASHED),
+        (["--hotkey-crypto-type", "sr25519", "--hotkey-type", "standard"], CRYPTO_SR25519),
+    ],
 )
 def test_cli_type_creates_wallet_and_public_descriptors(
     tmp_path, monkeypatch, hotkey_option, expected_hotkey

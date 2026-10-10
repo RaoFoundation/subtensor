@@ -16,6 +16,8 @@ pub enum CryptoType {
     Sr25519 = 1,
     Hashed = 4,
     MlDsa = 5,
+    HashedEd25519 = 6,
+    MlDsaStandard = 7,
 }
 
 fn crypto_code(crypto_type: Option<CryptoType>) -> u8 {
@@ -24,6 +26,8 @@ fn crypto_code(crypto_type: Option<CryptoType>) -> u8 {
         CryptoType::Sr25519 => keys::CRYPTO_SR25519,
         CryptoType::Hashed => keys::CRYPTO_HASHED,
         CryptoType::MlDsa => keys::CRYPTO_MLDSA,
+        CryptoType::HashedEd25519 => keys::CRYPTO_HASHED_ED25519,
+        CryptoType::MlDsaStandard => keys::CRYPTO_MLDSA_STANDARD,
     }
 }
 
@@ -75,17 +79,41 @@ impl Keypair {
         mnemonic: &str,
         crypto_type: Option<CryptoType>,
         password: Option<String>,
+        account_type: Option<String>,
     ) -> Result<Keypair, JsValue> {
-        let inner =
-            keys::Keypair::from_mnemonic(mnemonic, crypto_code(crypto_type), password.as_deref())
-                .map_err(to_js_err)?;
+        let inner = keys::Keypair::from_mnemonic(
+            mnemonic,
+            keys::account_crypto_type(crypto_code(crypto_type), account_type.as_deref())
+                .map_err(to_js_err)?,
+            password.as_deref(),
+        )
+        .map_err(to_js_err)?;
         Ok(Self { inner })
+    }
+
+    #[wasm_bindgen(getter, js_name = accountType)]
+    pub fn account_type(&self) -> String {
+        self.inner.account_type().into()
+    }
+
+    #[wasm_bindgen(getter, js_name = signingScheme)]
+    pub fn signing_scheme(&self) -> String {
+        self.inner.signing_scheme().into()
     }
 
     /// Derive a keypair from a 32-byte seed.
     #[wasm_bindgen(js_name = fromSeed)]
-    pub fn from_seed(seed: &[u8], crypto_type: Option<CryptoType>) -> Result<Keypair, JsValue> {
-        let inner = keys::Keypair::from_seed(seed, crypto_code(crypto_type)).map_err(to_js_err)?;
+    pub fn from_seed(
+        seed: &[u8],
+        crypto_type: Option<CryptoType>,
+        account_type: Option<String>,
+    ) -> Result<Keypair, JsValue> {
+        let inner = keys::Keypair::from_seed(
+            seed,
+            keys::account_crypto_type(crypto_code(crypto_type), account_type.as_deref())
+                .map_err(to_js_err)?,
+        )
+        .map_err(to_js_err)?;
         Ok(Self { inner })
     }
 
@@ -102,9 +130,14 @@ impl Keypair {
     pub fn from_private_key(
         private_key: &str,
         crypto_type: Option<CryptoType>,
+        account_type: Option<String>,
     ) -> Result<Keypair, JsValue> {
-        let inner = keys::Keypair::from_private_key(private_key, crypto_code(crypto_type))
-            .map_err(to_js_err)?;
+        let inner = keys::Keypair::from_private_key(
+            private_key,
+            keys::account_crypto_type(crypto_code(crypto_type), account_type.as_deref())
+                .map_err(to_js_err)?,
+        )
+        .map_err(to_js_err)?;
         Ok(Self { inner })
     }
 

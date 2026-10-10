@@ -12,7 +12,7 @@ use crate::codec::decode::{compact_u128, Cursor};
 use crate::codec::encode::compact;
 use crate::codec::value::Value;
 use crate::error::CoreError;
-use crate::keys::{is_hashed_crypto, ss58_from_public, CRYPTO_MLDSA};
+use crate::keys::{is_hashed_crypto, is_mldsa_crypto, ss58_from_public};
 use crate::runtime::Runtime;
 
 /// Everything one signature payload / signed extrinsic needs beyond the call.
@@ -301,7 +301,7 @@ impl Runtime {
     ) -> Result<(Vec<u8>, [u8; 32]), CoreError> {
         if is_hashed_crypto(signature_version) {
             self.require_hashed_accounts()?;
-            let proof_len = if signature_version == CRYPTO_MLDSA {
+            let proof_len = if is_mldsa_crypto(signature_version) {
                 5301
             } else {
                 136
@@ -315,7 +315,7 @@ impl Runtime {
             // unchanged legacy extension extras. No MultiAddress prefix.
             let mut body = vec![
                 0x45,
-                if signature_version == CRYPTO_MLDSA {
+                if is_mldsa_crypto(signature_version) {
                     2
                 } else {
                     1
@@ -563,7 +563,7 @@ mod hashed_tests {
 
     use super::*;
     use crate::keys::Keypair;
-    use crate::keys::CRYPTO_HASHED;
+    use crate::keys::{CRYPTO_HASHED, CRYPTO_MLDSA};
 
     fn runtime(hashed: bool) -> Runtime {
         let fixture: serde_json::Value =

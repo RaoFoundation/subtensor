@@ -16,7 +16,7 @@ from tests.harness.receiving import legacy_receiving_address
 from tests.harness.samples import dev_wallet
 
 ENDPOINT = os.getenv("E2E_WALLET_ENDPOINT")
-SCHEMES = ("sr", "ed", "hashed", "ms")
+SCHEMES = ("sr", "ed", "hashed", "ms", "hashed-ed25519", "mldsa-standard")
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(not ENDPOINT, reason="requires an isolated activated Alice-root chain"),
@@ -111,7 +111,7 @@ async def test_cli_wallet_parity(tmp_path, scheme):
                 "original", "call", "System.remark", "--args", '{"remark":"0x01"}', "--signer", role
             )
 
-        # All 16 sender/recipient combinations use the normal transfer command.
+        # All 36 sender/recipient combinations use the normal transfer command.
         for recipient_scheme in SCHEMES:
             name = f"recipient-{recipient_scheme}"
             await cli(name, "wallet", "create", "--crypto-type", recipient_scheme, "--no-password")

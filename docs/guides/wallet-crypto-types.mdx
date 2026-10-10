@@ -3,56 +3,76 @@ title: Wallet crypto types
 description: Create, recover, sign, and transact with Ed25519, Sr25519, hashed, and ML-DSA wallets.
 ---
 
-Choose a scheme when creating or recovering a wallet:
+Choose the signing scheme independently from the account mode:
 
 ```bash
-btcli wallet create --crypto-type mldsa
-btcli wallet regen-coldkey --crypto-type mldsa
+btcli wallet create --crypto-type sr --type standard
+btcli wallet create --crypto-type ed --type standard
+btcli wallet create --crypto-type ms --type standard
+btcli wallet create --crypto-type sr --type hashed
+btcli wallet create --crypto-type ed --type hashed
+btcli wallet create --crypto-type ms --type hashed
 ```
 
-`--type` remains an alias for `--crypto-type`. The choice applies to both coldkey
-and hotkey unless `--hotkey-crypto-type` overrides it. Existing keyfiles retain
-their scheme; ordinary commands read that scheme automatically.
+`--crypto-type` chooses Sr25519 (`sr`), Ed25519 (`ed`), or ML-DSA-65 (`ms`).
+`--type` chooses `standard` (fixed signing key) or `hashed` (a permanent account
+whose signing key rotates on inclusion). Both choices apply to coldkey and
+hotkey; `--hotkey-crypto-type` and `--hotkey-type` override them independently.
+Ordinary commands read both choices from the keyfile automatically.
 
-These APIs require `bittensor-core>=0.1.7`; publish the native package and the
-matching Python SDK together.
-
-ML-DSA accounts require ML-DSA proxy delegates and, when used as hotkeys,
-ML-DSA coldkey owners. Registration rejects a weaker existing owner, and a
-coldkey swap cannot downgrade that protection. ML-DSA authorities can still
-control classical hashed accounts, allowing upgrades toward the stronger scheme.
-
-| Choice | Aliases | Authorization |
+| Scheme | `--type standard` | `--type hashed` |
 | --- | --- | --- |
-| `sr25519` | `sr` | Existing Sr25519 account; default |
-| `ed25519` | `ed` | Existing Ed25519 account |
-| `hashed` | | Permanent account with rotating Sr25519 keys |
-| `mldsa` | `ms`, `ml-dsa` | Permanent account with rotating ML-DSA-65 keys |
+| `sr` / `sr25519` | Existing Sr25519 account | Rotating Sr25519 account |
+| `ed` / `ed25519` | Existing Ed25519 account | Rotating Ed25519 account |
+| `ms` / `mldsa` / `ml-dsa` | Fixed-key ML-DSA-65 account | Rotating ML-DSA-65 account |
+
+For compatibility, omitting `--type` retains the previous defaults: `sr` and
+`ed` use standard accounts; `ms` uses rotating ML-DSA. The old
+`--crypto-type hashed` selects rotating Sr25519, and `--type hashed` alone
+still selects rotating Sr25519. Legacy `--type sr`, `--type ed`, and `--type ms`
+remain accepted. Use explicit scheme and mode for new backups and recovery:
+
+```bash
+btcli wallet regen-coldkey --crypto-type ms --type standard
+btcli wallet regen-hotkey --crypto-type ed --type hashed
+```
+
+The native `bittensor-core>=0.1.8` package and Python SDK must be built and published
+from matching source with composable account-mode support. Python constructors
+accept `account_type="standard"` or `account_type="hashed"`; browser constructors
+accept the same mode as their final argument. Public key objects expose the
+signing scheme and account mode separately.
+
+ML-DSA accounts in either mode require ML-DSA proxy delegates and, when used as
+hotkeys, ML-DSA coldkey owners. Registration rejects a weaker existing owner,
+and a coldkey swap cannot downgrade that protection. ML-DSA authorities can
+control classical hashed accounts; hashed Sr25519 and hashed Ed25519 authorities
+can control each other.
 
 New ML-DSA wallets default to 24-word mnemonics (256 bits of entropy). Other
 schemes retain their 12-word default. Keep the ML-DSA default for new wallets;
 a shorter phrase reduces the entropy protecting the master seed.
 
-Record the selected scheme with the mnemonic. The same mnemonic under another
-scheme derives a different account. Existing hashed wallet recovery and
+Record both the selected scheme and account mode with the mnemonic. The same
+mnemonic with a different scheme or mode derives a different account. Existing hashed wallet recovery and
 transaction bytes remain unchanged. Selecting `mldsa` does not upgrade an
 existing Sr25519 account in place; use the existing coldkey migration flow to
 move to a newly created account.
 
-Both new schemes default to disabled on chain. Root controls registration and
+All hashed modes and standard ML-DSA default to disabled on chain. Root controls registration and
 signing through `AdminUtils.sudo_set_hashed_accounts_enabled(enabled)`; the
 current value is stored in `AdminUtils.HashedAccountsEnabled`. No runtime
 upgrade is needed to change it. After calibrated weights are installed, the
-sudo wallet can enable both schemes:
+sudo wallet can enable these accounts:
 
 ```bash
 btcli call AdminUtils.sudo_set_hashed_accounts_enabled --args '{"enabled": true}' --sudo
 ```
 
-Setting `enabled` to `false` pauses registration and signing for both schemes,
+Setting `enabled` to `false` pauses registration and signing for these accounts,
 including existing accounts. It does not delete account records, reset signing
 generations, remove EVM aliases, or allow weaker alternate authority. Re-enabling
-resumes those accounts. Existing Sr25519 and Ed25519 wallets are unaffected.
+resumes those accounts. Standard Sr25519 and Ed25519 wallets are unaffected.
 
 Hashed and ML-DSA accounts require runtime support and registration. Register
 and wait for finalization before publicly sharing their receiving address.
@@ -78,15 +98,18 @@ For fee-free PoW admission, a sponsor must first register both hashed or
 ML-DSA keys and wait for finalization. The coldkey can then have a zero balance:
 `btcli subnets register --pow` submits the direct PoW call without a registration
 batch. The storage registration reserve is paid by the sponsor; PoW does not
-waive that separate setup cost. Ed25519 and Sr25519 keys need no such setup.
+waive that separate setup cost. Standard Ed25519 and Sr25519 keys need no such setup.
 
 The SDK reads the current generation and nonce from chain before signing.
 Inclusion advances the generation even when the dispatched call fails. Dropping
 a transaction before inclusion advances neither generation nor nonce; retrying
 uses the chain's unchanged state and does not require updating a wallet backup.
+Standard ML-DSA advances this authorization sequence without changing its signing
+key or commitment; the runtime rejects attempts to rotate that fixed key. It
+still uses registration to bind its large ML-DSA public key to an AccountId32.
 
 **Use `mldsa` for post-quantum wallet signatures.** Its security does not depend
-on keeping a public key secret after submission. A dropped Sr25519 transaction
+on keeping a public key secret after submission. A dropped classical transaction
 still exposes its public key: hashing and rotation do not make classical
 signatures quantum-resistant. This addition does not change consensus keys or
 claim post-quantum security for the entire chain.
@@ -97,7 +120,7 @@ claim post-quantum security for the entire chain.
 `btcli wallet verify --message "challenge" --signature HEX --ss58 ADDRESS`
 uses the scheme bound into a descriptor-bearing receiving address. For a bare
 SS58 address, supply `--crypto-type` from trusted knowledge of the signer:
-for example, `--crypto-type mldsa`. The verifier never guesses the scheme from
+for example, `--crypto-type ms --type standard` for a fixed-key ML-DSA wallet. The verifier never guesses the scheme from
 the signature or falls back to a classical scheme. An explicit scheme that
 conflicts with a receiving address is rejected.
 
@@ -120,4 +143,6 @@ crypto header is not a trusted source for that decision.
 
 Production registration remains disabled until the authorization benchmarks are
 measured on reference hardware and the runtime is activated. ML-DSA has its own
-`authorize_mldsa` benchmark and weight entry; unmeasured weights fail closed.
+`authorize_mldsa` benchmark and weight entry. Hashed Ed25519 has an
+`authorize_ed25519` benchmark; the classical proof format charges the maximum
+of the Sr25519 and Ed25519 verification weights. Unmeasured weights fail closed.

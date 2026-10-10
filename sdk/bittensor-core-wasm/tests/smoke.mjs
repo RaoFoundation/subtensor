@@ -75,6 +75,33 @@ for (const scheme of [core.CryptoType.Ed25519, core.CryptoType.Sr25519,
   }
 }
 
+// Account mode composes with all three signature schemes.
+for (const scheme of [core.CryptoType.Ed25519, core.CryptoType.Sr25519, core.CryptoType.MlDsa]) {
+  for (const mode of ["standard", "hashed"]) {
+    const key = core.Keypair.fromSeed(new Uint8Array(32).fill(29), scheme, mode);
+    assert.equal(key.accountType, mode);
+    const phrase = "bottom drive obey lake curtain smoke basket hold race lonely fit walk";
+    const mnemonic = core.Keypair.fromMnemonic(phrase, scheme, undefined, mode);
+    assert.equal(mnemonic.accountType, mode);
+    const registered = mode === "hashed" || scheme === core.CryptoType.MlDsa;
+    const signer = registered ? key.atGeneration(12n) : key;
+    const signature = signer.sign(message);
+    assert.equal(key.verify(message, signature), true);
+    assert.equal(key.verify(new Uint8Array([99]), signature), false);
+    if (registered) {
+      assert.equal(signer.signHashed(message).length, scheme === core.CryptoType.MlDsa ? 5301 : 136);
+      assert.equal(signer.ss58Address, key.ss58Address);
+      assert.equal(core.Keypair.fromHashedDescriptor(key.hashedDescriptor).cryptoType, key.cryptoType);
+      if (mode === "hashed") {
+        assert.notDeepEqual(signer.hashedCurrentCommitment, key.hashedCurrentCommitment);
+      } else {
+        assert.deepEqual(signer.hashedCurrentCommitment, key.hashedCurrentCommitment);
+        assert.deepEqual(key.atGeneration(13n).hashedCurrentCommitment, key.hashedCurrentCommitment);
+      }
+    }
+  }
+}
+
 for (const entry of golden.ss58) {
   assert.equal(toHex(core.ss58Decode(entry.address)), entry.public_key_hex);
   assert.equal(core.ss58Encode(fromHex(entry.public_key_hex), entry.ss58_format), entry.address);

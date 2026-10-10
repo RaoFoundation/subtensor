@@ -89,22 +89,31 @@ def descriptor_bytes(value: dict) -> bytes:
     scheme = value["scheme"]
     if isinstance(scheme, dict) and len(scheme) == 1:
         scheme = next(iter(scheme))
-    schemes = {"Sr25519": 1, "MlDsa65": 2}
-    if value["version"] != 1 or not isinstance(scheme, str) or scheme not in schemes:
+    schemes = {"Sr25519": 1, "MlDsa65": 2, "Ed25519": 3}
+    if (
+        (value["version"] != 1 and (value["version"], scheme) != (2, "MlDsa65"))
+        or not isinstance(scheme, str)
+        or scheme not in schemes
+    ):
         raise ValueError("unsupported hashed descriptor")
     commitment = raw_bytes(value["initial_commitment"])
     if len(commitment) != 32:
         raise ValueError("hashed key commitments must contain 32 bytes")
-    return bytes((1, schemes[scheme])) + commitment
+    return bytes((value["version"], schemes[scheme])) + commitment
 
 
 def descriptor_value(descriptor: bytes) -> dict:
     """Convert the native key's SCALE descriptor to runtime call parameters."""
-    if len(descriptor) != 34 or descriptor[0] != 1 or descriptor[1] not in (1, 2):
+    if len(descriptor) != 34 or (descriptor[0], descriptor[1]) not in (
+        (1, 1),
+        (1, 2),
+        (1, 3),
+        (2, 2),
+    ):
         raise ValueError("unsupported hashed descriptor")
     return {
-        "version": 1,
-        "scheme": {1: "Sr25519", 2: "MlDsa65"}[descriptor[1]],
+        "version": descriptor[0],
+        "scheme": {1: "Sr25519", 2: "MlDsa65", 3: "Ed25519"}[descriptor[1]],
         "initial_commitment": "0x" + descriptor[2:].hex(),
     }
 

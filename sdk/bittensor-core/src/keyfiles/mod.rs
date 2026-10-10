@@ -202,6 +202,8 @@ pub fn serialized_keypair_to_keyfile_data(keypair: &Keypair) -> Result<Vec<u8>, 
 
     data.insert("ss58Address", json!(keypair.ss58_address()));
     data.insert("cryptoType", json!(keypair.crypto_type()));
+    data.insert("accountType", json!(keypair.account_type()));
+    data.insert("signingScheme", json!(keypair.signing_scheme()));
     if is_hashed_crypto(keypair.crypto_type()) {
         if let Ok(descriptor) = keypair.hashed_descriptor() {
             data.insert(
@@ -342,6 +344,16 @@ fn deserialize_hashed(keyfile: &serde_json::Value, crypto_type: u8) -> Result<Ke
         (None, None) => Keypair::new(stored_ss58(keyfile), None, crypto_type, 42)?,
         (Some(_), None) => return Err(key_err("missing hashed descriptor")),
     };
+    for (field, expected) in [
+        ("accountType", keypair.account_type()),
+        ("signingScheme", keypair.signing_scheme()),
+    ] {
+        if let Some(value) = keyfile.get(field) {
+            if value.as_str() != Some(expected) {
+                return Err(key_err(format!("{field} does not match hashedDescriptor")));
+            }
+        }
+    }
     if keypair.crypto_type() != crypto_type {
         return Err(key_err("cryptoType does not match hashedDescriptor"));
     }
@@ -411,7 +423,9 @@ pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> Result<Keyp
         return deserialize_hashed(&keyfile_dict, crypto_type);
     }
     if keyfile_dict.get("hashedDescriptor").is_some() {
-        return Err(key_err("hashedDescriptor requires cryptoType 4 or 5"));
+        return Err(key_err(
+            "hashedDescriptor requires a registered-account cryptoType",
+        ));
     }
 
     if let Some(secret_phrase) = keyfile_dict
@@ -468,6 +482,42 @@ mod tests {
     use super::*;
     use crate::keys::CRYPTO_ED25519;
     use crate::keys::CRYPTO_HASHED;
+
+    #[test]
+    fn new_account_modes_roundtrip_and_reject_mislabeled_backups() {
+        for code in [
+            crate::keys::CRYPTO_HASHED_ED25519,
+            crate::keys::CRYPTO_MLDSA_STANDARD,
+        ] {
+            let key = Keypair::from_seed(&[37; 32], code).unwrap();
+            for original in [key.public_only().unwrap(), key] {
+                let bytes = serialized_keypair_to_keyfile_data(&original).unwrap();
+                let restored = deserialize_keypair_from_keyfile_data(&bytes).unwrap();
+                assert_eq!(restored.crypto_type(), code);
+                assert_eq!(
+                    restored.hashed_descriptor().unwrap(),
+                    original.hashed_descriptor().unwrap()
+                );
+                for field in ["accountType", "signingScheme"] {
+                    let mut data: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                    data[field] = json!("wrong");
+                    assert!(deserialize_keypair_from_keyfile_data(
+                        &serde_json::to_vec(&data).unwrap()
+                    )
+                    .is_err());
+                }
+                let mut legacy: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                legacy.as_object_mut().unwrap().remove("accountType");
+                legacy.as_object_mut().unwrap().remove("signingScheme");
+                assert_eq!(
+                    deserialize_keypair_from_keyfile_data(&serde_json::to_vec(&legacy).unwrap())
+                        .unwrap()
+                        .crypto_type(),
+                    code
+                );
+            }
+        }
+    }
 
     fn test_mnemonic() -> String {
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"

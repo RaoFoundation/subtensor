@@ -10,7 +10,36 @@ CRYPTO_ED25519 = _backend.CRYPTO_ED25519
 CRYPTO_SR25519 = _backend.CRYPTO_SR25519
 CRYPTO_HASHED = _backend.CRYPTO_HASHED
 CRYPTO_MLDSA = _backend.CRYPTO_MLDSA
-HASHED_CRYPTO_TYPES = (CRYPTO_HASHED, CRYPTO_MLDSA)
+try:
+    CRYPTO_HASHED_ED25519 = _backend.CRYPTO_HASHED_ED25519
+    CRYPTO_MLDSA_STANDARD = _backend.CRYPTO_MLDSA_STANDARD
+except AttributeError as error:
+    raise ImportError(
+        "This SDK requires the matching bittensor-core build with composable account modes; "
+        "rebuild or upgrade bittensor-core together with bittensor."
+    ) from error
+# Legacy name: these all use registered-account authorization, including fixed-key MS.
+HASHED_CRYPTO_TYPES = (CRYPTO_HASHED, CRYPTO_MLDSA, CRYPTO_HASHED_ED25519, CRYPTO_MLDSA_STANDARD)
+MLDSA_CRYPTO_TYPES = (CRYPTO_MLDSA, CRYPTO_MLDSA_STANDARD)
+CLASSICAL_HASHED_CRYPTO_TYPES = (CRYPTO_HASHED, CRYPTO_HASHED_ED25519)
+
+
+def account_crypto_type(crypto_type: int, account_type: str | None = None) -> int:
+    """Compose account mode and signing scheme; None preserves legacy key codes."""
+    if account_type is None:
+        return crypto_type
+    modes = {
+        "standard": {0: 0, 1: 1, 4: 1, 5: 7, 6: 0, 7: 7},
+        "hashed": {0: 6, 1: 4, 4: 4, 5: 5, 6: 6, 7: 5},
+    }
+    try:
+        return modes[account_type][crypto_type]
+    except KeyError:
+        raise ValueError(
+            "account type must be standard or hashed with a supported signing scheme"
+        ) from None
+
+
 Keypair = _backend.Keypair
 KeyfileError = _backend.KeyfileError
 WrongPasswordError = _backend.WrongPasswordError

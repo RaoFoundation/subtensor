@@ -51,19 +51,27 @@ impl Keypair {
 
     /// Derive a keypair from a BIP39 mnemonic (with optional password).
     #[staticmethod]
-    #[pyo3(signature = (mnemonic, crypto_type=CRYPTO_SR25519, password=None))]
-    fn from_mnemonic(mnemonic: &str, crypto_type: u8, password: Option<&str>) -> PyResult<Self> {
-        Self::create_from_mnemonic(mnemonic, crypto_type, password)
+    #[pyo3(signature = (mnemonic, crypto_type=CRYPTO_SR25519, password=None, account_type=None))]
+    fn from_mnemonic(
+        mnemonic: &str,
+        crypto_type: u8,
+        password: Option<&str>,
+        account_type: Option<&str>,
+    ) -> PyResult<Self> {
+        Self::create_from_mnemonic(mnemonic, crypto_type, password, account_type)
     }
 
     /// Btwallet-compatible alias for :meth:`from_mnemonic`.
     #[staticmethod]
-    #[pyo3(signature = (mnemonic, crypto_type=CRYPTO_SR25519, password=None))]
+    #[pyo3(signature = (mnemonic, crypto_type=CRYPTO_SR25519, password=None, account_type=None))]
     fn create_from_mnemonic(
         mnemonic: &str,
         crypto_type: u8,
         password: Option<&str>,
+        account_type: Option<&str>,
     ) -> PyResult<Self> {
+        let crypto_type =
+            keys::account_crypto_type(crypto_type, account_type).map_err(to_py_err)?;
         let inner =
             keys::Keypair::from_mnemonic(mnemonic, crypto_type, password).map_err(to_py_err)?;
         Ok(Self { inner })
@@ -71,15 +79,21 @@ impl Keypair {
 
     /// Derive a keypair from a 32-byte seed.
     #[staticmethod]
-    #[pyo3(signature = (seed, crypto_type=CRYPTO_SR25519))]
-    fn from_seed(seed: &[u8], crypto_type: u8) -> PyResult<Self> {
-        Self::create_from_seed(seed, crypto_type)
+    #[pyo3(signature = (seed, crypto_type=CRYPTO_SR25519, account_type=None))]
+    fn from_seed(seed: &[u8], crypto_type: u8, account_type: Option<&str>) -> PyResult<Self> {
+        Self::create_from_seed(seed, crypto_type, account_type)
     }
 
     /// Btwallet-compatible alias for :meth:`from_seed`.
     #[staticmethod]
-    #[pyo3(signature = (seed, crypto_type=CRYPTO_SR25519))]
-    fn create_from_seed(seed: &[u8], crypto_type: u8) -> PyResult<Self> {
+    #[pyo3(signature = (seed, crypto_type=CRYPTO_SR25519, account_type=None))]
+    fn create_from_seed(
+        seed: &[u8],
+        crypto_type: u8,
+        account_type: Option<&str>,
+    ) -> PyResult<Self> {
+        let crypto_type =
+            keys::account_crypto_type(crypto_type, account_type).map_err(to_py_err)?;
         let inner = keys::Keypair::from_seed(seed, crypto_type).map_err(to_py_err)?;
         Ok(Self { inner })
     }
@@ -101,8 +115,14 @@ impl Keypair {
 
     /// Derive a keypair from a hex-encoded private key or seed bytes.
     #[staticmethod]
-    #[pyo3(signature = (private_key, crypto_type=CRYPTO_SR25519))]
-    fn create_from_private_key(private_key: &str, crypto_type: u8) -> PyResult<Self> {
+    #[pyo3(signature = (private_key, crypto_type=CRYPTO_SR25519, account_type=None))]
+    fn create_from_private_key(
+        private_key: &str,
+        crypto_type: u8,
+        account_type: Option<&str>,
+    ) -> PyResult<Self> {
+        let crypto_type =
+            keys::account_crypto_type(crypto_type, account_type).map_err(to_py_err)?;
         let inner = keys::Keypair::from_private_key(private_key, crypto_type).map_err(to_py_err)?;
         Ok(Self { inner })
     }
@@ -120,6 +140,16 @@ impl Keypair {
     fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult<Self> {
         let inner = keys::Keypair::from_encrypted_json(json_data, passphrase).map_err(to_py_err)?;
         Ok(Self { inner })
+    }
+
+    #[getter]
+    fn account_type(&self) -> &'static str {
+        self.inner.account_type()
+    }
+
+    #[getter]
+    fn signing_scheme(&self) -> &'static str {
+        self.inner.signing_scheme()
     }
 
     #[getter]
@@ -433,5 +463,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("CRYPTO_SR25519", keys::CRYPTO_SR25519)?;
     m.add("CRYPTO_HASHED", keys::CRYPTO_HASHED)?;
     m.add("CRYPTO_MLDSA", keys::CRYPTO_MLDSA)?;
+    m.add("CRYPTO_HASHED_ED25519", keys::CRYPTO_HASHED_ED25519)?;
+    m.add("CRYPTO_MLDSA_STANDARD", keys::CRYPTO_MLDSA_STANDARD)?;
     Ok(())
 }

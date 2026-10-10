@@ -28,7 +28,7 @@ import inspect
 from hashlib import blake2b
 from typing import Any, Optional
 
-from ..sp_core import CRYPTO_MLDSA, HASHED_CRYPTO_TYPES
+from ..sp_core import HASHED_CRYPTO_TYPES, MLDSA_CRYPTO_TYPES
 from .codec import RuntimeCodec
 from .contract import SignedExtrinsic, SigningContext, UnsignedExtrinsic
 from .errors import SubstrateRequestException
@@ -55,7 +55,7 @@ HASHED_PROOF_LENGTH = 136
 
 
 def hashed_proof_length(crypto_type: int) -> int:
-    return 5301 if crypto_type == CRYPTO_MLDSA else HASHED_PROOF_LENGTH
+    return 5301 if crypto_type in MLDSA_CRYPTO_TYPES else HASHED_PROOF_LENGTH
 
 
 class NonceCache:
@@ -376,7 +376,7 @@ def create_hashed_extrinsic(
     if proof is None:
         proof = bytes(
             keypair.sign_hashed(
-                bytes((2 if keypair.crypto_type == CRYPTO_MLDSA else 1,))
+                bytes((2 if keypair.crypto_type in MLDSA_CRYPTO_TYPES else 1,))
                 + call_data
                 + extra
                 + implicit

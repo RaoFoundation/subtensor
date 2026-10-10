@@ -1869,7 +1869,11 @@ class Output:
                     ck.get("ss58"),
                     name_style=STYLE_NAME,
                     count=len(hotkeys) or None,
-                    crypto_type=ck.get("crypto_type"),
+                    crypto_type=(
+                        f"{ck['signing_scheme']}, {ck['account_type']}"
+                        if ck.get("account_type")
+                        else ck.get("crypto_type")
+                    ),
                     kind="coldkey",
                 )
             )
@@ -1882,7 +1886,11 @@ class Output:
                         hk["name"],
                         hk.get("ss58"),
                         name_style=STYLE_NAME,
-                        crypto_type=hk.get("crypto_type"),
+                        crypto_type=(
+                            f"{hk['signing_scheme']}, {hk['account_type']}"
+                            if hk.get("account_type")
+                            else hk.get("crypto_type")
+                        ),
                         kind="hotkey",
                     )
                 )
