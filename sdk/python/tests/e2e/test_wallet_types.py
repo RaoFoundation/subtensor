@@ -93,6 +93,12 @@ async def test_four_scheme_wallet_lifecycle(tmp_path, scheme):
                 )
                 assert (await record(key))["generation"] == 0
         assert await free(wallet.coldkey) == 0
+        # Keep repeated test runs affordable using the normal root setting.
+        await submit(bt.calls.AdminUtils.sudo_set_lock_reduction_interval(interval=1), root=True)
+        await submit(
+            bt.calls.Balances.force_set_balance(who=alice.coldkey.ss58_address, new_free=10**15),
+            root=True,
+        )
         await submit(bt.calls.AdminUtils.sudo_set_network_rate_limit(rate_limit=0), root=True)
         await submit(bt.calls.AdminUtils.sudo_set_tx_rate_limit(tx_rate_limit=0), root=True)
         await submit(bt.calls.SubtensorModule.register_network(hotkey=alice.hotkey.ss58_address))
@@ -131,6 +137,9 @@ async def test_four_scheme_wallet_lifecycle(tmp_path, scheme):
             )
             is not None
         )
+        registrations = await cli("wallet", "registrations", "--netuid", str(netuid))
+        assert len(registrations[0]["hotkeys"]) == 1, registrations
+        assert len(registrations[0]["hotkeys"][0]["registrations"]) == 1, registrations
         if hashed:
             assert (await record(wallet.coldkey))["generation"] == 1
         await fund(wallet.coldkey, 100)
@@ -187,6 +196,22 @@ async def test_four_scheme_wallet_lifecycle(tmp_path, scheme):
         if hashed:
             assert (await record(wallet.coldkey))["generation"] == cold_before["generation"] + 3
             assert (await record(wallet.hotkey))["generation"] == 1
+        # Production rules apply the association cooldown from genesis even
+        # for a new UID. Let this manual-seal test chain reach that height.
+        # EVM_KEY_ASSOCIATE_RATELIMIT is not exported in pallet metadata.
+        association_delay = int(os.getenv("E2E_EVM_ASSOCIATION_DELAY", "7200"))
+        deadline = time.monotonic() + 900
+        while await client.block() < association_delay:
+            assert time.monotonic() < deadline, "chain did not reach the EVM association window"
+            await asyncio.sleep(0.5)
+        await evm_cli("evm", "associate", "--netuid", str(netuid))
+        uid = await client.query(
+            bt.storage.SubtensorModule.Uids, [netuid, wallet.hotkey.ss58_address]
+        )
+        associated = await client.query(
+            bt.storage.SubtensorModule.AssociatedEvmAddress, [netuid, uid]
+        )
+        assert associated[0].lower() == evm.address.lower()
         recovered = bt.Wallet("restored", path=str(tmp_path / "recovered"))
         recovered.regenerate_coldkey(
             mnemonic=created["coldkey_mnemonic"],
@@ -265,6 +290,10 @@ async def test_four_scheme_wallet_lifecycle(tmp_path, scheme):
         ):
             result = await client.execute(intent, recovered)
             assert result.success, result.to_dict()
+        await cli("wallet", "balance", "--all")
+        await cli("wallet", "overview")
+        await cli("wallet", "inspect")
+        await cli("stake", "list")
 
         delegate = bt.wallets.create(
             name="delegate",

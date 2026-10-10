@@ -66,6 +66,10 @@ for (const scheme of [core.CryptoType.Ed25519, core.CryptoType.Sr25519,
     assert.equal(publicKey.verify(message, signed), true);
     assert.equal(signer.hashedReceivingAddress(new Uint8Array(32)),
                  key.hashedReceivingAddress(new Uint8Array(32)));
+    assert.equal(key.hashedReceivingAddress(),
+                 key.hashedReceivingAddress(new Uint8Array(32)));
+    assert.equal(key.hashedReceivingAddress(new Uint8Array(32).fill(9)),
+                 key.hashedReceivingAddress());
     assert.equal(signer.signHashed(message).length, scheme === core.CryptoType.Hashed ? 136 : 5301);
     assert.notDeepEqual(signer.hashedCurrentCommitment, key.hashedCurrentCommitment);
   }
@@ -175,6 +179,10 @@ for (const sp of golden.signature_payloads) {
 // u256-decimal, and depth-limit paths explicitly so they stay enforced.
 {
   const roundTrip = (type, value) => runtime.decode(type, runtime.encode(type, value));
+  // Golden type 249 is BoundedVec<(u16, u64)>: one tuple is not a wrapper.
+  for (const value of [[[7, 11]], [[[7, 11]]]]) {
+    assert.equal(toHex(runtime.encode("scale_info::249", value)), "0x0407000b00000000000000");
+  }
 
   // Safe-integer boundary: 2^53 - 1 passes as a number, 2^53 must be BigInt.
   assert.equal(roundTrip("u64", 9007199254740991), 9007199254740991);

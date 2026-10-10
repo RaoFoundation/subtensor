@@ -1535,7 +1535,7 @@ def wallet_history(
             note="the indexer (taomarketcap.com) only tracks mainnet (finney)",
         )
         raise typer.Exit(1)
-    owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
+    owner = parse_recipient(app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)).account
     try:
         raw_rows = _fetch_transfers(owner, limit)
     except (OSError, ValueError) as error:

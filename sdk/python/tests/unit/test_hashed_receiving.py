@@ -444,6 +444,78 @@ async def test_reads_resolve_current_and_legacy_addresses_on_client_and_snapshot
         )
 
 
+@pytest.mark.parametrize("code", [4, 5])
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_cli_wallet_aggregations_resolve_receiving_addresses(code, legacy):
+    from bittensor.cli.helpers import wallet_balance_row, wallet_balance_rows, wallet_inspect_data
+
+    chain = FakeSubstrate()
+    key = Keypair.create_from_seed(bytes([91]) * 32, code)
+    address = legacy_receiving_address(key) if legacy else receiving_address(key)
+    chain.seed("System", "Account", [key.ss58_address], {"data": {"free": 123456}})
+    runtime_call = chain.runtime_call
+
+    async def checked_runtime(api, method, params=None, **kwargs):
+        # The fake normally accepts any string; real SCALE encoding rejects bth1.
+        assert "bth1_" not in repr(params)
+        return await runtime_call(api, method, params, **kwargs)
+
+    chain.runtime_call = checked_runtime
+    client = Client("local", substrate=chain)
+    single = await wallet_balance_row(client, "test", address)
+    many = await wallet_balance_rows(client, [("test", address)])
+    inspected, _ = await wallet_inspect_data(client, "test", address)
+    for row in (single, many[0], inspected["balance"]):
+        assert row["coldkey"] == address
+        assert row["free"].rao == 123456
+
+
+@pytest.mark.parametrize("code", [4, 5])
+async def test_cli_registrations_match_local_descriptors_to_chain_accounts(code):
+    from bittensor.cli.helpers import wallet_registration_rows
+
+    chain = FakeSubstrate()
+    key = Keypair.create_from_seed(bytes([92]) * 32, code)
+    address = legacy_receiving_address(key)
+    chain.seed("SubtensorModule", "OwnedHotkeys", [ALICE], [key.ss58_address])
+    chain.seed("SubtensorModule", "Uids", [1, key.ss58_address], 7)
+    result = await wallet_registration_rows(
+        Client("local", substrate=chain), [("test", ALICE, [("hot", address)])], netuid=1
+    )
+    assert result[0]["hotkeys"] == [
+        {
+            "name": "hot",
+            "hotkey": address,
+            "local": True,
+            "registrations": [{"netuid": 1, "uid": 7}],
+        }
+    ]
+
+
+@pytest.mark.parametrize("code", [4, 5])
+async def test_cli_locked_balance_uses_account_for_query_and_response(code):
+    from types import SimpleNamespace
+
+    from bittensor.cli.helpers import _locked_value
+
+    chain = FakeSubstrate()
+    key = Keypair.create_from_seed(bytes([94]) * 32, code)
+
+    def availability(params):
+        assert params == [[key.ss58_address], [1]]
+        return {key.ss58_address: {1: {"locked": 123456}}}
+
+    chain.seed_runtime("StakeInfoRuntimeApi", "get_stake_availability_for_coldkeys", availability)
+    valuation = SimpleNamespace(
+        positions=[SimpleNamespace(netuid=1)], block=50, spot_value=lambda amount: amount
+    )
+    value, subnets = await _locked_value(
+        Client("local", substrate=chain), receiving_address(key), valuation
+    )
+    assert value.rao == 123456
+    assert subnets == 1
+
+
 async def test_proxy_identity_is_normalized_without_losing_payment_guard(setup):
     chain, wallet, key, address = setup
     registered(chain, key)

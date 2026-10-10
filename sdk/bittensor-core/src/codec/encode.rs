@@ -336,8 +336,9 @@ impl Runtime {
             // with one unnamed field, e.g. BoundedVec) consumed one
             // list-nesting level, so legacy callers double-wrap sequence
             // payloads — `CommitmentInfo { fields: [[{"Raw5": ...}]] }`.
-            // Unwrap that shape when the inner type is a sequence; the flat
-            // shape stays untouched because its sole element is not a list.
+            // Prefer the bare sequence: its sole item can itself be a list
+            // (a tuple or nested sequence). Only retry the legacy wrapper
+            // when the canonical shape does not encode.
             if let Value::List(items) | Value::Tuple(items) = value {
                 if items.len() == 1
                     && matches!(items[0], Value::List(_))
@@ -346,6 +347,11 @@ impl Runtime {
                         Ok(TypeDef::Sequence(_))
                     )
                 {
+                    let start = out.len();
+                    if self.encode_id(fields[0].ty.id, value, out).is_ok() {
+                        return Ok(());
+                    }
+                    out.truncate(start);
                     return self.encode_id(fields[0].ty.id, &items[0], out);
                 }
             }
