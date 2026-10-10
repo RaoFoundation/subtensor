@@ -33,6 +33,20 @@ _REGISTRATION_TARGETS = {
 }
 
 
+async def hashed_accounts_enabled(substrate, *, block_hash=None):
+    """Read the live switch; None means this runtime has no hashed support.
+
+    Older experimental runtimes exposed a constant instead. Never cache the
+    storage value: sudo can change it without changing runtime metadata.
+    """
+    legacy = await substrate.constant("HashedAccounts", "Enabled")
+    if isinstance(legacy, bool):
+        return legacy
+    if await substrate.constant("HashedAccounts", "RegistrationDeposit") is None:
+        return None
+    return await substrate.query("AdminUtils", "HashedAccountsEnabled", block_hash=block_hash)
+
+
 async def prepare_recipient_intent(substrate, intent):
     """Resolve typed recipients only at the call boundary, retaining their guards.
 
@@ -51,7 +65,7 @@ async def prepare_recipient_intent(substrate, intent):
         for index, item in enumerate(values):
             if is_receiving_address(item):
                 recipient = parse_recipient(item)
-                if await substrate.constant("HashedAccounts", "Enabled") is not True:
+                if await hashed_accounts_enabled(substrate) is not True:
                     raise ValueError("hashed receiving addresses are not supported on this chain")
                 name = (
                     field.name if not isinstance(value, (list, tuple)) else f"{field.name}[{index}]"
@@ -135,7 +149,7 @@ async def has_receiving_setup_inputs(substrate, wallet: Any, intent: Any, depth:
     if semantic.op == "fund_evm_key":
         # Its recipient is resolved dynamically from the alias registry, not an
         # address field. Imported bytes may encode the obsolete mirror instead.
-        enabled = await substrate.constant("HashedAccounts", "Enabled")
+        enabled = await hashed_accounts_enabled(substrate)
         if enabled is not False:
             return enabled is True
         # Disabling registration does not remove existing alias bindings.
@@ -206,7 +220,7 @@ async def with_recipient_registration(
             recipients[parameter] = typed or Recipient(address, address, descriptor)
     if not recipients:
         return (await atomic_calls(substrate, call) if as_calls else call), {}
-    if await substrate.constant("HashedAccounts", "Enabled") is not True:
+    if await hashed_accounts_enabled(substrate) is not True:
         raise ValueError("hashed accounts are not enabled on this chain")
     finalized_hash = None
     direct = intent.op in ("swap_coldkey_announced", "pow_register")

@@ -264,6 +264,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_basket_concentration_cap",
         # validator basket trading gates and budget — root-only governance toggles
         "sudo_set_basket_trading_enabled",
+        "sudo_set_hashed_accounts_enabled",
         "sudo_set_basket_trading_frozen",
         "sudo_set_basket_daily_turnover_cap",
         "sudo_set_basket_liquidity_cap",

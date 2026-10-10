@@ -192,6 +192,7 @@ impl pallet_hashed_accounts::OnRegister for OnHashedRegistered {
         descriptor: &subtensor_hashed::Descriptor,
     ) -> DispatchResult {
         use frame_support::traits::Currency;
+        pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
         let _ = crate::Balances::make_free_balance_be(
             account,
             crate::TaoBalance::new(1_000_000_000_000),

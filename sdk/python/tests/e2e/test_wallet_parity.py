@@ -81,7 +81,7 @@ async def test_cli_wallet_parity(tmp_path, scheme):
     alice = dev_wallet()
     async with bt.Client(ENDPOINT, fallback_endpoints=[], archive_endpoints=[]) as client:
         assert await client.query(bt.storage.Sudo.Key) == alice.coldkey.ss58_address
-        assert await client.constant(("HashedAccounts", "Enabled")) is True
+        assert await client.query(("AdminUtils", "HashedAccountsEnabled")) is True
 
         async def fund(key, amount=100):
             result = await client.execute(

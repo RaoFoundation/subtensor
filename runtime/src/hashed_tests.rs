@@ -57,7 +57,7 @@ fn account() -> AccountId {
     AccountId::new(subtensor_hashed::account_id(&descriptor()))
 }
 fn setup() {
-    HashedEnabled::set(true);
+    pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
     hashed_auth::TestVerificationWeight::set(Weight::zero());
     pallet_hashed_accounts::Accounts::<Runtime>::insert(
         account(),
@@ -331,6 +331,45 @@ fn direct_call_decoding_keeps_memory_limit_for_every_wire_format() {
 }
 
 #[test]
+fn admin_switch_defaults_off_requires_root_and_preserves_authority() {
+    ext().execute_with(|| {
+        assert!(!HashedEnabled::get());
+        frame_support::assert_noop!(
+            AdminUtils::sudo_set_hashed_accounts_enabled(RuntimeOrigin::signed(account()), true),
+            sp_runtime::DispatchError::BadOrigin
+        );
+        frame_support::assert_noop!(
+            AdminUtils::sudo_set_hashed_accounts_enabled(RuntimeOrigin::none(), true),
+            sp_runtime::DispatchError::BadOrigin
+        );
+        setup();
+        let before = HashedAccounts::accounts(account()).unwrap();
+        let alias = HashedAccounts::evm_alias(&account());
+        pallet_hashed_accounts::EvmAliases::<Runtime>::insert(alias, account());
+        frame_support::assert_ok!(AdminUtils::sudo_set_hashed_accounts_enabled(
+            RuntimeOrigin::root(),
+            false
+        ));
+        assert!(!HashedEnabled::get());
+        assert!(Executive::apply_extrinsic(signed(call(), 0, &pair(10))).is_err());
+        assert_eq!(HashedAccounts::accounts(account()).unwrap(), before);
+        assert_eq!(
+            pallet_hashed_accounts::EvmAliases::<Runtime>::get(alias),
+            Some(account())
+        );
+        frame_support::assert_ok!(AdminUtils::sudo_set_hashed_accounts_enabled(
+            RuntimeOrigin::root(),
+            true
+        ));
+        frame_support::assert_ok!(
+            Executive::apply_extrinsic(signed(call(), 0, &pair(10))).unwrap()
+        );
+        assert_eq!(HashedAccounts::accounts(account()).unwrap().generation, 1);
+    });
+    ext().execute_with(|| assert!(!HashedEnabled::get()));
+}
+
+#[test]
 fn included_failure_advances_generation_but_invalid_proof_does_not() {
     ext().execute_with(|| {
         setup();
@@ -373,7 +412,7 @@ fn rejected_weight_does_not_rotate() {
 #[test]
 fn sponsor_can_register_without_revealing_signer_and_fund_atomically() {
     ext().execute_with(|| {
-        HashedEnabled::set(true);
+        pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
         hashed_auth::TestVerificationWeight::set(Weight::zero());
         let sponsor = pair(22);
         let sponsor_id = AccountId::from(sponsor.public());
@@ -541,7 +580,7 @@ fn hashed_accounts_only_accept_hashed_proxy_delegates() {
 fn registration_benchmark_context_covers_outer_decode_and_proxy_cleanup() {
     use pallet_hashed_accounts::OnRegister;
     ext().execute_with(|| {
-        HashedEnabled::set(true);
+        pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
         let sponsor = AccountId::from(pair(31).public());
         let _ = Balances::make_free_balance_be(&sponsor, TaoBalance::new(1_000_000_000_000));
         frame_support::assert_ok!(hashed_auth::OnHashedRegistered::setup_benchmark(
@@ -604,7 +643,7 @@ fn future_nonce_preparation_failure_rolls_back_rotation() {
 #[test]
 fn setup_through_derivative_wrapper_cannot_change_authorization() {
     ext().execute_with(|| {
-        HashedEnabled::set(true);
+        pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
         hashed_auth::TestVerificationWeight::set(Weight::zero());
         let sponsor = pair(22);
         let _ = Balances::make_free_balance_be(
@@ -698,7 +737,7 @@ fn competing_devices_share_a_generation_tag_even_with_different_nonces() {
 #[test]
 fn failed_first_funding_rolls_back_registration_and_can_be_retried() {
     ext().execute_with(|| {
-        HashedEnabled::set(true);
+        pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
         hashed_auth::TestVerificationWeight::set(Weight::zero());
         let sponsor = pair(22);
         let sponsor_id = AccountId::from(sponsor.public());
@@ -863,7 +902,7 @@ fn assert_no_received_account(recipient: &AccountId) {
 fn competing_first_funding_sponsors_preserve_the_recipients_rotated_authority() {
     ext().execute_with(|| {
         System::set_block_number(1);
-        HashedEnabled::set(true);
+        pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
         hashed_auth::TestVerificationWeight::set(Weight::zero());
         let first = pair(22);
         let second = pair(23);
@@ -922,7 +961,7 @@ fn first_funding_send_all_reserves_registration_before_computing_transferable_fu
     use transaction_payment_wrapper::FeeWeightDiscount;
     ext().execute_with(|| {
         System::set_block_number(1);
-        HashedEnabled::set(true);
+        pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
         hashed_auth::TestVerificationWeight::set(Weight::zero());
         let sponsor = pair(22);
         let sponsor_id = AccountId::from(sponsor.public());
@@ -1004,7 +1043,7 @@ fn disabled_or_unsupported_first_funding_leaves_no_recipient_or_deposit() {
         ),
     ] {
         ext().execute_with(|| {
-            HashedEnabled::set(enabled);
+            pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(enabled);
             hashed_auth::TestVerificationWeight::set(Weight::zero());
             let sponsor = pair(22);
             let sponsor_id = AccountId::from(sponsor.public());
@@ -1031,7 +1070,7 @@ fn disabled_or_unsupported_first_funding_leaves_no_recipient_or_deposit() {
 fn nested_first_funding_batch_is_filtered_without_registration_or_transfer() {
     ext().execute_with(|| {
         System::set_block_number(1);
-        HashedEnabled::set(true);
+        pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
         hashed_auth::TestVerificationWeight::set(Weight::zero());
         let sponsor = pair(22);
         let sponsor_id = AccountId::from(sponsor.public());
@@ -1053,7 +1092,7 @@ fn nested_first_funding_batch_is_filtered_without_registration_or_transfer() {
 fn proxied_first_funding_cannot_leave_a_partial_registration_or_transfer() {
     ext().execute_with(|| {
         System::set_block_number(1);
-        HashedEnabled::set(true);
+        pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
         hashed_auth::TestVerificationWeight::set(Weight::zero());
         let delegate = pair(22);
         let delegate_id = AccountId::from(delegate.public());
@@ -1096,7 +1135,7 @@ fn proxied_first_funding_cannot_leave_a_partial_registration_or_transfer() {
 #[test]
 fn multisig_first_funding_cannot_leave_a_partial_registration_or_transfer() {
     ext().execute_with(|| {
-        HashedEnabled::set(true);
+        pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
         hashed_auth::TestVerificationWeight::set(Weight::zero());
         let signer = pair(22);
         let signer_id = AccountId::from(signer.public());
@@ -1131,7 +1170,7 @@ fn multisig_first_funding_cannot_leave_a_partial_registration_or_transfer() {
 #[test]
 fn preassociated_classical_owner_blocks_activation_without_funding_the_account() {
     ext().execute_with(|| {
-        HashedEnabled::set(true);
+        pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
         hashed_auth::TestVerificationWeight::set(Weight::zero());
         let sponsor = pair(22);
         let sponsor_id = AccountId::from(sponsor.public());
@@ -1337,7 +1376,7 @@ mod mldsa {
         AccountId::new(subtensor_hashed::account_id(&descriptor()))
     }
     fn setup() {
-        HashedEnabled::set(true);
+        pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
         hashed_auth::TestVerificationWeight::set(Weight::zero());
         let sponsor = pair(22);
         let sponsor_id = AccountId::from(sponsor.public());
@@ -1392,7 +1431,7 @@ mod mldsa {
     #[test]
     fn python_sdk_bytes_execute_and_rotate_through_the_runtime() {
         ext().execute_with(|| {
-            HashedEnabled::set(true);
+            pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
             hashed_auth::TestVerificationWeight::set(Weight::zero());
             let fixture: serde_json::Value =
                 serde_json::from_str(include_str!("../tests/fixtures/mldsa-python-v5.json"))
@@ -1513,9 +1552,18 @@ mod mldsa {
             }
             assert!(Executive::apply_extrinsic(signed(call(), 0, 9)).is_err());
             assert_eq!(HashedAccounts::accounts(account()).unwrap(), before);
-            HashedEnabled::set(false);
+            frame_support::assert_ok!(AdminUtils::sudo_set_hashed_accounts_enabled(
+                RuntimeOrigin::root(),
+                false
+            ));
             assert!(Executive::apply_extrinsic(signed(call(), 0, 1)).is_err());
             assert_eq!(HashedAccounts::accounts(account()).unwrap(), before);
+            frame_support::assert_ok!(AdminUtils::sudo_set_hashed_accounts_enabled(
+                RuntimeOrigin::root(),
+                true
+            ));
+            frame_support::assert_ok!(Executive::apply_extrinsic(signed(call(), 0, 1)).unwrap());
+            assert_eq!(HashedAccounts::accounts(account()).unwrap().generation, 1);
         });
     }
 

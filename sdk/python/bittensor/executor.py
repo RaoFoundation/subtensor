@@ -28,6 +28,7 @@ from .fee_filters import COLDKEY_FEE_WARNING, charges_coldkey_fee
 from .hashed import (
     descriptor_bytes,
     has_receiving_setup_inputs,
+    hashed_accounts_enabled,
     prepare_recipient_intent,
     with_recipient_registration,
 )
@@ -89,7 +90,7 @@ async def estimate_shielded_carrier_fee(substrate: Substrate, fee_payer: str) ->
         generated_calls.MevShield.submit_encrypted(ciphertext=bytes(_MAX_SHIELDED_CIPHERTEXT_BYTES))
     )
     public = _FeeAddressView(fee_payer)
-    if await substrate.constant("HashedAccounts", "Enabled") is True:
+    if await hashed_accounts_enabled(substrate) is True:
         record = await substrate.query("HashedAccounts", "Accounts", [fee_payer])
         if record is not None:
             public = Keypair.from_hashed_descriptor(descriptor_bytes(record["descriptor"]))

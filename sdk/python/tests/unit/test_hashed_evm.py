@@ -53,6 +53,7 @@ def protected():
 async def test_older_chain_uses_legacy_mapping_without_alias_reads(protected):
     substrate, _, alias = protected
     substrate.seed_constant("HashedAccounts", "Enabled", None)
+    substrate.seed_constant("HashedAccounts", "RegistrationDeposit", None)
     substrate.query = AsyncMock(side_effect=AssertionError("alias lookup on older chain"))
     recipient = await resolve_evm_funding_recipient(substrate, alias)
     assert recipient.address == recipient.account == h160_to_ss58(alias)

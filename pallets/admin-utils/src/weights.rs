@@ -137,6 +137,11 @@ pub trait WeightInfo {
 	fn sudo_set_collateral_drain_ratio() -> Weight;
 	fn sudo_set_basket_concentration_cap() -> Weight;
 	fn sudo_set_basket_trading_enabled() -> Weight;
+	/// Same root check, bool storage write and event as the basket trading setter.
+	/// Reference benchmarking will replace the shared envelope.
+	fn sudo_set_hashed_accounts_enabled() -> Weight {
+		Self::sudo_set_basket_trading_enabled()
+	}
 	fn sudo_set_basket_trading_frozen() -> Weight;
 	fn sudo_set_basket_daily_turnover_cap() -> Weight;
 	fn sudo_set_basket_liquidity_cap() -> Weight;

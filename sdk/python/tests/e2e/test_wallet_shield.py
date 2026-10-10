@@ -27,7 +27,7 @@ async def test_cross_validator_shield_and_external_nonce_advancement(code, spons
     async with clients[0] as a, clients[1] as b, clients[2] as c:
         assert len(set(PEERS)) == 3
         assert await a.query(bt.storage.Sudo.Key) == dev_wallet().coldkey.ss58_address
-        assert await a.constant(("HashedAccounts", "Enabled")) is True
+        assert await a.query(("AdminUtils", "HashedAccountsEnabled")) is True
         assert await a.constant(("Timestamp", "MinimumPeriod")) == 6000
         rpc = a._substrate.raw._session.request
         genesis = await rpc("chain_getBlockHash", [0])

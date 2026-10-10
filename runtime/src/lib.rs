@@ -174,12 +174,9 @@ parameter_types! {
     pub const HashedRegistrationDeposit: Balance = deposit(2, 160);
 }
 
-#[cfg(all(not(test), not(feature = "runtime-benchmarks")))]
-parameter_types! { pub const HashedEnabled: bool = false; }
-#[cfg(all(not(test), feature = "runtime-benchmarks"))]
-parameter_types! { pub const HashedEnabled: bool = true; }
-#[cfg(test)]
-parameter_types! { pub static HashedEnabled: bool = false; }
+parameter_types! {
+    pub HashedEnabled: bool = pallet_admin_utils::HashedAccountsEnabled::<Runtime>::get();
+}
 
 impl pallet_hashed_accounts::Config for Runtime {
     type Enabled = HashedEnabled;

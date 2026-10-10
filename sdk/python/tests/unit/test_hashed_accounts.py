@@ -628,3 +628,25 @@ async def test_shield_fee_estimate_uses_complete_hashed_authorization():
     signer = substrate.estimate_fee.call_args.args[1]
     assert signer.crypto_type == CRYPTO_HASHED
     assert signer.ss58_address == key.ss58_address
+
+
+async def test_signing_reads_live_switch_at_the_authority_block():
+    key = _key()
+    conn, codec, _ = _connection(key)
+    codec.enabled = None
+    query_authority = conn.query
+    enabled = False
+
+    async def query(pallet, item, params=None, *, block_hash):
+        assert block_hash == "0xhead"
+        if (pallet, item) == ("AdminUtils", "HashedAccountsEnabled"):
+            return enabled
+        return await query_authority(pallet, item, params, block_hash=block_hash)
+
+    conn.query = AsyncMock(side_effect=query)
+    for enabled in (False, True, False, True):
+        if enabled:
+            await conn.create_signed_extrinsic(b"call", key)
+        else:
+            with pytest.raises(SubstrateRequestException, match="not enabled"):
+                await conn.create_signed_extrinsic(b"call", key)

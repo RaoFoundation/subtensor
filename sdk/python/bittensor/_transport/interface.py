@@ -617,7 +617,10 @@ class SubstrateConnection:
             raise ValueError("hashed generation offset must be zero or one for a Shield inner call")
         block_hash = await self.get_chain_head()
         codec = await self._runtimes.codec_at(block_hash)
-        if codec.constant("HashedAccounts", "Enabled") is not True:
+        enabled = codec.constant("HashedAccounts", "Enabled")
+        if not isinstance(enabled, bool):
+            enabled = await self.query("AdminUtils", "HashedAccountsEnabled", block_hash=block_hash)
+        if enabled is not True:
             raise SubstrateRequestException("hashed accounts are not enabled on this chain")
         state, account = await asyncio.gather(
             self.query("HashedAccounts", "Accounts", [keypair.ss58_address], block_hash=block_hash),

@@ -188,4 +188,3 @@ class LimitOrders:
 
 class HashedAccounts:
     RegistrationDeposit = Item('HashedAccounts', 'RegistrationDeposit')
-    Enabled = Item('HashedAccounts', 'Enabled')

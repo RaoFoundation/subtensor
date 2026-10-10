@@ -771,8 +771,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 202,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L202",
+          "line": 212,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L212",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1284,8 +1284,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 226,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L226",
+          "line": 236,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L236",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1302,8 +1302,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 224,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L224",
+          "line": 234,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L234",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1653,8 +1653,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 222,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L222",
+          "line": 232,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L232",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -1677,7 +1677,7 @@
     },
     "Disabled": {
       "code": "disabled",
-      "description": "Hashed accounts are not enabled on this chain. Check HashedAccounts.Enabled; creating a wallet locally does not activate runtime support.",
+      "description": "Hashed accounts are not enabled on this chain. Check AdminUtils.HashedAccountsEnabled; creating a wallet locally does not activate runtime support.",
       "docs_url": "/docs/errors/chain/Disabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/Disabled/content.md",
       "pallets": [
@@ -2110,8 +2110,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 228,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L228",
+          "line": 238,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L238",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2984,8 +2984,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 216,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L216",
+          "line": 226,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L226",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3326,8 +3326,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 200,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L200",
+          "line": 210,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L210",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3344,8 +3344,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 214,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L214",
+          "line": 224,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L224",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3362,8 +3362,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 212,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L212",
+          "line": 222,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L222",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3434,8 +3434,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 198,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L198",
+          "line": 208,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L208",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3532,8 +3532,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 208,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L208",
+          "line": 218,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L218",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3550,8 +3550,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 210,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L210",
+          "line": 220,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L220",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3649,8 +3649,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 204,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L204",
+          "line": 214,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L214",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4209,8 +4209,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 218,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L218",
+          "line": 228,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L228",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4478,8 +4478,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 220,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L220",
+          "line": 230,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L230",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5288,8 +5288,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 196,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L196",
+          "line": 206,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L206",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -6117,8 +6117,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 206,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L206",
+          "line": 216,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L216",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]

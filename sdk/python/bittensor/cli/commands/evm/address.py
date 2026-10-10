@@ -7,6 +7,7 @@ from typing import Optional
 import typer
 
 from ....evm import addresses as evm_addresses
+from ....hashed import hashed_accounts_enabled
 from ...context import ctx_of
 from ...globals import with_globals
 from ._shared import EVM_ADDRESS_HELP, PANEL_KEYS, PANEL_MONEY, _address_of
@@ -99,7 +100,7 @@ def deposit_address(ctx: typer.Context):
             "EVM deposits are credited directly to this native account; no claim is needed"
         )
         return
-    enabled = app_ctx.run(lambda client: client._substrate.constant("HashedAccounts", "Enabled"))
+    enabled = app_ctx.run(lambda client: hashed_accounts_enabled(client._substrate))
     if enabled is True:
         app_ctx.output.detail(
             f"EVM deposit address for {app_ctx.wallet_name}",

@@ -580,3 +580,29 @@ async def test_legacy_address_transfers_on_another_chain(code, registered_here):
     assert guard.function == ("check_registered" if registered_here else "register")
     assert guard.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
     assert transfer.params["dest"] == key.ss58_address
+
+
+async def test_live_admin_switch_is_not_cached_and_keeps_existing_evm_bindings():
+    from bittensor.evm.addresses import resolve_evm_recipient
+    from bittensor.hashed import hashed_accounts_enabled
+    from bittensor.sp_core import ss58_decode
+
+    chain = FakeSubstrate()
+    chain.seed_constant("HashedAccounts", "RegistrationDeposit", 100)
+    key = Keypair.create_from_seed(bytes([95]) * 32, 5)
+    alias = "0x" + bytes(ss58_decode(key.ss58_address))[:20].hex()
+    chain.seed("HashedAccounts", "EvmAliases", [alias], key.ss58_address)
+    chain.seed(
+        "HashedAccounts",
+        "Accounts",
+        [key.ss58_address],
+        {
+            "descriptor": descriptor_value(bytes(key.hashed_descriptor)),
+            "generation": 0,
+            "commitment": key.hashed_current_commitment,
+        },
+    )
+    for enabled in (False, True, False, True):
+        chain.seed("AdminUtils", "HashedAccountsEnabled", [], enabled)
+        assert await hashed_accounts_enabled(chain) is enabled
+        assert (await resolve_evm_recipient(chain, alias)).account == key.ss58_address

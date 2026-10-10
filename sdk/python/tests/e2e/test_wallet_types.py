@@ -61,7 +61,7 @@ async def test_four_scheme_wallet_lifecycle(tmp_path, scheme):
     alice = dev_wallet()
     async with bt.Client(ENDPOINT, fallback_endpoints=[], archive_endpoints=[]) as client:
         assert await client.query(bt.storage.Sudo.Key) == alice.coldkey.ss58_address
-        assert await client.constant(("HashedAccounts", "Enabled")) is True
+        assert await client.query(("AdminUtils", "HashedAccountsEnabled")) is True
         genesis = await client._substrate.raw._session.request("chain_getBlockHash", [0])
 
         async def submit(call, signer=alice, *, role="coldkey", root=False, success=True):

@@ -10,6 +10,7 @@ from ....balance import Balance
 from ....evm import addresses as evm_addresses
 from ....evm import precompiles as evm_precompiles
 from ....evm import rpc as evm_rpc
+from ....hashed import hashed_accounts_enabled
 from ....intents import FundEvmKey
 from ...context import ctx_of
 from ...globals import evm_key_signed, with_globals, with_tx_globals
@@ -54,9 +55,7 @@ def balance(
         recipient = app_ctx.run(
             lambda client: evm_addresses.resolve_evm_recipient(client._substrate, h160)
         )
-        enabled = app_ctx.run(
-            lambda client: client._substrate.constant("HashedAccounts", "Enabled")
-        )
+        enabled = app_ctx.run(lambda client: hashed_accounts_enabled(client._substrate))
         native_fields = (
             {"native_receiving_address": recipient.address}
             if recipient.descriptor is not None

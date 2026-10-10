@@ -1079,6 +1079,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_evm_chain_id', {'chain_id': chain_id})
 
     @staticmethod
+    def sudo_set_hashed_accounts_enabled(enabled: 'bool') -> Call:
+        'Enables or disables hashed and ML-DSA registration and signing. Root-only. Defaults off. Disabling pauses existing accounts too; their records, generations, EVM aliases and restrictions on alternate authority remain.'
+        return Call('AdminUtils', 'sudo_set_hashed_accounts_enabled', {'enabled': enabled})
+
+    @staticmethod
     def sudo_set_immunity_period(netuid: 'NetUid', immunity_period: 'u16') -> Call:
         'The extrinsic sets the immunity period for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the immunity period.'
         return Call('AdminUtils', 'sudo_set_immunity_period', {'netuid': netuid, 'immunity_period': immunity_period})

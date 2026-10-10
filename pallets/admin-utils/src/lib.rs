@@ -42,6 +42,11 @@ pub mod pallet {
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
 
+    /// Enables hashed and ML-DSA account registration and authorization.
+    /// Existing account records and authority protections survive disabling.
+    #[pallet::storage]
+    pub type HashedAccountsEnabled<T: Config> = StorageValue<_, bool, ValueQuery>;
+
     /// Configure the pallet by specifying the parameters and types on which it depends.
     #[pallet::config]
     pub trait Config:
@@ -186,6 +191,11 @@ pub mod pallet {
         BasketMinTradeTaoSet {
             /// Minimum TAO value through each trade leg, in rao.
             min_trade_rao: u64,
+        },
+        /// Hashed and ML-DSA account registration and authorization were toggled.
+        HashedAccountsToggled {
+            /// Whether registration and authorization are enabled.
+            enabled: bool,
         },
     }
 
@@ -2808,6 +2818,21 @@ pub mod pallet {
             log::debug!(
                 "BasketClaimDustSet( row_cap_rao: {row_cap_rao:?}, row_bps: {row_bps:?}, slice_rao: {slice_rao:?}, forfeit_cap_rao: {forfeit_cap_rao:?} )"
             );
+            Ok(())
+        }
+
+        /// Enables or disables hashed and ML-DSA registration and signing. Root-only.
+        /// Defaults off. Disabling pauses existing accounts too; their records,
+        /// generations, EVM aliases and restrictions on alternate authority remain.
+        #[pallet::call_index(114)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_hashed_accounts_enabled())]
+        pub fn sudo_set_hashed_accounts_enabled(
+            origin: OriginFor<T>,
+            enabled: bool,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            HashedAccountsEnabled::<T>::put(enabled);
+            Self::deposit_event(Event::HashedAccountsToggled { enabled });
             Ok(())
         }
 

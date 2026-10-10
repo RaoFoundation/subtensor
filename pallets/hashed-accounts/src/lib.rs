@@ -81,7 +81,7 @@ pub mod pallet {
         type Currency: ReservableCurrency<AccountId32>;
         #[pallet::constant]
         type RegistrationDeposit: Get<BalanceOf<Self>>;
-        #[pallet::constant]
+        /// Current registration and authorization switch, read from runtime storage.
         type Enabled: Get<bool>;
         type OnRegister: OnRegister;
         type WeightInfo: WeightInfo;

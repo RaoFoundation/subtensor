@@ -1222,6 +1222,14 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_hashed_accounts_enabled() {
+        HashedAccountsEnabled::<T>::put(false);
+        #[extrinsic_call]
+        _(RawOrigin::Root, true);
+        assert!(HashedAccountsEnabled::<T>::get());
+    }
+
+    #[benchmark]
     fn sudo_set_basket_trading_enabled() {
         #[extrinsic_call]
         _(RawOrigin::Root, true);

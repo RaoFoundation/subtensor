@@ -88,11 +88,11 @@ async def resolve_evm_recipient(substrate: Any, evm_address: str) -> Recipient:
     a protected recipient's full receiving address through normal transfer
     composition, including its idempotent registration guard.
     """
-    from ..hashed import descriptor_bytes
+    from ..hashed import descriptor_bytes, hashed_accounts_enabled
 
     address = normalize_h160(evm_address)
     legacy = h160_to_ss58(address)
-    if await substrate.constant("HashedAccounts", "Enabled") is None:
+    if await hashed_accounts_enabled(substrate) is None:
         return Recipient(legacy, legacy)
     head = await substrate.block_hash()
     bound = await substrate.query("HashedAccounts", "EvmAliases", [address], block_hash=head)
@@ -138,11 +138,10 @@ async def resolve_evm_deposit(substrate: Any, native_address: str) -> tuple[str,
 
 async def resolve_evm_funding_recipient(substrate: Any, evm_address: str) -> Recipient:
     """Resolve native funding only when its destination can be guarded atomically."""
+    from ..hashed import hashed_accounts_enabled
+
     recipient = await resolve_evm_recipient(substrate, evm_address)
-    if (
-        recipient.descriptor is None
-        and await substrate.constant("HashedAccounts", "Enabled") is True
-    ):
+    if recipient.descriptor is None and await hashed_accounts_enabled(substrate) is True:
         raise ValueError(
             "native mirror funding is unavailable for an unprotected EVM address while hashed "
             "aliases are enabled; send from an EVM wallet to the H160 address instead"

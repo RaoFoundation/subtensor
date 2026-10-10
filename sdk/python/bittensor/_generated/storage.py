@@ -387,6 +387,7 @@ class Commitments:
     MaxSpace = Item('Commitments', 'MaxSpace', 'u32')
 
 class AdminUtils:
+    HashedAccountsEnabled = Item('AdminUtils', 'HashedAccountsEnabled', 'bool')
     PrecompileEnable = Item('AdminUtils', 'PrecompileEnable', 'bool')
 
 class SafeMode:

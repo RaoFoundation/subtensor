@@ -3,7 +3,6 @@
 
 use super::*;
 use frame_benchmarking::v2::*;
-use frame_support::traits::Get;
 use frame_system::RawOrigin;
 use sp_runtime::traits::Bounded;
 
@@ -16,9 +15,6 @@ fn setup<T: Config>() -> Result<
     ),
     BenchmarkError,
 > {
-    if !T::Enabled::get() {
-        return Err(BenchmarkError::Skip);
-    }
     let sponsor: AccountId32 = whitelisted_caller();
     let _ = T::Currency::make_free_balance_be(&sponsor, BalanceOf::<T>::max_value());
     let key = sp_io::crypto::sr25519_generate(
@@ -100,9 +96,6 @@ mod benchmarks {
             ml_dsa_65,
             traits::{KeyGen, SerDes, Signer},
         };
-        if !T::Enabled::get() {
-            return Err(BenchmarkError::Skip);
-        }
         let sponsor: AccountId32 = whitelisted_caller();
         let _ = T::Currency::make_free_balance_be(&sponsor, BalanceOf::<T>::max_value());
         let (key, secret) = ml_dsa_65::KG::keygen_from_seed(&[17; 32]);

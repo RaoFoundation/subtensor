@@ -39,6 +39,21 @@ transaction bytes remain unchanged. Selecting `mldsa` does not upgrade an
 existing Sr25519 account in place; use the existing coldkey migration flow to
 move to a newly created account.
 
+Both new schemes default to disabled on chain. Root controls registration and
+signing through `AdminUtils.sudo_set_hashed_accounts_enabled(enabled)`; the
+current value is stored in `AdminUtils.HashedAccountsEnabled`. No runtime
+upgrade is needed to change it. After calibrated weights are installed, the
+sudo wallet can enable both schemes:
+
+```bash
+btcli call AdminUtils.sudo_set_hashed_accounts_enabled --args '{"enabled": true}' --sudo
+```
+
+Setting `enabled` to `false` pauses registration and signing for both schemes,
+including existing accounts. It does not delete account records, reset signing
+generations, remove EVM aliases, or allow weaker alternate authority. Re-enabling
+resumes those accounts. Existing Sr25519 and Ed25519 wallets are unaffected.
+
 Hashed and ML-DSA accounts require runtime support and registration. Register
 and wait for finalization before publicly sharing their receiving address.
 Their receiving addresses carry the public registration descriptor without
