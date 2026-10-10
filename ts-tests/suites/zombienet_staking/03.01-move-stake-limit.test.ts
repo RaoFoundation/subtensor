@@ -12,6 +12,7 @@ import {
     sendTransaction,
     startCall,
     sudoSetLockReductionInterval,
+    sudoSetTempo,
     tao,
 } from "../../utils";
 
@@ -109,6 +110,10 @@ describeSuite({
                 await startCall(api, originNetuid, coldkey);
                 const destinationNetuid = await addNewSubnetwork(api, destinationHotkey, coldkey);
                 await startCall(api, destinationNetuid, coldkey);
+
+                // Keep epoch rewards from changing the owners' stake while checking rollback.
+                await sudoSetTempo(api, originNetuid, 10000);
+                await sudoSetTempo(api, destinationNetuid, 10000);
 
                 await addStake(api, coldkey, originHotkeyAddress, originNetuid, tao(100));
 

@@ -45,6 +45,25 @@ pub use pallet::*;
 use subtensor_macros::freeze_struct;
 pub use weights::WeightInfo;
 
+/// A runtime authorization policy checked both when granting and exercising a proxy.
+/// Its declared weight is added to dispatch and post-dispatch weight accounting.
+pub trait ProxyAccountPolicy<AccountId>:
+    frame_support::traits::Contains<(AccountId, AccountId)>
+{
+    fn weight() -> Weight {
+        Weight::zero()
+    }
+
+    fn grant_weight() -> Weight {
+        Self::weight()
+    }
+
+    /// Invalidate authorizations from an older grant after a successful new grant.
+    fn on_grant(_real: &AccountId, _delegate: &AccountId) {}
+}
+
+impl<AccountId> ProxyAccountPolicy<AccountId> for frame_support::traits::Everything {}
+
 type CallHashOf<T> = <<T as Config>::CallHasher as Hash>::Output;
 
 type BalanceOf<T> =
@@ -150,6 +169,9 @@ pub mod pallet {
         /// The currency mechanism.
         type Currency: ReservableCurrency<Self::AccountId>;
 
+        /// Prevent a proxy grant or execution from weakening an account's authorization policy.
+        type AccountPolicy: ProxyAccountPolicy<Self::AccountId>;
+
         /// A kind of proxy; specified with the proxy and passed in to the `IsProxyable` filter.
         /// The instance filter determines whether a given call may be proxied under this type.
         ///
@@ -246,7 +268,7 @@ pub mod pallet {
         #[pallet::call_index(0)]
         #[pallet::weight({
 			let di = call.get_dispatch_info();
-			(T::WeightInfo::proxy(T::MaxProxies::get())
+			(T::WeightInfo::proxy(T::MaxProxies::get()).saturating_add(T::AccountPolicy::weight())
 				 // AccountData for inner call origin accountdata.
 				.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 				.saturating_add(di.call_weight),
@@ -264,6 +286,7 @@ pub mod pallet {
             ensure!(def.delay.is_zero(), Error::<T>::Unannounced);
 
             let weight = T::WeightInfo::proxy(T::MaxProxies::get())
+                .saturating_add(T::AccountPolicy::weight())
                 .saturating_add(T::DbWeight::get().reads_writes(1, 1))
                 .saturating_add(Self::do_proxy(def, real, *call, origin));
 
@@ -280,7 +303,7 @@ pub mod pallet {
         /// - `delay`: The announcement period required of the initial proxy. Will generally be
         /// zero.
         #[pallet::call_index(1)]
-        #[pallet::weight(T::WeightInfo::add_proxy(T::MaxProxies::get()))]
+        #[pallet::weight(T::WeightInfo::add_proxy(T::MaxProxies::get()).saturating_add(T::AccountPolicy::grant_weight()))]
         pub fn add_proxy(
             origin: OriginFor<T>,
             delegate: AccountIdLookupOf<T>,
@@ -557,7 +580,7 @@ pub mod pallet {
         #[pallet::call_index(9)]
         #[pallet::weight({
 			let di = call.get_dispatch_info();
-			(T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get())
+			(T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get()).saturating_add(T::AccountPolicy::weight())
 				 // AccountData for inner call origin accountdata.
 				.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 				.saturating_add(di.call_weight),
@@ -585,6 +608,7 @@ pub mod pallet {
             .map_err(|_| Error::<T>::Unannounced)?;
 
             let weight = T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get())
+                .saturating_add(T::AccountPolicy::weight())
                 .saturating_add(T::DbWeight::get().reads_writes(1, 1))
                 .saturating_add(Self::do_proxy(def, real, *call, origin));
 
@@ -705,7 +729,7 @@ pub mod pallet {
         /// - `pays_fee`: If `true`, the real account will pay fees for proxy calls made by
         ///   this delegate. If `false`, the delegate pays (default behavior).
         #[pallet::call_index(11)]
-        #[pallet::weight(T::WeightInfo::set_real_pays_fee(T::MaxProxies::get()))]
+        #[pallet::weight(T::WeightInfo::set_real_pays_fee(T::MaxProxies::get()).saturating_add(T::AccountPolicy::weight()))]
         pub fn set_real_pays_fee(
             origin: OriginFor<T>,
             delegate: AccountIdLookupOf<T>,
@@ -814,6 +838,8 @@ pub mod pallet {
         AnnouncementDepositInvariantViolated,
         /// Failed to derive a valid account id from the provided entropy.
         InvalidDerivedAccountId,
+        /// This delegation would weaken the real account's authorization policy.
+        AccountPolicyViolation,
     }
 
     #[pallet::hooks]
@@ -969,6 +995,11 @@ impl<T: Config> Pallet<T> {
         delay: BlockNumberFor<T>,
     ) -> DispatchResult {
         ensure!(delegator != &delegatee, Error::<T>::NoSelfProxy);
+        ensure!(
+            T::AccountPolicy::contains(&(delegator.clone(), delegatee.clone())),
+            Error::<T>::AccountPolicyViolation
+        );
+        let delegate = delegatee.clone();
         Proxies::<T>::try_mutate(delegator, |(proxies, deposit)| {
             let proxy_def = ProxyDefinition {
                 delegate: delegatee.clone(),
@@ -995,8 +1026,10 @@ impl<T: Config> Pallet<T> {
                 proxy_type,
                 delay,
             });
-            Ok(())
-        })
+            Ok::<(), DispatchError>(())
+        })?;
+        T::AccountPolicy::on_grant(delegator, &delegate);
+        Ok(())
     }
 
     /// Unregister a proxy account for the delegator.
@@ -1111,6 +1144,10 @@ impl<T: Config> Pallet<T> {
         delegate: &T::AccountId,
         force_proxy_type: Option<T::ProxyType>,
     ) -> Result<ProxyDefinition<T::AccountId, T::ProxyType, BlockNumberFor<T>>, DispatchError> {
+        ensure!(
+            T::AccountPolicy::contains(&(real.clone(), delegate.clone())),
+            Error::<T>::AccountPolicyViolation
+        );
         let f = |x: &ProxyDefinition<T::AccountId, T::ProxyType, BlockNumberFor<T>>| -> bool {
             &x.delegate == delegate && force_proxy_type.as_ref().is_none_or(|y| &x.proxy_type == y)
         };
@@ -1187,6 +1224,23 @@ impl<T: Config> Pallet<T> {
         T::Currency::unreserve(delegator, old_deposit);
         // Clean up all real-pays-fee flags for this delegator
         let _ = RealPaysFee::<T>::clear_prefix(delegator, u32::MAX, None);
+    }
+
+    /// Remove a real account's announcements from a delegate's bounded queue.
+    /// Keep the existing deposit while unrelated announcements remain; the next
+    /// ordinary announcement mutation recalculates it. This infallible cleanup
+    /// cannot revive a stale authorization when a deposit parameter changes.
+    pub fn invalidate_announcements(real: &T::AccountId, delegate: &T::AccountId) {
+        Announcements::<T>::mutate_exists(delegate, |entry| {
+            let Some((pending, deposit)) = entry else {
+                return;
+            };
+            pending.retain(|announcement| &announcement.real != real);
+            if pending.is_empty() {
+                T::Currency::unreserve(delegate, *deposit);
+                *entry = None;
+            }
+        });
     }
 
     /// Check if the real account has opted in to paying fees for a specific delegate.

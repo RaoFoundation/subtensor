@@ -30,6 +30,7 @@ an unauthorized one with `dispute_coldkey_swap`.
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `new_coldkey_ss58` | string | yes | Coldkey that will take over everything this coldkey owns once the swap executes; only its hash is published now. |
+| `hashed_descriptor` | string | no | Public descriptor hex for a remote hashed destination's registration. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -106,6 +107,6 @@ pub fn announce_coldkey_swap(
 }
 ```
 
-Delegates to [`get_key_swap_cost`](/code/pallets/subtensor/src/utils/misc.rs#L833), [`charge_swap_cost`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L248).
+Delegates to [`get_key_swap_cost`](/code/pallets/subtensor/src/utils/misc.rs#L833), [`charge_swap_cost`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L254).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

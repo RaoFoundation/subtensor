@@ -571,7 +571,7 @@ class Client:
         """
         account = self._substrate.multisig_account(signatories, threshold)
         return Multisig(
-            signatories=list(signatories),
+            signatories=list(account.signatories),
             threshold=threshold,
             address=account.ss58_address,
             _client=self,

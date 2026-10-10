@@ -13,6 +13,7 @@
     "subnets",
     "multisig",
     "proxies",
+    "wallet-crypto-types",
     "signed-requests",
     "extension-signing",
     "ledger",

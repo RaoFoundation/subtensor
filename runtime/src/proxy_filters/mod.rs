@@ -117,6 +117,9 @@ type NonCriticalAllowed = (
 );
 
 pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> bool {
+    if !proxy_type.is_deprecated() && RecipientGuardCalls::contains(call) {
+        return true;
+    }
     match proxy_type {
         ProxyType::Any => true,
         ProxyType::Owner => OwnerAllowed::contains(call),
@@ -184,7 +187,7 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
 
 /// The filter mode (allow-all or an explicit allowlist) for one proxy type.
 fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
-    match proxy_type {
+    let mut mode = match proxy_type {
         ProxyType::Any => FilterMode::AllowAll,
         ProxyType::Owner => FilterMode::Allow(OwnerAllowed::call_infos()),
         ProxyType::NonCritical => FilterMode::Allow(NonCriticalAllowed::call_infos()),
@@ -204,7 +207,17 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         | ProxyType::Senate
         | ProxyType::Governance
         | ProxyType::RootWeights => FilterMode::Allow(Vec::new()),
+    };
+    if !proxy_type.is_deprecated()
+        && let FilterMode::Allow(ref mut calls) = mode
+    {
+        for call in RecipientGuardCalls::call_infos() {
+            if !calls.contains(&call) {
+                calls.push(call);
+            }
+        }
     }
+    mode
 }
 
 /// Every proxy type with its on-chain index and deprecation flag.
@@ -291,7 +304,12 @@ mod tests {
     }
 
     fn expected(calls: &[&str]) -> BTreeSet<String> {
-        calls.iter().map(|c| c.to_string()).collect()
+        calls
+            .iter()
+            .copied()
+            .chain(["HashedAccounts::check_registered", "Utility::batch_all"])
+            .map(str::to_string)
+            .collect()
     }
 
     fn all_proxy_types() -> Vec<ProxyType> {
@@ -325,7 +343,12 @@ mod tests {
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SudoCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
-        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                MevShieldStoreEncryptedCalls,
+                OwnerKeyCalls,
+                HashedAccountsCalls,
+            )>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -344,7 +367,12 @@ mod tests {
         let denied = &denied | &group_calls::<(SubtensorValueCalls, SudoCalls)>();
         let denied = &denied | &group_calls::<MultisigCalls>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
-        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                MevShieldStoreEncryptedCalls,
+                OwnerKeyCalls,
+                HashedAccountsCalls,
+            )>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
@@ -537,7 +565,12 @@ mod tests {
             | &group_calls::<ColdkeySwapCalls>();
         let denied = &denied | &group_calls::<(CrowdloanCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
-        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
+        let denied = &denied
+            | &group_calls::<(
+                MevShieldStoreEncryptedCalls,
+                OwnerKeyCalls,
+                HashedAccountsCalls,
+            )>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied
@@ -721,7 +754,7 @@ mod tests {
         // Exactly subnet identity plus the owner-settable management config.
         let expected =
             &group_calls::<SubnetIdentityCalls>() | &group_calls::<SubnetManagementCalls>();
-        assert_eq!(owner, expected);
+        assert_eq!(owner, &expected | &group_calls::<RecipientGuardCalls>());
     }
 
     #[test]
@@ -862,6 +895,7 @@ mod tests {
         assert!(
             small
                 .iter()
+                .filter(|info| !RecipientGuardCalls::call_infos().contains(info))
                 .all(|info| matches!(info.constraint, Some(CallConstraint::ParamLessThan { .. })))
         );
 

@@ -22,7 +22,7 @@ use serde_json::{json, Value as JsonValue};
 use crate::codec::extrinsic::{era_birth, TxParams};
 use crate::codec::value::Value;
 use crate::error::CoreError;
-use crate::keys::Keypair;
+use crate::keys::{is_hashed_crypto, is_mldsa_crypto, Keypair};
 use crate::mlkem;
 use crate::runtime::type_string::TypeSpec;
 use crate::runtime::{Runtime, RuntimeApiMethodInfo, StorageInfo};
@@ -511,6 +511,19 @@ impl Client {
         nonce: u64,
         period: Option<u64>,
     ) -> Result<(Vec<u8>, String), CoreError> {
+        self.sign_extrinsic_with_generation_offset(call_data, signer, nonce, period, 0)
+    }
+
+    /// Only the encrypted inner transaction may use offset one: its carrier
+    /// consumes the active generation before the inner transaction executes.
+    fn sign_extrinsic_with_generation_offset(
+        &self,
+        call_data: &[u8],
+        signer: &Keypair,
+        nonce: u64,
+        period: Option<u64>,
+        generation_offset: u64,
+    ) -> Result<(Vec<u8>, String), CoreError> {
         let runtime = self.runtime()?;
         let current = self.block_number()?;
         let (era, era_block_hash) = match period {
@@ -536,8 +549,43 @@ impl Client {
             era_block_hash,
             metadata_hash: None,
         };
-        let payload = runtime.signature_payload(call_data, &params)?;
-        let signature = signer.sign(&payload)?;
+        let signature = if is_hashed_crypto(signer.crypto_type()) {
+            let state_hash = self.block_hash(None)?;
+            let record = self.query(
+                "HashedAccounts",
+                "Accounts",
+                &[Value::str(signer.ss58_address())],
+                Some(&state_hash),
+            )?;
+            let generation = field(&record, "generation")
+                .and_then(as_u128)
+                .and_then(|value| u64::try_from(value).ok())
+                .ok_or_else(|| {
+                    CoreError::Policy("hashed account must be registered before use".into())
+                })?;
+            let active = signer.at_generation(generation)?;
+            let commitment = field(&record, "commitment")
+                .and_then(value_bytes)
+                .ok_or_else(|| CoreError::Codec("hashed account commitment missing".into()))?;
+            if commitment != active.hashed_current_commitment()? {
+                return Err(CoreError::Policy(
+                    "hashed account commitment does not match this mnemonic".into(),
+                ));
+            }
+            let generation = generation
+                .checked_add(generation_offset)
+                .ok_or_else(|| CoreError::Policy("hashed signing generation exhausted".into()))?;
+            let selected = active.at_generation(generation)?;
+            let payload = if is_mldsa_crypto(signer.crypto_type()) {
+                runtime.mldsa_signature_implication(call_data, &params)?
+            } else {
+                runtime.hashed_signature_implication(call_data, &params)?
+            };
+            selected.sign_hashed(&payload)?
+        } else {
+            let payload = runtime.signature_payload(call_data, &params)?;
+            signer.sign(&payload)?
+        };
         let (extrinsic, hash) = runtime.encode_signed_extrinsic(
             call_data,
             signer.public_key_bytes(),
@@ -629,8 +677,16 @@ impl Client {
         let public_key = value_bytes(&next_key)
             .ok_or_else(|| CoreError::Rpc("MevShield.NextKey is unavailable".into()))?;
         let nonce = self.account_next_index(&signer.ss58_address())?;
-        let (inner, inner_hash) =
-            self.sign_extrinsic(call_data, signer, nonce + 1, Some(DEFAULT_ERA_PERIOD))?;
+        let inner_nonce = nonce
+            .checked_add(1)
+            .ok_or_else(|| CoreError::Policy("account nonce exhausted".into()))?;
+        let (inner, inner_hash) = self.sign_extrinsic_with_generation_offset(
+            call_data,
+            signer,
+            inner_nonce,
+            Some(DEFAULT_ERA_PERIOD),
+            1,
+        )?;
         let ciphertext = mlkem::seal(&public_key, &inner, true)?;
         let outer = self.compose_call(
             "MevShield",

@@ -74,12 +74,22 @@ async def _compose_inner(substrate, view: Any, spec: dict):
     ``view`` is the multisig account view (see ``_account_view``), so the inner
     intent's signer-derived defaults resolve to the account that dispatches it.
     """
+    from ..executor import _compose_intent_call
+
     args = dict(spec)
     op = args.pop("op", None)
     if not op:
         raise ValueError("multisig inner call needs an 'op' key")
-    built = await build_intent(op, args).build(substrate, view)
-    return built.call if isinstance(built, BuiltCall) else built
+    # Use the same recipient preparation and origin wrappers as a direct
+    # intent. Calling build alone leaves bth1_ addresses in AccountId fields
+    # and skips the registration checks that must run inside the multisig.
+    call, extras = await _compose_intent_call(substrate, build_intent(op, args), view)
+    if extras.get("hashed_registration"):
+        raise ValueError(
+            "register the hashed recipient first using a direct sponsor wallet; "
+            "initial registration cannot be wrapped in multisig"
+        )
+    return call
 
 
 def _timepoint(value: Optional[dict]):
@@ -360,10 +370,17 @@ class MultisigIntentAdapter(Intent):
     async def preflight(
         self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
     ) -> IntentPreflight:
+        from ..hashed import prepare_recipient_intent
+
         # The semantic call reads state owned by the multisig (or by the
         # proxied account), while the outer approval deposit and fee belong to
         # the member who signs this extrinsic.
-        semantic = await self.semantic.preflight(substrate, dispatch_origin, fee_payer, call=call)
+        prepared, recipients = await prepare_recipient_intent(substrate, self.semantic)
+        semantic = await prepared.preflight(substrate, dispatch_origin, fee_payer, call=call)
+        for recipient in recipients.values():
+            semantic.effects = [
+                effect.replace(recipient.account, recipient.address) for effect in semantic.effects
+            ]
         dispatch = await self.dispatch.preflight(substrate, fee_payer, fee_payer, call=call)
         return IntentPreflight(
             effects=[*semantic.effects, *dispatch.effects],

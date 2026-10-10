@@ -129,6 +129,7 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
     ) -> DispatchResult {
+        Self::ensure_hotkey_owner_policy(coldkey, hotkey)?;
         // Only allow to register non-system hotkeys
         ensure!(
             Self::is_subnet_account_id(hotkey).is_none(),
@@ -156,6 +157,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn set_hotkey_owner(coldkey: &T::AccountId, hotkey: &T::AccountId) -> DispatchResult {
+        Self::ensure_hotkey_owner_policy(coldkey, hotkey)?;
         // Only allow to register non-system hotkeys
         ensure!(
             Self::is_subnet_account_id(hotkey).is_none(),
@@ -163,6 +165,21 @@ impl<T: Config> Pallet<T> {
         );
         Owner::<T>::insert(hotkey, coldkey);
         Ok(())
+    }
+
+    pub fn ensure_hotkey_owner_policy(
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+    ) -> DispatchResult {
+        ensure!(
+            T::HotkeyOwnerPolicy::allows_owner(coldkey, hotkey),
+            Error::<T>::HotkeyOwnerPolicyViolation
+        );
+        Ok(())
+    }
+
+    pub fn hotkey_owner_policy_weight() -> Weight {
+        T::HotkeyOwnerPolicy::weight()
     }
 
     //// If the hotkey is not a delegate, make it a delegate.

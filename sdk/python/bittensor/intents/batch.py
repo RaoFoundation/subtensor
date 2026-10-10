@@ -76,17 +76,45 @@ class Batch(Intent):
         self._children = children
 
     async def build(self, substrate, wallet: Any):
+        from ..hashed import prepare_recipient_intent, with_recipient_registration
+
         composed = []
         extras: dict[str, Any] = {}
+        maximum_reserves: dict[str, int] = {}
         for index, child in enumerate(self._children):
-            built = await child.build(substrate, wallet)
+            prepared, recipients = await prepare_recipient_intent(substrate, child)
+            built = await prepared.build(substrate, wallet)
             if isinstance(built, BuiltCall):
-                composed.append(built.call)
+                if built.extras.get("hashed_registration_guards"):
+                    raise ValueError(
+                        "this guarded account payment must be submitted directly, "
+                        "not inside a batch"
+                    )
+                child_call = built.call
                 extras.update(
                     {f"{index}:{child.op}.{key}": value for key, value in built.extras.items()}
                 )
             else:
-                composed.append(built)
+                child_call = built
+            child_calls, registration = await with_recipient_registration(
+                substrate, wallet, prepared, child_call, recipients=recipients, as_calls=True
+            )
+            if registration.get("hashed_registration"):
+                raise ValueError(
+                    "first payment to this recipient must be a direct transfer; "
+                    "batched first-time account setup is not supported"
+                )
+            # Flatten guards: the runtime deliberately rejects nested batches.
+            # Existing recipients use check-only guards and never reserve funds.
+            composed.extend(child_calls)
+            if registration:
+                guards = registration["hashed_registration_guards"]
+                per_account = registration["hashed_registration_max_deposit_rao"] // len(guards)
+                for address in guards:
+                    maximum_reserves[address] = max(maximum_reserves.get(address, 0), per_account)
+        if maximum_reserves:
+            extras["hashed_registration_guards"] = list(maximum_reserves)
+            extras["hashed_registration_max_deposit_rao"] = sum(maximum_reserves.values())
         batch = await substrate.compose(calls.Utility.batch_all(calls=composed))
         return BuiltCall(batch, extras) if extras else batch
 
@@ -116,6 +144,8 @@ class Batch(Intent):
     async def preflight(
         self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
     ) -> IntentPreflight:
+        from ..hashed import prepare_recipient_intent
+
         effects = [f"all-or-nothing: {len(self._children)} calls in one extrinsic"]
         warnings: list[str] = []
         blocks: list[str] = []
@@ -123,9 +153,15 @@ class Batch(Intent):
         available_free: Balance | None = None
         estimated_fee: Balance | None = None
         for index, child in enumerate(self._children):
-            child_preflight = await child.preflight(
+            prepared, recipients = await prepare_recipient_intent(substrate, child)
+            child_preflight = await prepared.preflight(
                 substrate, dispatch_origin, fee_payer, call=call
             )
+            for recipient in recipients.values():
+                child_preflight.effects = [
+                    effect.replace(recipient.account, recipient.address)
+                    for effect in child_preflight.effects
+                ]
             effects.extend(f"[{index}] {item}" for item in child_preflight.effects)
             warnings.extend(f"[{index}] {item}" for item in child_preflight.warnings)
             blocks.extend(f"[{index}] {item}" for item in child_preflight.blocks)

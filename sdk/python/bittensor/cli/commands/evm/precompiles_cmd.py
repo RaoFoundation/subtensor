@@ -16,6 +16,7 @@ from ._shared import (
     PANEL_CHAIN,
     RPC_URL_OPTION,
     _key_info,
+    _native_arguments,
     _rpc,
     _run_evm,
     _submit_evm_tx,
@@ -180,7 +181,8 @@ def call(
 
     fn_abi = _find_function(app_ctx, functions, label, function)
     try:
-        data = evm_precompiles.encode_call(fn_abi, list(args or []))
+        resolved_args = _native_arguments(app_ctx, fn_abi, list(args or []), rpc_url)
+        data = evm_precompiles.encode_call(fn_abi, resolved_args)
     except ValueError as error:
         app_ctx.output.error(str(error))
         raise typer.Exit(2)
@@ -199,7 +201,7 @@ def call(
 
     preview_fields: dict[str, Any] = {}
     try:
-        decoded = evm_precompiles.describe_arguments(fn_abi, list(args or []))
+        decoded = evm_precompiles.describe_arguments(fn_abi, resolved_args)
         preview_fields.update({f"arg {k}": v for k, v in decoded.items()})
     except Exception:
         pass
@@ -207,10 +209,13 @@ def call(
         role = evm_precompiles.caller_role(precompile_name, function)
         if role:
             info = _key_info(app_ctx, key)
-            preview_fields["caller mirror"] = f"{info.ss58_mirror} acts as the {role}"
+            preview_fields["caller"] = (
+                f"{info.address}'s runtime-mapped native account acts as the {role}"
+            )
         if precompile_name == "subnet" and function == "registerNetwork":
             app_ctx.output.message(
-                "warning: the caller mirror becomes the subnet owner, and some owner "
+                "warning: the caller's mapped native account becomes the subnet owner, "
+                "and some owner "
                 "operations (notably start-call, which activates emissions) have no "
                 "precompile — they require a native coldkey signature"
             )

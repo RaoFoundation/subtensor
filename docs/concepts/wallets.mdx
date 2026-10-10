@@ -16,8 +16,12 @@ A Bittensor wallet is a pair of keys stored on disk (default
 
 ## Key material
 
-Coldkeys and hotkeys are **sr25519** keypairs, addressed with SS58 network
-prefix 42. Each key is generated from a mnemonic (12 words by default), and
+Coldkeys and hotkeys default to **sr25519**. You can also select **ed25519** or
+**ML-DSA-65**, independently choosing a fixed-key (`--type standard`) or rotating
+(`--type hashed`) account; see [wallet crypto types](/docs/guides/wallet-crypto-types).
+Standard classical accounts use SS58 prefix 42; registered accounts carry their
+scheme and mode in a receiving address. Each key is generated from a mnemonic
+(12 words by default, 24 for ML-DSA), and
 that mnemonic is the only recovery path: the wallet password merely decrypts
 the keyfile on one machine — it cannot regenerate a lost key, and no password
 is needed to regenerate the key from the mnemonic. Whoever holds the mnemonic

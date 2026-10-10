@@ -27,7 +27,7 @@ fn coerce_message_bytes(message: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
     Err(value_err("message must be str or bytes"))
 }
 
-/// An sr25519 or ed25519 keypair backed by the workspace's sp-core.
+/// A native keypair or versioned hashed account backed by workspace crypto.
 #[pyclass]
 pub struct Keypair {
     pub(crate) inner: keys::Keypair,
@@ -51,19 +51,27 @@ impl Keypair {
 
     /// Derive a keypair from a BIP39 mnemonic (with optional password).
     #[staticmethod]
-    #[pyo3(signature = (mnemonic, crypto_type=CRYPTO_SR25519, password=None))]
-    fn from_mnemonic(mnemonic: &str, crypto_type: u8, password: Option<&str>) -> PyResult<Self> {
-        Self::create_from_mnemonic(mnemonic, crypto_type, password)
+    #[pyo3(signature = (mnemonic, crypto_type=CRYPTO_SR25519, password=None, account_type=None))]
+    fn from_mnemonic(
+        mnemonic: &str,
+        crypto_type: u8,
+        password: Option<&str>,
+        account_type: Option<&str>,
+    ) -> PyResult<Self> {
+        Self::create_from_mnemonic(mnemonic, crypto_type, password, account_type)
     }
 
     /// Btwallet-compatible alias for :meth:`from_mnemonic`.
     #[staticmethod]
-    #[pyo3(signature = (mnemonic, crypto_type=CRYPTO_SR25519, password=None))]
+    #[pyo3(signature = (mnemonic, crypto_type=CRYPTO_SR25519, password=None, account_type=None))]
     fn create_from_mnemonic(
         mnemonic: &str,
         crypto_type: u8,
         password: Option<&str>,
+        account_type: Option<&str>,
     ) -> PyResult<Self> {
+        let crypto_type =
+            keys::account_crypto_type(crypto_type, account_type).map_err(to_py_err)?;
         let inner =
             keys::Keypair::from_mnemonic(mnemonic, crypto_type, password).map_err(to_py_err)?;
         Ok(Self { inner })
@@ -71,15 +79,21 @@ impl Keypair {
 
     /// Derive a keypair from a 32-byte seed.
     #[staticmethod]
-    #[pyo3(signature = (seed, crypto_type=CRYPTO_SR25519))]
-    fn from_seed(seed: &[u8], crypto_type: u8) -> PyResult<Self> {
-        Self::create_from_seed(seed, crypto_type)
+    #[pyo3(signature = (seed, crypto_type=CRYPTO_SR25519, account_type=None))]
+    fn from_seed(seed: &[u8], crypto_type: u8, account_type: Option<&str>) -> PyResult<Self> {
+        Self::create_from_seed(seed, crypto_type, account_type)
     }
 
     /// Btwallet-compatible alias for :meth:`from_seed`.
     #[staticmethod]
-    #[pyo3(signature = (seed, crypto_type=CRYPTO_SR25519))]
-    fn create_from_seed(seed: &[u8], crypto_type: u8) -> PyResult<Self> {
+    #[pyo3(signature = (seed, crypto_type=CRYPTO_SR25519, account_type=None))]
+    fn create_from_seed(
+        seed: &[u8],
+        crypto_type: u8,
+        account_type: Option<&str>,
+    ) -> PyResult<Self> {
+        let crypto_type =
+            keys::account_crypto_type(crypto_type, account_type).map_err(to_py_err)?;
         let inner = keys::Keypair::from_seed(seed, crypto_type).map_err(to_py_err)?;
         Ok(Self { inner })
     }
@@ -101,8 +115,14 @@ impl Keypair {
 
     /// Derive a keypair from a hex-encoded private key or seed bytes.
     #[staticmethod]
-    #[pyo3(signature = (private_key, crypto_type=CRYPTO_SR25519))]
-    fn create_from_private_key(private_key: &str, crypto_type: u8) -> PyResult<Self> {
+    #[pyo3(signature = (private_key, crypto_type=CRYPTO_SR25519, account_type=None))]
+    fn create_from_private_key(
+        private_key: &str,
+        crypto_type: u8,
+        account_type: Option<&str>,
+    ) -> PyResult<Self> {
+        let crypto_type =
+            keys::account_crypto_type(crypto_type, account_type).map_err(to_py_err)?;
         let inner = keys::Keypair::from_private_key(private_key, crypto_type).map_err(to_py_err)?;
         Ok(Self { inner })
     }
@@ -123,6 +143,16 @@ impl Keypair {
     }
 
     #[getter]
+    fn account_type(&self) -> &'static str {
+        self.inner.account_type()
+    }
+
+    #[getter]
+    fn signing_scheme(&self) -> &'static str {
+        self.inner.signing_scheme()
+    }
+
+    #[getter]
     fn crypto_type(&self) -> u8 {
         self.inner.crypto_type()
     }
@@ -140,6 +170,107 @@ impl Keypair {
     #[getter]
     fn ss58_format(&self) -> u16 {
         self.inner.ss58_format()
+    }
+
+    /// Restore a public hashed account descriptor without private material.
+    #[staticmethod]
+    #[pyo3(signature = (descriptor, ss58_format=DEFAULT_SS58_FORMAT))]
+    fn from_hashed_descriptor(descriptor: &[u8], ss58_format: u16) -> PyResult<Self> {
+        Ok(Self {
+            inner: keys::Keypair::from_hashed_descriptor(descriptor, ss58_format)
+                .map_err(to_py_err)?,
+        })
+    }
+
+    fn public_only(&self) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.public_only().map_err(to_py_err)?,
+        })
+    }
+
+    fn at_generation(&self, generation: u64) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.at_generation(generation).map_err(to_py_err)?,
+        })
+    }
+
+    #[getter]
+    fn hashed_generation(&self) -> PyResult<u64> {
+        self.inner.hashed_generation().map_err(to_py_err)
+    }
+
+    #[getter]
+    fn hashed_descriptor<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self.inner.hashed_descriptor().map_err(to_py_err)?,
+        ))
+    }
+
+    /// Network-independent receiving address; the optional legacy genesis argument is ignored.
+    #[pyo3(signature = (genesis_hash=None))]
+    fn hashed_receiving_address(&self, genesis_hash: Option<&[u8]>) -> PyResult<String> {
+        self.inner
+            .hashed_receiving_address(genesis_hash.unwrap_or_default())
+            .map_err(to_py_err)
+    }
+
+    #[getter]
+    fn hashed_public_key<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self.inner.hashed_public_key().map_err(to_py_err)?,
+        ))
+    }
+
+    #[getter]
+    fn hashed_signing_public_key<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self.inner.hashed_signing_public_key().map_err(to_py_err)?,
+        ))
+    }
+
+    #[getter]
+    fn hashed_current_commitment<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self.inner.hashed_current_commitment().map_err(to_py_err)?,
+        ))
+    }
+
+    #[getter]
+    fn hashed_next_commitment<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self.inner.hashed_next_commitment().map_err(to_py_err)?,
+        ))
+    }
+
+    fn hashed_commitment<'py>(
+        &self,
+        py: Python<'py>,
+        generation: u64,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self
+                .inner
+                .hashed_commitment(generation)
+                .map_err(to_py_err)?,
+        ))
+    }
+
+    /// Sign the complete unprehashed FRAME transaction implication.
+    fn sign_hashed<'py>(
+        &self,
+        py: Python<'py>,
+        implication: &[u8],
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &self.inner.sign_hashed(implication).map_err(to_py_err)?,
+        ))
     }
 
     /// Sign a message; returns the raw 64-byte signature.
@@ -193,7 +324,7 @@ fn verify(message: &[u8], signature: &[u8], ss58_address: &str, crypto_type: u8)
     keys::verify(message, signature, ss58_address, crypto_type).map_err(to_py_err)
 }
 
-/// Decode an SS58 address to its raw 32-byte public key.
+/// Decode an SS58 address to its 32-byte account identity.
 #[pyfunction]
 fn ss58_decode<'py>(py: Python<'py>, ss58_address: &str) -> PyResult<Bound<'py, PyBytes>> {
     let public_key = keys::public_key_from_ss58(ss58_address).map_err(to_py_err)?;
@@ -207,6 +338,31 @@ fn ss58_encode(public_key: &[u8], ss58_format: u16) -> PyResult<String> {
     let public_key = <[u8; 32]>::try_from(public_key)
         .map_err(|_| value_err("public key must be exactly 32 bytes"))?;
     Ok(keys::ss58_from_public(public_key, ss58_format))
+}
+
+/// Encode the initial public descriptor; the optional legacy genesis argument is ignored.
+#[pyfunction]
+#[pyo3(signature = (descriptor, genesis_hash=None))]
+fn encode_hashed_receiving_address(
+    descriptor: &[u8],
+    genesis_hash: Option<&[u8]>,
+) -> PyResult<String> {
+    keys::encode_hashed_receiving_address(descriptor, genesis_hash.unwrap_or_default())
+        .map_err(to_py_err)
+}
+
+/// Return `(legacy_network_field, descriptor)`; the first field is informational only.
+#[pyfunction]
+fn decode_hashed_receiving_address<'py>(
+    py: Python<'py>,
+    address: &str,
+) -> PyResult<(Bound<'py, PyBytes>, Bound<'py, PyBytes>)> {
+    let (genesis_hash, descriptor) =
+        keys::decode_hashed_receiving_address(address).map_err(to_py_err)?;
+    Ok((
+        PyBytes::new(py, &genesis_hash),
+        PyBytes::new(py, &descriptor),
+    ))
 }
 
 #[pyfunction]
@@ -286,6 +442,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(verify, m)?)?;
     m.add_function(wrap_pyfunction!(ss58_decode, m)?)?;
     m.add_function(wrap_pyfunction!(ss58_encode, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_hashed_receiving_address, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_hashed_receiving_address, m)?)?;
     // Backwards-compatible aliases for pre-migration bittensor.sp_core names.
     m.add("verify_signature", m.getattr("verify")?)?;
     m.add("decode_ss58", m.getattr("ss58_decode")?)?;
@@ -303,5 +461,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(save_password_to_environment, m)?)?;
     m.add("CRYPTO_ED25519", keys::CRYPTO_ED25519)?;
     m.add("CRYPTO_SR25519", keys::CRYPTO_SR25519)?;
+    m.add("CRYPTO_HASHED", keys::CRYPTO_HASHED)?;
+    m.add("CRYPTO_MLDSA", keys::CRYPTO_MLDSA)?;
+    m.add("CRYPTO_HASHED_ED25519", keys::CRYPTO_HASHED_ED25519)?;
+    m.add("CRYPTO_MLDSA_STANDARD", keys::CRYPTO_MLDSA_STANDARD)?;
     Ok(())
 }

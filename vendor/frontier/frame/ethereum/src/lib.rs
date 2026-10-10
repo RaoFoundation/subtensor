@@ -70,7 +70,7 @@ use fp_evm::{
 pub use fp_rpc::TransactionStatus;
 use fp_storage::{EthereumStorageSchema, PALLET_ETHEREUM_SCHEMA};
 use frame_support::traits::PalletInfoAccess;
-use pallet_evm::{BlockHashMapping, FeeCalculator, GasWeightMapping, Runner};
+use pallet_evm::{AddressMapping, BlockHashMapping, FeeCalculator, GasWeightMapping, Runner};
 
 #[derive(Clone, Eq, PartialEq, RuntimeDebug)]
 #[derive(Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo)]
@@ -117,11 +117,23 @@ where
 
 	pub fn check_self_contained(&self) -> Option<Result<H160, TransactionValidityError>> {
 		if let Call::transact { transaction } = self {
+			if let Transaction::EIP7702(tx) = transaction {
+				if tx.authorization_list.len() > 255 {
+					return Some(Err(InvalidTransaction::Custom(
+						TransactionValidationError::AuthorizationListTooLarge as u8,
+					)
+					.into()));
+				}
+			}
+
 			let check = || {
 				let origin = Pallet::<T>::recover_signer(transaction).ok_or(
 					InvalidTransaction::Custom(TransactionValidationError::InvalidSignature as u8),
 				)?;
 
+				if !T::AddressMapping::is_ethereum_authority_allowed(origin) {
+					return Err(InvalidTransaction::BadSigner.into());
+				}
 				Ok(origin)
 			};
 
@@ -315,6 +327,10 @@ pub mod pallet {
 			transaction: Transaction,
 		) -> DispatchResultWithPostInfo {
 			let source = ensure_ethereum_transaction(origin)?;
+			ensure!(
+				T::AddressMapping::is_ethereum_authority_allowed(source),
+				sp_runtime::DispatchError::BadOrigin
+			);
 			// Disable transact functionality if PreLog exist.
 			assert!(
 				fp_consensus::find_pre_log(&frame_system::Pallet::<T>::digest()).is_err(),
@@ -529,6 +545,18 @@ impl<T: Config> Pallet<T> {
 		origin: H160,
 		transaction: &Transaction,
 	) -> TransactionValidity {
+		if let Transaction::EIP7702(tx) = transaction {
+			if tx.authorization_list.len() > 255 {
+				return Err(InvalidTransaction::Custom(
+					TransactionValidationError::AuthorizationListTooLarge as u8,
+				)
+				.into());
+			}
+		}
+		if !T::AddressMapping::is_ethereum_authority_allowed(origin) {
+			return Err(InvalidTransaction::BadSigner.into());
+		}
+
 		let transaction_data: TransactionData = transaction.into();
 		let transaction_nonce = transaction_data.nonce;
 		let (weight_limit, proof_size_base_cost) = Self::transaction_weight(&transaction_data);
@@ -538,15 +566,32 @@ impl<T: Config> Pallet<T> {
 		// Check if this is an EIP-7702 transaction
 		let is_eip7702 = matches!(transaction, Transaction::EIP7702(_));
 
+		pallet_evm::account_cost::check_budget::<T>(
+			T::config(),
+			transaction_data.action == ethereum::TransactionAction::Create,
+			transaction_data.authorization_list.len(),
+			transaction_data.gas_limit.unique_saturated_into(),
+			weight_limit,
+			proof_size_base_cost,
+		)
+		.map_err(|e| InvalidTransaction::Custom(e as u8))?;
+		let input: fp_evm::CheckEvmTransactionInput = transaction_data.clone().into();
+		for authority in input.authorization_list.iter().filter_map(|item| item.3) {
+			if !T::AddressMapping::is_ethereum_authority_allowed(authority) {
+				return Err(InvalidTransaction::BadSigner.into());
+			}
+		}
+		let evm_config = pallet_evm::account_cost::config::<T>(T::config());
+
 		let _ = CheckEvmTransaction::<InvalidTransactionWrapper>::new(
 			CheckEvmTransactionConfig {
-				evm_config: T::config(),
+				evm_config: &evm_config,
 				block_gas_limit: T::BlockGasLimit::get(),
 				base_fee,
 				chain_id: T::ChainId::get(),
 				is_transactional: true,
 			},
-			transaction_data.clone().into(),
+			input,
 			weight_limit,
 			proof_size_base_cost,
 		)
@@ -941,6 +986,18 @@ impl<T: Config> Pallet<T> {
 		origin: H160,
 		transaction: &Transaction,
 	) -> Result<(), TransactionValidityError> {
+		if let Transaction::EIP7702(tx) = transaction {
+			if tx.authorization_list.len() > 255 {
+				return Err(InvalidTransaction::Custom(
+					TransactionValidationError::AuthorizationListTooLarge as u8,
+				)
+				.into());
+			}
+		}
+		if !T::AddressMapping::is_ethereum_authority_allowed(origin) {
+			return Err(InvalidTransaction::BadSigner.into());
+		}
+
 		let transaction_data: TransactionData = transaction.into();
 		let (weight_limit, proof_size_base_cost) = Self::transaction_weight(&transaction_data);
 		let (base_fee, _) = T::FeeCalculator::min_gas_price();
@@ -949,15 +1006,32 @@ impl<T: Config> Pallet<T> {
 		// Check if this is an EIP-7702 transaction
 		let is_eip7702 = matches!(transaction, Transaction::EIP7702(_));
 
+		pallet_evm::account_cost::check_budget::<T>(
+			T::config(),
+			transaction_data.action == ethereum::TransactionAction::Create,
+			transaction_data.authorization_list.len(),
+			transaction_data.gas_limit.unique_saturated_into(),
+			weight_limit,
+			proof_size_base_cost,
+		)
+		.map_err(|e| InvalidTransaction::Custom(e as u8))?;
+		let input: fp_evm::CheckEvmTransactionInput = transaction_data.clone().into();
+		for authority in input.authorization_list.iter().filter_map(|item| item.3) {
+			if !T::AddressMapping::is_ethereum_authority_allowed(authority) {
+				return Err(InvalidTransaction::BadSigner.into());
+			}
+		}
+		let evm_config = pallet_evm::account_cost::config::<T>(T::config());
+
 		let _ = CheckEvmTransaction::<InvalidTransactionWrapper>::new(
 			CheckEvmTransactionConfig {
-				evm_config: T::config(),
+				evm_config: &evm_config,
 				block_gas_limit: T::BlockGasLimit::get(),
 				base_fee,
 				chain_id: T::ChainId::get(),
 				is_transactional: true,
 			},
-			transaction_data.into(),
+			input,
 			weight_limit,
 			proof_size_base_cost,
 		)

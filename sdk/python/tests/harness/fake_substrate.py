@@ -331,7 +331,9 @@ class FakeSubstrate:
     async def mev_next_key(self) -> Optional[bytes]:
         return self.mev_key
 
-    async def sign_extrinsic(self, call, keypair, *, nonce: int, period: int) -> tuple[bytes, str]:
+    async def sign_extrinsic(
+        self, call, keypair, *, nonce: int, period: int, hashed_generation_offset: int = 0
+    ) -> tuple[bytes, str]:
         payload = repr((call, keypair.ss58_address, nonce)).encode()
         return payload, "0x" + payload.hex()[:64].ljust(64, "0")
 

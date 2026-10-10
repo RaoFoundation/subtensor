@@ -32,7 +32,7 @@ import bittensor_core as _backend
 from .._transport.contract import SigningContext
 from ..result import BittensorError
 from ..settings import BLOCKTIME, SS58_FORMAT, VAULT_GUIDE_URL
-from ..sp_core import CRYPTO_SR25519, ss58_decode, verify
+from ..sp_core import CRYPTO_ED25519, CRYPTO_SR25519, ss58_decode, verify
 from .qr import svg_data_uri
 from .server import VaultPageError, VaultSessionServer
 from .uos import transaction_frames, transaction_frames_with_proof
@@ -73,6 +73,12 @@ class VaultSigner:
         open_browser: bool = True,
         on_status: Optional[Callable[[str], None]] = None,
     ):
+        if crypto_type not in (CRYPTO_ED25519, CRYPTO_SR25519):
+            raise VaultError(
+                "Polkadot Vault signing supports standard sr25519/ed25519 accounts only; "
+                "use the local wallet signer for hashed or ML-DSA accounts. "
+                "A standard Vault account can still co-sign their multisig."
+            )
         self._address = ss58_address
         try:
             self._public_key = ss58_decode(ss58_address)
@@ -240,6 +246,8 @@ class VaultSigner:
             )
         raw = signature[1:] if len(signature) == 65 else signature
         crypto_type = signature[0] if len(signature) == 65 else self._crypto_type
+        if crypto_type != self._crypto_type:
+            raise VaultError("the scanned signature uses a different crypto type than this signer")
         try:
             valid = verify(unsigned.payload, raw, self._address, crypto_type)
         except Exception:

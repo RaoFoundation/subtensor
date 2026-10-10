@@ -68,6 +68,7 @@ def check(headers, bob: Keypair, *, body: bytes = BODY, **overrides) -> http_aut
         method=METHOD,
         path=PATH,
         self_hotkey_ss58=bob.ss58_address,
+        expected_crypto_type=CRYPTO_SR25519,
         nonce_store=http_auth.InMemoryNonceStore(),
         now_ns=FIXED_NONCE + 1_000_000,
     )
@@ -110,7 +111,7 @@ def test_golden_addresses(alice_sr: Keypair, bob: Keypair) -> None:
 @pytest.mark.parametrize("crypto_type", [CRYPTO_SR25519, CRYPTO_ED25519])
 def test_round_trip(crypto_type: int, bob: Keypair) -> None:
     sender = Keypair.create_from_uri("//Alice", crypto_type)
-    caller = check(make_headers(sender, bob), bob)
+    caller = check(make_headers(sender, bob), bob, expected_crypto_type=crypto_type)
     assert caller == http_auth.Caller(sender.ss58_address, FIXED_NONCE, crypto_type)
 
 
@@ -122,6 +123,7 @@ def test_round_trip_live_nonce_get_empty_body(alice_sr: Keypair, bob: Keypair) -
         method="GET",
         path="/health",
         self_hotkey_ss58=bob.ss58_address,
+        expected_crypto_type=CRYPTO_SR25519,
         nonce_store=http_auth.InMemoryNonceStore(),
     )
     assert caller.hotkey_ss58 == alice_sr.ss58_address

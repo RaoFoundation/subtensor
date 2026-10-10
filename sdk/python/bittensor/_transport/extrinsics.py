@@ -28,6 +28,7 @@ import inspect
 from hashlib import blake2b
 from typing import Any, Optional
 
+from ..sp_core import HASHED_CRYPTO_TYPES, MLDSA_CRYPTO_TYPES
 from .codec import RuntimeCodec
 from .contract import SignedExtrinsic, SigningContext, UnsignedExtrinsic
 from .errors import SubstrateRequestException
@@ -50,14 +51,20 @@ from .utils.receipt import (
 )
 
 IMMORTAL = "00"
+HASHED_PROOF_LENGTH = 136
+
+
+def hashed_proof_length(crypto_type: int) -> int:
+    return 5301 if crypto_type in MLDSA_CRYPTO_TYPES else HASHED_PROOF_LENGTH
 
 
 class NonceCache:
     """Per-account next-nonce cache for pipelined submissions.
 
-    The first request for an account asks the node (``account_nextIndex``);
-    subsequent requests increment locally so concurrent submissions get
-    distinct consecutive nonces. A failed submission must clear the account:
+    Each reservation reconciles the node's ``account_nextIndex`` with local
+    reservations so other clients and Shield inner transactions can advance
+    the account while concurrent submissions get distinct consecutive nonces.
+    A failed submission must clear the account:
     the chain never consumed that nonce.
     """
 
@@ -70,10 +77,8 @@ class NonceCache:
         if not use_cache:
             return await self._session.request("account_nextIndex", [address])
         async with self._lock:
-            if address not in self._nonces:
-                self._nonces[address] = await self._session.request("account_nextIndex", [address])
-            else:
-                self._nonces[address] += 1
+            observed = await self._session.request("account_nextIndex", [address])
+            self._nonces[address] = max(observed, self._nonces.get(address, -1) + 1)
             return self._nonces[address]
 
     def pin(self, address: str, nonce: int) -> None:
@@ -153,6 +158,10 @@ def prepare_extrinsic(
     self-contained: it can cross a process boundary (QR display, file export)
     and later be reunited with a signature via :func:`attach_signature`.
     """
+    if crypto_type in HASHED_CRYPTO_TYPES:
+        raise ValueError(
+            "hashed accounts require live generation synchronization; use the local wallet signer"
+        )
     call_data, included_in_extrinsic, included_in_signed_data = codec.signature_payload_parts(
         call,
         era=era,
@@ -224,6 +233,8 @@ def attach_signature(
     anywhere — an in-process keypair, an extension, a QR round-trip. The call
     is spliced back in from its raw bytes, so nothing needs re-composing.
     """
+    if unsigned.crypto_type in HASHED_CRYPTO_TYPES:
+        raise ValueError("hashed accounts require the synchronized local wallet signing path")
     signature, signature_version = _normalize_signature(signature, unsigned.crypto_type)
     data, extrinsic_hash = codec.encode_signed_extrinsic(
         unsigned.call_data,
@@ -284,6 +295,19 @@ async def create_signed_extrinsic(
     ``signature`` short-circuits signing (externally-signed or fee-estimation
     paths); a 65-byte value carries the signature version in its first byte.
     """
+    if keypair.crypto_type in HASHED_CRYPTO_TYPES:
+        return create_hashed_extrinsic(
+            codec,
+            call,
+            keypair,
+            era=era,
+            nonce=nonce,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+            genesis_hash=genesis_hash,
+            era_block_hash=era_block_hash,
+            proof=signature,
+        )
     public_key = keypair.public_key
     assert public_key is not None
     if signature is not None:
@@ -316,6 +340,66 @@ async def create_signed_extrinsic(
         metadata_hash=await resolve_metadata_hash(codec, keypair, genesis_hash),
     )
     return attach_signature(codec, unsigned, await sign_unsigned(unsigned, keypair))
+
+
+def create_hashed_extrinsic(
+    codec: RuntimeCodec,
+    call: Any,
+    keypair: Any,
+    *,
+    era: dict | str,
+    nonce: int,
+    tip: int,
+    tip_asset_id: Optional[int],
+    genesis_hash: str,
+    era_block_hash: str,
+    proof: Optional[bytes | str] = None,
+) -> SignedExtrinsic:
+    """Frame the v5 authorization after the facade has synchronized the key.
+
+    The native key wrapper binds the account, scheme, generation and next key
+    commitment to the complete extension implication. Never use the v4
+    convention that prehashes payloads longer than 256 bytes here.
+    """
+    account = bytes(keypair.public_key)
+    if len(account) != 32:
+        raise ValueError("hashed account IDs must contain exactly 32 bytes")
+    call_data, extra, implicit = codec.signature_payload_parts(
+        call,
+        era=era,
+        nonce=nonce,
+        tip=tip,
+        tip_asset_id=tip_asset_id,
+        genesis_hash=genesis_hash,
+        era_block_hash=era_block_hash,
+    )
+    if proof is None:
+        proof = bytes(
+            keypair.sign_hashed(
+                bytes((2 if keypair.crypto_type in MLDSA_CRYPTO_TYPES else 1,))
+                + call_data
+                + extra
+                + implicit
+            )
+        )
+    elif isinstance(proof, str):
+        proof = bytes.fromhex(proof.removeprefix("0x"))
+    if len(proof) != hashed_proof_length(keypair.crypto_type):
+        raise ValueError(
+            "hashed authorization requires a complete "
+            f"{hashed_proof_length(keypair.crypto_type)}-byte rotation proof"
+        )
+    data, extrinsic_hash = codec.encode_signed_extrinsic(
+        call_data,
+        public_key=account,
+        signature=proof,
+        signature_version=keypair.crypto_type,
+        era=era,
+        nonce=nonce,
+        tip=tip,
+        tip_asset_id=tip_asset_id,
+    )
+    return SignedExtrinsic(data=data, extrinsic_hash=extrinsic_hash)
 
 
 async def sign_unsigned(unsigned: UnsignedExtrinsic, keypair: Any) -> bytes:

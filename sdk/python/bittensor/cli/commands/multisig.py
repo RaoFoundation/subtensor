@@ -39,7 +39,7 @@ def _parse_signatory_refs(app_ctx: AppContext, raw: str) -> list[str]:
     if not refs:
         raise ValueError("need at least one signatory (wallet name, address-book name, or ss58)")
     for ref in refs:
-        address = app_ctx.resolve_address("coldkey_ss58", ref)
+        address = app_ctx.resolve_account("coldkey_ss58", ref)
         if not address:
             raise ValueError(f"cannot resolve {ref!r}")
     return refs
@@ -113,7 +113,7 @@ def multisig_add(
     refs = ms_helpers.collect_signatory_refs(signatories, signatory)
     if not refs:
         refs = _prompt_signatory_refs(app_ctx)
-    resolved = [app_ctx.resolve_address("coldkey_ss58", ref) for ref in refs]
+    resolved = [app_ctx.resolve_account("coldkey_ss58", ref) for ref in refs]
     resolved = list(dict.fromkeys(resolved))
     if threshold > len(resolved):
         app_ctx.output.error(f"threshold {threshold} exceeds {len(resolved)} signatories")
@@ -180,7 +180,7 @@ def multisig_show(
         app_ctx.output.error(f"multisig {name!r} not found")
         raise typer.Exit(1)
 
-    signatories = [app_ctx.resolve_address("coldkey_ss58", ref) for ref in entry["signatories"]]
+    signatories = [app_ctx.resolve_account("coldkey_ss58", ref) for ref in entry["signatories"]]
     signatories = list(dict.fromkeys(signatories))
 
     async def derive(client):

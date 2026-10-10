@@ -414,5 +414,7 @@ mod errors {
         CommitPayloadTooLarge,
         /// The subnet's shared Null timelock queue has reached its byte or count budget.
         CommitQueueFull,
+        /// An ownership change would weaken a protected account's authorization.
+        HotkeyOwnerPolicyViolation,
     }
 }

@@ -14,6 +14,7 @@ from .. import config as cfg
 from .. import wallets
 from .._generated import storage as st
 from .._transport.codec import multisig_account
+from ..receiving import is_receiving_address, parse_recipient
 from ..result import ChainError, ExtrinsicResult
 from ..wallets import is_bittensor_address
 
@@ -61,11 +62,19 @@ def hex_bytes(value: bytes | str) -> str:
 
 def _soft_resolve_coldkey(app_ctx, ref: str) -> Optional[str]:
     """Resolve a coldkey ref without exiting the CLI."""
+    if is_receiving_address(ref):
+        try:
+            return app_ctx.identity_address(ref)
+        except ValueError:
+            return None
     if is_bittensor_address(ref):
         return ref
     booked = cfg.get_address(ref)
     if booked:
-        return booked
+        try:
+            return app_ctx.identity_address(booked)
+        except ValueError:
+            return None
     try:
         return wallets.open_wallet(name=ref, path=app_ctx.wallet_path).coldkeypub.ss58_address
     except Exception:
@@ -227,7 +236,7 @@ def _resolve_stored_signatories(app_ctx, refs: list[str]) -> list[str]:
     """Resolve a saved multisig signer list (ss58, book names, or wallets)."""
     resolved: list[str] = []
     for ref in refs:
-        address = app_ctx.resolve_address("coldkey_ss58", ref)
+        address = app_ctx.resolve_account("coldkey_ss58", ref)
         if not address:
             raise ValueError(f"cannot resolve signatory {ref!r} in multisig preset")
         resolved.append(address)
@@ -290,10 +299,8 @@ def resolve_multisig(
 def derive_saved_multisig_address(app_ctx, name: str) -> Optional[str]:
     """Derived ss58 of the saved multisig ``name``, or None when not in the book.
 
-    Fully offline: signatory refs (ss58, book names, wallet names) resolve
-    locally and the account id derivation is deterministic, so read-only
-    commands can treat a multisig book name like any other address without a
-    chain connection.
+    Signatory identities resolve locally from their public descriptors.
+    Derivation is independent of the selected chain and requires no connection.
     """
     entry = cfg.get_multisig(name)
     if entry is None:
@@ -354,13 +361,16 @@ def _address_book_signer(ref: str) -> Optional[str]:
 
 def resolve_member_ref(app_ctx, ref: str, signatories: list[str]) -> Optional[tuple[str, str]]:
     """Resolve a ``--signatory`` value to ``(name, ss58)`` when it names a member."""
-    if is_bittensor_address(ref):
-        if ref in signatories:
-            return resolve_signatory_name(app_ctx, ref), ref
+    if is_receiving_address(ref) or is_bittensor_address(ref):
+        account = parse_recipient(ref).account
+        if account in signatories:
+            return resolve_signatory_name(app_ctx, account), account
         return None
     booked = cfg.get_address(ref)
-    if booked and booked in signatories:
-        return ref, booked
+    if booked:
+        account = parse_recipient(booked).account
+        if account in signatories:
+            return ref, account
     for wallet_name, ss58 in local_signatory_wallets(app_ctx, signatories):
         if wallet_name == ref:
             return wallet_name, ss58
@@ -470,6 +480,10 @@ def plan_signatory_rounds(
                 f"pass `--signatory {ref}=vault` (or ledger/extension), or tag the "
                 f"contact once: `btcli addr add {ref} --signer vault`"
             )
+        if backend == "wallet":
+            if ss58 not in locals_by_ss58:
+                raise ValueError(f"member {ref!r} has no local wallet for --signatory {ref}=wallet")
+            name = locals_by_ss58[ss58]
         rounds.append((name, ss58, backend))
     return rounds
 
@@ -541,13 +555,17 @@ def infer_external_signer_from_signatory(app_ctx, signatories: list[str]) -> Non
         return
     _name, ss58 = member
     backend = _address_book_signer(chosen) or _address_book_signer(ss58)
+    if backend is None and any(
+        address == ss58 for _, address in local_signatory_wallets(app_ctx, signatories)
+    ):
+        return
     if backend is None:
         backend = prompt_member_backend(app_ctx, ref=chosen, ss58=ss58)
     if backend is None:
         return
     app_ctx.signer_backend = backend
     if not getattr(app_ctx, "signer_address", None):
-        app_ctx.signer_address = ss58
+        app_ctx.signer_address = chosen if backend == "vault" else ss58
 
 
 def external_signer_member(
@@ -604,11 +622,11 @@ def pick_local_signatory(app_ctx, *, preset: str, signatories: list[str]) -> tup
     locals_ = local_signatory_wallets(app_ctx, signatories)
     chosen = getattr(app_ctx, "signatory_wallet", None)
     if chosen:
+        member = resolve_member_ref(app_ctx, chosen, signatories)
         for name, ss58 in locals_:
-            if chosen in (name, ss58):
+            if chosen in (name, ss58) or (member is not None and member[1] == ss58):
                 return name, ss58
         known = ", ".join(name for name, _ in locals_) or "none found under --wallet-path"
-        member = resolve_member_ref(app_ctx, chosen, signatories)
         if member is not None:
             raise ValueError(
                 f"--signatory {chosen!r} is a member of {preset!r} but has no "

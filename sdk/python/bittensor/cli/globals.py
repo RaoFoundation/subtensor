@@ -497,7 +497,19 @@ def _with_tier(tier: Tier) -> Callable[[Callable], Callable]:
     def decorate(fn: Callable) -> Callable:
         original = inspect.signature(fn)
         owned = set(original.parameters)
-        added = [p for p in parameters(tier) if p.name not in owned]
+        # A command can own an option under a different Python name: raw
+        # `call` owns --signer as `signer`, while the global uses `signer_backend`.
+        owned_flags = {
+            flag
+            for p in original.parameters.values()
+            if isinstance(p.default, typer.models.OptionInfo)
+            for flag in p.default.param_decls
+        }
+        added = [
+            p
+            for p in parameters(tier)
+            if p.name not in owned and not owned_flags.intersection(p.default.param_decls)
+        ]
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
@@ -509,8 +521,9 @@ def _with_tier(tier: Tier) -> Callable[[Callable], Callable]:
             parameters=list(original.parameters.values()) + added
         )
         annotations = dict(getattr(fn, "__annotations__", {}))
+        added_names = {p.name for p in added}
         for name, ann, _ in specs:
-            if name not in owned:
+            if name in added_names:
                 annotations[name] = ann
         wrapper.__annotations__ = annotations
         # The tier marks which commands touch the local wallet (tx/unlock), so

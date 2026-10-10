@@ -158,6 +158,16 @@ the mempool.
 
 ## Limitations
 
+- **Standard signing keys only.** The adapter accepts standard Sr25519 and
+  Ed25519 signatures. Hashed rotation and ML-DSA signing are not supported by
+  this Vault integration; use the local wallet backend for those members.
+  A standard Vault account can co-sign a [mixed multisig](/docs/guides/multisig)
+  with hashed/MS members. A wallet reference preserves its recorded scheme;
+  a bare address or address-book contact defaults to Sr25519. For an Ed25519
+  signer in Python, specify `VaultSigner(address, crypto_type=0)`.
+- **Metadata hash support.** The connected runtime must be built with
+  `metadata-hash` support for proof-carrying signing. A locally built runtime
+  without it rejects these signatures even when software wallet signing works.
 - **Extrinsics only.** Raw message signing (`btcli wallet sign`) is refused —
   Vault only signs what it can decode and display.
 - **One camera hop each way.** The webcam needs to see the phone's screen;

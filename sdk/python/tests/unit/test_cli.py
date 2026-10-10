@@ -315,6 +315,32 @@ class TestQueries:
     def test_wallet_balance_human_format_uses_three_decimals(self):
         assert format_balance(Balance.from_rao(2_832_438_604_652)) == "τ2,832.439"
 
+    @pytest.mark.parametrize("code", [4, 5])
+    def test_wallet_history_queries_underlying_account(self, fake, monkeypatch, code):
+        from bittensor.cli.commands import wallet as wallet_commands
+        from bittensor.receiving import receiving_address
+        from bittensor.sp_core import Keypair
+
+        key = Keypair.create_from_seed(bytes([93]) * 32, code)
+        queried = []
+
+        def fetch(owner, limit):
+            queried.append(owner)
+            return []
+
+        monkeypatch.setattr(wallet_commands, "_fetch_transfers", fetch)
+        result = invoke(
+            "--json",
+            "--network",
+            "finney",
+            "wallet",
+            "history",
+            "--coldkey",
+            receiving_address(key),
+        )
+        assert result.exit_code == 0, result.output
+        assert queried == [key.ss58_address]
+
 
 class TestAddressResolution:
     @staticmethod
@@ -437,6 +463,23 @@ class TestRoot:
 
 
 class TestTransactions:
+    @pytest.mark.parametrize("flag", ["--signer", "--key"])
+    @pytest.mark.parametrize("role", ["coldkey", "hotkey"])
+    def test_raw_call_selects_key_role(self, fake, wallet_dir, flag, role):
+        result = invoke(
+            "--json",
+            "--yes",
+            "call",
+            "System.remark",
+            "--args",
+            '{"remark":"0x01"}',
+            flag,
+            role,
+        )
+        assert result.exit_code == 0, result.output
+        wallet = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir)
+        assert fake.submissions[-1][1] == getattr(wallet, role).ss58_address
+
     def test_dry_run_renders_plan_without_submitting(self, fake: FakeSubstrate):
         result = invoke(
             "--json",

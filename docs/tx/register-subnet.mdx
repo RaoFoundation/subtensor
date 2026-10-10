@@ -78,7 +78,7 @@ result = sub.execute_tool("register_subnet", {...}, wallet)
 
 ```rust
 #[pallet::call_index(59)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network())]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(2)))]
 pub fn register_network(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
     Self::do_register_network(origin, &hotkey, 1, None)
 }

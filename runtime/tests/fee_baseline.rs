@@ -1,9 +1,10 @@
 //! Fee baseline guard.
 //!
 //! `fee_baseline/pins.tsv` pins, for every dispatchable, the fee (rao) a 100-byte
-//! extrinsic with one unit of every argument is quoted on spec 467. This test fails when
-//! any current fee is above its pin, so a benchmark regen or a new declared bound that
-//! raises what a user pays cannot land silently; someone must raise the pin on purpose.
+//! extrinsic with one unit of every argument is quoted. The initial baseline is spec
+//! 467; deliberate updates are documented in the pin table. This test fails when any
+//! current fee is above its pin, so a benchmark regen or a new declared bound that raises
+//! what a user pays cannot land silently; someone must raise the pin on purpose.
 //!
 //! Regenerate the table after a deliberate fee change:
 //! `FEE_BASELINE_PRINT=1 cargo test -p node-subtensor-runtime --test fee_baseline -- --nocapture`
@@ -85,7 +86,7 @@ fn quoted_fee_rao(call: &RuntimeCall) -> u64 {
 }
 
 #[test]
-fn every_dispatchable_fee_is_at_or_below_its_467_pin() {
+fn every_dispatchable_fee_is_at_or_below_its_approved_pin() {
     new_test_ext().execute_with(|| {
         let pins = pins();
         assert!(
@@ -109,7 +110,7 @@ fn every_dispatchable_fee_is_at_or_below_its_467_pin() {
         }
         assert!(
             above.is_empty(),
-            "fees rose above their 467 pins; lower the fee or raise the pin on purpose:\n{}",
+            "fees rose above their approved pins; lower the fee or raise the pin on purpose:\n{}",
             above.join("\n")
         );
     });

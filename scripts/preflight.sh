@@ -162,14 +162,27 @@ fi
 
 # ------------------------------------------------------------ cheap gates ---
 # Verify who the push credential belongs to, not what the URL says. The hook
-# passes the destination remote and URL; token and login never reach argv or
-# stdout. Fails closed when no credential can be resolved.
+# passes the destination remote and URL; tokens never reach argv or stdout. Fails closed when no credential can be resolved.
 push_actor_check() {
   local want=${PREFLIGHT_PUSH_ACTOR:-unarbos} remote=${PREFLIGHT_PUSH_REMOTE:-origin} url userinfo token='' login=''
+  local destination='' hostname='' verification='api.github.com/user'
+  local ssh_options=(-o BatchMode=yes -o ConnectTimeout=15)
   url=${PREFLIGHT_PUSH_URL:-$(git remote get-url --push "$remote")}
-  if [[ "$url" =~ ^(ssh://)?git@github\.com[:/] ]]; then
-    login=$(ssh -o BatchMode=yes -T git@github.com 2>&1 | sed -n 's/^Hi \([^!]*\)!.*/\1/p')
-  else
+  if [[ "$url" =~ ^git@([a-zA-Z0-9._-]+):.+$ ]]; then
+    destination="git@${BASH_REMATCH[1]}"
+  elif [[ "$url" =~ ^ssh://git@([a-zA-Z0-9._-]+)(:([0-9]+))?/.+$ ]]; then
+    destination="git@${BASH_REMATCH[1]}"
+    [[ -z "${BASH_REMATCH[3]}" ]] || ssh_options+=(-p "${BASH_REMATCH[3]}")
+  fi
+  if [[ -n "$destination" ]]; then
+    # Preserve the alias's IdentityFile and port instead of checking a different
+    # credential through git@github.com. Only trust GitHub's authentication reply.
+    hostname=$(ssh "${ssh_options[@]}" -G "$destination" 2>/dev/null | sed -n 's/^hostname //p')
+    [[ "$hostname" == github.com || "$hostname" == ssh.github.com ]] ||
+      { echo "SSH destination does not resolve to GitHub; cannot verify the push actor"; return 1; }
+    login=$(ssh "${ssh_options[@]}" -T "$destination" 2>&1 | sed -n 's/^Hi \([^!]*\)!.*/\1/p')
+    verification="GitHub SSH authentication"
+  elif [[ "$url" =~ ^https://([^@/]+@)?github\.com/ ]]; then
     if [[ "$url" =~ ^https?://([^@/]+)@ ]]; then
       userinfo=${BASH_REMATCH[1]}
       [[ "$userinfo" != *:* ]] || token=${userinfo#*:}
@@ -179,14 +192,18 @@ push_actor_check() {
     [[ -n "$token" ]] || { echo "no credential resolvable for remote '$remote' (${url%%:*}://…); cannot verify the push actor"; }
     [[ -z "$token" ]] || login=$(printf 'header = "Authorization: Bearer %s"\n' "$token" |
       curl -sS -m 20 -K - https://api.github.com/user | jq -r '.login // empty')
+  else
+    echo "unsupported GitHub push URL for '$remote'; cannot verify the push actor"
+    return 1
   fi
-  if [[ "$login" != "$want" ]]; then
+  if [[ "${login,,}" != "${want,,}" ]]; then
     echo "push credential for '$remote' belongs to '${login:-nobody}', expected '$want'"
     echo "fix: git remote set-url --push $remote \"https://${want}:\$(op read 'op://Arbos/vvnyarkwampjl3diocn7n6vcqe/credential')@github.com/RaoFoundation/subtensor.git\""
     return 1
   fi
-  echo "push actor: $login (credential owner verified via api.github.com/user)"
+  echo "push actor: $login (credential owner verified via $verification)"
 }
+step "push actor gate regression tests" bash scripts/tests/test-push-actor.sh
 step "push actor is ${PREFLIGHT_PUSH_ACTOR:-unarbos}" push_actor_check
 
 step "git diff --check (whitespace)" git diff --check "$BASE"
@@ -246,6 +263,7 @@ fi
 if [[ $ALL == true ]] || changed '^ts-tests/'; then
   if [[ -d ts-tests/node_modules ]]; then
     step "pnpm run fmt (ts-tests)" in_dir ts-tests pnpm run fmt
+    step "pnpm run test:papi (ts-tests)" in_dir ts-tests pnpm run test:papi
   else
     fail "ts-tests locked env" "missing. Run: (cd ts-tests && pnpm install --frozen-lockfile)"
   fi
@@ -357,6 +375,7 @@ fetch_snapshot() {
   local cache=${PREFLIGHT_CACHE_DIR:-$HOME/.cache/subtensor-preflight} repo=${PREFLIGHT_REPO:-RaoFoundation/subtensor} id
   mkdir -p "$cache"
   if [[ -s $cache/mainnet.snap && -n "$(find "$cache/mainnet.snap" -mmin -$((72 * 60)))" ]]; then return 0; fi
+  need gh "https://cli.github.com (needed to fetch the nightly snapshot artifact)" || return 1
   id=$(gh api "repos/$repo/actions/artifacts?name=try-runtime-snap-v$TRY_RUNTIME_VERSION-mainnet&per_page=10" \
     --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | sort_by(.created_at) | last | .id')
   [[ -n "$id" && "$id" != null ]] || { echo "no try-runtime mainnet snapshot artifact found" >&2; return 1; }
@@ -379,8 +398,7 @@ try_runtime_check() {
 if [[ $runtime == true ]] && { [[ $ALL == true ]] || migrations_changed; }; then
   if [[ $FAST == true ]]; then
     skip "try-runtime on-runtime-upgrade (mainnet)" "--fast; run without --fast before pushing migrations"
-  elif need try-runtime "curl -sSfL -o ~/.local/bin/try-runtime https://github.com/paritytech/try-runtime-cli/releases/download/v$TRY_RUNTIME_VERSION/try-runtime-x86_64-unknown-linux-musl && chmod +x ~/.local/bin/try-runtime" &&
-       need gh "https://cli.github.com (needed to fetch the nightly snapshot artifact)"; then
+  elif need try-runtime "curl -sSfL -o ~/.local/bin/try-runtime https://github.com/paritytech/try-runtime-cli/releases/download/v$TRY_RUNTIME_VERSION/try-runtime-x86_64-unknown-linux-musl && chmod +x ~/.local/bin/try-runtime"; then
     step "build try-runtime wasm (production)" env -u SKIP_WASM_BUILD \
       cargo build --profile production -p node-subtensor-runtime --features try-runtime -q --locked
     step "try-runtime on-runtime-upgrade (mainnet snapshot)" try_runtime_check

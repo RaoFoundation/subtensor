@@ -19,6 +19,7 @@ mod epoch_logs;
 mod evm;
 mod failed_call_refunds;
 mod hotkey_lineage;
+mod hotkey_owner_policy;
 mod leasing;
 mod locks;
 mod math;

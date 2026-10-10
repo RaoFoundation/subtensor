@@ -41,6 +41,67 @@ assert.equal(signature.length, 64);
 assert.equal(alice.verify(message, signature), true);
 assert.equal(core.verifySignature(message, signature, alice.ss58Address), true);
 
+// Exercise every exported wallet scheme in actual Wasm, including its RNG.
+// These addresses were independently derived through the Python binding.
+const walletAddresses = {
+  0: "5HL1qmGT6jk7NutneSqdfmajWzJdH186xueHohK25tMNNKWT",
+  1: "5F4STBxfzhAyYMF4AMtkSMm4K8ZR3mEqEuAKKxVy2uRLEbxV",
+  4: "5EQ5nerrr7w3CnZnE855GbJxGxikddoFZq8bRMUe62EpnhmB",
+  5: "5DVLtTNPrbWtEQRPtq6VKQSDQZ79JsaSHFDiqmXeN3hgNiiQ",
+};
+for (const scheme of [core.CryptoType.Ed25519, core.CryptoType.Sr25519,
+                      core.CryptoType.Hashed, core.CryptoType.MlDsa]) {
+  const key = core.Keypair.fromSeed(new Uint8Array(32).fill(29), scheme);
+  assert.equal(key.cryptoType, scheme);
+  assert.equal(key.ss58Address, walletAddresses[scheme]);
+  const rotating = scheme === core.CryptoType.Hashed || scheme === core.CryptoType.MlDsa;
+  const signer = rotating ? key.atGeneration(1n) : key;
+  const signed = signer.sign(message);
+  assert.equal(key.verify(message, signed), true);
+  assert.equal(core.verifySignature(message, signed, key.ss58Address, scheme), true);
+  assert.equal(key.verify(new Uint8Array([99]), signed), false);
+  if (rotating) {
+    const publicKey = core.Keypair.fromHashedDescriptor(key.hashedDescriptor);
+    assert.equal(publicKey.ss58Address, key.ss58Address);
+    assert.equal(publicKey.verify(message, signed), true);
+    assert.equal(signer.hashedReceivingAddress(new Uint8Array(32)),
+                 key.hashedReceivingAddress(new Uint8Array(32)));
+    assert.equal(key.hashedReceivingAddress(),
+                 key.hashedReceivingAddress(new Uint8Array(32)));
+    assert.equal(key.hashedReceivingAddress(new Uint8Array(32).fill(9)),
+                 key.hashedReceivingAddress());
+    assert.equal(signer.signHashed(message).length, scheme === core.CryptoType.Hashed ? 136 : 5301);
+    assert.notDeepEqual(signer.hashedCurrentCommitment, key.hashedCurrentCommitment);
+  }
+}
+
+// Account mode composes with all three signature schemes.
+for (const scheme of [core.CryptoType.Ed25519, core.CryptoType.Sr25519, core.CryptoType.MlDsa]) {
+  for (const mode of ["standard", "hashed"]) {
+    const key = core.Keypair.fromSeed(new Uint8Array(32).fill(29), scheme, mode);
+    assert.equal(key.accountType, mode);
+    const phrase = "bottom drive obey lake curtain smoke basket hold race lonely fit walk";
+    const mnemonic = core.Keypair.fromMnemonic(phrase, scheme, undefined, mode);
+    assert.equal(mnemonic.accountType, mode);
+    const registered = mode === "hashed" || scheme === core.CryptoType.MlDsa;
+    const signer = registered ? key.atGeneration(12n) : key;
+    const signature = signer.sign(message);
+    assert.equal(key.verify(message, signature), true);
+    assert.equal(key.verify(new Uint8Array([99]), signature), false);
+    if (registered) {
+      assert.equal(signer.signHashed(message).length, scheme === core.CryptoType.MlDsa ? 5301 : 136);
+      assert.equal(signer.ss58Address, key.ss58Address);
+      assert.equal(core.Keypair.fromHashedDescriptor(key.hashedDescriptor).cryptoType, key.cryptoType);
+      if (mode === "hashed") {
+        assert.notDeepEqual(signer.hashedCurrentCommitment, key.hashedCurrentCommitment);
+      } else {
+        assert.deepEqual(signer.hashedCurrentCommitment, key.hashedCurrentCommitment);
+        assert.deepEqual(key.atGeneration(13n).hashedCurrentCommitment, key.hashedCurrentCommitment);
+      }
+    }
+  }
+}
+
 for (const entry of golden.ss58) {
   assert.equal(toHex(core.ss58Decode(entry.address)), entry.public_key_hex);
   assert.equal(core.ss58Encode(fromHex(entry.public_key_hex), entry.ss58_format), entry.address);
@@ -145,6 +206,10 @@ for (const sp of golden.signature_payloads) {
 // u256-decimal, and depth-limit paths explicitly so they stay enforced.
 {
   const roundTrip = (type, value) => runtime.decode(type, runtime.encode(type, value));
+  // Golden type 249 is BoundedVec<(u16, u64)>: one tuple is not a wrapper.
+  for (const value of [[[7, 11]], [[[7, 11]]]]) {
+    assert.equal(toHex(runtime.encode("scale_info::249", value)), "0x0407000b00000000000000");
+  }
 
   // Safe-integer boundary: 2^53 - 1 passes as a number, 2^53 must be BigInt.
   assert.equal(roundTrip("u64", 9007199254740991), 9007199254740991);

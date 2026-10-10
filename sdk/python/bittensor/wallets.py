@@ -16,14 +16,32 @@ from typing import Callable
 from ._transport.codec import is_valid_ss58_address
 from .keyfiles import Keypair, WrongPasswordError, resolve_key_password
 from .settings import SS58_FORMAT
-from .sp_core import CRYPTO_ED25519, CRYPTO_SR25519
+from .sp_core import (
+    CLASSICAL_HASHED_CRYPTO_TYPES,
+    CRYPTO_ED25519,
+    CRYPTO_HASHED,
+    CRYPTO_HASHED_ED25519,
+    CRYPTO_MLDSA,
+    CRYPTO_MLDSA_STANDARD,
+    CRYPTO_SR25519,
+    MLDSA_CRYPTO_TYPES,
+    account_crypto_type,
+)
+from .sp_core import HASHED_CRYPTO_TYPES as HASHED_CRYPTO_TYPES
 from .wallet import DEFAULT_WALLET_PATH, Wallet
 
 CRYPTO_TYPE_NAMES: dict[int, str] = {
     CRYPTO_ED25519: "ed25519",
     CRYPTO_SR25519: "sr25519",
+    CRYPTO_HASHED: "hashed",
+    CRYPTO_MLDSA: "mldsa",
+    CRYPTO_HASHED_ED25519: "hashed-ed25519",
+    CRYPTO_MLDSA_STANDARD: "mldsa-standard",
 }
 _NAME_TO_CRYPTO_TYPE: dict[str, int] = {name: code for code, name in CRYPTO_TYPE_NAMES.items()}
+_NAME_TO_CRYPTO_TYPE.update(
+    {"ed": CRYPTO_ED25519, "sr": CRYPTO_SR25519, "ms": CRYPTO_MLDSA, "ml-dsa": CRYPTO_MLDSA}
+)
 DEFAULT_CRYPTO_TYPE = CRYPTO_SR25519
 
 
@@ -38,18 +56,36 @@ def is_bittensor_address(value: str) -> bool:
     return is_valid_ss58_address(value, SS58_FORMAT)
 
 
-def parse_crypto_type(value: str) -> int:
-    """Parse ``ed25519`` / ``sr25519`` (or ``0`` / ``1``) to a wallet crypto type."""
+def parse_crypto_type(value: str, account_type: str | None = None) -> int:
+    """Parse a wallet scheme, its short name (ed/sr), or its numeric identifier."""
     normalized = value.strip().lower()
     if normalized in _NAME_TO_CRYPTO_TYPE:
-        return _NAME_TO_CRYPTO_TYPE[normalized]
+        return account_crypto_type(_NAME_TO_CRYPTO_TYPE[normalized], account_type)
     if normalized.isdigit():
         code = int(normalized)
         if code in CRYPTO_TYPE_NAMES:
-            return code
+            return account_crypto_type(code, account_type)
     raise ValueError(
         f"unknown crypto type {value!r}; expected one of: {', '.join(CRYPTO_TYPE_NAMES.values())}"
     )
+
+
+def account_type_name(crypto_type: int | None) -> str:
+    return (
+        "hashed"
+        if crypto_type in (CRYPTO_HASHED, CRYPTO_HASHED_ED25519, CRYPTO_MLDSA)
+        else "standard"
+    )
+
+
+def signing_scheme_name(crypto_type: int | None) -> str:
+    if crypto_type in (None, CRYPTO_HASHED, CRYPTO_SR25519):
+        return "sr25519"
+    if crypto_type in (CRYPTO_HASHED_ED25519, CRYPTO_ED25519):
+        return "ed25519"
+    if crypto_type in MLDSA_CRYPTO_TYPES:
+        return "mldsa"
+    return format_crypto_type(crypto_type)
 
 
 def format_crypto_type(crypto_type: int | None) -> str:
@@ -171,6 +207,7 @@ def sign_message(
     password_file: str | None = None,
     macos_prompt: bool = False,
     keychain: bool = False,
+    hashed_generation: int | None = None,
 ) -> dict[str, str]:
     """Sign a message with a wallet key; returns the signer address and bare-hex signature.
 
@@ -188,17 +225,54 @@ def sign_message(
         macos_prompt=macos_prompt,
         keychain=keychain,
     )
+    return sign_message_key(message, keypair, hashed_generation=hashed_generation)
+
+
+def sign_message_key(
+    message: str, keypair: Keypair, *, hashed_generation: int | None = None
+) -> dict[str, str]:
+    """Sign with an unlocked key; a classical hashed key needs its finalized generation."""
+    if keypair.crypto_type in CLASSICAL_HASHED_CRYPTO_TYPES:
+        if hashed_generation is None or hashed_generation < 1:
+            raise ValueError(
+                "hashed message signing requires a finalized transaction "
+                "retiring generation zero first"
+            )
+        keypair = keypair.at_generation(hashed_generation)
     signature = keypair.sign(message.encode())
     return {"ss58": keypair.ss58_address, "signature": bytes(signature).hex()}
 
 
-def verify_message(message: str, signature: str, ss58_address: str) -> bool:
-    """Check a 0x-hex signature over ``message`` against an address's public key."""
+def verify_message(
+    message: str, signature: str, ss58_address: str, crypto_type: int | None = None
+) -> bool:
+    """Verify using a trusted scheme, never one inferred from the signature.
+
+    Receiving addresses bind their descriptor's scheme. Bare SS58 addresses
+    require ``crypto_type`` from trusted configuration or the account registry.
+    """
+    from .receiving import parse_recipient
+
     try:
-        keypair = Keypair(ss58_address=ss58_address)
-        return keypair.verify(message.encode(), bytes.fromhex(signature.removeprefix("0x")))
-    except ValueError:
-        # Malformed hex or address: not verified, per the boolean contract.
+        raw = bytes.fromhex(signature.removeprefix("0x"))
+        recipient = parse_recipient(ss58_address)
+        if recipient.descriptor is not None:
+            key = Keypair.from_hashed_descriptor(recipient.descriptor)
+            if crypto_type is not None and crypto_type != key.crypto_type:
+                return False
+            return key.verify(message.encode(), raw)
+    except (ValueError, TypeError):
+        return False
+    if crypto_type is None:
+        raise ValueError(
+            "bare SS58 verification requires a trusted crypto_type "
+            "(--crypto-type), or use a descriptor-bearing receiving address"
+        )
+    try:
+        return Keypair(ss58_address=recipient.account, crypto_type=crypto_type).verify(
+            message.encode(), raw
+        )
+    except (ValueError, TypeError):
         return False
 
 
@@ -216,15 +290,18 @@ def create(
     hotkey: str = "default",
     path: str = DEFAULT_WALLET_PATH,
     *,
-    n_words: int = 12,
+    n_words: int | None = None,
     use_password: bool = True,
     overwrite: bool = False,
     coldkey_crypto_type: int = DEFAULT_CRYPTO_TYPE,
-    hotkey_crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    account_type: str | None = None,
+    hotkey_account_type: str | None = None,
+    hotkey_crypto_type: int | None = None,
     on_mnemonic: Callable[[str, str], None] | None = None,
 ) -> Wallet:
     """Create a new coldkey and hotkey for ``name``/``hotkey``.
 
+    Both keys use ``coldkey_crypto_type`` unless ``hotkey_crypto_type`` is given.
     ``on_mnemonic`` receives ``("coldkey" | "hotkey", mnemonic)`` for each new
     key and replaces the default plain-stdout echo of the mnemonics.
     """
@@ -233,14 +310,17 @@ def create(
         n_words=n_words,
         use_password=use_password,
         overwrite=overwrite,
-        crypto_type=coldkey_crypto_type,
+        crypto_type=account_crypto_type(coldkey_crypto_type, account_type),
         on_mnemonic=(lambda m: on_mnemonic("coldkey", m)) if on_mnemonic else None,
     )
     wallet.create_new_hotkey(
         n_words=n_words,
         use_password=False,
         overwrite=overwrite,
-        crypto_type=hotkey_crypto_type,
+        crypto_type=account_crypto_type(
+            coldkey_crypto_type if hotkey_crypto_type is None else hotkey_crypto_type,
+            account_type if hotkey_account_type is None else hotkey_account_type,
+        ),
         on_mnemonic=(lambda m: on_mnemonic("hotkey", m)) if on_mnemonic else None,
     )
     return wallet
@@ -257,6 +337,7 @@ def regen_coldkey(
     use_password: bool = True,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    account_type: str | None = None,
 ) -> Wallet:
     """Regenerate a coldkey from a mnemonic, seed, private key, or encrypted JSON."""
     wallet = Wallet(name=name, path=path)
@@ -270,7 +351,7 @@ def regen_coldkey(
         use_password=use_password,
         overwrite=overwrite,
         suppress=True,
-        crypto_type=crypto_type,
+        crypto_type=account_crypto_type(crypto_type, account_type),
     )
     return wallet
 
@@ -285,6 +366,7 @@ def regen_hotkey(
     private_key: str | None = None,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    account_type: str | None = None,
 ) -> Wallet:
     """Regenerate a hotkey from a mnemonic, 32-byte hex seed, or 64-byte private key."""
     wallet = Wallet(name=name, hotkey=hotkey, path=path)
@@ -295,7 +377,7 @@ def regen_hotkey(
         use_password=False,
         overwrite=overwrite,
         suppress=True,
-        crypto_type=crypto_type,
+        crypto_type=account_crypto_type(crypto_type, account_type),
     )
     return wallet
 
@@ -304,10 +386,11 @@ def new_coldkey(
     name: str = "default",
     path: str = DEFAULT_WALLET_PATH,
     *,
-    n_words: int = 12,
+    n_words: int | None = None,
     use_password: bool = True,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    account_type: str | None = None,
     on_mnemonic: Callable[[str], None] | None = None,
 ) -> Wallet:
     """Create a new coldkey only (does not create a hotkey)."""
@@ -316,7 +399,7 @@ def new_coldkey(
         n_words=n_words,
         use_password=use_password,
         overwrite=overwrite,
-        crypto_type=crypto_type,
+        crypto_type=account_crypto_type(crypto_type, account_type),
         on_mnemonic=on_mnemonic,
     )
     return wallet
@@ -327,9 +410,10 @@ def new_hotkey(
     hotkey: str = "default",
     path: str = DEFAULT_WALLET_PATH,
     *,
-    n_words: int = 12,
+    n_words: int | None = None,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    account_type: str | None = None,
     on_mnemonic: Callable[[str], None] | None = None,
 ) -> Wallet:
     """Create a new hotkey in an existing wallet."""
@@ -338,7 +422,7 @@ def new_hotkey(
         n_words=n_words,
         use_password=False,
         overwrite=overwrite,
-        crypto_type=crypto_type,
+        crypto_type=account_crypto_type(crypto_type, account_type),
         on_mnemonic=on_mnemonic,
     )
     return wallet
@@ -346,12 +430,13 @@ def new_hotkey(
 
 def regen_coldkey_pub(
     ss58: str,
-    public_key_hex: str,
+    public_key_hex: str | None = None,
     name: str = "default",
     path: str = DEFAULT_WALLET_PATH,
     *,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    account_type: str | None = None,
 ) -> Wallet:
     wallet = Wallet(name=name, path=path)
     wallet.regenerate_coldkeypub(
@@ -359,20 +444,21 @@ def regen_coldkey_pub(
         public_key=public_key_hex,
         overwrite=overwrite,
         suppress=True,
-        crypto_type=crypto_type,
+        crypto_type=account_crypto_type(crypto_type, account_type),
     )
     return wallet
 
 
 def regen_hotkey_pub(
     ss58: str,
-    public_key_hex: str,
+    public_key_hex: str | None = None,
     name: str = "default",
     hotkey: str = "default",
     path: str = DEFAULT_WALLET_PATH,
     *,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    account_type: str | None = None,
 ) -> Wallet:
     wallet = Wallet(name=name, hotkey=hotkey, path=path)
     wallet.regenerate_hotkeypub(
@@ -380,7 +466,7 @@ def regen_hotkey_pub(
         public_key=public_key_hex,
         overwrite=overwrite,
         suppress=True,
-        crypto_type=crypto_type,
+        crypto_type=account_crypto_type(crypto_type, account_type),
     )
     return wallet
 

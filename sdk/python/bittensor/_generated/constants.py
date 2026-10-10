@@ -185,3 +185,6 @@ class LimitOrders:
     PalletId = Item('LimitOrders', 'PalletId')
     PalletHotkey = Item('LimitOrders', 'PalletHotkey')
     LinkedOutputTtl = Item('LimitOrders', 'LinkedOutputTtl')
+
+class HashedAccounts:
+    RegistrationDeposit = Item('HashedAccounts', 'RegistrationDeposit')

@@ -34,6 +34,7 @@ impl<T: Config> Pallet<T> {
                 .saturating_add(T::DbWeight::get().writes(39_u64))
         };
         base.saturating_add(Self::basket_claimed_swap_weight(old_hotkey, netuid))
+            .saturating_add(Self::hotkey_owner_policy_weight().saturating_mul(2))
     }
 
     /// Pre-dispatch weight for moving basket rows on a root-touching hotkey swap.
@@ -92,7 +93,9 @@ impl<T: Config> Pallet<T> {
             }
             _ => 0,
         };
-        T::DbWeight::get().reads(basket_rows.saturating_add(20))
+        T::DbWeight::get()
+            .reads(basket_rows.saturating_add(20))
+            .saturating_add(Self::hotkey_owner_policy_weight())
     }
 
     /// Read and merge the old hotkey's V1/V2 stake rows once. V2 keeps the
@@ -193,6 +196,7 @@ impl<T: Config> Pallet<T> {
         keep_stake: bool,
     ) -> Result<Weight, DispatchError> {
         let coldkey = coldkey.clone();
+        Self::ensure_hotkey_owner_policy(&coldkey, new_hotkey)?;
         if let Some(netuid) = netuid {
             ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         }
@@ -205,7 +209,9 @@ impl<T: Config> Pallet<T> {
 
         // 3. Initialize the weight for this operation. The coldkey/old_hotkey
         // ownership check above reads Owner twice.
-        let mut weight = T::DbWeight::get().reads(2);
+        let mut weight = T::DbWeight::get()
+            .reads(2)
+            .saturating_add(Self::hotkey_owner_policy_weight());
 
         // 4. If the new hotkey already exists globally, ensure the coldkey owns it
         weight.saturating_accrue(T::DbWeight::get().reads(1));
@@ -586,6 +592,12 @@ impl<T: Config> Pallet<T> {
         keep_stake: bool,
         prepared_stake: Option<&PreparedHotkeyStake<T::AccountId>>,
     ) -> DispatchResult {
+        Self::ensure_hotkey_owner_policy(coldkey, new_hotkey)?;
+        ensure!(
+            Self::is_subnet_account_id(new_hotkey).is_none(),
+            Error::<T>::CannotUseSystemAccount
+        );
+        weight.saturating_accrue(Self::hotkey_owner_policy_weight());
         // 2. Swap the stake locks
         let (reads, writes) = Self::swap_hotkey_locks(old_hotkey, new_hotkey);
         weight.saturating_accrue(T::DbWeight::get().reads_writes(reads, writes));
@@ -596,7 +608,7 @@ impl<T: Config> Pallet<T> {
         if !keep_stake {
             Owner::<T>::remove(old_hotkey);
         }
-        Self::set_hotkey_owner(coldkey, new_hotkey)?;
+        Owner::<T>::insert(new_hotkey, coldkey);
         weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
 
         // 4. Swap OwnedHotkeys.
@@ -691,12 +703,13 @@ impl<T: Config> Pallet<T> {
         keep_stake: bool,
         prepared_stake: Option<&PreparedHotkeyStake<T::AccountId>>,
     ) -> DispatchResultWithPostInfo {
+        Self::ensure_hotkey_owner_policy(coldkey, new_hotkey)?;
         // 1. Ensure coldkey not swap hotkey too frequently on this subnet.
         // Mirror the all-subnets path: only enforce when a prior swap was recorded.
         // A first swap (default 0) must not be gated by chain age / interval size —
         // otherwise young clones and fresh coldkeys fail with
         // `HotKeySwapOnSubnetIntervalNotPassed` whenever `interval >= block`.
-        let mut weight: Weight = init_weight;
+        let mut weight: Weight = init_weight.saturating_add(Self::hotkey_owner_policy_weight());
         let block: u64 = Self::get_current_block_as_u64();
         let hotkey_swap_interval = T::HotkeySwapOnSubnetInterval::get();
         let last_hotkey_swap_block = LastHotkeySwapOnNetuid::<T>::get(netuid, coldkey);

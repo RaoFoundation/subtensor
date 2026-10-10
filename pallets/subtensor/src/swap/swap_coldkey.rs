@@ -19,11 +19,12 @@ impl<T: Config> Pallet<T> {
     /// per position moved plus the per-hotkey bookkeeping reads (watermark, unlock age,
     /// root stake) for every `StakingHotkeys` entry.
     fn coldkey_swap_weight(base: Weight, work: ColdkeySwapWork) -> Weight {
-        base.saturating_add(
-            <T as crate::pallet::Config>::WeightInfo::transfer_stake()
-                .saturating_mul(u64::from(work.positions)),
-        )
-        .saturating_add(T::DbWeight::get().reads(u64::from(work.hotkeys).saturating_mul(3)))
+        base.saturating_add(Self::hotkey_owner_policy_weight())
+            .saturating_add(
+                <T as crate::pallet::Config>::WeightInfo::transfer_stake()
+                    .saturating_mul(u64::from(work.positions)),
+            )
+            .saturating_add(T::DbWeight::get().reads(u64::from(work.hotkeys).saturating_mul(3)))
     }
 
     /// The largest swap one call admits, used as the pre-dispatch envelope.
@@ -94,7 +95,9 @@ impl<T: Config> Pallet<T> {
     /// the admission scan (one `StakingHotkeys` read plus one read per position) when
     /// refused as too heavy, and the admitted work when a later step rolled it back.
     fn coldkey_swap_failed_weight(work: Option<ColdkeySwapWork>, admitted: bool) -> Weight {
-        let precheck = T::DbWeight::get().reads(4);
+        let precheck = T::DbWeight::get()
+            .reads(4)
+            .saturating_add(Self::hotkey_owner_policy_weight());
         match work {
             None => precheck,
             Some(work) if !admitted => precheck.saturating_add(
@@ -117,6 +120,9 @@ impl<T: Config> Pallet<T> {
     ) -> Result<ColdkeySwapWork, (Weight, DispatchError)> {
         let refused =
             |error: Error<T>| (Self::coldkey_swap_failed_weight(None, false), error.into());
+        if !T::HotkeyOwnerPolicy::allows_coldkey_swap(old_coldkey, new_coldkey) {
+            return Err(refused(Error::<T>::HotkeyOwnerPolicyViolation));
+        }
         // The multi-block seed may still hold `RootClaimed[(netuid, hotkey, old_coldkey)]`
         // rows and mid-hotkey `BasketClaimed` writes. Moving root stake + only the new
         // watermark would leave legacy claims on the dead coldkey.
@@ -352,10 +358,15 @@ impl<T: Config> Pallet<T> {
         let old_owned_hotkeys: Vec<T::AccountId> = OwnedHotkeys::<T>::get(old_coldkey);
         let mut new_owned_hotkeys: Vec<T::AccountId> = OwnedHotkeys::<T>::get(new_coldkey);
         for owned_hotkey in old_owned_hotkeys.iter() {
-            // Remove the hotkey from the old coldkey.
-            Owner::<T>::remove(owned_hotkey);
-            // Add the hotkey to the new coldkey.
-            Self::set_hotkey_owner(new_coldkey, owned_hotkey)?;
+            // Preserve the shared setter's existing system-account exclusion.
+            ensure!(
+                Self::is_subnet_account_id(owned_hotkey).is_none(),
+                Error::<T>::CannotUseSystemAccount
+            );
+            // The coldkey-swap policy was checked before entering this
+            // transaction. Its contract preserves every existing owner policy,
+            // avoiding a new registry lookup for each hotkey in this loop.
+            Owner::<T>::insert(owned_hotkey, new_coldkey);
             // Addd the owned hotkey to the new set of owned hotkeys.
             if !new_owned_hotkeys.contains(owned_hotkey) {
                 new_owned_hotkeys.push(owned_hotkey.clone());

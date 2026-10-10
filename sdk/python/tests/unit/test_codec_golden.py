@@ -44,6 +44,15 @@ def test_composed_calls_are_byte_identical():
         )
 
 
+@pytest.mark.parametrize("value", [[(7, 11)], [[7, 11]], [[[7, 11]]]])
+def test_singleton_bounded_tuple_sequence(value):
+    # Golden metadata type 249 is BoundedVec<(u16, u64)>. The single
+    # tuple/list is one element, not an extra legacy newtype wrapper.
+    c = codec()
+    expected = b"\x04" + (7).to_bytes(2, "little") + (11).to_bytes(8, "little")
+    assert c.encode("scale_info::249", value) == expected
+
+
 def test_signature_payloads_match():
     g = golden()
     c = codec()

@@ -21,12 +21,54 @@ use zeroize::Zeroizing;
 use crate::error::CoreError;
 
 mod base58;
+mod hashed;
+pub use hashed::HashedKeypair;
+mod receiving;
+pub use receiving::{decode_hashed_receiving_address, encode_hashed_receiving_address};
 #[cfg(feature = "host")]
 mod encrypted_json;
 
 /// Crypto type codes, matching the py-substrate-interface / btwallet convention.
 pub const CRYPTO_ED25519: u8 = 0;
 pub const CRYPTO_SR25519: u8 = 1;
+/// Versioned rotating commitment wrapper; initially wraps sr25519.
+pub const CRYPTO_HASHED: u8 = 4;
+pub const CRYPTO_MLDSA: u8 = 5;
+pub const CRYPTO_HASHED_ED25519: u8 = 6;
+pub const CRYPTO_MLDSA_STANDARD: u8 = 7;
+
+pub fn is_mldsa_crypto(crypto_type: u8) -> bool {
+    matches!(crypto_type, CRYPTO_MLDSA | CRYPTO_MLDSA_STANDARD)
+}
+
+pub fn is_hashed_crypto(crypto_type: u8) -> bool {
+    matches!(
+        crypto_type,
+        CRYPTO_HASHED | CRYPTO_MLDSA | CRYPTO_HASHED_ED25519 | CRYPTO_MLDSA_STANDARD
+    )
+}
+
+/// Compose account mode with a signing scheme; omitted mode preserves legacy codes.
+pub fn account_crypto_type(crypto_type: u8, mode: Option<&str>) -> Result<u8, CoreError> {
+    let Some(mode) = mode else {
+        return Ok(crypto_type);
+    };
+    let scheme = match crypto_type {
+        CRYPTO_SR25519 | CRYPTO_HASHED => CRYPTO_SR25519,
+        CRYPTO_ED25519 | CRYPTO_HASHED_ED25519 => CRYPTO_ED25519,
+        CRYPTO_MLDSA | CRYPTO_MLDSA_STANDARD => CRYPTO_MLDSA,
+        _ => return Err(crypto_err("unsupported signing scheme")),
+    };
+    match (mode, scheme) {
+        ("standard", CRYPTO_SR25519) => Ok(CRYPTO_SR25519),
+        ("standard", CRYPTO_ED25519) => Ok(CRYPTO_ED25519),
+        ("standard", CRYPTO_MLDSA) => Ok(CRYPTO_MLDSA_STANDARD),
+        ("hashed", CRYPTO_SR25519) => Ok(CRYPTO_HASHED),
+        ("hashed", CRYPTO_ED25519) => Ok(CRYPTO_HASHED_ED25519),
+        ("hashed", CRYPTO_MLDSA) => Ok(CRYPTO_MLDSA),
+        _ => Err(crypto_err("account type must be standard or hashed")),
+    }
+}
 
 pub const DEFAULT_SS58_FORMAT: u16 = 42;
 
@@ -45,6 +87,8 @@ fn as_bytes<T: AsRef<[u8]>>(value: &T) -> Vec<u8> {
     value.as_ref().to_vec()
 }
 
+/// Decode the 32-byte account identity. Hashed identities are commitments, not
+/// signing public keys; the historical function name remains for compatibility.
 pub fn public_key_from_ss58(ss58_address: &str) -> Result<[u8; 32], CoreError> {
     let account = AccountId32::from_ss58check(ss58_address)
         .map_err(|e| crypto_err(format!("invalid ss58 address: {e:?}")))?;
@@ -95,6 +139,9 @@ fn verify_with_crypto(
                 .map_err(|_| crypto_err("invalid ed25519 signature length"))?;
             Ok(ed25519::Pair::verify(&sig, message, &public))
         }
+        CRYPTO_HASHED | CRYPTO_MLDSA | CRYPTO_HASHED_ED25519 | CRYPTO_MLDSA_STANDARD => Ok(
+            hashed::verify_message(crypto_type, public_key, message, signature),
+        ),
         other => Err(crypto_err(format!("unknown crypto type {other}"))),
     }
 }
@@ -131,6 +178,7 @@ fn ed25519_x25519_from_pair(
 pub enum KeypairInner {
     Ed25519(ed25519::Pair),
     Sr25519(sr25519::Pair),
+    Hashed(HashedKeypair),
     PublicOnly {
         public_key: [u8; 32],
         crypto_type: u8,
@@ -142,12 +190,13 @@ impl KeypairInner {
         match self {
             KeypairInner::Ed25519(pair) => Some(pair.to_raw_vec()),
             KeypairInner::Sr25519(pair) => Some(pair.to_raw_vec()),
+            KeypairInner::Hashed(pair) => pair.master_seed().map(|seed| seed.to_vec()),
             KeypairInner::PublicOnly { .. } => None,
         }
     }
 }
 
-/// An sr25519 or ed25519 keypair backed by the workspace's sp-core.
+/// A native keypair or a versioned hashed account backed by workspace crypto.
 pub struct Keypair {
     inner: KeypairInner,
     ss58_format: u16,
@@ -162,6 +211,25 @@ pub struct Keypair {
 }
 
 impl Keypair {
+    pub fn account_type(&self) -> &'static str {
+        if matches!(
+            self.crypto_type(),
+            CRYPTO_HASHED | CRYPTO_HASHED_ED25519 | CRYPTO_MLDSA
+        ) {
+            "hashed"
+        } else {
+            "standard"
+        }
+    }
+
+    pub fn signing_scheme(&self) -> &'static str {
+        match self.crypto_type() {
+            CRYPTO_HASHED | CRYPTO_SR25519 => "sr25519",
+            CRYPTO_HASHED_ED25519 | CRYPTO_ED25519 => "ed25519",
+            CRYPTO_MLDSA | CRYPTO_MLDSA_STANDARD => "mldsa",
+            _ => "unknown",
+        }
+    }
     /// Public-only or full keypair from SS58 address and/or raw public key bytes.
     pub fn new(
         ss58_address: Option<&str>,
@@ -170,7 +238,12 @@ impl Keypair {
         ss58_format: u16,
     ) -> Result<Self, CoreError> {
         match crypto_type {
-            CRYPTO_SR25519 | CRYPTO_ED25519 => {}
+            CRYPTO_SR25519
+            | CRYPTO_ED25519
+            | CRYPTO_HASHED
+            | CRYPTO_MLDSA
+            | CRYPTO_HASHED_ED25519
+            | CRYPTO_MLDSA_STANDARD => {}
             other => return Err(crypto_err(format!("unknown crypto type {other}"))),
         }
 
@@ -224,6 +297,14 @@ impl Keypair {
                     .map_err(|e| crypto_err(format!("invalid mnemonic: {e:?}")))?;
                 (KeypairInner::Ed25519(pair), seed.to_vec())
             }
+            CRYPTO_HASHED | CRYPTO_MLDSA | CRYPTO_HASHED_ED25519 | CRYPTO_MLDSA_STANDARD => {
+                let (_, seed) = sr25519::Pair::from_phrase(mnemonic, password)
+                    .map_err(|e| crypto_err(format!("invalid mnemonic: {e:?}")))?;
+                (
+                    KeypairInner::Hashed(HashedKeypair::from_seed(&seed, crypto_type)?),
+                    seed.to_vec(),
+                )
+            }
             other => return Err(crypto_err(format!("unknown crypto type {other}"))),
         };
         Ok(Self {
@@ -250,6 +331,9 @@ impl Keypair {
                 ed25519::Pair::from_seed_slice(seed)
                     .map_err(|e| crypto_err(format!("invalid seed: {e:?}")))?,
             ),
+            CRYPTO_HASHED | CRYPTO_MLDSA | CRYPTO_HASHED_ED25519 | CRYPTO_MLDSA_STANDARD => {
+                KeypairInner::Hashed(HashedKeypair::from_seed(seed, crypto_type)?)
+            }
             other => return Err(crypto_err(format!("unknown crypto type {other}"))),
         };
         Ok(Self {
@@ -262,6 +346,11 @@ impl Keypair {
 
     /// Derive a keypair from a secret URI (e.g. "//Alice" or "<mnemonic>//hard/soft").
     pub fn from_uri(uri: &str, crypto_type: u8) -> Result<Self, CoreError> {
+        if is_hashed_crypto(crypto_type) {
+            return Err(crypto_err(
+                "hashed wallets require a mnemonic or a 32-byte master seed; secret URIs are unsupported",
+            ));
+        }
         let inner = match crypto_type {
             CRYPTO_SR25519 => KeypairInner::Sr25519(
                 sr25519::Pair::from_string(uri, None)
@@ -290,6 +379,10 @@ impl Keypair {
             hex::decode(private_key.trim_start_matches("0x"))
                 .map_err(|_| crypto_err("invalid private_key hex string"))?,
         );
+
+        if is_hashed_crypto(crypto_type) {
+            return Self::from_seed(&private_key_vec, crypto_type);
+        }
 
         let inner = match crypto_type {
             CRYPTO_SR25519 => {
@@ -343,14 +436,18 @@ impl Keypair {
         match &self.inner {
             KeypairInner::Ed25519(_) => CRYPTO_ED25519,
             KeypairInner::Sr25519(_) => CRYPTO_SR25519,
+            KeypairInner::Hashed(key) => key.crypto_type(),
             KeypairInner::PublicOnly { crypto_type, .. } => *crypto_type,
         }
     }
 
+    /// Stable account identity. For hashed wallets, obtain the active signer
+    /// separately with `hashed_public_key`, only when constructing its proof.
     pub fn public_key_bytes(&self) -> [u8; 32] {
         match &self.inner {
             KeypairInner::Ed25519(pair) => pair.public().0,
             KeypairInner::Sr25519(pair) => pair.public().0,
+            KeypairInner::Hashed(pair) => pair.account_id(),
             KeypairInner::PublicOnly { public_key, .. } => *public_key,
         }
     }
@@ -392,6 +489,7 @@ impl Keypair {
         match &self.inner {
             KeypairInner::Ed25519(pair) => Ok(as_bytes(&pair.sign(message))),
             KeypairInner::Sr25519(pair) => Ok(as_bytes(&pair.sign(message))),
+            KeypairInner::Hashed(_) => self.sign_hashed_message(message),
             KeypairInner::PublicOnly { .. } => {
                 Err(crypto_err("no private key set to create signatures"))
             }

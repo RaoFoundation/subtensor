@@ -17,7 +17,7 @@ use sodiumoxide::crypto::secretbox;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::CoreError;
-use crate::keys::{ensure_sodium, Keypair, CRYPTO_ED25519, CRYPTO_SR25519};
+use crate::keys::{ensure_sodium, is_hashed_crypto, Keypair, CRYPTO_ED25519, CRYPTO_SR25519};
 
 const NACL_SALT: &[u8] = b"\x13q\x83\xdf\xf1Z\t\xbc\x9c\x90\xb5Q\x879\xe9\xb1";
 const LEGACY_SALT: &[u8] = b"Iguesscyborgslikemyselfhaveatendencytobeparanoidaboutourorigins";
@@ -202,6 +202,18 @@ pub fn serialized_keypair_to_keyfile_data(keypair: &Keypair) -> Result<Vec<u8>, 
 
     data.insert("ss58Address", json!(keypair.ss58_address()));
     data.insert("cryptoType", json!(keypair.crypto_type()));
+    data.insert("accountType", json!(keypair.account_type()));
+    data.insert("signingScheme", json!(keypair.signing_scheme()));
+    if is_hashed_crypto(keypair.crypto_type()) {
+        if let Ok(descriptor) = keypair.hashed_descriptor() {
+            data.insert(
+                "hashedDescriptor",
+                json!(format!("0x{}", hex::encode(descriptor))),
+            );
+        }
+        // A persisted generation would be stale after use on another machine.
+        // Restore the genesis identity here; always select state from chain.
+    }
 
     serde_json::to_string(&data)
         .map(|json_data| json_data.into_bytes())
@@ -284,6 +296,87 @@ fn keypair_from_raw_text(text: &str) -> Option<Keypair> {
     None
 }
 
+fn deserialize_hashed(keyfile: &serde_json::Value, crypto_type: u8) -> Result<Keypair, CoreError> {
+    let public = match keyfile.get("hashedDescriptor") {
+        Some(serde_json::Value::String(encoded)) => {
+            let descriptor = hex::decode(encoded.trim_start_matches("0x"))
+                .map_err(|_| key_err("invalid hashed descriptor encoding"))?;
+            Some(Keypair::from_hashed_descriptor(&descriptor, 42)?)
+        }
+        Some(_) => return Err(key_err("hashedDescriptor must be a hex string")),
+        None => None,
+    };
+    let private = if let Some(phrase) = keyfile.get("secretPhrase") {
+        let phrase = phrase
+            .as_str()
+            .ok_or_else(|| key_err("invalid hashed secretPhrase"))?;
+        Some(Keypair::from_mnemonic(phrase, crypto_type, None)?)
+    } else if let Some(seed) = keyfile
+        .get("secretSeed")
+        .or_else(|| keyfile.get("privateKey"))
+    {
+        let seed = seed
+            .as_str()
+            .ok_or_else(|| key_err("invalid hashed master seed"))?;
+        let seed = Zeroizing::new(
+            hex::decode(seed.trim_start_matches("0x"))
+                .map_err(|_| key_err("invalid hashed master seed encoding"))?,
+        );
+        Some(Keypair::from_seed(&seed, crypto_type)?)
+    } else {
+        None
+    };
+    if private.is_some() && public.is_none() {
+        return Err(key_err(
+            "hashed secret keyfiles require their versioned hashedDescriptor",
+        ));
+    }
+    let keypair = match (private, public) {
+        (Some(private), Some(public)) => {
+            if private.hashed_descriptor()? != public.hashed_descriptor()? {
+                return Err(key_err(
+                    "hashedDescriptor does not match the recovered master seed",
+                ));
+            }
+            private
+        }
+        (None, Some(public)) => public,
+        (None, None) => Keypair::new(stored_ss58(keyfile), None, crypto_type, 42)?,
+        (Some(_), None) => return Err(key_err("missing hashed descriptor")),
+    };
+    for (field, expected) in [
+        ("accountType", keypair.account_type()),
+        ("signingScheme", keypair.signing_scheme()),
+    ] {
+        if let Some(value) = keyfile.get(field) {
+            if value.as_str() != Some(expected) {
+                return Err(key_err(format!("{field} does not match hashedDescriptor")));
+            }
+        }
+    }
+    if keypair.crypto_type() != crypto_type {
+        return Err(key_err("cryptoType does not match hashedDescriptor"));
+    }
+    if let Some(address) = stored_ss58(keyfile) {
+        if keypair.ss58_address() != address {
+            return Err(key_err("ss58Address does not match hashedDescriptor"));
+        }
+    }
+    for field in ["accountId", "publicKey"] {
+        if let Some(stored) = keyfile.get(field) {
+            let encoded = stored
+                .as_str()
+                .ok_or_else(|| key_err("invalid hashed account ID"))?;
+            let bytes = hex::decode(encoded.trim_start_matches("0x"))
+                .map_err(|_| key_err("invalid hashed account ID encoding"))?;
+            if bytes != keypair.public_key_bytes() {
+                return Err(key_err("account ID does not match hashedDescriptor"));
+            }
+        }
+    }
+    Ok(keypair)
+}
+
 pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> Result<Keypair, CoreError> {
     let decoded = std::str::from_utf8(keyfile_data).map_err(|_| {
         if keyfile_data_is_encrypted(keyfile_data) {
@@ -325,6 +418,15 @@ pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> Result<Keyp
             _ => None,
         })
         .unwrap_or(CRYPTO_SR25519);
+
+    if is_hashed_crypto(crypto_type) {
+        return deserialize_hashed(&keyfile_dict, crypto_type);
+    }
+    if keyfile_dict.get("hashedDescriptor").is_some() {
+        return Err(key_err(
+            "hashedDescriptor requires a registered-account cryptoType",
+        ));
+    }
 
     if let Some(secret_phrase) = keyfile_dict
         .get("secretPhrase")
@@ -379,10 +481,69 @@ mod tests {
 
     use super::*;
     use crate::keys::CRYPTO_ED25519;
+    use crate::keys::CRYPTO_HASHED;
+
+    #[test]
+    fn new_account_modes_roundtrip_and_reject_mislabeled_backups() {
+        for code in [
+            crate::keys::CRYPTO_HASHED_ED25519,
+            crate::keys::CRYPTO_MLDSA_STANDARD,
+        ] {
+            let key = Keypair::from_seed(&[37; 32], code).unwrap();
+            for original in [key.public_only().unwrap(), key] {
+                let bytes = serialized_keypair_to_keyfile_data(&original).unwrap();
+                let restored = deserialize_keypair_from_keyfile_data(&bytes).unwrap();
+                assert_eq!(restored.crypto_type(), code);
+                assert_eq!(
+                    restored.hashed_descriptor().unwrap(),
+                    original.hashed_descriptor().unwrap()
+                );
+                for field in ["accountType", "signingScheme"] {
+                    let mut data: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                    data[field] = json!("wrong");
+                    assert!(deserialize_keypair_from_keyfile_data(
+                        &serde_json::to_vec(&data).unwrap()
+                    )
+                    .is_err());
+                }
+                let mut legacy: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                legacy.as_object_mut().unwrap().remove("accountType");
+                legacy.as_object_mut().unwrap().remove("signingScheme");
+                assert_eq!(
+                    deserialize_keypair_from_keyfile_data(&serde_json::to_vec(&legacy).unwrap())
+                        .unwrap()
+                        .crypto_type(),
+                    code
+                );
+            }
+        }
+    }
 
     fn test_mnemonic() -> String {
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
             .to_string()
+    }
+
+    #[test]
+    fn mldsa_keyfiles_preserve_identity_and_reject_scheme_substitution() {
+        let key =
+            Keypair::from_mnemonic(&test_mnemonic(), crate::keys::CRYPTO_MLDSA, None).unwrap();
+        for original in [key.public_only().unwrap(), key] {
+            let encoded = serialized_keypair_to_keyfile_data(&original).unwrap();
+            let restored = deserialize_keypair_from_keyfile_data(&encoded).unwrap();
+            assert_eq!(restored.crypto_type(), crate::keys::CRYPTO_MLDSA);
+            assert_eq!(
+                restored.hashed_descriptor().unwrap(),
+                original.hashed_descriptor().unwrap()
+            );
+            assert_eq!(restored.private_key_bytes(), original.private_key_bytes());
+            let mut changed: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+            changed["cryptoType"] = serde_json::json!(CRYPTO_HASHED);
+            assert!(
+                deserialize_keypair_from_keyfile_data(&serde_json::to_vec(&changed).unwrap())
+                    .is_err()
+            );
+        }
     }
 
     #[test]
@@ -434,6 +595,178 @@ mod tests {
         let restored = deserialize_keypair_from_keyfile_data(&data).unwrap();
         assert_eq!(restored.crypto_type(), CRYPTO_SR25519);
         assert_eq!(restored.ss58_address(), original.ss58_address());
+    }
+
+    #[test]
+    fn hashed_private_and_public_keyfiles_preserve_recovery_descriptor() {
+        let original = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_HASHED, None)
+            .unwrap()
+            .at_generation(72)
+            .unwrap();
+        let private = serialized_keypair_to_keyfile_data(&original).unwrap();
+        let recovered = deserialize_keypair_from_keyfile_data(&private)
+            .unwrap()
+            .at_generation(72)
+            .unwrap();
+        assert_eq!(
+            recovered.hashed_public_key().unwrap(),
+            original.hashed_public_key().unwrap()
+        );
+        assert_eq!(
+            recovered.hashed_next_commitment().unwrap(),
+            original.hashed_next_commitment().unwrap()
+        );
+        let public = original.public_only().unwrap();
+        let public_data = serialized_keypair_to_keyfile_data(&public).unwrap();
+        let public_recovered = deserialize_keypair_from_keyfile_data(&public_data).unwrap();
+        assert_eq!(public_recovered.ss58_address(), original.ss58_address());
+        assert_eq!(
+            public_recovered.hashed_descriptor().unwrap(),
+            original.hashed_descriptor().unwrap()
+        );
+        assert!(public_recovered.private_key_bytes().is_none());
+        assert!(!String::from_utf8(public_data).unwrap().contains("secret"));
+    }
+
+    #[test]
+    fn hashed_encrypted_original_backup_restores_after_later_rotations() {
+        use codec::Decode;
+        use sp_core::{sr25519, Pair};
+        use subtensor_hashed::{transaction_payload, Proof, Scheme};
+
+        let original = Keypair::from_mnemonic(
+            &test_mnemonic(),
+            CRYPTO_HASHED,
+            Some("mnemonic derivation passphrase"),
+        )
+        .unwrap();
+        let backup = serialized_keypair_to_keyfile_data(&original).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&backup).unwrap();
+        // The encryption password and BIP39 derivation passphrase have
+        // separate purposes. A phrase alone cannot recover this wallet.
+        assert!(json.get("secretPhrase").is_none());
+        assert!(json.get("secretSeed").is_some());
+        drop(json);
+        let encrypted = encrypt_keyfile_data(&backup, "keyfile encryption password").unwrap();
+        let active = original.at_generation(9_001).unwrap();
+        let account = active.public_key_bytes();
+        let public_key = active.hashed_public_key().unwrap();
+        let commitment = active.hashed_current_commitment().unwrap();
+        let next_commitment = active.hashed_next_commitment().unwrap();
+        drop(active);
+        drop(original);
+        drop(backup);
+
+        assert!(matches!(
+            decrypt_keyfile_data(&encrypted, Some("wrong encryption password")),
+            Err(CoreError::WrongPassword(_)),
+        ));
+        let mut altered = encrypted.clone();
+        *altered.last_mut().unwrap() ^= 1;
+        assert!(matches!(
+            decrypt_keyfile_data(&altered, Some("keyfile encryption password")),
+            Err(CoreError::WrongPassword(_)),
+        ));
+        let decrypted =
+            decrypt_keyfile_data(&encrypted, Some("keyfile encryption password")).unwrap();
+        let restored = deserialize_keypair_from_keyfile_data(&decrypted).unwrap();
+        assert_eq!(restored.hashed_generation().unwrap(), 0);
+        // A new device needs only the original backup and the public chain
+        // generation; no locally remembered signatures or later backups.
+        let restored = restored.at_generation(9_001).unwrap();
+        assert_eq!(restored.public_key_bytes(), account);
+        assert_eq!(restored.hashed_public_key().unwrap(), public_key);
+        assert_eq!(restored.hashed_current_commitment().unwrap(), commitment);
+        assert_eq!(restored.hashed_next_commitment().unwrap(), next_commitment);
+        let implication = b"first transaction after restoring";
+        let encoded = restored.sign_hashed(implication).unwrap();
+        let proof = Proof::decode(&mut &encoded[..]).unwrap();
+        assert_eq!(proof.generation, 9_001);
+        assert_eq!(proof.public_key, public_key);
+        assert_eq!(proof.next_commitment, next_commitment);
+        let payload = transaction_payload(
+            &account,
+            Scheme::Sr25519,
+            9_001,
+            &next_commitment,
+            implication,
+        );
+        assert!(sr25519::Pair::verify(
+            &sr25519::Signature::from_raw(proof.signature),
+            payload,
+            &sr25519::Public::from_raw(public_key)
+        ));
+    }
+
+    #[test]
+    fn hashed_keyfile_import_paths_check_the_same_descriptor() {
+        let original = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_HASHED, None).unwrap();
+        let encoded = serialized_keypair_to_keyfile_data(&original).unwrap();
+        let full: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+        for secret_field in ["secretPhrase", "secretSeed", "privateKey"] {
+            let mut one_secret = full.clone();
+            for other in ["secretPhrase", "secretSeed", "privateKey"] {
+                if other != secret_field {
+                    one_secret.as_object_mut().unwrap().remove(other);
+                }
+            }
+            let restored =
+                deserialize_keypair_from_keyfile_data(&serde_json::to_vec(&one_secret).unwrap())
+                    .unwrap();
+            assert_eq!(restored.ss58_address(), original.ss58_address());
+            assert_eq!(
+                restored.hashed_commitment(301).unwrap(),
+                original.hashed_commitment(301).unwrap()
+            );
+            one_secret[secret_field] = if secret_field == "secretPhrase" {
+                json!("legal winner thank year wave sausage worth useful legal winner thank yellow")
+            } else {
+                json!(format!("0x{}", "13".repeat(32)))
+            };
+            assert!(
+                deserialize_keypair_from_keyfile_data(&serde_json::to_vec(&one_secret).unwrap())
+                    .is_err(),
+                "a mismatched {secret_field} must not silently select another account"
+            );
+        }
+    }
+
+    #[test]
+    fn hashed_keyfiles_never_fall_back_to_classical_or_unknown_profiles() {
+        let original = Keypair::from_seed(&[6; 32], CRYPTO_HASHED).unwrap();
+        let bytes = serialized_keypair_to_keyfile_data(&original).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let sibling = Keypair::from_seed(&[7; 32], CRYPTO_HASHED).unwrap();
+        for update in [
+            ("cryptoType", json!(CRYPTO_SR25519)),
+            ("hashedDescriptor", json!("0xff01")),
+            ("accountId", json!(format!("0x{}", "00".repeat(32)))),
+            ("secretSeed", json!(format!("0x{}", "01".repeat(32)))),
+            (
+                "hashedDescriptor",
+                json!(format!(
+                    "0x{}",
+                    hex::encode(sibling.hashed_descriptor().unwrap())
+                )),
+            ),
+            (
+                "publicKey",
+                json!(format!("0x{}", hex::encode(sibling.public_key_bytes()))),
+            ),
+            ("ss58Address", json!(sibling.ss58_address())),
+        ] {
+            let mut altered = value.clone();
+            altered[update.0] = update.1;
+            assert!(
+                deserialize_keypair_from_keyfile_data(&serde_json::to_vec(&altered).unwrap())
+                    .is_err()
+            );
+        }
+        let mut missing = value;
+        missing.as_object_mut().unwrap().remove("hashedDescriptor");
+        assert!(
+            deserialize_keypair_from_keyfile_data(&serde_json::to_vec(&missing).unwrap()).is_err()
+        );
     }
 
     #[test]

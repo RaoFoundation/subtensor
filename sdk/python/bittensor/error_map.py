@@ -84,6 +84,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "HotKeyAccountNotExists": _C.NOT_REGISTERED,
     "HotKeyNotRegisteredInNetwork": _C.NOT_REGISTERED,
     "NonAssociatedColdKey": _C.NOT_AUTHORIZED,
+    "HotkeyOwnerPolicyViolation": _C.NOT_AUTHORIZED,
     "NotEnoughStake": _C.INSUFFICIENT_BALANCE,
     "NotEnoughStakeToWithdraw": _C.INSUFFICIENT_BALANCE,
     # Hotkey stake-weight floor for set/commit weights (not free-TAO balance).
@@ -302,6 +303,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "RescheduleNoChange": _C.INVALID_ARGUMENT,
     "Named": _C.INVALID_ARGUMENT,
     # ── Proxy ───────────────────────────────────────────────────────────
+    "AccountPolicyViolation": _C.NOT_AUTHORIZED,
     "NotProxy": _C.NOT_AUTHORIZED,
     "Unproxyable": _C.NOT_AUTHORIZED,
     "Duplicate": _C.ALREADY_EXISTS,
@@ -343,7 +345,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "CannotReleaseYet": _C.TOO_EARLY,
     "CurrencyError": _C.INTERNAL,
     # ── Ethereum ────────────────────────────────────────────────────────
-    "InvalidSignature": _C.INVALID_ARGUMENT,  # also EVM, LimitOrders
+    "InvalidSignature": _C.INVALID_ARGUMENT,  # also EVM, LimitOrders, HashedAccounts
     "PreLogExists": _C.INVALID_ARGUMENT,
     # ── EVM ─────────────────────────────────────────────────────────────
     "BalanceLow": _C.INSUFFICIENT_BALANCE,
@@ -473,6 +475,16 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "PartialFillNotSupportedForProvider": _C.INVALID_ARGUMENT,
     "LinkedOutputNotPrunable": _C.INVALID_ARGUMENT,
     "OrderSignerFrozen": _C.NOT_AUTHORIZED,
+    # ── HashedAccounts ──────────────────────────────────────────────────
+    "Disabled": _C.DISABLED,
+    "UnsupportedDescriptor": _C.INVALID_ARGUMENT,
+    "DescriptorMismatch": _C.INVALID_ARGUMENT,
+    "NotRegistered": _C.NOT_REGISTERED,
+    "WrongGeneration": _C.INVALID_ARGUMENT,
+    "WrongCommitment": _C.NOT_AUTHORIZED,
+    "InvalidNextCommitment": _C.INVALID_ARGUMENT,
+    "GenerationExhausted": _C.LIMIT_EXCEEDED,
+    "AliasCollision": _C.ALREADY_EXISTS,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

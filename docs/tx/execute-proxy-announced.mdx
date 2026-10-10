@@ -14,7 +14,7 @@ matching announcement exists.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.proxy_announced`](/code/pallets/proxy/src/lib.rs#L557-L592) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.proxy_announced`](/code/pallets/proxy/src/lib.rs#L580-L616) |
 
 ## Parameters
 
@@ -73,13 +73,13 @@ result = sub.execute_tool("execute_proxy_announced", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.proxy_announced` — [`pallets/proxy/src/lib.rs#L566`](/code/pallets/proxy/src/lib.rs#L557-L592):
+`Proxy.proxy_announced` — [`pallets/proxy/src/lib.rs#L589`](/code/pallets/proxy/src/lib.rs#L580-L616):
 
 ```rust
         #[pallet::call_index(9)]
         #[pallet::weight({
 			let di = call.get_dispatch_info();
-			(T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get())
+			(T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get()).saturating_add(T::AccountPolicy::weight())
 				 // AccountData for inner call origin accountdata.
 				.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 				.saturating_add(di.call_weight),
@@ -107,6 +107,7 @@ result = sub.execute_tool("execute_proxy_announced", {...}, wallet)
             .map_err(|_| Error::<T>::Unannounced)?;
 
             let weight = T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get())
+                .saturating_add(T::AccountPolicy::weight())
                 .saturating_add(T::DbWeight::get().reads_writes(1, 1))
                 .saturating_add(Self::do_proxy(def, real, *call, origin));
 
@@ -114,6 +115,6 @@ result = sub.execute_tool("execute_proxy_announced", {...}, wallet)
         }
 ```
 
-Delegates to [`find_proxy`](/code/pallets/proxy/src/lib.rs#L1109).
+Delegates to [`find_proxy`](/code/pallets/proxy/src/lib.rs#L1142).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

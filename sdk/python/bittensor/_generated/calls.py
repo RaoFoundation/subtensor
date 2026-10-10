@@ -24,6 +24,7 @@ BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
 ConsensusMode = Any
+Descriptor = Any
 Determinism = Any
 EpochConsensus = Any
 EquivocationProof = Any
@@ -1078,6 +1079,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_evm_chain_id', {'chain_id': chain_id})
 
     @staticmethod
+    def sudo_set_hashed_accounts_enabled(enabled: 'bool') -> Call:
+        'Enables or disables hashed and ML-DSA registration and signing. Root-only. Defaults off. Disabling pauses existing accounts too; their records, generations, EVM aliases and restrictions on alternate authority remain.'
+        return Call('AdminUtils', 'sudo_set_hashed_accounts_enabled', {'enabled': enabled})
+
+    @staticmethod
     def sudo_set_immunity_period(netuid: 'NetUid', immunity_period: 'u16') -> Call:
         'The extrinsic sets the immunity period for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the immunity period.'
         return Call('AdminUtils', 'sudo_set_immunity_period', {'netuid': netuid, 'immunity_period': immunity_period})
@@ -1702,3 +1708,17 @@ class LimitOrders:
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
+
+
+class HashedAccounts:
+    """Call builders for the HashedAccounts pallet."""
+
+    @staticmethod
+    def check_registered(descriptor: 'Descriptor') -> Call:
+        "Check a recipient's registration without reserving funds or creating an account. An atomic payment must fail if a reorg removed its setup."
+        return Call('HashedAccounts', 'check_registered', {'descriptor': descriptor})
+
+    @staticmethod
+    def register(descriptor: 'Descriptor') -> Call:
+        'Bind a derived account to its hidden initial key. Anyone may sponsor the permanent storage deposit; the sponsor gains no authority. Idempotent registration never changes an existing authorization.'
+        return Call('HashedAccounts', 'register', {'descriptor': descriptor})
