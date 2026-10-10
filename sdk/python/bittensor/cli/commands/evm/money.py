@@ -48,7 +48,7 @@ def balance(
     wei = _run_evm(app_ctx, lambda: rpc.get_balance_wei(h160))
     amount = evm_rpc.wei_to_balance(wei)
     # A custom Ethereum endpoint need not be the selected Substrate network.
-    # Never export a receiving route using another chain's registry/genesis.
+    # Never export a receiving route using another chain's alias registry.
     native_fields = {}
     if rpc_url is None:
         recipient = app_ctx.run(

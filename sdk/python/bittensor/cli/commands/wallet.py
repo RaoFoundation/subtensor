@@ -125,12 +125,6 @@ _SEED_RE = re.compile(r"(0x)?[0-9a-fA-F]{64}")
 _PRIVATE_KEY_RE = re.compile(r"(0x)?[0-9a-fA-F]{128}")
 
 
-def _prepare_receiving_address(app_ctx: AppContext, *crypto_types: int) -> None:
-    """Resolve network identity before a hashed creation or recovery writes files."""
-    if any(kind in wallets.HASHED_CRYPTO_TYPES for kind in crypto_types):
-        app_ctx.receiving_genesis_hash()
-
-
 def _address_fields(app_ctx: AppContext, public, *, role: str = "") -> dict[str, str]:
     suffix = "address" if public.crypto_type in wallets.HASHED_CRYPTO_TYPES else "ss58"
     key = f"{role}_{suffix}" if role else suffix
@@ -157,10 +151,6 @@ def _public_recovery_type(
 ) -> int:
     recipient = parse_recipient(address)
     if recipient.descriptor is not None:
-        if recipient.genesis_hash != bytes.fromhex(app_ctx.receiving_genesis_hash()[2:]):
-            raise ValueError(
-                "receiving address belongs to another network; select its network with --network"
-            )
         return wallets.Keypair.from_hashed_descriptor(recipient.descriptor).crypto_type
     if crypto_type in wallets.HASHED_CRYPTO_TYPES:
         raise ValueError(
@@ -362,7 +352,6 @@ def create(
         app_ctx,
         crypto_type if hotkey_crypto_type is None else hotkey_crypto_type,
     )
-    _prepare_receiving_address(app_ctx, coldkey_crypto, hotkey_crypto)
     mnemonics: dict[str, str] = {}
 
     def _on_mnemonic(role: str, mnemonic: str) -> None:
@@ -421,7 +410,6 @@ def new_coldkey(
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(app_ctx, help_text="Wallet to create the coldkey in.", must_exist=False)
     crypto = _resolve_crypto_type(app_ctx, crypto_type)
-    _prepare_receiving_address(app_ctx, crypto)
     mnemonics: dict[str, str] = {}
 
     def _on_mnemonic(mnemonic: str) -> None:
@@ -476,7 +464,6 @@ def new_hotkey(
         hotkey_must_exist=False,
     )
     crypto = _resolve_crypto_type(app_ctx, crypto_type)
-    _prepare_receiving_address(app_ctx, crypto)
     mnemonics: dict[str, str] = {}
 
     def _on_mnemonic(mnemonic: str) -> None:
@@ -561,7 +548,6 @@ def regen_coldkey(
         crypto,
     )
     confirm_wallet(app_ctx, help_text="Wallet to regenerate the coldkey in.", must_exist=False)
-    _prepare_receiving_address(app_ctx, crypto)
     try:
         wallet = wallets.regen_coldkey(
             mnemonic=mnemonic,
@@ -627,7 +613,6 @@ def regen_hotkey(
         hotkey_help="Name for the regenerated hotkey.",
         hotkey_must_exist=False,
     )
-    _prepare_receiving_address(app_ctx, crypto)
     wallet = wallets.regen_hotkey(
         mnemonic=mnemonic,
         seed=seed,

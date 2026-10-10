@@ -28,8 +28,6 @@ from typing import Any
 from .._transport.codec import ss58_decode, ss58_encode
 from ..receiving import (
     Recipient,
-    check_network,
-    genesis_bytes,
     is_receiving_address,
     parse_recipient,
     receiving_address,
@@ -119,14 +117,12 @@ async def resolve_evm_recipient(substrate: Any, evm_address: str) -> Recipient:
             raise ValueError("descriptor does not match the bound account")
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError(f"invalid protected EVM alias binding: {error}") from error
-    genesis = genesis_bytes(await substrate.block_hash(0))
-    return Recipient(receiving_address(public, genesis), account, descriptor, genesis)
+    return Recipient(receiving_address(public), account, descriptor)
 
 
 async def resolve_evm_deposit(substrate: Any, native_address: str) -> tuple[str, Recipient]:
     """Read the EVM deposit route for a particular native identity."""
     native = parse_recipient(native_address)
-    await check_network(substrate, native)
     alias = ss58_to_h160_truncated(native.account)
     recipient = await resolve_evm_recipient(substrate, alias)
     if recipient.descriptor is not None:

@@ -41,8 +41,12 @@ move to a newly created account.
 
 Hashed and ML-DSA accounts require runtime support and registration. Register
 and wait for finalization before publicly sharing their receiving address.
-Their receiving addresses carry the network and public registration descriptor,
-without revealing a spending public key. Funding and migration commands retain
+Their receiving addresses carry the public registration descriptor without
+revealing a spending public key. A wallet has the same address on every network;
+registration, balances, and signing generations are independent on each chain.
+Creating, listing, and restoring wallets requires no network connection.
+Previously issued receiving addresses also work across networks and resolve to
+the same account; no key regeneration or funds migration is needed. Funding and migration commands retain
 that descriptor and use the existing registration flow. EVM access uses the
 registered account's native authorization and permanent alias.
 
@@ -51,8 +55,9 @@ addresses too. Before an EVM write, the CLI verifies the recipient's registratio
 in finalized state; register new recipients first through the native wallet flow.
 Select the chain with `--network` so both the native and EVM connections use the
 same network. Receiving addresses cannot be combined with an unrelated
-`--rpc-url` override. Read-only calls need only the receiving address's matching
-network, without registration.
+`--rpc-url` override for writes, because registration must be checked on the
+chain that will execute the transaction. Read-only identity conversion needs
+neither registration nor a network lookup.
 
 For fee-free PoW admission, a sponsor must first register both hashed or
 ML-DSA keys and wait for finalization. The coldkey can then have a zero balance:

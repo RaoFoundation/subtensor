@@ -19,7 +19,6 @@ WrongPasswordError = _backend.WrongPasswordError
 verify = _backend.verify
 ss58_decode = _backend.ss58_decode
 ss58_encode = _backend.ss58_encode
-encode_hashed_receiving_address = _backend.encode_hashed_receiving_address
 decode_hashed_receiving_address = _backend.decode_hashed_receiving_address
 decrypt_keyfile_data = _backend.decrypt_keyfile_data
 deserialize_keypair_from_keyfile_data = _backend.deserialize_keypair_from_keyfile_data
@@ -43,3 +42,12 @@ def sign(message: bytes, *, mnemonic: str, crypto_type: int = CRYPTO_SR25519) ->
     """Sign raw bytes with a key derived from ``mnemonic``."""
     keypair = _backend.Keypair.create_from_mnemonic(mnemonic, crypto_type)
     return bytes(keypair.sign(message))
+
+
+def encode_hashed_receiving_address(descriptor: bytes, genesis_hash: bytes | None = None) -> str:
+    """Encode a network-independent address, including with older native bindings.
+
+    Keep the optional legacy argument for callers migrating from network-bound
+    addresses. Reserved zero bytes preserve the existing checked wire format.
+    """
+    return _backend.encode_hashed_receiving_address(descriptor, bytes(32))

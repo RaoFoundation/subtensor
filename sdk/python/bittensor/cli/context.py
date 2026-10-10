@@ -44,7 +44,7 @@ from ..result import (
     RpcConnectionError,
     RpcPolicyError,
 )
-from ..settings import FINNEY_GENESIS_HASH, error_docs_url, resolve_endpoint
+from ..settings import error_docs_url
 from ..signing import public_view
 from ..vault import VaultSigner
 from ..wallets import is_bittensor_address
@@ -208,7 +208,6 @@ class AppContext:
     _extension_bridge_ws_url: Optional[str] = None
     _ledger_signer: Optional[object] = None
     _vault_signer: Optional[VaultSigner] = None
-    _receiving_genesis: Optional[tuple[str, str]] = None
     # Multisig names currently being derived by ``resolve_address`` — breaks
     # the recursion when a saved multisig lists itself among its signatories.
     _resolving_multisigs: set = field(default_factory=set)
@@ -229,39 +228,15 @@ class AppContext:
         """Open the configured wallet handle (no key unlock; that happens on signing)."""
         return wallets.open_wallet(self.wallet_name, self.hotkey_name, self.wallet_path)
 
-    def receiving_genesis_hash(self) -> str:
-        """Bind public receiving addresses to this network before writing keyfiles."""
-        if self._receiving_genesis and self._receiving_genesis[0] == self.network:
-            return self._receiving_genesis[1]
-        label, _ = resolve_endpoint(self.network)
-        genesis = (
-            FINNEY_GENESIS_HASH
-            if label in ("finney", "archive")
-            else self.run(lambda client: client._substrate.block_hash(0))
-        )
-        try:
-            encoded = bytes.fromhex(genesis.removeprefix("0x"))
-            if len(encoded) != 32:
-                raise ValueError("invalid length")
-        except (AttributeError, TypeError, ValueError) as error:
-            raise ValueError("could not determine this network's 32-byte genesis hash") from error
-        genesis = "0x" + encoded.hex()
-        self._receiving_genesis = (self.network, genesis)
-        return genesis
-
     def wallet_address(self, public) -> str:
         """Display/share complete receiving information using public metadata only."""
         if public.crypto_type not in wallets.HASHED_CRYPTO_TYPES:
             return public.ss58_address
-        return receiving_address(public, self.receiving_genesis_hash())
+        return receiving_address(public)
 
     def identity_address(self, address: str) -> str:
-        """Resolve account identity without discarding a receiving network binding."""
+        """Resolve account identity from SS58 or a complete receiving descriptor."""
         recipient = parse_recipient(address)
-        if recipient.genesis_hash is not None:
-            genesis = bytes.fromhex(self.receiving_genesis_hash().removeprefix("0x"))
-            if recipient.genesis_hash != genesis:
-                raise ValueError("receiving address belongs to a different network")
         return recipient.account
 
     def resolve_account(self, param: str, value: Optional[str]) -> Optional[str]:

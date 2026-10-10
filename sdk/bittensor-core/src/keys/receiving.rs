@@ -1,8 +1,9 @@
-//! A self-contained, network-bound receiving address for hashed accounts.
+//! A self-contained, network-independent receiving address for hashed accounts.
 //!
 //! The descriptor reveals only the initial commitment, never a signing key.
 //! The checksum detects transcription errors; it does not authenticate a sender.
-//! Consumers must compare the returned genesis hash with their intended chain.
+//! The former 32-byte network field is reserved and zero in new encodings.
+//! Legacy addresses remain decodable; their embedded network is not a restriction.
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use codec::Decode;
@@ -14,9 +15,9 @@ use crate::error::CoreError;
 
 const PREFIX: &str = "bth1_";
 const DOMAIN: &[u8] = b"bittensor/hashed/v1/receiving";
-const GENESIS_LEN: usize = 32;
+const RESERVED_LEN: usize = 32;
 const DESCRIPTOR_LEN: usize = 34;
-const PAYLOAD_LEN: usize = GENESIS_LEN + DESCRIPTOR_LEN;
+const PAYLOAD_LEN: usize = RESERVED_LEN + DESCRIPTOR_LEN;
 const CHECKSUM_LEN: usize = 8;
 const BODY_LEN: usize = PAYLOAD_LEN + CHECKSUM_LEN;
 const ADDRESS_LEN: usize = 104;
@@ -47,26 +48,24 @@ fn checksum(payload: &[u8]) -> [u8; CHECKSUM_LEN] {
     checksum
 }
 
-/// Encode a public descriptor and the complete 32-byte genesis hash.
+/// Encode a public descriptor with a zeroed, reserved compatibility field.
+/// The legacy genesis_hash argument is ignored; addresses work on every chain.
 /// This receiving address does not change the account's existing identity.
 pub fn encode_hashed_receiving_address(
     descriptor: &[u8],
-    genesis_hash: &[u8],
+    _genesis_hash: &[u8],
 ) -> Result<String, CoreError> {
-    if genesis_hash.len() != GENESIS_LEN {
-        return Err(crypto_err("genesis hash must be exactly 32 bytes"));
-    }
     validate_descriptor(descriptor)?;
     let mut body = Vec::with_capacity(BODY_LEN);
-    body.extend_from_slice(genesis_hash);
+    body.extend_from_slice(&[0; RESERVED_LEN]);
     body.extend_from_slice(descriptor);
     body.extend_from_slice(&checksum(&body));
     Ok(format!("{PREFIX}{}", URL_SAFE_NO_PAD.encode(body)))
 }
 
-/// Decode a canonical receiving address into `(genesis_hash, descriptor)`.
-/// The caller must compare the full genesis hash with the destination chain
-/// before registration or transfer. A valid checksum alone is not that check.
+/// Decode a receiving address into `(legacy_network_field, descriptor)`.
+/// The first field is returned only for wire compatibility. It must not restrict
+/// where the account can be used; registration is independently checked per chain.
 pub fn decode_hashed_receiving_address(address: &str) -> Result<([u8; 32], Vec<u8>), CoreError> {
     if address.len() != ADDRESS_LEN {
         return Err(crypto_err(
@@ -85,15 +84,15 @@ pub fn decode_hashed_receiving_address(address: &str) -> Result<([u8; 32], Vec<u
     if body[PAYLOAD_LEN..] != checksum(&body[..PAYLOAD_LEN]) {
         return Err(crypto_err("hashed receiving address checksum mismatch"));
     }
-    let descriptor = &body[GENESIS_LEN..PAYLOAD_LEN];
+    let descriptor = &body[RESERVED_LEN..PAYLOAD_LEN];
     validate_descriptor(descriptor)?;
-    let mut genesis_hash = [0; GENESIS_LEN];
-    genesis_hash.copy_from_slice(&body[..GENESIS_LEN]);
-    Ok((genesis_hash, descriptor.to_vec()))
+    let mut legacy_network_field = [0; RESERVED_LEN];
+    legacy_network_field.copy_from_slice(&body[..RESERVED_LEN]);
+    Ok((legacy_network_field, descriptor.to_vec()))
 }
 
 impl Keypair {
-    /// Share this account's initial descriptor and network without disclosing
+    /// Share this account's initial descriptor without disclosing
     /// its current signing key. Also works for descriptor-bearing public keys.
     pub fn hashed_receiving_address(&self, genesis_hash: &[u8]) -> Result<String, CoreError> {
         encode_hashed_receiving_address(&self.hashed_descriptor()?, genesis_hash)
@@ -108,7 +107,7 @@ mod tests {
     use subtensor_hashed::{account_id, Scheme, VERSION};
 
     use super::*;
-    use crate::keys::{CRYPTO_HASHED, CRYPTO_SR25519, DEFAULT_SS58_FORMAT};
+    use crate::keys::{CRYPTO_HASHED, CRYPTO_MLDSA, CRYPTO_SR25519, DEFAULT_SS58_FORMAT};
 
     fn descriptor() -> Vec<u8> {
         Descriptor {
@@ -136,7 +135,15 @@ mod tests {
         let genesis: Vec<u8> = (0..32).collect();
         let descriptor = descriptor();
         let address = encode_hashed_receiving_address(&descriptor, &genesis).unwrap();
-        assert_eq!(address, EXPECTED);
+        const CANONICAL: &str = "bth1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAQcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHnKscYQ9BfVA";
+        assert_eq!(address, CANONICAL);
+        assert_eq!(
+            address,
+            encode_hashed_receiving_address(&descriptor, &[]).unwrap()
+        );
+        let (reserved, canonical_descriptor) = decode_hashed_receiving_address(&address).unwrap();
+        assert_eq!(reserved, [0; 32]);
+        assert_eq!(canonical_descriptor, descriptor);
         assert_eq!(address.len(), ADDRESS_LEN);
         let (decoded_genesis, decoded_descriptor) =
             decode_hashed_receiving_address(EXPECTED).unwrap();
@@ -166,35 +173,37 @@ mod tests {
     }
 
     #[test]
-    fn full_network_hash_is_preserved_and_addresses_are_stable_across_rotation() {
-        let key = Keypair::from_seed(&[17; 32], CRYPTO_HASHED).unwrap();
-        let genesis = [11; 32];
-        let address = key.hashed_receiving_address(&genesis).unwrap();
-        assert_eq!(
-            key.at_generation(90_001)
-                .unwrap()
-                .hashed_receiving_address(&genesis)
-                .unwrap(),
-            address
-        );
-        assert_eq!(
-            key.public_only()
-                .unwrap()
-                .hashed_receiving_address(&genesis)
-                .unwrap(),
-            address
-        );
-        for index in 0..GENESIS_LEN {
-            let mut other_network = genesis;
-            other_network[index] ^= 1;
-            let other = key.hashed_receiving_address(&other_network).unwrap();
-            assert_ne!(other, address);
-            let (decoded, descriptor) = decode_hashed_receiving_address(&other).unwrap();
-            assert_eq!(decoded, other_network);
-            assert_eq!(descriptor, key.hashed_descriptor().unwrap());
+    fn addresses_are_stable_across_networks_and_rotation() {
+        for crypto_type in [CRYPTO_HASHED, CRYPTO_MLDSA] {
+            let key = Keypair::from_seed(&[17; 32], crypto_type).unwrap();
+            let genesis = [11; 32];
+            let address = key.hashed_receiving_address(&genesis).unwrap();
+            assert_eq!(
+                key.at_generation(90_001)
+                    .unwrap()
+                    .hashed_receiving_address(&genesis)
+                    .unwrap(),
+                address
+            );
+            assert_eq!(
+                key.public_only()
+                    .unwrap()
+                    .hashed_receiving_address(&genesis)
+                    .unwrap(),
+                address
+            );
+            for index in 0..RESERVED_LEN {
+                let mut other_network = genesis;
+                other_network[index] ^= 1;
+                let other = key.hashed_receiving_address(&other_network).unwrap();
+                assert_eq!(other, address);
+                let (decoded, descriptor) = decode_hashed_receiving_address(&other).unwrap();
+                assert_eq!(decoded, [0; 32]);
+                assert_eq!(descriptor, key.hashed_descriptor().unwrap());
+            }
         }
         let classical = Keypair::from_seed(&[17; 32], CRYPTO_SR25519).unwrap();
-        assert!(classical.hashed_receiving_address(&genesis).is_err());
+        assert!(classical.hashed_receiving_address(&[]).is_err());
     }
 
     #[test]
@@ -221,7 +230,10 @@ mod tests {
             assert!(encode_hashed_receiving_address(&invalid, &[0; 32]).is_err());
         }
         for length in [0, 31, 33] {
-            assert!(encode_hashed_receiving_address(&descriptor(), &vec![0; length]).is_err());
+            assert_eq!(
+                encode_hashed_receiving_address(&descriptor(), &vec![0; length]).unwrap(),
+                encode_hashed_receiving_address(&descriptor(), &[]).unwrap(),
+            );
         }
     }
 

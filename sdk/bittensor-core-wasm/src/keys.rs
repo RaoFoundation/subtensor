@@ -145,9 +145,9 @@ impl Keypair {
     }
 
     #[wasm_bindgen(js_name = hashedReceivingAddress)]
-    pub fn hashed_receiving_address(&self, genesis: &[u8]) -> Result<String, JsValue> {
+    pub fn hashed_receiving_address(&self, genesis: Option<Vec<u8>>) -> Result<String, JsValue> {
         self.inner
-            .hashed_receiving_address(genesis)
+            .hashed_receiving_address(genesis.as_deref().unwrap_or_default())
             .map_err(to_js_err)
     }
 

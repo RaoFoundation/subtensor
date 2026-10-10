@@ -39,12 +39,12 @@ RPC_URL_OPTION = typer.Option(
 def _native_account(
     app_ctx: AppContext, address: str, rpc_url: Optional[str], *, write: bool = True
 ) -> str:
-    """Keep network/setup checks until the native identity's EVM call boundary."""
+    """Verify finalized setup on the chain used for the native identity's EVM write."""
     if not is_receiving_address(address):
         return address
-    if rpc_url is not None:
+    if write and rpc_url is not None:
         raise typer.BadParameter(
-            "cannot verify a receiving address for an EVM RPC override; "
+            "cannot verify recipient registration for an EVM RPC override; "
             "select the chain with --network and omit --rpc-url",
             param_hint="--rpc-url",
         )

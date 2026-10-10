@@ -14,7 +14,7 @@ from eth_utils import keccak
 
 from ._generated import storage as st
 from ._transport.codec import ss58_decode
-from .receiving import check_network, parse_recipient
+from .receiving import parse_recipient
 
 DOMAIN = b"subtensor-pow-register-v1"
 MAX_WORK_AGE_BLOCKS = 5
@@ -106,11 +106,9 @@ async def mine_registration(
     """
     from .intents.registration import PowRegister
 
-    # CLI wallet addresses may include a network-bound registration descriptor.
+    # CLI wallet addresses may include a registration descriptor.
     # Mine against AccountIds, retaining the hotkey descriptor for submission.
     hot_recipient, cold_recipient = parse_recipient(hotkey), parse_recipient(coldkey)
-    await check_network(substrate, hot_recipient)
-    await check_network(substrate, cold_recipient)
     hotkey, coldkey = hot_recipient.account, cold_recipient.account
 
     if not 1 <= workers <= 32 or not 0 < max_seconds <= 3600:

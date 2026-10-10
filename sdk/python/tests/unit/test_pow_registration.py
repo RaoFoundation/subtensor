@@ -15,6 +15,7 @@ from bittensor.pow_registration import (
     registration_seal,
 )
 from tests.harness.fake_substrate import FakeSubstrate
+from tests.harness.receiving import legacy_receiving_address
 from tests.harness.samples import ALICE, ALICE_HOT, dev_wallet
 
 
@@ -123,8 +124,16 @@ async def test_miner_resolves_receiving_addresses_but_preserves_hotkey_descripto
     )
     assert bytes.fromhex(intent.work_hex) == registration_seal(prefix, intent.nonce)
     assert intent.hotkey_ss58 == hot_address
-    with pytest.raises(ValueError, match="different network"):
-        await mine_registration(substrate, 1, hot_address, receiving_address(cold, bytes([1]) * 32))
+    restored = await mine_registration(
+        substrate,
+        1,
+        legacy_receiving_address(hot),
+        legacy_receiving_address(cold),
+        workers=1,
+        max_seconds=10,
+        backend="cpu",
+    )
+    assert bytes.fromhex(restored.work_hex) == registration_seal(prefix, restored.nonce)
 
 
 @pytest.mark.asyncio

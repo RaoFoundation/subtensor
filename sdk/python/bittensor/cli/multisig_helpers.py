@@ -299,9 +299,8 @@ def resolve_multisig(
 def derive_saved_multisig_address(app_ctx, name: str) -> Optional[str]:
     """Derived ss58 of the saved multisig ``name``, or None when not in the book.
 
-    Signatory identities resolve locally, checking any receiving-address network
-    binding before deterministic derivation. Custom networks may require a
-    genesis lookup; classical addresses and the known mainnet genesis are offline.
+    Signatory identities resolve locally from their public descriptors.
+    Derivation is independent of the selected chain and requires no connection.
     """
     entry = cfg.get_multisig(name)
     if entry is None:

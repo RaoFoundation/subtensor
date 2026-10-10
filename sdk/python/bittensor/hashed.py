@@ -14,7 +14,6 @@ from ._generated import calls
 from .keyfiles import Keyfile, KeyfileError
 from .receiving import (
     Recipient,
-    check_network,
     coerce_payment_address,
     is_receiving_address,
     parse_recipient,
@@ -52,7 +51,6 @@ async def prepare_recipient_intent(substrate, intent):
         for index, item in enumerate(values):
             if is_receiving_address(item):
                 recipient = parse_recipient(item)
-                await check_network(substrate, recipient)
                 if await substrate.constant("HashedAccounts", "Enabled") is not True:
                     raise ValueError("hashed receiving addresses are not supported on this chain")
                 name = (

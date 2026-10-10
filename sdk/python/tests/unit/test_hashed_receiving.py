@@ -21,6 +21,7 @@ from bittensor.receiving import parse_recipient, receiving_address
 from bittensor.sp_core import CRYPTO_HASHED, Keypair
 from bittensor.wallet import Wallet
 from tests.harness.fake_substrate import FakeSubstrate
+from tests.harness.receiving import legacy_receiving_address
 from tests.harness.samples import ALICE, BOB, dev_wallet
 
 GENESIS = bytes(32)
@@ -64,7 +65,7 @@ def test_address_preserves_original_descriptor_after_rotation(setup):
     assert len(address) == 104
     assert recipient.account == key.ss58_address
     assert recipient.descriptor == bytes(key.hashed_descriptor)
-    assert recipient.genesis_hash == GENESIS
+    assert receiving_address(key, bytes([9]) * 32) == address
     assert receiving_address(key.at_generation(123), GENESIS) == address
 
 
@@ -102,13 +103,11 @@ async def test_remote_wallet_object_uses_only_its_public_file(tmp_path, setup, m
     assert plan.args["dest_ss58"].startswith("bth1_")
 
 
-@pytest.mark.parametrize("case", ["network", "checksum", "version", "whitespace", "disabled"])
+@pytest.mark.parametrize("case", ["checksum", "version", "whitespace", "disabled"])
 async def test_bad_receiving_addresses_fail_before_composition_or_submission(setup, case):
-    chain, wallet, key, address = setup
+    chain, wallet, _key, address = setup
     chain.compose = AsyncMock(wraps=chain.compose)
-    if case == "network":
-        address = receiving_address(key, bytes([1]) * 32)
-    elif case == "checksum":
+    if case == "checksum":
         address = address[:-2] + ("A" if address[-2] != "A" else "B") + address[-1]
     elif case == "version":
         address = "bth2_" + address[5:]
@@ -434,14 +433,15 @@ async def test_registry_descriptor_mismatch_is_rejected(setup):
     assert not chain.submissions
 
 
-async def test_reads_resolve_network_bound_addresses_on_client_and_snapshot(setup):
+async def test_reads_resolve_current_and_legacy_addresses_on_client_and_snapshot(setup):
     chain, _, key, address = setup
     client = Client("local", substrate=chain)
     chain.seed("System", "Account", [key.ss58_address], {"data": {"free": 123456}})
     for view in (client, await client.at(50)):
         assert await view.read("balance", coldkey_ss58=address) == Balance.from_rao(123456)
-        with pytest.raises(ValueError, match="different network"):
-            await view.read("balance", coldkey_ss58=receiving_address(key, bytes([9]) * 32))
+        assert await view.read("balance", coldkey_ss58=legacy_receiving_address(key)) == (
+            Balance.from_rao(123456)
+        )
 
 
 async def test_proxy_identity_is_normalized_without_losing_payment_guard(setup):
@@ -481,3 +481,30 @@ async def test_wrapped_preflight_queries_the_internal_account(setup, monkeypatch
     wrapped = Batch([semantic]) if wrapper == "batch" else pinned(semantic)
     await wrapped.preflight(chain, ALICE, ALICE)
     assert seen == [key.ss58_address]
+
+
+@pytest.mark.parametrize("code", [0, 1, 4, 5])
+def test_all_wallet_addresses_are_network_independent(code):
+    key = Keypair.create_from_seed(bytes([39]) * 32, code)
+    assert receiving_address(key) == receiving_address(key, bytes(32))
+    assert receiving_address(key) == receiving_address(key, bytes([17]) * 32)
+    assert parse_recipient(receiving_address(key)).account == key.ss58_address
+
+
+@pytest.mark.parametrize("code", [4, 5])
+@pytest.mark.parametrize("registered_here", [False, True])
+async def test_legacy_address_transfers_on_another_chain(code, registered_here):
+    chain = FakeSubstrate()
+    chain.seed_constant("HashedAccounts", "Enabled", True)
+    chain.seed_constant("HashedAccounts", "RegistrationDeposit", RESERVE)
+    key = Keypair.create_from_seed(bytes([39]) * 32, code)
+    if registered_here:
+        registered(chain, key)
+    address = legacy_receiving_address(key)
+    assert address != receiving_address(key)
+    assert parse_recipient(address).account == key.ss58_address
+    plan = await Executor(chain).plan(Transfer(address, 1), dev_wallet())
+    guard, transfer = plan.call.params["calls"]
+    assert guard.function == ("check_registered" if registered_here else "register")
+    assert guard.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
+    assert transfer.params["dest"] == key.ss58_address

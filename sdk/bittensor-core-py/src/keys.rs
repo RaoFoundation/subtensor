@@ -177,10 +177,11 @@ impl Keypair {
         ))
     }
 
-    /// Self-contained receiving address bound to the full chain genesis hash.
-    fn hashed_receiving_address(&self, genesis_hash: &[u8]) -> PyResult<String> {
+    /// Network-independent receiving address; the optional legacy genesis argument is ignored.
+    #[pyo3(signature = (genesis_hash=None))]
+    fn hashed_receiving_address(&self, genesis_hash: Option<&[u8]>) -> PyResult<String> {
         self.inner
-            .hashed_receiving_address(genesis_hash)
+            .hashed_receiving_address(genesis_hash.unwrap_or_default())
             .map_err(to_py_err)
     }
 
@@ -309,13 +310,18 @@ fn ss58_encode(public_key: &[u8], ss58_format: u16) -> PyResult<String> {
     Ok(keys::ss58_from_public(public_key, ss58_format))
 }
 
-/// Encode the initial public descriptor and complete destination genesis hash.
+/// Encode the initial public descriptor; the optional legacy genesis argument is ignored.
 #[pyfunction]
-fn encode_hashed_receiving_address(descriptor: &[u8], genesis_hash: &[u8]) -> PyResult<String> {
-    keys::encode_hashed_receiving_address(descriptor, genesis_hash).map_err(to_py_err)
+#[pyo3(signature = (descriptor, genesis_hash=None))]
+fn encode_hashed_receiving_address(
+    descriptor: &[u8],
+    genesis_hash: Option<&[u8]>,
+) -> PyResult<String> {
+    keys::encode_hashed_receiving_address(descriptor, genesis_hash.unwrap_or_default())
+        .map_err(to_py_err)
 }
 
-/// Return `(genesis_hash, descriptor)`; callers must verify the destination chain.
+/// Return `(legacy_network_field, descriptor)`; the first field is informational only.
 #[pyfunction]
 fn decode_hashed_receiving_address<'py>(
     py: Python<'py>,

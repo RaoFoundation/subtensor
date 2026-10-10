@@ -23,6 +23,7 @@ from bittensor.settings import FINNEY_GENESIS_HASH
 from bittensor.sp_core import CRYPTO_HASHED, CRYPTO_SR25519, Keypair
 from bittensor.wallet import Wallet
 from tests.harness.fake_substrate import FakeSubstrate
+from tests.harness.receiving import legacy_receiving_address
 
 MNEMONIC = "bottom drive obey lake curtain smoke basket hold race lonely fit walk"
 OTHER_GENESIS = "0x" + "17" * 32
@@ -166,8 +167,10 @@ def test_nested_intent_resolution_keeps_full_receiving_address(wallet_path):
     assert resolved["intents"][0]["dest_ss58"] == address
 
 
-def test_foreign_contact_reaches_executor_with_network_binding_intact(wallet_path, monkeypatch):
-    address = receiving_address(_public(), OTHER_GENESIS)
+def test_legacy_contact_keeps_descriptor_for_registration_on_selected_chain(
+    wallet_path, monkeypatch
+):
+    address = legacy_receiving_address(_public())
     saved = _invoke("addr", "add", "other-chain", address)
     assert saved.exit_code == 0, saved.output
     submitted = []
@@ -179,8 +182,12 @@ def test_foreign_contact_reaches_executor_with_network_binding_intact(wallet_pat
     sponsor.regenerate_coldkey(seed=bytes([8]) * 32, use_password=False, suppress=True)
     substrate = FakeSubstrate()
     substrate.block_hash = _finney_hash
-    with pytest.raises(ValueError, match="different network"):
-        asyncio.run(Executor(substrate).plan(submitted[0], sponsor))
+    substrate.seed_constant("HashedAccounts", "Enabled", True)
+    substrate.seed_constant("HashedAccounts", "RegistrationDeposit", 200_000_000)
+    plan = asyncio.run(Executor(substrate).plan(submitted[0], sponsor))
+    guard, transfer = plan.call.params["calls"]
+    assert guard.function == "register"
+    assert transfer.params["dest"] == _public().ss58_address
     assert not substrate.submissions
 
 
@@ -252,12 +259,13 @@ def test_public_restore_infers_type_and_preserves_descriptor(wallet_path, role):
     assert not getattr(wallet, role + "_file").exists_on_device()
 
 
-def test_public_restore_rejects_wrong_network_before_writing(wallet_path):
-    address = receiving_address(_public(), OTHER_GENESIS)
+def test_public_restore_accepts_legacy_address_from_another_chain(wallet_path):
+    address = legacy_receiving_address(_public())
     result = _invoke("wallet", "regen-coldkeypub", "--address", address)
-    assert result.exit_code != 0
-    assert "another network" in result.output
-    assert not (wallet_path / "recipient").exists()
+    assert result.exit_code == 0, result.output
+    wallet = Wallet("recipient", path=str(wallet_path))
+    assert wallet.coldkeypub.ss58_address == _public().ss58_address
+    assert not wallet.coldkey_file.exists_on_device()
 
 
 def test_hashed_public_restore_rejects_incomplete_address(wallet_path):
@@ -269,27 +277,18 @@ def test_hashed_public_restore_rejects_incomplete_address(wallet_path):
     assert not (wallet_path / "recipient").exists()
 
 
-def test_custom_network_is_resolved_before_creation_writes(wallet_path, monkeypatch):
-    def disconnected(self, work):
-        assert not (wallet_path / "recipient").exists()
-        raise ValueError("test network unavailable")
-
-    monkeypatch.setattr(AppContext, "run", disconnected)
-    result = _invoke("--network", "test", "wallet", "create", "--type", "hashed", "--no-password")
-    assert result.exit_code != 0
-    assert not (wallet_path / "recipient").exists()
-
-
-def test_custom_network_receiving_address_uses_real_client_interface(wallet_path, monkeypatch):
-    substrate = FakeSubstrate()
-    monkeypatch.setattr(
-        "bittensor.cli.context.Client", lambda network, **kw: Client(network, substrate=substrate)
-    )
-    result = _invoke("--network", "test", "wallet", "create", "--type", "hashed", "--no-password")
+@pytest.mark.parametrize("scheme", ["sr", "ed", "hashed", "ms"])
+def test_wallet_creation_and_listing_need_no_network(wallet_path, monkeypatch, scheme):
+    monkeypatch.setattr(AppContext, "run", lambda *_: pytest.fail("unexpected network access"))
+    result = _invoke("--network", "test", "wallet", "create", "--type", scheme, "--no-password")
     assert result.exit_code == 0, result.output
-    details = json.loads(result.output)
-    assert parse_recipient(details["coldkey_address"]).genesis_hash == bytes(32)
-    assert parse_recipient(details["hotkey_address"]).genesis_hash == bytes(32)
+    wallet = Wallet("recipient", path=str(wallet_path))
+    addresses = [receiving_address(wallet.coldkeypub), receiving_address(wallet.hotkeypub)]
+    for network in ("finney", "ws://127.0.0.1:1"):
+        shown = _invoke("--network", network, "wallet", "list")
+        assert shown.exit_code == 0, shown.output
+        for address in addresses:
+            assert address in shown.output
 
 
 def test_legacy_creation_and_contact_outputs_keep_ss58(wallet_path):
@@ -334,20 +333,19 @@ def test_named_protected_multisig_signatories_and_saved_presets(wallet_path, sch
 
 
 @pytest.mark.parametrize("consumer", ["signatories", "preset"])
-def test_multisig_receiving_identity_rejects_wrong_network(wallet_path, consumer):
+def test_multisig_receiving_identity_accepts_legacy_address(wallet_path, consumer):
+    from bittensor._transport.codec import multisig_account
     from tests.harness.samples import BOB
 
-    wrong = receiving_address(_public(), OTHER_GENESIS)
-    config.add_address({"name": "wrong", "address": wrong})
+    address = legacy_receiving_address(_public())
+    config.add_address({"name": "member", "address": address})
     ctx = _context(wallet_path)
-    with pytest.raises((ValueError, typer.Exit)):
-        if consumer == "signatories":
-            ctx.resolve_signatory_list(f"wrong,{BOB}")
-        else:
-            config.add_multisig(
-                {"name": "wrong-team", "threshold": 2, "signatories": ["wrong", BOB]}
-            )
-            ctx._saved_multisig_address("wrong-team")
+    expected = [_public().ss58_address, BOB]
+    if consumer == "signatories":
+        assert ctx.resolve_signatory_list(f"member,{BOB}") == expected
+    else:
+        config.add_multisig({"name": "team", "threshold": 2, "signatories": ["member", BOB]})
+        assert ctx._saved_multisig_address("team") == multisig_account(expected, 2).ss58_address
 
 
 @pytest.mark.parametrize("code", [4, 5])
@@ -375,7 +373,8 @@ def test_cli_multisig_add_and_show_with_named_protected_member(wallet_path, monk
 
 
 @pytest.mark.parametrize("code", [4, 5])
-def test_cli_evm_associate_uses_protected_account_identity(wallet_path, monkeypatch, code):
+@pytest.mark.parametrize("legacy", [False, True])
+def test_cli_evm_associate_uses_protected_account_identity(wallet_path, monkeypatch, code, legacy):
     from types import SimpleNamespace
 
     from eth_account import Account
@@ -385,6 +384,10 @@ def test_cli_evm_associate_uses_protected_account_identity(wallet_path, monkeypa
 
     wallet = Wallet("recipient", path=str(wallet_path))
     wallet.regenerate_hotkey(seed=bytes([22]) * 32, crypto_type=code, suppress=True)
+    if legacy:
+        monkeypatch.setattr(
+            AppContext, "resolve_address", lambda *_: legacy_receiving_address(wallet.hotkeypub)
+        )
     account = Account.from_key(bytes([23]) * 32)
     monkeypatch.setattr(
         association, "_key_info", lambda *_: SimpleNamespace(address=account.address)
@@ -405,7 +408,7 @@ def test_cli_evm_associate_uses_protected_account_identity(wallet_path, monkeypa
     )
 
 
-def test_cli_evm_associate_rejects_wrong_network_before_unlock(wallet_path, monkeypatch):
+def test_cli_evm_associate_rejects_malformed_address_before_unlock(wallet_path, monkeypatch):
     from types import SimpleNamespace
 
     from bittensor.cli.commands.evm import association
@@ -413,9 +416,7 @@ def test_cli_evm_associate_rejects_wrong_network_before_unlock(wallet_path, monk
     monkeypatch.setattr(
         association, "_key_info", lambda *_: SimpleNamespace(address="0x" + "11" * 20)
     )
-    monkeypatch.setattr(
-        AppContext, "resolve_address", lambda *_: receiving_address(_public(), OTHER_GENESIS)
-    )
+    monkeypatch.setattr(AppContext, "resolve_address", lambda *_: "bth1_bad")
 
     def unexpected(*_):
         raise AssertionError("must reject before key unlock")
@@ -423,4 +424,4 @@ def test_cli_evm_associate_rejects_wrong_network_before_unlock(wallet_path, monk
     monkeypatch.setattr(association, "_unlock", unexpected)
     result = _invoke("evm", "associate", "--netuid", "1")
     assert result.exit_code != 0
-    assert "different network" in result.output
+    assert "104 characters" in result.output

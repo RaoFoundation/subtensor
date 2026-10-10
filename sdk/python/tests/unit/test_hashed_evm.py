@@ -77,7 +77,6 @@ async def test_protected_mapping_validates_and_returns_full_receiving_address(
     recipient = await resolve_evm_recipient(substrate, alias)
     assert recipient.account == key.ss58_address != h160_to_ss58(alias)
     assert parse_recipient(recipient.address).descriptor == bytes(key.hashed_descriptor)
-    assert recipient.genesis_hash == bytes(32)
     head = await substrate.block_hash()
     assert all(call.kwargs["block_hash"] == head for call in substrate.query.call_args_list)
 
@@ -317,14 +316,14 @@ def test_cli_stake_show_reads_the_runtime_mapped_coldkey(
     assert "coldkey_mirror" not in fields
 
 
-def test_cli_stake_show_rejects_foreign_hotkey_before_evm_rpc(evm_cli, monkeypatch):
-    substrate, key, _ = evm_cli
-    substrate.query = AsyncMock(side_effect=AssertionError("lookup before network validation"))
+def test_cli_stake_show_rejects_malformed_hotkey_before_evm_rpc(evm_cli, monkeypatch):
+    substrate, _key, _ = evm_cli
+    substrate.query = AsyncMock(side_effect=AssertionError("lookup before address validation"))
     monkeypatch.setattr(
         "bittensor.cli.commands.evm.stake._rpc",
-        lambda *args: pytest.fail("EVM RPC opened for a foreign-chain hotkey"),
+        lambda *args: pytest.fail("EVM RPC opened for a malformed hotkey"),
     )
-    hotkey = receiving_address(key, bytes([17]) * 32)
+    hotkey = "bth1_bad"
     result = CliRunner().invoke(
         app,
         [
@@ -342,7 +341,7 @@ def test_cli_stake_show_rejects_foreign_hotkey_before_evm_rpc(evm_cli, monkeypat
         ],
     )
     assert result.exit_code != 0
-    assert "different network" in result.output
+    assert "104 characters" in result.output
     substrate.query.assert_not_awaited()
 
 

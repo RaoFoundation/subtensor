@@ -23,6 +23,7 @@ from bittensor.receiving import account_for_registered_write, receiving_address
 from bittensor.sp_core import HASHED_CRYPTO_TYPES, Keypair
 from bittensor.wallet import Wallet
 from tests.harness.fake_substrate import FakeSubstrate
+from tests.harness.receiving import legacy_receiving_address
 
 
 @pytest.fixture(params=[0, 1, 4, 5], ids=["ed", "sr", "hashed", "ms"])
@@ -82,7 +83,7 @@ COMMANDS = {
 
 
 @pytest.mark.parametrize("command", COMMANDS)
-@pytest.mark.parametrize("reference", ["default", "name", "contact", "address"])
+@pytest.mark.parametrize("reference", ["default", "name", "contact", "address", "legacy"])
 def test_evm_commands_encode_all_wallet_types(wallet_case, command, reference):
     wallet, substrate, captured, prefix = wallet_case
     args, role = COMMANDS[command]
@@ -93,6 +94,9 @@ def test_evm_commands_encode_all_wallet_types(wallet_case, command, reference):
         "name": "recipient/default" if role == "hotkey" else "recipient",
         "contact": "friend",
         "address": address,
+        "legacy": (
+            legacy_receiving_address(key) if key.crypto_type in HASHED_CRYPTO_TYPES else address
+        ),
     }
     if reference != "default":
         args = [*args, "--hotkey" if role == "hotkey" else "--to", references[reference]]
@@ -115,9 +119,7 @@ def test_evm_commands_encode_all_wallet_types(wallet_case, command, reference):
 
 @pytest.mark.parametrize("command", COMMANDS)
 @pytest.mark.parametrize("wallet_case", [4, 5], indirect=True, ids=["hashed", "ms"])
-@pytest.mark.parametrize(
-    "failure", ["unfinalized", "mismatch", "wrong_network", "rpc_override", "no_finality"]
-)
+@pytest.mark.parametrize("failure", ["unfinalized", "mismatch", "rpc_override", "no_finality"])
 def test_protected_commands_fail_before_evm_submission(wallet_case, command, failure):
     wallet, substrate, captured, prefix = wallet_case
     args, role = COMMANDS[command]
@@ -144,9 +146,6 @@ def test_protected_commands_fail_before_evm_submission(wallet_case, command, fai
             },
         )
         expected = "does not match"
-    elif failure == "wrong_network":
-        address = receiving_address(key, bytes([1]) * 32)
-        expected = "different network"
     elif failure == "rpc_override":
         args = [*args, "--rpc-url", "http://127.0.0.1:9999"]
         expected = "RPC override"
@@ -184,7 +183,7 @@ def test_generic_precompile_call_resolves_receiving_address(wallet_case):
     )
 
 
-def test_generic_view_and_array_arguments_preserve_network_checks(wallet_case):
+def test_generic_views_resolve_legacy_addresses_without_registration(wallet_case):
     wallet, substrate, _, _ = wallet_case
     address = receiving_address(wallet.hotkey, bytes(32))
     ctx = AppContext(
@@ -196,10 +195,13 @@ def test_generic_view_and_array_arguments_preserve_network_checks(wallet_case):
         [wallet.hotkey.ss58_address]
     ]
     if wallet.hotkey.crypto_type in HASHED_CRYPTO_TYPES:
-        with pytest.raises(typer.Exit):
-            _native_arguments(
-                ctx, fn, [json.dumps([receiving_address(wallet.hotkey, bytes([1]) * 32)])], None
-            )
+        assert _native_arguments(
+            ctx,
+            fn,
+            [json.dumps([legacy_receiving_address(wallet.hotkey)])],
+            "http://127.0.0.1:9999",
+        ) == [[wallet.hotkey.ss58_address]]
+    assert not substrate.query.call_args_list
 
 
 @pytest.mark.parametrize("wallet_case", [4, 5], indirect=True, ids=["hashed", "ms"])
