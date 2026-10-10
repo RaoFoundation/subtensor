@@ -16,6 +16,7 @@ from ._shared import (
     PANEL_CHAIN,
     RPC_URL_OPTION,
     _key_info,
+    _native_arguments,
     _rpc,
     _run_evm,
     _submit_evm_tx,
@@ -180,7 +181,8 @@ def call(
 
     fn_abi = _find_function(app_ctx, functions, label, function)
     try:
-        data = evm_precompiles.encode_call(fn_abi, list(args or []))
+        resolved_args = _native_arguments(app_ctx, fn_abi, list(args or []), rpc_url)
+        data = evm_precompiles.encode_call(fn_abi, resolved_args)
     except ValueError as error:
         app_ctx.output.error(str(error))
         raise typer.Exit(2)
@@ -199,7 +201,7 @@ def call(
 
     preview_fields: dict[str, Any] = {}
     try:
-        decoded = evm_precompiles.describe_arguments(fn_abi, list(args or []))
+        decoded = evm_precompiles.describe_arguments(fn_abi, resolved_args)
         preview_fields.update({f"arg {k}": v for k, v in decoded.items()})
     except Exception:
         pass

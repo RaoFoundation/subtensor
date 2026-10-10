@@ -53,16 +53,16 @@ def mirror(
 @with_globals
 def pubkey(
     ctx: typer.Context,
-    ss58: str = typer.Argument(..., help="ss58 address (hotkey or coldkey)."),
+    ss58: str = typer.Argument(..., help="Native address (SS58 or complete receiving address)."),
 ):
-    """An ss58 address's 32-byte public key — the bytes32 form precompiles take.
+    """A native address's 32-byte AccountId — the bytes32 form precompiles take.
 
     Every precompile parameter typed `bytes32 hotkey`/`bytes32 coldkey` wants
     this, not the ss58 string. (`btcli evm call` converts automatically.)
     """
     app_ctx = ctx_of(ctx)
     try:
-        key = evm_addresses.ss58_to_pubkey(ss58)
+        key = evm_addresses.ss58_to_pubkey(app_ctx.identity_address(ss58))
     except Exception as error:
         app_ctx.output.error(f"invalid ss58 address {ss58!r}: {error}")
         raise typer.Exit(2)

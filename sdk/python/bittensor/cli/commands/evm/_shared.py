@@ -15,7 +15,7 @@ from ....evm import keys as evm_keys
 from ....evm import networks as evm_networks
 from ....evm import rpc as evm_rpc
 from ....evm import transactions as evm_transactions
-from ....receiving import is_receiving_address
+from ....receiving import account_for_read, account_for_registered_write, is_receiving_address
 from ...context import AppContext
 
 PANEL_KEYS = "EVM keys"
@@ -34,6 +34,50 @@ RPC_URL_OPTION = typer.Option(
     "--rpc-url",
     help="EVM JSON-RPC endpoint (defaults to the configured network's).",
 )
+
+
+def _native_account(
+    app_ctx: AppContext, address: str, rpc_url: Optional[str], *, write: bool = True
+) -> str:
+    """Keep network/setup checks until the native identity's EVM call boundary."""
+    if not is_receiving_address(address):
+        return address
+    if rpc_url is not None:
+        raise typer.BadParameter(
+            "cannot verify a receiving address for an EVM RPC override; "
+            "select the chain with --network and omit --rpc-url",
+            param_hint="--rpc-url",
+        )
+    resolve = account_for_registered_write if write else account_for_read
+    try:
+        return app_ctx.run(lambda client: resolve(client._substrate, address))
+    except ValueError as error:
+        app_ctx.output.error(str(error))
+        raise typer.Exit(2) from error
+
+
+def _native_arguments(app_ctx: AppContext, fn_abi: dict, args: list, rpc_url: Optional[str]):
+    """Resolve descriptor-bearing bytes arguments before the pure ABI encoder."""
+    write = fn_abi.get("stateMutability") not in ("view", "pure")
+
+    def resolve(abi_type, value):
+        if abi_type.endswith("[]"):
+            values = (
+                value
+                if isinstance(value, list)
+                else json.loads(value)
+                if value.strip().startswith("[")
+                else value.split(",")
+            )
+            return [resolve(abi_type[:-2], item) for item in values]
+        if abi_type.startswith("bytes") and is_receiving_address(value):
+            return _native_account(app_ctx, value, rpc_url, write=write)
+        return value
+
+    if len(args) != len(fn_abi["inputs"]):
+        return args  # Let the ABI encoder report its normal argument-count error.
+    return [resolve(param["type"], value) for param, value in zip(fn_abi["inputs"], args)]
+
 
 key_app = typer.Typer(
     no_args_is_help=True,

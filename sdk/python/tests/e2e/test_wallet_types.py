@@ -12,6 +12,8 @@ import pytest
 
 import bittensor as bt
 from bittensor._transport.errors import SubstrateRequestException
+from bittensor.evm.addresses import h160_to_ss58
+from bittensor.evm.keys import create_evm_key
 from bittensor.hashed import descriptor_value
 from bittensor.receiving import receiving_address
 from bittensor.sp_core import HASHED_CRYPTO_TYPES
@@ -133,6 +135,43 @@ async def test_four_scheme_wallet_lifecycle(tmp_path, scheme):
             assert (await record(wallet.coldkey))["generation"] == 1
         await fund(wallet.coldkey, 100)
         await fund(wallet.hotkey)
+
+        # EVM-side commands consume the same named native wallets. Their
+        # receiving descriptors must survive until finalized setup is checked.
+        password = tmp_path / "evm-password"
+        password.write_text("local-wallet-test")
+        evm = create_evm_key("default", "four-types", wallet_path, password=password.read_text())
+        evm_coldkey = h160_to_ss58(evm.address)
+        await submit(
+            bt.calls.Balances.force_set_balance(who=evm_coldkey, new_free=50 * 10**9),
+            root=True,
+        )
+        await submit(
+            bt.calls.AdminUtils.sudo_set_subtoken_enabled(netuid=netuid, subtoken_enabled=True),
+            root=True,
+        )
+
+        async def evm_cli(*args):
+            result = await cli(*args, "--wallet-password-file", str(password))
+            assert result["success"], result
+            return result
+
+        before = await free(wallet.coldkey)
+        await evm_cli("evm", "send-to-ss58", "--amount-tao", "1")
+        assert await free(wallet.coldkey) == before + 10**9
+        address = receiving_address(wallet.coldkey, genesis)
+        await evm_cli("evm", "call", "balance-transfer", "transfer", address, "--value-tao", "1")
+        assert await free(wallet.coldkey) == before + 2 * 10**9
+        await evm_cli("evm", "stake", "add", "--netuid", str(netuid), "--amount-tao", "5")
+        position = await client.read(
+            "stake", coldkey_ss58=evm_coldkey, hotkey_ss58=wallet.hotkey.ss58_address, netuid=netuid
+        )
+        assert position.rao > 10**9
+        await evm_cli("evm", "stake", "remove", "--netuid", str(netuid), "--amount-alpha", "1")
+        remaining = await client.read(
+            "stake", coldkey_ss58=evm_coldkey, hotkey_ss58=wallet.hotkey.ss58_address, netuid=netuid
+        )
+        assert remaining.rao == position.rao - 10**9
         cold_before = await record(wallet.coldkey) if hashed else None
         for _ in range(2):
             result = await client.execute(

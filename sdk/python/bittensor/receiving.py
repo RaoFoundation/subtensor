@@ -86,6 +86,35 @@ async def account_for_read(substrate: Any, value: Any) -> Any:
     return recipient.account
 
 
+async def account_for_registered_write(substrate: Any, value: str) -> str:
+    """Resolve a recipient for a write that cannot carry a registration guard.
+
+    A finalized registration is permanent, so a later reorg or disabled setup
+    cannot make the resolved AccountId lose its descriptor. Never resolve an
+    unregistered receiving address to an unprotected bare account on this path.
+    """
+    from .hashed import descriptor_bytes
+
+    recipient = parse_recipient(value)
+    await check_network(substrate, recipient)
+    if recipient.descriptor is None:
+        return recipient.account
+    finalized = await substrate.block_hash(await substrate.finalized_block_number())
+    if not finalized:
+        raise ValueError("could not verify finalized hashed destination registration")
+    record = await substrate.query(
+        "HashedAccounts", "Accounts", [recipient.account], block_hash=finalized
+    )
+    if record is None:
+        raise ValueError(
+            "hashed destination registration is not finalized; register the recipient "
+            "and wait for finalization before using this command"
+        )
+    if descriptor_bytes(record["descriptor"]) != recipient.descriptor:
+        raise ValueError("registered hashed descriptor does not match the destination")
+    return recipient.account
+
+
 async def coerce_payment_address(substrate: Any, value: Any, param: str) -> Any:
     """Preserve complete typed addresses and obtain public wallet descriptors."""
     from .signing import KeyedWallet, Signer, as_ss58, public_view

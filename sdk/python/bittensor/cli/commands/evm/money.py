@@ -20,6 +20,7 @@ from ._shared import (
     PANEL_MONEY,
     RPC_URL_OPTION,
     _address_of,
+    _native_account,
     _rpc,
     _run_evm,
     _submit_evm_tx,
@@ -149,9 +150,10 @@ def send_to_ss58(
     app_ctx = ctx_of(ctx)
     dest = app_ctx.resolve_address("coldkey_ss58", to)
     assert dest is not None
+    account = _native_account(app_ctx, dest, rpc_url)
     precompile = evm_precompiles.get_precompile("balance-transfer")
     data = evm_precompiles.encode_call(
-        precompile.function("transfer"), [evm_addresses.ss58_to_pubkey(dest)]
+        precompile.function("transfer"), [evm_addresses.ss58_to_pubkey(account)]
     )
     wei = _tao_to_wei(app_ctx, amount_tao)
     _submit_evm_tx(

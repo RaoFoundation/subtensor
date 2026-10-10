@@ -46,6 +46,14 @@ without revealing a spending public key. Funding and migration commands retain
 that descriptor and use the existing registration flow. EVM access uses the
 registered account's native authorization and permanent alias.
 
+EVM staking, `send-to-ss58`, and precompile calls accept these receiving
+addresses too. Before an EVM write, the CLI verifies the recipient's registration
+in finalized state; register new recipients first through the native wallet flow.
+Select the chain with `--network` so both the native and EVM connections use the
+same network. Receiving addresses cannot be combined with an unrelated
+`--rpc-url` override. Read-only calls need only the receiving address's matching
+network, without registration.
+
 For fee-free PoW admission, a sponsor must first register both hashed or
 ML-DSA keys and wait for finalization. The coldkey can then have a zero balance:
 `btcli subnets register --pow` submits the direct PoW call without a registration

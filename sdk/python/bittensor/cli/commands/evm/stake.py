@@ -17,6 +17,7 @@ from ._shared import (
     HOTKEY_OPTION_HELP,
     RPC_URL_OPTION,
     _key_info,
+    _native_account,
     _rpc,
     _run_evm,
     _submit_evm_tx,
@@ -50,8 +51,9 @@ def stake_add(
     app_ctx = ctx_of(ctx)
     hotkey_ss58 = app_ctx.resolve_address("hotkey_ss58", hotkey)
     assert hotkey_ss58 is not None
+    hotkey_account = _native_account(app_ctx, hotkey_ss58, rpc_url)
     amount = Balance.from_tao(amount_tao)
-    data = _staking_call("addStake", [hotkey_ss58, amount.rao, netuid])
+    data = _staking_call("addStake", [hotkey_account, amount.rao, netuid])
     _submit_evm_tx(
         app_ctx,
         key,
@@ -83,8 +85,9 @@ def stake_remove(
     app_ctx = ctx_of(ctx)
     hotkey_ss58 = app_ctx.resolve_address("hotkey_ss58", hotkey)
     assert hotkey_ss58 is not None
+    hotkey_account = _native_account(app_ctx, hotkey_ss58, rpc_url)
     amount = Balance.from_alpha(amount_alpha, netuid)
-    data = _staking_call("removeStake", [hotkey_ss58, amount.rao, netuid])
+    data = _staking_call("removeStake", [hotkey_account, amount.rao, netuid])
     _submit_evm_tx(
         app_ctx,
         key,
