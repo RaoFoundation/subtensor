@@ -869,6 +869,20 @@ def verify(
     """Verify a message signature against an address."""
     app_ctx: AppContext = ctx_of(ctx)
     try:
+        if (
+            crypto_type is not None
+            and account_type is None
+            and crypto_type.strip().lower()
+            in ("sr", "sr25519", "ed", "ed25519", "ms", "mldsa", "ml-dsa")
+        ):
+            # A receiving address commits to its mode. Bare addresses instead
+            # use the creation default; legacy rotating accounts require --type.
+            recipient = parse_recipient(ss58)
+            account_type = (
+                wallets.Keypair.from_hashed_descriptor(recipient.descriptor).account_type
+                if recipient.descriptor is not None
+                else "standard"
+            )
         ok = wallets.verify_message(
             message,
             signature,

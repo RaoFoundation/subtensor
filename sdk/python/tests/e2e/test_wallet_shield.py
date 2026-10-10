@@ -1,4 +1,4 @@
-"""Four schemes across three validators, using production slot timing."""
+"""Six scheme/mode combinations across three validators, using production slot timing."""
 
 from __future__ import annotations
 
@@ -21,7 +21,10 @@ pytestmark = [
 ]
 
 
-@pytest.mark.parametrize("code,sponsor", [(0, "Alice"), (1, "Bob"), (4, "Charlie"), (5, "Dave")])
+@pytest.mark.parametrize(
+    "code,sponsor",
+    [(0, "Alice"), (1, "Bob"), (4, "Charlie"), (5, "Dave"), (6, "Eve"), (7, "Ferdie")],
+)
 async def test_cross_validator_shield_and_external_nonce_advancement(code, sponsor):
     clients = [bt.Client(url, fallback_endpoints=[], archive_endpoints=[]) for url in PEERS]
     async with clients[0] as a, clients[1] as b, clients[2] as c:

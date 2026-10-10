@@ -40,6 +40,11 @@ btcli wallet regen-coldkey --crypto-type ms --type standard
 btcli wallet regen-hotkey --crypto-type ed --type hashed
 ```
 
+For `wallet verify`, a receiving address supplies its account mode while
+`--crypto-type` still checks the signing scheme. With a bare SS58 address,
+`--crypto-type sr`, `ed`, or `ms` defaults to standard mode; add `--type hashed`
+when verifying a rotating account's signature.
+
 The native `bittensor-core>=0.1.8` package and Python SDK must be built and published
 from matching source with composable account-mode support. Python constructors
 accept `account_type="standard"` or `account_type="hashed"`; browser constructors

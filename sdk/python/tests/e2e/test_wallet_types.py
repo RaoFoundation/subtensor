@@ -55,7 +55,12 @@ async def test_composable_wallet_lifecycle(tmp_path, scheme, mode):
         return json.loads(out)
 
     created = await cli(
-        "wallet", "create", "--crypto-type", scheme, "--type", mode, "--no-password"
+        "wallet",
+        "create",
+        "--crypto-type",
+        scheme,
+        *(["--type", "hashed"] if mode == "hashed" else []),
+        "--no-password",
     )
     wallet = bt.Wallet("four-types", path=wallet_path)
     code = bt.wallets.parse_crypto_type(scheme, mode)

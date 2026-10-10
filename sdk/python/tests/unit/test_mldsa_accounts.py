@@ -203,7 +203,10 @@ def test_cli_message_round_trip_uses_finalized_state_only_for_classical_hashed(
     result = runner.invoke(app, ["--yes", "--json", "wallet", "sign", "--message", "challenge"])
     assert result.exit_code == 0, result.output
     signed = json.loads(result.output)
-    for flags in ([], ["--crypto-type", scheme]):
+    for flags in (
+        [],
+        ["--crypto-type", scheme, *(["--type", "hashed"] if scheme == "mldsa" else [])],
+    ):
         result = runner.invoke(
             app,
             [

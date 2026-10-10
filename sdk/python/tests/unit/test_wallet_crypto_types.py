@@ -333,3 +333,58 @@ def test_mldsa_recovery_requires_original_mode_before_writing(wallet_path, schem
     assert "ML-DSA recovery requires --type standard or --type hashed" in result.output
     assert secret not in result.output
     assert not wallet_path.exists()
+
+
+@pytest.mark.parametrize("receiving", [False, True])
+def test_default_mldsa_wallet_message_verifies_with_scheme_only(wallet_path, receiving):
+    from bittensor.receiving import receiving_address
+
+    created = invoke("create", "--crypto-type", "ms", "--no-password")
+    assert created.exit_code == 0, created.output
+    signed = invoke("sign", "--message", "default account")
+    assert signed.exit_code == 0, signed.output
+    payload = json.loads(signed.output)
+    key = Wallet("schemes", path=str(wallet_path)).coldkeypub
+    result = invoke(
+        "verify",
+        "--message",
+        "default account",
+        "--signature",
+        payload["signed_message"],
+        "--ss58",
+        receiving_address(key) if receiving else payload["signer_address"],
+        "--crypto-type",
+        "ms",
+    )
+    assert result.exit_code == 0, result.output
+
+
+@pytest.mark.parametrize("scheme", ["sr", "ed", "ms"])
+@pytest.mark.parametrize("mode", ["standard", "hashed"])
+def test_receiving_address_verification_preserves_scheme_and_mode(wallet_path, scheme, mode):
+    from bittensor.receiving import receiving_address
+
+    key = Keypair.create_from_seed(bytes([53]) * 32, wallets.parse_crypto_type(scheme, mode))
+    if key.crypto_type in wallets.CLASSICAL_HASHED_CRYPTO_TYPES:
+        key = key.at_generation(1)
+    signature = bytes(key.sign(b"mode binding")).hex()
+    address = receiving_address(key)
+    for selected_scheme, selected_mode, success in (
+        (scheme, None, True),
+        (scheme, mode, True),
+        (scheme, "hashed" if mode == "standard" else "standard", False),
+        ("ed" if scheme == "sr" else "sr", None, False),
+    ):
+        result = invoke(
+            "verify",
+            "--message",
+            "mode binding",
+            "--signature",
+            signature,
+            "--ss58",
+            address,
+            "--crypto-type",
+            selected_scheme,
+            *(["--type", selected_mode] if selected_mode else []),
+        )
+        assert (result.exit_code == 0) == success, result.output
