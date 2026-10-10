@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 from typer.testing import CliRunner
 
 from bittensor import wallets
 from bittensor.cli.main import app
+from bittensor.cli.prompt import run_app
 from bittensor.sp_core import (
     CRYPTO_ED25519,
     CRYPTO_HASHED,
@@ -33,6 +35,40 @@ def wallet_path(tmp_path, monkeypatch):
 
 def invoke(*args):
     return CliRunner().invoke(app, ["--yes", "--json", "wallet", *args])
+
+
+@pytest.mark.parametrize(
+    ("command", "option"),
+    [
+        ("create", "--crypto-type"),
+        ("create", "--type"),
+        ("create", "--hotkey-crypto-type"),
+        ("regen-coldkey", "--crypto-type"),
+        ("regen-hotkey", "--crypto-type"),
+        ("verify", "--crypto-type"),
+    ],
+)
+def test_missing_crypto_type_lists_choices(wallet_path, monkeypatch, capsys, command, option):
+    monkeypatch.setattr(sys, "argv", ["btcli", "wallet", command, option])
+    with pytest.raises(SystemExit) as error:
+        run_app(app)
+    assert error.value.code == 2
+    output = " ".join(capsys.readouterr().err.replace("│", " ").split())
+    assert "requires an argument" in output
+    for choice in ("sr (sr25519)", "ed (ed25519)", "hashed", "ms (mldsa / ml-dsa)"):
+        assert choice in output
+    assert not wallet_path.exists()
+
+
+def test_missing_other_option_does_not_list_crypto_types(wallet_path, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["btcli", "wallet", "create", "--n-words"])
+    with pytest.raises(SystemExit) as error:
+        run_app(app)
+    assert error.value.code == 2
+    output = capsys.readouterr().err
+    assert "requires an argument" in output
+    assert "Choose sr" not in output
+    assert not wallet_path.exists()
 
 
 @pytest.mark.parametrize(
