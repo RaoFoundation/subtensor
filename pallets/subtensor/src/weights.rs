@@ -2229,20 +2229,30 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(5_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
-	// Hand-estimated pending a benchmark run (`run-benchmarks` label).
 	/// Storage: `SubtensorModule::SmallTransferDestination` (r:0 w:1)
+	/// Proof: `SubtensorModule::SmallTransferDestination` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_small_transfer_destination() -> Weight {
-		Weight::from_parts(8_000_000, 0)
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 14_000_000 picoseconds.
+		Weight::from_parts(14_000_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
-	// Hand-estimated pending a benchmark run (`run-benchmarks` label).
 	/// Storage: `SubtensorModule::SmallTransferDestination` (r:1 w:0)
+	/// Proof: `SubtensorModule::SmallTransferDestination` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
-	/// Storage: `System::Account` (r:2 w:2)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	fn small_transfer() -> Weight {
-		Weight::from_parts(60_000_000, 6196)
-			.saturating_add(T::DbWeight::get().reads(4_u64))
-			.saturating_add(T::DbWeight::get().writes(3_u64))
+		// Proof Size summary in bytes:
+		//  Measured:  `805`
+		//  Estimated: `4270`
+		// Minimum execution time: 96_000_000 picoseconds.
+		Weight::from_parts(100_000_000, 4270)
+			.saturating_add(T::DbWeight::get().reads(3_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:2 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -6554,20 +6564,30 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(5_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
-	// Hand-estimated pending a benchmark run (`run-benchmarks` label).
 	/// Storage: `SubtensorModule::SmallTransferDestination` (r:0 w:1)
+	/// Proof: `SubtensorModule::SmallTransferDestination` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_small_transfer_destination() -> Weight {
-		Weight::from_parts(8_000_000, 0)
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 14_000_000 picoseconds.
+		Weight::from_parts(14_000_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
-	// Hand-estimated pending a benchmark run (`run-benchmarks` label).
 	/// Storage: `SubtensorModule::SmallTransferDestination` (r:1 w:0)
+	/// Proof: `SubtensorModule::SmallTransferDestination` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
-	/// Storage: `System::Account` (r:2 w:2)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	fn small_transfer() -> Weight {
-		Weight::from_parts(60_000_000, 6196)
-			.saturating_add(RocksDbWeight::get().reads(4_u64))
-			.saturating_add(RocksDbWeight::get().writes(3_u64))
+		// Proof Size summary in bytes:
+		//  Measured:  `805`
+		//  Estimated: `4270`
+		// Minimum execution time: 96_000_000 picoseconds.
+		Weight::from_parts(100_000_000, 4270)
+			.saturating_add(RocksDbWeight::get().reads(3_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:2 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
