@@ -25,6 +25,33 @@ from tests.harness.fake_substrate import FakeSubstrate, success_result
 from tests.harness.samples import ALICE, ALICE_HOT, BOB, BOB_HOT, dev_wallet
 
 
+@pytest.mark.parametrize("code", [4, 5, 6, 7])
+@pytest.mark.asyncio
+async def test_sdk_multisig_normalizes_receiving_members(code):
+    from bittensor.receiving import receiving_address
+    from bittensor.sp_core import Keypair
+
+    key = Keypair.create_from_seed(bytes([code]) * 32, code)
+    client = Client("local", substrate=FakeSubstrate())
+    canonical = await client.multisig([key.ss58_address, ALICE, BOB], 2)
+    received = await client.multisig([BOB, receiving_address(key), ALICE], 2)
+    assert received.address == canonical.address
+    assert received.signatories == canonical.signatories
+
+
+@pytest.mark.parametrize("shielded", [False, True])
+@pytest.mark.asyncio
+async def test_sdk_multisig_rejects_nonmember_before_signing(shielded):
+    client = Client("local", substrate=FakeSubstrate())
+    multi = await client.multisig([ALICE, BOB], 2)
+    client.compose = AsyncMock()
+    with pytest.raises(ValueError, match="not a member"):
+        await multi.approve(
+            calls.System.remark(remark="0x00"), dev_wallet("//Charlie"), shielded=shielded
+        )
+    client.compose.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_shielded_approval_propagates_finalization_request():
     substrate = FakeSubstrate()

@@ -83,6 +83,51 @@ btcli addresses add carol 5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy
 btcli addresses list
 ```
 
+## Mixing signing schemes
+
+Members can use Sr25519, Ed25519, or ML-DSA-65 independently, with either
+standard accounts or hashed rotating accounts. For example:
+
+```bash
+btcli wallet create -w quantum --crypto-type ms --type hashed
+btcli wallet create -w classical --crypto-type sr
+btcli wallet create -w third --crypto-type ed
+btcli multisig add mixed --threshold 2 --signatories quantum,classical,third
+```
+
+Fund each member for approval fees and deposits, then fund the multisig address
+for its payments. For hashed/MS members, use the complete receiving address so
+ordinary transfers can register the account when needed. Creating a multisig
+does not register its members. The CLI accepts wallet names and receiving
+addresses; `client.multisig()` accepts receiving addresses or ordinary SS58.
+Rotating a member's signing key does not change its account or multisig address.
+Registration itself is direct-only: before a multisig pays a new hashed/MS
+recipient, register that recipient through a direct sponsor wallet. The CLI
+reports this requirement before opening an approval operation.
+
+After funding, any two members can approve the same payment:
+
+```bash
+btcli wallet transfer -w mixed --dest receiver --amount 1 --signatory quantum
+btcli wallet transfer -w mixed --dest receiver --amount 1 --signatory classical
+```
+
+**One quantum-resistant member does not make a 2-of-3 quantum-resistant.**
+Two classical members can authorize a payment without the ML-DSA member. To
+require an ML-DSA approval, choose a threshold larger than the number of
+classical members, for example 2-of-3 with two ML-DSA members and one Sr25519.
+This describes the approval policy, not a guarantee of post-quantum security
+for the multisig address itself. That address does not inherit its members'
+registered account schemes. It cannot act as a proxy or hotkey owner where
+the runtime requires a compatible registered hashed/MS authority.
+
+A standard [Polkadot Vault](/docs/guides/vault) account can be another member:
+save its address as a contact, include that contact in the signer set, and pass
+`--signatory contact-name=vault` for its approval. Use
+`--signatory quantum=wallet` for the local hashed/MS member. Vault cannot sign
+as a hashed or ML-DSA account; that member must use the local wallet backend.
+The CLI rejects those unsupported Vault selections before opening the QR flow.
+
 ## Step 2 — save the signer set and derive the address
 
 `btcli multisig add` stores a named signer set in your local multisig book and

@@ -208,6 +208,7 @@ class AppContext:
     _extension_bridge_ws_url: Optional[str] = None
     _ledger_signer: Optional[object] = None
     _vault_signer: Optional[VaultSigner] = None
+    _vault_crypto_type: int = 1
     # Multisig names currently being derived by ``resolve_address`` — breaks
     # the recursion when a saved multisig lists itself among its signatories.
     _resolving_multisigs: set = field(default_factory=set)
@@ -374,6 +375,8 @@ class AppContext:
         """Resolve a signer identity to ss58: raw address, address-book name, or wallet."""
         if is_receiving_address(ref):
             parse_recipient(ref)
+            if self.uses_vault_signer():
+                self._vault_account_address(None)
             raise ValueError("hashed receiving addresses cannot use an external signer backend")
         if is_bittensor_address(ref):
             return str(ref)
@@ -381,12 +384,27 @@ class AppContext:
         if booked:
             if is_receiving_address(booked):
                 parse_recipient(booked)
+                if self.uses_vault_signer():
+                    self._vault_account_address(None)
                 raise ValueError("hashed receiving addresses cannot use an external signer backend")
             return booked
         try:
-            return wallets.open_wallet(name=ref, path=self.wallet_path).coldkeypub.ss58_address
+            public = wallets.open_wallet(name=ref, path=self.wallet_path).coldkeypub
         except Exception:
             return None
+        if self.uses_vault_signer():
+            return self._vault_account_address(public)
+        return public.ss58_address
+
+    def _vault_account_address(self, public) -> str:
+        if public is None or public.crypto_type not in (0, 1):
+            raise ValueError(
+                "Polkadot Vault signing supports standard sr25519/ed25519 accounts only; "
+                "use --signer wallet (or --signatory NAME=wallet) for hashed or ML-DSA "
+                "members. A standard Vault account can still co-sign the same multisig."
+            )
+        self._vault_crypto_type = public.crypto_type
+        return public.ss58_address
 
     def external_signer_address(self) -> Optional[str]:
         """The account the external backend signs with, without device/browser I/O.
@@ -402,6 +420,7 @@ class AppContext:
         """
         if not self.uses_external_signer():
             return None
+        self._vault_crypto_type = 1
         # An explicit --signer-address that does not resolve must not fall
         # through to --signatory or config: that would hide a typo.
         if self.signer_address:
@@ -417,9 +436,10 @@ class AppContext:
                 return address
         if self.uses_vault_signer():
             try:
-                return self.wallet().coldkeypub.ss58_address
+                public = self.wallet().coldkeypub
             except Exception:
                 return None
+            return self._vault_account_address(public)
         return None
 
     def vault_signer(self) -> VaultSigner:
@@ -448,6 +468,7 @@ class AppContext:
                 raise typer.Exit(2)
             signer = VaultSigner(
                 address,
+                crypto_type=self._vault_crypto_type,
                 browser=self._extension_browser_choice(),
                 # Same heuristic as the extension bridge: only pop a browser
                 # tab for a human at a terminal.
@@ -1854,7 +1875,9 @@ class AppContext:
                 self.multisig_wallet_name = None
                 self.signatory_wallet = ss58
                 self.signer_backend = None if backend == "wallet" else backend
-                self.signer_address = None if backend == "wallet" else ss58
+                self.signer_address = (
+                    None if backend == "wallet" else name if backend == "vault" else ss58
+                )
                 self._vault_signer = None
                 self._ledger_signer = None
                 self.reset_extension_session()

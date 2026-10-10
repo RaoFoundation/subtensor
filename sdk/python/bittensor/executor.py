@@ -202,12 +202,11 @@ async def _compose_intent_call(
     semantic = await _coerce_addresses(substrate, intent.semantic_intent())
     prepared, recipients = await prepare_recipient_intent(substrate, semantic)
     pinned = getattr(intent, "inner_call_data", None)
-    if pinned:
-        if await has_receiving_setup_inputs(substrate, wallet, semantic):
-            raise ValueError(
-                "cannot verify recipient setup in imported multisig call bytes; "
-                "use a supported receiving-address payment flow"
-            )
+    # Receiving metadata must authenticate the actual pinned bytes. Rebuild
+    # those payments including their guards and origin wrappers, then compare
+    # before allowing wrap_call to substitute the opening approval's bytes.
+    verify_pinned = bool(pinned) and await has_receiving_setup_inputs(substrate, wallet, semantic)
+    if pinned and not verify_pinned:
         # Later multisig rounds approve round 1's exact bytes. Rebuilds are
         # not always stable (timelock commits, ``--all`` balances) and would
         # throw before wrap_call can apply the pin.
@@ -248,6 +247,11 @@ async def _compose_intent_call(
     if wrapped is not call:
         call = wrapped if hasattr(wrapped, "data") else await substrate.compose(wrapped)
 
+    if verify_pinned and bytes(call.data) != bytes.fromhex(pinned.removeprefix("0x")):
+        raise ValueError(
+            "imported multisig call bytes do not match the verified recipient payment and guards; "
+            "use the same receiving address, amount and origin as the opening approval"
+        )
     wrapped = await intent.wrap_call(substrate, wallet, call)
     if isinstance(wrapped, BuiltCall):
         return wrapped.call, {**extras, **wrapped.extras}

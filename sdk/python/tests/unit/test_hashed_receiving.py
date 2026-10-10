@@ -14,10 +14,11 @@ from bittensor.hashed import descriptor_value
 from bittensor.intents import Batch, Transfer, TransferAll
 from bittensor.intents.coldkey import AnnounceColdkeySwap, SwapColdkeyAnnounced
 from bittensor.intents.evm import FundEvmKey
-from bittensor.intents.multisig import MultisigIntentAdapter, MultisigThreshold1
+from bittensor.intents.multisig import MultisigExecute, MultisigIntentAdapter, MultisigThreshold1
 from bittensor.intents.registration import BurnedRegister, PowRegister, RegisterSubnet
 from bittensor.intents.staking import MoveSwapStake, RemoveStake
 from bittensor.receiving import parse_recipient, receiving_address
+from bittensor.result import BittensorError
 from bittensor.sp_core import CRYPTO_HASHED, Keypair
 from bittensor.wallet import Wallet
 from tests.harness.fake_substrate import FakeSubstrate
@@ -57,6 +58,65 @@ def pinned(semantic):
         semantic=semantic,
         inner_call_data="0x0000",
     )
+
+
+@pytest.mark.parametrize("threshold", [1, 2])
+@pytest.mark.parametrize("batched", [False, True])
+async def test_direct_multisig_nested_receiving_payment_keeps_guards(
+    setup, threshold, batched, monkeypatch
+):
+    chain, wallet, key, address = setup
+    registered(chain, key)
+    origin = chain.multisig_account([ALICE, BOB], threshold).ss58_address
+    build_transfer = Transfer.build
+
+    async def check_origin(transfer, substrate, view):
+        assert view.ss58_address == origin
+        return await build_transfer(transfer, substrate, view)
+
+    monkeypatch.setattr(Transfer, "build", check_origin)
+    inner = Transfer(address, 1)
+    if batched:
+        inner = Batch([inner])
+    kwargs = {"other_signatories": [BOB], "call": inner.to_dict()}
+    intent = (
+        MultisigThreshold1(**kwargs) if threshold == 1 else MultisigExecute(threshold=2, **kwargs)
+    )
+    call, _ = await _compose_intent_call(chain, intent, wallet)
+    assert call.module == "Multisig"
+    guarded = call.params["call"]
+    assert (guarded.module, guarded.function) == ("Utility", "batch_all")
+    check, payment = guarded.params["calls"]
+    assert (check.module, check.function) == ("HashedAccounts", "check_registered")
+    assert check.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
+    assert payment.params == {"dest": key.ss58_address, "value": 10**9}
+
+
+@pytest.mark.parametrize("threshold", [1, 2])
+async def test_direct_multisig_rejects_unregistered_receiving_recipient(setup, threshold):
+    chain, wallet, _, address = setup
+    kwargs = {"other_signatories": [BOB], "call": Transfer(address, 1).to_dict()}
+    intent = (
+        MultisigThreshold1(**kwargs) if threshold == 1 else MultisigExecute(threshold=2, **kwargs)
+    )
+    with pytest.raises(ValueError, match="direct sponsor"):
+        await _compose_intent_call(chain, intent, wallet)
+    assert not chain.submissions
+
+
+@pytest.mark.parametrize("threshold", [1, 2])
+async def test_pinned_bytes_cannot_hide_receiving_inputs_inside_multisig(setup, threshold):
+    chain, wallet, key, address = setup
+    registered(chain, key)
+    kwargs = {"other_signatories": [BOB], "call": Transfer(address, 1).to_dict()}
+    semantic = (
+        MultisigThreshold1(**kwargs) if threshold == 1 else MultisigExecute(threshold=2, **kwargs)
+    )
+    adapter = pinned(semantic)
+    adapter.wrap_call = AsyncMock()
+    with pytest.raises(ValueError, match="imported multisig"):
+        await _compose_intent_call(chain, adapter, wallet)
+    adapter.wrap_call.assert_not_awaited()
 
 
 def test_address_preserves_original_descriptor_after_rotation(setup):
@@ -356,6 +416,7 @@ async def test_atomic_flattening_round_trips_real_scale_calls():
 @pytest.mark.parametrize("in_batch", [False, True])
 async def test_imported_multisig_bytes_cannot_bypass_recipient_information(setup, form, in_batch):
     chain, wallet, key, address = setup
+    registered(chain, key)
     if form == "typed":
         semantic = Transfer(address, 1)
     elif form == "explicit":
@@ -377,10 +438,40 @@ async def test_imported_multisig_bytes_cannot_bypass_recipient_information(setup
         semantic = Batch([semantic])
     adapter = pinned(semantic)
     adapter.wrap_call = AsyncMock()
-    with pytest.raises(ValueError, match="imported multisig"):
+    # An unavailable semantic route may fail earlier during reconstruction;
+    # neither that nor mismatched bytes may reach the pinned-call wrapper.
+    with pytest.raises((ValueError, BittensorError)):
         await _compose_intent_call(chain, adapter, wallet)
     adapter.wrap_call.assert_not_awaited()
     assert not chain.submissions
+
+
+@pytest.mark.parametrize("tamper", [None, "amount", "destination", "remove_guard"])
+async def test_pinned_receiving_payment_requires_exact_guarded_call(setup, tamper):
+    chain, wallet, key, address = setup
+    registered(chain, key)
+    semantic = Transfer(address, 1)
+    original, _ = await _compose_intent_call(chain, semantic, wallet)
+    adapter = pinned(semantic)
+    adapter.inner_call_data = "0x" + original.data.hex()
+    if tamper == "amount":
+        adapter.semantic = Transfer(address, 2)
+    elif tamper == "destination":
+        other = Keypair.create_from_seed(bytes([92]) * 32, CRYPTO_HASHED)
+        registered(chain, other)
+        adapter.semantic = Transfer(receiving_address(other), 1)
+    elif tamper == "remove_guard":
+        adapter.inner_call_data = "0x" + original.params["calls"][-1].data.hex()
+    adapter.wrap_call = AsyncMock(side_effect=lambda substrate, wallet, call: call)
+    if tamper:
+        with pytest.raises(ValueError, match="do not match the verified recipient"):
+            await _compose_intent_call(chain, adapter, wallet)
+        adapter.wrap_call.assert_not_awaited()
+    else:
+        actual, extras = await _compose_intent_call(chain, adapter, wallet)
+        assert actual.data == original.data
+        assert extras["hashed_registration_guards"] == [key.ss58_address]
+        adapter.wrap_call.assert_awaited_once()
 
 
 async def test_default_in_memory_hashed_hotkey_retains_setup_descriptor(setup):

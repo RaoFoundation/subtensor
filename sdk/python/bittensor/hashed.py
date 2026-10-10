@@ -171,6 +171,13 @@ async def has_receiving_setup_inputs(substrate, wallet: Any, intent: Any, depth:
         return True
     if has_local_hashed_recipient(wallet, semantic):
         return True
+    if semantic.op in ("multisig_execute", "multisig_threshold_1"):
+        from .intents.registry import build
+
+        spec = dict(semantic.call)
+        child = build(spec.pop("op"), spec)
+        if await has_receiving_setup_inputs(substrate, wallet, child, depth + 1):
+            return True
     for child in getattr(semantic, "_children", ()):
         if await has_receiving_setup_inputs(substrate, wallet, child, depth + 1):
             return True

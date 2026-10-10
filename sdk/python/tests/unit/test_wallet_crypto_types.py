@@ -6,6 +6,8 @@ import json
 import sys
 
 import pytest
+from rich.text import Text
+from typer import rich_utils
 from typer.testing import CliRunner
 
 from bittensor import wallets
@@ -39,6 +41,7 @@ def invoke(*args):
     return CliRunner().invoke(app, ["--yes", "--json", "wallet", *args])
 
 
+@pytest.mark.parametrize("force_terminal", [False, True])
 @pytest.mark.parametrize(
     ("command", "option"),
     [
@@ -49,12 +52,19 @@ def invoke(*args):
         ("verify", "--crypto-type"),
     ],
 )
-def test_missing_crypto_type_lists_choices(wallet_path, monkeypatch, capsys, command, option):
+def test_missing_crypto_type_lists_choices(
+    wallet_path, monkeypatch, capsys, command, option, force_terminal
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm")
+    monkeypatch.setattr(rich_utils, "FORCE_TERMINAL", force_terminal)
+    monkeypatch.setattr(rich_utils, "MAX_WIDTH", 80)
     monkeypatch.setattr(sys, "argv", ["btcli", "wallet", command, option])
     with pytest.raises(SystemExit) as error:
         run_app(app)
     assert error.value.code == 2
-    output = " ".join(capsys.readouterr().err.replace("│", " ").split())
+    output = Text.from_ansi(capsys.readouterr().err).plain
+    output = " ".join(output.replace("│", " ").split())
     assert "requires an argument" in output
     for choice in ("sr (sr25519)", "ed (ed25519)", "hashed", "ms (mldsa / ml-dsa)"):
         assert choice in output

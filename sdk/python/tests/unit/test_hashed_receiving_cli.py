@@ -330,6 +330,29 @@ def test_named_protected_multisig_signatories_and_saved_presets(wallet_path, sch
     derived = multisig_account(expected, 2).ss58_address
     assert ctx._saved_multisig_address("team") == derived
     assert ("team", derived) in multisig_helpers.saved_multisig_accounts(ctx)
+    assert multisig_helpers.resolve_member_ref(ctx, "member", expected) == (
+        "member",
+        wallet.coldkeypub.ss58_address,
+    )
+    assert (
+        multisig_helpers.resolve_member_ref(ctx, address, expected)[1]
+        == wallet.coldkeypub.ss58_address
+    )
+    for reference in ("member", address):
+        ctx.signatory_wallet = reference
+        multisig_helpers.infer_external_signer_from_signatory(ctx, expected)
+        assert ctx.signer_backend is None
+        assert multisig_helpers.pick_local_signatory(ctx, preset="team", signatories=expected) == (
+            "recipient",
+            wallet.coldkeypub.ss58_address,
+        )
+        assert multisig_helpers.plan_signatory_rounds(
+            ctx,
+            [f"{reference}=wallet"],
+            signatories=expected,
+            threshold=2,
+            preset="team",
+        ) == [("recipient", wallet.coldkeypub.ss58_address, "wallet")]
 
 
 @pytest.mark.parametrize("consumer", ["signatories", "preset"])
