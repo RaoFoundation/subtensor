@@ -83,7 +83,7 @@ _CRYPTO_TYPE_HELP = (
 )
 _ACCOUNT_TYPE_HELP = (
     "Account mode: standard (fixed signing key) or hashed (rotating keys). "
-    "Omitting this option preserves the legacy scheme defaults, including rotating ms."
+    "New wallets default to standard. For ML-DSA recovery, specify the original mode."
 )
 
 _SEED_HELP = (
@@ -270,7 +270,14 @@ def _resolve_coldkey_source(
     return mnemonic, seed, private_key, None
 
 
-def _resolve_crypto_type(app_ctx: AppContext, value: str, account_type: str | None = None) -> int:
+def _resolve_crypto_type(
+    app_ctx: AppContext,
+    value: str,
+    account_type: str | None = None,
+    *,
+    creating: bool = False,
+    recovering: bool = False,
+) -> int:
     try:
         if account_type is not None and account_type not in ("standard", "hashed"):
             # Preserve the former --type alias for scheme-only commands.
@@ -278,7 +285,15 @@ def _resolve_crypto_type(app_ctx: AppContext, value: str, account_type: str | No
                 raise ValueError(
                     "--type selects standard or hashed; put the signing scheme in --crypto-type"
                 )
-            return wallets.parse_crypto_type(account_type)
+            value, account_type = account_type, None
+        if account_type is None and value.strip().lower() in ("ms", "mldsa", "ml-dsa"):
+            if recovering:
+                raise ValueError(
+                    "ML-DSA recovery requires --type standard or --type hashed matching "
+                    "the original wallet; earlier ms wallets used hashed mode."
+                )
+            if creating:
+                account_type = "standard"
         return wallets.parse_crypto_type(value, account_type)
     except ValueError as error:
         app_ctx.output.error(str(error))
@@ -362,7 +377,7 @@ def create(
         hotkey_help="Name for the new hotkey.",
         hotkey_must_exist=False,
     )
-    coldkey_crypto = _resolve_crypto_type(app_ctx, crypto_type, account_type)
+    coldkey_crypto = _resolve_crypto_type(app_ctx, crypto_type, account_type, creating=True)
     inherited_mode = account_type if account_type in ("standard", "hashed") else None
     hotkey_crypto = (
         coldkey_crypto
@@ -373,6 +388,7 @@ def create(
             if hotkey_crypto_type is None
             else hotkey_crypto_type,
             inherited_mode if hotkey_account_type is None else hotkey_account_type,
+            creating=True,
         )
     )
     mnemonics: dict[str, str] = {}
@@ -437,7 +453,7 @@ def new_coldkey(
     """
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(app_ctx, help_text="Wallet to create the coldkey in.", must_exist=False)
-    crypto = _resolve_crypto_type(app_ctx, crypto_type, account_type)
+    crypto = _resolve_crypto_type(app_ctx, crypto_type, account_type, creating=True)
     mnemonics: dict[str, str] = {}
 
     def _on_mnemonic(mnemonic: str) -> None:
@@ -494,7 +510,7 @@ def new_hotkey(
         hotkey_help="Name for the new hotkey.",
         hotkey_must_exist=False,
     )
-    crypto = _resolve_crypto_type(app_ctx, crypto_type, account_type)
+    crypto = _resolve_crypto_type(app_ctx, crypto_type, account_type, creating=True)
     mnemonics: dict[str, str] = {}
 
     def _on_mnemonic(mnemonic: str) -> None:
@@ -571,7 +587,7 @@ def regen_coldkey(
             "--json-password": json_password,
         },
     )
-    crypto = _resolve_crypto_type(app_ctx, crypto_type, account_type)
+    crypto = _resolve_crypto_type(app_ctx, crypto_type, account_type, recovering=json_path is None)
     mnemonic, seed, private_key, json_keystore = _resolve_coldkey_source(
         app_ctx,
         mnemonic,
@@ -639,7 +655,7 @@ def regen_hotkey(
         app_ctx.output,
         {"--mnemonic": mnemonic, "--seed": seed, "--private-key": private_key},
     )
-    crypto = _resolve_crypto_type(app_ctx, crypto_type, account_type)
+    crypto = _resolve_crypto_type(app_ctx, crypto_type, account_type, recovering=True)
     mnemonic, seed, private_key = _resolve_key_secret(
         app_ctx, "Hotkey", mnemonic, seed, private_key, crypto
     )

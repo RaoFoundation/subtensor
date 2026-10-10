@@ -15,6 +15,7 @@ from bittensor.sp_core import (
     CRYPTO_ED25519,
     CRYPTO_HASHED,
     CRYPTO_MLDSA,
+    CRYPTO_MLDSA_STANDARD,
     CRYPTO_SR25519,
     HASHED_CRYPTO_TYPES,
     Keypair,
@@ -79,8 +80,9 @@ def test_missing_other_option_does_not_list_crypto_types(wallet_path, monkeypatc
         ("sr", CRYPTO_SR25519),
         ("sr25519", CRYPTO_SR25519),
         ("hashed", CRYPTO_HASHED),
-        ("mldsa", CRYPTO_MLDSA),
-        ("ms", CRYPTO_MLDSA),
+        ("mldsa", CRYPTO_MLDSA_STANDARD),
+        ("ms", CRYPTO_MLDSA_STANDARD),
+        ("ml-dsa", CRYPTO_MLDSA_STANDARD),
     ],
 )
 def test_cli_selection_applies_to_both_keys_and_mnemonic_recovery(wallet_path, name, code):
@@ -91,7 +93,9 @@ def test_cli_selection_applies_to_both_keys_and_mnemonic_recovery(wallet_path, n
     for role in ("coldkey", "hotkey"):
         key = getattr(wallet, role)
         public = getattr(wallet, role + "pub")
-        assert len(details[role + "_mnemonic"].split()) == (24 if code == CRYPTO_MLDSA else 12)
+        assert len(details[role + "_mnemonic"].split()) == (
+            24 if code in (CRYPTO_MLDSA, CRYPTO_MLDSA_STANDARD) else 12
+        )
         recovered = Keypair.create_from_mnemonic(details[role + "_mnemonic"], code)
         assert key.crypto_type == public.crypto_type == recovered.crypto_type == code
         assert key.ss58_address == public.ss58_address == recovered.ss58_address
@@ -156,6 +160,8 @@ def test_cli_recovers_exported_private_key(wallet_path, scheme, code, role):
     original = Keypair.create_from_seed(bytes([31]) * 32, code)
     exported = json.loads(serialized_keypair_to_keyfile_data(original))["privateKey"]
     args = [f"regen-{role}", "--crypto-type", scheme, "--private-key", exported]
+    if scheme == "ms":
+        args += ["--type", "hashed"]
     if role == "coldkey":
         args.append("--no-password")
     result = invoke(*args)
@@ -173,7 +179,9 @@ def test_cli_recovers_exported_private_key(wallet_path, scheme, code, role):
 @pytest.mark.parametrize("role", ["coldkey", "hotkey"])
 def test_cli_rejects_long_rotating_private_key_before_writing(wallet_path, scheme, role):
     secret = "ab" * 64
-    result = invoke(f"regen-{role}", "--crypto-type", scheme, "--private-key", secret)
+    result = invoke(
+        f"regen-{role}", "--crypto-type", scheme, "--type", "hashed", "--private-key", secret
+    )
     assert result.exit_code == 2, result.output
     assert "32 bytes" in result.output
     assert secret not in result.output
@@ -265,3 +273,63 @@ def test_hotkey_account_mode_can_override_coldkey_mode(wallet_path):
     wallet = Wallet("schemes", path=str(wallet_path))
     assert wallet.coldkey.crypto_type == wallets.parse_crypto_type("ms", "standard")
     assert wallet.hotkey.crypto_type == wallets.parse_crypto_type("ed", "hashed")
+
+
+@pytest.mark.parametrize("scheme", ["sr", "ed", "ms"])
+@pytest.mark.parametrize("command", ["new-coldkey", "new-hotkey"])
+def test_new_key_commands_default_to_standard(wallet_path, scheme, command):
+    result = invoke(
+        command, "--crypto-type", scheme, *(["--no-password"] if command == "new-coldkey" else [])
+    )
+    assert result.exit_code == 0, result.output
+    key = getattr(Wallet("schemes", path=str(wallet_path)), command.removeprefix("new-"))
+    assert key.crypto_type == wallets.parse_crypto_type(scheme, "standard")
+
+
+def test_hotkey_scheme_override_defaults_to_standard(wallet_path):
+    result = invoke("create", "--hotkey-crypto-type", "ms", "--no-password")
+    assert result.exit_code == 0, result.output
+    wallet = Wallet("schemes", path=str(wallet_path))
+    assert wallet.coldkey.crypto_type == CRYPTO_SR25519
+    assert wallet.hotkey.crypto_type == CRYPTO_MLDSA_STANDARD
+
+
+def test_legacy_type_ms_alias_defaults_to_standard(wallet_path):
+    result = invoke("create", "--type", "ms", "--no-password")
+    assert result.exit_code == 0, result.output
+    wallet = Wallet("schemes", path=str(wallet_path))
+    assert wallet.coldkey.crypto_type == wallet.hotkey.crypto_type == CRYPTO_MLDSA_STANDARD
+
+
+@pytest.mark.parametrize("mode", ["standard", "hashed"])
+@pytest.mark.parametrize("role", ["coldkey", "hotkey"])
+def test_mldsa_seed_recovery_preserves_selected_identity(wallet_path, mode, role):
+    seed = "42" * 32
+    code = wallets.parse_crypto_type("ms", mode)
+    original = Keypair.create_from_seed(bytes.fromhex(seed), code)
+    result = invoke(
+        f"regen-{role}",
+        "--crypto-type",
+        "ms",
+        "--type",
+        mode,
+        "--seed",
+        seed,
+        *(["--no-password"] if role == "coldkey" else []),
+    )
+    assert result.exit_code == 0, result.output
+    restored = getattr(Wallet("schemes", path=str(wallet_path)), role)
+    assert restored.crypto_type == code
+    assert restored.ss58_address == original.ss58_address
+
+
+@pytest.mark.parametrize("scheme", ["ms", "mldsa", "ml-dsa"])
+@pytest.mark.parametrize("role", ["coldkey", "hotkey"])
+@pytest.mark.parametrize("source", ["mnemonic", "seed", "private-key"])
+def test_mldsa_recovery_requires_original_mode_before_writing(wallet_path, scheme, role, source):
+    secret = Keypair.generate_mnemonic(24) if source == "mnemonic" else "31" * 32
+    result = invoke(f"regen-{role}", "--crypto-type", scheme, f"--{source}", secret)
+    assert result.exit_code == 1, result.output
+    assert "ML-DSA recovery requires --type standard or --type hashed" in result.output
+    assert secret not in result.output
+    assert not wallet_path.exists()

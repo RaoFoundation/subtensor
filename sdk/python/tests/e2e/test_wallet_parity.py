@@ -39,6 +39,9 @@ async def test_cli_wallet_parity(tmp_path, scheme):
     wallet_path = str(tmp_path / "wallets")
 
     async def cli(name, *args, success=True):
+        # This matrix retains the legacy rotating MS case alongside mldsa-standard.
+        if "--crypto-type" in args and args[args.index("--crypto-type") + 1] == "ms":
+            args += ("--type", "hashed")
         command = [
             sys.executable,
             "-m",

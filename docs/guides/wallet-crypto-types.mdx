@@ -26,11 +26,14 @@ Ordinary commands read both choices from the keyfile automatically.
 | `ed` / `ed25519` | Existing Ed25519 account | Rotating Ed25519 account |
 | `ms` / `mldsa` / `ml-dsa` | Fixed-key ML-DSA-65 account | Rotating ML-DSA-65 account |
 
-For compatibility, omitting `--type` retains the previous defaults: `sr` and
-`ed` use standard accounts; `ms` uses rotating ML-DSA. The old
+New wallets default to `standard` for all three schemes; use `--type hashed`
+to opt into rotation. Existing keyfiles retain their original mode. The old
 `--crypto-type hashed` selects rotating Sr25519, and `--type hashed` alone
 still selects rotating Sr25519. Legacy `--type sr`, `--type ed`, and `--type ms`
-remain accepted. Use explicit scheme and mode for new backups and recovery:
+remain accepted. ML-DSA mnemonic, seed, and private-key recovery requires an
+explicit mode: use `--type hashed` for earlier rotating ML-DSA wallets, or
+`--type standard` for fixed-key wallets. JSON backups retain their stored mode.
+Use explicit scheme and mode for backups and recovery:
 
 ```bash
 btcli wallet regen-coldkey --crypto-type ms --type standard
