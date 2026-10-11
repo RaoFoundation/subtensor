@@ -195,9 +195,9 @@ collateral capture and release still apply. The shared interface still uses orde
 claim that every operation in the surrounding epoch pipeline is strictly linear.
 Delegation processing also scales with incoming parent edges, whose count is
 currently unbounded; a population ceiling alone does not bound that workload.
-When a Null epoch is due, the existing scheduler runs at most one epoch in that
-block. Remaining due subnets are deferred; blocks with only Yuma epochs retain
-the configured epoch cap. Payouts settle atomically in the epoch's block.
+When a Null epoch is due, the scheduler runs it first, as the only epoch in
+that block. Remaining due subnets are deferred; blocks with only Yuma epochs
+retain the configured epoch cap. Payouts settle atomically in the epoch's block.
 
 ## Solidity callers
 
