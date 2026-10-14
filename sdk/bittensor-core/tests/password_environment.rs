@@ -55,3 +55,38 @@ fn decoder_retains_whitespace_and_error_boundaries() -> Result<(), Box<dyn Error
         Err(CoreError::Keyfile(message)) if message == "invalid wallet password env var: corrupt UTF-8"));
     Ok(())
 }
+
+#[test]
+fn malformed_suffix_after_valid_blocks_retains_the_decoder_error() -> Result<(), Box<dyn Error>> {
+    let name = "BT_PW_TEST";
+    let password = "password long enough to cover several valid decoding blocks";
+    let encoded = encode_password_for_environment(name, password)?;
+    assert_eq!(decode_password_from_environment(name, &encoded)?, password);
+    assert!(matches!(
+        decode_password_from_environment(name, &format!("{encoded}!!!!")),
+        Err(CoreError::Keyfile(message)) if message == "invalid base64 in wallet password env var"
+    ));
+    Ok(())
+}
+
+#[test]
+fn guarded_preallocation_covers_partial_decoding_without_growth() -> Result<(), Box<dyn Error>> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    let encoded = encode_password_for_environment(
+        "BT_PW_TEST",
+        "password long enough to cover several valid decoding blocks",
+    )?;
+    let malformed = format!("{encoded}!!!!");
+    let mut partial = zeroize::Zeroizing::new(Vec::with_capacity(base64::decoded_len_estimate(
+        malformed.len(),
+    )));
+    let pointer = partial.as_ptr();
+    let capacity = partial.capacity();
+    assert!(STANDARD.decode_vec(&malformed, &mut partial).is_err());
+    // Establish the dependency's late-error path and sizing contract, on which
+    // the guard-before-decoding implementation relies.
+    assert!(partial.iter().any(|byte| *byte != 0));
+    assert_eq!(partial.as_ptr(), pointer);
+    assert_eq!(partial.capacity(), capacity);
+    Ok(())
+}

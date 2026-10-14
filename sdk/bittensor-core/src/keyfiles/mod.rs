@@ -103,10 +103,13 @@ pub fn get_password_from_environment(env_var_name: &str) -> Result<Option<String
         return Err(CoreError::Crypto("env var name must not be empty".into()));
     }
     match std::env::var(env_var_name) {
-        Ok(encrypted_password_base64) => Ok(Some(decode_password_from_environment(
-            env_var_name,
-            &encrypted_password_base64,
-        )?)),
+        Ok(encrypted_password_base64) => {
+            let encrypted_password_base64 = Zeroizing::new(encrypted_password_base64);
+            Ok(Some(decode_password_from_environment(
+                env_var_name,
+                &encrypted_password_base64,
+            )?))
+        }
         Err(_) => Ok(None),
     }
 }
@@ -120,10 +123,10 @@ pub fn save_password_to_environment(
     env_var_name: &str,
     password: &str,
 ) -> Result<String, CoreError> {
-    let encrypted = encode_password_for_environment(env_var_name, password)?;
+    let encrypted = Zeroizing::new(encode_password_for_environment(env_var_name, password)?);
     // Inherited btwallet behavior: set_var is not thread-safe and can race with
     // concurrent getenv calls from other (non-GIL-holding) threads.
-    std::env::set_var(env_var_name, encrypted);
+    std::env::set_var(env_var_name, encrypted.as_str());
     Ok(env_var_name.to_string())
 }
 

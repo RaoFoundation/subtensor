@@ -28,11 +28,16 @@ pub fn decode_password_from_environment(name: &str, value: &str) -> Result<Strin
     if name.is_empty() {
         return Err(CoreError::Crypto("env var name must not be empty".into()));
     }
-    let bytes = Zeroizing::new(
-        general_purpose::STANDARD
-            .decode(value.trim())
-            .map_err(|_| CoreError::Keyfile("invalid base64 in wallet password env var".into()))?,
-    );
+    let value = value.trim();
+    // Install the guard before decoding: malformed suffixes can follow valid
+    // blocks that have already written reversible password bytes. Reserving the
+    // decoder's full bound prevents growth from leaving a prior allocation.
+    let mut bytes = Zeroizing::new(Vec::with_capacity(base64::decoded_len_estimate(
+        value.len(),
+    )));
+    general_purpose::STANDARD
+        .decode_vec(value, &mut bytes)
+        .map_err(|_| CoreError::Keyfile("invalid base64 in wallet password env var".into()))?;
     let decoded = xor(&bytes, name)?;
     std::str::from_utf8(&decoded)
         .map(str::to_owned)
