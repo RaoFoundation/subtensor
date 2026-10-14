@@ -122,6 +122,7 @@ WrongPasswordError = _backend.WrongPasswordError
 
 # Native bittensor_core names
 verify = _backend.verify
+verify_strict = _backend.verify_strict
 ss58_decode = _backend.ss58_decode
 ss58_encode = _backend.ss58_encode
 ecdsa_account_id = _backend.ecdsa_account_id
@@ -132,6 +133,7 @@ encode_mldsa_receiving_address = _backend.encode_mldsa_receiving_address
 decrypt_keyfile_data = _backend.decrypt_keyfile_data
 deserialize_keypair_from_keyfile_data = _backend.deserialize_keypair_from_keyfile_data
 encrypt_keyfile_data = _backend.encrypt_keyfile_data
+encode_password_for_environment = _backend.encode_password_for_environment
 get_password_from_environment = _backend.get_password_from_environment
 keyfile_data_encryption_method = _backend.keyfile_data_encryption_method
 keyfile_data_is_encrypted = _backend.keyfile_data_is_encrypted
