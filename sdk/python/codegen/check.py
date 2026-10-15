@@ -97,6 +97,7 @@ RAW_ONLY: dict[str, set[str]] = {
         # coldkey swap: announce/execute/clear/dispute are wrapped by intents; these
         # remain raw — deprecated (schedule) or root-only (reset, arbitrary swap)
         "reset_coldkey_swap",
+        "reset_coldkey_swap_keep_locked",
         "schedule_swap_coldkey",
         "swap_coldkey",
         "swap_hotkey_v2",

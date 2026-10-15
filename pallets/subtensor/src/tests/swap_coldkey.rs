@@ -1668,6 +1668,7 @@ fn test_reset_coldkey_swap_works() {
         let who = U256::from(1);
         let new_coldkey = U256::from(2);
         announce_coldkey_swap(who, new_coldkey);
+        dispute_coldkey_swap(who);
 
         assert_ok!(SubtensorModule::reset_coldkey_swap(
             RuntimeOrigin::root(),
@@ -1696,6 +1697,46 @@ fn test_reset_coldkey_swap_with_bad_origin_fails() {
 
         assert_noop!(
             SubtensorModule::reset_coldkey_swap(RuntimeOrigin::none(), coldkey),
+            BadOrigin
+        );
+    });
+}
+
+#[test]
+fn test_reset_coldkey_swap_keep_locked_works() {
+    new_test_ext(1).execute_with(|| {
+        let who = U256::from(1);
+        let new_coldkey = U256::from(2);
+        announce_coldkey_swap(who, new_coldkey);
+        dispute_coldkey_swap(who);
+
+        assert_ok!(SubtensorModule::reset_coldkey_swap_keep_locked(
+            RuntimeOrigin::root(),
+            who,
+        ));
+
+        assert!(!ColdkeySwapAnnouncements::<Test>::contains_key(who));
+        assert_eq!(ColdkeySwapDisputes::<Test>::get(who), Some(0));
+        assert!(matches!(
+            last_event(),
+            RuntimeEvent::SubtensorModule(Event::ColdkeySwapReset { who })
+        ));
+    });
+}
+
+#[test]
+fn test_reset_coldkey_swap_keep_locked_with_bad_origin_fails() {
+    new_test_ext(1).execute_with(|| {
+        let who = U256::from(1);
+        let coldkey = U256::from(2);
+
+        assert_noop!(
+            SubtensorModule::reset_coldkey_swap_keep_locked(RuntimeOrigin::signed(who), coldkey),
+            BadOrigin
+        );
+
+        assert_noop!(
+            SubtensorModule::reset_coldkey_swap_keep_locked(RuntimeOrigin::none(), coldkey),
             BadOrigin
         );
     });

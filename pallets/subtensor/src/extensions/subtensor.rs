@@ -483,6 +483,9 @@ mod tests {
             let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
             let new_coldkey_hash =
                 <Test as frame_system::Config>::Hashing::hash_of(&U256::from(99));
+            let shield = RuntimeCall::Shield(pallet_shield::Call::submit_encrypted {
+                ciphertext: vec![1, 2, 3, 4].try_into().unwrap(),
+            });
 
             ColdkeySwapAnnouncements::<Test>::insert(
                 coldkey,
@@ -494,6 +497,28 @@ mod tests {
             ColdkeySwapDisputes::<Test>::insert(coldkey, System::block_number());
             let err = validate_signed(coldkey, &call).unwrap_err();
             assert_eq!(err, CustomTransactionError::ColdkeySwapDisputed.into());
+            assert_eq!(
+                validate_signed(coldkey, &shield).unwrap_err(),
+                CustomTransactionError::ColdkeySwapDisputed.into()
+            );
+
+            assert_ok!(SubtensorModule::reset_coldkey_swap_keep_locked(
+                RuntimeOrigin::root(),
+                coldkey
+            ));
+            let err = validate_signed(coldkey, &call).unwrap_err();
+            assert_eq!(err, CustomTransactionError::ColdkeyInSwapSchedule.into());
+            assert_ok!(validate_signed(coldkey, &shield));
+            let clear =
+                RuntimeCall::SubtensorModule(crate::Call::clear_coldkey_swap_announcement {});
+            assert_eq!(
+                validate_signed(coldkey, &clear).unwrap_err(),
+                CustomTransactionError::ColdkeyInSwapSchedule.into()
+            );
+            let announce = RuntimeCall::SubtensorModule(crate::Call::announce_coldkey_swap {
+                new_coldkey_hash,
+            });
+            assert_ok!(validate_signed(coldkey, &announce));
         });
     }
 

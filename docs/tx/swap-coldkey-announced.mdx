@@ -15,7 +15,7 @@ future operations sign with the new coldkey.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_coldkey_announced`](/code/pallets/subtensor/src/macros/dispatches.rs#L2420-L2458) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_coldkey_announced`](/code/pallets/subtensor/src/macros/dispatches.rs#L2420-L2463) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("swap_coldkey_announced", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_coldkey_announced` — [`pallets/subtensor/src/macros/dispatches.rs#L2422`](/code/pallets/subtensor/src/macros/dispatches.rs#L2420-L2458):
+`SubtensorModule.swap_coldkey_announced` — [`pallets/subtensor/src/macros/dispatches.rs#L2422`](/code/pallets/subtensor/src/macros/dispatches.rs#L2420-L2463):
 
 ```rust
 #[pallet::call_index(126)]
@@ -100,6 +100,11 @@ pub fn swap_coldkey_announced(
             Self::fail_with_weight(error, base.saturating_add(done))
         })?;
 
+    // A self-swap must not release a root-imposed recovery lock.
+    if who != new_coldkey {
+        ColdkeySwapDisputes::<T>::remove(&who);
+    }
+
     Ok((
         Some(Self::swap_coldkey_announced_actual_weight(work)),
         Pays::Yes,
@@ -108,6 +113,6 @@ pub fn swap_coldkey_announced(
 }
 ```
 
-Delegates to [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1509), [`do_swap_coldkey_tracked`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L114), [`swap_coldkey_announced_actual_weight`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L62).
+Delegates to [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1509), [`do_swap_coldkey_tracked`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L116), [`swap_coldkey_announced_actual_weight`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L63).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

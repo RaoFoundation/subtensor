@@ -397,6 +397,7 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::clear_coldkey_swap_announcement),
         RuntimeCall::SubtensorModule(SubtensorCall::dispute_coldkey_swap),
         RuntimeCall::SubtensorModule(SubtensorCall::reset_coldkey_swap),
+        RuntimeCall::SubtensorModule(SubtensorCall::reset_coldkey_swap_keep_locked),
     ]
 );
 

@@ -833,6 +833,7 @@ mod tests {
         ] {
             let allowed = allowed_calls(proxy_type);
             assert!(!allowed.contains("SubtensorModule::reset_coldkey_swap"));
+            assert!(!allowed.contains("SubtensorModule::reset_coldkey_swap_keep_locked"));
             assert!(!allowed.contains("SubtensorModule::swap_coldkey"));
             assert!(!allowed.contains("SubtensorModule::schedule_swap_coldkey"));
             assert!(!allowed.contains("Multisig::as_multi_threshold_1"));

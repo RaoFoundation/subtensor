@@ -1480,6 +1480,16 @@ fn limit_order_signers_are_blocked_during_recovery_or_dispute() {
         assert!(!LimitOrderSignerFilter::contains(&signer));
         pallet_subtensor::ColdkeySwapDisputes::<Runtime>::remove(&signer);
         assert!(LimitOrderSignerFilter::contains(&signer));
+        frame_support::assert_ok!(SubtensorModule::reset_coldkey_swap_keep_locked(
+            RuntimeOrigin::root(),
+            signer.clone()
+        ));
+        assert!(!LimitOrderSignerFilter::contains(&signer));
+        frame_support::assert_ok!(SubtensorModule::reset_coldkey_swap(
+            RuntimeOrigin::root(),
+            signer.clone()
+        ));
+        assert!(LimitOrderSignerFilter::contains(&signer));
     });
 }
 

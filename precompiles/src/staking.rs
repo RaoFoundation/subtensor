@@ -48,7 +48,7 @@ use precompile_utils::prelude::{Address, BoundedVec, revert};
 use sp_core::{H160, H256, U256};
 use sp_runtime::{
     PerU16,
-    traits::{AsSystemOriginSigner, Dispatchable, StaticLookup, UniqueSaturatedInto},
+    traits::{AsSystemOriginSigner, Dispatchable, StaticLookup, UniqueSaturatedInto, Zero},
 };
 use sp_std::vec;
 use substrate_fixed::types::U64F64;
@@ -1691,7 +1691,8 @@ where
         handle.record_db_reads::<R>(2)?;
         let coldkey = R::AccountId::from(coldkey.0);
         let announcement = pallet_subtensor::ColdkeySwapAnnouncements::<R>::get(&coldkey);
-        let dispute = pallet_subtensor::ColdkeySwapDisputes::<R>::get(&coldkey);
+        let dispute = pallet_subtensor::ColdkeySwapDisputes::<R>::get(&coldkey)
+            .filter(|when| !when.is_zero());
         let (has_announcement, announcement_block, call_hash) = match announcement {
             Some((block, hash)) => (
                 true,
@@ -4720,6 +4721,19 @@ mod tests {
                 (coldkey_word,),
                 (false, 0_u64, H256::zero(), false, 0_u64)
             );
+            pallet_subtensor::ColdkeySwapDisputes::<Runtime>::insert(&coldkey, 7);
+            assert_view!(
+                "getColdkeySwapStatus(bytes32)",
+                (coldkey_word,),
+                (false, 0_u64, H256::zero(), true, 7_u64)
+            );
+            pallet_subtensor::ColdkeySwapDisputes::<Runtime>::insert(&coldkey, 0);
+            assert_view!(
+                "getColdkeySwapStatus(bytes32)",
+                (coldkey_word,),
+                (false, 0_u64, H256::zero(), false, 0_u64)
+            );
+            pallet_subtensor::ColdkeySwapDisputes::<Runtime>::remove(&coldkey);
             assert_view!(
                 "getColdkeySwapDelays()",
                 (),

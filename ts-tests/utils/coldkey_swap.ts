@@ -88,6 +88,19 @@ export async function sudoResetColdkeySwap(api: TypedApi<typeof subtensor>, cold
     await waitForTransactionWithRetry(api, tx, alice, "sudo_reset_coldkey_swap");
 }
 
+export async function sudoResetColdkeySwapKeepLocked(
+    api: TypedApi<typeof subtensor>,
+    coldkeyAddress: string
+): Promise<void> {
+    const keyring = new Keyring({ type: "sr25519" });
+    const alice = keyring.addFromUri("//Alice");
+    const internalCall = api.tx.SubtensorModule.reset_coldkey_swap_keep_locked({
+        coldkey: coldkeyAddress,
+    });
+    const tx = api.tx.Sudo.sudo({ call: internalCall.decodedCall });
+    await waitForTransactionWithRetry(api, tx, alice, "sudo_reset_coldkey_swap_keep_locked");
+}
+
 export async function sudoSwapColdkey(
     api: TypedApi<typeof subtensor>,
     oldAddress: string,

@@ -57,6 +57,9 @@ pub trait WeightInfo {
 	fn dispute_coldkey_swap() -> Weight;
 	fn clear_coldkey_swap_announcement() -> Weight;
 	fn reset_coldkey_swap() -> Weight;
+    // Both reset paths perform two storage writes and emit the same event.
+    // Reference CI replaces this alias with the new call's measurement.
+    fn reset_coldkey_swap_keep_locked() -> Weight { Self::reset_coldkey_swap() }
 	fn batch_reveal_weights() -> Weight;
 	fn recycle_alpha() -> Weight;
 	fn burn_alpha() -> Weight;

@@ -401,6 +401,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'reset_coldkey_swap', {'coldkey': coldkey})
 
     @staticmethod
+    def reset_coldkey_swap_keep_locked(coldkey: 'AccountId32') -> Call:
+        'Reset a coldkey swap while retaining its recovery lock.  Clears the announcement and active dispute. The coldkey may announce again, dispute, execute the new swap, or submit an encrypted transaction, but cannot clear the announcement to unlock itself or make unrelated calls. Uses the existing dispute entry with block zero.  The dispatch origin of this call must be root.  * `coldkey`: The coldkey to reset the swap for while keeping it locked.'
+        return Call('SubtensorModule', 'reset_coldkey_swap_keep_locked', {'coldkey': coldkey})
+
+    @staticmethod
     def reveal_mechanism_weights(netuid: 'NetUid', mecid: 'MechId', uids: 'Any', values: 'Any', salt: 'Any', version_key: 'u64') -> Call:
         'Used to reveal the weights for a previously committed hash for mechanisms.  # Arguments * `origin`: The signature of the revealing hotkey.  * `netuid`: The u16 network identifier.  * `mecid`: The u8 mechanism identifier.  * `uids`: The uids for the weights being revealed.  * `values`: The values of the weights being revealed.  * `salt`: The salt used to generate the commit hash.  * `version_key`: The network version key.  # Errors * `CommitRevealDisabled`: Attempting to reveal weights when the commit-reveal mechanism is disabled.  * `NoWeightsCommitFound`: Attempting to reveal weights without an existing commit.  * `ExpiredWeightCommit`: Attempting to reveal a weight commit that has expired.  * `RevealTooEarly`: Attempting to reveal weights outside the valid reveal period.  * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.'
         return Call('SubtensorModule', 'reveal_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'uids': uids, 'values': values, 'salt': salt, 'version_key': version_key})

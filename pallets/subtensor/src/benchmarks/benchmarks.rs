@@ -559,6 +559,7 @@ mod pallet_benchmarks {
         let now = frame_system::Pallet::<T>::block_number();
         let delay = ColdkeySwapAnnouncementDelay::<T>::get();
         ColdkeySwapAnnouncements::<T>::insert(&old_coldkey, (now, new_coldkey_hash));
+        ColdkeySwapDisputes::<T>::insert(&old_coldkey, BlockNumberFor::<T>::zero());
         frame_system::Pallet::<T>::set_block_number(now + delay + 1u32.into());
 
         let netuid = NetUid::from(1);
@@ -597,7 +598,9 @@ mod pallet_benchmarks {
         helpers::seed_coldkey_swap_leases::<T>(netuid, &old_coldkey, &new_coldkey);
 
         #[extrinsic_call]
-        _(RawOrigin::Signed(old_coldkey), new_coldkey);
+        _(RawOrigin::Signed(old_coldkey.clone()), new_coldkey);
+
+        assert!(!ColdkeySwapDisputes::<T>::contains_key(&old_coldkey));
     }
 
     #[benchmark]
@@ -606,6 +609,7 @@ mod pallet_benchmarks {
         let new_coldkey: T::AccountId = account("new_coldkey", 0, 0);
         let hotkey1: T::AccountId = account("hotkey1", 0, 0);
         let netuid = NetUid::from(1);
+        ColdkeySwapDisputes::<T>::insert(&old_coldkey, BlockNumberFor::<T>::zero());
 
         let swap_cost = Subtensor::<T>::get_key_swap_cost();
         let free_balance_old = swap_cost + TaoBalance::from(12_345_u64);
@@ -657,6 +661,8 @@ mod pallet_benchmarks {
             new_coldkey.clone(),
             swap_cost,
         );
+
+        assert!(!ColdkeySwapDisputes::<T>::contains_key(&old_coldkey));
     }
 
     #[benchmark]
@@ -666,9 +672,12 @@ mod pallet_benchmarks {
         let now = frame_system::Pallet::<T>::block_number();
 
         ColdkeySwapAnnouncements::<T>::insert(&coldkey, (now, coldkey_hash));
+        ColdkeySwapDisputes::<T>::insert(&coldkey, BlockNumberFor::<T>::zero());
 
         #[extrinsic_call]
-        _(RawOrigin::Signed(coldkey));
+        _(RawOrigin::Signed(coldkey.clone()));
+
+        assert!(ColdkeySwapDisputes::<T>::get(&coldkey).is_some_and(|when| !when.is_zero()));
     }
 
     #[benchmark]
@@ -696,7 +705,29 @@ mod pallet_benchmarks {
         ColdkeySwapDisputes::<T>::insert(&coldkey, now);
 
         #[extrinsic_call]
-        _(RawOrigin::Root, coldkey);
+        _(RawOrigin::Root, coldkey.clone());
+
+        assert!(!ColdkeySwapAnnouncements::<T>::contains_key(&coldkey));
+        assert!(!ColdkeySwapDisputes::<T>::contains_key(&coldkey));
+    }
+
+    #[benchmark]
+    fn reset_coldkey_swap_keep_locked() {
+        let coldkey: T::AccountId = account("old_coldkey", 0, 0);
+        let coldkey_hash: T::Hash = <T as frame_system::Config>::Hashing::hash_of(&coldkey);
+        let now = frame_system::Pallet::<T>::block_number();
+
+        ColdkeySwapAnnouncements::<T>::insert(&coldkey, (now, coldkey_hash));
+        ColdkeySwapDisputes::<T>::insert(&coldkey, now.max(1u32.into()));
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, coldkey.clone());
+
+        assert!(!ColdkeySwapAnnouncements::<T>::contains_key(&coldkey));
+        assert_eq!(
+            ColdkeySwapDisputes::<T>::get(&coldkey),
+            Some(BlockNumberFor::<T>::zero())
+        );
     }
 
     #[benchmark]
@@ -2747,14 +2778,14 @@ mod pallet_benchmarks {
         let now = frame_system::Pallet::<T>::block_number();
         let call = runtime_call::<T>(Call::<T>::register_network { hotkey });
 
+        // A reset lock allows recovery calls; exercise both reads on an ordinary announcement.
         ColdkeySwapAnnouncements::<T>::insert(&coldkey, (now, new_coldkey_hash));
-        ColdkeySwapDisputes::<T>::insert(&coldkey, now);
 
         #[block]
         {
             assert_eq!(
                 CheckColdkeySwap::<T>::check(&coldkey, &call),
-                Err(Error::<T>::ColdkeySwapDisputed)
+                Err(Error::<T>::ColdkeySwapAnnounced)
             );
         }
     }
