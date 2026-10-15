@@ -32,10 +32,14 @@ def associate(
     block number is SCALE-encoded (u64 little-endian). This command produces
     that proof from the stored key, then submits ``associate_evm_key`` signed
     by the hotkey. Block height comes from the substrate connection, not EVM RPC.
+    With ``--proxy-for`` (a ``Validate`` delegate), the proof covers that real
+    hotkey instead of the local one.
     """
     app_ctx = ctx_of(ctx)
     info = _key_info(app_ctx, key)
-    hotkey = app_ctx.resolve_address("hotkey_ss58", None)
+    # The proof must name the hotkey the call dispatches as.
+    real = app_ctx.resolve_dispatch_proxy()
+    hotkey = real or app_ctx.resolve_address("hotkey_ss58", None)
     assert hotkey is not None
     summary = f"associate EVM key {info.address} with the hotkey on netuid {netuid}"
 
@@ -51,5 +55,6 @@ def associate(
             block_number=block_number,
             signature=signature,
         ),
+        proxy_for=real or "self",
         summary=summary,
     )

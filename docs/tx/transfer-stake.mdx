@@ -37,7 +37,7 @@ weight.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1395-L1423), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2805-L2835) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1395-L1423), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2845-L2875) |
 
 ## Parameters
 
@@ -133,9 +133,9 @@ pub fn transfer_stake(
 }
 ```
 
-Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1497), [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L202), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1437).
+Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1580), [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L202), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1520).
 
-`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2812`](/code/pallets/subtensor/src/macros/dispatches.rs#L2805-L2835):
+`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2852`](/code/pallets/subtensor/src/macros/dispatches.rs#L2845-L2875):
 
 ```rust
 #[pallet::call_index(143)]
@@ -171,6 +171,6 @@ pub fn transfer_stake_and_hotkey(
 }
 ```
 
-Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1497), [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L277), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1437).
+Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1580), [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L277), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1520).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
