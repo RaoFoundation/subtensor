@@ -10,6 +10,7 @@ from rich.console import Console
 from ...balance import Balance
 from ...basket_index import normalize_positions
 from ...intents import ALL, MoveStake
+from ...receiving import parse_recipient
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_tx_globals
 from ..helpers import chain_identity_names, local_address_names
@@ -66,14 +67,14 @@ def root_move(
     origin: Optional[str] = typer.Option(
         None,
         "--from",
-        help="Source validator: a hotkey ss58, a root UID, or a name. "
+        help="Source validator: a hotkey SS58 or receiving address, a root UID, or a name. "
         "Omit on a terminal to pick from your root positions.",
         show_default=False,
     ),
     dest: Optional[str] = typer.Option(
         None,
         "--to",
-        help="Destination validator: a hotkey ss58, a root UID, or a name. "
+        help="Destination validator: a hotkey SS58 or receiving address, a root UID, or a name. "
         "Omit on a terminal to pick from all validator baskets.",
         show_default=False,
     ),
@@ -132,10 +133,12 @@ def root_move(
             record_answers(["--from", chosen.hotkey])
             console.print()
             origin_hotkey = chosen.hotkey
+            origin_account = chosen.hotkey
             staked, accrued = chosen.staked, chosen.accrued
         else:
             origin_hotkey = resolve_validator_selector(app_ctx, origin)
-            row = next((p for p in positions if p.hotkey == origin_hotkey), None)
+            origin_account = parse_recipient(origin_hotkey).account
+            row = next((p for p in positions if p.hotkey == origin_account), None)
             staked = row.staked if row else Balance.from_rao(0)
             accrued = row.accrued if row else Balance.from_rao(0)
 
@@ -151,7 +154,7 @@ def root_move(
                 flag="--to",
                 prompt="Validator to move to — answer with a number, name, or "
                 "hotkey; Enter shows more.",
-                exclude={origin_hotkey},
+                exclude={origin_account},
             )
             record_answers(["--to", chosen_dest["hotkey"]])
             console.print()
@@ -163,30 +166,35 @@ def root_move(
     else:
         owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
         origin_hotkey = resolve_validator_selector(app_ctx, origin)
+        origin_account = parse_recipient(origin_hotkey).account
         dest_hotkey = resolve_validator_selector(app_ctx, dest)
         dest_name = None
         with app_ctx.output.activity("reading your position…"):
             positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
-        row = next((p for p in positions if p.hotkey == origin_hotkey), None)
+        row = next((p for p in positions if p.hotkey == origin_account), None)
         staked = row.staked if row else Balance.from_rao(0)
         accrued = row.accrued if row else Balance.from_rao(0)
 
-    if origin_hotkey == dest_hotkey:
+    dest_account = parse_recipient(dest_hotkey).account
+    if origin_account == dest_account:
         app_ctx.output.error("source and destination are the same validator")
         raise typer.Exit(2)
     if staked.rao <= 0 and accrued.rao <= 0:
         app_ctx.output.error(f"no root position to move on {origin_hotkey}")
         raise typer.Exit(1)
 
-    names = local_address_names(app_ctx.wallet_path)
-    origin_name = names.get(origin_hotkey)
+    names = {
+        parse_recipient(address).account: name
+        for address, name in local_address_names(app_ctx.wallet_path).items()
+    }
+    origin_name = names.get(origin_account)
     if dest_name is None:
-        dest_name = names.get(dest_hotkey)
-    unnamed = [hk for hk in (origin_hotkey, dest_hotkey) if names.get(hk) is None]
+        dest_name = names.get(dest_account)
+    unnamed = [hk for hk in (origin_account, dest_account) if names.get(hk) is None]
     if unnamed and (origin_name is None or dest_name is None):
         identities = app_ctx.run(lambda c: chain_identity_names(c, unnamed))
-        origin_name = origin_name or identities.get(origin_hotkey)
-        dest_name = dest_name or identities.get(dest_hotkey)
+        origin_name = origin_name or identities.get(origin_account)
+        dest_name = dest_name or identities.get(dest_account)
 
     confirm_wallet(app_ctx, help_text="Wallet whose coldkey signs this transaction.")
     summary, rows = _move_review(

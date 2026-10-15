@@ -10,6 +10,7 @@ from ....balance import Balance
 from ....evm import addresses as evm_addresses
 from ....evm import precompiles as evm_precompiles
 from ....evm import rpc as evm_rpc
+from ....hashed import hashed_accounts_enabled
 from ....intents import FundEvmKey
 from ...context import ctx_of
 from ...globals import evm_key_signed, with_globals, with_tx_globals
@@ -20,6 +21,7 @@ from ._shared import (
     PANEL_MONEY,
     RPC_URL_OPTION,
     _address_of,
+    _native_account,
     _rpc,
     _run_evm,
     _submit_evm_tx,
@@ -46,19 +48,34 @@ def balance(
     _network, rpc = _rpc(app_ctx, rpc_url)
     wei = _run_evm(app_ctx, lambda: rpc.get_balance_wei(h160))
     amount = evm_rpc.wei_to_balance(wei)
+    # A custom Ethereum endpoint need not be the selected Substrate network.
+    # Never export a receiving route using another chain's alias registry.
+    native_fields = {}
+    if rpc_url is None:
+        recipient = app_ctx.run(
+            lambda client: evm_addresses.resolve_evm_recipient(client._substrate, h160)
+        )
+        enabled = app_ctx.run(lambda client: hashed_accounts_enabled(client._substrate))
+        native_fields = (
+            {"native_receiving_address": recipient.address}
+            if recipient.descriptor is not None
+            else {"ss58_mirror": recipient.account}
+            if enabled is not True
+            else {}
+        )
     app_ctx.output.detail(
         None,
         {
             "address": h160,
             "balance": str(amount),
             "wei": wei,
-            "ss58 mirror": evm_addresses.h160_to_ss58(h160),
+            **{name.replace("_", " "): value for name, value in native_fields.items()},
         },
         json_fields={
             "address": h160,
             "balance_tao": format(amount.decimal, "f"),
             "balance_wei": wei,
-            "ss58_mirror": evm_addresses.h160_to_ss58(h160),
+            **native_fields,
         },
     )
 
@@ -74,10 +91,11 @@ def fund(
         False, "--all", help="Send the entire transferable balance (same as `--amount-tao all`)."
     ),
 ):
-    """Fund an EVM key with TAO from the coldkey (a transfer to its ss58 mirror).
+    """Fund an EVM address with TAO from the coldkey.
 
-    The native transfer credits the EVM account directly — MetaMask shows the
-    balance (with 18 decimals) as soon as it lands.
+    Protected aliases credit their native account through a guarded transfer.
+    Other addresses use the legacy mirror when hashed aliases are disabled;
+    when enabled, use an EVM wallet to fund unprotected addresses instead.
     """
     app_ctx = ctx_of(ctx)
     amount = resolve_all_amount(app_ctx, amount_tao, all_amount, flag="--amount-tao")
@@ -131,9 +149,10 @@ def send_to_ss58(
     app_ctx = ctx_of(ctx)
     dest = app_ctx.resolve_address("coldkey_ss58", to)
     assert dest is not None
+    account = _native_account(app_ctx, dest, rpc_url)
     precompile = evm_precompiles.get_precompile("balance-transfer")
     data = evm_precompiles.encode_call(
-        precompile.function("transfer"), [evm_addresses.ss58_to_pubkey(dest)]
+        precompile.function("transfer"), [evm_addresses.ss58_to_pubkey(account)]
     )
     wei = _tao_to_wei(app_ctx, amount_tao)
     _submit_evm_tx(

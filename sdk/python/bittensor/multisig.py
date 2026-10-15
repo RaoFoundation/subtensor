@@ -225,6 +225,9 @@ class Multisig:
         :meth:`Executor.submit_shielded` encrypts an intent — the inner call
         hash is unchanged, so later approvals still chain.
         """
+        member = bytes(ss58_decode(public_view(wallet, signer).ss58_address))
+        if member not in {bytes(ss58_decode(address)) for address in self.signatories}:
+            raise ValueError("the selected signer is not a member of this multisig")
         composed = await self._client.compose(call)
         await self._preflight_funds(composed, wallet, signer)
         keypair = resolve_signer(wallet, signer)

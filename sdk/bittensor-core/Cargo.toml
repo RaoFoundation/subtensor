@@ -31,6 +31,8 @@ fernet = { version = "=0.2.1", optional = true }
 # Homebrew-pathed on macOS runners (broken wheel for anyone without it).
 openssl = { version = "0.10", features = ["vendored"], optional = true }
 hex = "0.4.3"
+hkdf = "0.12.4"
+subtensor-hashed = { path = "../../primitives/hashed", default-features = false }
 # OpenCL is loaded only when GPU mining is requested; wheels need no GPU SDK.
 libloading = { version = "0.8.9", optional = true }
 pbkdf2 = { version = "0.12.2", optional = true }
@@ -122,6 +124,7 @@ host = [
     "dep:scrypt",
     "dep:sodiumoxide",
     "sp-core/std",
+    "subtensor-hashed/std",
 ]
 ledger = ["dep:ledger-apdu", "dep:hidapi"]
 

@@ -2,7 +2,7 @@ extern crate alloc;
 use core::marker::PhantomData;
 use pallet_evm::AddressMapping;
 
-use crate::PrecompileExt;
+use crate::{PrecompileExt, extensions::PrecompileHandleExt};
 use sp_core::{ByteArray, H256};
 
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
@@ -68,10 +68,10 @@ where
     #[precompile::public("addressMapping(address)")]
     #[precompile::view]
     fn address_mapping(
-        _handle: &mut impl PrecompileHandle,
+        handle: &mut impl PrecompileHandle,
         target_address: Address,
     ) -> EvmResult<H256> {
-        let target_address: [u8; 32] = R::AddressMapping::into_account_id(target_address.0).into();
+        let target_address: [u8; 32] = handle.mapped_account_id::<R>(target_address.0)?.into();
         Ok(target_address.into())
     }
 }

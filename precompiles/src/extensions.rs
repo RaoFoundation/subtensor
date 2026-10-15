@@ -17,12 +17,22 @@ use sp_std::vec::Vec;
 use subtensor_runtime_common::with_evm_context;
 
 pub(crate) trait PrecompileHandleExt: PrecompileHandle {
-    fn caller_account_id<R>(&self) -> R::AccountId
+    fn caller_account_id<R>(&mut self) -> EvmResult<R::AccountId>
     where
         R: frame_system::Config + pallet_evm::Config,
         <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
     {
-        <R as pallet_evm::Config>::AddressMapping::into_account_id(self.context().caller)
+        self.mapped_account_id::<R>(self.context().caller)
+    }
+
+    /// Reserve gas and external weight before the infallible mapping reads storage.
+    fn mapped_account_id<R>(&mut self, address: H160) -> EvmResult<R::AccountId>
+    where
+        R: pallet_evm::Config,
+        R::AddressMapping: AddressMapping<R::AccountId>,
+    {
+        pallet_evm::account_cost::record_precompile_mapping_cost::<R>(self)?;
+        Ok(<R::AddressMapping as AddressMapping<R::AccountId>>::into_account_id(address))
     }
 
     fn record_db_reads<R>(&mut self, reads: u64) -> EvmResult<()>
@@ -117,7 +127,7 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         self.dispatch_with_info::<R>(call, RawOrigin::Signed(coldkey), info)
     }
 
-    /// Checks `info` against the gas limit, reserves it, dispatches `call`, then charges the
+    /// Checks `info` against remaining gas, reserves it, dispatches `call`, then charges the
     /// weight the dispatch reports (capped at `info`) and refunds the rest.
     fn dispatch_with_info<R>(
         &mut self,
@@ -131,8 +141,8 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
             Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>,
         <R as frame_system::Config>::RuntimeOrigin: From<RawOrigin<R::AccountId>>,
     {
-        let target_gas = self.gas_limit();
-        if let Some(gas) = target_gas {
+        if self.gas_limit().is_some() {
+            let gas = self.remaining_gas();
             let valid_weight =
                 <R as pallet_evm::Config>::GasWeightMapping::gas_to_weight(gas, false).ref_time();
             if info.total_weight().ref_time() > valid_weight {

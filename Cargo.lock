@@ -1641,6 +1641,7 @@ dependencies = [
  "getrandom 0.2.17",
  "hex",
  "hidapi",
+ "hkdf",
  "ledger-apdu",
  "libloading",
  "merkleized-metadata",
@@ -1659,6 +1660,7 @@ dependencies = [
  "sha2 0.10.9",
  "sodiumoxide",
  "sp-core",
+ "subtensor-hashed",
  "subtensor-macros",
  "tle",
  "twox-hash 2.1.2",
@@ -5205,7 +5207,7 @@ dependencies = [
  "polkadot-parachain-primitives",
  "polkadot-primitives",
  "rand 0.8.6",
- "rand_pcg",
+ "rand_pcg 0.3.1",
  "sc-block-builder",
  "sc-chain-spec",
  "sc-cli",
@@ -5817,11 +5819,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26145e563e54f2cadc477553f1ec5ee650b00862f0a58bcd12cbdc5f0ea2d2f4"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "r-efi",
  "wasi 0.14.7+wasi-0.2.4",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -5831,11 +5831,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "139ef39800118c7683f2fd3c98c1b23c09ae076556b435f8e9064ae108aaeeec"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi",
  "rand_core 0.10.0",
  "wasip2",
  "wasip3",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -8821,6 +8823,7 @@ dependencies = [
  "pallet-evm-precompile-simple",
  "pallet-fast-unstake",
  "pallet-grandpa",
+ "pallet-hashed-accounts",
  "pallet-hotfix-sufficients",
  "pallet-insecure-randomness-collective-flip",
  "pallet-limit-orders",
@@ -8852,6 +8855,7 @@ dependencies = [
  "rand_chacha 0.3.1",
  "safe-math",
  "scale-info",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "smallvec",
@@ -8883,6 +8887,7 @@ dependencies = [
  "substrate-wasm-builder",
  "subtensor-chain-extensions",
  "subtensor-custom-rpc-runtime-api",
+ "subtensor-hashed",
  "subtensor-macros",
  "subtensor-precompiles",
  "subtensor-runtime-common",
@@ -9858,7 +9863,7 @@ dependencies = [
  "parity-scale-codec",
  "paste",
  "rand 0.8.6",
- "rand_pcg",
+ "rand_pcg 0.3.1",
  "scale-info",
  "serde",
  "smallvec",
@@ -10318,6 +10323,23 @@ dependencies = [
  "sp-runtime",
  "sp-session",
  "sp-staking",
+]
+
+[[package]]
+name = "pallet-hashed-accounts"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-keystore",
+ "sp-runtime",
+ "subtensor-hashed",
 ]
 
 [[package]]
@@ -10858,7 +10880,7 @@ dependencies = [
  "polkavm 0.21.0",
  "polkavm-common 0.21.0",
  "rand 0.8.6",
- "rand_pcg",
+ "rand_pcg 0.3.1",
  "ripemd",
  "rlp 0.6.1",
  "scale-info",
@@ -14136,14 +14158,15 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.15"
+version = "0.11.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fcb935c5bec503c2f0e306bdd3e58bb9029dcb14fa8d9ac76e3a5256ac0763e"
+checksum = "a9746dbde176634f4f2f1faf2404e30a31b2bc1e9cafb5329c95d8177a18c9fc"
 dependencies = [
  "bytes",
- "getrandom 0.3.3",
+ "getrandom 0.4.1",
  "lru-slab",
- "rand 0.9.4",
+ "rand 0.10.2",
+ "rand_pcg 0.10.2",
  "ring 0.17.14",
  "rustc-hash 2.1.1",
  "rustls",
@@ -14308,6 +14331,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59cad018caf63deb318e5a4586d99a24424a364f40f1e5778c29aca23f4fc73e"
 dependencies = [
  "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand_pcg"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "caa0f4137e1c0a72f4c651489402276c8e8e1cf081f3b0ba156d2cbeef09e86a"
+dependencies = [
+ "rand_core 0.10.0",
 ]
 
 [[package]]
@@ -16321,7 +16353,7 @@ dependencies = [
  "libc",
  "log",
  "rand 0.8.6",
- "rand_pcg",
+ "rand_pcg 0.3.1",
  "regex",
  "sc-telemetry",
  "serde",
@@ -18940,6 +18972,18 @@ dependencies = [
  "sp-runtime",
  "substrate-fixed",
  "subtensor-runtime-common",
+]
+
+[[package]]
+name = "subtensor-hashed"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "parity-scale-codec",
+ "scale-info",
+ "serde_json",
+ "sp-core",
+ "sp-io",
 ]
 
 [[package]]

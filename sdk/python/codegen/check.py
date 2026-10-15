@@ -69,9 +69,14 @@ COVERED_PALLETS = (
     "Commitments",
     "AdminUtils",
     "Contracts",
+    "HashedAccounts",
 )
 
 RAW_ONLY: dict[str, set[str]] = {
+    # Ordinary funding and migration intents insert registration automatically
+    # when they have the recipient descriptor. Expose standalone sponsorship
+    # through the raw call surface, not a second wallet-creation workflow.
+    "HashedAccounts": {"register", "check_registered"},
     "SubtensorModule": {
         # sudo/admin/root-origin operations — deliberately not agent-executable
         "sudo_set_max_childkey_take",
@@ -259,6 +264,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_basket_concentration_cap",
         # validator basket trading gates and budget — root-only governance toggles
         "sudo_set_basket_trading_enabled",
+        "sudo_set_hashed_accounts_enabled",
         "sudo_set_basket_trading_frozen",
         "sudo_set_basket_daily_turnover_cap",
         "sudo_set_basket_liquidity_cap",

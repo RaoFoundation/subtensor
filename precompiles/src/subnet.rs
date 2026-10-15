@@ -81,10 +81,8 @@ where
             identity: None,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public(
@@ -120,10 +118,8 @@ where
             identity: Some(identity),
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public(
@@ -160,10 +156,8 @@ where
             identity: Some(identity),
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getNetworkRegistrationBlock(uint16)")]
@@ -211,10 +205,8 @@ where
             serving_rate_limit,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getMinDifficulty(uint16)")]
@@ -238,10 +230,8 @@ where
             min_difficulty,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getMaxDifficulty(uint16)")]
@@ -265,10 +255,8 @@ where
             max_difficulty,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getWeightsVersionKey(uint16)")]
@@ -292,10 +280,8 @@ where
             weights_version_key,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getWeightsSetRateLimit(uint16)")]
@@ -342,10 +328,8 @@ where
             adjustment_alpha,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getMaxWeightLimit(uint16)")]
@@ -377,10 +361,8 @@ where
             immunity_period,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getMinAllowedWeights(uint16)")]
@@ -404,10 +386,8 @@ where
             min_allowed_weights,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getKappa(uint16)")]
@@ -425,10 +405,8 @@ where
             kappa,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getRho(uint16)")]
@@ -456,10 +434,8 @@ where
             rho,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("setAlphaSigmoidSteepness(uint16,uint16)")]
@@ -474,10 +450,8 @@ where
             steepness: (steepness as i16),
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getActivityCutoff(uint16)")]
@@ -501,10 +475,8 @@ where
             activity_cutoff,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getActivityCutoffFactor(uint16)")]
@@ -527,10 +499,8 @@ where
             factor_milli,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getNetworkRegistrationAllowed(uint16)")]
@@ -557,10 +527,8 @@ where
             registration_allowed,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getNetworkPowRegistrationAllowed(uint16)")]
@@ -587,10 +555,8 @@ where
             registration_allowed,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getMinBurn(uint16)")]
@@ -644,10 +610,8 @@ where
             enabled,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("setMaxBurn(uint16,uint64)")]
@@ -680,10 +644,8 @@ where
             difficulty,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getBondsMovingAverage(uint16)")]
@@ -707,10 +669,8 @@ where
             bonds_moving_average,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getCommitRevealWeightsEnabled(uint16)")]
@@ -737,10 +697,8 @@ where
             enabled,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getLiquidAlphaEnabled(uint16)")]
@@ -767,10 +725,8 @@ where
             enabled,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getYuma3Enabled(uint16)")]
@@ -801,10 +757,8 @@ where
             enabled,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("setBondsResetEnabled(uint16,bool)")]
@@ -819,10 +773,8 @@ where
             enabled,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getAlphaValues(uint16)")]
@@ -848,10 +800,8 @@ where
             alpha_high,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("getCommitRevealWeightsInterval(uint16)")]
@@ -878,10 +828,8 @@ where
             interval,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("toggleTransfers(uint16,bool)")]
@@ -896,10 +844,8 @@ where
             toggle,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("isSubnetDissolving(uint16)")]
@@ -954,10 +900,8 @@ where
             logo_url: logo_url.into(),
             additional: additional.into(),
         };
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("updateSubnetSymbol(uint16,string)")]
@@ -970,10 +914,8 @@ where
             netuid: NetUid::from(netuid),
             symbol: symbol.into(),
         };
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("triggerEpoch(uint16)")]
@@ -981,10 +923,8 @@ where
         let call = pallet_subtensor::Call::<R>::trigger_epoch {
             netuid: NetUid::from(netuid),
         };
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("setBondsPenalty(uint16,uint16)")]
@@ -1424,7 +1364,7 @@ where
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
-    let caller = handle.caller_account_id::<R>();
+    let caller = handle.caller_account_id::<R>()?;
     handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
 }
 

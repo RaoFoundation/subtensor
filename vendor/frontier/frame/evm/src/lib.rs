@@ -60,6 +60,7 @@ extern crate alloc;
 #[cfg(feature = "runtime-benchmarks")]
 pub mod benchmarking;
 
+pub mod account_cost;
 #[cfg(test)]
 mod mock;
 pub mod runner;
@@ -294,7 +295,7 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Withdraw balance from EVM into currency/balances pallet.
 		#[pallet::call_index(0)]
-		#[pallet::weight(<T as pallet::Config>::WeightInfo::withdraw())]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::withdraw().saturating_add(crate::account_cost::weight::<T>(2)))]
 		pub fn withdraw(
 			origin: OriginFor<T>,
 			address: H160,
@@ -377,7 +378,7 @@ pub mod pallet {
 			Ok(PostDispatchInfo {
 				actual_weight: {
 					let mut gas_to_weight = T::GasWeightMapping::gas_to_weight(
-						info.used_gas.standard.unique_saturated_into(),
+						info.used_gas.effective.unique_saturated_into(),
 						true,
 					);
 					if let Some(weight_info) = info.weight_info {
@@ -470,7 +471,7 @@ pub mod pallet {
 			Ok(PostDispatchInfo {
 				actual_weight: {
 					let mut gas_to_weight = T::GasWeightMapping::gas_to_weight(
-						info.used_gas.standard.unique_saturated_into(),
+						info.used_gas.effective.unique_saturated_into(),
 						true,
 					);
 					if let Some(weight_info) = info.weight_info {
@@ -564,7 +565,7 @@ pub mod pallet {
 			Ok(PostDispatchInfo {
 				actual_weight: {
 					let mut gas_to_weight = T::GasWeightMapping::gas_to_weight(
-						info.used_gas.standard.unique_saturated_into(),
+						info.used_gas.effective.unique_saturated_into(),
 						true,
 					);
 					if let Some(weight_info) = info.weight_info {
@@ -691,6 +692,7 @@ pub mod pallet {
 
 			for (address, account) in &self.accounts {
 				let account_id = T::AddressMapping::into_account_id(*address);
+				let nonce_account_id = T::AddressMapping::nonce_account_id(*address);
 
 				// ASSUME: in one single EVM transaction, the nonce will not increase more than
 				// `u128::max_value()`.
@@ -698,7 +700,9 @@ pub mod pallet {
 					MAX_ACCOUNT_NONCE,
 					UniqueSaturatedInto::<usize>::unique_saturated_into(account.nonce),
 				) {
-					T::AccountProvider::inc_account_nonce(&account_id);
+					T::AccountProvider::inc_account_nonce(
+						nonce_account_id.as_ref().unwrap_or(&account_id),
+					);
 				}
 
 				let _ = T::Currency::deposit_creating(
@@ -910,6 +914,23 @@ impl<T> EnsureCreateOrigin<T> for () {
 /// Trait to be implemented for evm address mapping.
 pub trait AddressMapping<A> {
 	fn into_account_id(address: H160) -> A;
+
+	/// Select nonce storage independently of balance/origin identity. The default
+	/// uses the balance account without another lookup. Overrides must be
+	/// stateless so this adds no unmetered storage access.
+	fn nonce_account_id(_address: H160) -> Option<A> {
+		None
+	}
+
+	/// Additional storage work for each mapping lookup, beyond the stateless mapping.
+	fn extra_read_weight() -> Weight {
+		Weight::zero()
+	}
+
+	/// Whether an ECDSA signer may control this address (including EIP-7702).
+	fn is_ethereum_authority_allowed(_address: H160) -> bool {
+		true
+	}
 }
 
 /// Identity address mapping.
@@ -1102,7 +1123,9 @@ impl<T: Config> Pallet<T> {
 	/// Get the account basic in EVM format.
 	pub fn account_basic(address: &H160) -> (Account, frame_support::weights::Weight) {
 		let account_id = T::AddressMapping::into_account_id(*address);
-		let nonce = T::AccountProvider::account_nonce(&account_id);
+		let nonce_account_id = T::AddressMapping::nonce_account_id(*address);
+		let nonce =
+			T::AccountProvider::account_nonce(nonce_account_id.as_ref().unwrap_or(&account_id));
 		let balance =
 			T::Currency::reducible_balance(&account_id, Preservation::Preserve, Fortitude::Polite);
 		let balance_sub =
@@ -1115,7 +1138,9 @@ impl<T: Config> Pallet<T> {
 				nonce: U256::from(UniqueSaturatedInto::<u128>::unique_saturated_into(nonce)),
 				balance: balance_eth.into(),
 			},
-			T::DbWeight::get().reads(2 + T::AccountProvider::extra_nonce_reads()),
+			T::DbWeight::get()
+				.reads(2 + T::AccountProvider::extra_nonce_reads())
+				.saturating_add(T::AddressMapping::extra_read_weight()),
 		)
 	}
 

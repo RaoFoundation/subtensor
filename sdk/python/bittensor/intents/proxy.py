@@ -305,8 +305,17 @@ class ExecuteProxyAnnounced(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        inner = await build_intent(self.inner_op, self.inner_args).build(substrate, wallet)
-        inner_call = inner.call if hasattr(inner, "call") else inner
+        from ..executor import _compose_nested_intent_call, _OriginView
+        from ..receiving import account_for_read
+
+        origin = _OriginView(await account_for_read(substrate, self.real_ss58))
+        origin._wallet = getattr(wallet, "_wallet", wallet)
+        inner_call = await _compose_nested_intent_call(
+            substrate,
+            build_intent(self.inner_op, self.inner_args),
+            origin,
+            wrapper="announced proxy",
+        )
         return await substrate.compose(
             calls.Proxy.proxy_announced(
                 delegate=self.delegate_ss58,

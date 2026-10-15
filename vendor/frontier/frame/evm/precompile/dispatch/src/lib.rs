@@ -60,8 +60,7 @@ where
 {
 	fn execute(handle: &mut impl PrecompileHandle) -> PrecompileResult {
 		let input = handle.input();
-		let target_gas = handle.gas_limit();
-		let context = handle.context();
+		let caller = handle.context().caller;
 
 		let call = T::RuntimeCall::decode_with_depth_limit(DecodeLimit::get(), &mut &*input)
 			.map_err(|_| PrecompileFailure::Error {
@@ -69,7 +68,11 @@ where
 			})?;
 		let info = call.get_dispatch_info();
 
-		if let Some(gas) = target_gas {
+		pallet_evm::account_cost::record_precompile_mapping_cost::<T>(handle)?;
+		let origin = T::AddressMapping::into_account_id(caller);
+
+		if handle.gas_limit().is_some() {
+			let gas = handle.remaining_gas();
 			let valid_weight = info.total_weight().ref_time()
 				<= T::GasWeightMapping::gas_to_weight(gas, false).ref_time();
 			if !valid_weight {
@@ -78,8 +81,6 @@ where
 				});
 			}
 		}
-
-		let origin = T::AddressMapping::into_account_id(context.caller);
 
 		if let Some(err) = DispatchValidator::validate_before_dispatch(&origin, &call) {
 			return Err(err);

@@ -1,0 +1,37 @@
+[package]
+name = "pallet-hashed-accounts"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+codec = { workspace = true, features = ["derive"] }
+scale-info = { workspace = true, features = ["derive"] }
+frame-benchmarking = { workspace = true, optional = true }
+frame-support.workspace = true
+frame-system.workspace = true
+sp-core.workspace = true
+sp-io.workspace = true
+sp-runtime.workspace = true
+subtensor-hashed = { path = "../../primitives/hashed", default-features = false, features = ["verify"] }
+
+[dev-dependencies]
+pallet-balances.workspace = true
+sp-keystore.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["std"]
+std = [
+    "codec/std", "scale-info/std", "frame-benchmarking?/std",
+    "frame-support/std", "frame-system/std", "sp-core/std", "sp-io/std",
+    "sp-runtime/std", "subtensor-hashed/std", "pallet-balances/std", "sp-keystore/std",
+]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks", "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks", "sp-runtime/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+]
+try-runtime = ["frame-support/try-runtime", "frame-system/try-runtime", "sp-runtime/try-runtime", "pallet-balances/try-runtime"]

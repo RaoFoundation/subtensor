@@ -179,7 +179,7 @@ where
         amount_rao: U256,
         netuid: U256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let amount_staked: u64 = amount_rao.unique_saturated_into();
         let hotkey = R::AccountId::from(address.0);
         let netuid = try_u16_from_u256(netuid)?;
@@ -200,7 +200,7 @@ where
         amount_alpha: U256,
         netuid: U256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let hotkey = R::AccountId::from(address.0);
         let netuid = try_u16_from_u256(netuid)?;
         let amount_unstaked: u64 = amount_alpha.unique_saturated_into();
@@ -219,7 +219,7 @@ where
         netuid: U256,
         limit_price: Option<u64>,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let hotkey = R::AccountId::from(hotkey.0);
         let netuid = try_u16_from_u256(netuid)?;
         let call = pallet_subtensor::Call::<R>::remove_stake_full_limit {
@@ -263,7 +263,7 @@ where
         destination_netuid: U256,
         amount_alpha: U256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let origin_hotkey = R::AccountId::from(origin_hotkey.0);
         let destination_hotkey = R::AccountId::from(destination_hotkey.0);
         let origin_netuid = try_u16_from_u256(origin_netuid)?;
@@ -290,7 +290,7 @@ where
         destination_netuid: U256,
         amount_alpha: U256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let destination_coldkey = R::AccountId::from(destination_coldkey.0);
         let hotkey = R::AccountId::from(hotkey.0);
         let origin_netuid = try_u16_from_u256(origin_netuid)?;
@@ -315,7 +315,7 @@ where
         amount: U256,
         netuid: U256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let hotkey = R::AccountId::from(hotkey.0);
         let netuid = try_u16_from_u256(netuid)?;
         let amount: u64 = amount.unique_saturated_into();
@@ -492,10 +492,8 @@ where
             amount: try_u64_from_u256(amount_alpha)?.into(),
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Re-point the caller's lock on a subnet to another hotkey.
@@ -511,10 +509,8 @@ where
             netuid: NetUid::from(try_u16_from_u256(netuid)?),
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Select perpetual or normally decaying behavior for the caller's lock.
@@ -530,10 +526,8 @@ where
             enabled,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Set whether the caller rejects incoming stake that carries a lock.
@@ -542,10 +536,8 @@ where
     fn set_reject_locked_alpha(handle: &mut impl PrecompileHandle, enabled: bool) -> EvmResult<()> {
         let call = pallet_subtensor::Call::<R>::set_reject_locked_alpha { enabled };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Set the caller's opt-out from third-party staking-hotkey list growth.
@@ -555,10 +547,8 @@ where
         enabled: bool,
     ) -> EvmResult<()> {
         let call = pallet_subtensor::Call::<R>::set_reject_staking_hotkey_growth { enabled };
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Read the recipient's opt-out before attempting a stake transfer.
@@ -744,7 +734,7 @@ where
     #[precompile::public("addProxy(bytes32)")]
     #[precompile::payable]
     fn add_proxy(handle: &mut impl PrecompileHandle, delegate: H256) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let delegate = R::AccountId::from(delegate.0);
         let delegate = <R as frame_system::Config>::Lookup::unlookup(delegate);
         let call = pallet_proxy::Call::<R>::add_proxy {
@@ -759,7 +749,7 @@ where
     #[precompile::public("removeProxy(bytes32)")]
     #[precompile::payable]
     fn remove_proxy(handle: &mut impl PrecompileHandle, delegate: H256) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let delegate = R::AccountId::from(delegate.0);
         let delegate = <R as frame_system::Config>::Lookup::unlookup(delegate);
         let call = pallet_proxy::Call::<R>::remove_proxy {
@@ -781,7 +771,7 @@ where
         allow_partial: bool,
         netuid: U256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let amount_staked: u64 = amount_rao.unique_saturated_into();
         let limit_price: u64 = limit_price_rao.unique_saturated_into();
         let hotkey = R::AccountId::from(address.0);
@@ -807,7 +797,7 @@ where
         allow_partial: bool,
         netuid: U256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let hotkey = R::AccountId::from(address.0);
         let netuid = try_u16_from_u256(netuid)?;
         let amount_unstaked: u64 = amount_alpha.unique_saturated_into();
@@ -1002,8 +992,7 @@ where
     ) -> EvmResult<()> {
         let spender = handle.context().caller;
         let source_address = source_address.0;
-        let destination_coldkey =
-            <R as pallet_evm::Config>::AddressMapping::into_account_id(destination_address.0);
+        let destination_coldkey = handle.mapped_account_id::<R>(destination_address.0)?;
         let hotkey = R::AccountId::from(hotkey.0);
         let origin_netuid = try_u16_from_u256(origin_netuid)?;
         let destination_netuid = try_u16_from_u256(destination_netuid)?;
@@ -1018,7 +1007,7 @@ where
             destination_netuid: destination_netuid.into(),
             alpha_amount: alpha_amount.into(),
         };
-        let source_id = <R as pallet_evm::Config>::AddressMapping::into_account_id(source_address);
+        let source_id = handle.mapped_account_id::<R>(source_address)?;
 
         handle.try_dispatch_stake_exit::<R>(call, source_id)
     }
@@ -1842,7 +1831,7 @@ where
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
-    let caller = handle.caller_account_id::<R>();
+    let caller = handle.caller_account_id::<R>()?;
     handle.try_dispatch_stake_exit::<R>(call, caller)
 }
 
@@ -1873,7 +1862,7 @@ where
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
-    let caller = handle.caller_account_id::<R>();
+    let caller = handle.caller_account_id::<R>()?;
     handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
 }
 
@@ -1994,7 +1983,7 @@ where
     #[precompile::public("addStake(bytes32,uint256)")]
     #[precompile::payable]
     fn add_stake(handle: &mut impl PrecompileHandle, address: H256, netuid: U256) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let amount = handle.context().apparent_value;
 
         if !amount.is_zero() {
@@ -2022,7 +2011,7 @@ where
         amount: U256,
         netuid: U256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let hotkey = R::AccountId::from(address.0);
         let netuid = try_u16_from_u256(netuid)?;
         let amount = EvmBalance::new(amount);
@@ -2107,7 +2096,7 @@ where
     #[precompile::public("addProxy(bytes32)")]
     #[precompile::payable]
     fn add_proxy(handle: &mut impl PrecompileHandle, delegate: H256) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let delegate = R::AccountId::from(delegate.0);
         let delegate = <R as frame_system::Config>::Lookup::unlookup(delegate);
         let call = pallet_proxy::Call::<R>::add_proxy {
@@ -2122,7 +2111,7 @@ where
     #[precompile::public("removeProxy(bytes32)")]
     #[precompile::payable]
     fn remove_proxy(handle: &mut impl PrecompileHandle, delegate: H256) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let delegate = R::AccountId::from(delegate.0);
         let delegate = <R as frame_system::Config>::Lookup::unlookup(delegate);
         let call = pallet_proxy::Call::<R>::remove_proxy {

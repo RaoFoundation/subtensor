@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from hashlib import blake2b
-from typing import Any
+from typing import Any, Optional
 
 from .._generated import calls
 from ..sp_core import ss58_decode
@@ -64,6 +64,10 @@ class AnnounceColdkeySwap(Intent):
             "help": "Coldkey that will take over everything this coldkey owns once the "
             "swap executes; only its hash is published now."
         }
+    )
+    hashed_descriptor: Optional[str] = field(
+        default=None,
+        metadata={"help": "Public descriptor hex for a remote hashed destination's registration."},
     )
 
     async def build(self, substrate, wallet: Any):

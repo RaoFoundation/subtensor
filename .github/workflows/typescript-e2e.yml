@@ -229,6 +229,10 @@ jobs:
         working-directory: ts-tests
         run: pnpm install --frozen-lockfile
 
+      - name: Test PAPI block tracking
+        working-directory: ts-tests
+        run: pnpm run test:papi
+
       - name: Formatting check
         run: |
           cd ts-tests

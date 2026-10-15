@@ -193,7 +193,9 @@ impl<T: Config> Pallet<T> {
     /// caller's balance, the hotkey account (created if missing), the coldkey's
     /// `StakingHotkeys`, and the subnet's capacity and prune candidate.
     pub fn registration_precheck_weight() -> Weight {
-        T::DbWeight::get().reads_writes(20, 4)
+        T::DbWeight::get()
+            .reads_writes(20, 4)
+            .saturating_add(Self::hotkey_owner_policy_weight())
     }
 
     /// [`Self::do_register`] that charges a registration refused by its pre-checks

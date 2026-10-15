@@ -256,6 +256,7 @@ parameter_types! {
 }
 
 impl pallet_subtensor::Config for Test {
+    type HotkeyOwnerPolicy = ();
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type InitialIssuance = InitialIssuance;
@@ -488,6 +489,7 @@ parameter_types! {
 }
 
 impl pallet_proxy::Config for Test {
+    type AccountPolicy = frame_support::traits::Everything;
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type ProxyType = subtensor_runtime_common::ProxyType;

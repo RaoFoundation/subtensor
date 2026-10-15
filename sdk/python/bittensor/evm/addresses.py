@@ -4,13 +4,17 @@ Subtensor runs an EVM whose accounts (h160, MetaMask-style) and native
 accounts (ss58) are disjoint signing domains on one chain. Funds cross the
 seam through two deterministic mappings, both implemented here:
 
-- **Mirror (hashed) mapping** — how the chain credits an EVM address with
+- **Legacy mirror mapping** — how the chain credits an ordinary EVM address with
   native balance: ``ss58( blake2_256("evm:" ++ h160_bytes) )``. Transfer TAO
-  to an h160's *mirror* and it shows up as that EVM account's balance.
+  to an unprotected h160's *mirror* and it shows up as that EVM account's balance.
   (``pallet_evm::HashedAddressMapping<BlakeTwo256>`` in the runtime.)
 - **Truncated mapping** — how a native account acts *as* an EVM address for
   ``EVM.withdraw`` / ``EVM.call``: the h160 is the first 20 bytes of the
   ss58's 32-byte public key. (``EnsureAddressTruncated`` in the runtime.)
+
+Registered hashed accounts instead bind their truncated alias to the complete
+native account. Use ``resolve_evm_recipient`` for the active on-chain mapping;
+the pure ``h160_to_ss58`` function intentionally computes only the legacy mirror.
 
 Neither mapping is invertible to a private key: a Bittensor wallet cannot
 sign EVM transactions and an EVM wallet cannot sign extrinsics.
@@ -19,9 +23,17 @@ sign EVM transactions and an EVM wallet cannot sign extrinsics.
 from __future__ import annotations
 
 from hashlib import blake2b
+from typing import Any
 
 from .._transport.codec import ss58_decode, ss58_encode
+from ..receiving import (
+    Recipient,
+    is_receiving_address,
+    parse_recipient,
+    receiving_address,
+)
 from ..settings import SS58_FORMAT
+from ..sp_core import Keypair
 
 # The runtime's HashedAddressMapping prefixes the address bytes with this
 # ASCII tag before hashing (pallet_evm HashedAddressMapping convention).
@@ -41,6 +53,12 @@ def is_h160(value: str) -> bool:
 
 def normalize_h160(value: str) -> str:
     """Validate an h160 address and return it 0x-prefixed and lowercase."""
+    if is_receiving_address(value):
+        parse_recipient(value)
+        raise ValueError(
+            "EVM routes cannot set up a receiving address; use `wallet transfer` with "
+            "the complete receiving address"
+        )
     text = value.strip()
     if not text.startswith("0x"):
         text = "0x" + text
@@ -50,15 +68,85 @@ def normalize_h160(value: str) -> str:
 
 
 def h160_to_ss58(evm_address: str, ss58_format: int = SS58_FORMAT) -> str:
-    """The ss58 *mirror* of an EVM address — where its native balance lives.
+    """The deterministic legacy ss58 mirror, without querying protected aliases.
 
-    TAO transferred to this address (from btcli, an exchange, or any substrate
-    wallet) appears as the EVM account's balance on the EVM side. Computed as
-    ``ss58(blake2_256(b"evm:" ++ address_bytes))``.
+    Computed as ``ss58(blake2_256(b"evm:" ++ address_bytes))``. For current
+    balances and funding, use ``resolve_evm_recipient``: registered hashed
+    aliases have their balance in the bound native account instead.
     """
     address_bytes = bytes.fromhex(normalize_h160(evm_address)[2:])
     hashed = blake2b(_MIRROR_PREFIX + address_bytes, digest_size=32).digest()
     return ss58_encode(hashed, ss58_format=ss58_format)
+
+
+async def resolve_evm_recipient(substrate: Any, evm_address: str) -> Recipient:
+    """Resolve an EVM balance account and retain any required registration guard.
+
+    Chains without hashed-account support preserve the legacy mapping. Existing
+    bindings remain authoritative even when new registrations are disabled;
+    malformed alias bindings always fail closed. Funding callers must retain
+    a protected recipient's full receiving address through normal transfer
+    composition, including its idempotent registration guard.
+    """
+    from ..hashed import descriptor_bytes, hashed_accounts_enabled
+
+    address = normalize_h160(evm_address)
+    legacy = h160_to_ss58(address)
+    if await hashed_accounts_enabled(substrate) is None:
+        return Recipient(legacy, legacy)
+    head = await substrate.block_hash()
+    bound = await substrate.query("HashedAccounts", "EvmAliases", [address], block_hash=head)
+    if bound is None:
+        return Recipient(legacy, legacy)
+    try:
+        if isinstance(bound, str):
+            raw = bytes.fromhex(
+                bound[2:] if bound.startswith("0x") else ss58_decode(bound).removeprefix("0x")
+            )
+        else:
+            raw = bytes(bound)
+        if len(raw) != 32 or raw[:20] != bytes.fromhex(address[2:]):
+            raise ValueError("alias does not match the bound account")
+        account = ss58_encode(raw, ss58_format=SS58_FORMAT)
+        record = await substrate.query("HashedAccounts", "Accounts", [account], block_hash=head)
+        if record is None:
+            raise ValueError("alias has no registered account")
+        descriptor = descriptor_bytes(record["descriptor"])
+        public = Keypair.from_hashed_descriptor(descriptor)
+        if bytes(public.public_key) != raw:
+            raise ValueError("descriptor does not match the bound account")
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"invalid protected EVM alias binding: {error}") from error
+    return Recipient(receiving_address(public), account, descriptor)
+
+
+async def resolve_evm_deposit(substrate: Any, native_address: str) -> tuple[str, Recipient]:
+    """Read the EVM deposit route for a particular native identity."""
+    native = parse_recipient(native_address)
+    alias = ss58_to_h160_truncated(native.account)
+    recipient = await resolve_evm_recipient(substrate, alias)
+    if recipient.descriptor is not None:
+        if recipient.account != native.account:
+            raise ValueError("this EVM alias belongs to another registered native account")
+    elif native.descriptor is not None:
+        raise ValueError(
+            "this hashed EVM deposit address is not active; first register and fund the wallet "
+            "using `wallet transfer` with its complete receiving address on a supported chain"
+        )
+    return alias, recipient
+
+
+async def resolve_evm_funding_recipient(substrate: Any, evm_address: str) -> Recipient:
+    """Resolve native funding only when its destination can be guarded atomically."""
+    from ..hashed import hashed_accounts_enabled
+
+    recipient = await resolve_evm_recipient(substrate, evm_address)
+    if recipient.descriptor is None and await hashed_accounts_enabled(substrate) is True:
+        raise ValueError(
+            "native mirror funding is unavailable for an unprotected EVM address while hashed "
+            "aliases are enabled; send from an EVM wallet to the H160 address instead"
+        )
+    return recipient
 
 
 def ss58_to_pubkey(ss58_address: str) -> str:
@@ -67,6 +155,12 @@ def ss58_to_pubkey(ss58_address: str) -> str:
     Precompile interfaces take hotkeys/coldkeys as ``bytes32`` public keys,
     not ss58 strings; this is the conversion every such call needs.
     """
+    if is_receiving_address(ss58_address):
+        parse_recipient(ss58_address)
+        raise ValueError(
+            "raw EVM calls cannot safely set up a receiving address; use `wallet transfer` "
+            "with the complete receiving address"
+        )
     return "0x" + ss58_decode(ss58_address).removeprefix("0x")
 
 

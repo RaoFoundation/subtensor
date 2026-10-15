@@ -31,19 +31,20 @@ import {
     WITHDRAW_CONTRACT_BYTECODE,
 } from "../../utils";
 
-async function estimateTransactionCost(provider: ethers.Provider, tx: ethers.TransactionRequest): Promise<bigint> {
-    const feeData = await provider.getFeeData();
-    const estimatedGas = await provider.estimateGas(tx);
-    const gasPrice = feeData.gasPrice ?? feeData.maxFeePerGas;
-    if (gasPrice == null) {
-        return estimatedGas;
-    }
-    return estimatedGas * gasPrice;
-}
-
 function expectWithinTxFee(actual: bigint, expected: bigint): void {
     const diff = actual > expected ? actual - expected : expected - actual;
     expect(diff).toBeLessThan(MAX_TX_FEE);
+}
+
+function expectInsufficientFunds(error: unknown): void {
+    expect(error).toBeInstanceOf(Error);
+    const rpcError = error as Error & { code?: string; info?: { error?: { message?: string } } };
+    expect(
+        rpcError.code === "INSUFFICIENT_FUNDS" ||
+            rpcError.message.includes("insufficient funds") ||
+            rpcError.info?.error?.message?.includes("OutOfFund"),
+        rpcError.message
+    ).toBe(true);
 }
 
 async function transferAndGetFee(
@@ -52,14 +53,15 @@ async function transferAndGetFee(
     provider: ethers.JsonRpcProvider,
     maxFeePerGas: bigint,
     maxPriorityFeePerGas: bigint
-): Promise<bigint> {
+): Promise<{ fee: bigint; gasUsed: bigint }> {
     const ethBalanceBefore = await getEthBalance(provider, wallet.address);
     const tx = {
         to: wallet2.address,
         value: raoToEth(tao(1)).toString(),
+        // Estimate the execution separately so invalid fee tests reach admission.
+        gasLimit: await wallet.estimateGas({ to: wallet2.address, value: raoToEth(tao(1)) }),
         maxPriorityFeePerGas: maxPriorityFeePerGas.toString(),
         maxFeePerGas: maxFeePerGas.toString(),
-        gasLimit: 21000,
     };
 
     const txResponse = await wallet.sendTransaction(tx);
@@ -67,7 +69,10 @@ async function transferAndGetFee(
     expect(receipt?.status).toEqual(1);
 
     const ethBalanceAfter = await getEthBalance(provider, wallet.address);
-    return ethBalanceBefore - ethBalanceAfter - raoToEth(tao(1));
+    if (receipt == null) {
+        throw new Error("transfer receipt is missing");
+    }
+    return { fee: ethBalanceBefore - ethBalanceAfter - raoToEth(tao(1)), gasUsed: receipt.gasUsed };
 }
 
 describeSuite({
@@ -80,6 +85,7 @@ describeSuite({
         let ethWallet2: ethers.Wallet;
         let signer: KeyringPair;
         let provider: ethers.JsonRpcProvider;
+        let transferGasUsed: bigint;
 
         beforeAll(async () => {
             api = context.papi("Node").getTypedApi(subtensor);
@@ -105,21 +111,25 @@ describeSuite({
 
                 const transferAmount = raoToEth(tao(1));
                 const tx: ethers.TransactionRequest = {
+                    from: ethWallet.address,
                     to: ethWallet2.address,
                     value: transferAmount,
                 };
 
-                const txFee = await estimateTransactionCost(provider, tx);
+                const estimatedGas = await provider.estimateGas(tx);
 
-                const txResponse = await ethWallet.sendTransaction(tx);
+                const txResponse = await ethWallet.sendTransaction({ ...tx, gasLimit: estimatedGas });
                 const receipt = await txResponse.wait();
-                expect(receipt).toBeDefined();
-                expect(receipt!.status).toEqual(1);
+                if (receipt == null) throw new Error("Transaction was not mined");
+                expect(receipt.status).toEqual(1);
+                transferGasUsed = receipt.gasUsed;
+                expect(estimatedGas).toBeGreaterThanOrEqual(transferGasUsed);
+                expect(transferGasUsed).toBeGreaterThan(21000n);
 
                 const senderBalanceAfter = await getEthBalance(provider, ethWallet.address);
                 const receiverBalanceAfter = await getEthBalance(provider, ethWallet2.address);
 
-                expect(senderBalanceAfter).toEqual(senderBalanceBefore - transferAmount - txFee);
+                expect(senderBalanceAfter).toEqual(senderBalanceBefore - transferAmount - receipt.fee);
                 expect(receiverBalanceAfter).toEqual(receiverBalanceBefore + transferAmount);
             },
         });
@@ -222,8 +232,7 @@ describeSuite({
                     gas_limit: BigInt(1000000),
                     max_fee_per_gas: [BigInt(10e9), BigInt(0), BigInt(0), BigInt(0)],
                     max_priority_fee_per_gas: undefined,
-                    // PAPI encodes this field with the Binary codec despite the Uint8Array annotation.
-                    input: Binary.fromText("") as unknown as Uint8Array,
+                    input: Binary.fromText(""),
                     nonce: undefined,
                     access_list: [],
                     authorization_list: [],
@@ -284,33 +293,26 @@ describeSuite({
 
         it({
             id: "T07",
-            title: "Transfer full balance",
+            title: "Transfer cannot drain the account below its existential deposit",
             test: async () => {
                 const ethBalance = await getEthBalance(provider, ethWallet.address);
                 const receiverBalance = await getEthBalance(provider, ethWallet2.address);
-                const txPrice = await estimateTransactionCost(provider, {
-                    to: ethWallet2.address,
-                    value: ethBalance.toString(),
-                });
+                const gasPrice = (await provider.getFeeData()).gasPrice;
+                if (gasPrice == null) throw new Error("Gas price is unavailable");
+                const txPrice = transferGasUsed * gasPrice;
                 const finalTx = {
                     to: ethWallet2.address,
                     value: (ethBalance - txPrice).toString(),
+                    gasLimit: transferGasUsed,
+                    gasPrice,
                 };
 
-                let rejected = false;
-                try {
-                    const txResponse = await ethWallet.sendTransaction(finalTx);
-                    await txResponse.wait();
-                } catch (error) {
-                    rejected = true;
-                    if (error instanceof Error) {
-                        expect(
-                            (error as { code?: string }).code === "INSUFFICIENT_FUNDS" ||
-                                error.message.includes("insufficient funds")
-                        ).toBe(true);
-                    }
-                }
-                expect(rejected).toBe(true);
+                const txResponse = await ethWallet.sendTransaction(finalTx);
+                await expect(txResponse.wait()).rejects.toMatchObject({ code: "CALL_EXCEPTION" });
+                const receipt = await provider.getTransactionReceipt(txResponse.hash);
+                if (receipt == null) throw new Error("Transaction was not mined");
+                expect(receipt.status).toEqual(0);
+                expect(await getEthBalance(provider, ethWallet.address)).toEqual(ethBalance - receipt.fee);
 
                 const receiverBalanceAfterTransfer = await getEthBalance(provider, ethWallet2.address);
                 expect(receiverBalanceAfterTransfer).toEqual(receiverBalance);
@@ -334,12 +336,7 @@ describeSuite({
                     await txResponse.wait();
                 } catch (error) {
                     rejected = true;
-                    if (error instanceof Error) {
-                        expect(
-                            (error as { code?: string }).code === "INSUFFICIENT_FUNDS" ||
-                                error.message.includes("insufficient funds")
-                        ).toBe(true);
-                    }
+                    expectInsufficientFunds(error);
                 }
                 expect(rejected).toBe(true);
 
@@ -364,12 +361,7 @@ describeSuite({
                     await txResponse.wait();
                 } catch (error) {
                     ethRejected = true;
-                    if (error instanceof Error) {
-                        expect(
-                            (error as { code?: string }).code === "INSUFFICIENT_FUNDS" ||
-                                error.message.includes("insufficient funds")
-                        ).toBe(true);
-                    }
+                    expectInsufficientFunds(error);
                 }
                 expect(ethRejected).toBe(true);
 
@@ -425,7 +417,7 @@ describeSuite({
                         gas_limit: BigInt(1000000),
                         max_fee_per_gas: [BigInt(10e9), BigInt(0), BigInt(0), BigInt(0)],
                         max_priority_fee_per_gas: undefined,
-                        input: Binary.fromText("") as unknown as Uint8Array,
+                        input: Binary.fromText(""),
                         nonce: undefined,
                         access_list: [],
                         authorization_list: [],
@@ -456,21 +448,22 @@ describeSuite({
             id: "T11",
             title: "max_fee_per_gas and max_priority_fee_per_gas affect transaction fee properly",
             test: async () => {
-                const testCases: [number, number, bigint][] = [
-                    [5, 0, BigInt(21000 * 5) * BigInt(1e9)],
-                    [5, 5, BigInt(21000 * 5) * BigInt(1e9)],
-                    [6, 0, BigInt(21000 * 5) * BigInt(1e9)],
+                const testCases: [number, number][] = [
+                    [5, 0],
+                    [5, 5],
+                    [6, 0],
                 ];
 
-                for (const [maxFeeGwei, maxPriorityGwei, expectedFee] of testCases) {
-                    const actualFee = await transferAndGetFee(
+                for (const [maxFeeGwei, maxPriorityGwei] of testCases) {
+                    const { fee: actualFee, gasUsed } = await transferAndGetFee(
                         ethWallet,
                         ethWallet2,
                         provider,
                         GWEI * BigInt(maxFeeGwei),
                         GWEI * BigInt(maxPriorityGwei)
                     );
-                    expect(actualFee).toEqual(expectedFee);
+                    // Include metered alias reads; priority fees remain disabled.
+                    expect(actualFee).toEqual(gasUsed * 5n * GWEI);
                 }
             },
         });

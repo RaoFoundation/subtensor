@@ -237,12 +237,16 @@ jobs:
         id: codex
         uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1
         env:
+          # The CLI's executable is an optional platform package. Install it even
+          # when a runner's npm configuration omits optional dependencies.
+          NPM_CONFIG_INCLUDE: optional
           # Intentionally minimal env. No tokens, no secrets.
           PR_NUMBER: ${{ needs.decide.outputs.pr_number }}
           BASE_REF: ${{ needs.decide.outputs.base_ref }}
           HEAD_REF: ${{ needs.decide.outputs.head_ref }}
           AUTHOR: ${{ needs.decide.outputs.author }}
         with:
+          codex-version: "0.162.0"
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           sandbox: read-only
           safety-strategy: drop-sudo
@@ -462,6 +466,7 @@ jobs:
         id: codex
         uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1
         env:
+          NPM_CONFIG_INCLUDE: optional
           # No tokens, no secrets. Anything cargo/build.rs runs cannot exfiltrate
           # GitHub or OpenAI credentials because they are not visible here.
           PR_NUMBER: ${{ needs.decide.outputs.pr_number }}
@@ -470,6 +475,7 @@ jobs:
           IS_FORK: ${{ needs.decide.outputs.is_fork }}
           AUTHOR: ${{ needs.decide.outputs.author }}
         with:
+          codex-version: "0.162.0"
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           sandbox: workspace-write
           safety-strategy: drop-sudo

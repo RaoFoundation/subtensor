@@ -20,6 +20,7 @@ The exact chain error names (from the extrinsic receipt) that classify to `alrea
 | Chain error | Description |
 | --- | --- |
 | [`ActiveLockExists`](/docs/errors/chain/ActiveLockExists) | The destination coldkey already holds a lock with nonzero locked mass on that subnet, so a new or transferred lock cannot be created there. Inspect the `Lock` storage for the (coldkey, netuid, hotkey) triple and wait for the existing lock to unlock or remove it first. |
+| [`AliasCollision`](/docs/errors/chain/AliasCollision) | The derived EVM alias is already bound to another account. This descriptor cannot be registered safely; create a new hashed wallet and use its new descriptor. |
 | [`AlreadyApproved`](/docs/errors/chain/AlreadyApproved) | The sender has already approved this multisig call, so a repeat approval is redundant. Check the `Multisigs` entry for the call hash: the sender's account already appears in its `approvals` list. |
 | [`AlreadyDeposited`](/docs/errors/chain/AlreadyDeposited) | The account calling safe-mode `enter` or `extend` already has a safe-mode deposit on hold, so another cannot be placed. Check the account's `Deposits` entries and its balance held under the `EnterOrExtend` hold reason. |
 | [`AlreadyFinalized`](/docs/errors/chain/AlreadyFinalized) | The crowdloan's `finalized` flag is already true, so withdraw, finalize, refund, dissolve, and the update calls are all rejected. Check the `finalized` field of the `Crowdloans` entry for the given `crowdloan_id`. |

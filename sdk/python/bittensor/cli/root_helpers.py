@@ -17,6 +17,7 @@ from .._generated import storage
 from ..balance import Balance
 from ..basket_index import staker_yield
 from ..client import Client
+from ..receiving import is_receiving_address, parse_recipient
 from ..wallets import is_bittensor_address
 from .context import AppContext, address_cli_name
 from .helpers import (
@@ -163,16 +164,17 @@ def resolve_position_wallet(app_ctx: AppContext, coldkey_ss58: Optional[str]) ->
 
 
 def resolve_validator_selector(app_ctx: AppContext, value: str) -> str:
-    """Resolve a root-validator selector to its hotkey ss58.
+    """Resolve a root validator, preserving receiving descriptors for payments.
 
-    Three accepted forms: a hotkey ss58 (used as-is), a root UID (the
+    Accepted forms: a hotkey SS58 or receiving address, a root UID (the
     validator's index on netuid 0), or a name — matched case-insensitively
     against local names (wallet hotkeys, address book) first, then against
     the on-chain identity names of validators with a fund. UID and name
     lookups read the chain, so callers must resolve any wallet prompts
     before calling (a prompt under a live query spinner cannot take input).
     """
-    if is_bittensor_address(value):
+    if is_receiving_address(value) or is_bittensor_address(value):
+        parse_recipient(value)  # Reject malformed descriptors before any chain read.
         app_ctx.output.classify_address(value, "hotkey")
         return value
 
@@ -211,7 +213,7 @@ def resolve_validator_selector(app_ctx: AppContext, value: str) -> str:
 
     app_ctx.output.error(
         f"no root validator named {value!r}",
-        help="pass a hotkey ss58, a root UID, an address-book name, or an "
+        help="pass a hotkey SS58 or receiving address, a root UID, an address-book name, or an "
         "on-chain identity name (`btcli root list` lists every fund)",
     )
     raise typer.Exit(1)

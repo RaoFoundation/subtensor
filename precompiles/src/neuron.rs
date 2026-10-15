@@ -108,10 +108,8 @@ where
             version_key,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Commit a hash of intended weights for the commit-reveal-v2 flow.
@@ -140,10 +138,8 @@ where
             commit_hash,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Reveal previously committed weights and set them for the calling neuron.
@@ -180,10 +176,8 @@ where
             version_key,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Register a hotkey on a subnet by burning TAO from the caller coldkey.
@@ -208,7 +202,7 @@ where
         netuid: u16,
         hotkey: H256,
     ) -> EvmResult<()> {
-        let coldkey = handle.caller_account_id::<R>();
+        let coldkey = handle.caller_account_id::<R>()?;
         let hotkey = R::AccountId::from(hotkey.0);
         let call = pallet_subtensor::Call::<R>::burned_register {
             netuid: netuid.into(),
@@ -241,7 +235,7 @@ where
         hotkey: H256,
         limit_price: u64,
     ) -> EvmResult<()> {
-        let coldkey = handle.caller_account_id::<R>();
+        let coldkey = handle.caller_account_id::<R>()?;
         let hotkey = R::AccountId::from(hotkey.0);
         let call = pallet_subtensor::Call::<R>::register_limit {
             netuid: netuid.into(),
@@ -295,10 +289,8 @@ where
             placeholder2,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Publish the calling neuron's Axon endpoint metadata together with a TLS certificate.
@@ -349,10 +341,8 @@ where
             certificate: certificate.into(),
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     /// Publish the calling neuron's Prometheus metrics endpoint metadata for a subnet.
@@ -388,10 +378,8 @@ where
             ip_type,
         };
 
-        handle.try_dispatch_runtime_call::<R, _>(
-            call,
-            RawOrigin::Signed(handle.caller_account_id::<R>()),
-        )
+        let caller = handle.caller_account_id::<R>()?;
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("setMechanismWeights(uint16,uint8,uint16[],uint16[],uint64)")]
@@ -1318,7 +1306,7 @@ where
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
-    let caller = handle.caller_account_id::<R>();
+    let caller = handle.caller_account_id::<R>()?;
     handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
 }
 

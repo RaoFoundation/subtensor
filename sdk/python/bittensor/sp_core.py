@@ -8,6 +8,34 @@ BACKEND = "bittensor_core"
 
 CRYPTO_ED25519 = _backend.CRYPTO_ED25519
 CRYPTO_SR25519 = _backend.CRYPTO_SR25519
+CRYPTO_HASHED = _backend.CRYPTO_HASHED
+try:
+    CRYPTO_HASHED_ED25519 = _backend.CRYPTO_HASHED_ED25519
+except AttributeError as error:
+    raise ImportError(
+        "This SDK requires the matching bittensor-core build with composable account modes; "
+        "rebuild or upgrade bittensor-core together with bittensor."
+    ) from error
+HASHED_CRYPTO_TYPES = (CRYPTO_HASHED, CRYPTO_HASHED_ED25519)
+CLASSICAL_HASHED_CRYPTO_TYPES = (CRYPTO_HASHED, CRYPTO_HASHED_ED25519)
+
+
+def account_crypto_type(crypto_type: int, account_type: str | None = None) -> int:
+    """Compose account mode and signing scheme; None preserves legacy key codes."""
+    if account_type is None and crypto_type in (0, 1, 4, 6):
+        return crypto_type
+    modes = {
+        "standard": {0: 0, 1: 1, 4: 1, 6: 0},
+        "hashed": {0: 6, 1: 4, 4: 4, 6: 6},
+    }
+    try:
+        return modes[account_type][crypto_type]
+    except KeyError:
+        raise ValueError(
+            "account type must be standard or hashed with a supported signing scheme"
+        ) from None
+
+
 Keypair = _backend.Keypair
 KeyfileError = _backend.KeyfileError
 WrongPasswordError = _backend.WrongPasswordError
@@ -16,6 +44,7 @@ WrongPasswordError = _backend.WrongPasswordError
 verify = _backend.verify
 ss58_decode = _backend.ss58_decode
 ss58_encode = _backend.ss58_encode
+decode_hashed_receiving_address = _backend.decode_hashed_receiving_address
 decrypt_keyfile_data = _backend.decrypt_keyfile_data
 deserialize_keypair_from_keyfile_data = _backend.deserialize_keypair_from_keyfile_data
 encrypt_keyfile_data = _backend.encrypt_keyfile_data
@@ -38,3 +67,8 @@ def sign(message: bytes, *, mnemonic: str, crypto_type: int = CRYPTO_SR25519) ->
     """Sign raw bytes with a key derived from ``mnemonic``."""
     keypair = _backend.Keypair.create_from_mnemonic(mnemonic, crypto_type)
     return bytes(keypair.sign(message))
+
+
+def encode_hashed_receiving_address(descriptor: bytes) -> str:
+    """Encode a network-independent descriptor and checksum."""
+    return _backend.encode_hashed_receiving_address(descriptor)

@@ -122,6 +122,7 @@ parameter_types! {
 }
 
 impl Config for Test {
+    type AccountPolicy = frame_support::traits::Everything;
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type ProxyType = ProxyType;

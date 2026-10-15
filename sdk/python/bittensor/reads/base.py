@@ -117,12 +117,17 @@ def _coercing(fn: Callable[..., Awaitable[Any]], params: dict[str, str]):
 
     @functools.wraps(fn)
     async def wrapped(*args, **kwargs):
+        from ..receiving import account_for_read
+
         bound = sig.bind_partial(*args, **kwargs)
         for p in ss58_params:
             value = bound.arguments.get(p)
-            if value is None or isinstance(value, str):
+            if value is None:
                 continue
-            bound.arguments[p] = coerce_address(value, p)
+            view = bound.args[0]
+            client = getattr(view, "_client", view)
+            substrate = getattr(client, "_substrate", client)
+            bound.arguments[p] = await account_for_read(substrate, coerce_address(value, p))
         return await fn(*bound.args, **bound.kwargs)
 
     return wrapped

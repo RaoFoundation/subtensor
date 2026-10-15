@@ -88,7 +88,7 @@ where
         delay: u32,
         index: u16,
     ) -> EvmResult<H256> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let proxy_type =
             ProxyType::try_from(proxy_type_).map_err(|_| PrecompileFailure::Error {
                 exit_status: ExitError::Other("Invalid proxy type".into()),
@@ -135,7 +135,7 @@ where
         height: u32,
         ext_index: u32,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let proxy_type = ProxyType::try_from(proxy_type).map_err(|_| PrecompileFailure::Error {
             exit_status: ExitError::Other("Invalid proxy type".into()),
         })?;
@@ -160,7 +160,7 @@ where
         force_proxy_type: Vec<u8>,
         call: Vec<u8>,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
 
         let call = <R as pallet_proxy::Config>::RuntimeCall::decode_with_depth_limit(
             MAX_DECODE_DEPTH,
@@ -211,7 +211,7 @@ where
         proxy_type: u8,
         delay: u32,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let proxy_type = ProxyType::try_from(proxy_type).map_err(|_| PrecompileFailure::Error {
             exit_status: ExitError::Other("Invalid proxy type".into()),
         })?;
@@ -234,7 +234,7 @@ where
         proxy_type: u8,
         delay: u32,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let proxy_type = ProxyType::try_from(proxy_type).map_err(|_| PrecompileFailure::Error {
             exit_status: ExitError::Other("Invalid proxy type".into()),
         })?;
@@ -252,7 +252,7 @@ where
 
     #[precompile::public("removeProxies()")]
     pub fn remove_proxies(handle: &mut impl PrecompileHandle) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
 
         let call = pallet_proxy::Call::<R>::remove_proxies {};
 
@@ -261,7 +261,7 @@ where
 
     #[precompile::public("pokeDeposit()")]
     pub fn poke_deposit(handle: &mut impl PrecompileHandle) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
 
         let call = pallet_proxy::Call::<R>::poke_deposit {};
 
@@ -370,7 +370,7 @@ where
         real: H256,
         call_hash: H256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call_hash = DecodeLimit::decode_all_with_depth_limit(1, &mut &call_hash.as_bytes()[..])
             .map_err(|_| PrecompileFailure::Error {
                 exit_status: ExitError::Other(
@@ -392,7 +392,7 @@ where
         real: H256,
         call_hash: H256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call_hash = DecodeLimit::decode_all_with_depth_limit(1, &mut &call_hash.as_bytes()[..])
             .map_err(|_| PrecompileFailure::Error {
                 exit_status: ExitError::Other(
@@ -414,7 +414,7 @@ where
         delegate: H256,
         call_hash: H256,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call_hash = DecodeLimit::decode_all_with_depth_limit(1, &mut &call_hash.as_bytes()[..])
             .map_err(|_| PrecompileFailure::Error {
                 exit_status: ExitError::Other(
@@ -436,7 +436,7 @@ where
         delegate: H256,
         pays_fee: bool,
     ) -> EvmResult<()> {
-        let account_id = handle.caller_account_id::<R>();
+        let account_id = handle.caller_account_id::<R>()?;
         let call = pallet_proxy::Call::<R>::set_real_pays_fee {
             delegate: <<R as frame_system::Config>::Lookup as StaticLookup>::Source::from(
                 delegate.0.into(),

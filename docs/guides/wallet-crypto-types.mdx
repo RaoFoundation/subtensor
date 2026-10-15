@@ -1,0 +1,120 @@
+---
+title: Wallet crypto types
+description: Create, recover, sign, and transact with standard or hashed Sr25519 and Ed25519 accounts.
+---
+
+Choose the signing scheme independently from the account mode:
+
+```bash
+btcli wallet create --crypto-type sr
+btcli wallet create --crypto-type ed
+btcli wallet create --crypto-type sr --type hashed
+btcli wallet create --crypto-type ed --type hashed
+```
+
+`--crypto-type` chooses Sr25519 (`sr`) or Ed25519 (`ed`). `--type` chooses
+`standard` (the default, with a fixed signing key) or `hashed` (a permanent
+account whose signing key rotates on inclusion). Both choices apply to the
+coldkey and hotkey; `--hotkey-crypto-type` and `--hotkey-type` override them
+independently. Ordinary commands detect both choices from the keyfile.
+
+| Scheme | `--type standard` | `--type hashed` |
+| --- | --- | --- |
+| `sr` / `sr25519` | Existing Sr25519 account | Rotating Sr25519 account |
+| `ed` / `ed25519` | Existing Ed25519 account | Rotating Ed25519 account |
+
+`--crypto-type hashed` is an alias for rotating Sr25519;
+`--crypto-type hashed-ed25519` selects rotating Ed25519. `--type hashed` alone
+uses the default Sr25519 scheme. ML-DSA (`ms`) is not supported.
+
+Record both the scheme and account mode with each mnemonic. The same mnemonic
+with a different scheme or mode derives a different account. The default is
+12 words. To recover the same account, use the original scheme and mode:
+
+```bash
+btcli wallet regen-coldkey --crypto-type sr --type hashed
+btcli wallet regen-hotkey --crypto-type ed --type standard
+```
+
+Install matching Python SDK and native `bittensor-core` builds. SDK constructors
+accept `account_type="standard"` or `account_type="hashed"`; browser constructors
+accept the mode as their final argument. Unknown signing schemes fail before
+creating or restoring a keyfile.
+
+## Registration and authorization
+
+Hashed accounts require registration before use. Their `bth1_` receiving
+addresses carry a public registration descriptor without revealing the active
+signing public key. A wallet has the same address on every network; registration,
+balances, and generations are independent on each chain. Creating, listing, and
+restoring wallets requires no network connection.
+
+Transfers to a receiving address can sponsor registration. Wait for finalized
+registration before sharing a plain SS58 address or assigning account roles.
+The receiving address and canonical SS58 address identify the same account.
+Multisig and EVM payments require finalized recipient registration first.
+
+Hashed accounts require hashed proxy delegates and, when used as hotkeys, hashed
+coldkey owners. Hashed Sr25519 and Ed25519 can control each other. Registration
+rejects an existing unprotected owner, and coldkey swaps preserve that policy.
+Standard accounts retain their existing rules.
+
+Root controls registration and signing through
+`AdminUtils.sudo_set_hashed_accounts_enabled(enabled)`. The current value is in
+`AdminUtils.HashedAccountsEnabled`; its default is false. Disabling pauses both
+new registration and existing hashed signing, preserving all account records,
+generations, and EVM aliases. Standard wallets are unaffected. Authorization
+weights must be benchmarked on reference hardware before enabling the feature;
+unmeasured weights fail closed.
+
+For fee-free PoW admission, register both hashed keys through a sponsor and wait
+for finalization. `btcli subnets register --pow` then submits the PoW operation
+without a registration batch. The sponsor pays the separate setup reserve.
+
+## Transactions and client compatibility
+
+The SDK reads the permanent account's generation and nonce before signing.
+A hashed transaction uses the standard signed-v4 layout and a standard Sr25519
+or Ed25519 signature. The operation remains the top-level call, such as
+`Balances.transfer_keep_alive` or `SubtensorModule.burned_register`; there is no
+account wrapper call.
+
+The existing `MultiAddress::Raw` signer field contains a fixed 106-byte address:
+permanent account ID, format version, scheme, generation, current public key and
+next commitment. The signature binds this entire address and the full call,
+nonce, tip, era, genesis hash and runtime versions under a transaction-specific
+hash domain. Ordinary accounts retain their existing encoding and signing rules.
+
+The runtime checks the registered commitment, charges fees and checks permissions
+for the permanent account, advances its generation, and dispatches the original
+call as that account. Included dispatch failures still consume a generation.
+Invalid or dropped transactions do not. Wallet backups need no signing history
+to recover the next key.
+
+Metadata-aware clients can decode these transactions and mixed blocks with their
+existing v4 decoder. Polkadot.js shows the actual operation and permanent signer
+address directly. The account ID leads the raw signer field so existing
+AccountId32 displays resolve it correctly; other clients may display the raw
+bytes until they recognize the hashed signer format. Recipient addresses remain unchanged.
+Creating hashed transactions still requires a wallet that understands key
+derivation, registration and the signed address format.
+
+Hashing and rotation do not make classical signatures quantum-resistant: a
+transaction reveals its current public key even if it is dropped before inclusion.
+
+## Message signatures
+
+`btcli wallet sign --message "challenge"` uses the wallet's stored scheme.
+`btcli wallet verify --message "challenge" --signature HEX --ss58 ADDRESS`
+uses the descriptor in a receiving address. With plain SS58, supply the trusted
+signing scheme and account mode, for example `--crypto-type sr --type hashed`.
+The verifier never guesses the scheme from the signature.
+
+Hashed message signatures use the retired generation-zero identity key and a
+separate signing domain. First include a transaction retiring generation zero;
+the CLI checks finalized state before revealing that retired key. SDK callers
+pass the finalized generation as `hashed_generation` to `wallets.sign_message`,
+or select it with `key.at_generation(generation)`.
+
+HTTP servers must pass `expected_crypto_type` to `http_auth.verify` from trusted
+configuration or registry state. The request's crypto header is not trusted.

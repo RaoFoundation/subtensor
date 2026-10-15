@@ -24,20 +24,28 @@ from typing import Any, Optional
 from .._generated import calls
 from .._transport.contract import CallBytes
 from ..multisig import check_multisig_funds, multisig_opening_shortfall
+from ..receiving import parse_recipient
 from ..signing import public_view
-from ..sp_core import ss58_decode
+from ..sp_core import ss58_decode, ss58_encode
 from .base import BuiltCall, Intent, IntentPreflight
 from .registry import build as build_intent
 from .registry import register
 
 
 def _sorted_signatories(signatories: list) -> list:
-    """Other signatories must be sorted by raw account id (not ss58 text) and unique."""
-    return sorted(set(signatories), key=lambda s: bytes(ss58_decode(s)))
+    """Normalize member identities, deduplicate and sort by raw account id.
+
+    Members are identities, not payment destinations: validate receiving
+    descriptors, then use canonical SS58 for derivation and SCALE encoding.
+    Different address spellings must not count as additional signatories.
+    """
+    accounts = {bytes(ss58_decode(parse_recipient(s).account)) for s in signatories}
+    return [ss58_encode(account, 42) for account in sorted(accounts)]
 
 
 def _validate_multisig(threshold: int, other_signatories: list, signer_ss58: str) -> None:
     """Reject parameters the chain would refuse, before composing anything."""
+    other_signatories = _sorted_signatories(other_signatories)
     if threshold < 2:
         raise ValueError(
             f"multisig threshold must be at least 2, got {threshold} "
@@ -56,16 +64,25 @@ def _validate_multisig(threshold: int, other_signatories: list, signer_ss58: str
         )
 
 
-def _account_view(substrate, signer_ss58: str, threshold: int, other_signatories: list):
+def _account_view(
+    substrate, signer_ss58: str, threshold: int, other_signatories: list, *, wallet: Any
+):
     """The derived multisig account, shaped like a bare signer.
 
     The inner call dispatches with the multisig account as its origin, so its
     build must see that account — not the approving member's wallet — for
     origin-derived lookups (hotkey/coldkey address defaults, registration and
-    balance preflights). ``MultisigAccount`` carries ``ss58_address`` and
-    ``public_key``, the signer-shaped fallback the intent base helpers accept.
+    balance preflights). Retain the original wallet context separately so
+    recipient discovery can still read local public companion files.
     """
-    return substrate.multisig_account([signer_ss58, *other_signatories], threshold)
+    from ..executor import _OriginView
+
+    account = substrate.multisig_account(
+        [signer_ss58, *_sorted_signatories(other_signatories)], threshold
+    )
+    view = _OriginView(account.ss58_address)
+    view._wallet = getattr(wallet, "_wallet", wallet)
+    return view
 
 
 async def _compose_inner(substrate, view: Any, spec: dict):
@@ -74,12 +91,18 @@ async def _compose_inner(substrate, view: Any, spec: dict):
     ``view`` is the multisig account view (see ``_account_view``), so the inner
     intent's signer-derived defaults resolve to the account that dispatches it.
     """
+    from ..executor import _compose_nested_intent_call
+
     args = dict(spec)
     op = args.pop("op", None)
     if not op:
         raise ValueError("multisig inner call needs an 'op' key")
-    built = await build_intent(op, args).build(substrate, view)
-    return built.call if isinstance(built, BuiltCall) else built
+    # Use the same recipient preparation and origin wrappers as a direct
+    # intent. Calling build alone leaves bth1_ addresses in AccountId fields
+    # and skips the registration checks that must run inside the multisig.
+    return await _compose_nested_intent_call(
+        substrate, build_intent(op, args), view, wrapper="multisig"
+    )
 
 
 def _timepoint(value: Optional[dict]):
@@ -117,7 +140,7 @@ async def _pending_timepoint(substrate, dispatch, wallet: Any, inner):
         return dispatch.timepoint
 
     signer = public_view(wallet, "coldkey").ss58_address
-    signatories = [signer, *dispatch.other_signatories]
+    signatories = [signer, *_sorted_signatories(dispatch.other_signatories)]
     account = substrate.multisig_account(signatories, dispatch.threshold)
     call_hash = bytes(inner.call_hash)
     pending = await substrate.query("Multisig", "Multisigs", [account.ss58_address, call_hash])
@@ -183,7 +206,9 @@ class MultisigThreshold1(Intent):
     call: dict = field(metadata={"help": CALL_HELP})
 
     async def build(self, substrate, wallet: Any):
-        view = _account_view(substrate, self.coldkey_address(wallet), 1, self.other_signatories)
+        view = _account_view(
+            substrate, self.coldkey_address(wallet), 1, self.other_signatories, wallet=wallet
+        )
         inner = await _compose_inner(substrate, view, self.call)
         return await self._build_with_inner(substrate, wallet, inner)
 
@@ -226,7 +251,11 @@ class MultisigExecute(Intent):
 
     async def build(self, substrate, wallet: Any):
         view = _account_view(
-            substrate, self.coldkey_address(wallet), self.threshold, self.other_signatories
+            substrate,
+            self.coldkey_address(wallet),
+            self.threshold,
+            self.other_signatories,
+            wallet=wallet,
         )
         inner = await _compose_inner(substrate, view, self.call)
         return await self._build_with_inner(substrate, wallet, inner)
@@ -311,7 +340,11 @@ class MultisigIntentAdapter(Intent):
 
     def origin_view(self, substrate, wallet: Any):
         return _account_view(
-            substrate, self.coldkey_address(wallet), self.threshold, self.other_signatories
+            substrate,
+            self.coldkey_address(wallet),
+            self.threshold,
+            self.other_signatories,
+            wallet=wallet,
         )
 
     async def wrap_call(self, substrate, wallet: Any, call):
@@ -360,10 +393,17 @@ class MultisigIntentAdapter(Intent):
     async def preflight(
         self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
     ) -> IntentPreflight:
+        from ..hashed import prepare_recipient_intent
+
         # The semantic call reads state owned by the multisig (or by the
         # proxied account), while the outer approval deposit and fee belong to
         # the member who signs this extrinsic.
-        semantic = await self.semantic.preflight(substrate, dispatch_origin, fee_payer, call=call)
+        prepared, recipients = await prepare_recipient_intent(substrate, self.semantic)
+        semantic = await prepared.preflight(substrate, dispatch_origin, fee_payer, call=call)
+        for recipient in recipients.values():
+            semantic.effects = [
+                effect.replace(recipient.account, recipient.address) for effect in semantic.effects
+            ]
         dispatch = await self.dispatch.preflight(substrate, fee_payer, fee_payer, call=call)
         return IntentPreflight(
             effects=[*semantic.effects, *dispatch.effects],
@@ -429,7 +469,11 @@ class MultisigApprove(Intent):
         inner = await _compose_inner(
             substrate,
             _account_view(
-                substrate, self.coldkey_address(wallet), self.threshold, self.other_signatories
+                substrate,
+                self.coldkey_address(wallet),
+                self.threshold,
+                self.other_signatories,
+                wallet=wallet,
             ),
             self.call,
         )
@@ -519,7 +563,11 @@ class MultisigCancel(Intent):
         inner = await _compose_inner(
             substrate,
             _account_view(
-                substrate, self.coldkey_address(wallet), self.threshold, self.other_signatories
+                substrate,
+                self.coldkey_address(wallet),
+                self.threshold,
+                self.other_signatories,
+                wallet=wallet,
             ),
             self.call,
         )

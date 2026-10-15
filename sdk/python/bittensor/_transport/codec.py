@@ -95,7 +95,11 @@ def multisig_account(
     signatories: list[str], threshold: int, ss58_format: int = SS58_FORMAT
 ) -> MultisigAccount:
     """Derive the deterministic M-of-N multisig account for a signer set."""
-    keys = [bytes.fromhex(ss58_decode(address)) for address in signatories]
+    # Membership is an account identity, not a payment destination. Preserve
+    # descriptors on payment paths, but accept receiving addresses here too.
+    from ..receiving import parse_recipient
+
+    keys = [bytes.fromhex(ss58_decode(parse_recipient(address).account)) for address in signatories]
     account, sorted_keys = _core.multisig_account_id(keys, threshold)
     return MultisigAccount(
         signatories=[ss58_encode(key, ss58_format) for key in sorted_keys],

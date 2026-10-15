@@ -1,7 +1,7 @@
 use crate::{NORMAL_DISPATCH_BASE_PRIORITY, OPERATIONAL_DISPATCH_PRIORITY, Weight};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_election_provider_support::private::sp_arithmetic::traits::SaturatedConversion;
-use frame_support::dispatch::{DispatchClass, DispatchInfo, PostDispatchInfo};
+use frame_support::dispatch::{DispatchClass, DispatchInfo, Pays, PostDispatchInfo};
 use frame_support::pallet_prelude::TypeInfo;
 use frame_support::traits::{Get, IsSubType, IsType};
 use pallet_subtensor_proxy as pallet_proxy;
@@ -49,14 +49,21 @@ pub fn fee_dispatch_info(info: &DispatchInfo, discount: Weight) -> DispatchInfo 
     }
 }
 
-#[freeze_struct("f003cde1f9da4a90")]
+/// Calls whose execution fee is replaced by gas after dispatch.
+pub trait GasPaidExecution<Call> {
+    fn gas_paid_execution(call: &Call) -> bool;
+}
+
+#[freeze_struct("84732a1b48b3e34f")]
 #[derive(Encode, Decode, DecodeWithMemTracking, Clone, Eq, PartialEq, TypeInfo)]
 #[scale_info(skip_type_params(T))]
-pub struct ChargeTransactionPaymentWrapper<T: Config> {
+pub struct ChargeTransactionPaymentWrapper<T: Config, const AUTHORIZED: bool = false> {
     inner: ChargeTransactionPayment<T>,
 }
 
-impl<T: Config> core::fmt::Debug for ChargeTransactionPaymentWrapper<T> {
+impl<T: Config, const AUTHORIZED: bool> core::fmt::Debug
+    for ChargeTransactionPaymentWrapper<T, AUTHORIZED>
+{
     #[cfg(feature = "std")]
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "ChargeTransactionPaymentWrapper",)
@@ -67,19 +74,27 @@ impl<T: Config> core::fmt::Debug for ChargeTransactionPaymentWrapper<T> {
     }
 }
 
-impl<T: Config> ChargeTransactionPaymentWrapper<T>
+impl<T: Config, const AUTHORIZED: bool> ChargeTransactionPaymentWrapper<T, AUTHORIZED>
 where
     T::RuntimeCall: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>,
     BalanceOf<T>: Send + Sync,
 {
+    /// A local pipeline marker only; authorization is proven by the preceding
+    /// extension. No extra bytes or registry reads are needed to retain its fee.
+    pub fn with_account_authorization(self) -> ChargeTransactionPaymentWrapper<T, true> {
+        ChargeTransactionPaymentWrapper { inner: self.inner }
+    }
+
     pub fn new(fee: BalanceOf<T>) -> Self {
         let inner = ChargeTransactionPayment::<T>::from(fee);
         Self { inner }
     }
 }
 
-impl<T: Config + pallet_proxy::Config + pallet_utility::Config + pallet_subtensor::Config>
-    ChargeTransactionPaymentWrapper<T>
+impl<
+    T: Config + pallet_proxy::Config + pallet_utility::Config + pallet_subtensor::Config,
+    const AUTHORIZED: bool,
+> ChargeTransactionPaymentWrapper<T, AUTHORIZED>
 where
     RuntimeCallOf<T>: IsSubType<pallet_proxy::Call<T>> + IsSubType<pallet_utility::Call<T>>,
     T: ColdkeyFeeCallFilter<RuntimeCallOf<T>>,
@@ -226,13 +241,17 @@ where
     }
 }
 
-impl<T: Config + pallet_proxy::Config + pallet_utility::Config + pallet_subtensor::Config>
-    TransactionExtension<RuntimeCallOf<T>> for ChargeTransactionPaymentWrapper<T>
+impl<
+    T: Config + pallet_proxy::Config + pallet_utility::Config + pallet_subtensor::Config,
+    const AUTHORIZED: bool,
+> TransactionExtension<RuntimeCallOf<T>> for ChargeTransactionPaymentWrapper<T, AUTHORIZED>
 where
     RuntimeCallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
         + IsSubType<pallet_proxy::Call<T>>
         + IsSubType<pallet_utility::Call<T>>,
-    T: ColdkeyFeeCallFilter<RuntimeCallOf<T>> + FeeWeightDiscount<RuntimeCallOf<T>>,
+    T: ColdkeyFeeCallFilter<RuntimeCallOf<T>>
+        + FeeWeightDiscount<RuntimeCallOf<T>>
+        + GasPaidExecution<RuntimeCallOf<T>>,
     BalanceOf<T>: Zero + Send + Sync,
     RuntimeOriginOf<T>: AsSystemOriginSigner<AccountIdOf<T>>
         + Clone
@@ -241,7 +260,7 @@ where
     const IDENTIFIER: &'static str = "ChargeTransactionPaymentWrapper";
     type Implicit = ();
     type Val = Val<T>;
-    type Pre = (Pre<T>, Weight);
+    type Pre = (Pre<T>, Weight, Option<Weight>);
 
     fn weight(&self, call: &RuntimeCallOf<T>) -> Weight {
         // Account for up to 3 storage reads in the worst-case fee payer resolution
@@ -317,8 +336,10 @@ where
     ) -> Result<Self::Pre, TransactionValidityError> {
         let discount = T::fee_weight_discount(call, info);
         let fee_info = fee_dispatch_info(info, discount);
+        // EVM gas covers execution, not native account authorization.
+        let retained = (AUTHORIZED && T::gas_paid_execution(call)).then_some(info.extension_weight);
         let pre = self.inner.prepare(val, origin, call, &fee_info, len)?;
-        Ok((pre, discount))
+        Ok((pre, discount, retained))
     }
 
     fn metadata() -> Vec<TransactionExtensionMetadata> {
@@ -332,12 +353,12 @@ where
         len: usize,
         result: &DispatchResult,
     ) -> Result<Weight, TransactionValidityError> {
-        let (pre, discount) = pre;
-        let fee_info = fee_dispatch_info(info, discount);
+        let (pre, discount, retained) = pre;
+        let mut fee_info = fee_dispatch_info(info, discount);
         // Cap the fee at its discounted declaration, retaining normal refunds when
         // actual work costs less. Do not modify the execution post-info: CheckWeight
         // must still see the full scan, including work beyond four hotkeys.
-        let fee_post_info = PostDispatchInfo {
+        let mut fee_post_info = PostDispatchInfo {
             actual_weight: Some(
                 post_info
                     .calc_actual_weight(info)
@@ -345,6 +366,20 @@ where
             ),
             pays_fee: post_info.pays_fee,
         };
+        if post_info.pays_fee == Pays::No
+            && let Some(weight) = retained
+        {
+            // Gas replaces EVM execution weight, not the native envelope or its
+            // authentication. Retain base/length/extension fees, but never bill
+            // the gas-backed call weight twice. Execution post-info is untouched.
+            fee_info.call_weight = Weight::zero();
+            fee_info.extension_weight = weight;
+            fee_info.pays_fee = Pays::Yes;
+            fee_post_info = PostDispatchInfo {
+                actual_weight: Some(weight),
+                pays_fee: Pays::Yes,
+            };
+        }
         ChargeTransactionPayment::<T>::post_dispatch_details(
             pre,
             &fee_info,

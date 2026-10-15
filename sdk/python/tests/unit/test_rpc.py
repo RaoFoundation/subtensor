@@ -373,6 +373,39 @@ async def test_rpc_substrate_exposes_public_blank_timeout_error(monkeypatch):
         await substrate.connect()
 
 
+async def test_account_next_index_observes_other_clients_without_reserving_a_nonce():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from bittensor._transport.extrinsics import NonceCache
+
+    session = SimpleNamespace(request=AsyncMock(return_value=5))
+    cache = NonceCache(session)
+    cache.pin("account", 1)
+    substrate = RpcSubstrate("wss://rpc.example", fallback_endpoints=[])
+    substrate._substrate = SimpleNamespace(get_account_next_index=cache.next_for)
+    assert await substrate.account_next_index("account") == 5
+    session.request.return_value = 7
+    assert await substrate.account_next_index("account") == 7
+    assert await substrate.account_next_index("account") == 7
+    assert cache._nonces["account"] == 1
+
+
+async def test_nonce_reservations_follow_external_spends_and_remain_distinct():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from bittensor._transport.extrinsics import NonceCache
+
+    session = SimpleNamespace(request=AsyncMock(return_value=1))
+    cache = NonceCache(session)
+    assert await cache.next_for("account") == 1
+    # Another client or an included Shield pair consumes several nonces.
+    session.request.return_value = 5
+    assert await cache.next_for("account") == 5
+    assert await asyncio.gather(*(cache.next_for("account") for _ in range(3))) == [6, 7, 8]
+
+
 async def test_rpc_substrate_stream_preserves_public_policy_metadata():
     class RefusedStream:
         async def subscribe_heads(self, **kwargs):

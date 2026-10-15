@@ -469,7 +469,9 @@ def call(
                     await ms_helpers.await_pending_visible(client, sigs, threshold, call_hash)
                 app_ctx.signatory_wallet = ss58
                 app_ctx.signer_backend = None if backend == "wallet" else backend
-                app_ctx.signer_address = None if backend == "wallet" else ss58
+                app_ctx.signer_address = (
+                    None if backend == "wallet" else name if backend == "vault" else ss58
+                )
                 app_ctx._vault_signer = None
                 app_ctx._ledger_signer = None
                 app_ctx.reset_extension_session()
