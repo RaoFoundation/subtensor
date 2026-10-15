@@ -308,32 +308,99 @@ def get_subnet_identity(
     app_ctx.output.detail(f"subnet {netuid} identity", identity)
 
 
+_SUBNET_IDENTITY_FLAGS = {
+    "subnet_name": "--name",
+    "github_repo": "--github-repo",
+    "subnet_contact": "--contact",
+    "subnet_url": "--url",
+    "discord": "--discord",
+    "description": "--description",
+    "logo_url": "--logo-url",
+    "additional": "--additional",
+}
+
+
 @app.command("set-identity", rich_help_panel=PANEL_SUBNETS)
 @with_tx_globals
 def set_subnet_identity(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", help=SetSubnetIdentity.field_help("netuid")),
-    name: str = typer.Option(..., "--name", help=SetSubnetIdentity.field_help("subnet_name")),
-    url: str = typer.Option("", "--url", help=SetSubnetIdentity.field_help("subnet_url")),
-    description: str = typer.Option(
-        "", "--description", help=SetSubnetIdentity.field_help("description")
+    name: Optional[str] = typer.Option(
+        None, "--name", help=SetSubnetIdentity.field_help("subnet_name")
+    ),
+    github_repo: Optional[str] = typer.Option(
+        None, "--github-repo", help=SetSubnetIdentity.field_help("github_repo")
+    ),
+    contact: Optional[str] = typer.Option(
+        None, "--contact", help=SetSubnetIdentity.field_help("subnet_contact")
+    ),
+    url: Optional[str] = typer.Option(
+        None, "--url", help=SetSubnetIdentity.field_help("subnet_url")
+    ),
+    discord: Optional[str] = typer.Option(
+        None, "--discord", help=SetSubnetIdentity.field_help("discord")
+    ),
+    description: Optional[str] = typer.Option(
+        None, "--description", help=SetSubnetIdentity.field_help("description")
+    ),
+    logo_url: Optional[str] = typer.Option(
+        None, "--logo-url", help=SetSubnetIdentity.field_help("logo_url")
+    ),
+    additional: Optional[str] = typer.Option(
+        None, "--additional", help=SetSubnetIdentity.field_help("additional")
     ),
 ):
     """Set subnet identity metadata (subnet owner).
 
-    Only the subnet owner can call this. Publishes the display name, URL,
-    and description that explorers and the CLI show for the subnet,
-    replacing any identity set before.
+    Only the subnet owner can call this. The chain replaces the whole
+    identity, so every field not passed as a flag is prompted for
+    interactively, with Enter keeping its current value.
     """
     app_ctx: AppContext = ctx_of(ctx)
-    app_ctx.submit(
-        SetSubnetIdentity(
-            netuid=netuid,
-            subnet_name=name,
-            subnet_url=url,
-            description=description,
+    current = app_ctx.run(lambda c: c.read("subnet_identity", netuid=netuid)) or {}
+
+    out = app_ctx.output
+    if not out.json_mode:
+        if current:
+            out.detail(f"subnet {netuid} current identity", current)
+        else:
+            out.message(f"[dim]subnet {netuid} has no identity yet[/dim]")
+
+    def current_value(field: str) -> str:
+        return str(current.get(field) or "")
+
+    fields = {
+        "subnet_name": name,
+        "github_repo": github_repo,
+        "subnet_contact": contact,
+        "subnet_url": url,
+        "discord": discord,
+        "description": description,
+        "logo_url": logo_url,
+        "additional": additional,
+    }
+    specs = [
+        PromptSpec(
+            field=field,
+            flag=_SUBNET_IDENTITY_FLAGS[field],
+            help=SetSubnetIdentity.field_help(field),
+            parse=lambda _app_ctx, raw: raw,
+            # Enter keeps the current value; the name has no fallback when
+            # there is no identity yet, so it stays required.
+            default=(
+                (current_value(field) or None) if field == "subnet_name" else current_value(field)
+            ),
         )
-    )
+        for field, value in fields.items()
+        if value is None
+    ]
+    fill_missing(app_ctx, specs, fields)
+    # Non-interactive sessions keep the current (or empty) value for omitted flags.
+    for field, value in fields.items():
+        if value is None:
+            fields[field] = current_value(field)
+
+    app_ctx.submit(SetSubnetIdentity(netuid=netuid, **fields))
 
 
 @app.command("trim", rich_help_panel=PANEL_SUBNETS)
