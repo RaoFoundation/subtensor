@@ -5,7 +5,6 @@ authors = ["Subtensor Contributors <https://github.com/RaoFoundation/subtensor>"
 version = "0.0.1"
 license = "Apache-2.0"
 edition.workspace = true
-homepage = "https://github.com/RaoFoundation/subtensor"
 repository = "https://github.com/RaoFoundation/subtensor"
 publish = false
 
@@ -104,3 +103,6 @@ try-runtime = [
 	"pallet-subtensor-utility/try-runtime",
 	"pallet-timestamp/try-runtime",
 ]
+
+[lints]
+workspace = true

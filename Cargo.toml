@@ -47,13 +47,13 @@ edition = "2024"
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(substrate_runtime)'] }
 
 [workspace.lints.clippy]
-arithmetic-side-effects = "deny"
-expect-used = "deny"
-indexing-slicing = "deny"
+arithmetic_side_effects = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
 manual_inspect = "allow"
 result_large_err = "allow"
 type_complexity = "allow"
-unwrap-used = "deny"
+unwrap_used = "deny"
 useless_conversion = "allow"     # until polkadot is patched
 
 [workspace.dependencies]
@@ -84,7 +84,6 @@ stc-shield = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = 
 
 ed25519-dalek = { version = "2.1.0", default-features = false }
 async-trait = "0.1"
-cargo-husky = { version = "1", default-features = false }
 clap = "4.5.4"
 codec = { package = "parity-scale-codec", version = "3.7.5", default-features = false }
 enumflags2 = "0.7.9"
@@ -94,24 +93,19 @@ hex-literal = "0.4.1"
 impl-trait-for-tuples = "0.2.3"
 jsonrpsee = { version = "0.24.9", default-features = false }
 libsecp256k1 = { version = "0.7.2", default-features = false }
-lencode = "1.2.1"
 log = { version = "0.4.21", default-features = false }
 memmap2 = "0.9.8"
 ndarray = { version = "0.16.1", default-features = false }
 rand = { version = "0.10.0", default-features = false }
 scale-info = { version = "2.11.2", default-features = false }
 serde = { version = "1.0.214", default-features = false }
-serde-tuple-vec-map = { version = "1.0.1", default-features = false }
-serde_bytes = { version = "0.11.14", default-features = false }
 serde_json = { version = "1.0.141", default-features = false }
-serde_with = { version = "3.14.0", default-features = false }
 smallvec = "1.13.2"
 tracing = "0.1"
 tracing-log = "0.2"
 # Keep ANSI sanitization enabled. The patched informant emits plain message fields;
 # the logger still handles timestamp and level colors.
 tracing-subscriber = { version = "=0.3.20" }
-litep2p = { git = "https://github.com/paritytech/litep2p", tag = "v0.7.0", default-features = false }
 syn = { version = "2.0.106", default-features = false }
 quote = { version = "1", default-features = false }
 proc-macro2 = { version = "1", default-features = false }
@@ -240,10 +234,6 @@ sp-transaction-pool = { git = "https://github.com/RaoFoundation/polkadot-sdk.git
 sp-version = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a", default-features = false }
 sp-weights = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a", default-features = false }
 sp-crypto-hashing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a", default-features = false }
-sp-application-crypto = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a", default-features = false }
-sp-debug-derive = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a", default-features = false }
-sp-externalities = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a", default-features = false }
-sp-runtime-interface = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a", default-features = false }
 
 substrate-build-script-utils = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a", default-features = false }
 substrate-fixed = { git = "https://github.com/encointer/substrate-fixed.git", tag = "v0.6.0", default-features = false }
@@ -269,7 +259,6 @@ fc-storage = { path = "vendor/frontier/client/storage", default-features = false
 fc-db = { path = "vendor/frontier/client/db", default-features = false }
 fc-consensus = { path = "vendor/frontier/client/consensus", default-features = false }
 fp-consensus = { path = "vendor/frontier/primitives/consensus", default-features = false }
-fp-dynamic-fee = { path = "vendor/frontier/primitives/dynamic-fee", default-features = false }
 fc-api = { path = "vendor/frontier/client/api", default-features = false }
 fc-rpc = { path = "vendor/frontier/client/rpc", default-features = false }
 fc-rpc-core = { path = "vendor/frontier/client/rpc-core", default-features = false }
@@ -280,7 +269,6 @@ precompile-utils = { path = "vendor/frontier/precompiles", default-features = fa
 
 # Frontier FRAME
 pallet-base-fee = { path = "vendor/frontier/frame/base-fee", default-features = false }
-pallet-dynamic-fee = { path = "vendor/frontier/frame/dynamic-fee", default-features = false }
 pallet-ethereum = { path = "vendor/frontier/frame/ethereum", default-features = false }
 pallet-evm = { path = "vendor/frontier/frame/evm", default-features = false }
 pallet-evm-precompile-dispatch = { path = "vendor/frontier/frame/evm/precompile/dispatch", default-features = false }
@@ -312,7 +300,6 @@ tle = { git = "https://github.com/ideal-lab5/timelock", rev = "5416406cfd32799e3
 pallet-shield = { path = "pallets/shield", default-features = false }
 ml-kem = { version = "0.2.2", default-features = false }
 chacha20poly1305 = { version = "0.10", default-features = false }
-blake2 = "0.10.6"
 
 # Primitives
 
@@ -450,3 +437,6 @@ staging-xcm = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev =
 substrate-bip39 = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a" }
 substrate-prometheus-endpoint = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a" }
 xcm-procedural = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a" }
+
+[lints]
+workspace = true

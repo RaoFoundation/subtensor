@@ -23,3 +23,6 @@ clap = { workspace = true, features = ["derive"] }
 semver.workspace = true
 toml_edit.workspace = true
 node-subtensor-runtime = { workspace = true, default-features = true }
+
+[lints]
+workspace = true

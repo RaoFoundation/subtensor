@@ -28,3 +28,6 @@ std = [
     "subtensor-runtime-common/std",
     "subtensor-swap-interface/std"
 ]
+
+[lints]
+workspace = true
