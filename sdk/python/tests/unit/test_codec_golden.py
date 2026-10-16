@@ -237,3 +237,39 @@ def test_emitted_storage_descriptors_carry_value_idents():
     assert "value_type_ident: str = ''" in content
     assert "Tempo = Item('SubtensorModule', 'Tempo', 'u16')" in content
     compile(content, "storage.py", "exec")
+
+
+def test_core_metadata_ir_additions_preserve_python_materialization():
+    """The core's shared IR remains JSON-compatible and keeps legacy fields."""
+    import json
+
+    ir = codec()._rt.metadata_ir()
+    assert ir["spec_version"] == golden()["network"]["spec_version"]
+    assert json.loads(json.dumps(ir)) == ir
+    subtensor_pallet = next(p for p in ir["pallets"] if p["name"] == "SubtensorModule")
+    add_stake = next(c for c in subtensor_pallet["calls"] if c["name"] == "add_stake")
+    assert [a["name"] for a in add_stake["args"]] == ["hotkey", "netuid", "amount_staked"]
+    assert [a["type_ident"] for a in add_stake["args"]] == ["AccountId32", "NetUid", "TaoBalance"]
+    assert isinstance(add_stake["index"], int)
+    assert all(isinstance(a["type_id"], int) for a in add_stake["args"])
+    assert isinstance(add_stake["docs"], str)
+    assert subtensor_pallet["events"]
+    for pallet in ir["pallets"]:
+        assert [c["name"] for c in pallet["constant_details"]] == pallet["constants"]
+        for constant in pallet["constant_details"]:
+            assert isinstance(constant["value"], list)
+        for storage in pallet["storage"]:
+            assert ":" not in storage["name"]
+            assert len(storage["hashers"]) == len(storage["key_types"])
+            assert len(storage["hashers"]) == len(storage["key_type_idents"])
+            assert storage["modifier"] in ("Default", "Optional")
+            assert isinstance(storage["default_bytes"], list)
+        for event in pallet["events"]:
+            assert isinstance(event["index"], int)
+            assert all(isinstance(f["type_id"], int) for f in event["fields"])
+    for api in ir["runtime_apis"]:
+        assert api["version"] is None
+        assert [m["name"] for m in api["method_signatures"]] == api["methods"]
+        assert all(isinstance(m["output"], int) for m in api["method_signatures"])
+    assert ir["extrinsic"]["version"] == 4
+    assert ir["extrinsic"]["signed_extensions"]

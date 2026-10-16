@@ -8,7 +8,7 @@ use bittensor_core::codec::extrinsic::{era_birth, multisig_account_id, TxParams}
 use bittensor_core::codec::{decode::Cursor, storage::storage_prefix};
 use bittensor_core::runtime::{Runtime, StorageInfo};
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict, PyList};
+use pyo3::types::{PyBytes, PyDict};
 
 use crate::errors::to_py_err;
 use crate::values::{materialize_pairs, py_to_value, value_to_py, value_to_py_cached, StrCache};
@@ -573,85 +573,11 @@ impl PyRuntime {
         Ok(apis.into_any().unbind())
     }
 
-    /// The codegen IR: ``{spec_version, pallets: [...], runtime_apis: [...]}``
-    /// with call args/docs, indexed errors, storage entries (name + value
-    /// type identity), and constant names.
+    /// The shared codegen IR, retaining the original keys and adding storage
+    /// key identities, event fields, API signatures, and signed extensions.
     fn metadata_ir(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let join_docs = |docs: &[String]| -> String {
-            docs.iter()
-                .map(|d| d.trim())
-                .collect::<Vec<_>>()
-                .join(" ")
-                .trim()
-                .to_string()
-        };
-        let ir = PyDict::new(py);
-        ir.set_item("spec_version", self.inner.spec_version)?;
-        let pallets = PyList::empty(py);
-        for pallet in &self.inner.pallets {
-            let entry = PyDict::new(py);
-            entry.set_item("name", &pallet.name)?;
-            entry.set_item("index", pallet.index)?;
-            let calls = PyList::empty(py);
-            if let Some(calls_type) = pallet.calls_type {
-                let ty = self.inner.resolve(calls_type).map_err(to_py_err)?;
-                if let scale_info::TypeDef::Variant(variant) = &ty.type_def {
-                    for call in &variant.variants {
-                        let call_entry = PyDict::new(py);
-                        call_entry.set_item("name", &call.name)?;
-                        let args = PyList::empty(py);
-                        for field in &call.fields {
-                            let arg = PyDict::new(py);
-                            arg.set_item("name", field.name.clone().unwrap_or_default())?;
-                            arg.set_item("type_ident", self.inner.type_ident(field.ty.id))?;
-                            args.append(arg)?;
-                        }
-                        call_entry.set_item("args", args)?;
-                        call_entry.set_item("docs", join_docs(&call.docs))?;
-                        calls.append(call_entry)?;
-                    }
-                }
-            }
-            entry.set_item("calls", calls)?;
-            let errors = PyList::empty(py);
-            if let Some(errors_type) = pallet.errors_type {
-                let ty = self.inner.resolve(errors_type).map_err(to_py_err)?;
-                if let scale_info::TypeDef::Variant(variant) = &ty.type_def {
-                    for error in &variant.variants {
-                        let error_entry = PyDict::new(py);
-                        error_entry.set_item("index", error.index)?;
-                        error_entry.set_item("name", &error.name)?;
-                        error_entry.set_item("docs", join_docs(&error.docs))?;
-                        errors.append(error_entry)?;
-                    }
-                }
-            }
-            entry.set_item("errors", errors)?;
-            // Skip pseudo-entries like `:__STORAGE_VERSION__:`.
-            let storage = PyList::empty(py);
-            for item in pallet.storage.iter().filter(|s| !s.name.contains(':')) {
-                let storage_entry = PyDict::new(py);
-                storage_entry.set_item("name", &item.name)?;
-                storage_entry
-                    .set_item("value_type_ident", self.inner.type_ident(item.value_type))?;
-                storage.append(storage_entry)?;
-            }
-            entry.set_item("storage", storage)?;
-            let constants: Vec<&str> = pallet.constants.iter().map(|c| c.name.as_str()).collect();
-            entry.set_item("constants", constants)?;
-            pallets.append(entry)?;
-        }
-        ir.set_item("pallets", pallets)?;
-        let apis = PyList::empty(py);
-        for api in &self.inner.apis {
-            let entry = PyDict::new(py);
-            entry.set_item("name", &api.name)?;
-            let methods: Vec<&str> = api.methods.iter().map(|m| m.name.as_str()).collect();
-            entry.set_item("methods", methods)?;
-            apis.append(entry)?;
-        }
-        ir.set_item("runtime_apis", apis)?;
-        Ok(ir.into_any().unbind())
+        let ir = self.inner.metadata_ir().map_err(to_py_err)?;
+        crate::metadata_ir::to_py(py, &ir)
     }
 }
 

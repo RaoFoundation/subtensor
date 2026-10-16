@@ -12,6 +12,7 @@ pub mod client;
 pub mod codec;
 pub mod digest;
 pub mod error;
+pub mod ir;
 #[cfg(feature = "host")]
 pub mod keyfiles;
 pub mod keys;
