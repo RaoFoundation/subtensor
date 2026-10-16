@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_register_leased_network
+expression: fee
+---
+37616509

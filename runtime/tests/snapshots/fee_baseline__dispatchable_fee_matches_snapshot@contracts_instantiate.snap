@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: contracts_instantiate
+expression: fee
+---
+1701813

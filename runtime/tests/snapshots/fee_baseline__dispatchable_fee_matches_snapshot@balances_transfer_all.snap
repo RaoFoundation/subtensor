@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: balances_transfer_all
+expression: fee
+---
+85391

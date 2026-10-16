@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: proxy_kill_pure
+expression: fee
+---
+80356
