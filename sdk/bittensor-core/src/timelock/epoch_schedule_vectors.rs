@@ -61,6 +61,21 @@ pub fn predict_vectors() -> &'static [PredictVector] {
             expected_reveal_block: Some(95),
             expected_error: None,
         },
+        PredictVector {
+            name: "counter_fire_during_inclusion_coinbase",
+            source: "block_step reveals before coinbase; commit extrinsic follows coinbase",
+            state: EpochScheduleState {
+                last_epoch_block: 90,
+                pending_epoch_at: 0,
+                subnet_epoch_index: 0,
+                tempo: 20,
+                blocks_since_last_step: 20,
+                current_block: 105,
+            },
+            reveal_period_epochs: 1,
+            expected_reveal_block: Some(126),
+            expected_error: None,
+        },
     ]
 }
 
