@@ -10,6 +10,7 @@ serialize round-trip exactly, and compose+plan against the in-memory
 from __future__ import annotations
 
 import asyncio
+from decimal import localcontext
 
 import pytest
 
@@ -92,6 +93,16 @@ def test_serialization_roundtrip(op: str):
     assert encoded["op"] == op
     rebuilt = build(op, {k: v for k, v in encoded.items() if k != "op"})
     assert rebuilt.to_dict() == encoded
+
+
+def test_transfer_serialization_preserves_rao_with_low_decimal_precision():
+    intent = build("transfer", {"dest_ss58": BOB, "amount_tao": Balance.from_rao(1_234_567_891)})
+    with localcontext() as ctx:
+        ctx.prec = 6
+        encoded = intent.to_dict()
+        assert encoded["amount_tao"] == "1.234567891"
+        rebuilt = build("transfer", encoded)
+        assert rebuilt.amount_tao.rao == 1_234_567_891
 
 
 @pytest.mark.parametrize("op", sorted(REGISTRY))
