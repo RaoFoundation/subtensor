@@ -8,6 +8,7 @@
 use approx::assert_abs_diff_eq;
 use frame_support::weights::WeightMeter;
 use frame_support::{assert_noop, assert_ok};
+use rstest::rstest;
 use sp_arithmetic::Perquintill;
 use sp_runtime::DispatchError;
 use substrate_fixed::types::U64F64;
@@ -212,6 +213,273 @@ mod dispatchables {
                 0.25,
                 epsilon = 1e-9
             );
+        });
+    }
+}
+
+mod adjust_protocol_liquidity {
+    use super::*;
+
+    fn set_reserves(netuid: NetUid, tao: u64, alpha: u64) {
+        TaoReserve::set_mock_reserve(netuid, tao.into());
+        AlphaReserve::set_mock_reserve(netuid, alpha.into());
+    }
+
+    fn set_reservoirs(netuid: NetUid, tao: u64, alpha: u64) {
+        BalancerTaoReservoir::<Test>::insert(netuid, TaoBalance::from(tao));
+        BalancerAlphaReservoir::<Test>::insert(netuid, AlphaBalance::from(alpha));
+    }
+
+    fn quote_weight(netuid: NetUid) -> Perquintill {
+        SwapBalancer::<Test>::get(netuid).get_quote_weight()
+    }
+
+    /// Commits prior state so the overlay holds only what `f` writes. Same-value
+    /// writes still appear in the overlay, so a skipped write is distinguishable.
+    fn written_keys(ext: &mut sp_io::TestExternalities, f: impl FnOnce()) -> Vec<Vec<u8>> {
+        ext.commit_all().unwrap();
+        ext.execute_with(f);
+        ext.overlayed_changes()
+            .changes()
+            .map(|(key, _)| key.clone())
+            .collect()
+    }
+
+    #[rstest]
+    #[case::both_sides_unfunded(0, 0, 0, 0, 0, 0)]
+    #[case::new_tao_is_zero(0, 0, 0, 0, 0, 500)]
+    #[case::new_tao_is_net_zero(0, 4_000, 0, 700, 0, 300)]
+    #[case::new_alpha_is_zero(1_000, 0, 50, 0, 25, 0)]
+    #[case::new_alpha_is_net_zero(0, 0, 50, 0, 25, 0)]
+    fn test_unfunded_side_buffers_reservoirs_and_returns_early(
+        #[case] tao: u64,
+        #[case] alpha: u64,
+        #[case] pending_tao: u64,
+        #[case] pending_alpha: u64,
+        #[case] tao_delta: u64,
+        #[case] alpha_delta: u64,
+    ) {
+        new_test_ext().execute_with(|| {
+            let netuid = NetUid::from(1);
+            set_reserves(netuid, tao, alpha);
+            set_reservoirs(netuid, pending_tao, pending_alpha);
+
+            let accepted =
+                Swap::adjust_protocol_liquidity(netuid, tao_delta.into(), alpha_delta.into())
+                    .unwrap();
+
+            assert_eq!(accepted, (TaoBalance::ZERO, AlphaBalance::ZERO));
+            assert_eq!(
+                u64::from(BalancerTaoReservoir::<Test>::get(netuid)),
+                pending_tao + tao_delta
+            );
+            assert_eq!(
+                u64::from(BalancerAlphaReservoir::<Test>::get(netuid)),
+                pending_alpha + alpha_delta
+            );
+            assert!(!SwapSuperellipse::<Test>::contains_key(netuid));
+            assert!(!PalSwapInitialized::<Test>::get(netuid));
+        });
+    }
+
+    #[test]
+    fn test_unfunded_side_leaves_existing_curve_untouched() {
+        new_test_ext().execute_with(|| {
+            let netuid = NetUid::from(1);
+            set_reserves(netuid, 1_000_000, 4_000_000);
+            assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+            let curve = SwapSuperellipse::<Test>::get(netuid).unwrap();
+            // Drain TAO so the projected TAO reserve is zero.
+            set_reserves(netuid, 0, 4_000_000);
+
+            let accepted =
+                Swap::adjust_protocol_liquidity(netuid, 0u64.into(), 300u64.into()).unwrap();
+
+            assert_eq!(accepted, (TaoBalance::ZERO, AlphaBalance::ZERO));
+            assert_eq!(SwapSuperellipse::<Test>::get(netuid).unwrap(), curve);
+            assert!(PalSwapInitialized::<Test>::get(netuid));
+            assert_eq!(BalancerTaoReservoir::<Test>::get(netuid), TaoBalance::ZERO);
+            assert_eq!(
+                BalancerAlphaReservoir::<Test>::get(netuid),
+                AlphaBalance::from(300)
+            );
+        });
+    }
+
+    #[rstest]
+    #[case::both_physical_reserves_empty(0, 0, 200_000, 0, 800_000, 4_000_000)]
+    #[case::only_alpha_empty(1_000_000, 0, 0, 3_000_000, 0, 1_000_000)]
+    #[case::only_tao_empty(0, 4_000_000, 600_000, 0, 400_000, 0)]
+    fn test_empty_pool_anchors_at_projected_reserves_without_translation(
+        #[case] tao: u64,
+        #[case] alpha: u64,
+        #[case] pending_tao: u64,
+        #[case] pending_alpha: u64,
+        #[case] tao_delta: u64,
+        #[case] alpha_delta: u64,
+    ) {
+        new_test_ext().execute_with(|| {
+            let netuid = NetUid::from(1);
+            set_reserves(netuid, tao, alpha);
+            set_reservoirs(netuid, pending_tao, pending_alpha);
+            let (pending_tao, pending_alpha) =
+                (pending_tao + tao_delta, pending_alpha + alpha_delta);
+            let (new_tao, new_alpha) = (tao + pending_tao, alpha + pending_alpha);
+
+            let accepted =
+                Swap::adjust_protocol_liquidity(netuid, tao_delta.into(), alpha_delta.into())
+                    .unwrap();
+
+            assert_eq!(
+                accepted,
+                (
+                    TaoBalance::from(pending_tao),
+                    AlphaBalance::from(pending_alpha)
+                )
+            );
+            let anchored =
+                Superellipse::from_balancer(new_alpha, new_tao, quote_weight(netuid)).unwrap();
+            let mut translated = anchored.clone();
+            translated
+                .translate_liquidity(pending_alpha, pending_tao)
+                .unwrap();
+            assert_ne!(translated, anchored);
+            // The anchor already includes pending balances; it is not translated.
+            assert_eq!(SwapSuperellipse::<Test>::get(netuid).unwrap(), anchored);
+            assert!(PalSwapInitialized::<Test>::get(netuid));
+            assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
+            assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
+
+            set_reserves(netuid, new_tao, new_alpha);
+            assert_abs_diff_eq!(
+                Swap::current_price(netuid).to_num::<f64>(),
+                0.25,
+                epsilon = 1e-9
+            );
+        });
+    }
+
+    #[test]
+    fn test_funded_pool_translates_curve_by_pending_liquidity() {
+        for existing_curve in [true, false] {
+            new_test_ext().execute_with(|| {
+                let netuid = NetUid::from(1);
+                let (tao, alpha) = (1_000_000u64, 4_000_000u64);
+                set_reserves(netuid, tao, alpha);
+                let base = if existing_curve {
+                    assert_ok!(Swap::maybe_initialize_palswap(netuid, None));
+                    SwapSuperellipse::<Test>::get(netuid).unwrap()
+                } else {
+                    Superellipse::from_balancer(alpha, tao, quote_weight(netuid)).unwrap()
+                };
+                let price = base.calculate_price(alpha, tao).unwrap();
+                set_reservoirs(netuid, 200, 300);
+
+                let accepted =
+                    Swap::adjust_protocol_liquidity(netuid, 1_000u64.into(), 2_000u64.into())
+                        .unwrap();
+
+                let (pending_tao, pending_alpha) = (1_200u64, 2_300u64);
+                let (new_tao, new_alpha) = (tao + pending_tao, alpha + pending_alpha);
+                assert_eq!(
+                    accepted,
+                    (
+                        TaoBalance::from(pending_tao),
+                        AlphaBalance::from(pending_alpha)
+                    )
+                );
+                let mut translated = base.clone();
+                translated
+                    .translate_liquidity(pending_alpha, pending_tao)
+                    .unwrap();
+                let stored = SwapSuperellipse::<Test>::get(netuid).unwrap();
+                assert_eq!(stored, translated);
+                // Not re-anchored at the projected reserves.
+                assert_ne!(
+                    stored,
+                    Superellipse::from_balancer(new_alpha, new_tao, quote_weight(netuid)).unwrap()
+                );
+                assert_eq!(stored.calculate_price(new_alpha, new_tao).unwrap(), price);
+                assert!(PalSwapInitialized::<Test>::get(netuid));
+                assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
+                assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
+            });
+        }
+    }
+
+    #[test]
+    fn test_unchanged_reservoirs_are_not_rewritten() {
+        let netuid = NetUid::from(1);
+        let tao_key = BalancerTaoReservoir::<Test>::hashed_key_for(netuid);
+        let alpha_key = BalancerAlphaReservoir::<Test>::hashed_key_for(netuid);
+        let mut ext = new_test_ext();
+
+        // Both reservoirs absent and pending stays zero: default-valued, no write.
+        let written = written_keys(&mut ext, || {
+            set_reserves(netuid, 0, 0);
+            Swap::adjust_protocol_liquidity(netuid, 0u64.into(), 0u64.into()).unwrap();
+        });
+        assert!(!written.contains(&tao_key));
+        assert!(!written.contains(&alpha_key));
+
+        // Alpha changes, TAO does not.
+        let written = written_keys(&mut ext, || {
+            Swap::adjust_protocol_liquidity(netuid, 0u64.into(), 500u64.into()).unwrap();
+        });
+        assert!(!written.contains(&tao_key));
+        assert!(written.contains(&alpha_key));
+
+        // Both reservoirs already hold the pending values.
+        let written = written_keys(&mut ext, || {
+            Swap::adjust_protocol_liquidity(netuid, 0u64.into(), 0u64.into()).unwrap();
+            assert_eq!(
+                BalancerAlphaReservoir::<Test>::get(netuid),
+                AlphaBalance::from(500)
+            );
+        });
+        assert!(!written.contains(&tao_key));
+        assert!(!written.contains(&alpha_key));
+    }
+
+    #[test]
+    fn test_unchanged_curve_and_initialized_flag_are_not_rewritten() {
+        let netuid = NetUid::from(1);
+        let curve_key = SwapSuperellipse::<Test>::hashed_key_for(netuid);
+        let initialized_key = PalSwapInitialized::<Test>::hashed_key_for(netuid);
+        let tao_key = BalancerTaoReservoir::<Test>::hashed_key_for(netuid);
+        let alpha_key = BalancerAlphaReservoir::<Test>::hashed_key_for(netuid);
+        let mut ext = new_test_ext();
+
+        // No curve and an unset flag: both are written.
+        let written = written_keys(&mut ext, || {
+            set_reserves(netuid, 1_000_000, 4_000_000);
+            Swap::adjust_protocol_liquidity(netuid, 0u64.into(), 0u64.into()).unwrap();
+        });
+        assert!(written.contains(&curve_key));
+        assert!(written.contains(&initialized_key));
+
+        // Zero translation leaves curve and flag unchanged: nothing is written.
+        let curve = ext.execute_with(|| SwapSuperellipse::<Test>::get(netuid).unwrap());
+        let written = written_keys(&mut ext, || {
+            Swap::adjust_protocol_liquidity(netuid, 0u64.into(), 0u64.into()).unwrap();
+        });
+        assert!(!written.contains(&curve_key));
+        assert!(!written.contains(&initialized_key));
+        assert!(!written.contains(&tao_key));
+        assert!(!written.contains(&alpha_key));
+        ext.execute_with(|| {
+            assert_eq!(SwapSuperellipse::<Test>::get(netuid).unwrap(), curve);
+            assert!(PalSwapInitialized::<Test>::get(netuid));
+        });
+
+        // A real translation rewrites the curve but not the already-set flag.
+        let written = written_keys(&mut ext, || {
+            Swap::adjust_protocol_liquidity(netuid, 1u64.into(), 0u64.into()).unwrap();
+        });
+        assert!(written.contains(&curve_key));
+        assert!(!written.contains(&initialized_key));
+        ext.execute_with(|| {
+            assert_ne!(SwapSuperellipse::<Test>::get(netuid).unwrap(), curve);
         });
     }
 }

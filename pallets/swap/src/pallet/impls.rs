@@ -410,6 +410,8 @@ impl<T: Config> Pallet<T> {
     /// normalized coordinates, price or scale. Pending legacy reservoirs are
     /// released when both projected reserves and offsets can represent them.
     /// The caller materializes current emissions and applies returned reserve deltas.
+    /// NOTE: This is called for potentially every subnet at every block,
+    /// so even small efficiencies can make a big difference.
     #[frame_support::transactional]
     pub(super) fn adjust_protocol_liquidity(
         netuid: NetUid,
@@ -435,23 +437,38 @@ impl<T: Config> Pallet<T> {
         if new_tao == 0 || new_alpha == 0 {
             // An unfunded side has no tradable price. Buffer already materialized
             // liquidity until both sides can initialize together.
-            BalancerTaoReservoir::<T>::insert(netuid, TaoBalance::from(pending_tao));
-            BalancerAlphaReservoir::<T>::insert(netuid, AlphaBalance::from(pending_alpha));
+            let _ = BalancerTaoReservoir::<T>::try_mutate(netuid, |current_tao| {
+                let pending_balance = TaoBalance::from(pending_tao);
+                if *current_tao == pending_balance {
+                    return Err(()); // unchanged: skip the write
+                }
+                *current_tao = pending_balance;
+                Ok(())
+            });
+            let _ = BalancerAlphaReservoir::<T>::try_mutate(netuid, |current_alpha| {
+                let pending_balance = AlphaBalance::from(pending_alpha);
+                if *current_alpha == pending_balance {
+                    return Err(()); // unchanged; skip the write
+                }
+                *current_alpha = pending_balance;
+                Ok(())
+            });
             return Ok((TaoBalance::ZERO, AlphaBalance::ZERO));
         }
-        let mut curve = if let Some(curve) = SwapSuperellipse::<T>::get(netuid) {
+        let (mut curve, do_translate) = if let Some(curve) = SwapSuperellipse::<T>::get(netuid) {
             // Validate the existing coordinates before translating them.
             curve
                 .calculate_price(alpha.into(), tao.into())
                 .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
-            curve
+            (curve, true)
         } else if !tao.is_zero() && !alpha.is_zero() {
-            Superellipse::from_balancer(
+            let curve = Superellipse::from_balancer(
                 alpha.into(),
                 tao.into(),
                 SwapBalancer::<T>::get(netuid).get_quote_weight(),
             )
-            .map_err(|_| Error::<T>::ReservesOutOfBalance)?
+            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+            (curve, true)
         } else {
             // An empty pool has no price to preserve. Anchor at projected reserves
             // and skip translation: the pending balances are already in the anchor.
@@ -461,22 +478,43 @@ impl<T: Config> Pallet<T> {
                 SwapBalancer::<T>::get(netuid).get_quote_weight(),
             )
             .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
-            SwapSuperellipse::<T>::insert(netuid, curve);
-            PalSwapInitialized::<T>::insert(netuid, true);
-            BalancerTaoReservoir::<T>::remove(netuid);
-            BalancerAlphaReservoir::<T>::remove(netuid);
-            return Ok((pending_tao.into(), pending_alpha.into()));
+            (curve, false)
         };
-        curve
-            .translate_liquidity(pending_alpha, pending_tao)
-            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
-        curve
-            .calculate_price(new_alpha, new_tao)
-            .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
-        SwapSuperellipse::<T>::insert(netuid, curve);
-        PalSwapInitialized::<T>::insert(netuid, true);
-        BalancerTaoReservoir::<T>::remove(netuid);
-        BalancerAlphaReservoir::<T>::remove(netuid);
+        if do_translate {
+            curve
+                .translate_liquidity(pending_alpha, pending_tao)
+                .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+            curve
+                .calculate_price(new_alpha, new_tao)
+                .map_err(|_| Error::<T>::ReservesOutOfBalance)?;
+        }
+        let _ = SwapSuperellipse::<T>::try_mutate(netuid, |val| {
+            match val {
+                Some(old_curve) => {
+                    if *old_curve == curve {
+                        return Err(()); // no change; skip write
+                    }
+                    *old_curve = curve;
+                }
+                None => {
+                    *val = Some(curve);
+                }
+            }
+            Ok(())
+        });
+        let _ = PalSwapInitialized::<T>::try_mutate(netuid, |v| {
+            if *v == true {
+                return Err(()); // no change; skip write
+            }
+            *v = true;
+            Ok(())
+        });
+        if BalancerTaoReservoir::<T>::contains_key(netuid) {
+            BalancerTaoReservoir::<T>::remove(netuid);
+        }
+        if BalancerAlphaReservoir::<T>::contains_key(netuid) {
+            BalancerAlphaReservoir::<T>::remove(netuid);
+        }
         Ok((pending_tao.into(), pending_alpha.into()))
     }
 

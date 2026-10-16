@@ -30,8 +30,9 @@ subtensor-swap-interface.workspace = true
 
 [dev-dependencies]
 sp-tracing.workspace = true
-rand  = { version = "0.8", default-features = false }
+rand = { version = "0.8", default-features = false }
 rayon = "1.10"
+rstest.workspace = true
 
 [lints]
 workspace = true
