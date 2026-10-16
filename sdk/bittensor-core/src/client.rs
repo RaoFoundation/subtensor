@@ -21,6 +21,11 @@ use serde_json::{json, Value as JsonValue};
 
 use crate::codec::extrinsic::{era_birth, TxParams};
 use crate::codec::value::Value;
+// Preserve the existing host-client exports while portable users import from codec::value.
+pub use crate::codec::value::{
+    as_bool, as_str, as_u128, field, value_bytes, variant, variant_name,
+};
+use crate::codec::value::{first_byte, tuple_item};
 use crate::error::CoreError;
 use crate::keys::Keypair;
 use crate::mlkem;
@@ -1510,96 +1515,6 @@ fn flatten_hyperparam_value(tagged: Value) -> Value {
         }
     }
     payload.clone()
-}
-
-pub fn field<'a>(value: &'a Value, name: &str) -> Option<&'a Value> {
-    let Value::Dict(entries) = value else {
-        return None;
-    };
-    entries.iter().find_map(|(key, value)| match key {
-        Value::Str(key) if key == name => Some(value),
-        _ => None,
-    })
-}
-
-pub fn variant<'a>(value: &'a Value, name: &str) -> Option<&'a Value> {
-    field(value, name)
-}
-
-pub fn variant_name(value: &Value) -> Option<String> {
-    match value {
-        Value::Str(name) => Some(name.clone()),
-        Value::Dict(entries) if entries.len() == 1 => entries.first().and_then(|(key, _)| {
-            if let Value::Str(name) = key {
-                Some(name.clone())
-            } else {
-                None
-            }
-        }),
-        _ => None,
-    }
-}
-
-pub fn as_str(value: &Value) -> Option<&str> {
-    match value {
-        Value::Str(value) => Some(value),
-        _ => None,
-    }
-}
-
-pub fn as_u128(value: &Value) -> Option<u128> {
-    match value {
-        Value::Int(value) => u128::try_from(*value).ok(),
-        Value::Uint(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub fn as_bool(value: &Value) -> Option<bool> {
-    match value {
-        Value::Bool(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub fn value_bytes(value: &Value) -> Option<Vec<u8>> {
-    match value {
-        Value::Bytes(bytes) => Some(bytes.clone()),
-        Value::Str(value) => {
-            if value.starts_with("0x") {
-                decode_hex(value).ok()
-            } else {
-                Some(value.as_bytes().to_vec())
-            }
-        }
-        Value::List(items) | Value::Tuple(items) => {
-            let direct = items
-                .iter()
-                .map(as_u128)
-                .map(|value| value.and_then(|value| u8::try_from(value).ok()))
-                .collect::<Option<Vec<_>>>();
-            direct.or_else(|| match items.as_slice() {
-                [inner] => value_bytes(inner),
-                _ => None,
-            })
-        }
-        Value::Dict(entries) => match entries.as_slice() {
-            [(_, inner)] => value_bytes(inner),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-fn tuple_item(value: &Value, index: usize) -> Option<&Value> {
-    match value {
-        Value::Tuple(items) | Value::List(items) => items.get(index),
-        _ => None,
-    }
-}
-
-fn first_byte(value: &Value) -> Option<u8> {
-    value_bytes(value).and_then(|bytes| bytes.first().copied())
 }
 
 fn required_u128(value: &Value, name: &str) -> Result<u128, CoreError> {
