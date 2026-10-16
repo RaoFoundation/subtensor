@@ -95,6 +95,10 @@ def _i64f64(value: object) -> float:
     """Decode an ``I64F64`` fixed-point value (``{'bits': raw}`` or raw int)."""
     if isinstance(value, dict):
         value = value.get("bits") or 0
+    if value is None:
+        return 0.0
+    if not isinstance(value, (int, float, str)):
+        raise TypeError("I64F64 requires numeric bits")
     return int(value or 0) / 2**64
 
 

@@ -14,7 +14,7 @@ from typing import Any
 
 from .._generated import calls
 from ..balance import Balance
-from ._money import UNBOUNDED, Spend
+from ._money import UNBOUNDED, Spend, normalized_balance
 from .base import BuiltCall, Intent, IntentPreflight
 from .registry import build as build_intent
 from .registry import register
@@ -71,7 +71,7 @@ class Batch(Intent):
             )
         # One extrinsic has one signer: the batch takes on its children's
         # (instance attribute shadowing the ClassVar default).
-        self.signer = signers.pop()
+        self.__dict__["signer"] = signers.pop()
         self.intents = [child.to_dict() for child in children]
         self._children = children
 
@@ -156,7 +156,7 @@ class Batch(Intent):
             if child_spend is UNBOUNDED:
                 return UNBOUNDED
             if child_spend is not None:
-                total = total + child_spend
+                total = total + normalized_balance(child_spend)
                 bounded = True
         return total if bounded else None
 

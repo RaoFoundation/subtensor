@@ -14,7 +14,7 @@ import re
 import unicodedata
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional, TypedDict
 
 from rich.cells import cell_len
 from rich.console import Console
@@ -41,6 +41,15 @@ from ..settings import (
     tx_docs_url,
 )
 from . import multisig_helpers as ms_helpers
+
+
+class ErrorCatalogRecord(TypedDict):
+    pallet: str
+    name: str
+    code: str
+    description: str
+    docs_url: Optional[str]
+
 
 # Stripe-muted palette: almost monochrome — dim for structure (titles, keys,
 # metadata), plain for data, and quiet pastel tints where a hue earns its
@@ -1342,7 +1351,7 @@ class Output:
         self._out.print()
         self._out.print(Padding(grid, (0, 0, 0, 2)))
 
-    def _print_root_yield(self, root_yield: Optional[dict[str, Any]]) -> None:
+    def _print_root_yield(self, root_yield: Optional[Mapping[str, Any]]) -> None:
         """Footer for unclaimed basket yield. Hidden when the coldkey has
         neither root principal nor accrued entitlement."""
         if not root_yield:
@@ -1372,7 +1381,7 @@ class Output:
         records: list[dict],
         total: Any,
         *,
-        root_yield: Optional[dict[str, Any]] = None,
+        root_yield: Optional[Mapping[str, Any]] = None,
     ) -> None:
         """Grouped stake view: one block per netuid with the subnet total on
         top and the per-hotkey breakdown dimmed beneath it.
@@ -1458,7 +1467,7 @@ class Output:
         records: list[dict],
         total: Any,
         *,
-        root_yield: Optional[dict[str, Any]] = None,
+        root_yield: Optional[Mapping[str, Any]] = None,
     ) -> None:
         """Flat stake view (root-list style): one row per validator position —
         netuid (with subnet name), stake, locked, spot value, validator name,
@@ -2147,7 +2156,7 @@ class Output:
             ),
         }
         if followup.get("target"):
-            target = followup.get("target")
+            target = str(followup["target"])
             if followup.get("sudo"):
                 target += " via Sudo.sudo"
             if followup.get("proxy_for"):
@@ -2423,7 +2432,7 @@ class Output:
         self._sub_diag("help", help_text, console=self._out)
         self._sub_diag("see", error_docs_url(code), console=self._out)
 
-    def error_catalog(self, title: str, records: list[dict[str, str]]) -> None:
+    def error_catalog(self, title: str, records: list[ErrorCatalogRecord]) -> None:
         """The chain error catalog as a gh-style listing: one dim pallet header
         per group, an aligned name/code line per error, and the on-chain
         description dimmed beneath it. JSON emits the flat records."""

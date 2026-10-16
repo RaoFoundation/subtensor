@@ -251,7 +251,9 @@ class Multisig:
         substrate = self._client._substrate
         call_hash = "0x" + bytes(composed.call_hash).hex()
         pending = await substrate.query(
-            *generated_storage.Multisig.Multisigs, [self.address, call_hash]
+            generated_storage.Multisig.Multisigs.container,
+            generated_storage.Multisig.Multisigs.name,
+            [self.address, call_hash],
         )
         maybe_timepoint = pending["when"] if pending else None
         others = [
@@ -282,7 +284,9 @@ class Multisig:
             pub = public_view(wallet, signer)
             call_hash = "0x" + bytes(composed.call_hash).hex()
             pending = await substrate.query(
-                *generated_storage.Multisig.Multisigs, [self.address, call_hash]
+                generated_storage.Multisig.Multisigs.container,
+                generated_storage.Multisig.Multisigs.name,
+                [self.address, call_hash],
             )
             outer = None
             if self.threshold >= 2:

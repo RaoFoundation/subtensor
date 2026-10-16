@@ -290,7 +290,8 @@ def encrypt(
     elif reveal_at is not None:
         target_round = round_at(reveal_at)
     else:
-        target_round = int(reveal_round)  # type: ignore[arg-type]
+        assert reveal_round is not None
+        target_round = int(reveal_round)
 
     latest = current_round()
     if target_round <= latest:

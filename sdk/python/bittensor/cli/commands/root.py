@@ -121,6 +121,7 @@ def _render_positions(
         if all_wallets:
             positions = app_ctx.run(lambda c: fetch_all_root_positions(c, coldkeys))
         else:
+            assert owner is not None
             positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
 
         update("comparing funds against the index…")
@@ -579,6 +580,7 @@ def _allocate_review(
     if beta_price_tao and beta_price_tao > 0:
         rows.append(("rate", f"{beta_price_tao:.4f} τ/β"))
         if intent.amount_tao != ALL:
+            assert isinstance(intent.amount_tao, Balance)
             received = intent.amount_tao.tao / beta_price_tao
             rows.append(("receive", f"~{received:,.4f} β"))
             line += f" at {beta_price_tao:.4f} τ/β for ~{received:,.4f} β"

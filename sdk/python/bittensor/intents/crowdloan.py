@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Optional
 
 from .._generated import calls
-from ._money import ALL, UNBOUNDED, Money, Spend, tao_amount
+from ._money import ALL, UNBOUNDED, Money, Spend, normalized_balance, tao_amount
 from .base import BuiltCall, Intent
 from .registry import build as build_intent
 from .registry import register
@@ -97,9 +97,9 @@ class CreateCrowdloan(Intent):
             inner = built.call if isinstance(built, BuiltCall) else built
         return await substrate.compose(
             calls.Crowdloan.create(
-                deposit=self.deposit_tao.rao,
-                min_contribution=self.min_contribution_tao.rao,
-                cap=self.cap_tao.rao,
+                deposit=normalized_balance(self.deposit_tao).rao,
+                min_contribution=normalized_balance(self.min_contribution_tao).rao,
+                cap=normalized_balance(self.cap_tao).rao,
                 end=self.end,
                 call=inner,
                 target_address=self.target_ss58,
@@ -110,7 +110,7 @@ class CreateCrowdloan(Intent):
         return f"create crowdloan (cap {self.cap_tao}, deposit {self.deposit_tao}, end {self.end})"
 
     def spend(self) -> Spend:
-        return self.deposit_tao
+        return normalized_balance(self.deposit_tao)
 
 
 @register
@@ -149,7 +149,7 @@ class ContributeCrowdloan(Intent):
         if self.amount_tao == ALL:
             rao = await _stakeable_rao(substrate, wallet)
         else:
-            rao = self.amount_tao.rao
+            rao = normalized_balance(self.amount_tao).rao
         return await substrate.compose(
             calls.Crowdloan.contribute(crowdloan_id=self.crowdloan_id, amount=rao)
         )
@@ -169,7 +169,7 @@ class ContributeCrowdloan(Intent):
     def spend(self) -> Spend:
         if self.amount_tao == ALL:
             return UNBOUNDED
-        return self.amount_tao
+        return normalized_balance(self.amount_tao)
 
 
 @dataclass
@@ -296,7 +296,9 @@ class UpdateCrowdloanCap(Intent):
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
-            calls.Crowdloan.update_cap(crowdloan_id=self.crowdloan_id, new_cap=self.new_cap_tao.rao)
+            calls.Crowdloan.update_cap(
+                crowdloan_id=self.crowdloan_id, new_cap=normalized_balance(self.new_cap_tao).rao
+            )
         )
 
     def summary(self) -> str:
@@ -362,7 +364,7 @@ class UpdateCrowdloanMinContribution(Intent):
         return await substrate.compose(
             calls.Crowdloan.update_min_contribution(
                 crowdloan_id=self.crowdloan_id,
-                new_min_contribution=self.new_min_contribution_tao.rao,
+                new_min_contribution=normalized_balance(self.new_min_contribution_tao).rao,
             )
         )
 
@@ -401,7 +403,9 @@ class SetCrowdloanMaxContribution(Intent):
 
     async def build(self, substrate, wallet: Any):
         new_max = (
-            None if self.new_max_contribution_tao is None else self.new_max_contribution_tao.rao
+            None
+            if self.new_max_contribution_tao is None
+            else normalized_balance(self.new_max_contribution_tao).rao
         )
         return await substrate.compose(
             calls.Crowdloan.set_max_contribution(

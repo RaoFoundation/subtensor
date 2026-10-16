@@ -56,7 +56,7 @@ from .commands import (
 )
 from .context import AppContext
 from .logs import setup_logging
-from .output import Output
+from .output import ErrorCatalogRecord, Output
 from .prompt import run_app
 from .query import build_query_app
 from .tx import build_tx_app
@@ -388,7 +388,7 @@ def _chain_error_catalog(out: Output, pallet: Optional[str]) -> None:
             help="valid pallets: " + ", ".join(pallets),
         )
         raise typer.Exit(1)
-    records = [
+    records: list[ErrorCatalogRecord] = [
         {
             "pallet": info.pallet,
             "name": info.name,
@@ -461,7 +461,15 @@ def _register_snake_case_aliases(root: typer.Typer) -> None:
             return
         seen.add(id(t))
         for info in list(t.registered_commands):
-            name = info.name or info.callback.__name__.replace("_", "-")
+            name = info.name
+            if not name:
+                callback = info.callback
+                if callback is None:
+                    continue
+                callback_name = getattr(callback, "__name__", None)
+                if not isinstance(callback_name, str):
+                    continue
+                name = callback_name.replace("_", "-")
             if "-" not in name:
                 continue
             alias = copy.copy(info)
@@ -469,7 +477,8 @@ def _register_snake_case_aliases(root: typer.Typer) -> None:
             alias.hidden = True
             t.registered_commands.append(alias)
         for group in t.registered_groups:
-            walk(group.typer_instance)
+            if group.typer_instance is not None:
+                walk(group.typer_instance)
 
     walk(root)
 

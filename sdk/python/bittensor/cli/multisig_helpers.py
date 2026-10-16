@@ -320,7 +320,7 @@ def saved_multisig_accounts(app_ctx) -> list[tuple[str, str]]:
         signatories = [_soft_resolve_coldkey(app_ctx, ref) for ref in refs]
         if any(address is None for address in signatories):
             continue
-        unique = list(dict.fromkeys(signatories))
+        unique = list(dict.fromkeys(address for address in signatories if address is not None))
         accounts.append((str(name), multisig_account(unique, threshold).ss58_address))
     return accounts
 
@@ -683,7 +683,7 @@ async def pending_timepoint_for_call(
     for row in await list_pending_multisig_ops(client, ms.address):
         if row["call_hash"] != wanted:
             continue
-        if signer_ss58 in row.get("approvals") or []:
+        if signer_ss58 in (row.get("approvals") or []):
             raise ValueError(
                 f"this signatory already approved pending call {wanted}; "
                 "wait for another member, or cancel the operation"
@@ -990,7 +990,7 @@ async def list_pending_multisig_ops(client, multisig_address: str) -> list[dict[
         if account != multisig_address:
             continue
         call_hash = key[1] if isinstance(key, (list, tuple)) and len(key) > 1 else None
-        if value is None:
+        if value is None or call_hash is None:
             continue
         when = value.get("when") or {}
         approvals = [str(a) for a in value.get("approvals") or []]

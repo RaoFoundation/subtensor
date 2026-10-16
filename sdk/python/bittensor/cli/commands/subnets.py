@@ -479,7 +479,7 @@ def subnet_conviction(
         age_note = (
             f"~{days_away:.0f}d away — a subnet must be one year old before ownership can change"
         )
-    parameters = [
+    parameters: list[tuple[str, str, Optional[str]]] = [
         (
             "alpha out",
             str(data["alpha_out"]),

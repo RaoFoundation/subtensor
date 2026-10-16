@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .._generated import calls
-from ._money import Money, tao_amount
+from ._money import Money, normalized_balance, tao_amount
 from .base import Intent
 from .registry import register
 
@@ -127,7 +127,7 @@ class SetRootClaimThreshold(Intent):
         # The chain only accepts the root netuid entry for this threshold.
         return await substrate.compose(
             calls.SubtensorModule.sudo_set_root_claim_threshold(
-                netuid=0, new_value=self.threshold.rao
+                netuid=0, new_value=normalized_balance(self.threshold).rao
             )
         )
 

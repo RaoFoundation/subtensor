@@ -399,7 +399,7 @@ def _make_command(intent_cls: type[Intent]):
         # Money options parse as strings so amounts stay exact and the `all`
         # sentinel survives typer; the command body validates them (_parse_money).
         opt_type = str if is_money(str(f.type)) else _option_type(str(f.type))
-        annotations[f.name] = Optional[opt_type]
+        annotations[f.name] = Optional.__getitem__(opt_type)
         params.append(
             inspect.Parameter(
                 f.name,
@@ -451,7 +451,7 @@ def _make_command(intent_cls: type[Intent]):
             continue
         annotations[p.name] = p.annotation
         params.append(p)
-    command.__signature__ = inspect.Signature(params)
+    g.set_command_metadata(command, __signature__=inspect.Signature(params))
     command.__annotations__ = annotations
     # Full docstring: typer shows the first line in command listings and the
     # whole text on the command's own --help, so implications aren't lost.
