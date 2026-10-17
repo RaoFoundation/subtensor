@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "evidence": "activation-resume.json",
+      "exact_bad_signature_rejections": 6
+    },
+    {
+      "evidence": "proof-binding-7.json",
+      "exact_bad_signature_rejections": 3
+    },
+    {
+      "evidence": "proof-binding-8.json",
+      "exact_bad_signature_rejections": 3
+    }
+  ],
+  "total": 12,
+  "note": "Post-check of retained actual RPC responses; excludes timeout, resource, payment, and admission errors."
+}

@@ -1,0 +1,10 @@
+{
+  "command": "PATH=/tmp/mldsa-ci-tools:/home/johnreed/.local/bin:/home/johnreed/.cargo/bin:$PATH PYTHONPATH=/tmp/ms-cleanup-native:$PWD/sdk/python CARGO_BUILD_JOBS=4 PREFLIGHT_BASE=HEAD PREFLIGHT_PUSH_ACTOR=UnArbosSix PREFLIGHT_RPC_PORT=20550 scripts/preflight.sh",
+  "base": "HEAD; all uncommitted corrections, with prior PR-wide gate preserved separately",
+  "test_targets": 24,
+  "passed": 2277,
+  "failed": 0,
+  "ignored": 19,
+  "all_gates_passed": true,
+  "log_sha256": "04038f88123415f4dde0c182acbf943f89a5404f5463228eb1dfafbd3bb3542b"
+}

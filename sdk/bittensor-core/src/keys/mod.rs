@@ -23,8 +23,16 @@ use crate::error::CoreError;
 mod base58;
 mod hashed;
 pub use hashed::HashedKeypair;
+mod mldsa;
+pub use mldsa::{
+    verify_mldsa_authorization, verify_mldsa_capability, MldsaCapabilityProof, MldsaKeypair,
+    ROLE_MESSAGE, ROLE_ORDER, ROLE_TRANSACTION,
+};
 mod receiving;
-pub use receiving::{decode_hashed_receiving_address, encode_hashed_receiving_address};
+pub use receiving::{
+    decode_hashed_receiving_address, decode_mldsa_receiving_address,
+    encode_hashed_receiving_address, encode_mldsa_receiving_address,
+};
 #[cfg(feature = "host")]
 mod encrypted_json;
 
@@ -34,13 +42,37 @@ pub const CRYPTO_SR25519: u8 = 1;
 /// Versioned rotating commitment wrapper; initially wraps sr25519.
 pub const CRYPTO_HASHED: u8 = 4;
 pub const CRYPTO_HASHED_ED25519: u8 = 6;
+/// SDK identifier; distinct from the ML-DSA wire algorithm value 4.
+pub const CRYPTO_MLDSA65: u8 = 7;
+/// Fixed-key ML-DSA-65. Preserve code 7 and all original rotating identities.
+pub const CRYPTO_MLDSA65_FIXED: u8 = 8;
+
+pub fn is_mldsa_crypto(crypto_type: u8) -> bool {
+    matches!(crypto_type, CRYPTO_MLDSA65 | CRYPTO_MLDSA65_FIXED)
+}
+
+pub fn is_registered_crypto(crypto_type: u8) -> bool {
+    is_hashed_crypto(crypto_type) || is_mldsa_crypto(crypto_type)
+}
 
 pub fn is_hashed_crypto(crypto_type: u8) -> bool {
     matches!(crypto_type, CRYPTO_HASHED | CRYPTO_HASHED_ED25519)
 }
 
+pub fn is_rotating_crypto(crypto_type: u8) -> bool {
+    is_hashed_crypto(crypto_type) || crypto_type == CRYPTO_MLDSA65
+}
+
 /// Compose account mode with a signing scheme; omitted mode preserves legacy codes.
 pub fn account_crypto_type(crypto_type: u8, mode: Option<&str>) -> Result<u8, CoreError> {
+    if is_mldsa_crypto(crypto_type) {
+        return match mode {
+            None => Ok(crypto_type),
+            Some("hashed") => Ok(CRYPTO_MLDSA65),
+            Some("standard") => Ok(CRYPTO_MLDSA65_FIXED),
+            _ => Err(crypto_err("account type must be standard or hashed")),
+        };
+    }
     let Some(mode) = mode else {
         return match crypto_type {
             CRYPTO_SR25519 | CRYPTO_ED25519 | CRYPTO_HASHED | CRYPTO_HASHED_ED25519 => {
@@ -175,6 +207,7 @@ pub enum KeypairInner {
     Ed25519(ed25519::Pair),
     Sr25519(sr25519::Pair),
     Hashed(HashedKeypair),
+    Mldsa(MldsaKeypair),
     PublicOnly {
         public_key: [u8; 32],
         crypto_type: u8,
@@ -187,6 +220,7 @@ impl KeypairInner {
             KeypairInner::Ed25519(pair) => Some(pair.to_raw_vec()),
             KeypairInner::Sr25519(pair) => Some(pair.to_raw_vec()),
             KeypairInner::Hashed(pair) => pair.master_seed().map(|seed| seed.to_vec()),
+            KeypairInner::Mldsa(pair) => pair.master_seed().map(|seed| seed.to_vec()),
             KeypairInner::PublicOnly { .. } => None,
         }
     }
@@ -208,7 +242,7 @@ pub struct Keypair {
 
 impl Keypair {
     pub fn account_type(&self) -> &'static str {
-        if matches!(self.crypto_type(), CRYPTO_HASHED | CRYPTO_HASHED_ED25519) {
+        if is_rotating_crypto(self.crypto_type()) {
             "hashed"
         } else {
             "standard"
@@ -219,6 +253,7 @@ impl Keypair {
         match self.crypto_type() {
             CRYPTO_HASHED | CRYPTO_SR25519 => "sr25519",
             CRYPTO_HASHED_ED25519 | CRYPTO_ED25519 => "ed25519",
+            CRYPTO_MLDSA65 | CRYPTO_MLDSA65_FIXED => "mldsa65",
             _ => "unknown",
         }
     }
@@ -230,7 +265,12 @@ impl Keypair {
         ss58_format: u16,
     ) -> Result<Self, CoreError> {
         match crypto_type {
-            CRYPTO_SR25519 | CRYPTO_ED25519 | CRYPTO_HASHED | CRYPTO_HASHED_ED25519 => {}
+            CRYPTO_SR25519
+            | CRYPTO_ED25519
+            | CRYPTO_HASHED
+            | CRYPTO_HASHED_ED25519
+            | CRYPTO_MLDSA65
+            | CRYPTO_MLDSA65_FIXED => {}
             other => return Err(crypto_err(format!("unknown crypto type {other}"))),
         }
 
@@ -274,6 +314,21 @@ impl Keypair {
         password: Option<&str>,
     ) -> Result<Self, CoreError> {
         let (inner, seed) = match crypto_type {
+            CRYPTO_MLDSA65 | CRYPTO_MLDSA65_FIXED => {
+                let phrase = bip39::Mnemonic::parse_in(bip39::Language::English, mnemonic)
+                    .map_err(|_| crypto_err("invalid ML-DSA mnemonic"))?;
+                if phrase.word_count() != 24 {
+                    return Err(crypto_err(
+                        "ML-DSA wallets require a 24-word mnemonic with 256-bit entropy",
+                    ));
+                }
+                let expanded = Zeroizing::new(phrase.to_seed(password.unwrap_or("")));
+                let seed = expanded[..32].to_vec();
+                (
+                    KeypairInner::Mldsa(MldsaKeypair::from_seed(&seed, crypto_type)?),
+                    seed,
+                )
+            }
             CRYPTO_SR25519 => {
                 let (pair, seed) = sr25519::Pair::from_phrase(mnemonic, password)
                     .map_err(|e| crypto_err(format!("invalid mnemonic: {e:?}")))?;
@@ -310,6 +365,9 @@ impl Keypair {
     /// Derive a keypair from a 32-byte seed.
     pub fn from_seed(seed: &[u8], crypto_type: u8) -> Result<Self, CoreError> {
         let inner = match crypto_type {
+            CRYPTO_MLDSA65 | CRYPTO_MLDSA65_FIXED => {
+                KeypairInner::Mldsa(MldsaKeypair::from_seed(seed, crypto_type)?)
+            }
             CRYPTO_SR25519 => KeypairInner::Sr25519(
                 sr25519::Pair::from_seed_slice(seed)
                     .map_err(|e| crypto_err(format!("invalid seed: {e:?}")))?,
@@ -333,7 +391,7 @@ impl Keypair {
 
     /// Derive a keypair from a secret URI (e.g. "//Alice" or "<mnemonic>//hard/soft").
     pub fn from_uri(uri: &str, crypto_type: u8) -> Result<Self, CoreError> {
-        if is_hashed_crypto(crypto_type) {
+        if is_registered_crypto(crypto_type) {
             return Err(crypto_err(
                 "hashed wallets require a mnemonic or a 32-byte master seed; secret URIs are unsupported",
             ));
@@ -367,7 +425,7 @@ impl Keypair {
                 .map_err(|_| crypto_err("invalid private_key hex string"))?,
         );
 
-        if is_hashed_crypto(crypto_type) {
+        if is_registered_crypto(crypto_type) {
             return Self::from_seed(&private_key_vec, crypto_type);
         }
 
@@ -424,6 +482,13 @@ impl Keypair {
             KeypairInner::Ed25519(_) => CRYPTO_ED25519,
             KeypairInner::Sr25519(_) => CRYPTO_SR25519,
             KeypairInner::Hashed(key) => key.crypto_type(),
+            KeypairInner::Mldsa(key) => {
+                if key.descriptor.is_rotating() {
+                    CRYPTO_MLDSA65
+                } else {
+                    CRYPTO_MLDSA65_FIXED
+                }
+            }
             KeypairInner::PublicOnly { crypto_type, .. } => *crypto_type,
         }
     }
@@ -435,6 +500,7 @@ impl Keypair {
             KeypairInner::Ed25519(pair) => pair.public().0,
             KeypairInner::Sr25519(pair) => pair.public().0,
             KeypairInner::Hashed(pair) => pair.account_id(),
+            KeypairInner::Mldsa(pair) => pair.account_id(),
             KeypairInner::PublicOnly { public_key, .. } => *public_key,
         }
     }
@@ -477,6 +543,9 @@ impl Keypair {
             KeypairInner::Ed25519(pair) => Ok(as_bytes(&pair.sign(message))),
             KeypairInner::Sr25519(pair) => Ok(as_bytes(&pair.sign(message))),
             KeypairInner::Hashed(_) => self.sign_hashed_message(message),
+            KeypairInner::Mldsa(_) => Err(crypto_err(
+                "ML-DSA message signing requires an explicit registered capability and epoch",
+            )),
             KeypairInner::PublicOnly { .. } => {
                 Err(crypto_err("no private key set to create signatures"))
             }

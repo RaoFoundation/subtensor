@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "cases": [
+    {
+      "crypto_type": 7,
+      "encrypted_original_backup_restore_generations": 9,
+      "password_and_ciphertext_rejection": 2,
+      "keyfile_mismatch_rejections": 8,
+      "status": "PASS"
+    },
+    {
+      "crypto_type": 8,
+      "encrypted_original_backup_restore_generations": 9,
+      "password_and_ciphertext_rejection": 2,
+      "keyfile_mismatch_rejections": 8,
+      "status": "PASS"
+    }
+  ]
+}

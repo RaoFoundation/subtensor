@@ -1,0 +1,101 @@
+{
+  "receipts": [
+    {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xa814d1f4bd19afff3b70a2c039549e1b55a6f686b6ff385e8543a73fd50a6b6b",
+      "extrinsic_id": "233-0006",
+      "fee_tao": 0.0
+    },
+    {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xed094f2174f5feb7bd0ce912927e2621ea51a82dea91ce518688ac9510a1db09",
+      "extrinsic_id": "275-0006",
+      "fee_tao": 0.000247391
+    },
+    {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xb9545b02d8b4528566c629b43d5c81e83c752bd63a49299b2e8d4fddf69f8e7b",
+      "extrinsic_id": "278-0006",
+      "fee_tao": 0.000247685
+    },
+    {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x04f01c22350c6d126f65fe4df48508b14dd4b154e6361408aebbdde7a0b49539",
+      "extrinsic_id": "281-0006",
+      "fee_tao": 0.000188095
+    },
+    {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xdc836a3c2f7f58f8261f5767b97586a030d6a9f5b9b76585204b76985a6c78a7",
+      "extrinsic_id": "284-0006",
+      "fee_tao": 0.000188095
+    }
+  ],
+  "rejections": [
+    {
+      "message": "Invalid Transaction: Transaction has a bad signature",
+      "payload": {
+        "error": {
+          "code": 1010,
+          "message": "Invalid Transaction",
+          "data": "Transaction has a bad signature"
+        }
+      }
+    },
+    {
+      "message": "Invalid Transaction: Transaction has a bad signature",
+      "payload": {
+        "error": {
+          "code": 1010,
+          "message": "Invalid Transaction",
+          "data": "Transaction has a bad signature"
+        }
+      }
+    },
+    {
+      "message": "Invalid Transaction: Transaction has a bad signature",
+      "payload": {
+        "error": {
+          "code": 1010,
+          "message": "Invalid Transaction",
+          "data": "Transaction has a bad signature"
+        }
+      }
+    },
+    {
+      "message": "Invalid Transaction: Transaction has a bad signature",
+      "payload": {
+        "error": {
+          "code": 1010,
+          "message": "Invalid Transaction",
+          "data": "Transaction has a bad signature"
+        }
+      }
+    },
+    {
+      "message": "Invalid Transaction: Transaction has a bad signature",
+      "payload": {
+        "error": {
+          "code": 1010,
+          "message": "Invalid Transaction",
+          "data": "Transaction has a bad signature"
+        }
+      }
+    },
+    {
+      "message": "Invalid Transaction: Transaction has a bad signature",
+      "payload": {
+        "error": {
+          "code": 1010,
+          "message": "Invalid Transaction",
+          "data": "Transaction has a bad signature"
+        }
+      }
+    }
+  ]
+}

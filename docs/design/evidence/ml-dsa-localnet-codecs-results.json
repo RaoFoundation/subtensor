@@ -1,0 +1,60 @@
+{
+  "capture_sha256": "4f6a775bdf8ffafd9936d437cbeff38126127f1437dc0892732872e83541044b",
+  "script_sha256": "956b097f7a7887d66c615efa993d4bfcec27be2afa93b1230b09cb80fb6050c1",
+  "lockfile_sha256": "e56d73f0bd3cd500f2e9382eabbb19f0b504e4c8bf756b0a893cfce65ce212f4",
+  "papi_runtime_context": {
+    "source": "file:///home/johnreed/Desktop/work/subtensor/ts-tests/node_modules/.pnpm/@polkadot-api+observable-client@0.17.3_rxjs@7.8.2/node_modules/@polkadot-api/observable-client/dist/esm/utils/create-metadata-ctx.mjs",
+    "sha256": "30b248e6dce9d13ae0dd9da042f9ea267d550ac34df7dee74e17e16dd5cea9ad",
+    "identical_to_repository_decoder": true
+  },
+  "papi_packages": {
+    "@polkadot-api/observable-client": "0.17.3",
+    "@polkadot-api/substrate-bindings": "0.17.0",
+    "@polkadot-api/metadata-builders": "0.13.9"
+  },
+  "six_wallet_block": "0x5f42b5d0754377fa35c369eee1c4d48fd7f0eabfde00722326e9d3c3d86daa25",
+  "polkadot_js_version": "16.5.6",
+  "limitations": [
+    "Codec compatibility, not a graphical Polkadot.js application test",
+    "Local functional runtime uses test weights",
+    "Repository PAPI retains its existing submission/block-tracking patches; its decoder is unchanged"
+  ],
+  "metadata": {
+    "14": {
+      "finalized_blocks": 1,
+      "exact_extrinsic_roundtrips": 9,
+      "wallet_types": [
+        4,
+        0,
+        1,
+        6,
+        7,
+        8
+      ]
+    },
+    "15": {
+      "finalized_blocks": 1,
+      "exact_extrinsic_roundtrips": 9,
+      "wallet_types": [
+        4,
+        0,
+        1,
+        6,
+        7,
+        8
+      ]
+    },
+    "16": {
+      "finalized_blocks": 1,
+      "exact_extrinsic_roundtrips": 9,
+      "wallet_types": [
+        4,
+        0,
+        1,
+        6,
+        7,
+        8
+      ]
+    }
+  }
+}

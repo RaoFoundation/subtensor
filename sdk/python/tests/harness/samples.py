@@ -333,3 +333,47 @@ READ_SAMPLES: dict[str, dict] = {
     "weights": {"netuid": 1},
     "weights_rate_limit": {"netuid": 1},
 }
+
+
+# Account-aware order authorization preserves the complete economic schema.
+_ORDER_SAMPLE = {
+    "V1": {
+        "signer": ALICE,
+        "hotkey": ALICE_HOT,
+        "netuid": 1,
+        "order_type": "LimitBuy",
+        "amount": 1000000,
+        "limit_price": 1000000000,
+        "expiry": 2000000000000,
+        "fee_rate": 0,
+        "fee_recipient": BOB,
+        "relayer": None,
+        "max_slippage": None,
+        "chain_id": 42,
+        "partial_fills_enabled": False,
+    }
+}
+INTENT_SAMPLES.update(
+    {
+        "authorize_order": {"nonce": 1, "order": _ORDER_SAMPLE},
+        "cancel_order": {"nonce": 1, "order": _ORDER_SAMPLE},
+        "execute_orders": {
+            "orders": [
+                {
+                    "order": {"Authorized": {"nonce": 1, "terms": _ORDER_SAMPLE}},
+                    "signature": "AccountApproved",
+                    "partial_fill": None,
+                }
+            ]
+        },
+        "install_order_capability": {
+            "expected_epoch": 1,
+            "key_commitment": "11" * 64,
+            "expires_at": 1000,
+            "scope": {"UnrestrictedTrading": None},
+        },
+        "revoke_order_capability": {},
+    }
+)
+
+INTENT_SAMPLES["execute_batched_orders"] = {**INTENT_SAMPLES["execute_orders"], "netuid": 1}

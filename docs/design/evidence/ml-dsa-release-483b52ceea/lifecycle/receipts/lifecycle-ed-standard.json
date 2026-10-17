@@ -1,0 +1,170 @@
+[
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x2e6e448370634117f22c329de6ef0395991146036f71164be0c014e42f8bed02",
+    "extrinsic_id": "58-0006",
+    "fee_tao": 0.0
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x3d4cb0540e493fe26f81114475cb77e9fd8adbfce6f337ebb4e0763527c90a76",
+    "extrinsic_id": "64-0006",
+    "fee_tao": 0.0
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x3478b97359571e49de603236952b9d56a72b4ec155e0cd8a21e2e93ac3ac582a",
+    "extrinsic_id": "85-0006",
+    "fee_tao": 0.000101876
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x63c8bcb58fb6285a8ccfde2684481210d29073b34c52447548ee66d606930ffc",
+    "extrinsic_id": "88-0006",
+    "fee_tao": 0.000101876
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xe115b04dcd504ac2a10ad29a1596dcfb42ef3ab23d454fa0b13a3eeb6f5ff62d",
+    "extrinsic_id": "115-0007",
+    "fee_tao": 0.0
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x50c4026a95cc4e95a7c9337e412b406fa0666c0b36e205b047d9704e8035e63c",
+    "extrinsic_id": "122-0006",
+    "fee_tao": 0.000101874
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x1d54300365514091d351a7c3d74207da334a72f30dd02f139908fec253409928",
+    "extrinsic_id": "125-0006",
+    "fee_tao": 0.000101874
+  },
+  {
+    "success": false,
+    "message": "An arithmetic error occurred while dispatching the call.",
+    "block_hash": "0x8f733557851d998a062e23d29ac186f7fff26f241e0e96440b846b4f9c7ba6c0",
+    "extrinsic_id": "128-0006",
+    "error": {
+      "message": "An arithmetic error occurred while dispatching the call.",
+      "name": "Arithmetic",
+      "code": "internal",
+      "remediation": "a chain-side invariant failed; nothing to fix client-side \u2014 report it if it persists",
+      "description": "An arithmetic error occurred while dispatching the call.",
+      "docs_url": "https://www.bittensor.com/docs/errors/internal"
+    }
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x75631c799a4280c837dd89b2cb337a9aa9b084f882a63093be36bf4b79798f8f",
+    "extrinsic_id": "131-0006",
+    "fee_tao": 6.125e-05
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x883c11e2a142916c76475fd2995db452c5bf42f18f6a60c712319750f239b721",
+    "extrinsic_id": "134-0008",
+    "fee_tao": 6.1243e-05
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x98e5a21576717bdc224b689ebad38218b4a16465159c1969d652fb139ec988b6",
+    "extrinsic_id": "137-0006",
+    "fee_tao": 6.1243e-05
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x65c3442709677aebd399b0a2c35545750eb32c4344c5fede19d5ea1a9bec2265",
+    "extrinsic_id": "142-0007",
+    "fee_tao": 0.0
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xcd6a090f84811f310007f5b40c7920965804ee7907a703dbfc66be81fb1605d7",
+    "extrinsic_id": "145-0006",
+    "fee_tao": 0.006958632
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xc7f627bb35d6064e494fc68c3637b8c3cc852d29ebe97a874ea65d451086bb2c",
+    "extrinsic_id": "148-0006",
+    "fee_tao": 0.000869285
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x9d9a818588027b015ebc0fd2189cbfa59748f1bd308a4847a3b720832c6fd45a",
+    "extrinsic_id": "151-0006",
+    "fee_tao": 0.000663868
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x5df831b02d82d55fe1552442c57e3e0c3dae9bd031b165cb5ece5145a8f5f9d0",
+    "extrinsic_id": "154-0008",
+    "fee_tao": 0.000101876
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xa82185ee352f85aed8094f47ea18f0ca66fb0eca97973fe51aaad20465fc4662",
+    "extrinsic_id": "157-0006",
+    "fee_tao": 0.000215983
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x4547f43b221e925a22a0d7507db014212164e45266c0aea4c5e0d24dbe062274",
+    "extrinsic_id": "160-0007",
+    "fee_tao": 0.00022192
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x12e5c87af105978a70167b9d5c1d0be4e8d797af6c53e134ad2fa77c900261ab",
+    "extrinsic_id": "163-0007",
+    "fee_tao": 0.0
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xa47395834bab4ca85b36f619dcdb07e72a1cd92442368d84d3762652b403f6d6",
+    "extrinsic_id": "166-0006",
+    "fee_tao": 0.000167109
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xc6eaf55c25bd40eb21aa06d4b8725db51ca332d683fc633cbefc96b2b3642177",
+    "extrinsic_id": "172-0006",
+    "fee_tao": 0.000167109
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x3a56366dba18bd5f7c1eb37edcce68e456074ab28692bd6a849d37a295d47b58",
+    "extrinsic_id": "178-0006",
+    "fee_tao": 0.006735859
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xf77bed0e69367217b21be51a8e337111542f076d38aaff8b48edd445ad7de1ed",
+    "extrinsic_id": "181-0006",
+    "fee_tao": 6.1243e-05
+  }
+]

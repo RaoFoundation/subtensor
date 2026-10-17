@@ -1,0 +1,48 @@
+{
+  "captured_at": "2026-10-16T22:57:09.705005+00:00",
+  "baseline": "2d5089da3bcb292cbf557d9b22ff34582e23b3f4",
+  "source_sha256": {
+    "node/src/execution_admission.rs": "b2833ebc901fa9a5bf87240365ebcc4820b2362937d114942241d086b67d2999",
+    "pallets/subtensor/src/subnets/registration.rs": "2064a55de3fb7abeff4414bba6df85c1be8d0734dacb23819e7a747f5dcf4518",
+    "runtime/src/evm_origin.rs": "435eb128b0dd280c7909b9885a0a0c4079681d6a6d1501aba0c4bee43d8ced88",
+    "runtime/src/hashed_native_evm_tests.rs": "f78db7b5542007d28fda564d6f77441fc189241f297531f3598e2ccf3724d208",
+    "runtime/src/hashed_tests.rs": "89bb399c3091dbf95bde17eaffe06c43ed28bff48df9f41272924aeb22bbbde9",
+    "runtime/src/mldsa_dispatch_matrix_tests.rs": "ed05ecc28808df03a6284ddbd8d898ae6f0eaf8aeefd604cd62f270412e61c27",
+    "sdk/python/bittensor/_transport/interface.py": "127aa4bf02c45339fa731caf0ede5f9dc7262d762846cc0b1a204409f7e597f9",
+    "sdk/python/bittensor/keyfiles.py": "725b2428d63c1b3c625f2bdb298c599a700f705fd707b6c2321b9ae7a6b6f7b7",
+    "sdk/python/tests/e2e/test_mldsa_localnet.py": "0bb5467007987d1e9927043205251b365cde15ccccfd10883bdb70fa4891c7dd",
+    "sdk/python/tests/e2e/test_mldsa_operation_families.py": "25132075d0c97b70420bbb3b3fec2204ba04d47d75b82d7bd8cc71f0f9a419f6",
+    "sdk/python/tests/e2e/test_mldsa_release.py": "0dd44080859d6678772472111cd60fb817aff019f8fa7acc003ca4da5bf20286",
+    "sdk/python/tests/e2e/test_mldsa_validator_paths.py": "e74d6434bdde194a9d08ed6735f4a17b2d341d88303b7d9965cf259d190b6edc",
+    "sdk/python/tests/e2e/test_wallet_parity.py": "fc255669dc20b7493c15427a76c08ee6b7816b91b5103788d4d3a4c3ec105b48",
+    "sdk/python/tests/e2e/test_wallet_types.py": "34f4cc6d83e5e843745b99c222afeb9f55714a3f27fa02a43d7e343b89bb1f53",
+    "sdk/python/tests/unit/test_keyfile_atomicity.py": "6c097642398d7c5b72ccf62ef0848186411f775fd8bebfb254825061fc7489f8",
+    "sdk/python/tests/unit/test_mldsa_accounts.py": "401f63f2d26f6704e565e243a4dc5528f2981abb94f4e553397b01e715247034",
+    "vendor/frontier/client/rpc/src/eth/execute.rs": "170aaaf4722316013a1de4c8adf2d3590ddf02f7d068dba6fa1c2b48788f30a9",
+    "vendor/frontier/client/rpc/src/eth/pending.rs": "92256561e5d39f077891912bee6133132932cf670bfd886093f4062a94fe5cb3",
+    "vendor/frontier/client/rpc/src/eth/state.rs": "c3b627097af652a12d6e9738fd8a28d2fb7b94cee43d8fa268fdbe2c233eb88c",
+    "vendor/frontier/client/rpc/src/execution_admission.rs": "9fb5d70a82434e229147726c433b44d6ccc773159690f8b2568e8541ea4a6a1b"
+  },
+  "lockfiles_unchanged_from_head": {
+    "Cargo.lock": "2e9b14b0c5fc61d2e259533d707480e4dc5acb457ea76a6f79d5395c84db4b03",
+    "sdk/python/uv.lock": "4b5c9170d4296e68c340cb1cf0cb658b7fc02900b1569a8cc76559c43c975b52",
+    "ts-tests/pnpm-lock.yaml": "e56d73f0bd3cd500f2e9382eabbb19f0b504e4c8bf756b0a893cfce65ce212f4",
+    "website/yarn.lock": "75a26aba52d12dd819fde1e5dae7b9f292bf2f389e117d5aa8fae67f6952458b",
+    ".github/docs-preview-vercel/package-lock.json": "1f10f5b85005f82f8fcb212e2bd1942e392b19c2091ff37815601e1ee014dc8e"
+  },
+  "committed_or_pushed": false,
+  "weights_or_spec_changed_in_followup": false,
+  "node_artifacts": {
+    "target/release/node-subtensor": {
+      "sha256": "53ceef8b720f2352ecf701da5f1faf6a480c87e7e5bcf11d8bf0fbaa5574e853",
+      "bytes": 98797536
+    },
+    "target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm": {
+      "sha256": "8a928b07796c445d864ae021562629cf9524e2a30d940e8b490234c33e769377",
+      "bytes": 2968912
+    }
+  },
+  "local_audit_complete": true,
+  "rpc_availability_regressions_passed": true,
+  "receipt_fee_discrepancy_unfixed": true
+}

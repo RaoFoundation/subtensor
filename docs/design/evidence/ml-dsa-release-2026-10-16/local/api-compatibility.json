@@ -1,0 +1,26 @@
+{
+  "finalizedBaselineBlock": "0x39bc186855bfbf78b4ab9f44138094ea3b19fa64a079161bf617397830aadc1c",
+  "baselineSpecVersion": 479,
+  "baselineMetadataSha256": "075ee9614fee27fb83a44bda737f6803bd3f6642d57ab492321aa47dad359080",
+  "candidateFixtureSha256": "4acaf27d7c5ab15a0fa508a5a1d90017367eb164150312d947abafd162a041f4",
+  "scriptSha256": "66d8e5ace24d9906724201df42e6c546df28971bc0dc3017f18bb067dfc19bac",
+  "results": [
+    {
+      "metadataVersion": 14,
+      "identicalLegacyCalls": 29,
+      "newAuthorizationCallsDecoded": 16,
+      "duplicateCallsAbsent": true
+    },
+    {
+      "metadataVersion": 15,
+      "identicalLegacyCalls": 29,
+      "newAuthorizationCallsDecoded": 16,
+      "duplicateCallsAbsent": true
+    }
+  ],
+  "limitations": [
+    "Codec-only proofs use dummy signatures",
+    "No transaction was submitted",
+    "Current metadata required for new order variants"
+  ]
+}

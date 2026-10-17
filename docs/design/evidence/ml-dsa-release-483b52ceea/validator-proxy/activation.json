@@ -1,0 +1,14 @@
+{
+  "head": "{\n  \"head\": \"483b52ceea5cf08a0fb492ca2915b7efa6a8690e\",\n  \"runtime_overlay\": false,\n  \"blocks_seconds\": 12,\n  \"chains\": 13,\n  \"csv_line_endings_only\": true\n}",
+  "genesis": "0x116762b3029187ffc7e98b6e6ebb27fc31bded9ca8fdca35f477c087df37fa7c",
+  "wasm_sha256": "10ca6aeb60f055e40e132e07b7b3894e29a51ee08cc2ea9eac7ee3eea7ee076f",
+  "minimum_period": 6000,
+  "activation": {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x40344f844e207cb8d33b6f044da6c04f6207a43e3980b82785f5919025ff16ec",
+    "extrinsic_id": "4-0006",
+    "fee_tao": 0.0
+  },
+  "production_gate_cases": []
+}

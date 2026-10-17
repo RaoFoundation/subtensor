@@ -1,0 +1,258 @@
+{
+  "netuids": [
+    6,
+    7
+  ],
+  "receipts": [
+    {
+      "operation": "register_subnet",
+      "success": true,
+      "message": "Subnet 6 registered.",
+      "block_hash": "0x11d0db71e7646c9c0f08e10d3c390fe99a5f8f77295c4c7f92a3b7414a2985ee",
+      "extrinsic_id": "202-0006",
+      "fee_tao": 0.002086004,
+      "data": {
+        "netuid": 6,
+        "registration_mode": "immediate",
+        "registered_at_block": 202,
+        "registration_price_rao": 1000000000000
+      }
+    },
+    {
+      "operation": "burned_register",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x5483bdc9f11925f29ac2195f73e83bcfa5542b019a241186420f0ddb854ba7df",
+      "extrinsic_id": "209-0007",
+      "fee_tao": 0.001320116,
+      "data": {
+        "shielded": true,
+        "inner_extrinsic_hash": "0xb87dbef982467c792a75a7ce660a205b70af65eb513a0b7a3250936b67a2250d"
+      }
+    },
+    {
+      "operation": "register_subnet",
+      "success": true,
+      "message": "Subnet 7 registered.",
+      "block_hash": "0xe8ababfad054dcd3fcd741691ad5adc5d9bcc20b921b2d4b6bb3ce1bf0f162cd",
+      "extrinsic_id": "212-0006",
+      "fee_tao": 0.002086004,
+      "data": {
+        "netuid": 7,
+        "registration_mode": "immediate",
+        "registered_at_block": 212,
+        "registration_price_rao": 1000000000000
+      }
+    },
+    {
+      "operation": "burned_register",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xcc69bd645921a5a6bf1e5c93b482b5be104676c5cd6d7c2a001bc2b5a0c8390e",
+      "extrinsic_id": "219-0007",
+      "fee_tao": 0.001320116,
+      "data": {
+        "shielded": true,
+        "inner_extrinsic_hash": "0xd4ef134988da0089461f554aed6cfe0f34c905b0ab7508270acc21406968b663"
+      }
+    },
+    {
+      "operation": "set_children",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xdb55242bd7e3e3bfb4ba1cd121ffaab915a6f1f0ec45c3269263a793052223b6",
+      "extrinsic_id": "222-0006",
+      "fee_tao": 0.00051106,
+      "data": {
+        "hashed_registration_guards": [
+          "5G6J2eSh4EyzKUFxf2nsbjM1h4v4Tfd9pjBrnT9cA2oY7dje"
+        ],
+        "hashed_registration_max_deposit_rao": 0
+      }
+    },
+    {
+      "operation": "set_identity",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x53815296293f972d613c527c3b57ead3dd7fe0446cd02a1bf921855a2eb8dfba",
+      "extrinsic_id": "225-0006",
+      "fee_tao": 0.000339092
+    },
+    {
+      "operation": "set_subnet_identity",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x3fcafda985fa268624a448efdde9f3722aaa8fa45aadaafa339967dab6e7e793",
+      "extrinsic_id": "228-0006",
+      "fee_tao": 0.000332072
+    },
+    {
+      "operation": "serve_axon",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x877a29e259d22ffd4e8821530ca0c710736a1b0755466388e45a4c7b98bb2f60",
+      "extrinsic_id": "231-0006",
+      "fee_tao": 0.0
+    },
+    {
+      "operation": "serve_prometheus",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xecd0a381c82e1534ac88695d0a3b240ea675db744d032bd9e2a8e43dc82f6626",
+      "extrinsic_id": "234-0006",
+      "fee_tao": 0.0
+    },
+    {
+      "operation": "reset_axon",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x8736ced37585582a23c6097e0a4e3b85a260a4a74e3763ba003698a421700aba",
+      "extrinsic_id": "237-0006",
+      "fee_tao": 0.0
+    },
+    {
+      "operation": "add_stake",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xafd53142e3d173e04cdbe5d23f8a79c5ee372cb6981d311945a3b54e77af6248",
+      "extrinsic_id": "243-0006",
+      "fee_tao": 0.001061953
+    },
+    {
+      "operation": "add_stake",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x43c93f16792177b7af180393bd1a0ccab5febd637b4742f2801fdc611995a5b4",
+      "extrinsic_id": "246-0006",
+      "fee_tao": 0.001061953
+    },
+    {
+      "operation": "move_stake",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xa1ac9b6edca6424f610af098af902b0110e4cd219705f90743d1aea24ea307ee",
+      "extrinsic_id": "249-0006",
+      "fee_tao": 0.00061888
+    },
+    {
+      "operation": "transfer_stake",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x95d286e169b66d7ac909ec48f5df61eea9ef7424c6de8a90f9dd769e39b6396a",
+      "extrinsic_id": "252-0006",
+      "fee_tao": 0.000697646,
+      "data": {
+        "hashed_registration_guards": [
+          "5GDVpNtr8Z1dBzgJ4jnCLZk44wmumihG8yjqqG9RcBR37gXe"
+        ],
+        "hashed_registration_max_deposit_rao": 0
+      }
+    },
+    {
+      "operation": "swap_stake",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xff71ebd75c15f23a8138dff3c86314858916b599d09a5fcd858cf95aed453706",
+      "extrinsic_id": "255-0006",
+      "fee_tao": 0.001294596
+    },
+    {
+      "operation": "move_stake",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xeea2bce0d5f2e1c5e551b3b41b83c9a88cc0524a3af1417e2bb1fad72094edc7",
+      "extrinsic_id": "258-0006",
+      "fee_tao": 0.00061888
+    },
+    {
+      "operation": "set_perpetual_lock",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xfc1c725ab255e54f98a2a6a3655a984b2063988cb87723e47e539ac24d58ed56",
+      "extrinsic_id": "261-0006",
+      "fee_tao": 0.000484156
+    },
+    {
+      "operation": "lock_stake",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xf115d1bf273f2bcb2cdd701418ab0e119be9a372597bce1dd7ec78b2b96d5ca2",
+      "extrinsic_id": "264-0006",
+      "fee_tao": 0.000519458
+    },
+    {
+      "operation": "move_lock",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xf490693c816b05bcb834abcebe59467a60a4822737ca08a696c3b9ec1b81c2fd",
+      "extrinsic_id": "267-0006",
+      "fee_tao": 0.000556085
+    },
+    {
+      "operation": "set_perpetual_lock",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x9b38568435a408e98ffc5cfd9cf2ec8aa0ee5d772d672b5a012814cc80d9a14e",
+      "extrinsic_id": "270-0006",
+      "fee_tao": 0.000484156
+    },
+    {
+      "operation": "set_reject_locked_alpha",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xb0d23dbcd9a8fac2e2480b3990b248a165294379f82ee5a9f9049ca7570c7404",
+      "extrinsic_id": "273-0006",
+      "fee_tao": 0.000324551
+    },
+    {
+      "operation": "set_min_collateral",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xd7be9fb8d64a560e1f77d343ed723e0cf3918fca2e22b9bfaddafc13fe7f77af",
+      "extrinsic_id": "276-0006",
+      "fee_tao": 0.000346594
+    },
+    {
+      "operation": "add_collateral",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x2eb5ea84396e45fdb0afc3cb4d323d1667fed56dacce2aa08f0063ad80833128",
+      "extrinsic_id": "280-0007",
+      "fee_tao": 0.001158167,
+      "data": {
+        "shielded": true,
+        "inner_extrinsic_hash": "0x7741d54b3abca875f7af8cdc6ee11d606b527b973ed164bdc79d3e2a9a985315"
+      }
+    },
+    {
+      "operation": "remove_stake",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x43adcb9ab8ffbe0242be5e4dc669fd30c12211a4d695bc3b79c9cf47f5207c75",
+      "extrinsic_id": "283-0006",
+      "fee_tao": 0.000878594
+    },
+    {
+      "operation": "swap_hotkey",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xa70ab738c575333ef694e7bce04afeecaafea4b1f766ba696e7fdafef2c5cb97",
+      "extrinsic_id": "286-0006",
+      "fee_tao": 0.168360887,
+      "data": {
+        "hashed_registration_guards": [
+          "5ENwWc7H64LsTW45Yuf6FzMzTLfL1QLKsXzn2QmD3f6CV9q3"
+        ],
+        "hashed_registration_max_deposit_rao": 0
+      }
+    },
+    {
+      "operation": "System.remark",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x2396474c0065ef8ba919ea3fc8576de239e4c46c0ddce17a0d2cef586ed7c9d5",
+      "extrinsic_id": "289-0006",
+      "fee_tao": 0.000291799
+    }
+  ]
+}

@@ -12,13 +12,14 @@ from typing import Any
 
 from ._generated import calls
 from .keyfiles import Keyfile, KeyfileError
+from .mldsa import supports_fixed_profile
 from .receiving import (
     Recipient,
     coerce_payment_address,
     is_receiving_address,
     parse_recipient,
 )
-from .sp_core import HASHED_CRYPTO_TYPES, Keypair
+from .sp_core import REGISTERED_CRYPTO_TYPES, Keypair
 
 _REGISTRATION_TARGETS = {
     "transfer": "dest_ss58",
@@ -40,15 +41,149 @@ _DESCRIPTOR_TARGETS = {**_REGISTRATION_TARGETS, "associate_hotkey": "hotkey_ss58
 async def hashed_accounts_enabled(substrate, *, block_hash=None):
     """Read the live switch; None means this runtime has no hashed support.
 
-    Older experimental runtimes exposed a constant instead. Never cache the
-    storage value: sudo can change it without changing runtime metadata.
+    Never cache the storage value: sudo can change it without changing runtime
+    metadata. RegistrationDeposit identifies runtimes that support the pallet.
     """
-    legacy = await substrate.constant("HashedAccounts", "Enabled")
-    if isinstance(legacy, bool):
-        return legacy
     if await substrate.constant("HashedAccounts", "RegistrationDeposit") is None:
         return None
     return await substrate.query("AdminUtils", "HashedAccountsEnabled", block_hash=block_hash)
+
+
+def descriptor_storage(descriptor: bytes) -> str:
+    """Return the distinct permanent registry, validating the descriptor first."""
+    descriptor_value(descriptor)
+    return "MlDsaAccounts" if descriptor[0] == 2 else "Accounts"
+
+
+async def protected_account_record(substrate, account: str, *, block_hash=None):
+    """Resolve direct and derived protection without querying absent ML-DSA metadata.
+
+    Derived records are authority policies, never direct signing descriptors.
+    Registrations remain authoritative when authorization/setup is paused.
+    """
+    record = await substrate.query("HashedAccounts", "Accounts", [account], block_hash=block_hash)
+    if record is not None:
+        return "v1", record
+    if await substrate.constant("HashedAccounts", "MlDsaRegistrationDeposit") is not None:
+        for kind, storage in (("mldsa", "MlDsaAccounts"), ("derived", "DerivedAuthorities")):
+            record = await substrate.query(
+                "HashedAccounts", storage, [account], block_hash=block_hash
+            )
+            if record is not None:
+                return kind, record
+    return None, None
+
+
+async def is_pq_required(substrate, account: str, *, block_hash=None) -> bool:
+    """Read the permanent direct or derived quantum-resistant authority floor."""
+    if await substrate.constant("HashedAccounts", "MlDsaRegistrationDeposit") is None:
+        return False
+    kind, _ = await protected_account_record(substrate, account, block_hash=block_hash)
+    return kind in ("mldsa", "derived")
+
+
+async def compose_derivative(substrate, parent: str, index: int, call):
+    """Wrap exact call bytes, protecting a PQ parent's derivative atomically.
+
+    ``parent`` is the actual dispatch origin, including a proxy or multisig
+    account when applicable. The runtime validates the authority again when
+    dispatching and reserves any new derived-registration deposit from it.
+    """
+    if not 0 <= index <= 65535:
+        raise ValueError("derivative index must fit u16")
+    parent = parse_recipient(parent).account
+    protected = await is_pq_required(substrate, parent)
+    return await substrate.compose(
+        calls.Call(
+            "Utility",
+            "as_protected_derivative" if protected else "as_derivative",
+            {"index": index, "call": call},
+        )
+    )
+
+
+async def multisig_protection_status(substrate, signatories: list[str], threshold: int) -> dict:
+    """Describe finalized protection eligibility without submitting anything."""
+    if await substrate.constant("HashedAccounts", "MlDsaRegistrationDeposit") is None:
+        return {"eligible": False, "registered": False}
+    account = substrate.multisig_account(
+        [parse_recipient(s).account for s in signatories], threshold
+    )
+    block_hash = await substrate.block_hash(await substrate.finalized_block_number())
+    if not block_hash:
+        raise ValueError("could not verify finalized multisig protection")
+    members = list(account.signatories)
+    weak = 0
+    for member in members:
+        if not await is_pq_required(substrate, member, block_hash=block_hash):
+            weak += 1
+    kind, _ = await protected_account_record(substrate, account.ss58_address, block_hash=block_hash)
+    return {"eligible": len(members) >= 2 and weak < threshold, "registered": kind == "derived"}
+
+
+async def multisig_protection_call(
+    substrate, signatories: list[str], threshold: int, *, deposit_payer: str
+):
+    """Compose explicit permanent protection for a multisig authority.
+
+    Every registration requires the multisig's own quorum, including new
+    unfunded identities. The final executing member explicitly pays the deposit.
+    Approve this call separately so pending economic call bytes remain fixed.
+    """
+    from .sp_core import ss58_decode, ss58_encode
+
+    if await substrate.constant("HashedAccounts", "MlDsaRegistrationDeposit") is None:
+        raise ValueError("quantum-resistant derived accounts are not supported on this chain")
+    if await hashed_accounts_enabled(substrate) is not True:
+        raise ValueError("hashed accounts are not enabled on this chain")
+    members = sorted({bytes(ss58_decode(parse_recipient(s).account)) for s in signatories})
+    if not 2 <= len(members) <= 100 or not 1 <= threshold <= len(members):
+        raise ValueError("invalid protected multisig threshold or signatory count")
+    members = [ss58_encode(member, 42) for member in members]
+    finalized = await substrate.block_hash(await substrate.finalized_block_number())
+    if not finalized:
+        raise ValueError("could not verify finalized multisig authority")
+    weak = 0
+    for member in members:
+        if not await is_pq_required(substrate, member, block_hash=finalized):
+            weak += 1
+    if weak >= threshold:
+        raise ValueError(
+            "a complete multisig quorum must require a finalized quantum-resistant member"
+        )
+    account = substrate.multisig_account(members, threshold).ss58_address
+    descriptor = {"Multisig": {"threshold": threshold, "signatories": members}}
+    record = await substrate.query(
+        "HashedAccounts", "DerivedAuthorities", [account], block_hash=finalized
+    )
+    if record is not None:
+        if record["descriptor"] != descriptor:
+            raise ValueError("registered derived authority does not match the multisig")
+        function = "check_derived"
+    else:
+        function = "register_derived_sponsored"
+    params = {"descriptor": descriptor}
+    if function == "register_derived_sponsored":
+        params["deposit_payer"] = parse_recipient(deposit_payer).account
+    return await substrate.compose(calls.Call("HashedAccounts", function, params))
+
+
+async def descriptor_registration_enabled(substrate, descriptor: bytes, *, block_hash=None):
+    if descriptor_storage(descriptor) == "Accounts":
+        return await hashed_accounts_enabled(substrate, block_hash=block_hash)
+    if await substrate.constant("HashedAccounts", "MlDsaRegistrationDeposit") is None:
+        return None
+    if descriptor[1] == 5:
+        profiles = await substrate.constant("HashedAccounts", "MldsaAccountProfiles")
+        if not supports_fixed_profile(profiles):
+            return None
+    return await hashed_accounts_enabled(substrate, block_hash=block_hash)
+
+
+async def _require_receiving_support(substrate, descriptor: bytes):
+    enabled = await descriptor_registration_enabled(substrate, descriptor)
+    if enabled is not True:
+        raise ValueError("hashed receiving addresses are not supported on this chain")
 
 
 async def prepare_recipient_intent(substrate, intent):
@@ -65,8 +200,7 @@ async def prepare_recipient_intent(substrate, intent):
         if not is_receiving_address(item):
             return item
         recipient = parse_recipient(item)
-        if await hashed_accounts_enabled(substrate) is not True:
-            raise ValueError("hashed receiving addresses are not supported on this chain")
+        await _require_receiving_support(substrate, recipient.descriptor)
         recipients[name] = recipient
         return recipient.account
 
@@ -99,6 +233,11 @@ def raw_bytes(value: Any) -> bytes:
 
 def descriptor_bytes(value: dict) -> bytes:
     """Validate the versioned public descriptor decoded from chain storage."""
+    if value.get("version") == 2:
+        commitment = raw_bytes(value["initial_commitment"])
+        if value.get("algorithm") not in (4, 5) or len(commitment) != 64 or not any(commitment):
+            raise ValueError("unsupported ML-DSA descriptor")
+        return bytes((2, value["algorithm"])) + commitment
     scheme = value["scheme"]
     if isinstance(scheme, dict) and len(scheme) == 1:
         scheme = next(iter(scheme))
@@ -106,16 +245,31 @@ def descriptor_bytes(value: dict) -> bytes:
     if value["version"] != 1 or not isinstance(scheme, str) or scheme not in schemes:
         raise ValueError("unsupported hashed descriptor")
     commitment = raw_bytes(value["initial_commitment"])
-    if len(commitment) != 32:
+    if len(commitment) != 32 or not any(commitment):
         raise ValueError("hashed key commitments must contain 32 bytes")
     return bytes((value["version"], schemes[scheme])) + commitment
 
 
 def descriptor_value(descriptor: bytes) -> dict:
-    """Convert the native key's SCALE descriptor to runtime call parameters."""
-    if len(descriptor) != 34 or (descriptor[0], descriptor[1]) not in (
-        (1, 1),
-        (1, 3),
+    """Convert the native key's SCALE descriptor to its stored descriptor fields."""
+    if (
+        len(descriptor) == 66
+        and descriptor[:2] in (b"\x02\x04", b"\x02\x05")
+        and any(descriptor[2:])
+    ):
+        return {
+            "version": 2,
+            "algorithm": descriptor[1],
+            "initial_commitment": "0x" + descriptor[2:].hex(),
+        }
+    if (
+        len(descriptor) != 34
+        or (descriptor[0], descriptor[1])
+        not in (
+            (1, 1),
+            (1, 3),
+        )
+        or not any(descriptor[2:])
     ):
         raise ValueError("unsupported hashed descriptor")
     return {
@@ -123,6 +277,12 @@ def descriptor_value(descriptor: bytes) -> dict:
         "scheme": {1: "Sr25519", 3: "Ed25519"}[descriptor[1]],
         "initial_commitment": "0x" + descriptor[2:].hex(),
     }
+
+
+def registration_descriptor_value(descriptor: bytes) -> dict:
+    """Select the original register/check call's explicit authentication scheme."""
+    value = descriptor_value(descriptor)
+    return {"MlDsa65" if descriptor[0] == 2 else "Classical": value}
 
 
 def _local_descriptor(wallet: Any, address: str) -> bytes | None:
@@ -141,7 +301,7 @@ def _local_descriptor(wallet: Any, address: str) -> bytes | None:
                 key = public_file.get_keypair()
             except (OSError, ValueError, KeyfileError):
                 continue
-            if key.ss58_address == address and key.crypto_type in HASHED_CRYPTO_TYPES:
+            if key.ss58_address == address and key.crypto_type in REGISTERED_CRYPTO_TYPES:
                 return bytes(key.hashed_descriptor)
     return None
 
@@ -158,7 +318,7 @@ def has_local_hashed_recipient(wallet: Any, intent: Any) -> bool:
     parameter = _DESCRIPTOR_TARGETS.get(intent.op)
     address = getattr(intent, parameter, None) if parameter else None
     if address is None and parameter == "hotkey_ss58":
-        return public_view(wallet, "hotkey").crypto_type in HASHED_CRYPTO_TYPES
+        return public_view(wallet, "hotkey").crypto_type in REGISTERED_CRYPTO_TYPES
     return isinstance(address, str) and _local_descriptor(wallet, address) is not None
 
 
@@ -174,10 +334,12 @@ async def has_receiving_setup_inputs(substrate, wallet: Any, intent: Any, depth:
         if enabled is not False:
             return enabled is True
         # Disabling registration does not remove existing alias bindings.
-        from .evm.addresses import resolve_evm_recipient
+        from .evm.addresses import h160_to_ss58, resolve_evm_recipient
 
         recipient = await resolve_evm_recipient(substrate, semantic.evm_address)
-        return recipient.descriptor is not None
+        return recipient.descriptor is not None or recipient.account != h160_to_ss58(
+            semantic.evm_address
+        )
     _, recipients = await prepare_recipient_intent(substrate, semantic)
     if recipients or getattr(semantic, "hashed_descriptor", None) is not None:
         return True
@@ -241,7 +403,7 @@ async def with_recipient_registration(
         if address is None and parameter == "hotkey_ss58":
             public = public_view(wallet, "hotkey")
             address = public.ss58_address
-            if public.crypto_type in HASHED_CRYPTO_TYPES:
+            if public.crypto_type in REGISTERED_CRYPTO_TYPES:
                 default_descriptor = bytes(public.hashed_descriptor)
         if not isinstance(address, str):
             raise ValueError("recipient account address is missing")
@@ -263,11 +425,22 @@ async def with_recipient_registration(
             recipients[parameter] = typed or Recipient(address, address, descriptor)
     if not recipients:
         return (await atomic_calls(substrate, call) if as_calls else call), {}
-    if await hashed_accounts_enabled(substrate) is not True:
-        raise ValueError("hashed accounts are not enabled on this chain")
+    descriptors: dict[str, bytes] = {}
+    for recipient in recipients.values():
+        descriptor = recipient.descriptor
+        if descriptor is None:
+            raise ValueError("hashed recipient registration requires a descriptor")
+        descriptors[recipient.account] = descriptor
+        if descriptor[0] == 1:
+            if await hashed_accounts_enabled(substrate) is not True:
+                raise ValueError("hashed accounts are not enabled on this chain")
+        else:
+            await _require_receiving_support(substrate, descriptor)
     if intent.op == "associate_hotkey":
         owner = public_view(wallet if origin is None else origin, "coldkey").ss58_address
-        if await substrate.query("HashedAccounts", "Accounts", [owner]) is None:
+        kind, _ = await protected_account_record(substrate, owner)
+        requires_pq = any(descriptor[0] == 2 for descriptor in descriptors.values())
+        if kind is None or (requires_pq and kind not in ("mldsa", "derived")):
             raise ValueError("a hashed hotkey requires a registered hashed coldkey owner")
     finalized_hash = None
     direct = intent.op in ("swap_coldkey_announced", "pow_register", "execute_proxy_announced")
@@ -276,7 +449,8 @@ async def with_recipient_registration(
         # checks registration. Keep first-use setup atomic, but require finality
         # and a direct call once the destination has a permanent registration.
         destination = recipients["new_coldkey_ss58"].account
-        direct = await substrate.query("HashedAccounts", "Accounts", [destination]) is not None
+        storage = descriptor_storage(descriptors[destination])
+        direct = await substrate.query("HashedAccounts", storage, [destination]) is not None
     if direct:
         operation = {
             "pow_register": "PoW registration",
@@ -289,14 +463,21 @@ async def with_recipient_registration(
             raise ValueError("could not verify finalized hashed destination registration")
     unique = {recipient.account: recipient for recipient in recipients.values()}
     registrations, new_accounts = [], []
-    for address, recipient in unique.items():
+    total_deposit = 0
+    for address in unique:
+        descriptor = descriptors[address]
         record = await substrate.query(
-            "HashedAccounts", "Accounts", [address], block_hash=finalized_hash
+            "HashedAccounts",
+            descriptor_storage(descriptor),
+            [address],
+            block_hash=finalized_hash,
         )
         if record is not None:
-            if descriptor_bytes(record["descriptor"]) != recipient.descriptor:
+            if descriptor_bytes(record["descriptor"]) != descriptor:
                 raise ValueError("registered hashed descriptor does not match the destination")
         else:
+            if await descriptor_registration_enabled(substrate, descriptor) is not True:
+                raise ValueError("new account registrations are not enabled on this chain")
             if finalized_hash is not None:
                 raise ValueError(
                     "hashed destination registration is not finalized; register the recipient "
@@ -313,33 +494,38 @@ async def with_recipient_registration(
                     "before using this operation"
                 )
             new_accounts.append(address)
+            deposit_name = (
+                "MlDsaRegistrationDeposit" if descriptor[0] == 2 else "RegistrationDeposit"
+            )
+            total_deposit += int(await substrate.constant("HashedAccounts", deposit_name))
         if finalized_hash is not None:
             continue
-        guard = (
-            calls.HashedAccounts.check_registered
-            if record is not None
-            else calls.HashedAccounts.register
-        )
+        name = "check_registered" if record is not None else "register"
         registrations.append(
-            await substrate.compose(guard(descriptor=descriptor_value(recipient.descriptor)))
+            await substrate.compose(
+                calls.Call(
+                    "HashedAccounts",
+                    name,
+                    {"descriptor": registration_descriptor_value(descriptor)},
+                )
+            )
         )
     if finalized_hash is not None:
         # Registrations cannot be removed or have their descriptor changed.
         # Finality therefore supplies the safety normally provided by the guard.
         return call, {"hashed_registration_finalized_at": finalized_hash}
-    deposit = int(await substrate.constant("HashedAccounts", "RegistrationDeposit"))
     # A check-only guard fails closed after a reorg without granting proxies the
     # authority to sponsor registration. Only first-use registration reserves.
     guarded = [*registrations, *await atomic_calls(substrate, call)]
     batch = guarded if as_calls else await substrate.compose(calls.Utility.batch_all(calls=guarded))
     extras = {
         "hashed_registration_guards": list(unique),
-        "hashed_registration_max_deposit_rao": deposit * len(new_accounts),
+        "hashed_registration_max_deposit_rao": total_deposit,
     }
     if new_accounts:
         extras.update(
             hashed_registration=new_accounts[0],
-            hashed_registration_deposit_rao=deposit * len(new_accounts),
+            hashed_registration_deposit_rao=total_deposit,
         )
     return batch, extras
 

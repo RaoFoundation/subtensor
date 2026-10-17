@@ -1,0 +1,216 @@
+[
+  {
+    "step": "fund-and-register",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x2af0b3d4e8a329d91385f33dcb951551fe46f705da729df87d64cfbedebdc086",
+      "extrinsic_id": "7-0006",
+      "fee_tao": 0.000969015,
+      "data": {
+        "hashed_registration_guards": [
+          "5G3nKYiFWU8f5TU3iZmtkbQZ9EbJAcBjcDSZQdgLQCXrh9xs"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5G3nKYiFWU8f5TU3iZmtkbQZ9EbJAcBjcDSZQdgLQCXrh9xs",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    }
+  },
+  {
+    "step": "fund-and-register",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x99c36da7b4c9764101883def5ca97100dc84072245075e77b827901e2fd03df1",
+      "extrinsic_id": "10-0006",
+      "fee_tao": 0.000969015,
+      "data": {
+        "hashed_registration_guards": [
+          "5EeUNHaJRMkdMRs1JQEbcWMK9gVCsfeqc3rivMAyN3PgA9LX"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5EeUNHaJRMkdMRs1JQEbcWMK9gVCsfeqc3rivMAyN3PgA9LX",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    }
+  },
+  {
+    "step": "fund-and-register",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x3938c7a1d37edf3b503a3a4dace05e8f8ff8fad33af06fb1528595fbd589a04d",
+      "extrinsic_id": "13-0006",
+      "fee_tao": 0.000969015,
+      "data": {
+        "hashed_registration_guards": [
+          "5C8wg6emWcdfiXhSyJyje2Td8pFuu4feRrF66ZTVmRY7mcDY"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5C8wg6emWcdfiXhSyJyje2Td8pFuu4feRrF66ZTVmRY7mcDY",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    }
+  },
+  {
+    "step": "fund-and-register",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x5c21db3d4f0b9d2b8daffb0a543573668393584dfda577f47408b24a140427c8",
+      "extrinsic_id": "16-0006",
+      "fee_tao": 0.000969015,
+      "data": {
+        "hashed_registration_guards": [
+          "5Gjopfy3FvGREWfNVzBSEqLACyMkiwxLuBSbG4sATRj4etv5"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5Gjopfy3FvGREWfNVzBSEqLACyMkiwxLuBSbG4sATRj4etv5",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    }
+  },
+  {
+    "step": "protect-group",
+    "member": "5G3nKYiFWU8f5TU3iZmtkbQZ9EbJAcBjcDSZQdgLQCXrh9xs",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x25efb5033de8fcc6e0fa3af1787f29cd93c6777f6fd293e7f2349f89bb047c35",
+      "extrinsic_id": "19-0006",
+      "fee_tao": 0.000315259
+    }
+  },
+  {
+    "step": "protect-group",
+    "member": "5EeUNHaJRMkdMRs1JQEbcWMK9gVCsfeqc3rivMAyN3PgA9LX",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x40f70f4201c3005a9647883dbe8f4715f8dbe0aba8cddab511eb0ae0e20df7e9",
+      "extrinsic_id": "22-0006",
+      "fee_tao": 0.009169523
+    }
+  },
+  {
+    "step": "fund-group",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x396a890866fffd82cbc3fc56e1cff1a6d3198dbada3cbd1de069e35a50c0a4e7",
+      "extrinsic_id": "25-0006",
+      "fee_tao": 0.000101875
+    }
+  },
+  {
+    "step": "grant-protected-group-proxy",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x0456abcbf1e88d6f5cd0eaffc9daf53b4d43a7b1f9de8a25804d4d89147dca3d",
+      "extrinsic_id": "28-0006",
+      "fee_tao": 0.000446461
+    }
+  },
+  {
+    "step": "multisig-executes-proxy",
+    "member": "5G3nKYiFWU8f5TU3iZmtkbQZ9EbJAcBjcDSZQdgLQCXrh9xs",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xee2a7b9858de3c69038bde07f8dea775c17f690489ddb298353c176c83c1a83a",
+      "extrinsic_id": "31-0006",
+      "fee_tao": 0.000315218
+    }
+  },
+  {
+    "step": "multisig-executes-proxy",
+    "member": "5EeUNHaJRMkdMRs1JQEbcWMK9gVCsfeqc3rivMAyN3PgA9LX",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x9f737a782f8d3ffa3b9308828a2a4d43a2a4e4aa57c873cea258dac0a63d1b87",
+      "extrinsic_id": "34-0006",
+      "fee_tao": 0.000536226
+    }
+  },
+  {
+    "step": "group-grants-ms-delegate",
+    "member": "5G3nKYiFWU8f5TU3iZmtkbQZ9EbJAcBjcDSZQdgLQCXrh9xs",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xa69e80f73ebd4b1c6f7fc2a881e5fbe26632e3b5231343c20a709312166fa870",
+      "extrinsic_id": "37-0006",
+      "fee_tao": 0.000315163
+    }
+  },
+  {
+    "step": "group-grants-ms-delegate",
+    "member": "5EeUNHaJRMkdMRs1JQEbcWMK9gVCsfeqc3rivMAyN3PgA9LX",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x2f52e988ce9b714002d43a24f9641049579bd9960888b3c9951b928b57252e37",
+      "extrinsic_id": "40-0006",
+      "fee_tao": 0.000791785
+    }
+  },
+  {
+    "step": "ms-proxies-for-protected-group",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x7de91c7fba53365435d80d7e0dc1137ed6964711381a51d8dac05d6d8b3b5272",
+      "extrinsic_id": "43-0006",
+      "fee_tao": 0.000501934,
+      "data": {
+        "proxy_for": "5E2jV12TZbom8KwoeqE1UMWsjLCaia72YfRBHbBfUimkzwKe",
+        "hashed_registration_guards": [
+          "5Gjopfy3FvGREWfNVzBSEqLACyMkiwxLuBSbG4sATRj4etv5"
+        ],
+        "hashed_registration_max_deposit_rao": 0
+      }
+    }
+  },
+  {
+    "step": "revoke-group-delegation",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xe9fe1b63a494918bae57c4f555a911b8fadf6bca94814d072e1435cbe54712fa",
+      "extrinsic_id": "46-0006",
+      "fee_tao": 0.000354923
+    }
+  },
+  {
+    "step": "old-quorum-call-rejected-after-revocation",
+    "member": "5G3nKYiFWU8f5TU3iZmtkbQZ9EbJAcBjcDSZQdgLQCXrh9xs",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xdb655e6d1f0ef5a978339f409d18cf8236b5d2da0466cdb77e33a0c53c045b04",
+      "extrinsic_id": "49-0006",
+      "fee_tao": 0.000315218
+    }
+  },
+  {
+    "step": "old-quorum-call-rejected-after-revocation",
+    "member": "5EeUNHaJRMkdMRs1JQEbcWMK9gVCsfeqc3rivMAyN3PgA9LX",
+    "receipt": {
+      "success": false,
+      "message": "Sender is not a proxy of the account to be proxied.",
+      "block_hash": "0xd36c560c3305b4e0b597d51967bfd72f2b4608dcd76ce4f86bf0357ba7488e5e",
+      "extrinsic_id": "52-0006",
+      "error": {
+        "message": "Sender is not a proxy of the account to be proxied.",
+        "name": "NotProxy",
+        "code": "not_authorized",
+        "remediation": "sign with the key or origin that owns the target object, then retry",
+        "description": "The sender is not registered as a proxy for the account it tried to act for. Check the `Proxies` entry of the `real` account and confirm the sender appears there with a proxy type and delay compatible with the call.",
+        "docs_url": "https://www.bittensor.com/docs/errors/chain/NotProxy"
+      }
+    }
+  }
+]

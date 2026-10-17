@@ -1,0 +1,36 @@
+{
+  "source_commit": "437053f80d5ebebce950602b168901bfe6591483",
+  "scope": "Functional tests only; not calibrated production weights",
+  "patched_files": [
+    {
+      "path": "pallets/hashed-accounts/src/weights.rs",
+      "replacements": 10,
+      "source_sha256": "d6b5ba0333c7b0fa0c3379b8561c1722d3b61311d68b6460c882a667d2adcd6a",
+      "test_sha256": "d631f9d0b612a855e48e2d4aee94a6f9508ced309a26e2928e38ee5acacc575a"
+    },
+    {
+      "path": "pallets/proxy/src/weights.rs",
+      "replacements": 1,
+      "source_sha256": "065593eb0b4c10a85db209050022304d31924a95388d9d9a3bcb5f4d567dde2e",
+      "test_sha256": "f77a2f3ba94f1c0c2dbe826aea458d6784af9aebace76b1291113dff065f11c6"
+    },
+    {
+      "path": "pallets/utility/src/weights.rs",
+      "replacements": 1,
+      "source_sha256": "5ccab69816d49707f4f796f1fa3ff5448f5a2f7300de41f46c16a8e61eb0b7ff",
+      "test_sha256": "4751f8be9f9e51e373f14eebada8c2f6694c98759473ae0b94d1608d8f52e490"
+    },
+    {
+      "path": "pallets/shield/src/weights.rs",
+      "replacements": 1,
+      "source_sha256": "591999bdbcb42ea477a6249ab1da3a91862bbba3830884b2c61662a528c3aff1",
+      "test_sha256": "f10faa1aa49003f97960b1e51855bae107fc61377fdbbbdc89079e86a2f86b9d"
+    },
+    {
+      "path": "pallets/limit-orders/src/weights.rs",
+      "replacements": 4,
+      "source_sha256": "e56c77ef693f0a0ca97d2ca0d649e12596d6ccdfdc1242b6a802b7b8f0496de7",
+      "test_sha256": "44880b5f7d767bf5e1810f98bedcd94202c335a197648ac5d33487a695f02316"
+    }
+  ]
+}

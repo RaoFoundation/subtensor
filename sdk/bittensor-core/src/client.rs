@@ -15,14 +15,14 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use codec::{Decode, MaxEncodedLen};
+use codec::{Decode, Encode, MaxEncodedLen};
 use reqwest::blocking::Client as HttpClient;
 use serde_json::{json, Value as JsonValue};
 
 use crate::codec::extrinsic::{era_birth, TxParams};
 use crate::codec::value::Value;
 use crate::error::CoreError;
-use crate::keys::{is_hashed_crypto, Keypair};
+use crate::keys::{is_hashed_crypto, is_mldsa_crypto, is_registered_crypto, Keypair};
 use crate::mlkem;
 use crate::runtime::type_string::TypeSpec;
 use crate::runtime::{Runtime, RuntimeApiMethodInfo, StorageInfo};
@@ -526,14 +526,52 @@ impl Client {
     ) -> Result<(Vec<u8>, String), CoreError> {
         let runtime = self.runtime()?;
         let params = self.transaction_params(nonce, period)?;
-        let signature = if is_hashed_crypto(signer.crypto_type()) {
-            let state_hash = self.block_hash(None)?;
+        let signature = if is_registered_crypto(signer.crypto_type()) {
+            let mldsa = is_mldsa_crypto(signer.crypto_type());
+            if mldsa && !runtime.supports_mldsa_profile(signer.mldsa_descriptor()?[1]) {
+                return Err(CoreError::Policy(
+                    "runtime does not support ML-DSA accounts".into(),
+                ));
+            }
+            let state_hash = if mldsa {
+                self.finalized_head()?
+            } else {
+                self.block_hash(None)?
+            };
+            if self.query(
+                "AdminUtils",
+                "HashedAccountsEnabled",
+                &[],
+                Some(&state_hash),
+            )? != Value::Bool(true)
+            {
+                return Err(CoreError::Policy(
+                    "hashed account authorization is not active".into(),
+                ));
+            }
             let record = self.query(
                 "HashedAccounts",
-                "Accounts",
+                if mldsa { "MlDsaAccounts" } else { "Accounts" },
                 &[Value::str(signer.ss58_address())],
                 Some(&state_hash),
             )?;
+            if mldsa {
+                let descriptor = field(&record, "descriptor")
+                    .ok_or_else(|| CoreError::Codec("ML-DSA descriptor missing".into()))?;
+                let expected = signer.mldsa_descriptor()?;
+                if field(descriptor, "version").and_then(as_u128) != Some(u128::from(expected[0]))
+                    || field(descriptor, "algorithm").and_then(as_u128)
+                        != Some(u128::from(expected[1]))
+                    || field(descriptor, "initial_commitment")
+                        .and_then(value_bytes)
+                        .as_deref()
+                        != Some(&expected[2..])
+                {
+                    return Err(CoreError::Policy(
+                        "ML-DSA descriptor does not match this wallet".into(),
+                    ));
+                }
+            }
             let generation = field(&record, "generation")
                 .and_then(as_u128)
                 .and_then(|value| u64::try_from(value).ok())
@@ -544,7 +582,7 @@ impl Client {
             let commitment = field(&record, "commitment")
                 .and_then(value_bytes)
                 .ok_or_else(|| CoreError::Codec("hashed account commitment missing".into()))?;
-            if commitment != active.hashed_current_commitment()? {
+            if commitment != active.authorization_current_commitment()? {
                 return Err(CoreError::Policy(
                     "hashed account commitment does not match this mnemonic".into(),
                 ));
@@ -557,7 +595,7 @@ impl Client {
             let mut payload = call_data.to_vec();
             payload.extend_from_slice(&extra);
             payload.extend_from_slice(&additional);
-            selected.sign_hashed(&payload)?
+            selected.sign_authorization(&payload)?
         } else {
             let payload = runtime.signature_payload(call_data, &params)?;
             signer.sign(&payload)?
@@ -610,10 +648,28 @@ impl Client {
         } else {
             64
         };
+        let proof = if is_mldsa_crypto(signer.crypto_type()) {
+            subtensor_hashed::mldsa::SignerAddress {
+                account: signer.public_key_bytes(),
+                version: subtensor_hashed::mldsa::VERSION,
+                algorithm: if signer.crypto_type() == crate::keys::CRYPTO_MLDSA65 {
+                    subtensor_hashed::mldsa::ALGORITHM
+                } else {
+                    subtensor_hashed::mldsa::FIXED_ALGORITHM
+                },
+                generation: 0,
+                public_key: [0; subtensor_hashed::mldsa::PUBLIC_KEY_LEN],
+                next_commitment: [1; 64],
+                signature: [0; subtensor_hashed::mldsa::SIGNATURE_LEN],
+            }
+            .encode()
+        } else {
+            vec![0; proof_len]
+        };
         let (extrinsic, _) = runtime.encode_signed_extrinsic(
             call_data,
             signer.public_key_bytes(),
-            &vec![0; proof_len],
+            &proof,
             signer.crypto_type(),
             &params,
         )?;
@@ -1851,12 +1907,19 @@ mod fee_quote_tests {
     use std::net::TcpListener;
 
     fn runtime() -> Runtime {
-        crate::codec::extrinsic::hashed_tests::runtime(true)
+        crate::codec::extrinsic::hashed_tests::runtime_mldsa()
     }
 
     #[test]
     fn fee_and_weight_rpc_use_sized_dummy_proofs_for_every_wallet_mode() {
-        for crypto in [0, 1, 4, 6] {
+        for crypto in [
+            0,
+            1,
+            4,
+            6,
+            crate::keys::CRYPTO_MLDSA65,
+            crate::keys::CRYPTO_MLDSA65_FIXED,
+        ] {
             let runtime = runtime();
             let full = Keypair::from_seed(&[17; 32], crypto).unwrap();
             // Public-only keys cannot sign or derive a generation's public key.
@@ -1880,8 +1943,8 @@ mod fee_quote_tests {
                 era_block_hash: [8; 32],
                 metadata_hash: None,
             };
-            let proof = if is_hashed_crypto(crypto) {
-                full.sign_hashed(b"length control").unwrap()
+            let proof = if is_registered_crypto(crypto) {
+                full.sign_authorization(b"length control").unwrap()
             } else {
                 full.sign(b"length control").unwrap()
             };
@@ -1983,7 +2046,18 @@ mod fee_quote_tests {
             let _ = codec::Compact::<u32>::decode(&mut body).unwrap();
             let mut control_body = control.as_slice();
             let _ = codec::Compact::<u32>::decode(&mut control_body).unwrap();
-            if is_hashed_crypto(crypto) {
+            if is_mldsa_crypto(crypto) {
+                assert_eq!(&body[..2], &[0x84, 2]);
+                let mut raw = &body[2..];
+                assert_eq!(codec::Compact::<u32>::decode(&mut raw).unwrap().0, 5367);
+                let address = subtensor_hashed::mldsa::SignerAddress::decode(&mut raw).unwrap();
+                assert_eq!(address.account, full.public_key_bytes());
+                assert_eq!(address.public_key, [0; 1952]);
+                assert_eq!(address.signature, [0; 3309]);
+                assert_eq!(&raw[..65], &[vec![0], vec![0x4d; 64]].concat());
+                let active = full.mldsa_public_key().unwrap();
+                assert!(!quotes[0].windows(active.len()).any(|w| w == active));
+            } else if is_hashed_crypto(crypto) {
                 assert_eq!(&body[..2], &[0x84, 2]);
                 let mut raw = &body[2..];
                 assert_eq!(codec::Compact::<u32>::decode(&mut raw).unwrap().0, 106);

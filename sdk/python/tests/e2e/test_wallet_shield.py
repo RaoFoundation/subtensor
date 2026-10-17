@@ -1,4 +1,4 @@
-"""Four scheme/mode combinations across three validators, using production slot timing."""
+"""Six scheme/mode combinations across three validators, using production slot timing."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import pytest
 
 import bittensor as bt
 from bittensor.receiving import receiving_address
-from bittensor.sp_core import HASHED_CRYPTO_TYPES, Keypair
+from bittensor.sp_core import MLDSA_CRYPTO_TYPES, REGISTERED_CRYPTO_TYPES, Keypair
 from tests.harness.samples import dev_wallet
 
 PEERS = os.getenv("E2E_WALLET_PEERS", "").split(",")
@@ -23,7 +23,7 @@ pytestmark = [
 
 @pytest.mark.parametrize(
     "code,sponsor",
-    [(0, "Alice"), (1, "Bob"), (4, "Charlie"), (6, "Eve")],
+    [(0, "Alice"), (1, "Bob"), (4, "Charlie"), (6, "Dave"), (7, "Eve"), (8, "Ferdie")],
 )
 async def test_cross_validator_shield_and_external_nonce_advancement(code, sponsor):
     clients = [bt.Client(url, fallback_endpoints=[], archive_endpoints=[]) for url in PEERS]
@@ -42,7 +42,13 @@ async def test_cross_validator_shield_and_external_nonce_advancement(code, spons
         wallet = SimpleNamespace(coldkey=key, coldkeypub=key, hotkey=key)
         address = receiving_address(key)
         result = await asyncio.wait_for(
-            a.execute(bt.intents.Transfer(address, 50), dev_wallet(f"//{sponsor}")), 120
+            a.execute(
+                bt.intents.Transfer(address, 50),
+                dev_wallet(f"//{sponsor}"),
+                max_registration_deposit=bt.Balance.from_tao(2),
+                wait_for_finalization=True,
+            ),
+            120,
         )
         assert result.success, result.to_dict()
         initial = await a.query(bt.storage.System.Account, [key.ss58_address])
@@ -76,6 +82,12 @@ async def test_cross_validator_shield_and_external_nonce_advancement(code, spons
         for client in clients:
             account = await client.query(bt.storage.System.Account, [key.ss58_address])
             assert account["nonce"] == initial["nonce"] + 8
-            if code in HASHED_CRYPTO_TYPES:
-                record = await client.query(("HashedAccounts", "Accounts"), [key.ss58_address])
+            if code in REGISTERED_CRYPTO_TYPES:
+                record = await client.query(
+                    (
+                        "HashedAccounts",
+                        "MlDsaAccounts" if code in MLDSA_CRYPTO_TYPES else "Accounts",
+                    ),
+                    [key.ss58_address],
+                )
                 assert record["generation"] == 8

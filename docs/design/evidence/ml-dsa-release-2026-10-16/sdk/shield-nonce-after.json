@@ -1,0 +1,66 @@
+[
+  {
+    "code": 4,
+    "actual": 8193,
+    "quoted": 8193,
+    "rejected": null,
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 4,
+    "actual": 32769,
+    "quoted": null,
+    "rejected": "encrypted transaction exceeds the 32768-byte carrier limit",
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 6,
+    "actual": 8193,
+    "quoted": 8193,
+    "rejected": null,
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 6,
+    "actual": 32769,
+    "quoted": null,
+    "rejected": "encrypted transaction exceeds the 32768-byte carrier limit",
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 7,
+    "actual": 8193,
+    "quoted": 8193,
+    "rejected": null,
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 7,
+    "actual": 32769,
+    "quoted": null,
+    "rejected": "encrypted transaction exceeds the 32768-byte carrier limit",
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 8,
+    "actual": 8193,
+    "quoted": 8193,
+    "rejected": null,
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 8,
+    "actual": 32769,
+    "quoted": null,
+    "rejected": "encrypted transaction exceeds the 32768-byte carrier limit",
+    "signed_nonce": 64,
+    "state_nonce": 63
+  }
+]

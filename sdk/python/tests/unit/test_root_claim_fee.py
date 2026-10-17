@@ -343,6 +343,32 @@ async def test_shielded_claim_reserves_free_tao_for_inner_and_carrier():
 
 
 @pytest.mark.asyncio
+async def test_affordable_small_shielded_claim_is_not_rejected_by_large_tier_quote(monkeypatch):
+    substrate = FakeSubstrate()
+    _seed_claim_quote(
+        substrate, hotkeys=[ALICE_HOT], payouts={ALICE_HOT: 1_000_000}, holdings={ALICE_HOT: 1}
+    )
+    substrate.seed("System", "Account", [ALICE], {"data": {"free": 2 * substrate.fee.rao}})
+    substrate.mev_key = bytes(1184)
+    sizes = []
+
+    async def estimate(call, keypair):
+        if call.module == "MevShield":
+            size = len(call.params["ciphertext"])
+            sizes.append(size)
+            if size > 8192:
+                return Balance.from_rao(10**18)
+        return substrate.fee
+
+    monkeypatch.setattr(substrate, "estimate_fee", estimate)
+    result = await Client("local", substrate=substrate).submit_shielded(ClaimRoot(), dev_wallet())
+    assert result.success
+    assert sizes and all(size <= 8192 for size in sizes)
+    assert substrate.last_call.module == "MevShield"
+    assert len(substrate.last_call.params["ciphertext"]) == sizes[-1]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("payout_failure", [None, RuntimeError("payout unavailable")])
 async def test_admission_hard_stop_survives_unavailable_payout_preview(payout_failure):
     substrate = FakeSubstrate()

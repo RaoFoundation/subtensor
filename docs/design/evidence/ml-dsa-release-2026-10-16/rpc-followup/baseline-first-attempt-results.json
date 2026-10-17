@@ -1,0 +1,32 @@
+{
+  "mode": "baseline",
+  "at": "2026-10-16T22:23:19.011477+00:00",
+  "endpoint": "http://127.0.0.1:20546",
+  "script_sha256": "8858b82811250ce7365f3c3d34ebc77143985909a5c0160afea8e6fe94d7359d",
+  "genesis": "0x2886d2bd6fa98140218546c91a45648c0b3d00ed450681c83397c14647745595",
+  "runtime_wasm_sha256": "8a928b07796c445d864ae021562629cf9524e2a30d940e8b490234c33e769377",
+  "pending_overlay": {
+    "target": "0x21f491a2fc5bbcc1b13add066381983aa40b7cad",
+    "tx": "0xd91e18019be7c9b2acd51c03994b070f8f6d86a145659b3d8fe3e03347ada82f",
+    "latest_balance": {
+      "result": "0x0",
+      "seconds": 0.0001829969696700573
+    },
+    "pending_balance": {
+      "result": "0xde0b63f3d117800",
+      "seconds": 0.0011288509704172611
+    },
+    "pending_call": {
+      "error": "evm error: OutOfFund: 0x",
+      "seconds": 0.0008225480560213327
+    },
+    "pending_estimate": {
+      "error": "evm error: OutOfFund: 0x",
+      "seconds": 0.0009725129930302501
+    },
+    "latest_balance_after": {
+      "result": "0x0",
+      "seconds": 0.00021829991601407528
+    }
+  }
+}

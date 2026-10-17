@@ -1,0 +1,53 @@
+{
+  "ports": [
+    {
+      "port": 21944,
+      "closed": true
+    },
+    {
+      "port": 21945,
+      "closed": true
+    },
+    {
+      "port": 21946,
+      "closed": true
+    },
+    {
+      "port": 32934,
+      "closed": true
+    },
+    {
+      "port": 32935,
+      "closed": true
+    },
+    {
+      "port": 32936,
+      "closed": true
+    },
+    {
+      "port": 22044,
+      "closed": true
+    },
+    {
+      "port": 22045,
+      "closed": true
+    },
+    {
+      "port": 22046,
+      "closed": true
+    },
+    {
+      "port": 33034,
+      "closed": true
+    },
+    {
+      "port": 33035,
+      "closed": true
+    },
+    {
+      "port": 33036,
+      "closed": true
+    }
+  ],
+  "all_closed": true
+}

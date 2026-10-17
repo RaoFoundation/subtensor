@@ -1,0 +1,33 @@
+{
+  "mode": "fixed",
+  "at": "2026-10-16T22:43:14.707279+00:00",
+  "endpoint": "http://127.0.0.1:20546",
+  "script_sha256": "d4857c4e9c864e83d8bde3d96dbd636680bd7b0f49dc319e566243683cddd846",
+  "genesis": "0x2886d2bd6fa98140218546c91a45648c0b3d00ed450681c83397c14647745595",
+  "runtime_wasm_sha256": "8a928b07796c445d864ae021562629cf9524e2a30d940e8b490234c33e769377",
+  "existential_deposit_rao": 500,
+  "pending_overlay": {
+    "target": "0xec888475fcad77dbbb8ad5800527e4b5d2e7d306",
+    "tx": "0xdfc3999ee2e8d367992c9135f0f89edc7f2e36a38dfc34a4a2776053283dfbff",
+    "latest_balance": {
+      "result": "0x0",
+      "seconds": 0.0005298340693116188
+    },
+    "pending_balance": {
+      "result": "0xde0b63f3d117800",
+      "seconds": 0.001526187057606876
+    },
+    "pending_call": {
+      "error": "evm error: OutOfFund: 0x",
+      "seconds": 0.0014003360411152244
+    },
+    "pending_estimate": {
+      "error": "evm error: OutOfFund: 0x",
+      "seconds": 1.0073240970959887
+    },
+    "latest_balance_after": {
+      "result": "0x0",
+      "seconds": 0.0002805799013003707
+    }
+  }
+}

@@ -1,0 +1,58 @@
+[
+  {
+    "code": 4,
+    "actual": 8193,
+    "quoted": 8192,
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 4,
+    "actual": 32769,
+    "quoted": 32768,
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 6,
+    "actual": 8193,
+    "quoted": 8192,
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 6,
+    "actual": 32769,
+    "quoted": 32768,
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 7,
+    "actual": 8193,
+    "quoted": 8192,
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 7,
+    "actual": 32769,
+    "quoted": 32768,
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 8,
+    "actual": 8193,
+    "quoted": 8192,
+    "signed_nonce": 64,
+    "state_nonce": 63
+  },
+  {
+    "code": 8,
+    "actual": 32769,
+    "quoted": 32768,
+    "signed_nonce": 64,
+    "state_nonce": 63
+  }
+]

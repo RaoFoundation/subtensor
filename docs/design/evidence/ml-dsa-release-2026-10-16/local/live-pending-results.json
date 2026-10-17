@@ -1,0 +1,51 @@
+{
+  "test": "real pending pool capacity failure propagation",
+  "genesis": "0x6365693095056ba7a80cb34bfe43a16a48fc617989ed81379a416c49309bced9",
+  "node_port": 20246,
+  "target": "0x21a0f2f6fa16fe1d0a8e90fbceefeb882e9adcaf",
+  "destination": "5EBsmm3MmEpnUBgfwM4V4ryr4yEbkZZS7A5owkcEquYVMAEf",
+  "submitted": [
+    "0x58dcddd70f455f3e4882fc1f0d643ff993e9823b31b0d910cd76213b67af5539",
+    "0xffe864752086ebe67854ceaac9f2bba8cd8a6a7bf73eb3357dd1bc068390a62d",
+    "0x0dc5b3b184c7d41f3f4ceaaa68d4a0504b97b92598449c6be285bb5da257c501",
+    "0xa67d51700bcf8fb4d4f80944e9d211dafaff732a2c8cd2d198f3e93c93f2e1c3",
+    "0xda8077f78b07f8a634e1dc4807938b1077b6871f3ef16bc9b78783b8942dc53c",
+    "0x482d4b557e8f37cc37cb41700f1f74c2bbca92c5e89ae64b93cf2145553f4c4c",
+    "0x2fb700aa62ce9232d34cbb89e6c9f80d8fdfa48668548affe65eb29782e39ef3",
+    "0x0f3cb8e5d515081c82a522c89d285ba7329f79ce38e6367410e99ed2a596fe55",
+    "0x060b1b5140f4e9a4abd96a65e10e0431f729a70ea337935c7b0f766be8e3fe8e",
+    "0x603125b3395fafae4b51acac1be7a12e6eaebd812c51a191f0819a9c159bfe43",
+    "0x28dc90fe5bc3837b90bbc27e8bc6524043d51d78a6ee04a57a7efab83791fc61",
+    "0xa216bf9854c89f4a4c1ab6359cd72c4f78bd9083cf78d7f4a2846290cd04360c",
+    "0x79e5dd2787830dd9df39103a69d2ca1c25ef456c9dac91c618376363a01f0acd",
+    "0x1b9a9152a837b21296a1d46c20229b3f958209ce7be4281cee1d45a079b583ba",
+    "0x7cb5335764fa014cf7fd6cabc69cc5cce9e6ddc2901834e1e52a22a7c1f53c24",
+    "0xaecdc026285bc58ddef5b0f5caf268a6dea3b8d395e363b0284ee215e6fa9e48",
+    "0x1f8e7977a1f2686f7fbd8a8c49e9985f91a403c2b34df16aa4a40de1e50ec2f2",
+    "0x5b4e873ba691dddd7e373814e9d11437f0729872af674f31c446c11875e6f0ec",
+    "0x1369a7a12885b3584a437e68fac18bc3c57c60bd78ffe23f293042646052a2cb",
+    "0x77fc017d145d4de899e4d5ab218df0e07dba2a9d258edd44f602e225a9870c2b",
+    "0x5a25c853ca6a7d0fb9aac69635f488710efa59fadef51251d9e7d06c3e9da022",
+    "0x97f01e619ec9d5cb985608ffbf49fa5f617bb9d3a3315103a4d46486972e04e3",
+    "0x74d28eb1ac19eb7e71baa0dfc1efdfab1a9eb76e843ba2bba72e1da8169c9ace",
+    "0xe3ac2e3be3924496f08228de0b29549181b80e6b21912010b8a2899499d592da",
+    "0x68884adaea3884f3466e4797599243a532dd168d2ea285ff3dfcbea5b5d540df",
+    "0x4d1157d5d9856a17d1b279f7218feba09e7477f0e8147cee57702d875741fb7a",
+    "0x076e66a56cc33b28013249c7b818d630360e4338f95f3a83587f34eb809544c4",
+    "0x592ccbb334a546aa48ad551ce3c181047e9ef19eab34491fd2dc2e1899ef8633",
+    "0xf784f61738be6360d971438370550938109b79cec72142ca516393a5b7131e5a",
+    "0x40e1fa01ec06a7d44347f6b3991748f5959be96ed0a3b8fb2d07ff6449bf6181",
+    "0x615992339336c43c48ac02cc4f0223ecf742278e2ac5b98b14bf52a3e9790268",
+    "0x7f0d59ad1898ea57291ff14bd7df9d35328ea04449fb9c6fb3a8d61ef1bbe520"
+  ],
+  "pending_pool_entries_observed": 36,
+  "pending_outcomes": [
+    {
+      "overload": "Create pending runtime api error: Failed to call runtime API, Execution failed: Other: Local runtime execution capacity reached; retry later"
+    }
+  ],
+  "finalized_block": "0xa4f706dbd8dc5f610c28aa0353e9d5f082aee6af47f608a5a1123392ac900e1e",
+  "finalized_received_rao": 32000000000,
+  "expected_received_rao": 32000000000,
+  "limitation": "Disposable SR dev sender isolates pending-state behavior; no production funds or throughput claim."
+}

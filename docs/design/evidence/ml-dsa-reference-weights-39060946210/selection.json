@@ -1,0 +1,61 @@
+{
+  "run_id": 39060946210,
+  "artifact_id": 12114103104,
+  "artifact_sha256": "5aa10aa331f894533d29c71c2191b36d4d2394ffba717c69d2e60975fe3baad5",
+  "benchmark_commit": "437053f80d5ebebce950602b168901bfe6591483",
+  "applied_to": "8d6104b58aa5df1f53011cf8fbc81ac6b86f37ec",
+  "methods": {
+    "pallets/hashed-accounts/src/weights.rs": {
+      "generated": "pallet_hashed_accounts.rs",
+      "generated_sha256": "c7d5a9ea402683cb40ebe15cb3b9a9deaf8ed4e8f1ca72e25aacf4ac786ceec2",
+      "names": [
+        "register_mldsa65",
+        "check_registered_mldsa65",
+        "authorize_mldsa65",
+        "authorize_mldsa65_invalid",
+        "register_derived",
+        "register_derived_sponsored",
+        "check_derived",
+        "set_mldsa_enabled",
+        "install_capability",
+        "revoke_capability"
+      ],
+      "original_sha256": "d6b5ba0333c7b0fa0c3379b8561c1722d3b61311d68b6460c882a667d2adcd6a"
+    },
+    "pallets/limit-orders/src/weights.rs": {
+      "generated": "pallet_limit_orders.rs",
+      "generated_sha256": "9802ef1db0a4c4c62532e00ff568810685c31a1795f681315d7ce0aeb37842ac",
+      "names": [
+        "authorize_order",
+        "execute_authenticated_orders",
+        "execute_authenticated_batched_orders",
+        "cancel_authenticated_order"
+      ],
+      "original_sha256": "e56c77ef693f0a0ca97d2ca0d649e12596d6ccdfdc1242b6a802b7b8f0496de7"
+    },
+    "pallets/proxy/src/weights.rs": {
+      "generated": "pallet_subtensor_proxy.rs",
+      "generated_sha256": "f920e33ca7426ea101b639fec352288928a48cf61ab2308cfb3d89ac95ec146d",
+      "names": [
+        "create_protected_pure"
+      ],
+      "original_sha256": "065593eb0b4c10a85db209050022304d31924a95388d9d9a3bcb5f4d567dde2e"
+    },
+    "pallets/utility/src/weights.rs": {
+      "generated": "pallet_subtensor_utility.rs",
+      "generated_sha256": "1e7f26b94a8857ceca7771c5ff49b89a5958963e1c25b0df2f799b9509f9284b",
+      "names": [
+        "as_protected_derivative"
+      ],
+      "original_sha256": "5ccab69816d49707f4f796f1fa3ff5448f5a2f7300de41f46c16a8e61eb0b7ff"
+    },
+    "pallets/shield/src/weights.rs": {
+      "generated": "pallet_shield.rs",
+      "generated_sha256": "26e9d4e2cac699194289893fa1e30337d6fce5d51738de8a6e0e067b824b936b",
+      "names": [
+        "submit_encrypted_large"
+      ],
+      "original_sha256": "591999bdbcb42ea477a6249ab1da3a91862bbba3830884b2c61662a528c3aff1"
+    }
+  }
+}

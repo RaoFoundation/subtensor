@@ -6,7 +6,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .keyfiles import Keyfile, Keypair
-from .sp_core import CRYPTO_SR25519, HASHED_CRYPTO_TYPES, account_crypto_type
+from .sp_core import (
+    CRYPTO_SR25519,
+    MLDSA_CRYPTO_TYPES,
+    REGISTERED_CRYPTO_TYPES,
+    account_crypto_type,
+)
 
 DEFAULT_WALLET_PATH = str(Path.home() / ".bittensor" / "wallets")
 
@@ -18,7 +23,7 @@ def _seed_bytes(seed: str | bytes) -> bytes:
 
 
 def _public_only(keypair: Keypair) -> Keypair:
-    if keypair.crypto_type in HASHED_CRYPTO_TYPES:
+    if keypair.crypto_type in REGISTERED_CRYPTO_TYPES:
         return keypair.public_only()
     return Keypair(
         ss58_address=keypair.ss58_address,
@@ -39,7 +44,7 @@ def _restore_public_key(address: str | None, public_key: str | None, crypto_type
             if encoded != bytes(keypair.public_key):
                 raise ValueError("public key does not match the receiving address")
         return keypair
-    if crypto_type in HASHED_CRYPTO_TYPES:
+    if crypto_type in REGISTERED_CRYPTO_TYPES:
         raise ValueError(
             "hashed watch-only recovery requires the complete receiving address; "
             "copy it from `btcli wallet show`"
@@ -204,7 +209,10 @@ class Wallet:
         account_type: str | None = None,
     ) -> Wallet:
         crypto_type = account_crypto_type(crypto_type, account_type)
-        mnemonic = Keypair.generate_mnemonic(12 if n_words is None else n_words)
+        words = (24 if crypto_type in MLDSA_CRYPTO_TYPES else 12) if n_words is None else n_words
+        if crypto_type in MLDSA_CRYPTO_TYPES and words != 24:
+            raise ValueError("ML-DSA wallets require a fresh 24-word mnemonic")
+        mnemonic = Keypair.generate_mnemonic(words)
         keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
         # on_mnemonic lets a caller (the CLI) render the mnemonic itself
         # instead of this library printing it raw to stdout.
@@ -237,7 +245,10 @@ class Wallet:
         account_type: str | None = None,
     ) -> Wallet:
         crypto_type = account_crypto_type(crypto_type, account_type)
-        mnemonic = Keypair.generate_mnemonic(12 if n_words is None else n_words)
+        words = (24 if crypto_type in MLDSA_CRYPTO_TYPES else 12) if n_words is None else n_words
+        if crypto_type in MLDSA_CRYPTO_TYPES and words != 24:
+            raise ValueError("ML-DSA wallets require a fresh 24-word mnemonic")
+        mnemonic = Keypair.generate_mnemonic(words)
         keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
         if on_mnemonic is not None:
             on_mnemonic(mnemonic)

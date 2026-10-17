@@ -1,0 +1,195 @@
+{
+  "kind": "supplementary-independent-local-evidence-verification",
+  "verified_at": "2026-10-16T20:14:20.869387+00:00",
+  "raw_runner_result_preserved": true,
+  "raw_runner_result_sha256": "7fbe8f900ab5e0bebf142a436a19f9eb1d67a3521d374789cd6d3b566f209d35",
+  "existing_checker_preserved": true,
+  "existing_checker_sha256": "2378ce41e62e8e6d657229633d2939de7b6624281c757e82587367f8c3548225",
+  "supplementary_script_sha256": "eeb5e2169f102694b194f928f36eadcd7eefff421f263e0514f82fb274fbe532",
+  "network_calls": false,
+  "runtime_or_cargo_execution": false,
+  "source": {
+    "endpoint": "wss://archive.dev.opentensor.ai:443",
+    "genesis_hash": "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03",
+    "finalized_block_hash": "0x39bc186855bfbf78b4ab9f44138094ea3b19fa64a079161bf617397830aadc1c",
+    "finalized_block_number": 9298128,
+    "state_root": "0xe6a92abe52fb94bfe734d795e997025c5a390b20160ee69696a1bc6b5058fb06",
+    "source_spec_name": "node-subtensor",
+    "source_spec_version": 479,
+    "queried_at": "2026-10-16T19:49:48.306323+00:00"
+  },
+  "artifacts": {
+    "runner": {
+      "path": "/home/johnreed/Desktop/work/subtensor/docs/design/evidence/ml-dsa-mainnet-upgrade.py",
+      "sha256": "aa2c1f0191771fc056114eac58093fc4ffe750c0ca6af15186e8c40201aa1aba",
+      "size_bytes": 8096,
+      "digest_matches_raw_record": true
+    },
+    "source_record": {
+      "path": "/tmp/ms-release-validation/mainnet/source.json",
+      "sha256": "ad55a6bdc0a668a0b77857afeb38f848aaca5b4c22f024888f759b6aab3e866a",
+      "size_bytes": 485,
+      "digest_matches_raw_record": true
+    },
+    "snapshot": {
+      "path": "/tmp/ms-release-validation/mainnet/mainnet.snap",
+      "sha256": "b24f2b048fa7717d642de4a1227841ff2cd526972043a5ed854aed4a8884e10c",
+      "size_bytes": 926483590,
+      "digest_matches_raw_record": true
+    },
+    "runtime_wasm": {
+      "path": "/tmp/ms-release-validation/mainnet/runtime.wasm",
+      "sha256": "8be6cd4735812399becf3572f4c13041a55a32052d27cdd526af67b67756af19",
+      "size_bytes": 2878770,
+      "digest_matches_raw_record": true
+    },
+    "try_runtime_cli": {
+      "path": "/tmp/hashed-full-ci-_as7hfjj/bin/try-runtime.real",
+      "sha256": "d6fcd586fba4c7245668f4ae2a06ffc94e6da4135fae22cfe24453dd11aee3c3",
+      "size_bytes": 33421544,
+      "digest_matches_raw_record": true
+    }
+  },
+  "runs": [
+    {
+      "name": "on-runtime-upgrade",
+      "exit_code": 0,
+      "log_sha256": "217fa840bbec9d5b0bc4e110604f9aba59690ac544ba1a1a425072a628c047c2",
+      "log_digest_matches_record": true,
+      "loaded_snapshot_state_root": "0xe6a92abe52fb94bfe734d795e997025c5a390b20160ee69696a1bc6b5058fb06",
+      "loaded_root_matches_rpc_pinned_header": true,
+      "runtime_versions": [
+        479,
+        480
+      ]
+    },
+    {
+      "name": "fast-forward",
+      "exit_code": 0,
+      "log_sha256": "2abad92b5a707b755fac99f89b1788f2b21430baec3c38ddead664fe1bd0b284",
+      "log_digest_matches_record": true,
+      "loaded_snapshot_state_root": "0xe6a92abe52fb94bfe734d795e997025c5a390b20160ee69696a1bc6b5058fb06",
+      "loaded_root_matches_rpc_pinned_header": true,
+      "runtime_versions": [
+        479,
+        480
+      ]
+    }
+  ],
+  "upgrade_checks_all": true,
+  "migration_idempotency_verified": true,
+  "exact_contiguous_block_count": 10,
+  "blocks": [
+    {
+      "number": 9298129,
+      "state_root_check": true,
+      "signature_check": true,
+      "try_state": "All",
+      "entire_runtime_state_decodes": true,
+      "decoded_state_bytes": 156404462,
+      "successfully_executed": true
+    },
+    {
+      "number": 9298130,
+      "state_root_check": true,
+      "signature_check": true,
+      "try_state": "All",
+      "entire_runtime_state_decodes": true,
+      "decoded_state_bytes": 156403629,
+      "successfully_executed": true
+    },
+    {
+      "number": 9298131,
+      "state_root_check": true,
+      "signature_check": true,
+      "try_state": "All",
+      "entire_runtime_state_decodes": true,
+      "decoded_state_bytes": 156403445,
+      "successfully_executed": true
+    },
+    {
+      "number": 9298132,
+      "state_root_check": true,
+      "signature_check": true,
+      "try_state": "All",
+      "entire_runtime_state_decodes": true,
+      "decoded_state_bytes": 156403149,
+      "successfully_executed": true
+    },
+    {
+      "number": 9298133,
+      "state_root_check": true,
+      "signature_check": true,
+      "try_state": "All",
+      "entire_runtime_state_decodes": true,
+      "decoded_state_bytes": 156403157,
+      "successfully_executed": true
+    },
+    {
+      "number": 9298134,
+      "state_root_check": true,
+      "signature_check": true,
+      "try_state": "All",
+      "entire_runtime_state_decodes": true,
+      "decoded_state_bytes": 156402001,
+      "successfully_executed": true
+    },
+    {
+      "number": 9298135,
+      "state_root_check": true,
+      "signature_check": true,
+      "try_state": "All",
+      "entire_runtime_state_decodes": true,
+      "decoded_state_bytes": 156402193,
+      "successfully_executed": true
+    },
+    {
+      "number": 9298136,
+      "state_root_check": true,
+      "signature_check": true,
+      "try_state": "All",
+      "entire_runtime_state_decodes": true,
+      "decoded_state_bytes": 156400964,
+      "successfully_executed": true
+    },
+    {
+      "number": 9298137,
+      "state_root_check": true,
+      "signature_check": true,
+      "try_state": "All",
+      "entire_runtime_state_decodes": true,
+      "decoded_state_bytes": 156400740,
+      "successfully_executed": true
+    },
+    {
+      "number": 9298138,
+      "state_root_check": true,
+      "signature_check": true,
+      "try_state": "All",
+      "entire_runtime_state_decodes": true,
+      "decoded_state_bytes": 156400692,
+      "successfully_executed": true
+    }
+  ],
+  "snapshot_acquisition_evidence": {
+    "log_sha256": "0c3e496660ee0714cc834053698456e46a7d9f152bbc183cf740e7262837f2e6",
+    "reported_keys": 3304807,
+    "key_count_source": "Acquisition progress: Found 3304807 keys; not an independent unique-key enumeration",
+    "configured_child_trie_inclusion": true,
+    "configuration_basis": "Coordinator-recorded acquisition used no pallet/prefix filters; independently inspected pinned CLI help defaults whole-chain snapshots to child-tree inclusion",
+    "cli_help_path": "/tmp/ms-release-validation/mainnet/create-snapshot-help.txt",
+    "cli_help_sha256": "7367adbdb51c62087915f6411036284878b6527a99a7782cd3b515f768d4de59",
+    "child_tries": null,
+    "child_trie_count_status": "unknown: acquisition log has no child-trie count",
+    "acquisition_logged_storage_root": null,
+    "acquisition_root_status": "not logged; RUST_LOG was not enabled during acquisition",
+    "snapshot_file_digest_and_size_match_record": true,
+    "subsequent_loaded_root_matches_rpc_pinned_header_in_both_runs": true
+  },
+  "original_full_checker_status": "not passed: required acquisition-log evidence is absent",
+  "original_full_checker_limitation": "Expected exactly one match: initialized state externalities with storage root (0x[0-9a-f]{64})",
+  "supplementary_execution_and_artifact_checks_status": "PASS",
+  "release_ready": false,
+  "remaining_release_blocker": "Pre-registration hotkey association can prevent descriptor registration and trap bare-funded balances; unchanged by this upgrade rehearsal.",
+  "weight_measurements": "excluded; none performed"
+}

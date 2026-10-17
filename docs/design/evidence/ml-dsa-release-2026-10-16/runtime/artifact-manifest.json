@@ -1,0 +1,188 @@
+{
+  "packaged_at": "2026-10-16T20:38:33.866516+00:00",
+  "baseline_head": "2d5089da3bcb292cbf557d9b22ff34582e23b3f4",
+  "source_kind": "working tree with local uncommitted validation corrections; not a committed release",
+  "release_ready": false,
+  "compressed_artifacts": {
+    "runtime-hashed-focused.log.gz": {
+      "uncompressed_filename": "runtime-hashed-focused.log",
+      "uncompressed_sha256": "83e0e34e2fd14597b78e1293c3b8db0d560c55b653557fc5edde68128054f424",
+      "uncompressed_bytes": 620003
+    },
+    "runtime-evm-association-production.log.gz": {
+      "uncompressed_filename": "runtime-evm-association-production.log",
+      "uncompressed_sha256": "1efc75c794f468f6d945ba61af781d6da86e5674d94782168be2cdbf36016ba7",
+      "uncompressed_bytes": 1364
+    },
+    "runtime-matrix-panic.log.gz": {
+      "uncompressed_filename": "runtime-matrix-panic.log",
+      "uncompressed_sha256": "794fb3b7b6af8ff2ce1722698a75cf52a003c7585a93b7629cff2bb1892f5b04",
+      "uncompressed_bytes": 123200
+    },
+    "live-pending.log.gz": {
+      "uncompressed_filename": "live-pending.log",
+      "uncompressed_sha256": "91b4bfd6b14bd1d1820b9851ac58837974f477bc695a724506b0d152951fbff2",
+      "uncompressed_bytes": 3215
+    },
+    "live-pending-isolation.log.gz": {
+      "uncompressed_filename": "live-pending-isolation.log",
+      "uncompressed_sha256": "86ffa0e20c7fb3c5ed27928007b08cdaebbc635770751105db96c3bcc452f213",
+      "uncompressed_bytes": 3346
+    },
+    "live-pending-isolation-empty-pool-attempt.log.gz": {
+      "uncompressed_filename": "live-pending-isolation-empty-pool-attempt.log",
+      "uncompressed_sha256": "577eed38128764266423b00c7b83265cdcad5646b48ce23a4ca9626a08e8d7a6",
+      "uncompressed_bytes": 315
+    },
+    "pending-helper/tests.log.gz": {
+      "uncompressed_filename": "tests.log",
+      "uncompressed_sha256": "bf9d191d6a7e25dc797f7f996ad215456787f45e5e0dde85fd84cf7eec9fe80f",
+      "uncompressed_bytes": 381
+    },
+    "mainnet/create-snapshot-help.txt.gz": {
+      "uncompressed_filename": "create-snapshot-help.txt",
+      "uncompressed_sha256": "7367adbdb51c62087915f6411036284878b6527a99a7782cd3b515f768d4de59",
+      "uncompressed_bytes": 1918
+    },
+    "mainnet/fast-forward-help.txt.gz": {
+      "uncompressed_filename": "fast-forward-help.txt",
+      "uncompressed_sha256": "c1e7fef47e38feb44d21924dfe833919e6b6197d666a92990f014726ee3d995a",
+      "uncompressed_bytes": 1309
+    },
+    "mainnet/try-runtime-build.log.gz": {
+      "uncompressed_filename": "try-runtime-build.log",
+      "uncompressed_sha256": "db9ff3e51b67c5bb7c1dd387e41897439ca92fadf3bb020103bdd01109704c5c",
+      "uncompressed_bytes": 1928
+    },
+    "mainnet/snapshot.log.gz": {
+      "uncompressed_filename": "snapshot.log",
+      "uncompressed_sha256": "0c3e496660ee0714cc834053698456e46a7d9f152bbc183cf740e7262837f2e6",
+      "uncompressed_bytes": 121
+    },
+    "mainnet/snapshot-logged.log.gz": {
+      "uncompressed_filename": "snapshot-logged.log",
+      "uncompressed_sha256": "97e77e5e31a41cde326fac76e1a29ddae23658d6e017dbef717c43ec0e245bdf",
+      "uncompressed_bytes": 367881
+    },
+    "mainnet/ml-dsa-mainnet-on-runtime-upgrade.log.gz": {
+      "uncompressed_filename": "ml-dsa-mainnet-on-runtime-upgrade.log",
+      "uncompressed_sha256": "217fa840bbec9d5b0bc4e110604f9aba59690ac544ba1a1a425072a628c047c2",
+      "uncompressed_bytes": 91601
+    },
+    "mainnet/ml-dsa-mainnet-fast-forward.log.gz": {
+      "uncompressed_filename": "ml-dsa-mainnet-fast-forward.log",
+      "uncompressed_sha256": "2abad92b5a707b755fac99f89b1788f2b21430baec3c38ddead664fe1bd0b284",
+      "uncompressed_bytes": 651795
+    },
+    "mainnet/logged-full-verification.log.gz": {
+      "uncompressed_filename": "logged-full-verification.log",
+      "uncompressed_sha256": "5a004ec2e95f4ddeaeac79606aea86073642c910e750a45fcb3ff859abc801d8",
+      "uncompressed_bytes": 334
+    },
+    "mainnet/logged-replay-runner.log.gz": {
+      "uncompressed_filename": "logged-replay-runner.log",
+      "uncompressed_sha256": "721bcc58ced536f5ed2fe64357d88373a3b979272c177b3aa71a08e671fde342",
+      "uncompressed_bytes": 1423
+    },
+    "mainnet/logged-verification/ml-dsa-mainnet-on-runtime-upgrade.log.gz": {
+      "uncompressed_filename": "ml-dsa-mainnet-on-runtime-upgrade.log",
+      "uncompressed_sha256": "c2eba5748c582cce8529541f625d96b8b1f44dd8b7f9cbe0d46b1009a1696b2c",
+      "uncompressed_bytes": 91608
+    },
+    "mainnet/logged-verification/ml-dsa-mainnet-fast-forward.log.gz": {
+      "uncompressed_filename": "ml-dsa-mainnet-fast-forward.log",
+      "uncompressed_sha256": "c0f8150cbfd90186eecad5d6326d7b9f1d25beea060fcd78af82ae57ae2c14fc",
+      "uncompressed_bytes": 651802
+    },
+    "validator-live/validator-live.log.gz": {
+      "uncompressed_filename": "validator-live.log",
+      "uncompressed_sha256": "238a4cf65842fd72434eab462b9c29da5ce773703307e5ad58ac67b15eb87460",
+      "uncompressed_bytes": 21681
+    },
+    "validator-live/validator-live-corrected.log.gz": {
+      "uncompressed_filename": "validator-live-corrected.log",
+      "uncompressed_sha256": "23980315914d643ebe202bc838d372a9812f254b10585025e44799e2d1a79834",
+      "uncompressed_bytes": 1115
+    }
+  },
+  "source_sha256": {
+    "runtime/src/evm_origin.rs": "435eb128b0dd280c7909b9885a0a0c4079681d6a6d1501aba0c4bee43d8ced88",
+    "runtime/src/hashed_native_evm_tests.rs": "f78db7b5542007d28fda564d6f77441fc189241f297531f3598e2ccf3724d208",
+    "runtime/src/hashed_tests.rs": "89bb399c3091dbf95bde17eaffe06c43ed28bff48df9f41272924aeb22bbbde9",
+    "runtime/src/mldsa_dispatch_matrix_tests.rs": "5f203776315167c82cdfae047bf126a881cf1fdfef4dc8572b5eb913ee8bdb0f",
+    "pallets/subtensor/src/subnets/registration.rs": "2064a55de3fb7abeff4414bba6df85c1be8d0734dacb23819e7a747f5dcf4518",
+    "vendor/frontier/client/rpc/src/eth/pending.rs": "8fe8459a180a6e33eb275d6981fde3badb4dd4cc519d7b85e23673a5ffe849ed",
+    "node/src/execution_admission.rs": "c4501c8bca96aa02d8c15b55514ab3f225a1dbb119e5408955806dc5a0419bb1",
+    "runtime/src/hashed_auth.rs": "db64b4ad1dc2f34cfdd1e5fcd2ab7c1840c5016f4977dfc88bd003986a4aa26b",
+    "runtime/src/hashed_owner.rs": "a6031a6eedcf7ec982098a9b4cc279a2b7aad1084eeb1398a946041830685a73",
+    "docs/design/evidence/ml-dsa-mainnet-upgrade.py": "aa2c1f0191771fc056114eac58093fc4ffe750c0ca6af15186e8c40201aa1aba",
+    "docs/design/evidence/ml-dsa-mainnet-log-check.py": "2378ce41e62e8e6d657229633d2939de7b6624281c757e82587367f8c3548225",
+    "sdk/python/tests/e2e/test_mldsa_validator_paths.py": "e74d6434bdde194a9d08ed6735f4a17b2d341d88303b7d9965cf259d190b6edc"
+  },
+  "artifact_sha256": {
+    "README.md": "3e5c536b3ee52bfc3864b1d9482d0bc6699f5bcfac8341512d0d84bf9357b80b",
+    "live-pending-independent-review.json": "e24f19a544e666d5882fb991d14a66c973e2b5378ee5ed460f799ec7e78de942",
+    "live-pending-isolation-empty-pool-attempt.log.gz": "52a029ccdd69b05566dc89b4a0309b7108ca83efb79be5b1601fdd757a3de950",
+    "live-pending-isolation-empty-pool-attempt.py": "00c227fe360817b8c95ea14e6e7057c5ab3eb495d126c4cd661e729ebe0f3762",
+    "live-pending-isolation-results.json": "86ffa0e20c7fb3c5ed27928007b08cdaebbc635770751105db96c3bcc452f213",
+    "live-pending-isolation.log.gz": "b0bb062dfad22695d5d8f9d07e0bec41d25fb57f3eeb0e54dff3cbddcf13f935",
+    "live-pending-isolation.py": "69a4917f0df63768a1382a0369b6d66e86f177c4e773213234643e68193b4358",
+    "live-pending-results.json": "91b4bfd6b14bd1d1820b9851ac58837974f477bc695a724506b0d152951fbff2",
+    "live-pending.log.gz": "b7826860b3d26c60854878d970d9b9953818e36573d1ee8e783014232248e9b3",
+    "live-pending.py": "30e97ae1b7d48df5afb3e796d6e7d02bb8d3ab77a0459e9aca6a403adfd21f87",
+    "mainnet/README.md": "c97f3dc4730435517b8aaf2a2ccf34571858780b51d30cee6fcde734dbc44755",
+    "mainnet/create-snapshot-help.txt.gz": "54019a826611115c2802e5c178d7fa20574fd42af4c7749271a43788cb8cf2cf",
+    "mainnet/fast-forward-help.txt.gz": "4cc00b80829b8d7b2eab6a56e80b36c21ddeab8c9bb5b01b195f723e0b8e7fca",
+    "mainnet/finish-logged-acquisition.py": "5e46e5c094d8e2fee899c03feb2be616675ff15edbedcb3919234f34172eaa6b",
+    "mainnet/logged-acquisition-manifest.json": "e370920a3c4b3947dce1b37731faf7d9d373a7e723097512bd1920d783e98289",
+    "mainnet/logged-full-verification.json": "75d2e5be796a79dde41967299d986d49a22916f017df5fe43a0bc6015895810b",
+    "mainnet/logged-full-verification.log.gz": "f075bf4d944541cbd7a7d09c98db3c245c209b9484613d9e96d89943d5356c4c",
+    "mainnet/logged-replay-runner.log.gz": "dde8722746f68404edbd44d93df2da6f42553cc7006c3f077d7a7136174d7ee7",
+    "mainnet/logged-verification/ml-dsa-mainnet-fast-forward.log.gz": "c482f9e1746666a64309fcf3402ab29c12e5522476c39ba5e7aa32b474b54ec0",
+    "mainnet/logged-verification/ml-dsa-mainnet-on-runtime-upgrade.log.gz": "126b02eec58ea90ab703eb56ffdd487e82794f99639307390af2b920c68af6a0",
+    "mainnet/logged-verification/ml-dsa-mainnet-upgrade-results.json": "3f144f841fd805dc6e95e40428e91b7d526d5ff059ed89ea2de3a5f4e1748bbf",
+    "mainnet/ml-dsa-mainnet-fast-forward.log.gz": "a8cd3f0b31a1a24fdb32d404e73fbd7f8f415dbe873a04f8a84787636e340fa2",
+    "mainnet/ml-dsa-mainnet-on-runtime-upgrade.log.gz": "b678df23c6da8ff06165245571b3fc96d32998ad94a87b487f5db642224bfa6e",
+    "mainnet/ml-dsa-mainnet-upgrade-results.json": "7fbe8f900ab5e0bebf142a436a19f9eb1d67a3521d374789cd6d3b566f209d35",
+    "mainnet/post-verification.json": "aaad3c636f40957ccb8b25b453052ee7a161a22f765e767feaf3b17e35d6fe9d",
+    "mainnet/post-verification.md": "ff277a68d4715d0b92b44dd253c3f76519ef8d847fbf864b66866398b7785f2c",
+    "mainnet/post-verify.py": "eeb5e2169f102694b194f928f36eadcd7eefff421f263e0514f82fb274fbe532",
+    "mainnet/snapshot-logged.log.gz": "c81553248f7af43b083cf158cda8f5a6c10a40dc8d723d7629034e2d3ba122c0",
+    "mainnet/snapshot.log.gz": "1a141e8807578eaf952c2d7e367efd37b6dbaf58f2b13a77e9f49f541f1462fe",
+    "mainnet/source.json": "ad55a6bdc0a668a0b77857afeb38f848aaca5b4c22f024888f759b6aab3e866a",
+    "mainnet/try-runtime-build.log.gz": "8c4e95e55eb25c8881460d87fc630efb6b788e77d5375f145f1f44dfbbe1da6f",
+    "pending-admission-followup.md": "993f812938ea12a09b929866caacc4cbc66a979c981b488ac7a0f4fe4008a9ab",
+    "pending-helper/evidence.json": "4fdf493d583d0553b8f3d31372befdc16e926186372c850fff4d675cf5c88875",
+    "pending-helper/run.py": "db9e946c7bbea18ac29b90ddfd67874d250398280a067c5ede29f2bbf9a35cff",
+    "pending-helper/tests.log.gz": "0c558c849edf9b60f0a20d15e59a8d01728587b48dd31dfa4a65b47b079cb9a4",
+    "runtime-dispatch-matrix.json": "552c5a1d6bf13bff12e8fd8db6dadc3191a62b65f614f0072b98b8937e1d6e25",
+    "runtime-evm-association-production.log.gz": "94fe7565067989af66dd9774cacf911794e46212eb837c5f2075ea8864446204",
+    "runtime-hashed-focused.log.gz": "8e8bc377c3d93145c9e55159f4bd866851c6207010e19a1d7a57ac72bce9961d",
+    "runtime-matrix-panic.log.gz": "64c72b934c654fc5732496ae449541ae1a75540c9f8195c51f72fe49cae3227b",
+    "runtime-review.md": "dd8d57ce5ff1f83c7fc1986653c9ce6ffcb43a789dfab75ac766cb044b75ceac",
+    "validator-live/README.md": "447ba5693ebe22182f3da2a6c6e94d1196b44a695c0a9d8bfb4d86a48efe2b81",
+    "validator-live/validator-live/validator-paths-7.json": "ef035e97b754e73c7595ae1000019a39afe038b2c0022db612cf37a577dc00c7",
+    "validator-live/validator-live/validator-paths-8.json": "3373a9b90c98eaabdb9ffb43039e28fd1c6f035cd5b3fbbb3f17e1cf811c51c1",
+    "validator-live/validator-live-corrected/validator-paths-7.json": "6231363c377fba5befdf76461b952c2f4efc80f5ecefbbe98bfb2b21e4e097dd",
+    "validator-live/validator-live-corrected/validator-paths-8.json": "d051e911dc0f457f4547182c60b814161ee99bdc14ff6afc331f1c06ced037f8",
+    "validator-live/validator-live-corrected.log.gz": "5d393ab68381206ebac589d19939c86a9c8ae2ae1c8cd43676859f6758cfe0cb",
+    "validator-live/validator-live-first-attempt-test.py": "47324d7c87e260b14045347758129608ab90b10c682c2c715abd8fea0e743549",
+    "validator-live/validator-live-post-verification.json": "3226b25358bfaa69fdc74fced2ba70549964953a6ab35d0fa8f8a7d4422aaf94",
+    "validator-live/validator-live-run-manifest.json": "2929a9d16e7b0ea7a58c3005f87c76e1aa67d43c71572d43d242e2aca4604e24",
+    "validator-live/validator-live.log.gz": "a54c9d1b52317a381eb8117ea8d1d11e310e08730a91922f697dfff116d731af",
+    "validator-live/verify-validator-live.py": "43abf9754a73376d5c751b246f0fc9e71a66e29b905eda2a77ec5c3fbe4b6f88"
+  },
+  "limits": [
+    "Weights excluded by user",
+    "Finite static/runtime tests do not prove funds can never be lost",
+    "Matrix fixtures establish authorization parity rather than every successful operation state",
+    "Different mainnet try-runtime, localnet and test runtime artifacts have separate hashes; none are claimed byte-identical"
+  ],
+  "unresolved": [
+    "Hostile pre-registration hotkey association can trap bare-funded descriptor accounts",
+    "Pending reconstruction remains coupled to unknown runtime-export admission",
+    "Master authentication pause does not revoke all previously cached spending authorities"
+  ],
+  "markdown_reference_rewrite": "Only Markdown evidence references were changed from /tmp/ms-release-validation to corresponding relative package paths. Raw scripts/JSON/logs remain byte-for-byte copies.",
+  "updated_at": "2026-10-16T21:05:41.393764+00:00"
+}

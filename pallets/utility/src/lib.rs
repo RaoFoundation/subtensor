@@ -63,6 +63,7 @@ use codec::{Decode, Encode};
 use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo, extract_actual_weight},
     traits::{IsSubType, OriginTrait, UnfilteredDispatchable},
+    weights::Weight,
 };
 use sp_core::TypeId;
 use sp_io::hashing::blake2_256;
@@ -75,6 +76,29 @@ pub use weights::WeightInfo;
 use subtensor_macros::freeze_struct;
 
 pub use pallet::*;
+
+pub trait DerivedAccountPolicy<AccountId> {
+    fn requires_protection(_account: &AccountId) -> bool {
+        false
+    }
+    fn weight() -> Weight {
+        Weight::zero()
+    }
+    fn on_protected_derivative(
+        _parent: &AccountId,
+        _child: &AccountId,
+        _index: u16,
+    ) -> Result<(), DispatchError> {
+        Err(DispatchError::Other("ProtectedDerivativeUnsupported"))
+    }
+    #[cfg(feature = "runtime-benchmarks")]
+    fn setup_protected_benchmark(_parent: &AccountId) -> Result<AccountId, DispatchError> {
+        Err(DispatchError::Other(
+            "ProtectedDerivativeBenchmarkUnsupported",
+        ))
+    }
+}
+impl<AccountId> DerivedAccountPolicy<AccountId> for () {}
 
 #[frame_support::pallet]
 #[allow(clippy::expect_used)]
@@ -105,6 +129,7 @@ pub mod pallet {
 
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: WeightInfo;
+        type DerivedAccountPolicy: DerivedAccountPolicy<Self::AccountId>;
     }
 
     #[pallet::event]
@@ -138,7 +163,7 @@ pub mod pallet {
     #[pallet::extra_constants]
     impl<T: Config> Pallet<T> {
         /// The limit on the number of batched calls.
-        fn batched_calls_limit() -> u32 {
+        pub fn batched_calls_limit() -> u32 {
             let allocator_limit = sp_core::MAX_POSSIBLE_ALLOCATION;
             let call_size = (core::mem::size_of::<<T as Config>::RuntimeCall>() as u32)
                 .div_ceil(CALL_ALIGN)
@@ -262,6 +287,7 @@ pub mod pallet {
 			let dispatch_info = call.get_dispatch_info();
 			(
 				T::WeightInfo::as_derivative()
+					.saturating_add(T::DerivedAccountPolicy::weight())
 					// AccountData for inner call origin accountdata.
 					.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 					.saturating_add(dispatch_info.call_weight),
@@ -275,12 +301,17 @@ pub mod pallet {
         ) -> DispatchResultWithPostInfo {
             let mut origin = origin;
             let who = ensure_signed(origin.clone())?;
+            ensure!(
+                !T::DerivedAccountPolicy::requires_protection(&who),
+                DispatchError::Other("ProtectedDerivativeRequired")
+            );
             let pseudonym = Self::derivative_account_id(who, index)?;
             origin.set_caller_from(frame_system::RawOrigin::Signed(pseudonym));
             let info = call.get_dispatch_info();
             let result = call.dispatch(origin);
             // Always take into account the base weight of this call.
             let mut weight = T::WeightInfo::as_derivative()
+                .saturating_add(T::DerivedAccountPolicy::weight())
                 .saturating_add(T::DbWeight::get().reads_writes(1, 1));
             // Add the real weight of the dispatch.
             weight = weight.saturating_add(extract_actual_weight(&result, &info));
@@ -598,6 +629,47 @@ pub mod pallet {
             Self::deposit_event(Event::DispatchedAs { result: Ok(()) });
 
             Ok(())
+        }
+
+        /// Dispatch from the ordinary derivative address after establishing its
+        /// permanent protection. A failed inner call rolls back fresh registration
+        /// and child state, while any previously registered protection remains.
+        #[pallet::call_index(8)]
+        #[pallet::weight({
+            let info = call.get_dispatch_info();
+            (T::WeightInfo::as_protected_derivative().saturating_add(info.call_weight), DispatchClass::Normal)
+        })]
+        pub fn as_protected_derivative(
+            origin: OriginFor<T>,
+            index: u16,
+            call: Box<<T as Config>::RuntimeCall>,
+        ) -> DispatchResultWithPostInfo {
+            let mut origin = origin;
+            let who = ensure_signed(origin.clone())?;
+            ensure!(
+                T::DerivedAccountPolicy::requires_protection(&who),
+                DispatchError::Other("PqParentRequired")
+            );
+            let child = Self::derivative_account_id(who.clone(), index)?;
+            frame_support::storage::with_transaction(|| {
+                let result = T::DerivedAccountPolicy::on_protected_derivative(&who, &child, index);
+                if result.is_ok() {
+                    frame_support::storage::TransactionOutcome::Commit(result)
+                } else {
+                    frame_support::storage::TransactionOutcome::Rollback(result)
+                }
+            })?;
+            origin.set_caller_from(frame_system::RawOrigin::Signed(child));
+            let info = call.get_dispatch_info();
+            let result = call.dispatch(origin);
+            let weight = T::WeightInfo::as_protected_derivative()
+                .saturating_add(extract_actual_weight(&result, &info));
+            result
+                .map_err(|mut err| {
+                    err.post_info = Some(weight).into();
+                    err
+                })
+                .map(|_| Some(weight).into())
         }
     }
 

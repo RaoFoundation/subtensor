@@ -16,7 +16,7 @@ A Bittensor wallet is a pair of keys stored on disk (default
 
 ## Key material
 
-Coldkeys and hotkeys default to **sr25519**. You can also select **ed25519**, independently choosing a fixed-key (`--type standard`) or rotating
+Coldkeys and hotkeys default to **sr25519**. You can also select **ed25519** or **ML-DSA-65** (`ms`), independently choosing a fixed-key (`--type standard`) or rotating
 (`--type hashed`) account; see [wallet crypto types](/docs/guides/wallet-crypto-types).
 Standard classical accounts use SS58 prefix 42; registered accounts carry their
 scheme and mode in a receiving address. Each key is generated from a mnemonic

@@ -1,6 +1,6 @@
 """Self-contained payment addresses; never discard setup data on a write path.
 
-``bth1_`` addresses carry only the original public descriptor and checksum.
+``bth1_`` and ``tao_`` addresses carry a public descriptor and checksum.
 They contain no network field.
 Their AccountId and authorization remain the runtime's existing ones. Only the
 native codec defines the wire format and checksum.
@@ -27,7 +27,7 @@ def is_receiving_address(value: Any) -> bool:
     This is a routing predicate, not validation. Invalid family members must
     reach the strict decoder rather than fall through to a wallet-name lookup.
     """
-    return isinstance(value, str) and value.lstrip().lower().startswith("bth")
+    return isinstance(value, str) and value.lstrip().lower().startswith(("bth", "tao_"))
 
 
 def parse_recipient(value: str) -> Recipient:
@@ -52,7 +52,7 @@ def receiving_address(keypair: Any) -> str:
     Register each new hashed account and wait for finalization before publicly
     sharing its address.
     """
-    if keypair.crypto_type not in sp_core.HASHED_CRYPTO_TYPES:
+    if keypair.crypto_type not in sp_core.REGISTERED_CRYPTO_TYPES:
         return keypair.ss58_address
     return sp_core.encode_hashed_receiving_address(bytes(keypair.hashed_descriptor))
 
@@ -74,7 +74,7 @@ async def account_for_registered_write(substrate: Any, value: str) -> str:
     cannot make the resolved AccountId lose its descriptor. Never resolve an
     unregistered receiving address to an unprotected bare account on this path.
     """
-    from .hashed import descriptor_bytes
+    from .hashed import descriptor_bytes, descriptor_storage
 
     recipient = parse_recipient(value)
     if recipient.descriptor is None:
@@ -83,7 +83,10 @@ async def account_for_registered_write(substrate: Any, value: str) -> str:
     if not finalized:
         raise ValueError("could not verify finalized hashed destination registration")
     record = await substrate.query(
-        "HashedAccounts", "Accounts", [recipient.account], block_hash=finalized
+        "HashedAccounts",
+        descriptor_storage(recipient.descriptor),
+        [recipient.account],
+        block_hash=finalized,
     )
     if record is None:
         raise ValueError(
@@ -109,6 +112,6 @@ async def coerce_payment_address(substrate: Any, value: Any, param: str) -> Any:
     key = value
     if isinstance(value, (Wallet, KeyedWallet)) and not isinstance(value, Signer):
         key = public_view(value, "hotkey" if "hotkey" in param else "coldkey")
-    if getattr(key, "crypto_type", None) in sp_core.HASHED_CRYPTO_TYPES:
+    if getattr(key, "crypto_type", None) in sp_core.REGISTERED_CRYPTO_TYPES:
         return receiving_address(key)
     return as_ss58(value, param)

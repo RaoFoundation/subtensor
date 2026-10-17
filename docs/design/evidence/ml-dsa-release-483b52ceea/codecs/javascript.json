@@ -1,0 +1,60 @@
+{
+  "capture_sha256": "6eb39db92bf626b347f2858131d9c8e4e8fe646d1c85e5816fc8b12b06c7c3f2",
+  "script_sha256": "e0de549f1665d8718f17654226002d5ae3561368df25ef6c9eaa27135306c6b5",
+  "lockfile_sha256": "e56d73f0bd3cd500f2e9382eabbb19f0b504e4c8bf756b0a893cfce65ce212f4",
+  "papi_runtime_context": {
+    "source": "file:///home/johnreed/Desktop/work/subtensor/ts-tests/node_modules/.pnpm/@polkadot-api+observable-client@0.17.3_patch_hash=95d610d3203aef8be0fb05d5e4bb45c073aae_72fe93450e28c34f91a655243393c24a/node_modules/@polkadot-api/observable-client/dist/esm/utils/create-metadata-ctx.mjs",
+    "sha256": "30b248e6dce9d13ae0dd9da042f9ea267d550ac34df7dee74e17e16dd5cea9ad",
+    "identical_to_repository_decoder": true
+  },
+  "papi_packages": {
+    "@polkadot-api/observable-client": "0.17.3",
+    "@polkadot-api/substrate-bindings": "0.17.0",
+    "@polkadot-api/metadata-builders": "0.13.9"
+  },
+  "six_wallet_block": "0xefe84b21f2d343bccdd70a285f031333726a86ee82376c55a814f17a9bd14580",
+  "polkadot_js_version": "16.5.6",
+  "limitations": [
+    "Codec compatibility, not a graphical Polkadot.js application test",
+    "Current HEAD runtime uses committed reference weights",
+    "Repository PAPI retains its existing submission/block-tracking patches; its decoder is unchanged"
+  ],
+  "metadata": {
+    "14": {
+      "finalized_blocks": 1,
+      "exact_extrinsic_roundtrips": 12,
+      "wallet_types": [
+        0,
+        1,
+        4,
+        6,
+        7,
+        8
+      ]
+    },
+    "15": {
+      "finalized_blocks": 1,
+      "exact_extrinsic_roundtrips": 12,
+      "wallet_types": [
+        0,
+        1,
+        4,
+        6,
+        7,
+        8
+      ]
+    },
+    "16": {
+      "finalized_blocks": 1,
+      "exact_extrinsic_roundtrips": 12,
+      "wallet_types": [
+        0,
+        1,
+        4,
+        6,
+        7,
+        8
+      ]
+    }
+  }
+}

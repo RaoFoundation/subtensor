@@ -6,6 +6,9 @@
 
 extern crate alloc;
 
+/// Quantum-resistant account protocol, independent of the immutable v1 format.
+pub mod mldsa;
+
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 
@@ -106,6 +109,42 @@ impl Descriptor {
     }
 }
 
+/// Registration API for every supported account authentication scheme.
+///
+/// This enum selects the registration policy only. Its discriminant is never
+/// included in either protocol's permanent account ID or receiving descriptor.
+/// Both schemes use the original `register` and `check_registered` dispatchables.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+)]
+pub enum RegistrationDescriptor {
+    #[codec(index = 0)]
+    Classical(Descriptor),
+    #[codec(index = 1)]
+    MlDsa65(mldsa::Descriptor),
+}
+
+impl From<Descriptor> for RegistrationDescriptor {
+    fn from(descriptor: Descriptor) -> Self {
+        Self::Classical(descriptor)
+    }
+}
+
+impl From<mldsa::Descriptor> for RegistrationDescriptor {
+    fn from(descriptor: mldsa::Descriptor) -> Self {
+        Self::MlDsa65(descriptor)
+    }
+}
+
 /// Bounded internal Sr25519/Ed25519 signing result; not an extrinsic format.
 #[derive(
     Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen,
@@ -190,5 +229,45 @@ mod tests {
             account_id(&descriptor),
             sp_core::hashing::blake2_256(&canonical)
         );
+    }
+}
+
+#[cfg(test)]
+mod registration_tests {
+    use super::*;
+
+    #[test]
+    fn registration_selector_preserves_inner_descriptor_encodings() {
+        let classical = Descriptor {
+            version: VERSION,
+            scheme: Scheme::Sr25519,
+            initial_commitment: [3; 32],
+        };
+        let mldsa = mldsa::Descriptor {
+            version: mldsa::VERSION,
+            algorithm: mldsa::ALGORITHM,
+            initial_commitment: [5; 64],
+        };
+        for (tag, inner, registration) in [
+            (
+                0u8,
+                classical.encode(),
+                RegistrationDescriptor::from(classical),
+            ),
+            (1u8, mldsa.encode(), RegistrationDescriptor::from(mldsa)),
+        ] {
+            let encoded = registration.encode();
+            assert_eq!(encoded.split_first(), Some((&tag, inner.as_slice())));
+            assert_eq!(
+                RegistrationDescriptor::decode(&mut encoded.as_slice()),
+                Ok(registration)
+            );
+            let mut truncated = encoded
+                .split_last()
+                .map(|(_, rest)| rest)
+                .unwrap_or_default();
+            assert!(RegistrationDescriptor::decode(&mut truncated).is_err());
+        }
+        assert!(RegistrationDescriptor::decode(&mut [2u8].as_slice()).is_err());
     }
 }

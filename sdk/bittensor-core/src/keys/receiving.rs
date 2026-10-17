@@ -19,6 +19,9 @@ const PAYLOAD_LEN: usize = DESCRIPTOR_LEN;
 const CHECKSUM_LEN: usize = 8;
 const BODY_LEN: usize = PAYLOAD_LEN + CHECKSUM_LEN;
 const ADDRESS_LEN: usize = 61;
+const MLDSA_PREFIX: &str = "tao_";
+const MLDSA_LEGACY_PREFIX: &str = "bth2_";
+const MLDSA_ENCODED_BODY_LEN: usize = 99;
 
 fn validate_descriptor(bytes: &[u8]) -> Result<(), CoreError> {
     if bytes.len() != DESCRIPTOR_LEN {
@@ -49,6 +52,9 @@ fn checksum(payload: &[u8]) -> [u8; CHECKSUM_LEN] {
 /// Encode a public descriptor without a network field; addresses work on every chain.
 /// This receiving address does not change the account's existing identity.
 pub fn encode_hashed_receiving_address(descriptor: &[u8]) -> Result<String, CoreError> {
+    if descriptor.first() == Some(&subtensor_hashed::mldsa::VERSION) {
+        return encode_mldsa_receiving_address(descriptor);
+    }
     validate_descriptor(descriptor)?;
     let mut body = Vec::with_capacity(BODY_LEN);
     body.extend_from_slice(descriptor);
@@ -58,6 +64,9 @@ pub fn encode_hashed_receiving_address(descriptor: &[u8]) -> Result<String, Core
 
 /// Decode a receiving address into its original public descriptor.
 pub fn decode_hashed_receiving_address(address: &str) -> Result<Vec<u8>, CoreError> {
+    if address.starts_with(MLDSA_PREFIX) || address.starts_with(MLDSA_LEGACY_PREFIX) {
+        return decode_mldsa_receiving_address(address);
+    }
     if address.len() != ADDRESS_LEN {
         return Err(crypto_err(
             "hashed receiving address must be exactly 61 characters",
@@ -84,8 +93,55 @@ impl Keypair {
     /// Share this account's initial descriptor without disclosing
     /// its current signing key. Also works for descriptor-bearing public keys.
     pub fn hashed_receiving_address(&self) -> Result<String, CoreError> {
-        encode_hashed_receiving_address(&self.hashed_descriptor()?)
+        encode_hashed_receiving_address(&self.authorization_descriptor()?)
     }
+}
+
+fn mldsa_checksum(descriptor: &[u8]) -> [u8; CHECKSUM_LEN] {
+    let mut bytes = b"bittensor/ms/v2/receiving".to_vec();
+    bytes.extend_from_slice(descriptor);
+    let mut checksum = [0; CHECKSUM_LEN];
+    checksum.copy_from_slice(&blake2_256(&bytes)[..CHECKSUM_LEN]);
+    checksum
+}
+
+pub fn encode_mldsa_receiving_address(descriptor: &[u8]) -> Result<String, CoreError> {
+    let parsed = subtensor_hashed::mldsa::Descriptor::from_bytes(descriptor)
+        .map_err(|_| crypto_err("invalid ML-DSA receiving descriptor"))?;
+    if !parsed.is_supported() {
+        return Err(crypto_err("unsupported ML-DSA receiving descriptor"));
+    }
+    let mut body = descriptor.to_vec();
+    body.extend_from_slice(&mldsa_checksum(descriptor));
+    Ok(format!("{MLDSA_PREFIX}{}", URL_SAFE_NO_PAD.encode(body)))
+}
+
+pub fn decode_mldsa_receiving_address(address: &str) -> Result<Vec<u8>, CoreError> {
+    let encoded = address
+        .strip_prefix(MLDSA_PREFIX)
+        .or_else(|| address.strip_prefix(MLDSA_LEGACY_PREFIX))
+        .ok_or_else(|| crypto_err("unsupported ML-DSA receiving prefix"))?;
+    if encoded.len() != MLDSA_ENCODED_BODY_LEN {
+        return Err(crypto_err(
+            "ML-DSA receiving payload must be exactly 99 characters",
+        ));
+    }
+    let body = URL_SAFE_NO_PAD
+        .decode(encoded)
+        .map_err(|_| crypto_err("invalid ML-DSA receiving encoding"))?;
+    if body.len() != 74 || URL_SAFE_NO_PAD.encode(&body) != encoded {
+        return Err(crypto_err("noncanonical ML-DSA receiving address"));
+    }
+    let descriptor = &body[..66];
+    if body[66..] != mldsa_checksum(descriptor) {
+        return Err(crypto_err("ML-DSA receiving checksum mismatch"));
+    }
+    let parsed = subtensor_hashed::mldsa::Descriptor::from_bytes(descriptor)
+        .map_err(|_| crypto_err("invalid ML-DSA receiving descriptor"))?;
+    if !parsed.is_supported() {
+        return Err(crypto_err("unsupported ML-DSA receiving descriptor"));
+    }
+    Ok(descriptor.to_vec())
 }
 
 #[cfg(test)]
@@ -203,6 +259,7 @@ mod tests {
     fn alternate_spellings_padding_and_trailing_data_are_rejected() {
         let address = encode_hashed_receiving_address(&descriptor()).unwrap();
         for invalid in [
+            address.replacen("bth1_", "tao_", 1),
             address.replacen("bth1_", "bth2_", 1),
             address.replacen("bth1_", "BTH1_", 1),
             address.replacen("bth1_", "ss58_", 1),

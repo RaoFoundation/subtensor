@@ -27,6 +27,7 @@
 use super::*;
 use crate as proxy;
 use alloc::{vec, vec::Vec};
+use frame::deps::sp_io;
 use frame::testing_prelude::*;
 
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -57,6 +58,7 @@ impl pallet_utility::Config for Test {
     type RuntimeCall = RuntimeCall;
     type PalletsOrigin = OriginCaller;
     type WeightInfo = ();
+    type DerivedAccountPolicy = ();
 }
 
 #[derive(
@@ -119,10 +121,47 @@ parameter_types! {
     pub static ProxyDepositFactor: u64 = 1;
     pub static AnnouncementDepositBase: u64 = 1;
     pub static AnnouncementDepositFactor: u64 = 1;
+    pub static ProtectedTestAccount: Option<u64> = None;
+    pub static RejectProtectedCreation: bool = false;
+}
+
+pub struct ProtectedTestPolicy;
+impl Contains<(u64, u64)> for ProtectedTestPolicy {
+    fn contains(_: &(u64, u64)) -> bool {
+        true
+    }
+}
+impl crate::ProxyAccountPolicy<u64> for ProtectedTestPolicy {
+    fn requires_protection(account: &u64) -> bool {
+        ProtectedTestAccount::get() == Some(*account)
+    }
+    fn on_create_protected_pure(
+        pure: &u64,
+        spawner: &u64,
+        proxy_type: &[u8],
+        index: u16,
+        height: &[u8],
+        extrinsic_index: u32,
+    ) -> DispatchResult {
+        sp_io::storage::set(
+            b":protected-pure-test",
+            &(pure, spawner, proxy_type, index, height, extrinsic_index).encode(),
+        );
+        ensure!(
+            !RejectProtectedCreation::get(),
+            DispatchError::Other("test protection rejected")
+        );
+        Ok(())
+    }
+    #[cfg(feature = "runtime-benchmarks")]
+    fn setup_protected_benchmark(account: &u64) -> Result<u64, DispatchError> {
+        ProtectedTestAccount::set(Some(*account));
+        Ok(*account)
+    }
 }
 
 impl Config for Test {
-    type AccountPolicy = frame_support::traits::Everything;
+    type AccountPolicy = ProtectedTestPolicy;
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type ProxyType = ProxyType;
@@ -146,6 +185,8 @@ use pallet_subtensor_utility::{Call as UtilityCall, Event as UtilityEvent};
 type SystemError = frame_system::Error<Test>;
 
 pub fn new_test_ext() -> TestState {
+    ProtectedTestAccount::set(None);
+    RejectProtectedCreation::set(false);
     let mut t = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap();
@@ -158,6 +199,57 @@ pub fn new_test_ext() -> TestState {
     let mut ext = TestState::new(t);
     ext.execute_with(|| System::set_block_number(1));
     ext
+}
+
+#[test]
+fn protected_pure_creation_is_atomic_and_preserves_existing_derivation() {
+    new_test_ext().execute_with(|| {
+        ProtectedTestAccount::set(Some(1));
+        assert_noop!(
+            Proxy::create_pure(RuntimeOrigin::signed(1), ProxyType::Any, 0, 7),
+            Error::<Test>::AccountPolicyViolation
+        );
+        let pure = Proxy::pure_account(&1, &ProxyType::Any, 7, None).unwrap();
+        RejectProtectedCreation::set(true);
+        assert_noop!(
+            Proxy::create_protected_pure(RuntimeOrigin::signed(1), ProxyType::Any, 0, 7),
+            DispatchError::Other("test protection rejected")
+        );
+        assert!(!Proxies::<Test>::contains_key(pure));
+        assert_eq!(Balances::reserved_balance(1), 0);
+        assert!(sp_io::storage::get(b":protected-pure-test").is_none());
+        RejectProtectedCreation::set(false);
+        assert_ok!(Proxy::create_protected_pure(
+            RuntimeOrigin::signed(1),
+            ProxyType::Any,
+            0,
+            7
+        ));
+        assert_eq!(Proxies::<Test>::get(pure).0[0].delegate, 1);
+        assert_eq!(Balances::reserved_balance(1), 2);
+        let record = sp_io::storage::get(b":protected-pure-test").unwrap();
+        assert_eq!(
+            record.as_ref(),
+            &(
+                pure,
+                1u64,
+                ProxyType::Any.encode(),
+                7u16,
+                1u64.encode(),
+                0u32
+            )
+                .encode()
+        );
+        assert_ok!(Proxy::kill_pure(
+            RuntimeOrigin::signed(pure),
+            1,
+            ProxyType::Any,
+            7,
+            1,
+            0
+        ));
+        assert!(sp_io::storage::get(b":protected-pure-test").is_some());
+    });
 }
 
 fn last_events(n: usize) -> Vec<RuntimeEvent> {

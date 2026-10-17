@@ -1,0 +1,941 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "register",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "check_registered",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "authorize",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "authorize_ed25519",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "register_mldsa65",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "check_registered_mldsa65",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "authorize_mldsa65",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "authorize_mldsa65_invalid",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "register_derived",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "register_derived_sponsored",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "check_derived",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "set_mldsa_enabled",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "install_capability",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "revoke_capability",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "authorize_ed25519",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "check_registered",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "install_capability",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "revoke_capability",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "register_mldsa65",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "check_registered_mldsa65",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "register_derived",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "register_derived_sponsored",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "check_derived",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "set_mldsa_enabled",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "authorize_mldsa65",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "authorize_mldsa65_invalid",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "register",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "authorize",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "authorize_ed25519",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "check_registered",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "install_capability",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "revoke_capability",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "register_mldsa65",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "check_registered_mldsa65",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "register_derived",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "register_derived_sponsored",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "check_derived",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "set_mldsa_enabled",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "authorize_mldsa65",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "authorize_mldsa65_invalid",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "register",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "authorize",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "authorize_order",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "execute_authenticated_orders",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "execute_authenticated_batched_orders",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "cancel_authenticated_order",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "cancel_order",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "set_pallet_status",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "execute_orders",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "execute_batched_orders",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "prune_linked_output",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "cancel_order",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "prune_linked_output",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "set_pallet_status",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "execute_orders",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "execute_batched_orders",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "authorize_order",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "cancel_authenticated_order",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "execute_authenticated_orders",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "execute_authenticated_batched_orders",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "cancel_order",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "prune_linked_output",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "set_pallet_status",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "execute_orders",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "execute_batched_orders",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "authorize_order",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "cancel_authenticated_order",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "execute_authenticated_orders",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "execute_authenticated_batched_orders",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "create_protected_pure",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "proxy",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "proxy_announced",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "remove_announcement",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "reject_announcement",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "announce",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "add_proxy",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "remove_proxy",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "remove_proxies",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "create_pure",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "kill_pure",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "poke_deposit",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "set_real_pays_fee",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "proxy",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "proxy_announced",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "remove_announcement",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "reject_announcement",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "announce",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "add_proxy",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "remove_proxy",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "remove_proxies",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "create_protected_pure",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "create_pure",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "kill_pure",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "poke_deposit",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "set_real_pays_fee",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "proxy",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "proxy_announced",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "remove_announcement",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "reject_announcement",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "announce",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "add_proxy",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "remove_proxy",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "remove_proxies",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "create_protected_pure",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "create_pure",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "kill_pure",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "poke_deposit",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "set_real_pays_fee",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "as_protected_derivative",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "batch",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "as_derivative",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "batch_all",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "dispatch_as",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "force_batch",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "dispatch_as_fallible",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "if_else",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "with_weight",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "batch",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "as_protected_derivative",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "as_derivative",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "batch_all",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "dispatch_as",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "force_batch",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "dispatch_as_fallible",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "if_else",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "with_weight",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "batch",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "as_protected_derivative",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "as_derivative",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "batch_all",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "dispatch_as",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "force_batch",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "dispatch_as_fallible",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "if_else",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "with_weight",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "submit_encrypted_large",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "announce_next_key",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "submit_encrypted",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "set_max_pending_extrinsics_number",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "set_on_initialize_weight",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "set_stored_extrinsic_lifetime",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "set_max_extrinsic_weight",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "announce_next_key",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "submit_encrypted",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "submit_encrypted_large",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "set_max_pending_extrinsics_number",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "set_on_initialize_weight",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "set_stored_extrinsic_lifetime",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "set_max_extrinsic_weight",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "announce_next_key",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "submit_encrypted",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "submit_encrypted_large",
+      "source": "reference"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "set_max_pending_extrinsics_number",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "set_on_initialize_weight",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "set_stored_extrinsic_lifetime",
+      "source": "unchanged"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "set_max_extrinsic_weight",
+      "source": "unchanged"
+    }
+  ]
+}

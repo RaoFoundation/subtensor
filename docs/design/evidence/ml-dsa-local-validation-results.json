@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "kind": "local-candidate-validation-summary",
+  "date": "2026-10-15",
+  "branch": "codex/ml-dsa-accounts-v2",
+  "base_branch": "codex/hashed-accounts",
+  "head_and_base_commit": "f867191868d29c5b28d3afdf13f967a12f0af128",
+  "candidate_uncommitted": true,
+  "reference_weights_excluded_by_owner": true,
+  "checks": [
+    {
+      "name": "workspace-tests",
+      "command": "SKIP_WASM_BUILD=1 cargo test --locked --offline --workspace --all-features",
+      "result": {
+        "passed": 3503,
+        "failed": 0,
+        "ignored": 47,
+        "target_summaries": 88
+      },
+      "log_path": "/tmp/mldsa-mode-workspace-tests.log",
+      "log_sha256": "da13112fd4aceb413efaa325c7ee94754d4cb9de55d190aeebaa41cc68162f2e",
+      "scope_note": "Followed by the final runtime rerun below after adding the explicit metadata constant name; no other Rust source changes followed the workspace suite."
+    },
+    {
+      "name": "final-runtime-suite-and-metadata-fixture",
+      "command": "ACCOUNT_ENVELOPE_FIXTURES=/tmp/mldsa-mode-envelopes.json SKIP_WASM_BUILD=1 cargo test --locked --offline -p node-subtensor-runtime --lib",
+      "result": {
+        "passed": 154,
+        "failed": 0,
+        "ignored": 0
+      },
+      "scope_note": "Final runtime source, including MldsaAccountProfiles metadata v14/v15/v16 and both fixed/rotating profile operations.",
+      "log_path": "/tmp/mldsa-mode-runtime-final.log",
+      "log_sha256": "b095252847f00130b3d1389abade170786bd440346809f39191d2bc92e2bc78c"
+    },
+    {
+      "name": "python-unit-tests",
+      "command": "PYTHONPATH=/tmp/mldsa-native-python:sdk/python sdk/python/.venv/bin/python -m pytest sdk/python/tests/unit -q",
+      "result": {
+        "passed": 2844,
+        "skipped": 1
+      },
+      "log_path": "/tmp/mldsa-mode-python-final.log",
+      "log_sha256": "c42dee6421e0a074b9d4520cd90a1ff5472de86292593258270a076a4ee5b575"
+    },
+    {
+      "name": "clippy-default",
+      "command": "SKIP_WASM_BUILD=1 cargo clippy --locked --offline --workspace --all-targets -- -D warnings",
+      "result": {
+        "passed": true
+      },
+      "log_path": "/tmp/mldsa-mode-clippy-default-final.log",
+      "log_sha256": "77fe8c1d617fc6fa5f9395cb4ec255f54945e545414694aeab90b388acadfba3"
+    },
+    {
+      "name": "clippy-all-features",
+      "command": "SKIP_WASM_BUILD=1 cargo clippy --locked --offline --workspace --all-targets --all-features -- -D warnings",
+      "result": {
+        "passed": true
+      },
+      "log_path": "/tmp/mldsa-mode-clippy-all-final.log",
+      "log_sha256": "f968da32c9dfe58db4ab0bbcccc825c55a723d5fe42ea2b1d461c87ba39b3efe"
+    },
+    {
+      "name": "release-node-and-wasm",
+      "command": "env -u SKIP_WASM_BUILD cargo build --locked --offline --release -p node-subtensor",
+      "result": {
+        "passed": true
+      },
+      "log_path": "/tmp/mldsa-mode-release-final.log",
+      "log_sha256": "e4a10fc8b50495bcc83ccd72f295d8a857236852ddf3480cef2a1bbd0d70f039"
+    },
+    {
+      "name": "production-try-runtime-wasm",
+      "command": "env -u SKIP_WASM_BUILD cargo build --locked --offline --profile production -p node-subtensor-runtime --features try-runtime",
+      "result": {
+        "passed": true
+      },
+      "log_path": "/tmp/mldsa-mode-try-runtime-build.log",
+      "log_sha256": "a401e284d84e195b2849fc8a8267d66004b77ad37186ca96e152bd9367c56838"
+    },
+    {
+      "name": "preflight",
+      "command": "PREFLIGHT_BASE=codex/hashed-accounts UV_CACHE_DIR=/tmp/mldsa-uv-cache PYTHONPATH=/tmp/mldsa-native-python:sdk/python scripts/preflight.sh",
+      "result": {
+        "passed": false,
+        "failed_gate": "push actor is unarbos",
+        "observed_actor": "UnArbosSix",
+        "required_actor": "unarbos",
+        "heavy_checks": "Skipped by preflight after actor failure; independently executed as recorded above.",
+        "exit_code": 141,
+        "technical_cheap_gates_passed": true,
+        "failure_count": 1,
+        "exit_note": "The failed-gate summary is complete; its git status | head -n 30 diagnostic then triggers SIGPIPE under pipefail on this large diff."
+      },
+      "log_path": "/tmp/mldsa-mode-preflight-final.log",
+      "log_sha256": "3809fea35ebccb57ead43b61f7a6aa14941add0c5969f672acc0a689a6e14704"
+    }
+  ],
+  "runtime_artifacts": [
+    {
+      "profile": "release",
+      "features": "default node features",
+      "path": "target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm",
+      "sha256": "3930cb27c6910a0d36d21759fc9e618301847291604715d112600b7d25dcabcb",
+      "size_bytes": 2978527
+    },
+    {
+      "profile": "production",
+      "features": "try-runtime",
+      "path": "target/production/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm",
+      "sha256": "f14681d75696dbed9c0e61d86a0ea182fc4162dd0b2fc8e6eba6e5570b5931d7",
+      "size_bytes": 2865022
+    }
+  ],
+  "limitations": [
+    "The aggregate Rust/Python suites are unit and integration tests; ignored or skipped cases were not counted as passed.",
+    "Production ML-DSA activation remains disabled and new weights fail closed.",
+    "Preflight is not green because the configured push actor differs from repository policy.",
+    "This summary is not external cryptographic audit evidence or finalized ML-DSA block/UI validation.",
+    "No full per-call direct/proxy/multisig execution matrix or activated production ML-DSA finalized transaction is established."
+  ],
+  "separate_evidence": [
+    "ml-dsa-mainnet-upgrade-results.json",
+    "ml-dsa-wire-codec-results.json",
+    "ml-dsa-papi-codec-results.json",
+    "ml-dsa-native-installed-results.json",
+    "ml-dsa-native-current-results.json",
+    "ml-dsa-sdk-codec-results.json",
+    "ml-dsa-api-compatibility-results.json",
+    "ml-dsa-node-admission-results.json",
+    "ml-dsa-release-verifier-differential-results.json",
+    "ml-dsa-operation-inventory-results.json",
+    "ml-dsa-wallet-modes-results.json"
+  ],
+  "implementation_diff": {
+    "command": [
+      "git",
+      "diff",
+      "--binary",
+      "HEAD",
+      "--",
+      "Cargo.toml",
+      "Cargo.lock",
+      "chain-extensions",
+      "eco-tests",
+      "node",
+      "pallets",
+      "primitives",
+      "runtime",
+      "runtime-common",
+      "sdk",
+      "vendor",
+      "precompiles"
+    ],
+    "sha256": "e14c1bc8bc25654ae65b4dc0da67ef56646e4da4abe1accba5297976d1a6df2e",
+    "excludes": "Documentation, validation-only harnesses/results, and website generated catalogs.",
+    "note": "Uncommitted implementation identity; artifact hashes separately identify each built Wasm."
+  }
+}

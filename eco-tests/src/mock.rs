@@ -406,6 +406,7 @@ impl pallet_scheduler::Config for Test {
 impl pallet_utility::Config for Test {
     type RuntimeCall = RuntimeCall;
     type PalletsOrigin = OriginCaller;
+    type DerivedAccountPolicy = ();
     type WeightInfo = pallet_utility::weights::SubstrateWeight<Test>;
 }
 

@@ -510,5 +510,25 @@ describeSuite({
                 }
             },
         });
+
+        it({
+            id: "T12",
+            title: "Repeated gas estimates and calls tolerate execution backpressure",
+            test: async () => {
+                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, provider);
+                const account = ethers.ZeroHash;
+                const data = contract.interface.encodeFunctionData("getProxies", [account]);
+                for (let index = 0; index < 12; index++) {
+                    const gas = await provider.send("eth_estimateGas", [{ to: IPROXY_ADDRESS, data, gasPrice: "0x0" }]);
+                    expect(BigInt(gas)).toBeGreaterThan(0n);
+                    const result = await provider.send("eth_call", [
+                        { to: IPROXY_ADDRESS, data, gasPrice: "0x0" },
+                        "latest",
+                    ]);
+                    const [proxies] = contract.interface.decodeFunctionResult("getProxies", result);
+                    expect(proxies.length).toEqual(0);
+                }
+            },
+        });
     },
 });

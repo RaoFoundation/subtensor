@@ -2242,7 +2242,7 @@ fn make_signed_order_with_slippage(
     let sig = keyring.pair().sign(&order_signing_payload(&order));
     crate::SignedOrder {
         order,
-        signature: sp_runtime::MultiSignature::Sr25519(sig),
+        signature: crate::OrderSignature::Sr25519(sig),
         partial_fill: None,
     }
 }
@@ -3045,7 +3045,7 @@ fn execute_orders_partial_fill_without_relayer_skipped() {
             .sign(&order_signing_payload(&versioned));
         let signed = crate::SignedOrder {
             order: versioned,
-            signature: sp_runtime::MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: Some(400),
         };
         let id = order_id(&signed.order);

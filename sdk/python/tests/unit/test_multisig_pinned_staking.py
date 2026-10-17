@@ -74,7 +74,7 @@ def setup():
     codec = CallCodec()
     chain.compose = AsyncMock(side_effect=lambda call: codec.compose_call(*call))
     chain.decode_scale = AsyncMock(side_effect=codec.decode)
-    chain.seed_constant("HashedAccounts", "Enabled", True)
+    chain.seed("AdminUtils", "HashedAccountsEnabled", [], True)
     chain.seed_constant("HashedAccounts", "RegistrationDeposit", 200_000_000)
     chain.seed_runtime(*SwapRuntimeApi.current_alpha_price, 1_000_000_000)
     chain.seed_runtime(

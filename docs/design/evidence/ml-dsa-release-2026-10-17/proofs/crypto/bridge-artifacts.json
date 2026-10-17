@@ -1,0 +1,20 @@
+{
+  "node_fingerprint": "/home/johnreed/Desktop/work/subtensor/target/release/.fingerprint/node-subtensor-b2d0c969a30cfc38/bin-node-subtensor.json",
+  "library": "/home/johnreed/Desktop/work/subtensor/target/release/deps/libsubtensor_hashed-6c034fa434257001.rlib",
+  "library_sha256": "b8d2c60a5a2aae6d4610516050f8b2efdc5c82a4ad48e264e59f28fcbda3e4ce",
+  "bridge_source_sha256": "9aff493b4b2bc28b80b5a6c1ca152057379b8b2074863ba604408769e8d9cc33",
+  "bridge_binary_sha256": "84480298af93b1187bebfc3218011531b8fdd0a38dfefda4b3ba6cb3b2e786cd",
+  "command": [
+    "/home/johnreed/.cargo/bin/rustc",
+    "--edition=2021",
+    "--crate-type=cdylib",
+    "-O",
+    "/tmp/ms-head-validation-20261017/crypto/primitive_bridge.rs",
+    "-o",
+    "/tmp/ms-head-validation-20261017/crypto/libprimitive_bridge.so",
+    "-L",
+    "dependency=/home/johnreed/Desktop/work/subtensor/target/release/deps",
+    "--extern",
+    "subtensor_hashed=/home/johnreed/Desktop/work/subtensor/target/release/deps/libsubtensor_hashed-6c034fa434257001.rlib"
+  ]
+}

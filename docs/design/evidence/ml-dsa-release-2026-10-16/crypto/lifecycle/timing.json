@@ -1,0 +1,37 @@
+{
+  "minimum_period": 6000,
+  "samples": [
+    {
+      "height": 7,
+      "hash": "0x2442dbc555a22051513667269b48c414d99000a6a77e74917229394918cb6adb",
+      "timestamp_ms": 1792181124000
+    },
+    {
+      "height": 8,
+      "hash": "0xc50c8ebe2c7a5a5efe5b097194b9c20b9019a3d08cbb47174d6652d7926cd1f8",
+      "timestamp_ms": 1792181136000
+    },
+    {
+      "height": 9,
+      "hash": "0x62ae7298e8d62c25de062d24262a09b081b337e4d27ac13e09c5dd20916783a1",
+      "timestamp_ms": 1792181148000
+    },
+    {
+      "height": 10,
+      "hash": "0x69ec6062cebf565b301bdd35c4df8624c146d45b150c3d445eedeb66ad73e8ee",
+      "timestamp_ms": 1792181160000
+    },
+    {
+      "height": 11,
+      "hash": "0xec8d218a114a10c7fc887c65608b96a01bf02510b3bf85a1fd95d2ceb85e5f2b",
+      "timestamp_ms": 1792181172000
+    }
+  ],
+  "timestamp_deltas_ms": [
+    12000,
+    12000,
+    12000,
+    12000
+  ],
+  "genesis_state_still_available": true
+}

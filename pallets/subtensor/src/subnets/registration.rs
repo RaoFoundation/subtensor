@@ -422,6 +422,9 @@ impl<T: Config> Pallet<T> {
         );
 
         // --- 3. Ensure the supplied work passes the difficulty.
+        // H256::from_slice requires exactly 32 bytes. Reject malformed public
+        // input before conversion so it cannot panic while importing a block.
+        ensure!(work.len() == 32, Error::<T>::InvalidSeal);
         let difficulty: U256 = U256::from(1_000_000); // Base faucet difficulty.
         let work_hash: H256 = Self::vec_to_hash(work.clone());
         ensure!(

@@ -15,6 +15,7 @@ Layers:
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 
 import pytest
 from typer._click.core import Context
@@ -183,13 +184,18 @@ def test_help_exits_zero(path: tuple[str, ...]):
 
 
 @pytest.mark.parametrize("op", sorted(INTENT_REGISTRY))
-def test_tx_dry_run_from_sample(op: str, fake: FakeSubstrate):
+def test_tx_dry_run_from_sample(op: str, fake: FakeSubstrate, wallet_dir):
+    sample = deepcopy(INTENT_SAMPLES[op])
+    if op in ("authorize_order", "cancel_order"):
+        sample["order"]["V1"]["signer"] = wallets.open_wallet(
+            name=_WALLET_NAME, path=wallet_dir
+        ).coldkeypub.ss58_address
     result = invoke(
         "--json",
         "--dry-run",
         "tx",
         op.replace("_", "-"),
-        *argv_from_sample(INTENT_SAMPLES[op], lists="json"),
+        *argv_from_sample(sample, lists="json"),
     )
     assert result.exit_code == 0, result.output
     plan = json.loads(result.output)

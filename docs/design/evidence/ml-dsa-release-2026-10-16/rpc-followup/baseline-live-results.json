@@ -1,0 +1,110 @@
+{
+  "mode": "baseline",
+  "at": "2026-10-16T22:46:12.483235+00:00",
+  "endpoint": "http://127.0.0.1:20546",
+  "script_sha256": "6a26325fef7ac6dd69ecc2ec13b6fabac22e864525810308bf56e048e2cac1bf",
+  "genesis": "0x2886d2bd6fa98140218546c91a45648c0b3d00ed450681c83397c14647745595",
+  "runtime_wasm_sha256": "8a928b07796c445d864ae021562629cf9524e2a30d940e8b490234c33e769377",
+  "existential_deposit_rao": 500,
+  "pending_overlay": {
+    "target": "0xb1128bbb892fb40a0cc7bf37c6766547188fa7aa",
+    "tx": "0x1ed16711bc87337cd928b977d121b4c7419006009aeef98cf0ae2ee5a787b0c4",
+    "latest_balance": {
+      "result": "0x0",
+      "seconds": 0.00027133594267070293
+    },
+    "pending_balance": {
+      "result": "0xde0b63f3d117800",
+      "seconds": 0.012767731910571456
+    },
+    "pending_call": {
+      "error": "evm error: OutOfFund: 0x",
+      "seconds": 0.011108560021966696
+    },
+    "pending_estimate": {
+      "error": "Create pending runtime api error: Failed to call runtime API, Execution failed: Other: Local runtime execution capacity reached; retry later",
+      "seconds": 0.0019900379702448845
+    },
+    "latest_balance_after": {
+      "result": "0x0",
+      "seconds": 0.00030306295957416296
+    },
+    "finalized": {
+      "block_hash": "0x7b9a9905e4db4bf610c85ed8c69891e8aa22100d3774b94e0bf573e795ad949e",
+      "balance_rao": 1000000000
+    }
+  },
+  "existential_deposit_control": {
+    "below_ed_latest_call": {
+      "error": "evm error: OutOfFund: 0x",
+      "seconds": 0.0006289100274443626
+    },
+    "valid_latest_call": {
+      "result": "0x",
+      "seconds": 0.0003148110117763281
+    }
+  },
+  "isolation": {
+    "unknown_requests": 68,
+    "capacity_rejections": 50,
+    "direct_pending_export": {
+      "error": "Client error: Execution failed: Other: Local runtime execution capacity reached; retry later",
+      "seconds": 0.0005474349018186331
+    },
+    "pending_balance": {
+      "error": "Create pending runtime api error: Failed to call runtime API, Execution failed: Other: Local runtime execution capacity reached; retry later",
+      "seconds": 0.00011165090836584568
+    },
+    "latest_balance": {
+      "result": "0xde0b63f3d117800",
+      "seconds": 0.00013219390530139208
+    }
+  },
+  "populated_pool": {
+    "target": "0x4ef9a3f39cfdf88538b07f6dd157e5ace7cbbd05",
+    "txs": [
+      "0x3b02844b385a5cadfb9efe39eb27d94e0db305fcf95ef5b815077aaf3fbd965f",
+      "0x9dbc2128c81d91f5afd2690c0bf66ce1503d6ed85adb7e69ab6b2ad9bd2de887",
+      "0x9c9f5057fdd5c93f796f7c7167c4e0e24c4b5cfb5c2b5a4eb535d8f03af78514",
+      "0x4e2fd311c62c9c9c47e12abd373931221f89725aaf733ef1625f4f2bb294d7f0",
+      "0x93605b131306c5c612ddcb18b22d8d5547b4e6a943943f404b9d6e4c44abc711",
+      "0xaacbd54a69f65465c31c25382e7accfc7f5da58b2fd0b87c0e5ce3f15ddb742d",
+      "0x4a97642934753ea5d52e793eaa23f4bdeca2fc19e7f1de7d51636d43868ad7c5",
+      "0x20ec301032c8812200768fcfc26e024c990ae63aae8b349d4bc0bac5cd5ea4de",
+      "0x9c5e427adc1c20ddd5ba049d0cacbacb5a8dc17ab59aa7f634bad92ad3ea79ff",
+      "0x524b1a7a4f6e72ebd5ae1d2b604479449769c5e21414ac0c25ca8f215752178f",
+      "0x826b24995e5674ce254a9c82e5a1eb9dce1fdef65d2719872224c00307d9dbbc",
+      "0x7a5779e877366f4ec7c118880869440bb69201d1e2790d2efd5b6fa0ca7caa10",
+      "0xb2cd51e6622429ca415ed49f971f1e05b8baa3b1f0566c06048b0c1dcde51b5e",
+      "0x8c8c3a716caafbbf5dc596855c72380fbdbf0ecec42405c82ce244dfd7e3f2f7",
+      "0xff8bd6766ca9ba97c4da29e8b406e8395edd37eeb9dbf7207bff16f34d703c71",
+      "0x522354b2f314504f023fab8bfafdad13bd636b5fa0a263bad23995da31583ba3",
+      "0x2c81e96095d0d93ca6daaa2556c8837f164f43b8096e6e6b919fcf282a65e0ae",
+      "0x963836ff381d0ae9717f645069c595ce3af8136bca4fbbdc1fa56d60b926a36a",
+      "0x22fd26ab9d254834b0d562eea89f61bf70c8dfb7bc89a22f212e74fbb474621e",
+      "0xefde289a1a37cbd0cd65a5d0914b175bf9211cc682780b400e4bf4c33a953798",
+      "0x76396e7aecde55a0d0e8a94567ceddc93b77047edb1f9ee1cfbf22bab0a17a16",
+      "0x0ce815de4f2b0f796ed4a7f0498b524d5d1f70d84022f8765df73c9e4b43bcc9",
+      "0xcaace9c6019b86812050a837f1551db249a4c7dfaa26d4f75b52059a51c5b5bb",
+      "0x5fa452973605eda37e682648ee3cd915df3c13ab19fadd236e723f82043620aa",
+      "0x6f6fa43a19b4e31c106f153ce33d11e1647a1edff6a008d5b2662e0ed24eeaf2",
+      "0xe5ed0aa4446ae6d56e5c8277b9cc222d9d4be35c1756fd63aadce22233006290",
+      "0x891d8120dc96c44f4564ba1631bc42c87266e746034461076e6cfd8ed190fff8",
+      "0xc9e9ba97317cf80e9e8f131ffa6ab06cacf2870d718572f65f08b64e2587ce42",
+      "0x91d99fa5350ca27046ff42b83fa65119848c0af93038c2e393c54e0b3a847816",
+      "0x6fe2ee266d181f6d5453ae1957715c4c733c0d7660810a580988b136a1beaa56",
+      "0x5e9e53f30d77910961bec6da7ff6733f7b8d76e295d120cf9c9534617aa530c2",
+      "0x1a563fe1bc772d9fad34859740010fe32e6eb67bd359c9165ab9afe0ee71b05b"
+    ],
+    "pool_count": 32,
+    "pending_balance": {
+      "error": "Create pending runtime api error: Failed to call runtime API, Execution failed: Other: Local runtime execution capacity reached; retry later",
+      "seconds": 0.017132317065261304
+    },
+    "finalized": {
+      "block_hash": "0x51ced285a32474c7222daee23603c9e8d674a58d5cfa0bc8f1bc186d9925de46",
+      "balance_rao": 32000000000
+    }
+  },
+  "status": "passed"
+}

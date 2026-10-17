@@ -1,0 +1,37 @@
+{
+  "scope": "Exact source-extracted production outcome helper, complete production Error enum, and all three source tests; full pending_runtime_api module is compiled separately by production node build.",
+  "baseline": "2d5089da3bcb292cbf557d9b22ff34582e23b3f4",
+  "source": "/home/johnreed/Desktop/work/subtensor/vendor/frontier/client/rpc/src/eth/pending.rs",
+  "source_sha256": "8fe8459a180a6e33eb275d6981fde3badb4dd4cc519d7b85e23673a5ffe849ed",
+  "harness_sha256": "d67f271553989c1793810060aa998557d4544ec01975ce5fd59ec5d32e5a370e",
+  "fc_rpc_fingerprint": "/home/johnreed/Desktop/work/subtensor/target/release/.fingerprint/fc-rpc-aedec679c1019fe8/lib-fc_rpc.json",
+  "dependencies": {
+    "thiserror": {
+      "path": "/home/johnreed/Desktop/work/subtensor/target/release/deps/libthiserror-e9ea9899524592b7.rlib",
+      "sha256": "73449f52a667d990a6784756525b7fad0175c661696334b5bd2273d43058f9e4"
+    },
+    "sp_blockchain": {
+      "path": "/home/johnreed/Desktop/work/subtensor/target/release/deps/libsp_blockchain-4a2126677d4f372b.rlib",
+      "sha256": "8bf8385939e6951b5829c2be573546add160b49adb5fa83cb259dee2c586f507"
+    },
+    "sp_inherents": {
+      "path": "/home/johnreed/Desktop/work/subtensor/target/release/deps/libsp_inherents-3871aec0226c3205.rlib",
+      "sha256": "98147460cae52fdc14e86fbbf8d0f86a5438f064bb375c353c71fd00db8994ff"
+    },
+    "fp_rpc": {
+      "path": "/home/johnreed/Desktop/work/subtensor/target/release/deps/libfp_rpc-9e02952436669260.rlib",
+      "sha256": "01b296fe2a189a3ef649dcfca805526ebc3887a8991f6ce7c9dfad7f050e5cf3"
+    },
+    "sp_api": {
+      "path": "/home/johnreed/Desktop/work/subtensor/target/release/deps/libsp_api-ddcd4a3aaaf096f0.rlib",
+      "sha256": "c5942928bd06db36331e8bdaf6baa2093a6e11c1b646efed2bc385e022939ce3"
+    },
+    "sp_runtime": {
+      "path": "/home/johnreed/Desktop/work/subtensor/target/release/deps/libsp_runtime-0738ba1787b205ca.rlib",
+      "sha256": "0b63e4e3d23162aab9ce4b7ba29131e31b64b3436ac451add82a92e6e011172d"
+    }
+  },
+  "status": "PASS",
+  "test_count": 3,
+  "rustc": "rustc 1.89.0 (29483883e 2025-08-04)\nbinary: rustc\ncommit-hash: 29483883eed69d5fb4db01964cdf2af4d86e9cb2\ncommit-date: 2025-08-04\nhost: x86_64-unknown-linux-gnu\nrelease: 1.89.0\nLLVM version: 20.1.7\n"
+}

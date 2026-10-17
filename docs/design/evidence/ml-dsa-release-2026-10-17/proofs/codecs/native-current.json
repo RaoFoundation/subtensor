@@ -1,0 +1,36 @@
+{
+  "label": "current-head-sdk",
+  "capture_sha256": "30a64b6349625eb2d88839067bee3bda25909239d0e7d7b23ec957251716f25a",
+  "binding_sha256": {
+    "bittensor_core.abi3.so": "1ce5cc4c587d885f883d4e1e8f9f8b05f7f972d3b293a43392818475a355c3d4"
+  },
+  "six_wallet_block": "0x7abbbc6b0273265911b1c4b6b14b5cbb53766a05062e94e7185fddcf69ce8f95",
+  "metadata": {
+    "14": {
+      "extrinsics_decoded": 12,
+      "wallet_types": [
+        0,
+        1,
+        4,
+        6,
+        7,
+        8
+      ]
+    },
+    "15": {
+      "extrinsics_decoded": 12,
+      "wallet_types": [
+        0,
+        1,
+        4,
+        6,
+        7,
+        8
+      ]
+    },
+    "16": {
+      "supported": false,
+      "reason": "unsupported metadata version V16"
+    }
+  }
+}

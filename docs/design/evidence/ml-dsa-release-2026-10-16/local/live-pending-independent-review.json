@@ -1,0 +1,31 @@
+{
+  "kind": "independent-offline-review-of-recorded-live-pending-integration",
+  "verified_at": "2026-10-16T20:14:20.889361+00:00",
+  "verdict": "PASS for fail-closed pending-state correctness; availability remains incomplete",
+  "record_sha256": "91b4bfd6b14bd1d1820b9851ac58837974f477bc695a724506b0d152951fbff2",
+  "console_log_sha256": "91b4bfd6b14bd1d1820b9851ac58837974f477bc695a724506b0d152951fbff2",
+  "test_script_sha256": "30e97ae1b7d48df5afb3e796d6e7d02bb8d3ab77a0459e9aca6a403adfd21f87",
+  "raw_result_equals_console_log": true,
+  "node_genesis_matches_independent_admission_record": true,
+  "unique_submitted_transaction_hashes": 32,
+  "observed_pending_pool_entries": 36,
+  "pending_observation": "Explicit local execution capacity error; no successful partial balance returned",
+  "native_destination_matches_evm_backing_account": true,
+  "finalized_balance_rao": 32000000000,
+  "finalized_balance_tao": 32,
+  "finalized_block": "0xa4f706dbd8dc5f610c28aa0353e9d5f082aee6af47f608a5a1123392ac900e1e",
+  "test_assertions_reviewed": [
+    "zero initial destination EVM balance",
+    "reject any successful pending balance unequal to all 32 transfers",
+    "require actual capacity error",
+    "query native destination at chain_getFinalizedHead until exactly 32 TAO"
+  ],
+  "limits": [
+    "Offline evidence review, not a new RPC execution",
+    "Finalized aggregate balance is recorded; separate inclusion receipts for all 32 hashes are not preserved in this artifact",
+    "Only an overload pending response was observed; this does not prove a successful pending reconstruction",
+    "The 36-entry pool itself exposes the residual Other-bucket/per-extrinsic availability gap"
+  ],
+  "availability_finding": "MEDIUM: unknown runtime exports and pending-block construction share Service::Other; per-extrinsic immediate admission errors prevent legitimate sufficiently large fast pending rebuilds",
+  "release_ready": false
+}

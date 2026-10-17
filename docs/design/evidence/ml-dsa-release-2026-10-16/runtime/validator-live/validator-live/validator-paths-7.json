@@ -1,0 +1,121 @@
+{
+  "crypto_type": 7,
+  "accounts": {
+    "owner": "5H4DmDHNHsDyKyZ3AH7Ab1qG1tv8An5tSXkCzokVyKsH14Gr",
+    "validator": "5CGnqc1Ee7vmSonC7RCWtGoahAkd94djeSXYmGtBHdN2Zw82",
+    "miner": "5F3eR6vpSgjNDvpYCLVoYdABA8SWoAvUL87njMoNaMYdL3E8"
+  },
+  "subnet_tempo": 6,
+  "normal_block_timing": true,
+  "successful": false,
+  "receipts": [
+    {
+      "operation": "Alice atomic descriptor registration and funding",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xfeaae1cf3197ee50b1975396ac8f4b089048b1a58325c9df6f6242925e1039d9",
+      "extrinsic_id": "207-0006",
+      "fee_tao": 0.000345402
+    },
+    {
+      "operation": "register_subnet",
+      "success": true,
+      "message": "Subnet 12 registered.",
+      "block_hash": "0x30992d702067c9f4b45e24204e12a4f3b5cf86d5c0a89f67244c393b66ee1d31",
+      "extrinsic_id": "210-0008",
+      "fee_tao": 0.001982377,
+      "data": {
+        "netuid": 12,
+        "registration_mode": "immediate",
+        "registered_at_block": 210,
+        "registration_price_rao": 1000000000000
+      }
+    },
+    {
+      "operation": "Alice subnet-local setup",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xadab41204d60b17da9e4b066f4658996701c287db73fa4ce5bd187ee225b9183",
+      "extrinsic_id": "213-0006",
+      "fee_tao": 0.001130311
+    },
+    {
+      "operation": "burned_register",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x8f5dfe134bc182014273a473a8435546972c20abb50cafc08fc703697e80f275",
+      "extrinsic_id": "217-0007",
+      "fee_tao": 0.001216489,
+      "data": {
+        "shielded": true,
+        "inner_extrinsic_hash": "0xc7491159485668e0f05c369171f037083ec382bd75a8fa323300deb9c3bea99a"
+      }
+    },
+    {
+      "operation": "set_weights",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xa193f07550390fbd212b676f9a0bd68612fc0adbe75b64760d7f3c926575038d",
+      "extrinsic_id": "220-0009",
+      "fee_tao": 0.0
+    },
+    {
+      "operation": "add_stake",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x3d9d44a2d42ade612a891688b39f82f0de1bf944e58875768ceac2bf958ab49b",
+      "extrinsic_id": "223-0009",
+      "fee_tao": 0.000958321
+    },
+    {
+      "operation": "AdminUtils.sudo_set_epoch_consensus",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x8c42b127325b70e5b0ccdc78d4aab80b9183b32c48f3c33320c7cc830f058166",
+      "extrinsic_id": "226-0007",
+      "fee_tao": 0.000483639
+    },
+    {
+      "operation": "set_weights",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xae9b22a862924ddfec9140e674185399f6e2a2c4fcc13393c5a9c4314bab28e7",
+      "extrinsic_id": "229-0009",
+      "fee_tao": 0.0
+    },
+    {
+      "operation": "Commitments.set_commitment",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x80e8d3a017d1f022e86e4a5893c58179b543ca920c1d8a3082d08b77bb687871",
+      "extrinsic_id": "232-0007",
+      "fee_tao": 0.0
+    },
+    {
+      "operation": "Commitments.set_commitment",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x72776677bd30639abfcb631f441130e33c1844a7fe85c117695482b54c891022",
+      "extrinsic_id": "235-0006",
+      "fee_tao": 0.0
+    }
+  ],
+  "netuid": 12,
+  "validator_uid": 0,
+  "miner_uid": 1,
+  "null_permit": [
+    true,
+    false
+  ],
+  "plain_commitment": {
+    "deposit": 0,
+    "block": 232,
+    "info": {
+      "fields": [
+        {
+          "BlakeTwo256": "0x256990251e7c01164da199efeabee6189a480457ca2b2fbb1d65f91997382941"
+        }
+      ]
+    }
+  }
+}

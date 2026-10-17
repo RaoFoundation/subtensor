@@ -1,0 +1,210 @@
+{
+  "head": "437053f80d5ebebce950602b168901bfe6591483",
+  "preflight": {
+    "exit_code": 0,
+    "log_sha256": "e9e69d65214ed92b1b828bc92c3853b90a2cff39e7d67b4c5b38b1d712cd0eb2",
+    "base_ref": "origin/main",
+    "merge_base": "7ba9601d8",
+    "rust_tests_passed": 3582,
+    "rust_tests_failed": 0,
+    "rust_tests_ignored": 47,
+    "test_and_doc_test_targets": 88,
+    "migration_gate": "skipped: no migration change"
+  },
+  "sdk": {
+    "full_run_passed": 3560,
+    "full_run_skipped_live_e2e": 83,
+    "full_run_skipped_offline": 1,
+    "optional_legacy_fernet_rerun_passed": 1,
+    "distinct_offline_cases_passed": 3561,
+    "final_source_collection_count": 3656,
+    "type_check_exit_code": 0,
+    "configured_type_check_diagnostics": 251,
+    "collection_count_precedes_later_live_test_additions": true
+  },
+  "default_feature_cooldown_test": {
+    "exit_code": 0,
+    "passed": 1,
+    "covers_every_wallet_mode": true
+  },
+  "wasm_checks": [
+    {
+      "name": "core-wasm32",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "--offline",
+        "-p",
+        "bittensor-core",
+        "--no-default-features",
+        "--target",
+        "wasm32-unknown-unknown"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.513
+    },
+    {
+      "name": "binding-wasm32",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "--offline",
+        "-p",
+        "bittensor-core-wasm",
+        "--target",
+        "wasm32-unknown-unknown"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.445
+    },
+    {
+      "name": "wasm-pack",
+      "command": [
+        "wasm-pack",
+        "build",
+        "sdk/bittensor-core-wasm",
+        "--target",
+        "nodejs",
+        "--out-dir",
+        "pkg-node",
+        "--no-opt",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 4.732
+    },
+    {
+      "name": "wasm-smoke",
+      "command": [
+        "node",
+        "sdk/bittensor-core-wasm/tests/smoke.mjs"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.089
+    }
+  ],
+  "commit_or_push": false,
+  "mainnet_rehearsal": {
+    "successful": true,
+    "verified_result_file": "mainnet/verified-results.json",
+    "verified_result_sha256": "b649bb39b447bce0e33bfcca5e121f269d8cf43e2f082d896cc4ed733f335c18",
+    "runtime_wasm_sha256": "051c728e802dac137ab310fb05ee6650c0bf3a547ae871b2d4dc631988f3ac17",
+    "snapshot_sha256": "2137098d116fdf4adb14e3b6edf1dd2cb800095f4e39d1a4eab8e14bb7bd99b5",
+    "cached_snapshot_height": 9290353,
+    "cached_snapshot_finalized_hash": "0xc6f4878f6a5ea1c102f4f5db383b076811cfb8815287d5bafef8bb3bbcbe6706",
+    "cached_snapshot_state_root": "0x1b72cb61c0abb19fcca55ec28a5e2e29826fdbd089bf8093aca2dfe89e04a5e9",
+    "cached_snapshot_age_hours_at_run": 49.29,
+    "fresh_snapshot": false,
+    "runtime_versions": [
+      479,
+      480
+    ],
+    "upgrade_checks": "All",
+    "spec_version_check_enabled": true,
+    "migrations_idempotent": true,
+    "observed_successful_blocks": 10,
+    "all_block_checks": "state root, signature, try-state All, entire runtime state decodes",
+    "block_scope": "10 synthetic post-upgrade blocks; not a replay of every historical or future transaction",
+    "fresh_mainnet_head_file": "mainnet/current-mainnet-head.json",
+    "fresh_mainnet_height": 9305151,
+    "fresh_mainnet_spec_version": 479,
+    "candidate_spec_version_exceeds_current_mainnet": true,
+    "reference_weight_measurements": false,
+    "chain_writes": false
+  },
+  "production_source_edits_by_this_validation_agent": false,
+  "fixture_edits_by_this_validation_agent": [
+    {
+      "path": "sdk/python/tests/e2e/test_mixed_multisig.py",
+      "scope": "explicit registration deposit cap for positive funding; shared Alice lock and finalization for sponsor submissions",
+      "validation": "ruff check, ruff format --check, diff-check, full24-case live suite passed with0failures/errors/skips"
+    }
+  ],
+  "preflight_rpc_port_9977_has_no_listener": true,
+  "runtime_source_diff_after_validation": [],
+  "lockfile_hashes_still_match": true,
+  "executive_matrix_scope": {
+    "file": "executive-matrix-scope.json",
+    "sha256": "2a0a5b34434db663a45821bb2fa9b12db59b6992a1bc2052ef390de65825fd5d",
+    "all_features_metadata_variants": 326,
+    "encodable_variants": 324,
+    "executive_dispatch_variants": 323,
+    "modes": 4,
+    "executive_pool_and_dispatch_cases": 1292,
+    "ethereum_signed_wrapper_rejections": 4,
+    "scope": "Minimal metadata fixtures; authentication/dispatch parity, not successful business state for all operations"
+  },
+  "ignored_rust_classification": {
+    "file": "ignored-rust-classification.json",
+    "sha256": "c11f90790c203bcfcb7cc117d4ca53e2253374deda6795a0149c193415709748",
+    "total": 47,
+    "ignored_mldsa_tests": 0,
+    "unexplained_legacy_ignore": "test_add_stake_total_issuance_no_change; unrelated staking case ignored since2023; not claimed passed"
+  },
+  "mainnet_metadata_hash_rehearsal": {
+    "successful": true,
+    "verified_result_file": "mainnet-metadata-hash/verified-results.json",
+    "verified_result_sha256": "3d7d3a2687b52ac32cf264c7ad3d1b0e647088293f896fb101cdcf1336a765f6",
+    "runtime_wasm_sha256": "a847e29c66bb8b6a6e116f2fdc2d81db0f99b2f9963f5c1f59682e404d3a1045",
+    "snapshot_sha256": "2137098d116fdf4adb14e3b6edf1dd2cb800095f4e39d1a4eab8e14bb7bd99b5",
+    "cached_snapshot_height": 9290353,
+    "cached_snapshot_finalized_hash": "0xc6f4878f6a5ea1c102f4f5db383b076811cfb8815287d5bafef8bb3bbcbe6706",
+    "cached_snapshot_state_root": "0x1b72cb61c0abb19fcca55ec28a5e2e29826fdbd089bf8093aca2dfe89e04a5e9",
+    "cached_snapshot_age_hours_at_run": 49.727,
+    "fresh_snapshot": false,
+    "runtime_versions": [
+      479,
+      480
+    ],
+    "upgrade_checks": "All",
+    "spec_version_check_enabled": true,
+    "migrations_idempotent": true,
+    "observed_successful_blocks": 10,
+    "all_block_checks": "state root, signature, try-state All, entire runtime state decodes",
+    "block_scope": "10 synthetic post-upgrade blocks; not a replay of every historical or future transaction",
+    "fresh_mainnet_head_file": "mainnet-metadata-hash/current-mainnet-head.json",
+    "fresh_mainnet_height": 9305151,
+    "fresh_mainnet_spec_version": 479,
+    "candidate_spec_version_exceeds_current_mainnet": true,
+    "reference_weight_measurements": false,
+    "chain_writes": false,
+    "build_features": [
+      "try-runtime",
+      "metadata-hash"
+    ],
+    "build_profile": "production",
+    "release_feature_compatibility_verified": true,
+    "srtool_bit_identical_claim": false
+  },
+  "mixed_multisig_live": {
+    "passed": 24,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "exit_code": 0,
+    "duration_seconds": 5121.841,
+    "junit_file": "../mixed/metadata-rerun.xml",
+    "junit_sha256": "b3c0839570664a1b1708af3ce9c0d9d901a07fc9d97c1408d2b97546b5ba0ee1",
+    "log_sha256": "23beb6ed420355ff20ee64060b6e2b8fb30ac2b046ab1c35bb580ec3f6abdf0a",
+    "summary_file": "../mixed/metadata-rerun-summary.json",
+    "scope": {
+      "mixed_classical_hashed_cli_two_of_three_full_pair_order_scenarios": 2,
+      "vault_qr_transport_simulated_real_metadata_signing_chain_cases": 4,
+      "direct_sdk_receiving_address_threshold_signer_variants": 16,
+      "direct_sdk_three_of_three_approve_execute_cancel_orders": 2
+    },
+    "normal_block_time_ms": 12000,
+    "validators": 3,
+    "runtime_metadata_hash_feature_enabled": true,
+    "temporary_functional_weight_overlay": true,
+    "reference_weight_measurements": false,
+    "all_original_assertions_preserved": true,
+    "superseded_initial_fixture_run": "Initial runtime lacked metadata-hash and caused Vault BadProof; logs preserved separately. Complete24-case corrected-fixture run passed.",
+    "apparent_cli_stall": "Canonical calls confirmed normal finalization progress; no source fix or restart, full run passed."
+  },
+  "finalized_at": "2026-10-17T20:49:02.241459+00:00",
+  "test_run_or_watcher_still_running_by_this_agent": false
+}

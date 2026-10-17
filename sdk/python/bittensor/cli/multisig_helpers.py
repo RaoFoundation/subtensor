@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 import shlex
@@ -17,6 +18,7 @@ from .._transport.codec import multisig_account
 from ..receiving import is_receiving_address, parse_recipient
 from ..result import ChainError, ExtrinsicResult
 from ..wallets import is_bittensor_address
+from .wallet_addresses import public_key_from_file
 
 # One or more commas and/or whitespace between signatory refs
 # (``a,b``, ``a, b``, ``a b``, ``a, b c``).
@@ -76,7 +78,8 @@ def _soft_resolve_coldkey(app_ctx, ref: str) -> Optional[str]:
         except ValueError:
             return None
     try:
-        return wallets.open_wallet(name=ref, path=app_ctx.wallet_path).coldkeypub.ss58_address
+        wallet = wallets.open_wallet(name=ref, path=app_ctx.wallet_path)
+        return public_key_from_file(wallet.coldkeypub_file.path).ss58_address
     except Exception:
         return None
 
@@ -790,12 +793,11 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
     )
 
 
-async def multisig_list_records(
-    client,
+def multisig_list_records(
     app_ctx,
     entries: Optional[list[dict[str, Any]]] = None,
 ) -> list[dict[str, Any]]:
-    """Build wallet-list rows for saved multisig wallets."""
+    """Build saved multisig rows locally, deriving only complete signer sets."""
     rows: list[dict[str, Any]] = []
     for entry in entries if entries is not None else cfg.load_multisigs():
         name = entry.get("name")
@@ -803,20 +805,14 @@ async def multisig_list_records(
             continue
         threshold = int(entry.get("threshold") or 0)
         refs = list(entry.get("signatories") or [])
-        signatories = [
-            address for ref in refs if (address := _soft_resolve_coldkey(app_ctx, ref)) is not None
-        ]
-        signatories = list(dict.fromkeys(signatories))
-        multisig_address = None
-        if signatories and threshold >= 1:
-            try:
-                ms = await client.multisig(signatories, threshold)
-                multisig_address = ms.address
-            except Exception:
-                pass
         signatory_rows = [
             {"name": ref, "ss58": _soft_resolve_coldkey(app_ctx, ref)} for ref in refs
         ]
+        signatories = list(dict.fromkeys(row["ss58"] for row in signatory_rows))
+        multisig_address = None
+        if signatories and None not in signatories and 1 <= threshold <= len(signatories):
+            with contextlib.suppress(ValueError):
+                multisig_address = multisig_account(signatories, threshold).ss58_address
         rows.append(
             {
                 "name": name,

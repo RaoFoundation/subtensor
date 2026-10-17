@@ -23,6 +23,7 @@ from ._generated import calls as generated_calls
 from ._pinned import pinned_inputs
 from ._substrate import Substrate
 from ._transport.contract import UnsignedExtrinsic
+from ._transport.extrinsics import MAX_SHIELDED_CIPHERTEXT_BYTES
 from ._transport.utils.receipt import nested_dispatch_error
 from .balance import Balance
 from .fee_filters import COLDKEY_FEE_WARNING, charges_coldkey_fee
@@ -31,6 +32,7 @@ from .hashed import (
     has_receiving_setup_inputs,
     hashed_accounts_enabled,
     prepare_recipient_intent,
+    protected_account_record,
     with_recipient_registration,
 )
 from .intents import Intent, Plan, Policy, list_tools
@@ -39,6 +41,12 @@ from .intents._money import UNBOUNDED
 from .intents.base import BuiltCall, IntentPreflight
 from .intents.proxy import check_proxy_type
 from .receiving import account_for_read, coerce_payment_address
+from .registration_sponsorship import (
+    RegistrationSponsorshipCallback,
+    authorize_registration_sponsorship,
+    registration_sponsorship_quote,
+    validate_registration_deposit_limit,
+)
 from .result import (
     ChainError,
     ExtrinsicResult,
@@ -53,7 +61,7 @@ from .signing import (
     public_view,
     resolve_signer,
 )
-from .sp_core import HASHED_CRYPTO_TYPES, Keypair, ss58_decode
+from .sp_core import REGISTERED_CRYPTO_TYPES, Keypair, ss58_decode
 
 # Transaction-pool rejections that resolve themselves within a block or so (a
 # competing extrinsic at the same nonce, or a race against pool state). Worth
@@ -63,11 +71,6 @@ _TRANSIENT_SUBSTRINGS = (
     "transaction is outdated",
     "stale",
 )
-
-# Runtime metadata bounds MevShield.submit_encrypted ciphertexts to 8192 bytes.
-# Pricing the bound is conservative by only the length-fee delta and avoids
-# asking a signer for the inner signature merely to learn the carrier size.
-_MAX_SHIELDED_CIPHERTEXT_BYTES = 8192
 
 # Allow transient RPC/head lag while keeping both shielded-receipt polling
 # phases bounded by the inner extrinsic's mortal era.
@@ -85,19 +88,22 @@ class _FeeAddressView:
         self.public_key = bytes(ss58_decode(address))
 
 
-async def estimate_shielded_carrier_fee(substrate: Substrate, fee_payer: str) -> Balance:
-    """Conservatively estimate the outer MevShield carrier's TAO fee."""
-    outer = await substrate.compose(
-        generated_calls.MevShield.submit_encrypted(ciphertext=bytes(_MAX_SHIELDED_CIPHERTEXT_BYTES))
-    )
+async def estimate_shielded_carrier_fee(
+    substrate: Substrate, fee_payer: str, call: Any, *, period: int = MEV_SHIELD_ERA_PERIOD
+) -> Balance:
+    """Estimate the outer fee from the actual inner call, without private-key access."""
     public = _FeeAddressView(fee_payer)
-    if await hashed_accounts_enabled(substrate) is True:
-        record = await substrate.query("HashedAccounts", "Accounts", [fee_payer])
-        if record is not None:
+    if (
+        await hashed_accounts_enabled(substrate) is True
+        or await substrate.constant("HashedAccounts", "MlDsaRegistrationDeposit") is not None
+    ):
+        kind, record = await protected_account_record(substrate, fee_payer)
+        if kind in ("v1", "mldsa"):
             public = Keypair.from_hashed_descriptor(descriptor_bytes(record["descriptor"]))
             if public.ss58_address != fee_payer:
                 raise ValueError("registered hashed descriptor does not match the fee payer")
-    return await substrate.estimate_fee(outer, public)
+    call = await substrate.compose(call)
+    return await substrate.estimate_shielded_carrier_fee(call, public, period=period)
 
 
 def _is_transient(result: ExtrinsicResult) -> bool:
@@ -783,6 +789,9 @@ class Executor:
             fee_payer,
             call=call,
         )
+        preview.registration_sponsorship = registration_sponsorship_quote(
+            extras or {}, dispatch_origin
+        )
         for recipient in recipients.values():
             preview.effects = [
                 effect.replace(recipient.account, recipient.address) for effect in preview.effects
@@ -926,6 +935,8 @@ class Executor:
         wait_for_registration: bool = True,
         registration_timeout: Optional[float] = None,
         on_progress: Any = None,
+        max_registration_deposit: Balance | None = None,
+        on_registration_sponsorship: RegistrationSponsorshipCallback | None = None,
     ) -> ExtrinsicResult:
         """Plan, then sign and submit. Raises ``PolicyError`` if the plan violates
         policy. (To preview without submitting, call ``plan`` instead.)
@@ -948,7 +959,15 @@ class Executor:
         event and returns its netuid. Set ``wait_for_registration=False`` to
         return the queue receipt instead. ``registration_timeout`` and the
         optional ``on_progress(dict)`` callback apply only to that wait.
+
+        Automatic recipient registration requires explicit sponsorship consent
+        before requesting a signature. Set ``max_registration_deposit`` to a
+        native TAO ``Balance`` cap, or supply ``on_registration_sponsorship``
+        returning exactly ``True`` for the current quote. The deposit remains
+        permanently reserved from the sender, separate from payment and fees.
+        When both are given, the callback cannot override the cap.
         """
+        validate_registration_deposit_limit(max_registration_deposit)
         proxy_for = await account_for_read(self.substrate, proxy_for)
         if intent.semantic_intent().mev_shield_required:
             return await self.submit_shielded(
@@ -962,12 +981,21 @@ class Executor:
                 wait_for_registration=wait_for_registration,
                 registration_timeout=registration_timeout,
                 on_progress=on_progress,
+                max_registration_deposit=max_registration_deposit,
+                on_registration_sponsorship=on_registration_sponsorship,
             )
         plan = await self.plan(
             intent, wallet, policy=policy, proxy_for=proxy_for, proxy_type=proxy_type
         )
         if not plan.ok:
             raise PolicyError(plan.violations)
+
+        await authorize_registration_sponsorship(
+            plan.extras,
+            plan.signer_address,
+            max_registration_deposit=max_registration_deposit,
+            on_registration_sponsorship=on_registration_sponsorship,
+        )
 
         keypair = resolve_signer(wallet, intent.signer)
         attempts = max(0, int(retries)) + 1
@@ -1052,6 +1080,8 @@ class Executor:
         wait_for_registration: bool = True,
         registration_timeout: Optional[float] = None,
         on_progress: Any = None,
+        max_registration_deposit: Balance | None = None,
+        on_registration_sponsorship: RegistrationSponsorshipCallback | None = None,
     ) -> ExtrinsicResult:
         """Submit an intent MEV-shielded via the MevShield pallet.
 
@@ -1067,7 +1097,12 @@ class Executor:
         :meth:`execute`: the inner signed extrinsic is the already-composed
         call (semantic → sudo → proxy → adapter). Shield wraps that; it does
         not replace the proxy wrap.
+
+        Automatic registration uses the same ``max_registration_deposit`` /
+        ``on_registration_sponsorship`` consent as :meth:`execute`, before
+        signing either the inner transaction or its carrier.
         """
+        validate_registration_deposit_limit(max_registration_deposit)
         wallet = as_wallet(wallet)
         proxy_for = await account_for_read(self.substrate, proxy_for)
         intent = await _coerce_addresses(self.substrate, intent)
@@ -1108,6 +1143,8 @@ class Executor:
                 carrier_fee = await estimate_shielded_carrier_fee(
                     self.substrate,
                     fee_payer,
+                    call,
+                    period=period,
                 )
             except Exception as error:
                 blocks.append(
@@ -1123,6 +1160,13 @@ class Executor:
                         f"MEV-shield carrier fee (~{Balance.from_rao(combined_rao)})"
                     )
         self._enforce(intent, fee, policy, blocks, extras)
+
+        await authorize_registration_sponsorship(
+            extras,
+            fee_payer,
+            max_registration_deposit=max_registration_deposit,
+            on_registration_sponsorship=on_registration_sponsorship,
+        )
 
         keypair = resolve_signer(wallet, intent.signer)
         result = await self._submit_encrypted_call(
@@ -1181,18 +1225,35 @@ class Executor:
             raise ChainError("MEV Shield NextKey not available; is the MevShield pallet active?")
 
         await _prepare_shielded_signer(keypair)
-        nonce = await self.substrate.account_next_index(keypair.ss58_address)
+        snapshot = (
+            await self.substrate.prepare_hashed_snapshot(keypair)
+            if keypair.crypto_type in REGISTERED_CRYPTO_TYPES
+            else None
+        )
+        nonce = (
+            snapshot.nonce
+            if snapshot is not None
+            else await self.substrate.account_next_index(keypair.ss58_address)
+        )
         inner_options = {"nonce": nonce + 1, "period": period}
-        if keypair.crypto_type in HASHED_CRYPTO_TYPES:
+        if keypair.crypto_type in REGISTERED_CRYPTO_TYPES:
             # The carrier consumes generation g and nonce n. Its encrypted
             # inner call consumes g+1 and n+1 only after the carrier is accepted.
             inner_options["hashed_generation_offset"] = 1
+            inner_options["hashed_signing_snapshot"] = snapshot
         inner_bytes, inner_hash = await self.substrate.sign_extrinsic(
             call, keypair, **inner_options
         )
         ciphertext = _core.encrypt_mlkem768(pubkey, inner_bytes, include_key_hash=True)
+        limit = MAX_SHIELDED_CIPHERTEXT_BYTES
+        if len(ciphertext) > limit:
+            raise ValueError(f"encrypted transaction exceeds the {limit}-byte carrier limit")
         outer = await self.substrate.compose(
-            generated_calls.MevShield.submit_encrypted(ciphertext=ciphertext)
+            generated_calls.Call(
+                "MevShield",
+                "submit_encrypted",
+                {"ciphertext": ciphertext},
+            )
         )
         result = await self.substrate.submit(
             outer,
@@ -1201,6 +1262,7 @@ class Executor:
             period=period,
             wait_for_inclusion=wait_for_inclusion,
             wait_for_finalization=wait_for_finalization,
+            **({"hashed_signing_snapshot": snapshot} if snapshot is not None else {}),
         )
         if result.success:
             result = replace(

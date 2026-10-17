@@ -1,0 +1,12 @@
+{
+  "node-subtensor": {
+    "sha256": "5cb0dc2735acdcc1d3afc16c3c389ac10020ef7d9ce0e686ad4497c7d749ae3c",
+    "size_bytes": 97849480,
+    "source": "target/release/node-subtensor"
+  },
+  "runtime.wasm": {
+    "sha256": "8a928b07796c445d864ae021562629cf9524e2a30d940e8b490234c33e769377",
+    "size_bytes": 2968912,
+    "source": "target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm"
+  }
+}

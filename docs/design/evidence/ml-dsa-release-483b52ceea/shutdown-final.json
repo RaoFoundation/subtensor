@@ -1,0 +1,429 @@
+{
+  "checked_utc": "2026-10-17T22:57:24.697347+00:00",
+  "ports": [
+    {
+      "chain": "release",
+      "port": 21144,
+      "closed": true
+    },
+    {
+      "chain": "release",
+      "port": 21145,
+      "closed": true
+    },
+    {
+      "chain": "release",
+      "port": 21146,
+      "closed": true
+    },
+    {
+      "chain": "release",
+      "port": 32134,
+      "closed": true
+    },
+    {
+      "chain": "release",
+      "port": 32135,
+      "closed": true
+    },
+    {
+      "chain": "release",
+      "port": 32136,
+      "closed": true
+    },
+    {
+      "chain": "authority",
+      "port": 21244,
+      "closed": true
+    },
+    {
+      "chain": "authority",
+      "port": 21245,
+      "closed": true
+    },
+    {
+      "chain": "authority",
+      "port": 21246,
+      "closed": true
+    },
+    {
+      "chain": "authority",
+      "port": 32234,
+      "closed": true
+    },
+    {
+      "chain": "authority",
+      "port": 32235,
+      "closed": true
+    },
+    {
+      "chain": "authority",
+      "port": 32236,
+      "closed": true
+    },
+    {
+      "chain": "operations",
+      "port": 21344,
+      "closed": true
+    },
+    {
+      "chain": "operations",
+      "port": 21345,
+      "closed": true
+    },
+    {
+      "chain": "operations",
+      "port": 21346,
+      "closed": true
+    },
+    {
+      "chain": "operations",
+      "port": 32334,
+      "closed": true
+    },
+    {
+      "chain": "operations",
+      "port": 32335,
+      "closed": true
+    },
+    {
+      "chain": "operations",
+      "port": 32336,
+      "closed": true
+    },
+    {
+      "chain": "validators",
+      "port": 21444,
+      "closed": true
+    },
+    {
+      "chain": "validators",
+      "port": 21445,
+      "closed": true
+    },
+    {
+      "chain": "validators",
+      "port": 21446,
+      "closed": true
+    },
+    {
+      "chain": "validators",
+      "port": 32434,
+      "closed": true
+    },
+    {
+      "chain": "validators",
+      "port": 32435,
+      "closed": true
+    },
+    {
+      "chain": "validators",
+      "port": 32436,
+      "closed": true
+    },
+    {
+      "chain": "lifecycle",
+      "port": 21544,
+      "closed": true
+    },
+    {
+      "chain": "lifecycle",
+      "port": 21545,
+      "closed": true
+    },
+    {
+      "chain": "lifecycle",
+      "port": 21546,
+      "closed": true
+    },
+    {
+      "chain": "lifecycle",
+      "port": 32534,
+      "closed": true
+    },
+    {
+      "chain": "lifecycle",
+      "port": 32535,
+      "closed": true
+    },
+    {
+      "chain": "lifecycle",
+      "port": 32536,
+      "closed": true
+    },
+    {
+      "chain": "parity",
+      "port": 21644,
+      "closed": true
+    },
+    {
+      "chain": "parity",
+      "port": 21645,
+      "closed": true
+    },
+    {
+      "chain": "parity",
+      "port": 21646,
+      "closed": true
+    },
+    {
+      "chain": "parity",
+      "port": 32634,
+      "closed": true
+    },
+    {
+      "chain": "parity",
+      "port": 32635,
+      "closed": true
+    },
+    {
+      "chain": "parity",
+      "port": 32636,
+      "closed": true
+    },
+    {
+      "chain": "extended",
+      "port": 21744,
+      "closed": true
+    },
+    {
+      "chain": "extended",
+      "port": 21745,
+      "closed": true
+    },
+    {
+      "chain": "extended",
+      "port": 21746,
+      "closed": true
+    },
+    {
+      "chain": "extended",
+      "port": 32734,
+      "closed": true
+    },
+    {
+      "chain": "extended",
+      "port": 32735,
+      "closed": true
+    },
+    {
+      "chain": "extended",
+      "port": 32736,
+      "closed": true
+    },
+    {
+      "chain": "proxy-boundaries",
+      "port": 21844,
+      "closed": true
+    },
+    {
+      "chain": "proxy-boundaries",
+      "port": 21845,
+      "closed": true
+    },
+    {
+      "chain": "proxy-boundaries",
+      "port": 21846,
+      "closed": true
+    },
+    {
+      "chain": "proxy-boundaries",
+      "port": 32834,
+      "closed": true
+    },
+    {
+      "chain": "proxy-boundaries",
+      "port": 32835,
+      "closed": true
+    },
+    {
+      "chain": "proxy-boundaries",
+      "port": 32836,
+      "closed": true
+    },
+    {
+      "chain": "mixed",
+      "port": 21944,
+      "closed": true
+    },
+    {
+      "chain": "mixed",
+      "port": 21945,
+      "closed": true
+    },
+    {
+      "chain": "mixed",
+      "port": 21946,
+      "closed": true
+    },
+    {
+      "chain": "mixed",
+      "port": 32934,
+      "closed": true
+    },
+    {
+      "chain": "mixed",
+      "port": 32935,
+      "closed": true
+    },
+    {
+      "chain": "mixed",
+      "port": 32936,
+      "closed": true
+    },
+    {
+      "chain": "shield",
+      "port": 22044,
+      "closed": true
+    },
+    {
+      "chain": "shield",
+      "port": 22045,
+      "closed": true
+    },
+    {
+      "chain": "shield",
+      "port": 22046,
+      "closed": true
+    },
+    {
+      "chain": "shield",
+      "port": 33034,
+      "closed": true
+    },
+    {
+      "chain": "shield",
+      "port": 33035,
+      "closed": true
+    },
+    {
+      "chain": "shield",
+      "port": 33036,
+      "closed": true
+    },
+    {
+      "chain": "sponsorship",
+      "port": 22144,
+      "closed": true
+    },
+    {
+      "chain": "sponsorship",
+      "port": 22145,
+      "closed": true
+    },
+    {
+      "chain": "sponsorship",
+      "port": 22146,
+      "closed": true
+    },
+    {
+      "chain": "sponsorship",
+      "port": 33134,
+      "closed": true
+    },
+    {
+      "chain": "sponsorship",
+      "port": 33135,
+      "closed": true
+    },
+    {
+      "chain": "sponsorship",
+      "port": 33136,
+      "closed": true
+    },
+    {
+      "chain": "nested",
+      "port": 22244,
+      "closed": true
+    },
+    {
+      "chain": "nested",
+      "port": 22245,
+      "closed": true
+    },
+    {
+      "chain": "nested",
+      "port": 22246,
+      "closed": true
+    },
+    {
+      "chain": "nested",
+      "port": 33234,
+      "closed": true
+    },
+    {
+      "chain": "nested",
+      "port": 33235,
+      "closed": true
+    },
+    {
+      "chain": "nested",
+      "port": 33236,
+      "closed": true
+    },
+    {
+      "chain": "validator-proxy",
+      "port": 22344,
+      "closed": true
+    },
+    {
+      "chain": "validator-proxy",
+      "port": 22345,
+      "closed": true
+    },
+    {
+      "chain": "validator-proxy",
+      "port": 22346,
+      "closed": true
+    },
+    {
+      "chain": "validator-proxy",
+      "port": 33334,
+      "closed": true
+    },
+    {
+      "chain": "validator-proxy",
+      "port": 33335,
+      "closed": true
+    },
+    {
+      "chain": "validator-proxy",
+      "port": 33336,
+      "closed": true
+    },
+    {
+      "chain": "rpc",
+      "port": 21044,
+      "closed": true
+    },
+    {
+      "chain": "rpc",
+      "port": 21045,
+      "closed": true
+    },
+    {
+      "chain": "rpc",
+      "port": 21046,
+      "closed": true
+    },
+    {
+      "chain": "rpc",
+      "port": 32034,
+      "closed": true
+    },
+    {
+      "chain": "rpc",
+      "port": 32035,
+      "closed": true
+    },
+    {
+      "chain": "rpc",
+      "port": 32036,
+      "closed": true
+    }
+  ],
+  "all_closed": true,
+  "qr_port_9977_closed": true,
+  "owned_processes": [],
+  "owned_processes_remaining": 0
+}

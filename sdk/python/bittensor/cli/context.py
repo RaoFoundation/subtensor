@@ -45,11 +45,12 @@ from ..result import (
     RpcPolicyError,
 )
 from ..settings import error_docs_url
-from ..signing import public_view
+from ..signing import public_view, resolve_signer
 from ..vault import VaultSigner
 from ..wallets import is_bittensor_address
 from . import multisig_helpers as ms_helpers
 from .output import STYLE_WARNING, Output
+from .registration import confirm_registration_sponsorship
 
 T = TypeVar("T")
 
@@ -212,6 +213,8 @@ class AppContext:
     # Multisig names currently being derived by ``resolve_address`` — breaks
     # the recursion when a saved multisig lists itself among its signatories.
     _resolving_multisigs: set = field(default_factory=set)
+    # Explicit per-invocation authorization; never persisted as a wallet default.
+    max_registration_deposit: Optional[Balance] = None
 
     def reset_extension_session(self) -> None:
         self._extension_selection = None
@@ -231,7 +234,7 @@ class AppContext:
 
     def wallet_address(self, public) -> str:
         """Display/share complete receiving information using public metadata only."""
-        if public.crypto_type not in wallets.HASHED_CRYPTO_TYPES:
+        if public.crypto_type not in wallets.REGISTERED_CRYPTO_TYPES:
             return public.ss58_address
         return receiving_address(public)
 
@@ -1123,7 +1126,14 @@ class AppContext:
             if fee_payer is not None:
 
                 async def _shield_fee_preflight(client):
-                    return await self._shield_outer_fee_shortfall(client, fee_payer)
+                    return await self._shield_outer_fee_shortfall(
+                        client,
+                        fee_payer,
+                        intent=intent,
+                        wallet=wallet,
+                        proxy_for=proxy_for,
+                        proxy_type=force_proxy_type,
+                    )
 
                 shortfall = self.run(_shield_fee_preflight)
                 if shortfall is not None:
@@ -1145,6 +1155,34 @@ class AppContext:
                         "(alpha fees only work on the unshielded call)"
                     )
         options = {"proxy_for": proxy_for, "proxy_type": force_proxy_type}
+        approved_registration_quotes: set[tuple[str, str, int]] = set()
+
+        def approve_registration(quote):
+            identity = (quote.recipient_account, quote.payer_account, quote.deposit.rao)
+            if identity not in approved_registration_quotes:
+                confirm_registration_sponsorship(self, quote)
+                approved_registration_quotes.add(identity)
+            return True
+
+        sponsorship_options = {
+            "max_registration_deposit": self.max_registration_deposit,
+        }
+
+        async def approve_registration_during_execution(quote):
+            identity = (quote.recipient_account, quote.payer_account, quote.deposit.rao)
+            if identity in approved_registration_quotes:
+                return True
+            if (
+                self.max_registration_deposit is not None
+                or self.output.json_mode
+                or not sys.stdin.isatty()
+            ):
+                return approve_registration(quote)
+            # A changed quote or an external signer may need approval here.
+            # Keep RPC heartbeats alive while the user considers the deposit.
+            return await asyncio.to_thread(approve_registration, quote)
+
+        sponsorship_options["on_registration_sponsorship"] = approve_registration_during_execution
         registration_quote = None
         registration_flow = None
         neuron_reg_cost = None
@@ -1257,7 +1295,9 @@ class AppContext:
                 )
 
                 async def _shield_fee_warning(client):
-                    return await self._shield_outer_fee_shortfall(client, plan.signer_address)
+                    return await self._shield_outer_fee_shortfall(
+                        client, plan.signer_address, call=plan.call
+                    )
 
                 shortfall = self.run(_shield_fee_warning)
                 if shortfall is not None:
@@ -1275,6 +1315,7 @@ class AppContext:
         fee_facts: list[tuple[str, str]] = []
         facts_title = "Fees"
         estimated_fee = None
+        sponsorship_quote = None
         if not self.uses_external_signer():
 
             async def _preflight(client):
@@ -1286,7 +1327,13 @@ class AppContext:
                         proxy_type=force_proxy_type,
                     )
                 except Exception:
-                    return [], [], [], [], "Fees", None
+                    # Optional fee previews may fail, but an unknown recipient
+                    # setup cost must not fall through to unlocking a wallet.
+                    from ..hashed import has_receiving_setup_inputs
+
+                    if await has_receiving_setup_inputs(client._substrate, wallet, intent):
+                        raise
+                    return [], [], [], [], "Fees", None, None
                 warnings = list(preview.warnings)
                 if semantic_intent.op in ("claim_root", "claim_root_with_hotkey"):
                     effects = list(preview.effects)
@@ -1299,9 +1346,18 @@ class AppContext:
                     list(preview.facts),
                     preview.facts_title,
                     preview.estimated_fee,
+                    getattr(preview, "registration_sponsorship", None),
                 )
 
-            effects, warnings, blocks, fee_facts, facts_title, estimated_fee = self.run(_preflight)
+            (
+                effects,
+                warnings,
+                blocks,
+                fee_facts,
+                facts_title,
+                estimated_fee,
+                sponsorship_quote,
+            ) = self.run(_preflight)
             summary_line = intent.summary()
             # Structured facts render as the review card's "Fees" stage; the
             # prose effect lines only print where the card cannot (quiet/json
@@ -1421,6 +1477,9 @@ class AppContext:
                 )
                 self.confirm("sign and submit?", indent=4)
 
+        if sponsorship_quote is not None:
+            approve_registration(sponsorship_quote)
+
         # Native keyfiles unlock synchronously on their first signature. Unlock
         # encrypted coldkeys eagerly instead: a wrong password can be retried
         # on the spot (instead of aborting and losing every prompt answer).
@@ -1518,6 +1577,14 @@ class AppContext:
                 )
                 use_shield = False
             signer = local_signer or await self.resolve_signing_wallet(intent.signer)
+            # Registered accounts sign only from finalized authority. Return a
+            # finalized receipt so the next ordinary CLI command can safely use
+            # the next generation, including fixed ML-DSA's replay counter.
+            finalize = wait_for_finalization or (
+                not self.uses_external_signer()
+                and resolve_signer(signer, intent.signer).crypto_type
+                in wallets.REGISTERED_CRYPTO_TYPES
+            )
             if use_shield and self.uses_external_signer():
                 # Local wallets already preflighted before confirm; external
                 # signers only know the fee payer after account pick.
@@ -1526,7 +1593,9 @@ class AppContext:
                 except Exception:
                     fee_payer = None
                 shortfall = (
-                    await self._shield_outer_fee_shortfall(client, fee_payer)
+                    await self._shield_outer_fee_shortfall(
+                        client, fee_payer, intent=intent, wallet=signer, **options
+                    )
                     if fee_payer is not None
                     else None
                 )
@@ -1556,8 +1625,9 @@ class AppContext:
                     before_submit()
                 if use_shield:
                     shield_options = {
-                        "wait_for_finalization": wait_for_finalization,
+                        "wait_for_finalization": finalize,
                         **options,
+                        **sponsorship_options,
                     }
                     if intent.op == "register_subnet":
                         shield_options["on_progress"] = _registration_progress
@@ -1568,8 +1638,9 @@ class AppContext:
                     )
                 else:
                     execute_options = {
-                        "wait_for_finalization": wait_for_finalization,
+                        "wait_for_finalization": finalize,
                         **options,
+                        **sponsorship_options,
                     }
                     if intent.op == "register_subnet":
                         execute_options["on_progress"] = _registration_progress
@@ -1934,7 +2005,15 @@ class AppContext:
         return result
 
     async def _shield_outer_fee_shortfall(
-        self, client: Client, fee_payer_ss58: str
+        self,
+        client: Client,
+        fee_payer_ss58: str,
+        *,
+        call=None,
+        intent=None,
+        wallet=None,
+        proxy_for=None,
+        proxy_type=None,
     ) -> Optional[str]:
         """Warning text when free TAO cannot cover a MevShield carrier fee.
 
@@ -1944,7 +2023,10 @@ class AppContext:
         """
         try:
             free = await client.balances.get(fee_payer_ss58)
-            fee = await client.estimate_shielded_carrier_fee(fee_payer_ss58)
+            if call is None:
+                plan = await client.plan(intent, wallet, proxy_for=proxy_for, proxy_type=proxy_type)
+                call = plan.call
+            fee = await client.estimate_shielded_carrier_fee(fee_payer_ss58, call)
         except Exception:
             # Best-effort: if we only know free is zero, that is enough to warn.
             try:

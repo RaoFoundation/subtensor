@@ -1,0 +1,155 @@
+{
+  "test": "typed pending simulation creation, EIP-1559/access-list and rollback semantics",
+  "status": "passed",
+  "endpoint": "ws://127.0.0.1:21046",
+  "started_at_utc": "2026-10-17T19:13:37.361123+00:00",
+  "script_sha256": "35346da4a014ca834b5b91887d2d4804098b568d0ecd636360f9e2a1de2b196b",
+  "boundaries": "One disposable real contract plus read-only pending simulations; does not claim legacy runtime API-version, EIP-7702, throughput or exhaustive opcode coverage.",
+  "native_setup_receipts": [
+    {
+      "stage": "allow_disposable_creator",
+      "extrinsic_hash": "0x26178691141923ab057391a0846a793bd1e0edc7e16b88a8fa9b04914cb8705b",
+      "block_hash": "0x1a9e9443019dc36040460c86488ad6ae63c2a8a67e53e1db5e30c7786134d6cd",
+      "block_number": 29,
+      "extrinsic_index": 6,
+      "success": true
+    },
+    {
+      "stage": "fund_creator_mirror",
+      "extrinsic_hash": "0x56d9604647903a17ca069b5ff7a157e7f3a2e0074cfe09406e08c1be29b94da5",
+      "block_hash": "0x640eb1655c8962ec4b7c1534eb38c9aca7d6e9099b5bc8f6bde4b84c4bc844ee",
+      "block_number": 32,
+      "extrinsic_index": 6,
+      "success": true
+    },
+    {
+      "stage": "restore_creator_allowlist",
+      "extrinsic_hash": "0x8fe6e0cdf2165afe89ea2fd172c29c6ac6cf005a00a805a5deed4f511dc96687",
+      "block_hash": "0x14a9bd10a2e0631de4db6b049c2f9c0e20e5552c6850aa410266cfee3ac59227",
+      "block_number": 41,
+      "extrinsic_index": 6,
+      "success": true
+    }
+  ],
+  "checks": {
+    "creation_rollback": {
+      "before": {
+        "source_nonce": "0x0",
+        "source_balance": "0x56bc75db8f8bd7800",
+        "code": "0x",
+        "slot0": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "after": {
+        "source_nonce": "0x0",
+        "source_balance": "0x56bc75db8f8bd7800",
+        "code": "0x",
+        "slot0": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "runs": [
+        {
+          "returned_runtime": "0x602a60005260206000f3",
+          "estimated_gas": 72240
+        },
+        {
+          "returned_runtime": "0x602a60005260206000f3",
+          "estimated_gas": 72240
+        }
+      ],
+      "revert": "VM Exception while processing transaction: revert: 0x"
+    },
+    "read": "0x000000000000000000000000000000000000000000000000000000000000002a",
+    "write_simulations": [
+      {
+        "returned_value": 43,
+        "estimated_gas": 34997
+      },
+      {
+        "returned_value": 43,
+        "estimated_gas": 34997
+      }
+    ],
+    "call_revert": "VM Exception while processing transaction: revert: 0xdeadbeef",
+    "estimate_revert": "VM Exception while processing transaction: revert: 0xdeadbeef",
+    "eip1559_gasprice": {
+      "submitted_max_fee_and_priority_fee": 10000000000,
+      "expected_existing_no_tip_policy_base_fee": 5000000000,
+      "observed": 5000000000,
+      "boundary": "Type2 fee fields accepted; existing runtime intentionally exposes base fee as GASPRICE and ignores priority fee"
+    },
+    "access_list_estimates": {
+      "latest": {
+        "plain": 28933,
+        "access_list": 32315
+      },
+      "pending": {
+        "plain": 28933,
+        "access_list": 32315
+      }
+    },
+    "access_list_opcode_costs": {
+      "latest": {
+        "cold": 2107,
+        "warm": 107
+      },
+      "pending": {
+        "cold": 2107,
+        "warm": 107
+      }
+    },
+    "call_rollback": {
+      "before": {
+        "source_nonce": "0x1",
+        "source_balance": "0x56bc554a0a7841c00",
+        "code": "0x60003580600114602b5780600214604c578060031460605780600414606b575060005460005260206000f35b5060005480602a14603c5760006000fd5b6001018060005560005260206000f35b50606360005563deadbeef6000526004601cfd5b503a60005260206000f35b505a600054505a900360005260206000f3",
+        "slot0": "0x000000000000000000000000000000000000000000000000000000000000002a"
+      },
+      "after": {
+        "source_nonce": "0x1",
+        "source_balance": "0x56bc554a0a7841c00",
+        "code": "0x60003580600114602b5780600214604c578060031460605780600414606b575060005460005260206000f35b5060005480602a14603c5760006000fd5b6001018060005560005260206000f35b50606360005563deadbeef6000526004601cfd5b503a60005260206000f35b505a600054505a900360005260206000f3",
+        "slot0": "0x000000000000000000000000000000000000000000000000000000000000002a"
+      }
+    }
+  },
+  "sender": "0x08DA30351ac0574C9923823E36974c78963ab532",
+  "sender_mirror": "5FGPca5Soe4Rw5Q4WFN7Qm3GxeKXCyXwS16qHQqR3MH1Cu6u",
+  "stateful_initcode": "0x602a600055607d6011600039607d6000f360003580600114602b5780600214604c578060031460605780600414606b575060005460005260206000f35b5060005480602a14603c5760006000fd5b6001018060005560005260206000f35b50606360005563deadbeef6000526004601cfd5b503a60005260206000f35b505a600054505a900360005260206000f3",
+  "stateful_runtime": "0x60003580600114602b5780600214604c578060031460605780600414606b575060005460005260206000f35b5060005480602a14603c5760006000fd5b6001018060005560005260206000f35b50606360005563deadbeef6000526004601cfd5b503a60005260206000f35b505a600054505a900360005260206000f3",
+  "genesis_hash": "0x80eaa2a9dc7a279de064ba459b4b18f67d2ce6a57fcd950b3e5e4a3a86914720",
+  "initial_flags": {
+    "master": false,
+    "registration": false,
+    "authorization": false,
+    "disable_deployment_whitelist": false
+  },
+  "runtime_code_sha256": "8a928b07796c445d864ae021562629cf9524e2a30d940e8b490234c33e769377",
+  "original_creator_allowlist": [],
+  "predicted_contract": "0x89811006668E4738FA2c00d11A6017198C6C1304",
+  "deployment": {
+    "receipt": {
+      "transactionHash": "0x4c3e1e6e91deabfab7ec18183d688b810184d99b199742129679a49e9dfebeb2",
+      "transactionIndex": "0x0",
+      "blockHash": "0x1c0ea8ecd7d024a9eaf260a1cbd3cedfe7f4027b7086994f9dc7611cb0617029",
+      "from": "0x08da30351ac0574c9923823e36974c78963ab532",
+      "to": null,
+      "blockNumber": "0x24",
+      "cumulativeGasUsed": "0x1bed6",
+      "gasUsed": "0x1bed6",
+      "contractAddress": "0x89811006668e4738fa2c00d11a6017198c6c1304",
+      "logs": [],
+      "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "status": "0x1",
+      "effectiveGasPrice": "0x2540be400",
+      "type": "0x2"
+    },
+    "finalized_substrate_hash": "0x0e27a7d04c8bb939ba5bc0dd1f69b54cded6214b8141e90c28bffea1b55b7754"
+  },
+  "creator_allowlist_restored": true,
+  "final_flags": {
+    "master": false,
+    "registration": false,
+    "authorization": false,
+    "disable_deployment_whitelist": false
+  },
+  "finished_at_utc": "2026-10-17T19:16:37.101417+00:00"
+}

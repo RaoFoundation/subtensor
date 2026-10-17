@@ -1,0 +1,374 @@
+{
+  "head": "437053f80d5ebebce950602b168901bfe6591483",
+  "block_hash": "0x7abbbc6b0273265911b1c4b6b14b5cbb53766a05062e94e7185fddcf69ce8f95",
+  "block_number": 26,
+  "confirmed_finalized_head": "0x487ff5f8670b785582ec74a812ff56cc7884f319803771dce8269fb44ec752b1",
+  "confirmed_finalized_number": 31,
+  "functional_wasm_sha256": "2435ff5bc2f5012cbcc55908c4e77a2269baf0b93c8042f629dbf80345cd4035",
+  "genesis": "0x3f01560d2f48c201d4d2ac6f9c3e4898932047286941170db69f84201d32a25b",
+  "capture_sha256": "30a64b6349625eb2d88839067bee3bda25909239d0e7d7b23ec957251716f25a",
+  "activation_sha256": "eef1339d3cfe24dec24e529a3c876a21f69d56a86e17f199527aeae68250e6ef",
+  "metadata_sha256": {
+    "14": "5076651076529971c6ba728425a5d0c0928c0fc9fba9dabe27580bba2b8f415b",
+    "15": "ae4e98c1a7cd3f9ca7c6d54ed2864062974541cbdda8bc835af925f045a3360b",
+    "16": "f1b8fc23e860c2eda5a0a7fdf279b215d8e891b06711c83b8466796dc486ca1c"
+  },
+  "all_six_finalized_same_block_successfully": true,
+  "transactions": [
+    {
+      "crypto_type": 0,
+      "index": 6,
+      "extrinsic_hash": "0xcc20164edfdaa1738a276bfdcdde8f58d8a22abedda9b194e210ea770a12d605",
+      "events": [
+        {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5DexNNQ98ReaHXUvSxpx5DSuoUSXRGVV278idb38GQ14rZtt",
+            "amount": 61291
+          }
+        },
+        {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5DexNNQ98ReaHXUvSxpx5DSuoUSXRGVV278idb38GQ14rZtt",
+            "amount": 0
+          }
+        },
+        {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5DexNNQ98ReaHXUvSxpx5DSuoUSXRGVV278idb38GQ14rZtt",
+            "actual_fee": 61291,
+            "tip": 0
+          }
+        },
+        {
+          "event_index": "0000",
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 244917720,
+                "proof_size": 4198
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "crypto_type": 1,
+      "index": 9,
+      "extrinsic_hash": "0xc273adbffb44eeeb58e27d877cd1a632201e4dda5c1ef176a0fbda8577b4ec13",
+      "events": [
+        {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5GHot7tzNj8qzEJy3skSFrCY15WdBwWP9QAEzJgSg8eFcTce",
+            "amount": 61291
+          }
+        },
+        {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5GHot7tzNj8qzEJy3skSFrCY15WdBwWP9QAEzJgSg8eFcTce",
+            "amount": 0
+          }
+        },
+        {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5GHot7tzNj8qzEJy3skSFrCY15WdBwWP9QAEzJgSg8eFcTce",
+            "actual_fee": 61291,
+            "tip": 0
+          }
+        },
+        {
+          "event_index": "0000",
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 244917720,
+                "proof_size": 4198
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "crypto_type": 4,
+      "index": 7,
+      "extrinsic_hash": "0x3e4d4a8a6bc041f49f5b55c49419a50755fd3b4954cbc560ffcc94434072c240",
+      "events": [
+        {
+          "event_index": "2101",
+          "module_id": "HashedAccounts",
+          "event_id": "Rotated",
+          "attributes": {
+            "account": "5FCgEwaogJELESp6DPcietMPQFAmQaoYCef2pq75ba1wVUSH",
+            "generation": 1
+          }
+        },
+        {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5FCgEwaogJELESp6DPcietMPQFAmQaoYCef2pq75ba1wVUSH",
+            "amount": 247420
+          }
+        },
+        {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5FCgEwaogJELESp6DPcietMPQFAmQaoYCef2pq75ba1wVUSH",
+            "amount": 0
+          }
+        },
+        {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5FCgEwaogJELESp6DPcietMPQFAmQaoYCef2pq75ba1wVUSH",
+            "actual_fee": 247420,
+            "tip": 0
+          }
+        },
+        {
+          "event_index": "0000",
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 989281849,
+                "proof_size": 15576
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "crypto_type": 6,
+      "index": 8,
+      "extrinsic_hash": "0x298d2970fe73bbbc44946f0442543e71b9382fb85cbceac35959762820a90e4a",
+      "events": [
+        {
+          "event_index": "2101",
+          "module_id": "HashedAccounts",
+          "event_id": "Rotated",
+          "attributes": {
+            "account": "5Ey5JaVit6ZpZWxpZbxacTRRGgfXw5Jdm6djLafZvZ36GRpS",
+            "generation": 1
+          }
+        },
+        {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5Ey5JaVit6ZpZWxpZbxacTRRGgfXw5Jdm6djLafZvZ36GRpS",
+            "amount": 247715
+          }
+        },
+        {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5Ey5JaVit6ZpZWxpZbxacTRRGgfXw5Jdm6djLafZvZ36GRpS",
+            "amount": 0
+          }
+        },
+        {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5Ey5JaVit6ZpZWxpZbxacTRRGgfXw5Jdm6djLafZvZ36GRpS",
+            "actual_fee": 247715,
+            "tip": 0
+          }
+        },
+        {
+          "event_index": "0000",
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 990461550,
+                "proof_size": 15576
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "crypto_type": 7,
+      "index": 11,
+      "extrinsic_hash": "0x71ab8063496876557dcdffde79beb9ab5298cbcee9fde9942b0155ec1a6a882c",
+      "events": [
+        {
+          "event_index": "2103",
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5CWrdAYYBXcnk7CE1N4CFJHV59PndG52ku55ZixGfjZCdguq",
+            "generation": 1
+          }
+        },
+        {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5CWrdAYYBXcnk7CE1N4CFJHV59PndG52ku55ZixGfjZCdguq",
+            "amount": 188115
+          }
+        },
+        {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5CWrdAYYBXcnk7CE1N4CFJHV59PndG52ku55ZixGfjZCdguq",
+            "amount": 0
+          }
+        },
+        {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5CWrdAYYBXcnk7CE1N4CFJHV59PndG52ku55ZixGfjZCdguq",
+            "actual_fee": 188115,
+            "tip": 0
+          }
+        },
+        {
+          "event_index": "0000",
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 741539720,
+                "proof_size": 11989
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "crypto_type": 8,
+      "index": 10,
+      "extrinsic_hash": "0xe91d6061a2945a7ea76203a9bfff406f362760ba8facd3c4a101ce48b3f6de18",
+      "events": [
+        {
+          "event_index": "2108",
+          "module_id": "HashedAccounts",
+          "event_id": "AuthorizedFixed",
+          "attributes": {
+            "account": "5D7kBYjkFG7dcx3WnE3zok2a9MaeJdc3Z6ZTQoCTDdGKfge1",
+            "generation": 1
+          }
+        },
+        {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5D7kBYjkFG7dcx3WnE3zok2a9MaeJdc3Z6ZTQoCTDdGKfge1",
+            "amount": 188115
+          }
+        },
+        {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5D7kBYjkFG7dcx3WnE3zok2a9MaeJdc3Z6ZTQoCTDdGKfge1",
+            "amount": 0
+          }
+        },
+        {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5D7kBYjkFG7dcx3WnE3zok2a9MaeJdc3Z6ZTQoCTDdGKfge1",
+            "actual_fee": 188115,
+            "tip": 0
+          }
+        },
+        {
+          "event_index": "0000",
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 741539720,
+                "proof_size": 11989
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "evidence_files_sha256": {
+    "finalized-six-wallet-blocks.json": "30a64b6349625eb2d88839067bee3bda25909239d0e7d7b23ec957251716f25a",
+    "javascript-decoders.json": "81b7475c7d2f18e94d40db28c29b77644eb309f2da839d250c319494bbf2cfef",
+    "native-current.json": "49728975c0b409e9f8c8e03fa9cc6dfcf41fbd8fadeca1ba53a390b4901d2135",
+    "native-legacy-provenance.json": "49d955596bac7f9ce6c730d1b3a46ce70dcd1fe7040269ba28e27b8240d10365",
+    "native-legacy.json": "d1ce8fe32e24ce4ed1a5561f19a0fe51d968b4b8ce9f23fdfa59dfcfa86330c7"
+  },
+  "limits": [
+    "Functional runtime uses test weights; no production capacity conclusion.",
+    "Polkadot.js and PAPI codec checks do not exercise a graphical wallet app.",
+    "Both native versions support metadata14/15 but lack metadata16 support.",
+    "PAPI upstream decoder source is byte-identical to repository-selected decoder; repository submission patches remain.",
+    "Compatibility is established for the tested decoder builds; it does not guarantee every historical client or wallet UI."
+  ],
+  "runner_sha256": {
+    "docs/design/evidence/ml-dsa-localnet-blocks.py": "eca1563c0a7132c4afd28c54d45f74d07d04f89ed17be2e9b9bd43c1e6276b35",
+    "docs/design/evidence/ml-dsa-localnet-codecs.cjs": "956b097f7a7887d66c615efa993d4bfcec27be2afa93b1230b09cb80fb6050c1",
+    "docs/design/evidence/ml-dsa-localnet-native.py": "504b24753f3b1f17bd9349088184f7676a1fef2885f4e8f6d3599811fb39ec06"
+  }
+}

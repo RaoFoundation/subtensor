@@ -1,0 +1,50 @@
+{
+  "purpose": "Reacquire the identical pinned full mainnet state with remote-ext debug logging solely to close missing acquisition-log evidence; preserve all original artifacts",
+  "recorded_at": "2026-10-16T20:19:35.751643+00:00",
+  "command": [
+    "/tmp/hashed-full-ci-_as7hfjj/bin/try-runtime.real",
+    "create-snapshot",
+    "/tmp/ms-release-validation/mainnet/mainnet-logged.snap",
+    "--uri",
+    "wss://archive.dev.opentensor.ai:443",
+    "--uri",
+    "wss://archive.dev.opentensor.ai:443",
+    "--uri",
+    "wss://archive.dev.opentensor.ai:443",
+    "--uri",
+    "wss://archive.dev.opentensor.ai:443",
+    "--at",
+    "0x39bc186855bfbf78b4ab9f44138094ea3b19fa64a079161bf617397830aadc1c"
+  ],
+  "environment": {
+    "RUST_LOG": "info,remote-ext=debug"
+  },
+  "stdout_and_stderr": "/tmp/ms-release-validation/mainnet/snapshot-logged.log",
+  "pallet_or_prefix_filters": false,
+  "child_tree_inclusion": "Pinned CLI default for whole-state scraping; observed count will be read from the log after completion",
+  "source_json_sha256": "ad55a6bdc0a668a0b77857afeb38f848aaca5b4c22f024888f759b6aab3e866a",
+  "cli_sha256": "d6fcd586fba4c7245668f4ae2a06ffc94e6da4135fae22cfe24453dd11aee3c3",
+  "original_runner_result": "/tmp/ms-release-validation/mainnet/ml-dsa-mainnet-upgrade-results.json",
+  "original_snapshot_sha256": "b24f2b048fa7717d642de4a1227841ff2cd526972043a5ed854aed4a8884e10c",
+  "completion_status": "passed",
+  "chain_writes": false,
+  "completed_at": "2026-10-16T20:33:04.275929+00:00",
+  "snapshot_sha256": "39f958bc6e86ab896b5fbdcee259709fc1cc3d9a2b220a3ee4d4c56e7b4abcd3",
+  "snapshot_size_bytes": 926483590,
+  "snapshot_acquisition_root": "0xe6a92abe52fb94bfe734d795e997025c5a390b20160ee69696a1bc6b5058fb06",
+  "unique_top_level_keys": 3304807,
+  "observed_child_tries": 56,
+  "acquisition_log_sha256": "97e77e5e31a41cde326fac76e1a29ddae23658d6e017dbef717c43ec0e245bdf",
+  "snapshot_bytes_identical_to_original": false,
+  "full_checker": "passed",
+  "full_checker_source_sha256": "2378ce41e62e8e6d657229633d2939de7b6624281c757e82587367f8c3548225",
+  "verified_result": "/tmp/ms-release-validation/mainnet/logged-full-verification.json",
+  "verified_result_sha256": "75d2e5be796a79dde41967299d986d49a22916f017df5fe43a0bc6015895810b",
+  "raw_runner_result": "/tmp/ms-release-validation/mainnet/logged-verification/ml-dsa-mainnet-upgrade-results.json",
+  "strict_replay_repeated": true,
+  "release_ready": false,
+  "remaining_release_blockers": [
+    "Hostile pre-registration hotkey ownership can prevent descriptor registration and trap bare-funded balances",
+    "Unknown runtime exports can still exhaust Other admission needed by pending EVM reconstruction"
+  ]
+}

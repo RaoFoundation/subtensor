@@ -5,7 +5,11 @@ from dataclasses import replace
 import pytest
 
 from bittensor.executor import _compose_intent_call
-from bittensor.hashed import descriptor_value, prepare_recipient_intent
+from bittensor.hashed import (
+    descriptor_value,
+    prepare_recipient_intent,
+    registration_descriptor_value,
+)
 from bittensor.intents import Batch
 from bittensor.intents.children import SetChildren
 from bittensor.receiving import receiving_address
@@ -27,7 +31,7 @@ async def test_children_receiving_addresses_keep_registration_guards(setup, sche
     if state != "unregistered":
         registered(chain, child)
     if state == "disabled":
-        chain.seed_constant("HashedAccounts", "Enabled", False)
+        chain.seed("AdminUtils", "HashedAccountsEnabled", [], False)
     elif state == "mismatched":
         other = Keypair.create_from_seed(bytes([92]) * 32, scheme)
         chain.seed(
@@ -57,7 +61,9 @@ async def test_children_receiving_addresses_keep_registration_guards(setup, sche
         call, extras = await _compose_intent_call(chain, intent, wallet)
         guard, assignment = call.params["calls"]
         assert (guard.module, guard.function) == ("HashedAccounts", "check_registered")
-        assert guard.params["descriptor"] == descriptor_value(bytes(child.hashed_descriptor))
+        assert guard.params["descriptor"] == registration_descriptor_value(
+            bytes(child.hashed_descriptor)
+        )
         assert assignment.function == "set_children"
         assert assignment.params["children"] == [tuple(entry) for entry in prepared.children]
         assert extras["hashed_registration_guards"] == [child.ss58_address]
@@ -76,7 +82,7 @@ async def test_local_child_ss58_keeps_descriptor_context(setup, tmp_path, scheme
     if state == "registered":
         registered(chain, key)
     if state == "disabled":
-        chain.seed_constant("HashedAccounts", "Enabled", False)
+        chain.seed("AdminUtils", "HashedAccountsEnabled", [], False)
     intent = Batch([SetChildren(1, [[0.5, key.ss58_address]], hotkey_ss58=ALICE)])
     kwargs = {"proxy_for": BOB} if proxy else {}
     if state != "registered":

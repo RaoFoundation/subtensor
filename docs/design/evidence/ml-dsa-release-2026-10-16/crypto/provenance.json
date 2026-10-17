@@ -1,0 +1,212 @@
+{
+  "baseline": "2d5089da3bcb292cbf557d9b22ff34582e23b3f4",
+  "native_sdk_sha256": "fdc0c3dbcb29d75a73956b6c6ff26b497ab7ca273f65d1640daa28f3aa7e7849",
+  "repository_source_sha256": {
+    "sdk/python/bittensor/keyfiles.py": "725b2428d63c1b3c625f2bdb298c599a700f705fd707b6c2321b9ae7a6b6f7b7",
+    "sdk/python/tests/unit/test_keyfile_atomicity.py": "6c097642398d7c5b72ccf62ef0848186411f775fd8bebfb254825061fc7489f8",
+    "sdk/python/tests/e2e/test_wallet_types.py": "34f4cc6d83e5e843745b99c222afeb9f55714a3f27fa02a43d7e343b89bb1f53",
+    "sdk/python/tests/e2e/test_wallet_shield.py": "a3427326d67d70ef6372ffe194cec09976e84edfa5b57fb22f127f13b325ac49",
+    "primitives/hashed/src/mldsa.rs": "60f495081d318109d78406e2d695934231b05bd8a0033645b3a18f3666cf11a5",
+    "sdk/bittensor-core/src/keys/mldsa.rs": "cc35521d924a89a6f3b67d6a599a0e1db51abc137a395134d1bbb31f62dfcbf7",
+    "sdk/bittensor-core/src/keys/mod.rs": "1fafdfdf4cf314a5d173307a6c2606b55ca4849ca2d1455c1c5b4a34227551a8",
+    "sdk/bittensor-core/src/keyfiles/mod.rs": "120f369cd10c8c5f67f206b80a96777b69d7be8f4f04efe6e482b80511516e3c",
+    "sdk/bittensor-core/src/keys/receiving.rs": "0a0e1d5f4faebaeb03d7a54e9ad3782bec6defabb832c85dfd79a6f7d129bb7d",
+    "sdk/python/bittensor/mldsa_signing.py": "2752aa24b3b83e9551951378a264c3dd4c22af6de1ef66d5aef22bcf0b368268",
+    "sdk/python/bittensor/mldsa.py": "66ee64d083984b742a4400d1b87bc135148cb7e468a134159de911f2a2af0a09",
+    "sdk/python/bittensor/_transport/interface.py": "127aa4bf02c45339fa731caf0ede5f9dc7262d762846cc0b1a204409f7e597f9",
+    "runtime/src/hashed_extrinsic.rs": "10aaf9912b9c88a892f55a2fc60749f69ad31c61a920faab0b12443ec8db5a88",
+    "runtime/src/hashed_auth.rs": "db64b4ad1dc2f34cfdd1e5fcd2ab7c1840c5016f4977dfc88bd003986a4aa26b",
+    "runtime/src/evm_origin.rs": "435eb128b0dd280c7909b9885a0a0c4079681d6a6d1501aba0c4bee43d8ced88",
+    "pallets/hashed-accounts/src/mldsa.rs": "e7fabd70aed3b69acf943d3a548dab6c6c3addce3efb3932b2cafb62892862b0",
+    "vendor/frontier/client/rpc/src/eth/pending.rs": "8fe8459a180a6e33eb275d6981fde3badb4dd4cc519d7b85e23673a5ffe849ed",
+    "vendor/fips204/SUBTENSOR.md": "7479a4134a480201efc84cb0a205ac91a4d58a2a59c3523a06c66d522abe900c",
+    "vendor/fips204/src/hashing.rs": "368b365524aa4b8d8c318e8744a7c0804d0255216ac0cac6df886e9eb519d8b1",
+    "vendor/fips204/src/ml_dsa.rs": "d4b6b435dab653f4641445aa5358f22bfcb76278494a35857fc6f047ed336b51",
+    "vendor/fips204/src/lib.rs": "fbaca18823d447796228027de3762226dd1f28201d1385832b3b42029216227d"
+  },
+  "original_artifact_sha256": {
+    "crypto-differential-results.json": "fdaad04f0acf905e703114534b31a607cb793fdda5396df7703bb6a841a47565",
+    "crypto-backup-results.json": "92bfa7b4640318f51e0f7f4b50fb2c039f2d693e53189d7b153057487fec2795",
+    "crypto-backup-validation.py": "58856a701cf87e897744c167adb039033fd1ba93590754d4b7a80afebe69edbd",
+    "crypto-harness/src/main.rs": "d81dc13398d1aaead82000ae041272f9a6efb0b7909f853bb83b4cb6444d6b56",
+    "crypto-harness/Cargo.toml": "25b2d313ea0d2ecbfaf52446643a2dc3e000a64c31f1c3a6a04ae234332a1d7c",
+    "pending-helper/run.py": "db9e946c7bbea18ac29b90ddfd67874d250398280a067c5ede29f2bbf9a35cff",
+    "pending-helper/evidence.json": "4fdf493d583d0553b8f3d31372befdc16e926186372c850fff4d675cf5c88875",
+    "pending-helper/tests.log": "bf9d191d6a7e25dc797f7f996ad215456787f45e5e0dde85fd84cf7eec9fe80f",
+    "pending-helper/pending_helper_tests.rs": "d67f271553989c1793810060aa998557d4544ec01975ce5fd59ec5d32e5a370e",
+    "crypto-upstream-normalized-comparison.json": "ba09f8a592f59120995ec5ee7e618c9a60bbb24a8cf185eb7faf5cf26a739749",
+    "keyfile-short-write-repro.py": "6c8deee5250b15edff1150596996d3c2975ee213a6771703044a2def7e79d9af",
+    "keyfile-short-write-results.log": "0eedd1d1c49b052fd955a39e6e34274e314ed793b6be27c5544eab2ebaaac63c",
+    "keyfile-tests.log": "1df00952a2e6d6fe071ba6b60850a5e74dd2d1b21a98ba2c2aa94649dd3c5a66",
+    "crypto-python-tests.log": "626a7afcb5094c7c65a66e199529bc9e9bf9132ce38ea7793c9e20e86f151560",
+    "consensus-vendor-tests.log": "5da7f6bcdc9aeb07804f485b72a53897fe2e74fe5fbc42a7feb77c2b27b26f0c",
+    "lifecycle-localnet/manifest.json": "962334d23f55e216bf3b57f9a9963cd3b4d948ded8b4570a2bf8f1c2972dd24b",
+    "lifecycle-localnet/health-initial.json": "68369f06968b56868870b0686e5d91d971cad5a2be2a0227a26f69ef378c7e9d",
+    "lifecycle-localnet/health-final.json": "5a68a991d43cb40c79970bb307ab3469cca744f16ecd6fd3ed931aca7b8acb15",
+    "lifecycle-localnet/timing.json": "3a5694b6ae867e8d49c0b23e0acb883969bb9ebc0066be81a6ff9b4f8bee6850",
+    "lifecycle-localnet/shield-summary.json": "6004d04fdfaf60db0b4fa4d268aed8da05974c990c1cb2319c375bed9f18d14e",
+    "lifecycle-localnet/shield-serial-drain.json": "5e35e820b3510cf00650719ed4c88d96c7da77790b06c11f2ed0b6344afd0949",
+    "lifecycle-localnet/lifecycle-attempt1-drain.json": "3901dc57f44c9f4cc75d8af451c1108f061b8ffa7f5c2f31fa63605a2d1288d9",
+    "lifecycle-localnet/activation.json": "175cc941c61eaa6a3c4df71bb24f2e48d95d25af2147206d4405ddde39b776a9",
+    "lifecycle-localnet/lifecycle-summary.json": "db7f45cc2c59e3893387e17e46cfd600faff52396d85f08089b6fc4145c8f455",
+    "lifecycle-localnet/shutdown.json": "93d030dd8a1d979ddd13cd149fcc5ef237f57699f4e3d0810dd8d499f9cf9f9e"
+  },
+  "excluded": "Raw lifecycle CLI logs, wallet/key files, node databases, binaries, compiled dependencies, full NIST vectors.",
+  "retained_artifacts": {
+    "crypto-differential-results.json": {
+      "path": "differential-results.json",
+      "sha256": "fdaad04f0acf905e703114534b31a607cb793fdda5396df7703bb6a841a47565",
+      "compression": null
+    },
+    "crypto-backup-results.json": {
+      "path": "recovery-results.json",
+      "sha256": "92bfa7b4640318f51e0f7f4b50fb2c039f2d693e53189d7b153057487fec2795",
+      "compression": null
+    },
+    "crypto-backup-validation.py": {
+      "path": "recovery-harness.py",
+      "sha256": "58856a701cf87e897744c167adb039033fd1ba93590754d4b7a80afebe69edbd",
+      "compression": null
+    },
+    "crypto-harness/src/main.rs": {
+      "path": "differential-harness/main.rs",
+      "sha256": "d81dc13398d1aaead82000ae041272f9a6efb0b7909f853bb83b4cb6444d6b56",
+      "compression": null
+    },
+    "crypto-harness/Cargo.toml": {
+      "path": "differential-harness/manifest.toml",
+      "sha256": "25b2d313ea0d2ecbfaf52446643a2dc3e000a64c31f1c3a6a04ae234332a1d7c",
+      "compression": null
+    },
+    "pending-helper/run.py": {
+      "path": "pending-helper/run.py",
+      "sha256": "db9e946c7bbea18ac29b90ddfd67874d250398280a067c5ede29f2bbf9a35cff",
+      "compression": null
+    },
+    "pending-helper/evidence.json": {
+      "path": "pending-helper/evidence.json",
+      "sha256": "4fdf493d583d0553b8f3d31372befdc16e926186372c850fff4d675cf5c88875",
+      "compression": null
+    },
+    "pending-helper/tests.log": {
+      "path": "pending-helper/tests.log.gz",
+      "sha256": "0c558c849edf9b60f0a20d15e59a8d01728587b48dd31dfa4a65b47b079cb9a4",
+      "compression": "gzip, mtime=0, lossless"
+    },
+    "pending-helper/pending_helper_tests.rs": {
+      "path": "pending-helper/pending_helper_tests.rs",
+      "sha256": "d67f271553989c1793810060aa998557d4544ec01975ce5fd59ec5d32e5a370e",
+      "compression": null
+    },
+    "crypto-upstream-normalized-comparison.json": {
+      "path": "upstream-normalized-comparison.json",
+      "sha256": "ba09f8a592f59120995ec5ee7e618c9a60bbb24a8cf185eb7faf5cf26a739749",
+      "compression": null
+    },
+    "keyfile-short-write-repro.py": {
+      "path": "keyfile-short-write-repro.py",
+      "sha256": "6c8deee5250b15edff1150596996d3c2975ee213a6771703044a2def7e79d9af",
+      "compression": null
+    },
+    "keyfile-short-write-results.log": {
+      "path": "keyfile-short-write-results.log.gz",
+      "sha256": "ef9eeb4683919a1e14909134c43571485cc02bb4e5d55cd256c829a5b0fc4602",
+      "compression": "gzip, mtime=0, lossless"
+    },
+    "keyfile-tests.log": {
+      "path": "keyfile-tests.log.gz",
+      "sha256": "d77c434ebbb24d3e3a24ab8bb9dfef128a5da09bee1d9c7d86d3248efdbd7b29",
+      "compression": "gzip, mtime=0, lossless"
+    },
+    "crypto-python-tests.log": {
+      "path": "sdk-crypto-tests.log.gz",
+      "sha256": "60d87991db2261fd3486144460da09fc281c90c1f6151b27c6fdc81795b24858",
+      "compression": "gzip, mtime=0, lossless"
+    },
+    "consensus-vendor-tests.log": {
+      "path": "vendor-unit-tests.log.gz",
+      "sha256": "e028de73a9813d1e948cede1e2222598718ca05ddb908bb3b66cc6f533f6bc9f",
+      "compression": "gzip, mtime=0, lossless"
+    },
+    "lifecycle-localnet/manifest.json": {
+      "path": "lifecycle/manifest.json",
+      "sha256": "962334d23f55e216bf3b57f9a9963cd3b4d948ded8b4570a2bf8f1c2972dd24b",
+      "compression": null
+    },
+    "lifecycle-localnet/health-initial.json": {
+      "path": "lifecycle/health-initial.json",
+      "sha256": "68369f06968b56868870b0686e5d91d971cad5a2be2a0227a26f69ef378c7e9d",
+      "compression": null
+    },
+    "lifecycle-localnet/health-final.json": {
+      "path": "lifecycle/health-final.json",
+      "sha256": "5a68a991d43cb40c79970bb307ab3469cca744f16ecd6fd3ed931aca7b8acb15",
+      "compression": null
+    },
+    "lifecycle-localnet/timing.json": {
+      "path": "lifecycle/timing.json",
+      "sha256": "3a5694b6ae867e8d49c0b23e0acb883969bb9ebc0066be81a6ff9b4f8bee6850",
+      "compression": null
+    },
+    "lifecycle-localnet/shield-summary.json": {
+      "path": "lifecycle/shield-summary.json",
+      "sha256": "6004d04fdfaf60db0b4fa4d268aed8da05974c990c1cb2319c375bed9f18d14e",
+      "compression": null
+    },
+    "lifecycle-localnet/shield-serial-drain.json": {
+      "path": "lifecycle/shield-serial-drain.json",
+      "sha256": "5e35e820b3510cf00650719ed4c88d96c7da77790b06c11f2ed0b6344afd0949",
+      "compression": null
+    },
+    "lifecycle-localnet/lifecycle-attempt1-drain.json": {
+      "path": "lifecycle/lifecycle-attempt1-drain.json",
+      "sha256": "3901dc57f44c9f4cc75d8af451c1108f061b8ffa7f5c2f31fa63605a2d1288d9",
+      "compression": null
+    },
+    "lifecycle-localnet/activation.json": {
+      "path": "lifecycle/activation.json",
+      "sha256": "175cc941c61eaa6a3c4df71bb24f2e48d95d25af2147206d4405ddde39b776a9",
+      "compression": null
+    },
+    "lifecycle-localnet/lifecycle-summary.json": {
+      "path": "lifecycle/lifecycle-summary.json",
+      "sha256": "db7f45cc2c59e3893387e17e46cfd600faff52396d85f08089b6fc4145c8f455",
+      "compression": null
+    },
+    "lifecycle-localnet/shutdown.json": {
+      "path": "lifecycle/shutdown.json",
+      "sha256": "93d030dd8a1d979ddd13cd149fcc5ef237f57699f4e3d0810dd8d499f9cf9f9e",
+      "compression": null
+    }
+  },
+  "retained_file_sha256": {
+    "differential-harness/main.rs": "d81dc13398d1aaead82000ae041272f9a6efb0b7909f853bb83b4cb6444d6b56",
+    "differential-harness/manifest.toml": "25b2d313ea0d2ecbfaf52446643a2dc3e000a64c31f1c3a6a04ae234332a1d7c",
+    "differential-results.json": "fdaad04f0acf905e703114534b31a607cb793fdda5396df7703bb6a841a47565",
+    "keyfile-short-write-repro.py": "6c8deee5250b15edff1150596996d3c2975ee213a6771703044a2def7e79d9af",
+    "keyfile-short-write-results.log.gz": "ef9eeb4683919a1e14909134c43571485cc02bb4e5d55cd256c829a5b0fc4602",
+    "keyfile-tests.log.gz": "d77c434ebbb24d3e3a24ab8bb9dfef128a5da09bee1d9c7d86d3248efdbd7b29",
+    "lifecycle/activation.json": "175cc941c61eaa6a3c4df71bb24f2e48d95d25af2147206d4405ddde39b776a9",
+    "lifecycle/health-final.json": "5a68a991d43cb40c79970bb307ab3469cca744f16ecd6fd3ed931aca7b8acb15",
+    "lifecycle/health-initial.json": "68369f06968b56868870b0686e5d91d971cad5a2be2a0227a26f69ef378c7e9d",
+    "lifecycle/lifecycle-attempt1-drain.json": "3901dc57f44c9f4cc75d8af451c1108f061b8ffa7f5c2f31fa63605a2d1288d9",
+    "lifecycle/lifecycle-summary.json": "db7f45cc2c59e3893387e17e46cfd600faff52396d85f08089b6fc4145c8f455",
+    "lifecycle/manifest.json": "962334d23f55e216bf3b57f9a9963cd3b4d948ded8b4570a2bf8f1c2972dd24b",
+    "lifecycle/shield-serial-drain.json": "5e35e820b3510cf00650719ed4c88d96c7da77790b06c11f2ed0b6344afd0949",
+    "lifecycle/shield-summary.json": "6004d04fdfaf60db0b4fa4d268aed8da05974c990c1cb2319c375bed9f18d14e",
+    "lifecycle/shutdown.json": "93d030dd8a1d979ddd13cd149fcc5ef237f57699f4e3d0810dd8d499f9cf9f9e",
+    "lifecycle/timing.json": "3a5694b6ae867e8d49c0b23e0acb883969bb9ebc0066be81a6ff9b4f8bee6850",
+    "lifecycle-review.md": "6bd79ff6328e64ac85d103558bbf4e613031d7a6686d3ec50bac564de4abbf1f",
+    "pending-helper/evidence.json": "4fdf493d583d0553b8f3d31372befdc16e926186372c850fff4d675cf5c88875",
+    "pending-helper/pending_helper_tests.rs": "d67f271553989c1793810060aa998557d4544ec01975ce5fd59ec5d32e5a370e",
+    "pending-helper/run.py": "db9e946c7bbea18ac29b90ddfd67874d250398280a067c5ede29f2bbf9a35cff",
+    "pending-helper/tests.log.gz": "0c558c849edf9b60f0a20d15e59a8d01728587b48dd31dfa4a65b47b079cb9a4",
+    "recovery-harness.py": "58856a701cf87e897744c167adb039033fd1ba93590754d4b7a80afebe69edbd",
+    "recovery-results.json": "92bfa7b4640318f51e0f7f4b50fb2c039f2d693e53189d7b153057487fec2795",
+    "review.md": "13312dee0ab07ddbe6e8ad33515aa0aafcba995b92193381d14962c575ec61ca",
+    "sdk-crypto-tests.log.gz": "60d87991db2261fd3486144460da09fc281c90c1f6151b27c6fdc81795b24858",
+    "upstream-normalized-comparison.json": "ba09f8a592f59120995ec5ee7e618c9a60bbb24a8cf185eb7faf5cf26a739749",
+    "upstream-source-hashes.json": "2168d20f301e03f5a3288c527a9b41eda075359ca65c4801522abdb1f95458ab",
+    "vendor-unit-tests.log.gz": "e028de73a9813d1e948cede1e2222598718ca05ddb908bb3b66cc6f533f6bc9f"
+  }
+}

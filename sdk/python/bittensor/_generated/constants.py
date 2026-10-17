@@ -188,3 +188,6 @@ class LimitOrders:
 
 class HashedAccounts:
     RegistrationDeposit = Item('HashedAccounts', 'RegistrationDeposit')
+    MlDsaRegistrationDeposit = Item('HashedAccounts', 'MlDsaRegistrationDeposit')
+    DerivedRegistrationDeposit = Item('HashedAccounts', 'DerivedRegistrationDeposit')
+    MldsaAccountProfiles = Item('HashedAccounts', 'MldsaAccountProfiles')

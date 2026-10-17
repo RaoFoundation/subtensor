@@ -1,0 +1,14 @@
+---
+title: "Independent mainnet upgrade evidence verification"
+description: "Supplemental artifact and ten-block validation with explicit snapshot acquisition evidence limits."
+---
+
+The recorded mainnet upgrade rehearsal passes independent artifact and execution verification. The existing, unchanged `ml-dsa-mainnet-log-check.py::verify_blocks` verified exactly ten contiguous successful synthetic empty blocks, **9,298,129 through 9,298,138**. The pinned CLI describes `--n-blocks` as empty blocks. This snapshot-mode fast-forward does not replay canonical mainnet transaction bodies. Every generated block reports state-root checking enabled, signature checking enabled, `try-state All`, and one successful entire-runtime-state decode between execution and success. Both upgrade and fast-forward logs load the snapshot with root `0xe6a92abe52fb94bfe734d795e997025c5a390b20160ee69696a1bc6b5058fb06`, matching the RPC-pinned finalized header at block 9,298,128. Both logs report runtime versions 479 → 480; all upgrade checks and repeated migration idempotency checks succeeded. The upgrade invocation used `--no-weight-warnings` under the excluded reference-weight scope and `--disable-mbm-checks` because the runtime configures `MultiBlockMigrator = ()`; the exact commands remain recorded in the raw result.
+
+Recomputed hashes match the untouched raw record for the 926,483,590-byte snapshot, 2,878,770-byte runtime, source JSON, runner script, both execution logs, and pinned try-runtime CLI binary. Reproduction: `../mainnet/post-verify.py`; output: `../mainnet/post-verification.json`.
+
+The acquisition progress log reports **3,304,807 keys**. It does not report an acquisition storage root, exact unique-key enumeration, snapshot-byte log entry, or child-trie count because acquisition debug logging was absent. The coordinator's acquisition arguments used no pallet/prefix filters; the independently inspected pinned CLI help confirms whole-chain scraping includes child trees by default. Child-trie inclusion was therefore configured, but the observed child-trie count remains **unknown**. Subsequent matching loaded roots are strong snapshot integrity evidence; they do not supply the missing acquisition-log fields or independently count child tries.
+
+The original full log checker has **not passed**, because it requires those absent acquisition-log markers. Neither that checker nor the raw result was modified. This supplementary verification records the narrower evidence honestly. No RPC/network calls, Cargo builds, or runtime execution were used for this verification; only the pinned CLI's local `create-snapshot --help` was inspected.
+
+This rehearsal does not remove the release blocker involving hostile pre-registration hotkey association and bare-funded descriptor accounts. It also does not establish production reference weights or resolve the pending RPC availability issue documented separately.

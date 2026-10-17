@@ -1,0 +1,2398 @@
+{
+  "crypto_type": 7,
+  "accounts": {
+    "owner": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+    "delegate": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+    "recipient": "5GwZFbzYU9j3ExE8YxtiWSdXXrp24EAvsensUCx5Bn2zESFX"
+  },
+  "normal_block_timing": true,
+  "successful": true,
+  "receipts": [
+    {
+      "operation": "Alice explicitly sponsors and funds account",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x8d44ff6bd19c0930d9c66205ebb18c87ebe148a03c27aa3d20bca8b77a659db2",
+      "extrinsic_id": "7-0006",
+      "fee_tao": 0.000969016,
+      "data": {
+        "hashed_registration_guards": [
+          "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+        "hashed_registration_deposit_rao": 1144000000
+      },
+      "canonical_events": [
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0508",
+            "module_id": "Balances",
+            "event_id": "Withdraw",
+            "attributes": {
+              "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+              "amount": 984016
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            "amount": 984016
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0003",
+            "module_id": "System",
+            "event_id": "NewAccount",
+            "attributes": {
+              "account": "5Fwa5NzT13X251c53awbgm56rLTmwG75NXZ21VwGj1Sx3muB"
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "NewAccount",
+          "attributes": {
+            "account": "5Fwa5NzT13X251c53awbgm56rLTmwG75NXZ21VwGj1Sx3muB"
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0504",
+            "module_id": "Balances",
+            "event_id": "Reserved",
+            "attributes": {
+              "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+              "amount": 1144000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Reserved",
+          "attributes": {
+            "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            "amount": 1144000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0003",
+            "module_id": "System",
+            "event_id": "NewAccount",
+            "attributes": {
+              "account": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka"
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "NewAccount",
+          "attributes": {
+            "account": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka"
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "2102",
+            "module_id": "HashedAccounts",
+            "event_id": "RegisteredMlDsa",
+            "attributes": {
+              "account": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "sponsor": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+              "deposit": 1144000000
+            }
+          },
+          "event_index": 33,
+          "module_id": "HashedAccounts",
+          "event_id": "RegisteredMlDsa",
+          "attributes": {
+            "account": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "sponsor": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            "deposit": 1144000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b03",
+            "module_id": "Utility",
+            "event_id": "ItemCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0500",
+            "module_id": "Balances",
+            "event_id": "Endowed",
+            "attributes": {
+              "account": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "free_balance": 100000000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Endowed",
+          "attributes": {
+            "account": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "free_balance": 100000000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0502",
+            "module_id": "Balances",
+            "event_id": "Transfer",
+            "attributes": {
+              "from": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+              "to": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "amount": 100000000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Transfer",
+          "attributes": {
+            "from": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            "to": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "amount": 100000000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b03",
+            "module_id": "Utility",
+            "event_id": "ItemCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b01",
+            "module_id": "Utility",
+            "event_id": "BatchCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "BatchCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0507",
+            "module_id": "Balances",
+            "event_id": "Deposit",
+            "attributes": {
+              "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+              "amount": 15000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            "amount": 15000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0600",
+            "module_id": "TransactionPayment",
+            "event_id": "TransactionFeePaid",
+            "attributes": {
+              "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+              "actual_fee": 969016,
+              "tip": 0
+            }
+          },
+          "event_index": 6,
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            "actual_fee": 969016,
+            "tip": 0
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0000",
+            "module_id": "System",
+            "event_id": "ExtrinsicSuccess",
+            "attributes": {
+              "dispatch_info": {
+                "weight": {
+                  "ref_time": 3875625370,
+                  "proof_size": 213532
+                },
+                "class": "Normal",
+                "pays_fee": "Yes"
+              }
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 3875625370,
+                "proof_size": 213532
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          },
+          "topics": []
+        }
+      ]
+    },
+    {
+      "operation": "Alice explicitly sponsors and funds account",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x5982e5069b51a0e28e9f6e612686093794d3e8655ea02320486ef4b8ece751b7",
+      "extrinsic_id": "10-0006",
+      "fee_tao": 0.000969016,
+      "data": {
+        "hashed_registration_guards": [
+          "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+        "hashed_registration_deposit_rao": 1144000000
+      },
+      "canonical_events": [
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0508",
+            "module_id": "Balances",
+            "event_id": "Withdraw",
+            "attributes": {
+              "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+              "amount": 984016
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            "amount": 984016
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0003",
+            "module_id": "System",
+            "event_id": "NewAccount",
+            "attributes": {
+              "account": "5GVJn5fPhW2HktwLEDVCqrkHufqECNSbqu8Eu8kg9bc1tXpC"
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "NewAccount",
+          "attributes": {
+            "account": "5GVJn5fPhW2HktwLEDVCqrkHufqECNSbqu8Eu8kg9bc1tXpC"
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0504",
+            "module_id": "Balances",
+            "event_id": "Reserved",
+            "attributes": {
+              "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+              "amount": 1144000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Reserved",
+          "attributes": {
+            "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            "amount": 1144000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0003",
+            "module_id": "System",
+            "event_id": "NewAccount",
+            "attributes": {
+              "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB"
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "NewAccount",
+          "attributes": {
+            "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB"
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "2102",
+            "module_id": "HashedAccounts",
+            "event_id": "RegisteredMlDsa",
+            "attributes": {
+              "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "sponsor": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+              "deposit": 1144000000
+            }
+          },
+          "event_index": 33,
+          "module_id": "HashedAccounts",
+          "event_id": "RegisteredMlDsa",
+          "attributes": {
+            "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "sponsor": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            "deposit": 1144000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b03",
+            "module_id": "Utility",
+            "event_id": "ItemCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0500",
+            "module_id": "Balances",
+            "event_id": "Endowed",
+            "attributes": {
+              "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "free_balance": 100000000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Endowed",
+          "attributes": {
+            "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "free_balance": 100000000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0502",
+            "module_id": "Balances",
+            "event_id": "Transfer",
+            "attributes": {
+              "from": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+              "to": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 100000000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Transfer",
+          "attributes": {
+            "from": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            "to": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 100000000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b03",
+            "module_id": "Utility",
+            "event_id": "ItemCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b01",
+            "module_id": "Utility",
+            "event_id": "BatchCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "BatchCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0507",
+            "module_id": "Balances",
+            "event_id": "Deposit",
+            "attributes": {
+              "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+              "amount": 15000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            "amount": 15000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0600",
+            "module_id": "TransactionPayment",
+            "event_id": "TransactionFeePaid",
+            "attributes": {
+              "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+              "actual_fee": 969016,
+              "tip": 0
+            }
+          },
+          "event_index": 6,
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            "actual_fee": 969016,
+            "tip": 0
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0000",
+            "module_id": "System",
+            "event_id": "ExtrinsicSuccess",
+            "attributes": {
+              "dispatch_info": {
+                "weight": {
+                  "ref_time": 3875625370,
+                  "proof_size": 213532
+                },
+                "class": "Normal",
+                "pays_fee": "Yes"
+              }
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 3875625370,
+                "proof_size": 213532
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          },
+          "topics": []
+        }
+      ]
+    },
+    {
+      "operation": "owner registers recipient and grants proxy",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x1598a94dc3b94ff2dac5807d83c36638cd4760b24e1175e92d37d0d06dfbb9ea",
+      "extrinsic_id": "13-0007",
+      "fee_tao": 0.001313642,
+      "canonical_events": [
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "2103",
+            "module_id": "HashedAccounts",
+            "event_id": "RotatedMlDsa",
+            "attributes": {
+              "account": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "generation": 1
+            }
+          },
+          "event_index": 33,
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "generation": 1
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0508",
+            "module_id": "Balances",
+            "event_id": "Withdraw",
+            "attributes": {
+              "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "amount": 1328642
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "amount": 1328642
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0003",
+            "module_id": "System",
+            "event_id": "NewAccount",
+            "attributes": {
+              "account": "5CP94pSs8pBqLT2p9jPypCcKD5DzdAUeUSNxFQ6f3S7QZgoB"
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "NewAccount",
+          "attributes": {
+            "account": "5CP94pSs8pBqLT2p9jPypCcKD5DzdAUeUSNxFQ6f3S7QZgoB"
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0504",
+            "module_id": "Balances",
+            "event_id": "Reserved",
+            "attributes": {
+              "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "amount": 1144000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Reserved",
+          "attributes": {
+            "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "amount": 1144000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0003",
+            "module_id": "System",
+            "event_id": "NewAccount",
+            "attributes": {
+              "account": "5GwZFbzYU9j3ExE8YxtiWSdXXrp24EAvsensUCx5Bn2zESFX"
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "NewAccount",
+          "attributes": {
+            "account": "5GwZFbzYU9j3ExE8YxtiWSdXXrp24EAvsensUCx5Bn2zESFX"
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "2102",
+            "module_id": "HashedAccounts",
+            "event_id": "RegisteredMlDsa",
+            "attributes": {
+              "account": "5GwZFbzYU9j3ExE8YxtiWSdXXrp24EAvsensUCx5Bn2zESFX",
+              "sponsor": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "deposit": 1144000000
+            }
+          },
+          "event_index": 33,
+          "module_id": "HashedAccounts",
+          "event_id": "RegisteredMlDsa",
+          "attributes": {
+            "account": "5GwZFbzYU9j3ExE8YxtiWSdXXrp24EAvsensUCx5Bn2zESFX",
+            "sponsor": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "deposit": 1144000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0b03",
+            "module_id": "Utility",
+            "event_id": "ItemCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0504",
+            "module_id": "Balances",
+            "event_id": "Reserved",
+            "attributes": {
+              "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "amount": 93000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Reserved",
+          "attributes": {
+            "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "amount": 93000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "1004",
+            "module_id": "Proxy",
+            "event_id": "ProxyAdded",
+            "attributes": {
+              "delegator": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "delegatee": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "proxy_type": "Any",
+              "delay": 2
+            }
+          },
+          "event_index": 16,
+          "module_id": "Proxy",
+          "event_id": "ProxyAdded",
+          "attributes": {
+            "delegator": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "delegatee": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "proxy_type": "Any",
+            "delay": 2
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0b03",
+            "module_id": "Utility",
+            "event_id": "ItemCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0b01",
+            "module_id": "Utility",
+            "event_id": "BatchCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "BatchCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0507",
+            "module_id": "Balances",
+            "event_id": "Deposit",
+            "attributes": {
+              "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "amount": 15000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "amount": 15000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0600",
+            "module_id": "TransactionPayment",
+            "event_id": "TransactionFeePaid",
+            "attributes": {
+              "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "actual_fee": 1313642,
+              "tip": 0
+            }
+          },
+          "event_index": 6,
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "actual_fee": 1313642,
+            "tip": 0
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0000",
+            "module_id": "System",
+            "event_id": "ExtrinsicSuccess",
+            "attributes": {
+              "dispatch_info": {
+                "weight": {
+                  "ref_time": 5243460927,
+                  "proof_size": 237759
+                },
+                "class": "Normal",
+                "pays_fee": "Yes"
+              }
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 5243460927,
+                "proof_size": 237759
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          },
+          "topics": []
+        }
+      ]
+    },
+    {
+      "operation": "announce then execute too early in the same block",
+      "success": false,
+      "message": "Announcement, if made at all, was made too recently.",
+      "block_hash": "0x2a610d1f24b350ff156cd6031e5f24fbd52eef20d41f56604cf5266c6a90ba64",
+      "extrinsic_id": "16-0007",
+      "error": {
+        "message": "Announcement, if made at all, was made too recently.",
+        "name": "Unannounced",
+        "code": "too_early",
+        "remediation": "the required window has not opened yet; wait some blocks and retry",
+        "description": "The proxied call was executed before its announcement matured, or no matching announcement exists at all. Check the proxy's `Announcements` entry for the call hash and the `delay` on the proxy registration; enough blocks must elapse between `announce` and `proxy_announced`.",
+        "docs_url": "https://www.bittensor.com/docs/errors/chain/Unannounced"
+      },
+      "canonical_events": [
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "2103",
+            "module_id": "HashedAccounts",
+            "event_id": "RotatedMlDsa",
+            "attributes": {
+              "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "generation": 1
+            }
+          },
+          "event_index": 33,
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "generation": 1
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0508",
+            "module_id": "Balances",
+            "event_id": "Withdraw",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 736501
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 736501
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0504",
+            "module_id": "Balances",
+            "event_id": "Reserved",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 104000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Reserved",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 104000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "1003",
+            "module_id": "Proxy",
+            "event_id": "Announced",
+            "attributes": {
+              "real": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "proxy": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "call_hash": "0xe14cd64b5146082dd87fe580b96f5b2dc706f7134c50724a96ea45c7f796a621"
+            }
+          },
+          "event_index": 16,
+          "module_id": "Proxy",
+          "event_id": "Announced",
+          "attributes": {
+            "real": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "proxy": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "call_hash": "0xe14cd64b5146082dd87fe580b96f5b2dc706f7134c50724a96ea45c7f796a621"
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0b03",
+            "module_id": "Utility",
+            "event_id": "ItemCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0b00",
+            "module_id": "Utility",
+            "event_id": "BatchInterrupted",
+            "attributes": {
+              "index": 1,
+              "error": {
+                "Module": {
+                  "index": 16,
+                  "error": "0x06000000"
+                }
+              }
+            }
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "BatchInterrupted",
+          "attributes": {
+            "index": 1,
+            "error": {
+              "Module": {
+                "index": 16,
+                "error": "0x06000000"
+              }
+            }
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0507",
+            "module_id": "Balances",
+            "event_id": "Deposit",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 15000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 15000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0600",
+            "module_id": "TransactionPayment",
+            "event_id": "TransactionFeePaid",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "actual_fee": 721501,
+              "tip": 0
+            }
+          },
+          "event_index": 6,
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "actual_fee": 721501,
+            "tip": 0
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 7,
+          "event": {
+            "event_index": "0000",
+            "module_id": "System",
+            "event_id": "ExtrinsicSuccess",
+            "attributes": {
+              "dispatch_info": {
+                "weight": {
+                  "ref_time": 2874617672,
+                  "proof_size": 74221
+                },
+                "class": "Normal",
+                "pays_fee": "Yes"
+              }
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 2874617672,
+                "proof_size": 74221
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          },
+          "topics": []
+        }
+      ]
+    },
+    {
+      "operation": "announced guarded transfer after delay",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xf5e5c17b0f0aafea820c0ee2a502084858217b30a39b13c8e92a6f1ee650c3af",
+      "extrinsic_id": "21-0006",
+      "fee_tao": 0.000575165,
+      "canonical_events": [
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "2103",
+            "module_id": "HashedAccounts",
+            "event_id": "RotatedMlDsa",
+            "attributes": {
+              "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "generation": 2
+            }
+          },
+          "event_index": 33,
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "generation": 2
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0508",
+            "module_id": "Balances",
+            "event_id": "Withdraw",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 605165
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 605165
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0505",
+            "module_id": "Balances",
+            "event_id": "Unreserved",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 104000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Unreserved",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 104000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b03",
+            "module_id": "Utility",
+            "event_id": "ItemCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0500",
+            "module_id": "Balances",
+            "event_id": "Endowed",
+            "attributes": {
+              "account": "5GwZFbzYU9j3ExE8YxtiWSdXXrp24EAvsensUCx5Bn2zESFX",
+              "free_balance": 1000000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Endowed",
+          "attributes": {
+            "account": "5GwZFbzYU9j3ExE8YxtiWSdXXrp24EAvsensUCx5Bn2zESFX",
+            "free_balance": 1000000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0502",
+            "module_id": "Balances",
+            "event_id": "Transfer",
+            "attributes": {
+              "from": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "to": "5GwZFbzYU9j3ExE8YxtiWSdXXrp24EAvsensUCx5Bn2zESFX",
+              "amount": 1000000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Transfer",
+          "attributes": {
+            "from": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "to": "5GwZFbzYU9j3ExE8YxtiWSdXXrp24EAvsensUCx5Bn2zESFX",
+            "amount": 1000000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b03",
+            "module_id": "Utility",
+            "event_id": "ItemCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b01",
+            "module_id": "Utility",
+            "event_id": "BatchCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "BatchCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "1000",
+            "module_id": "Proxy",
+            "event_id": "ProxyExecuted",
+            "attributes": {
+              "result": {
+                "Ok": []
+              }
+            }
+          },
+          "event_index": 16,
+          "module_id": "Proxy",
+          "event_id": "ProxyExecuted",
+          "attributes": {
+            "result": {
+              "Ok": []
+            }
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0507",
+            "module_id": "Balances",
+            "event_id": "Deposit",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 30000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 30000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0600",
+            "module_id": "TransactionPayment",
+            "event_id": "TransactionFeePaid",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "actual_fee": 575165,
+              "tip": 0
+            }
+          },
+          "event_index": 6,
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "actual_fee": 575165,
+            "tip": 0
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0000",
+            "module_id": "System",
+            "event_id": "ExtrinsicSuccess",
+            "attributes": {
+              "dispatch_info": {
+                "weight": {
+                  "ref_time": 2289413297,
+                  "proof_size": 49029
+                },
+                "class": "Normal",
+                "pays_fee": "Yes"
+              }
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 2289413297,
+                "proof_size": 49029
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          },
+          "topics": []
+        }
+      ]
+    },
+    {
+      "operation": "announce again before revocation",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x2d5a3cbfb51ad98eea7dffaffc17abbaa282b6e7b6ccf617f9fc632d8d1140a5",
+      "extrinsic_id": "24-0006",
+      "fee_tao": 0.000372967,
+      "canonical_events": [
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "2103",
+            "module_id": "HashedAccounts",
+            "event_id": "RotatedMlDsa",
+            "attributes": {
+              "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "generation": 3
+            }
+          },
+          "event_index": 33,
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "generation": 3
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0508",
+            "module_id": "Balances",
+            "event_id": "Withdraw",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 372967
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 372967
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0504",
+            "module_id": "Balances",
+            "event_id": "Reserved",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 104000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Reserved",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 104000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "1003",
+            "module_id": "Proxy",
+            "event_id": "Announced",
+            "attributes": {
+              "real": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "proxy": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "call_hash": "0xe14cd64b5146082dd87fe580b96f5b2dc706f7134c50724a96ea45c7f796a621"
+            }
+          },
+          "event_index": 16,
+          "module_id": "Proxy",
+          "event_id": "Announced",
+          "attributes": {
+            "real": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "proxy": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "call_hash": "0xe14cd64b5146082dd87fe580b96f5b2dc706f7134c50724a96ea45c7f796a621"
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0507",
+            "module_id": "Balances",
+            "event_id": "Deposit",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 0
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 0
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0600",
+            "module_id": "TransactionPayment",
+            "event_id": "TransactionFeePaid",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "actual_fee": 372967,
+              "tip": 0
+            }
+          },
+          "event_index": 6,
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "actual_fee": 372967,
+            "tip": 0
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0000",
+            "module_id": "System",
+            "event_id": "ExtrinsicSuccess",
+            "attributes": {
+              "dispatch_info": {
+                "weight": {
+                  "ref_time": 1480847820,
+                  "proof_size": 27764
+                },
+                "class": "Normal",
+                "pays_fee": "Yes"
+              }
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 1480847820,
+                "proof_size": 27764
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          },
+          "topics": []
+        }
+      ]
+    },
+    {
+      "operation": "owner revokes and recreates the identical delayed grant",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x5529f4679bbd8095398adbca6562be51963f74a7971f75224265cf332e7ae16c",
+      "extrinsic_id": "27-0006",
+      "fee_tao": 0.00054324,
+      "canonical_events": [
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "2103",
+            "module_id": "HashedAccounts",
+            "event_id": "RotatedMlDsa",
+            "attributes": {
+              "account": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "generation": 2
+            }
+          },
+          "event_index": 33,
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "generation": 2
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0508",
+            "module_id": "Balances",
+            "event_id": "Withdraw",
+            "attributes": {
+              "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "amount": 558240
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "amount": 558240
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0505",
+            "module_id": "Balances",
+            "event_id": "Unreserved",
+            "attributes": {
+              "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "amount": 93000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Unreserved",
+          "attributes": {
+            "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "amount": 93000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "1005",
+            "module_id": "Proxy",
+            "event_id": "ProxyRemoved",
+            "attributes": {
+              "delegator": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "delegatee": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "proxy_type": "Any",
+              "delay": 2
+            }
+          },
+          "event_index": 16,
+          "module_id": "Proxy",
+          "event_id": "ProxyRemoved",
+          "attributes": {
+            "delegator": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "delegatee": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "proxy_type": "Any",
+            "delay": 2
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b03",
+            "module_id": "Utility",
+            "event_id": "ItemCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0504",
+            "module_id": "Balances",
+            "event_id": "Reserved",
+            "attributes": {
+              "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "amount": 93000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Reserved",
+          "attributes": {
+            "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "amount": 93000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "1004",
+            "module_id": "Proxy",
+            "event_id": "ProxyAdded",
+            "attributes": {
+              "delegator": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "delegatee": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "proxy_type": "Any",
+              "delay": 2
+            }
+          },
+          "event_index": 16,
+          "module_id": "Proxy",
+          "event_id": "ProxyAdded",
+          "attributes": {
+            "delegator": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "delegatee": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "proxy_type": "Any",
+            "delay": 2
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0505",
+            "module_id": "Balances",
+            "event_id": "Unreserved",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 104000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Unreserved",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 104000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b03",
+            "module_id": "Utility",
+            "event_id": "ItemCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b01",
+            "module_id": "Utility",
+            "event_id": "BatchCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "BatchCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0507",
+            "module_id": "Balances",
+            "event_id": "Deposit",
+            "attributes": {
+              "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "amount": 15000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "amount": 15000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0600",
+            "module_id": "TransactionPayment",
+            "event_id": "TransactionFeePaid",
+            "attributes": {
+              "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "actual_fee": 543240,
+              "tip": 0
+            }
+          },
+          "event_index": 6,
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "actual_fee": 543240,
+            "tip": 0
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0000",
+            "module_id": "System",
+            "event_id": "ExtrinsicSuccess",
+            "attributes": {
+              "dispatch_info": {
+                "weight": {
+                  "ref_time": 2161910670,
+                  "proof_size": 44453
+                },
+                "class": "Normal",
+                "pays_fee": "Yes"
+              }
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 2161910670,
+                "proof_size": 44453
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          },
+          "topics": []
+        }
+      ]
+    },
+    {
+      "operation": "old announcement cannot execute after regrant",
+      "success": false,
+      "message": "Announcement, if made at all, was made too recently.",
+      "block_hash": "0x8805faec22430980e27ef8db8bd4d0255d03211ffd818a5d0678e400df7bd965",
+      "extrinsic_id": "30-0006",
+      "error": {
+        "message": "Announcement, if made at all, was made too recently.",
+        "name": "Unannounced",
+        "code": "too_early",
+        "remediation": "the required window has not opened yet; wait some blocks and retry",
+        "description": "The proxied call was executed before its announcement matured, or no matching announcement exists at all. Check the proxy's `Announcements` entry for the call hash and the `delay` on the proxy registration; enough blocks must elapse between `announce` and `proxy_announced`.",
+        "docs_url": "https://www.bittensor.com/docs/errors/chain/Unannounced"
+      },
+      "canonical_events": [
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "2103",
+            "module_id": "HashedAccounts",
+            "event_id": "RotatedMlDsa",
+            "attributes": {
+              "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "generation": 4
+            }
+          },
+          "event_index": 33,
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "generation": 4
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0508",
+            "module_id": "Balances",
+            "event_id": "Withdraw",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 605165
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 605165
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0507",
+            "module_id": "Balances",
+            "event_id": "Deposit",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 0
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 0
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0600",
+            "module_id": "TransactionPayment",
+            "event_id": "TransactionFeePaid",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "actual_fee": 605165,
+              "tip": 0
+            }
+          },
+          "event_index": 6,
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "actual_fee": 605165,
+            "tip": 0
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0001",
+            "module_id": "System",
+            "event_id": "ExtrinsicFailed",
+            "attributes": {
+              "dispatch_error": {
+                "Module": {
+                  "index": 16,
+                  "error": "0x06000000"
+                }
+              },
+              "dispatch_info": {
+                "weight": {
+                  "ref_time": 2409413297,
+                  "proof_size": 57425
+                },
+                "class": "Normal",
+                "pays_fee": "Yes"
+              }
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "ExtrinsicFailed",
+          "attributes": {
+            "dispatch_error": {
+              "Module": {
+                "index": 16,
+                "error": "0x06000000"
+              }
+            },
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 2409413297,
+                "proof_size": 57425
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          },
+          "topics": []
+        }
+      ]
+    },
+    {
+      "operation": "fresh announcement after regrant",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xec08bb0d4a3de20b2496c5515450b52ceee47a94e64d781be2b03fe970265a09",
+      "extrinsic_id": "33-0006",
+      "fee_tao": 0.000372967,
+      "canonical_events": [
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "2103",
+            "module_id": "HashedAccounts",
+            "event_id": "RotatedMlDsa",
+            "attributes": {
+              "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "generation": 5
+            }
+          },
+          "event_index": 33,
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "generation": 5
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0508",
+            "module_id": "Balances",
+            "event_id": "Withdraw",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 372967
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 372967
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0504",
+            "module_id": "Balances",
+            "event_id": "Reserved",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 104000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Reserved",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 104000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "1003",
+            "module_id": "Proxy",
+            "event_id": "Announced",
+            "attributes": {
+              "real": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "proxy": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "call_hash": "0xe14cd64b5146082dd87fe580b96f5b2dc706f7134c50724a96ea45c7f796a621"
+            }
+          },
+          "event_index": 16,
+          "module_id": "Proxy",
+          "event_id": "Announced",
+          "attributes": {
+            "real": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "proxy": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "call_hash": "0xe14cd64b5146082dd87fe580b96f5b2dc706f7134c50724a96ea45c7f796a621"
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0507",
+            "module_id": "Balances",
+            "event_id": "Deposit",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 0
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 0
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0600",
+            "module_id": "TransactionPayment",
+            "event_id": "TransactionFeePaid",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "actual_fee": 372967,
+              "tip": 0
+            }
+          },
+          "event_index": 6,
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "actual_fee": 372967,
+            "tip": 0
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0000",
+            "module_id": "System",
+            "event_id": "ExtrinsicSuccess",
+            "attributes": {
+              "dispatch_info": {
+                "weight": {
+                  "ref_time": 1480847820,
+                  "proof_size": 27764
+                },
+                "class": "Normal",
+                "pays_fee": "Yes"
+              }
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 1480847820,
+                "proof_size": 27764
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          },
+          "topics": []
+        }
+      ]
+    },
+    {
+      "operation": "fresh guarded transfer after regrant and delay",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x26f83e8760fddd6ff3245a25aeaa73f63f6df5678d324763fedd82c668d34e91",
+      "extrinsic_id": "38-0006",
+      "fee_tao": 0.000575165,
+      "canonical_events": [
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "2103",
+            "module_id": "HashedAccounts",
+            "event_id": "RotatedMlDsa",
+            "attributes": {
+              "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "generation": 6
+            }
+          },
+          "event_index": 33,
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "generation": 6
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0508",
+            "module_id": "Balances",
+            "event_id": "Withdraw",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 605165
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 605165
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0505",
+            "module_id": "Balances",
+            "event_id": "Unreserved",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 104000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Unreserved",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 104000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b03",
+            "module_id": "Utility",
+            "event_id": "ItemCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0502",
+            "module_id": "Balances",
+            "event_id": "Transfer",
+            "attributes": {
+              "from": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+              "to": "5GwZFbzYU9j3ExE8YxtiWSdXXrp24EAvsensUCx5Bn2zESFX",
+              "amount": 1000000000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Transfer",
+          "attributes": {
+            "from": "5HVT5bD7xmbGtuE6Pfj9HgN4qKisuiUJ6rmFmDzYadPNddka",
+            "to": "5GwZFbzYU9j3ExE8YxtiWSdXXrp24EAvsensUCx5Bn2zESFX",
+            "amount": 1000000000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b03",
+            "module_id": "Utility",
+            "event_id": "ItemCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0b01",
+            "module_id": "Utility",
+            "event_id": "BatchCompleted",
+            "attributes": null
+          },
+          "event_index": 11,
+          "module_id": "Utility",
+          "event_id": "BatchCompleted",
+          "attributes": null,
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "1000",
+            "module_id": "Proxy",
+            "event_id": "ProxyExecuted",
+            "attributes": {
+              "result": {
+                "Ok": []
+              }
+            }
+          },
+          "event_index": 16,
+          "module_id": "Proxy",
+          "event_id": "ProxyExecuted",
+          "attributes": {
+            "result": {
+              "Ok": []
+            }
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0507",
+            "module_id": "Balances",
+            "event_id": "Deposit",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "amount": 30000
+            }
+          },
+          "event_index": 5,
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "amount": 30000
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0600",
+            "module_id": "TransactionPayment",
+            "event_id": "TransactionFeePaid",
+            "attributes": {
+              "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+              "actual_fee": 575165,
+              "tip": 0
+            }
+          },
+          "event_index": 6,
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5CcH3rXUeU1jLx2qgjHGBFsZEkoyevBmC95F9BPjZBq4HCdB",
+            "actual_fee": 575165,
+            "tip": 0
+          },
+          "topics": []
+        },
+        {
+          "phase": "ApplyExtrinsic",
+          "extrinsic_idx": 6,
+          "event": {
+            "event_index": "0000",
+            "module_id": "System",
+            "event_id": "ExtrinsicSuccess",
+            "attributes": {
+              "dispatch_info": {
+                "weight": {
+                  "ref_time": 2289413297,
+                  "proof_size": 49029
+                },
+                "class": "Normal",
+                "pays_fee": "Yes"
+              }
+            }
+          },
+          "event_index": 0,
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 2289413297,
+                "proof_size": 49029
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          },
+          "topics": []
+        }
+      ]
+    }
+  ]
+}

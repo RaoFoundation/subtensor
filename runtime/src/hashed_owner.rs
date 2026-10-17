@@ -16,7 +16,7 @@ impl pallet_subtensor::HotkeyOwnerPolicy<AccountId> for HashedHotkeyOwnerPolicy 
     }
 
     fn weight() -> Weight {
-        <Runtime as frame_system::Config>::DbWeight::get().reads(2)
+        <Runtime as frame_system::Config>::DbWeight::get().reads(6)
     }
 }
 

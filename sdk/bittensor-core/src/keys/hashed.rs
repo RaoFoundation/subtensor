@@ -114,6 +114,9 @@ impl Keypair {
 
     /// Restore public account metadata without retaining any signing material.
     pub fn from_hashed_descriptor(encoded: &[u8], ss58_format: u16) -> Result<Self, CoreError> {
+        if encoded.first() == Some(&subtensor_hashed::mldsa::VERSION) {
+            return Self::from_mldsa_descriptor(encoded, ss58_format);
+        }
         let mut input = encoded;
         let descriptor = Descriptor::decode(&mut input)
             .map_err(|_| crypto_err("invalid or unsupported hashed account descriptor"))?;
@@ -136,6 +139,9 @@ impl Keypair {
 
     /// Clone public metadata only, including the hashed genesis descriptor.
     pub fn public_only(&self) -> Result<Self, CoreError> {
+        if matches!(&self.inner, KeypairInner::Mldsa(_)) {
+            return self.mldsa_public_only();
+        }
         if let KeypairInner::Hashed(hashed) = &self.inner {
             let mut public =
                 Self::from_hashed_descriptor(&hashed.descriptor.encode(), self.ss58_format)?;
@@ -155,6 +161,9 @@ impl Keypair {
     /// A new view of the same stable account at the generation read from chain.
     /// Neither this operation nor signing mutates any persisted wallet state.
     pub fn at_generation(&self, generation: u64) -> Result<Self, CoreError> {
+        if super::is_mldsa_crypto(self.crypto_type()) {
+            return self.mldsa_at_generation(generation);
+        }
         let hashed = self.hashed()?;
         if hashed.master_seed.is_none() {
             return Err(crypto_err(

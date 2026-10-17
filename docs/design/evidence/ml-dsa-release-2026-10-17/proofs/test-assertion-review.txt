@@ -1,0 +1,17 @@
+# Live-test assertion review
+
+Reviewed all five newly added test files (`test_mldsa_extended.py`, `test_mldsa_nested_authority.py`, `test_mldsa_proxy_boundaries.py`, `test_mldsa_sponsorship_live.py`, and `test_mldsa_validator_proxy.py`), plus the modified fixture/evidence paths in six existing E2E modules and the localnet block-export script.
+
+No remaining assertion flaw or confirmed false-positive path was found in the claimed new behaviors.
+
+- Proxy failures check the named runtime error and the affected principal/recipient state, rather than treating successful outer dispatch as successful inner execution. The EVM regression proves the identical payload succeeds after an explicit Any grant, eliminating malformed-payload rejection as its explanation.
+- The delayed-announcement negative executes announcement and use in the same block. Revoke/regrant checks both announcement removal and reserve release, followed by a fresh successful announcement.
+- The mixed multisig test verifies exact pinned call bytes, distinct approval blocks, approvals and deposits before threshold, real balance changes only at execution, all member cancellation deposits, and per-member nonce/generation totals. The 3-of-4 protection quorum contains a PQ signer because only two members are classical.
+- The nested multisig/proxy test attributes fees and signing counters to outer signers, preserves the internal principal's signing state, and requires the final revoked call to return NotProxy with unchanged principal/recipient state.
+- Sponsorship tests compare account, registration, and alias state on refusal, verify the failed runtime batch leaves no partial registration, conserve value including actual fees/refunds, and prove restored-seed spending after the observed zero-free-balance drain. The tests allow legitimate post-dispatch fee refunds; the separate completed evidence verification established an actual zero balance in all four current drain cases.
+- Validator-proxy tests prove two different non-self weight targets exist, accept the ordinary SetWeights proxy path, preserve the principal's account/authority, charge the delegate, deny a transfer, then reject a different weight update after revocation while preserving the original finalized weights. Fixed and rotating profiles both pass. These cases use Yuma's subnet-owner hotkey permission; genuine Null permit selection is exercised by the separate validator-paths suite.
+- Consent caps and shared sponsor locks added to existing tests preserve production consent policy and avoid nonce races. They do not bypass runtime authorization.
+
+Two test/verifier assumptions were corrected during this work: the decoded unit value inside ProxyExecuted.Ok is not necessarily None, and registration initializes a protected account's System nonce to 1 while its generation remains 0. The final live assertions inspect the Ok variant and relative counters. Independent post-run verification queries each actual registration block as the counter baseline, then confirms final nonce/generation 3/2 for the principal and 4/3 for the delegate in both new cases.
+
+Evidence scope remains explicit: persisted receipts are not a complete transaction inventory, and some CLI/Ethereum paths retain only test assertions and resulting state. Functional localnet assertions do not establish reference-hardware capacity, all possible input combinations, or a mathematical guarantee against every implementation error.

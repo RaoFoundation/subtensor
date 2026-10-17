@@ -1,0 +1,10 @@
+{
+  "endpoint": "wss://archive.dev.opentensor.ai:443",
+  "genesis_hash": "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03",
+  "finalized_block_hash": "0x39bc186855bfbf78b4ab9f44138094ea3b19fa64a079161bf617397830aadc1c",
+  "finalized_block_number": 9298128,
+  "state_root": "0xe6a92abe52fb94bfe734d795e997025c5a390b20160ee69696a1bc6b5058fb06",
+  "source_spec_name": "node-subtensor",
+  "source_spec_version": 479,
+  "queried_at": "2026-10-16T19:49:48.306323+00:00"
+}

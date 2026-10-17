@@ -123,8 +123,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 842,
-          "url": "/code/pallets/proxy/src/lib.rs#L842",
+          "line": 863,
+          "url": "/code/pallets/proxy/src/lib.rs#L863",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -262,6 +262,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/AliasCollision/content.md",
       "pallets": [
         "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 295,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L295",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
       ]
     },
     "AllNetworksInImmunity": {
@@ -438,8 +447,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 838,
-          "url": "/code/pallets/proxy/src/lib.rs#L838",
+          "line": 859,
+          "url": "/code/pallets/proxy/src/lib.rs#L859",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -456,9 +465,27 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 445,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L445",
+          "line": 520,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L520",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "AuthenticationKindConflict": {
+      "code": "policy_violation",
+      "description": "The account already has a different permanent authorization kind. Direct and derived authorities cannot replace one another; check the registered account and descriptor.",
+      "docs_url": "/docs/errors/chain/AuthenticationKindConflict",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AuthenticationKindConflict/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 297,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L297",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -501,8 +528,8 @@
         {
           "pallet": "MevShield",
           "path": "pallets/shield/src/lib.rs",
-          "line": 234,
-          "url": "/code/pallets/shield/src/lib.rs#L234",
+          "line": 238,
+          "url": "/code/pallets/shield/src/lib.rs#L238",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
         }
       ]
@@ -1029,6 +1056,96 @@
         }
       ]
     },
+    "CapabilityEpochMismatch": {
+      "code": "not_authorized",
+      "description": "The capability epoch is stale or does not match the owner's permanent epoch counter. Refresh finalized capability state; revocation permanently invalidates old proofs.",
+      "docs_url": "/docs/errors/chain/CapabilityEpochMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CapabilityEpochMismatch/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 303,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L303",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "CapabilityExpired": {
+      "code": "expired",
+      "description": "The capability's block-height expiry has passed. The owner must install a new grant and the purpose key must sign with its new epoch.",
+      "docs_url": "/docs/errors/chain/CapabilityExpired",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CapabilityExpired/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 304,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L304",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "CapabilityInvalid": {
+      "code": "invalid_argument",
+      "description": "The capability key, scope, expiry, or proof is invalid. Check the full capability record and ensure the signing key matches its registered commitment.",
+      "docs_url": "/docs/errors/chain/CapabilityInvalid",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CapabilityInvalid/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 302,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L302",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "CapabilityMissing": {
+      "code": "not_authorized",
+      "description": "No active capability authorizes this owner's purpose key. Install the intended Order or Message capability through the owner's authority before signing.",
+      "docs_url": "/docs/errors/chain/CapabilityMissing",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CapabilityMissing/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 306,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L306",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "CapabilityScopeViolation": {
+      "code": "policy_violation",
+      "description": "The operation exceeds the installed capability's identities, fee, audience, per-order amount, or total spending limits. Obtain an appropriate owner-approved grant.",
+      "docs_url": "/docs/errors/chain/CapabilityScopeViolation",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CapabilityScopeViolation/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 305,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L305",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
     "ChainIdMismatch": {
       "code": "invalid_argument",
       "description": "The order payload's `chain_id` field differs from this chain's configured EVM chain id, e.g. an order signed for testnet was submitted to mainnet. Compare the order's `chain_id` with the runtime's `pallet_evm_chain_id` value and re-sign if needed.",
@@ -1041,8 +1158,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 439,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L439",
+          "line": 514,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L514",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -1711,6 +1828,24 @@
         }
       ]
     },
+    "DerivedAuthorityTooComplex": {
+      "code": "limit_exceeded",
+      "description": "The derived authority exceeds the runtime's member, depth, or resolution bounds. Use a smaller supported authority structure.",
+      "docs_url": "/docs/errors/chain/DerivedAuthorityTooComplex",
+      "markdown_url": "/llms.mdx/docs/errors/chain/DerivedAuthorityTooComplex/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 301,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L301",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
     "DescriptorMismatch": {
       "code": "invalid_argument",
       "description": "The descriptor does not match the account's permanent authorization record. Check the destination and exported public descriptor; re-registration cannot reset keys.",
@@ -1718,6 +1853,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/DescriptorMismatch/content.md",
       "pallets": [
         "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 281,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L281",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
       ]
     },
     "Disabled": {
@@ -1727,6 +1871,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/Disabled/content.md",
       "pallets": [
         "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 277,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L277",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
       ]
     },
     "DisabledTemporarily": {
@@ -1777,8 +1930,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 830,
-          "url": "/code/pallets/proxy/src/lib.rs#L830",
+          "line": 851,
+          "url": "/code/pallets/proxy/src/lib.rs#L851",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -1831,8 +1984,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 447,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L447",
+          "line": 522,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L522",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2231,6 +2384,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/GenerationExhausted/content.md",
       "pallets": [
         "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 291,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L291",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
       ]
     },
     "GrandpaChangeDelayMustBeZero": {
@@ -2425,8 +2587,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 435,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L435",
+          "line": 510,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L510",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2610,6 +2772,24 @@
         }
       ]
     },
+    "InvalidAuthorizationMode": {
+      "code": "invalid_argument",
+      "description": "The order terms and authorization scheme do not match. Classical signatures require original V1 or V2 terms; account approval and ML-DSA proofs require Authorized terms containing the owner-local nonce. Prepare and authorize the complete order again.",
+      "docs_url": "/docs/errors/chain/InvalidAuthorizationMode",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidAuthorizationMode/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 553,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L553",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
     "InvalidBatchLength": {
       "code": "invalid_argument",
       "description": "A per-subnet weight batch (`batch_set_weights`, `batch_commit_weights`, `batch_reveal_weights`) was empty or had more items than there are networks. Send at least one item and at most one per subnet.",
@@ -2712,8 +2892,8 @@
         {
           "pallet": "Utility",
           "path": "pallets/utility/src/lib.rs",
-          "line": 171,
-          "url": "/code/pallets/utility/src/lib.rs#L171",
+          "line": 196,
+          "url": "/code/pallets/utility/src/lib.rs#L196",
           "raw_url": "/code/raw/pallets/utility/src/lib.rs"
         }
       ]
@@ -2730,9 +2910,27 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 840,
-          "url": "/code/pallets/proxy/src/lib.rs#L840",
+          "line": 861,
+          "url": "/code/pallets/proxy/src/lib.rs#L861",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+        }
+      ]
+    },
+    "InvalidDerivedAuthority": {
+      "code": "invalid_argument",
+      "description": "The composite descriptor, derived account ID, or approving origin is invalid. Multisig protection must be approved by the composite's actual quorum.",
+      "docs_url": "/docs/errors/chain/InvalidDerivedAuthority",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidDerivedAuthority/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 299,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L299",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -2887,6 +3085,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidNextCommitment/content.md",
       "pallets": [
         "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 289,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L289",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
       ]
     },
     "InvalidNonce": {
@@ -3066,9 +3273,16 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 411,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L411",
+          "line": 486,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L486",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        },
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 293,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L293",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -3308,8 +3522,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 429,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L429",
+          "line": 504,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L504",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3326,8 +3540,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 462,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L462",
+          "line": 537,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L537",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3344,8 +3558,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 458,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L458",
+          "line": 533,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L533",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3362,8 +3576,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 460,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L460",
+          "line": 535,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L535",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3380,8 +3594,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 468,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L468",
+          "line": 543,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L543",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3398,8 +3612,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 456,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L456",
+          "line": 531,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L531",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4009,8 +4223,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 454,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L454",
+          "line": 529,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L529",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4054,8 +4268,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 832,
-          "url": "/code/pallets/proxy/src/lib.rs#L832",
+          "line": 853,
+          "url": "/code/pallets/proxy/src/lib.rs#L853",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -4072,8 +4286,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 836,
-          "url": "/code/pallets/proxy/src/lib.rs#L836",
+          "line": 857,
+          "url": "/code/pallets/proxy/src/lib.rs#L857",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -4344,8 +4558,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 824,
-          "url": "/code/pallets/proxy/src/lib.rs#L824",
+          "line": 845,
+          "url": "/code/pallets/proxy/src/lib.rs#L845",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -4398,8 +4612,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 826,
-          "url": "/code/pallets/proxy/src/lib.rs#L826",
+          "line": 847,
+          "url": "/code/pallets/proxy/src/lib.rs#L847",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -4429,6 +4643,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/NotRegistered/content.md",
       "pallets": [
         "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 283,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L283",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
       ]
     },
     "NotRequested": {
@@ -4497,8 +4720,26 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 413,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L413",
+          "line": 488,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L488",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "OrderBatchTooLarge": {
+      "code": "limit_exceeded",
+      "description": "The batch contains more than eight account-approved or ML-DSA-authorized orders. Split execution into supported batches, retaining each signed order's original bytes and nonce. Classical orders retain the pallet's original total batch limit.",
+      "docs_url": "/docs/errors/chain/OrderBatchTooLarge",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderBatchTooLarge/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 551,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L551",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4515,8 +4756,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 415,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L415",
+          "line": 490,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L490",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4533,8 +4774,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 417,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L417",
+          "line": 492,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L492",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4551,8 +4792,44 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 427,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L427",
+          "line": 502,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L502",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "OrderNonceUsed": {
+      "code": "already_exists",
+      "description": "This owner already bound the nonce to different order bytes. Keep the original order or allocate a new nonce; cancellation does not make a nonce reusable.",
+      "docs_url": "/docs/errors/chain/OrderNonceUsed",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderNonceUsed/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 547,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L547",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "OrderNotApproved": {
+      "code": "not_authorized",
+      "description": "The account-approved order has no matching on-chain owner approval. Execute authorize_order through the owner's authority with the exact nonce and order.",
+      "docs_url": "/docs/errors/chain/OrderNotApproved",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderNotApproved/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 549,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L549",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4569,8 +4846,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 470,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L470",
+          "line": 545,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L545",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4685,8 +4962,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 443,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L443",
+          "line": 518,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L518",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4703,8 +4980,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 464,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L464",
+          "line": 539,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L539",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4721,8 +4998,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 466,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L466",
+          "line": 541,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L541",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4739,8 +5016,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 433,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L433",
+          "line": 508,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L508",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4784,8 +5061,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 419,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L419",
+          "line": 494,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L494",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4937,8 +5214,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 431,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L431",
+          "line": 506,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L506",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4955,8 +5232,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 437,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L437",
+          "line": 512,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L512",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5117,8 +5394,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 425,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L425",
+          "line": 500,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L500",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5593,8 +5870,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 423,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L423",
+          "line": 498,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L498",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5738,8 +6015,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 822,
-          "url": "/code/pallets/proxy/src/lib.rs#L822",
+          "line": 843,
+          "url": "/code/pallets/proxy/src/lib.rs#L843",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -5756,8 +6033,8 @@
         {
           "pallet": "Utility",
           "path": "pallets/utility/src/lib.rs",
-          "line": 169,
-          "url": "/code/pallets/utility/src/lib.rs#L169",
+          "line": 194,
+          "url": "/code/pallets/utility/src/lib.rs#L194",
           "raw_url": "/code/raw/pallets/utility/src/lib.rs"
         }
       ]
@@ -5828,8 +6105,8 @@
         {
           "pallet": "MevShield",
           "path": "pallets/shield/src/lib.rs",
-          "line": 238,
-          "url": "/code/pallets/shield/src/lib.rs#L238",
+          "line": 242,
+          "url": "/code/pallets/shield/src/lib.rs#L242",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
         }
       ]
@@ -6152,8 +6429,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 834,
-          "url": "/code/pallets/proxy/src/lib.rs#L834",
+          "line": 855,
+          "url": "/code/pallets/proxy/src/lib.rs#L855",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -6171,8 +6448,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 421,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L421",
+          "line": 496,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L496",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -6261,8 +6538,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 828,
-          "url": "/code/pallets/proxy/src/lib.rs#L828",
+          "line": 849,
+          "url": "/code/pallets/proxy/src/lib.rs#L849",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -6279,8 +6556,8 @@
         {
           "pallet": "MevShield",
           "path": "pallets/shield/src/lib.rs",
-          "line": 236,
-          "url": "/code/pallets/shield/src/lib.rs#L236",
+          "line": 240,
+          "url": "/code/pallets/shield/src/lib.rs#L240",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
         }
       ]
@@ -6292,6 +6569,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/UnsupportedDescriptor/content.md",
       "pallets": [
         "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 279,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L279",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
       ]
     },
     "UnverifiedPulse": {
@@ -6432,8 +6718,8 @@
         {
           "pallet": "MevShield",
           "path": "pallets/shield/src/lib.rs",
-          "line": 240,
-          "url": "/code/pallets/shield/src/lib.rs#L240",
+          "line": 244,
+          "url": "/code/pallets/shield/src/lib.rs#L244",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
         }
       ]
@@ -6490,6 +6776,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/WrongCommitment/content.md",
       "pallets": [
         "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 287,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L287",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
       ]
     },
     "WrongGeneration": {
@@ -6499,6 +6794,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/WrongGeneration/content.md",
       "pallets": [
         "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 285,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L285",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
       ]
     },
     "WrongTimepoint": {
@@ -6549,8 +6853,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 452,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L452",
+          "line": 527,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L527",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]

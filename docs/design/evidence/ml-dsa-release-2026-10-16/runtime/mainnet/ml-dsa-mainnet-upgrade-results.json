@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "kind": "local-mainnet-try-runtime-validation",
+  "created_at": "2026-10-16T20:05:55.050171+00:00",
+  "script_sha256": "aa2c1f0191771fc056114eac58093fc4ffe750c0ca6af15186e8c40201aa1aba",
+  "source": {
+    "endpoint": "wss://archive.dev.opentensor.ai:443",
+    "genesis_hash": "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03",
+    "finalized_block_hash": "0x39bc186855bfbf78b4ab9f44138094ea3b19fa64a079161bf617397830aadc1c",
+    "finalized_block_number": 9298128,
+    "state_root": "0xe6a92abe52fb94bfe734d795e997025c5a390b20160ee69696a1bc6b5058fb06",
+    "source_spec_name": "node-subtensor",
+    "source_spec_version": 479,
+    "queried_at": "2026-10-16T19:49:48.306323+00:00"
+  },
+  "source_json_sha256": "ad55a6bdc0a668a0b77857afeb38f848aaca5b4c22f024888f759b6aab3e866a",
+  "snapshot_sha256": "b24f2b048fa7717d642de4a1227841ff2cd526972043a5ed854aed4a8884e10c",
+  "snapshot_size_bytes": 926483590,
+  "runtime_wasm_sha256": "8be6cd4735812399becf3572f4c13041a55a32052d27cdd526af67b67756af19",
+  "runtime_wasm_size_bytes": 2878770,
+  "try_runtime_version": "0.10.1",
+  "try_runtime_sha256": "d6fcd586fba4c7245668f4ae2a06ffc94e6da4135fae22cfe24453dd11aee3c3",
+  "try_runtime_release": "https://github.com/paritytech/try-runtime-cli/releases/tag/v0.10.1",
+  "chain_writes": false,
+  "spec_name_check_enabled": true,
+  "spec_version_check_enabled": true,
+  "idempotency_check_enabled": true,
+  "multi_block_migrations": "disabled because runtime MultiBlockMigrator=()",
+  "reference_weight_measurements": false,
+  "runs": [
+    {
+      "name": "on-runtime-upgrade",
+      "command_template": [
+        "<try-runtime>",
+        "--runtime",
+        "<runtime-wasm>",
+        "on-runtime-upgrade",
+        "--checks=all",
+        "--blocktime",
+        "12000",
+        "--no-weight-warnings",
+        "--disable-mbm-checks",
+        "snap",
+        "--path",
+        "<snapshot>"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 36.662,
+      "log_file": "ml-dsa-mainnet-on-runtime-upgrade.log",
+      "log_sha256": "217fa840bbec9d5b0bc4e110604f9aba59690ac544ba1a1a425072a628c047c2",
+      "snapshot_loaded_state_root": "0xe6a92abe52fb94bfe734d795e997025c5a390b20160ee69696a1bc6b5058fb06",
+      "snapshot_state_root_matches_finalized_header": true,
+      "migrations_idempotent": true,
+      "upgrade_checks_all": true,
+      "reported_runtime_versions": [
+        479,
+        480
+      ]
+    },
+    {
+      "name": "fast-forward",
+      "command_template": [
+        "<try-runtime>",
+        "--runtime",
+        "<runtime-wasm>",
+        "fast-forward",
+        "--run-migrations",
+        "--n-blocks",
+        "10",
+        "--blocktime",
+        "12000",
+        "--try-state",
+        "all",
+        "snap",
+        "--path",
+        "<snapshot>"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 229.687,
+      "log_file": "ml-dsa-mainnet-fast-forward.log",
+      "log_sha256": "2abad92b5a707b755fac99f89b1788f2b21430baec3c38ddead664fe1bd0b284",
+      "snapshot_loaded_state_root": "0xe6a92abe52fb94bfe734d795e997025c5a390b20160ee69696a1bc6b5058fb06",
+      "snapshot_state_root_matches_finalized_header": true,
+      "requested_blocks": 10
+    }
+  ],
+  "successful": true
+}

@@ -1,0 +1,74 @@
+{
+  "baseline_commit": "2d5089da3bcb292cbf557d9b22ff34582e23b3f4",
+  "pr_base": "b2ebaeef436b1b5288da066bf9d0a9244fdb1908",
+  "captured_at": "2026-10-16T21:08:37.787519+00:00",
+  "tracked_diff_sha256": "4cde4f10b6b7be2a95e71486d927e9c8e22f2aa30c3227f8a3954cfad4d39e9e",
+  "files": [
+    {
+      "file": "pallets/subtensor/src/subnets/registration.rs",
+      "sha256": "2064a55de3fb7abeff4414bba6df85c1be8d0734dacb23819e7a747f5dcf4518"
+    },
+    {
+      "file": "runtime/src/evm_origin.rs",
+      "sha256": "435eb128b0dd280c7909b9885a0a0c4079681d6a6d1501aba0c4bee43d8ced88"
+    },
+    {
+      "file": "runtime/src/hashed_native_evm_tests.rs",
+      "sha256": "f78db7b5542007d28fda564d6f77441fc189241f297531f3598e2ccf3724d208"
+    },
+    {
+      "file": "runtime/src/hashed_tests.rs",
+      "sha256": "89bb399c3091dbf95bde17eaffe06c43ed28bff48df9f41272924aeb22bbbde9"
+    },
+    {
+      "file": "runtime/src/mldsa_dispatch_matrix_tests.rs",
+      "sha256": "5f203776315167c82cdfae047bf126a881cf1fdfef4dc8572b5eb913ee8bdb0f"
+    },
+    {
+      "file": "sdk/python/bittensor/_transport/interface.py",
+      "sha256": "127aa4bf02c45339fa731caf0ede5f9dc7262d762846cc0b1a204409f7e597f9"
+    },
+    {
+      "file": "sdk/python/bittensor/keyfiles.py",
+      "sha256": "725b2428d63c1b3c625f2bdb298c599a700f705fd707b6c2321b9ae7a6b6f7b7"
+    },
+    {
+      "file": "sdk/python/tests/e2e/test_mldsa_localnet.py",
+      "sha256": "0bb5467007987d1e9927043205251b365cde15ccccfd10883bdb70fa4891c7dd"
+    },
+    {
+      "file": "sdk/python/tests/e2e/test_mldsa_operation_families.py",
+      "sha256": "25132075d0c97b70420bbb3b3fec2204ba04d47d75b82d7bd8cc71f0f9a419f6"
+    },
+    {
+      "file": "sdk/python/tests/e2e/test_mldsa_release.py",
+      "sha256": "0dd44080859d6678772472111cd60fb817aff019f8fa7acc003ca4da5bf20286"
+    },
+    {
+      "file": "sdk/python/tests/e2e/test_mldsa_validator_paths.py",
+      "sha256": "e74d6434bdde194a9d08ed6735f4a17b2d341d88303b7d9965cf259d190b6edc"
+    },
+    {
+      "file": "sdk/python/tests/e2e/test_wallet_parity.py",
+      "sha256": "fc255669dc20b7493c15427a76c08ee6b7816b91b5103788d4d3a4c3ec105b48"
+    },
+    {
+      "file": "sdk/python/tests/e2e/test_wallet_types.py",
+      "sha256": "34f4cc6d83e5e843745b99c222afeb9f55714a3f27fa02a43d7e343b89bb1f53"
+    },
+    {
+      "file": "sdk/python/tests/unit/test_keyfile_atomicity.py",
+      "sha256": "6c097642398d7c5b72ccf62ef0848186411f775fd8bebfb254825061fc7489f8"
+    },
+    {
+      "file": "sdk/python/tests/unit/test_mldsa_accounts.py",
+      "sha256": "401f63f2d26f6704e565e243a4dc5528f2981abb94f4e553397b01e715247034"
+    },
+    {
+      "file": "vendor/frontier/client/rpc/src/eth/pending.rs",
+      "sha256": "8fe8459a180a6e33eb275d6981fde3badb4dd4cc519d7b85e23673a5ffe849ed"
+    }
+  ],
+  "production_weight_files_unchanged": true,
+  "uncommitted": true
+}

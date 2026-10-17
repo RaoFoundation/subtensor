@@ -1,0 +1,83 @@
+{
+  "head": "437053f80d5ebebce950602b168901bfe6591483",
+  "checks": [
+    {
+      "name": "ruff",
+      "command": [
+        "/home/johnreed/Desktop/work/subtensor/sdk/python/.venv/bin/ruff",
+        "check",
+        "."
+      ],
+      "cwd": "/home/johnreed/Desktop/work/subtensor/sdk/python",
+      "started_at_utc": "2026-10-17T20:49:11.459493+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 0.016,
+      "log": "preflight/assembly-final-ruff.log",
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "name": "ruff-format",
+      "command": [
+        "/home/johnreed/Desktop/work/subtensor/sdk/python/.venv/bin/ruff",
+        "format",
+        "--check",
+        "."
+      ],
+      "cwd": "/home/johnreed/Desktop/work/subtensor/sdk/python",
+      "started_at_utc": "2026-10-17T20:49:11.475297+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 0.016,
+      "log": "preflight/assembly-final-ruff-format.log",
+      "log_sha256": "ffba53228028ab5e83fd6eec10baaef02185f93538208045e94653d66bbc1ef1"
+    },
+    {
+      "name": "ty",
+      "command": [
+        "/home/johnreed/Desktop/work/subtensor/sdk/python/.venv/bin/ty",
+        "check",
+        "--exit-zero-on-warning",
+        "bittensor"
+      ],
+      "cwd": "/home/johnreed/Desktop/work/subtensor/sdk/python",
+      "started_at_utc": "2026-10-17T20:49:11.491058+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 0.164,
+      "log": "preflight/assembly-final-ty.log",
+      "log_sha256": "cae13284747e976326c55d3a8b23bd0c1461c4f6455140192619fcd7209951e0"
+    },
+    {
+      "name": "collection",
+      "command": [
+        "/home/johnreed/Desktop/work/subtensor/sdk/python/.venv/bin/python",
+        "-m",
+        "pytest",
+        "--collect-only",
+        "-q"
+      ],
+      "cwd": "/home/johnreed/Desktop/work/subtensor/sdk/python",
+      "started_at_utc": "2026-10-17T20:49:11.655180+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 1.016,
+      "log": "preflight/assembly-final-collection.log",
+      "log_sha256": "89579c4914bf528d440ea1b0c48c6470361a9705e7616f30f0faddb9aafe72de",
+      "collected": 3658
+    },
+    {
+      "name": "diff-check",
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "HEAD"
+      ],
+      "cwd": "/home/johnreed/Desktop/work/subtensor",
+      "started_at_utc": "2026-10-17T20:49:12.673675+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 0.008,
+      "log": "preflight/assembly-final-diff-check.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "all_passed": true,
+  "type_check_policy": "CI exits zero on warnings; diagnostics are retained in the log."
+}

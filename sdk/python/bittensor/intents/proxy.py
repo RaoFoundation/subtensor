@@ -195,7 +195,7 @@ class CreatePureProxy(Intent):
 
     op = "create_pure_proxy"
     signer = "coldkey"
-    wraps = (("Proxy", "create_pure"),)
+    wraps = (("Proxy", "create_pure"), ("Proxy", "create_protected_pure"))
 
     proxy_type: str = field(default="Staking", metadata={"help": PROXY_TYPE_HELP})
     delay: int = field(default=0, metadata={"help": DELAY_HELP})
@@ -211,8 +211,15 @@ class CreatePureProxy(Intent):
         check_proxy_type(self.proxy_type)
 
     async def build(self, substrate, wallet: Any):
+        from ..hashed import is_pq_required
+
+        protected = await is_pq_required(substrate, self.coldkey_address(wallet))
         return await substrate.compose(
-            calls.Proxy.create_pure(proxy_type=self.proxy_type, delay=self.delay, index=self.index)
+            calls.Call(
+                "Proxy",
+                "create_protected_pure" if protected else "create_pure",
+                {"proxy_type": self.proxy_type, "delay": self.delay, "index": self.index},
+            )
         )
 
     def summary(self) -> str:

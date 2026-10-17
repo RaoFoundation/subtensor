@@ -1,0 +1,279 @@
+# Pinned upstream manifest with workspace inheritance resolved; see SUBTENSOR.md.
+[[bench]]
+name = "basics"
+harness = false
+
+[package]
+name = "sc-transaction-pool"
+version = "40.1.0"
+authors = [ "Parity Technologies <admin@parity.io>",]
+edition = "2021"
+license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+homepage = "https://paritytech.github.io/polkadot-sdk/"
+repository = "https://github.com/paritytech/polkadot-sdk.git"
+description = "Substrate transaction pool implementation."
+readme = "README.md"
+
+[dependencies.async-trait]
+version = "0.1.88"
+
+[dependencies.codec]
+version = "3.7.5"
+default-features = true
+package = "parity-scale-codec"
+
+[dependencies.futures]
+version = "0.3.31"
+
+[dependencies.futures-timer]
+version = "3.0.2"
+
+[dependencies.indexmap]
+version = "2.7.1"
+
+[dependencies.itertools]
+version = "0.11"
+
+[dependencies.linked-hash-map]
+version = "0.5.4"
+
+[dependencies.parking_lot]
+version = "0.12.1"
+default-features = true
+
+[dependencies.prometheus-endpoint]
+default-features = true
+package = "substrate-prometheus-endpoint"
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dependencies.sc-client-api]
+default-features = true
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dependencies.sc-transaction-pool-api]
+default-features = true
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dependencies.sc-utils]
+default-features = true
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dependencies.serde]
+version = "1.0.214"
+default-features = true
+features = [ "derive",]
+
+[dependencies.sp-api]
+default-features = true
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dependencies.sp-blockchain]
+default-features = true
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dependencies.sp-core]
+default-features = true
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dependencies.sp-crypto-hashing]
+default-features = true
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dependencies.sp-runtime]
+default-features = true
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dependencies.sp-tracing]
+default-features = true
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dependencies.sp-transaction-pool]
+default-features = true
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dependencies.thiserror]
+version = "1.0.64"
+
+[dependencies.tokio]
+version = "1.45.0"
+default-features = true
+features = [ "macros", "time",]
+
+[dependencies.tokio-stream]
+version = "0.1.14"
+
+[dependencies.tracing]
+version = "0.1.37"
+default-features = true
+
+[dev-dependencies.anyhow]
+version = "1.0.81"
+default-features = false
+
+[dev-dependencies.assert_matches]
+version = "1.5.0"
+
+[dev-dependencies.criterion]
+version = "0.5.1"
+default-features = true
+
+[dev-dependencies.rstest]
+version = "0.18.2"
+
+[dev-dependencies.sc-block-builder]
+default-features = true
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dev-dependencies.sp-consensus]
+default-features = true
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dev-dependencies.substrate-test-runtime]
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dev-dependencies.substrate-test-runtime-client]
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dev-dependencies.substrate-test-runtime-transaction-pool]
+git = "https://github.com/RaoFoundation/polkadot-sdk.git"
+rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
+
+[dev-dependencies.thiserror]
+version = "1.0.64"
+
+[dev-dependencies.tokio]
+version = "1.45.0"
+default-features = false
+features = [ "rt-multi-thread",]
+
+[dev-dependencies.tracing-subscriber]
+version = "0.3.18"
+
+[dev-dependencies.txtesttool]
+version = "0.5.0"
+package = "substrate-txtesttool"
+
+[dev-dependencies.zombienet-sdk]
+version = "0.3.0"
+
+[lints.rust.suspicious_double_ref_op]
+level = "allow"
+priority = 2
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = [ "cfg(build_opt_level, values(\"3\"))", "cfg(build_profile, values(\"debug\", \"release\"))", "cfg(enable_alloc_error_handler)", "cfg(fuzzing)", "cfg(ignore_flaky_test)", "cfg(substrate_runtime)",]
+
+[lints.clippy.all]
+level = "allow"
+priority = 0
+
+[lints.clippy.bind_instead_of_map]
+level = "allow"
+priority = 2
+
+[lints.clippy.borrowed-box]
+level = "allow"
+priority = 2
+
+[lints.clippy.complexity]
+level = "warn"
+priority = 1
+
+[lints.clippy.correctness]
+level = "warn"
+priority = 1
+
+[lints.clippy.default_constructed_unit_structs]
+level = "allow"
+priority = 2
+
+[lints.clippy.derivable_impls]
+level = "allow"
+priority = 2
+
+[lints.clippy.eq_op]
+level = "allow"
+priority = 2
+
+[lints.clippy.erasing_op]
+level = "allow"
+priority = 2
+
+[lints.clippy.extra-unused-type-parameters]
+level = "allow"
+priority = 2
+
+[lints.clippy.identity-op]
+level = "allow"
+priority = 2
+
+[lints.clippy.if-same-then-else]
+level = "allow"
+priority = 2
+
+[lints.clippy.needless-lifetimes]
+level = "allow"
+priority = 2
+
+[lints.clippy.needless_option_as_deref]
+level = "allow"
+priority = 2
+
+[lints.clippy.nonminimal-bool]
+level = "allow"
+priority = 2
+
+[lints.clippy.option-map-unit-fn]
+level = "allow"
+priority = 2
+
+[lints.clippy.stable_sort_primitive]
+level = "allow"
+priority = 2
+
+[lints.clippy.too-many-arguments]
+level = "allow"
+priority = 2
+
+[lints.clippy.type_complexity]
+level = "allow"
+priority = 2
+
+[lints.clippy.unit_arg]
+level = "allow"
+priority = 2
+
+[lints.clippy.unnecessary_cast]
+level = "allow"
+priority = 2
+
+[lints.clippy.useless_conversion]
+level = "allow"
+priority = 2
+
+[lints.clippy.while_immutable_condition]
+level = "allow"
+priority = 2
+
+[lints.clippy.zero-prefixed-literal]
+level = "allow"
+priority = 2
+
+[package.metadata.docs.rs]
+targets = [ "x86_64-unknown-linux-gnu",]

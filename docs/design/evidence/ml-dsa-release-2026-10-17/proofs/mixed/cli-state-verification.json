@@ -1,0 +1,971 @@
+{
+  "cases": [
+    {
+      "mode": 0,
+      "captured_at_utc": "2026-10-17T20:34:31.735780+00:00",
+      "genesis": "0xeabab58b05c4a2d4b2c5144ad7e9e5e7ba2b677f874798d8e504008e77cdc8ef",
+      "runtime": {
+        "specName": "node-subtensor",
+        "implName": "node-subtensor",
+        "authoringVersion": 1,
+        "specVersion": 480,
+        "implVersion": 1,
+        "apis": [
+          [
+            "0xdf6acb689907609b",
+            5
+          ],
+          [
+            "0x37e397fc7c91f5e4",
+            2
+          ],
+          [
+            "0x40fe3ad401f8959a",
+            6
+          ],
+          [
+            "0xfbc577b9d747efd6",
+            1
+          ],
+          [
+            "0xd2bc9897eed08f15",
+            3
+          ],
+          [
+            "0xf78b278be53f454c",
+            2
+          ],
+          [
+            "0xdd718d5cc53262d4",
+            1
+          ],
+          [
+            "0xab3c0572291feb8b",
+            1
+          ],
+          [
+            "0xed99c5acb25eedf5",
+            3
+          ],
+          [
+            "0xbc9d89904f5b923f",
+            1
+          ],
+          [
+            "0x37c8bb1350a9a2a8",
+            4
+          ],
+          [
+            "0xf3ff14d5ab527059",
+            3
+          ],
+          [
+            "0x582211f65bb14b89",
+            6
+          ],
+          [
+            "0xe65b00e46cedd0aa",
+            2
+          ],
+          [
+            "0x68b66ba122c93fa7",
+            2
+          ],
+          [
+            "0x42e62be4a39e5b60",
+            1
+          ],
+          [
+            "0x806df4ccaa9ed485",
+            1
+          ],
+          [
+            "0x8375104b299b74c5",
+            3
+          ],
+          [
+            "0x5d1fbfbe852f2807",
+            1
+          ],
+          [
+            "0xc6886e2f8e598b0a",
+            1
+          ],
+          [
+            "0x43580abff6baab45",
+            5
+          ],
+          [
+            "0xc0de4984d112f3b4",
+            1
+          ],
+          [
+            "0xcbca25e39f142387",
+            2
+          ],
+          [
+            "0xa8b093e6508d9e9c",
+            1
+          ],
+          [
+            "0x1c4585bd5c707202",
+            1
+          ]
+        ],
+        "transactionVersion": 1,
+        "systemVersion": 1,
+        "stateVersion": 1
+      },
+      "public_fixture_sha256": {
+        "/tmp/pytest-of-johnreed/pytest-306/popen-gw0/test_cli_mixed_two_of_three_al0/wallets/rotating/coldkeypub.txt": "ea0f807577acab707cac8c683ebb970c3856f0bd26ec0fb86ed33e33a0011601",
+        "/tmp/pytest-of-johnreed/pytest-306/popen-gw0/test_cli_mixed_two_of_three_al0/wallets/sr/coldkeypub.txt": "1ce7fc604ff7f6f2c7e25a59671e25d2ba08bce909a41dd372905dd8c654b5b1",
+        "/tmp/pytest-of-johnreed/pytest-306/popen-gw0/test_cli_mixed_two_of_three_al0/wallets/ed/coldkeypub.txt": "bc2a469d2270183fa295686d1473247857b7c5f8951cc72c9de89289199c28af",
+        "/tmp/pytest-of-johnreed/pytest-306/popen-gw0/test_cli_mixed_two_of_three_al0/multisig_cache.json": "5f00a5b6ba44eaf9d16c3297e5a3cb2044d5634800cd23b2b0dd99607a09c80a"
+      },
+      "public_members": {
+        "rotating": {
+          "ss58Address": "5Ccw6q1oMmGjy9dFrtYtAP1QNqYXVtSvF9Wkp2LxfBGQGP6n",
+          "cryptoType": 6,
+          "publicKey": "0x18946fc9f96631d56b3d0af54b6bd21ae46b1bce732ed8715a549739762aac70"
+        },
+        "sr": {
+          "ss58Address": "5F9mqChxFMFfTcvmqfyJGP1xww5hGogHtBJ4AmbZsDSjnrSL",
+          "cryptoType": 1,
+          "publicKey": "0x88924eb7953b01d29238197d74c7b3b707ca00e11e58b92ec4d52ff80a82d721"
+        },
+        "ed": {
+          "ss58Address": "5HZZ7tFAXvV4pUeWfuLp47HmMMqajVkEr5aEDeGAV3Y6F28R",
+          "cryptoType": 0,
+          "publicKey": "0xf32dded268b9085efc8a3d919635e5e171552b0d85f5a933af9f0af74ca0bf66"
+        }
+      },
+      "pending_multisigs": [],
+      "event_proof": [
+        {
+          "block_number": 388,
+          "block_hash": "0x86fe988865122aa491da29d43711da56c1e652598988bbdfb5d63c7ad93169c3",
+          "extrinsic_index": 6,
+          "extrinsic_hash": "0xd2c5f60e77ed27f505bf31397472baa25b063d18ec69cdf5aea5d2d5286c88f2",
+          "call": "Multisig.as_multi",
+          "nonce": 5,
+          "success": false,
+          "error": {
+            "type": "System",
+            "name": "Arithmetic",
+            "docs": "An arithmetic error occurred while dispatching the call."
+          },
+          "events": [
+            {
+              "event_index": "0d02",
+              "module_id": "Multisig",
+              "event_id": "MultisigExecuted",
+              "attributes": {
+                "approving": "5F9mqChxFMFfTcvmqfyJGP1xww5hGogHtBJ4AmbZsDSjnrSL",
+                "timepoint": {
+                  "height": 385,
+                  "index": 6
+                },
+                "multisig": "5GSPsZYikE1HvqK8Fjy43yKtyA1ENzA5FQMukQ4iVZyZaBgj",
+                "call_hash": "0xdf73fa9766add8510f101e024571892ffc2b7a7e941f527c69b4aac14e8addcb",
+                "result": {
+                  "Err": {
+                    "Arithmetic": "Underflow"
+                  }
+                }
+              }
+            },
+            {
+              "event_index": "0000",
+              "module_id": "System",
+              "event_id": "ExtrinsicSuccess",
+              "attributes": {
+                "dispatch_info": {
+                  "weight": {
+                    "ref_time": 877430552,
+                    "proof_size": 18800
+                  },
+                  "class": "Normal",
+                  "pays_fee": "Yes"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "block_number": 391,
+          "block_hash": "0xc407e53571395becccb99210d9fbedb4265c7c1b7d4217835173fb4108c29b71",
+          "extrinsic_index": 6,
+          "extrinsic_hash": "0x7d4518789791ef44fb17cce3133a188a01a289b6b42961048eac1f16df6d95f5",
+          "call": "Multisig.as_multi",
+          "nonce": 9,
+          "success": true,
+          "error": null,
+          "events": [
+            {
+              "event_index": "0d00",
+              "module_id": "Multisig",
+              "event_id": "NewMultisig",
+              "attributes": {
+                "approving": "5Ccw6q1oMmGjy9dFrtYtAP1QNqYXVtSvF9Wkp2LxfBGQGP6n",
+                "multisig": "5GSPsZYikE1HvqK8Fjy43yKtyA1ENzA5FQMukQ4iVZyZaBgj",
+                "call_hash": "0xfaf9fadd466d2b9e46e297d5d3232fba79567ff62334eede796a4bdfdd880fb4"
+              }
+            },
+            {
+              "event_index": "0000",
+              "module_id": "System",
+              "event_id": "ExtrinsicSuccess",
+              "attributes": {
+                "dispatch_info": {
+                  "weight": {
+                    "ref_time": 1084563217,
+                    "proof_size": 21698
+                  },
+                  "class": "Normal",
+                  "pays_fee": "Yes"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "block_number": 394,
+          "block_hash": "0x6f97bd74f20110f1f479433efaa05d0117b65775d611c5e6c65afdee02c35864",
+          "extrinsic_index": 6,
+          "extrinsic_hash": "0xf6174b20163d43d65e9731f32451526bb2bd74465f641b7c1215189350ae82d4",
+          "call": "Multisig.as_multi",
+          "nonce": 6,
+          "success": true,
+          "error": null,
+          "events": [
+            {
+              "event_index": "0d02",
+              "module_id": "Multisig",
+              "event_id": "MultisigExecuted",
+              "attributes": {
+                "approving": "5F9mqChxFMFfTcvmqfyJGP1xww5hGogHtBJ4AmbZsDSjnrSL",
+                "timepoint": {
+                  "height": 391,
+                  "index": 6
+                },
+                "multisig": "5GSPsZYikE1HvqK8Fjy43yKtyA1ENzA5FQMukQ4iVZyZaBgj",
+                "call_hash": "0xfaf9fadd466d2b9e46e297d5d3232fba79567ff62334eede796a4bdfdd880fb4",
+                "result": {
+                  "Ok": []
+                }
+              }
+            },
+            {
+              "event_index": "0000",
+              "module_id": "System",
+              "event_id": "ExtrinsicSuccess",
+              "attributes": {
+                "dispatch_info": {
+                  "weight": {
+                    "ref_time": 941394917,
+                    "proof_size": 26370
+                  },
+                  "class": "Normal",
+                  "pays_fee": "Yes"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "block_number": 395,
+          "block_hash": "0x6275d388b5a808d6806c8f99aa41314a9b1d63b6d006255fca3d88d45752dfa7",
+          "extrinsic_index": 6,
+          "extrinsic_hash": "0x741303c861977f46a5fa392ad1ff027d8e77e61692aa2d7bc2fa5b9a153530a6",
+          "call": "Proxy.add_proxy",
+          "nonce": 10,
+          "success": false,
+          "error": {
+            "type": "Module",
+            "name": "AccountPolicyViolation",
+            "docs": [
+              "This delegation would weaken the real account's authorization policy."
+            ]
+          },
+          "events": [
+            {
+              "event_index": "0001",
+              "module_id": "System",
+              "event_id": "ExtrinsicFailed",
+              "attributes": {
+                "dispatch_error": {
+                  "Module": {
+                    "index": 16,
+                    "error": "0x0a000000"
+                  }
+                },
+                "dispatch_info": {
+                  "weight": {
+                    "ref_time": 1609337017,
+                    "proof_size": 31954
+                  },
+                  "class": "Normal",
+                  "pays_fee": "Yes"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "assertions": {
+        "final_balances_match_test": true,
+        "all_temporary_multisig_deposits_released": true,
+        "member_nonces_and_hashed_generations_exact": true,
+        "only_mode1_permanent_proxy_deposit_remains": true
+      },
+      "verified": true,
+      "anchor": {
+        "block_number": 400,
+        "block_hash": "0x43c3e95bd8bd6691be3999d6586c739a05d28d46ce8a38ffbb3ff2a6913cc64e"
+      },
+      "account_states": {
+        "members": {
+          "rotating": {
+            "address": "5Ccw6q1oMmGjy9dFrtYtAP1QNqYXVtSvF9Wkp2LxfBGQGP6n",
+            "account": {
+              "nonce": 11,
+              "consumers": 0,
+              "providers": 2,
+              "sufficients": 0,
+              "data": {
+                "free": 99996839989,
+                "reserved": 0,
+                "frozen": 0,
+                "flags": 170141183460469231731687303715884105728
+              }
+            },
+            "hashed": {
+              "descriptor": {
+                "version": 1,
+                "scheme": "Ed25519",
+                "initial_commitment": "0x8a6ef92de3c1b9ed07da0b1bee190b79da2e141a072015ccef7861315a4bae47"
+              },
+              "generation": 10,
+              "commitment": "0x8509c8013ca04ff9e2982d22a5ff10408e859eed29091490011df1e5f5560a9e"
+            },
+            "proxies": [
+              [],
+              0
+            ]
+          },
+          "sr": {
+            "address": "5F9mqChxFMFfTcvmqfyJGP1xww5hGogHtBJ4AmbZsDSjnrSL",
+            "account": {
+              "nonce": 7,
+              "consumers": 0,
+              "providers": 1,
+              "sufficients": 0,
+              "data": {
+                "free": 99998669051,
+                "reserved": 0,
+                "frozen": 0,
+                "flags": 170141183460469231731687303715884105728
+              }
+            },
+            "hashed": null,
+            "proxies": [
+              [],
+              0
+            ]
+          },
+          "ed": {
+            "address": "5HZZ7tFAXvV4pUeWfuLp47HmMMqajVkEr5aEDeGAV3Y6F28R",
+            "account": {
+              "nonce": 4,
+              "consumers": 0,
+              "providers": 1,
+              "sufficients": 0,
+              "data": {
+                "free": 99999359490,
+                "reserved": 0,
+                "frozen": 0,
+                "flags": 170141183460469231731687303715884105728
+              }
+            },
+            "hashed": null,
+            "proxies": [
+              [],
+              0
+            ]
+          }
+        },
+        "multisig": {
+          "address": "5GSPsZYikE1HvqK8Fjy43yKtyA1ENzA5FQMukQ4iVZyZaBgj",
+          "account": {
+            "nonce": 0,
+            "consumers": 0,
+            "providers": 1,
+            "sufficients": 0,
+            "data": {
+              "free": 12000000000,
+              "reserved": 0,
+              "frozen": 0,
+              "flags": 170141183460469231731687303715884105728
+            }
+          },
+          "hashed": null,
+          "proxies": [
+            [],
+            0
+          ]
+        },
+        "recipient": {
+          "address": "5DR4dHrU7kdGKNpZZ5w99QUt6Vfow7ZgMsR3XXSJFxi2hmeD",
+          "account": {
+            "nonce": 1,
+            "consumers": 0,
+            "providers": 2,
+            "sufficients": 0,
+            "data": {
+              "free": 8000000000,
+              "reserved": 0,
+              "frozen": 0,
+              "flags": 170141183460469231731687303715884105728
+            }
+          },
+          "hashed": {
+            "descriptor": {
+              "version": 1,
+              "scheme": "Ed25519",
+              "initial_commitment": "0x7bc4588652a83a1e25c2a169bf496ab5f7195d043a7a567e51833ccbfcd44461"
+            },
+            "generation": 0,
+            "commitment": "0x7bc4588652a83a1e25c2a169bf496ab5f7195d043a7a567e51833ccbfcd44461"
+          },
+          "proxies": [
+            [],
+            0
+          ]
+        }
+      },
+      "proof_blocks": [
+        388,
+        391,
+        394,
+        395
+      ]
+    },
+    {
+      "mode": 1,
+      "verified": true,
+      "captured_at_utc": "2026-10-17T20:48:30.144524+00:00",
+      "anchor": {
+        "block_number": 470,
+        "block_hash": "0xdad40d9b26a83b022e074281c7cd864c278811df8c0d084175d8338a4a1a3983"
+      },
+      "genesis": "0xeabab58b05c4a2d4b2c5144ad7e9e5e7ba2b677f874798d8e504008e77cdc8ef",
+      "runtime": {
+        "specName": "node-subtensor",
+        "implName": "node-subtensor",
+        "authoringVersion": 1,
+        "specVersion": 480,
+        "implVersion": 1,
+        "apis": [
+          [
+            "0xdf6acb689907609b",
+            5
+          ],
+          [
+            "0x37e397fc7c91f5e4",
+            2
+          ],
+          [
+            "0x40fe3ad401f8959a",
+            6
+          ],
+          [
+            "0xfbc577b9d747efd6",
+            1
+          ],
+          [
+            "0xd2bc9897eed08f15",
+            3
+          ],
+          [
+            "0xf78b278be53f454c",
+            2
+          ],
+          [
+            "0xdd718d5cc53262d4",
+            1
+          ],
+          [
+            "0xab3c0572291feb8b",
+            1
+          ],
+          [
+            "0xed99c5acb25eedf5",
+            3
+          ],
+          [
+            "0xbc9d89904f5b923f",
+            1
+          ],
+          [
+            "0x37c8bb1350a9a2a8",
+            4
+          ],
+          [
+            "0xf3ff14d5ab527059",
+            3
+          ],
+          [
+            "0x582211f65bb14b89",
+            6
+          ],
+          [
+            "0xe65b00e46cedd0aa",
+            2
+          ],
+          [
+            "0x68b66ba122c93fa7",
+            2
+          ],
+          [
+            "0x42e62be4a39e5b60",
+            1
+          ],
+          [
+            "0x806df4ccaa9ed485",
+            1
+          ],
+          [
+            "0x8375104b299b74c5",
+            3
+          ],
+          [
+            "0x5d1fbfbe852f2807",
+            1
+          ],
+          [
+            "0xc6886e2f8e598b0a",
+            1
+          ],
+          [
+            "0x43580abff6baab45",
+            5
+          ],
+          [
+            "0xc0de4984d112f3b4",
+            1
+          ],
+          [
+            "0xcbca25e39f142387",
+            2
+          ],
+          [
+            "0xa8b093e6508d9e9c",
+            1
+          ],
+          [
+            "0x1c4585bd5c707202",
+            1
+          ]
+        ],
+        "transactionVersion": 1,
+        "systemVersion": 1,
+        "stateVersion": 1
+      },
+      "public_fixture_sha256": {
+        "/tmp/pytest-of-johnreed/pytest-306/popen-gw0/test_cli_mixed_two_of_three_al1/wallets/rotating/coldkeypub.txt": "1994451e54b87ae50829fb17eac0679556dbfd7b19c3300a58c91877ed3600cd",
+        "/tmp/pytest-of-johnreed/pytest-306/popen-gw0/test_cli_mixed_two_of_three_al1/wallets/sr/coldkeypub.txt": "b910842bb67eb341caa4189ecd7039a3edac6f8dbce499830ce6c85c51473c55",
+        "/tmp/pytest-of-johnreed/pytest-306/popen-gw0/test_cli_mixed_two_of_three_al1/wallets/ed/coldkeypub.txt": "cb0f16c2f391af8b6664e009894c7fc0e4c2ac78acf490e72750034dde76f49b",
+        "/tmp/pytest-of-johnreed/pytest-306/popen-gw0/test_cli_mixed_two_of_three_al1/multisig_cache.json": "368f3ef5bd09d32803995b56ace9107605ef2c5bbb0653cfe07c585a5de65e53"
+      },
+      "public_members": {
+        "rotating": {
+          "ss58Address": "5FmFqyfeK2HEM2zXNJvJuPiwpZ8tDvsMnZfnJcN21ZYmJe1t",
+          "cryptoType": 0,
+          "publicKey": "0xa3a232b262a88bb7bd56bea27a8900df7e92f0518b9e1bdaa5ff4ba0ec09c49c"
+        },
+        "sr": {
+          "ss58Address": "5Hm4yC7wxgGrYB1m2GxCEPjGYHggSYyFxf715T4En3MSfpNA",
+          "cryptoType": 4,
+          "publicKey": "0xfbf60debcbbd56a39ae759666be9b5b497a9eb1a1ce7533e5c5826ffeca85764"
+        },
+        "ed": {
+          "ss58Address": "5EwqrvURdxgCfsX9VvgRCt59aNf44HqnYv2cXRVpiumVHQUe",
+          "cryptoType": 6,
+          "publicKey": "0x7f78ed7be451b2db670efbbfbef914e8a246af953a7d1958cf56f6ee04f8b9f9"
+        }
+      },
+      "account_states": {
+        "members": {
+          "rotating": {
+            "address": "5FmFqyfeK2HEM2zXNJvJuPiwpZ8tDvsMnZfnJcN21ZYmJe1t",
+            "account": {
+              "nonce": 11,
+              "consumers": 1,
+              "providers": 1,
+              "sufficients": 0,
+              "data": {
+                "free": 98905620386,
+                "reserved": 93000000,
+                "frozen": 0,
+                "flags": 170141183460469231731687303715884105728
+              }
+            },
+            "hashed": null,
+            "proxies": [
+              [
+                {
+                  "delegate": "5GuMnSmi6ijgKWo7GZ6GuZMsqcr395ehzbwYxFA17HXmeFUk",
+                  "proxy_type": "Any",
+                  "delay": 0
+                }
+              ],
+              93000000
+            ]
+          },
+          "sr": {
+            "address": "5Hm4yC7wxgGrYB1m2GxCEPjGYHggSYyFxf715T4En3MSfpNA",
+            "account": {
+              "nonce": 9,
+              "consumers": 0,
+              "providers": 2,
+              "sufficients": 0,
+              "data": {
+                "free": 99996687253,
+                "reserved": 0,
+                "frozen": 0,
+                "flags": 170141183460469231731687303715884105728
+              }
+            },
+            "hashed": {
+              "descriptor": {
+                "version": 1,
+                "scheme": "Sr25519",
+                "initial_commitment": "0x9185897a91f04b64af9bdfadbcde5b90347c2d1b9921eda1a13b4df8305c0951"
+              },
+              "generation": 8,
+              "commitment": "0xee89495bb9b9c1557944abeabea384eeedb45b6328221d46b3d7e1738fd680f0"
+            },
+            "proxies": [
+              [],
+              0
+            ]
+          },
+          "ed": {
+            "address": "5EwqrvURdxgCfsX9VvgRCt59aNf44HqnYv2cXRVpiumVHQUe",
+            "account": {
+              "nonce": 5,
+              "consumers": 0,
+              "providers": 2,
+              "sufficients": 0,
+              "data": {
+                "free": 99998613324,
+                "reserved": 0,
+                "frozen": 0,
+                "flags": 170141183460469231731687303715884105728
+              }
+            },
+            "hashed": {
+              "descriptor": {
+                "version": 1,
+                "scheme": "Ed25519",
+                "initial_commitment": "0x2b3dbafcc3fc98ed84cab9ef6ef1321e9b675f9a5d67ce1fb2ab63f55aac3296"
+              },
+              "generation": 4,
+              "commitment": "0xdcf1614f8b37f2db102d11066538e25e39212a33a0535ccbc309cc2202aff353"
+            },
+            "proxies": [
+              [],
+              0
+            ]
+          }
+        },
+        "multisig": {
+          "address": "5GuMnSmi6ijgKWo7GZ6GuZMsqcr395ehzbwYxFA17HXmeFUk",
+          "account": {
+            "nonce": 0,
+            "consumers": 0,
+            "providers": 1,
+            "sufficients": 0,
+            "data": {
+              "free": 12000000000,
+              "reserved": 0,
+              "frozen": 0,
+              "flags": 170141183460469231731687303715884105728
+            }
+          },
+          "hashed": null,
+          "proxies": [
+            [],
+            0
+          ]
+        },
+        "recipient": {
+          "address": "5GLoYSdxTXnqawJXRgdCymZ8oh6YtyS3XzNYWPKyLP1WgPXc",
+          "account": {
+            "nonce": 1,
+            "consumers": 0,
+            "providers": 2,
+            "sufficients": 0,
+            "data": {
+              "free": 9000000000,
+              "reserved": 0,
+              "frozen": 0,
+              "flags": 170141183460469231731687303715884105728
+            }
+          },
+          "hashed": {
+            "descriptor": {
+              "version": 1,
+              "scheme": "Ed25519",
+              "initial_commitment": "0xbe73a5a7a969cc629a48cb84bfd76f18fc3612c95cf629ed6d80941c5cbab1c9"
+            },
+            "generation": 0,
+            "commitment": "0xbe73a5a7a969cc629a48cb84bfd76f18fc3612c95cf629ed6d80941c5cbab1c9"
+          },
+          "proxies": [
+            [],
+            0
+          ]
+        }
+      },
+      "pending_multisigs": [],
+      "event_proof": [
+        {
+          "block_number": 461,
+          "block_hash": "0xb9b3ec27c5fd65715b030be21c878f8f9d7f2d3e659969b0463099ec69d3123f",
+          "extrinsic_index": 6,
+          "extrinsic_hash": "0x30d0e3a16639485bdb18b367ebd7d76b51c936a46b081208b36d31df52e56ea1",
+          "call": "Proxy.add_proxy",
+          "nonce": 9,
+          "success": true,
+          "error": null,
+          "events": [
+            {
+              "event_index": "0508",
+              "module_id": "Balances",
+              "event_id": "Withdraw",
+              "attributes": {
+                "who": "5FmFqyfeK2HEM2zXNJvJuPiwpZ8tDvsMnZfnJcN21ZYmJe1t",
+                "amount": 215983
+              }
+            },
+            {
+              "event_index": "0504",
+              "module_id": "Balances",
+              "event_id": "Reserved",
+              "attributes": {
+                "who": "5FmFqyfeK2HEM2zXNJvJuPiwpZ8tDvsMnZfnJcN21ZYmJe1t",
+                "amount": 93000000
+              }
+            },
+            {
+              "event_index": "1004",
+              "module_id": "Proxy",
+              "event_id": "ProxyAdded",
+              "attributes": {
+                "delegator": "5FmFqyfeK2HEM2zXNJvJuPiwpZ8tDvsMnZfnJcN21ZYmJe1t",
+                "delegatee": "5GuMnSmi6ijgKWo7GZ6GuZMsqcr395ehzbwYxFA17HXmeFUk",
+                "proxy_type": "Any",
+                "delay": 0
+              }
+            },
+            {
+              "event_index": "0507",
+              "module_id": "Balances",
+              "event_id": "Deposit",
+              "attributes": {
+                "who": "5FmFqyfeK2HEM2zXNJvJuPiwpZ8tDvsMnZfnJcN21ZYmJe1t",
+                "amount": 0
+              }
+            },
+            {
+              "event_index": "0000",
+              "module_id": "System",
+              "event_id": "ExtrinsicSuccess",
+              "attributes": {
+                "dispatch_info": {
+                  "weight": {
+                    "ref_time": 863641511,
+                    "proof_size": 17067
+                  },
+                  "class": "Normal",
+                  "pays_fee": "Yes"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "block_number": 464,
+          "block_hash": "0x85453a8735b56eabac49e4e0abdfb69a5067b0b020a8ca8237eaf64188507f13",
+          "extrinsic_index": 6,
+          "extrinsic_hash": "0x530e7c4e117aeca579356ca5ae1ebaa4ec643f304be3e632bda2c1a0b2b6d879",
+          "call": "Multisig.as_multi",
+          "nonce": 10,
+          "success": true,
+          "error": null,
+          "events": [
+            {
+              "event_index": "0508",
+              "module_id": "Balances",
+              "event_id": "Withdraw",
+              "attributes": {
+                "who": "5FmFqyfeK2HEM2zXNJvJuPiwpZ8tDvsMnZfnJcN21ZYmJe1t",
+                "amount": 354530
+              }
+            },
+            {
+              "event_index": "0504",
+              "module_id": "Balances",
+              "event_id": "Reserved",
+              "attributes": {
+                "who": "5FmFqyfeK2HEM2zXNJvJuPiwpZ8tDvsMnZfnJcN21ZYmJe1t",
+                "amount": 196000000
+              }
+            },
+            {
+              "event_index": "0d00",
+              "module_id": "Multisig",
+              "event_id": "NewMultisig",
+              "attributes": {
+                "approving": "5FmFqyfeK2HEM2zXNJvJuPiwpZ8tDvsMnZfnJcN21ZYmJe1t",
+                "multisig": "5GuMnSmi6ijgKWo7GZ6GuZMsqcr395ehzbwYxFA17HXmeFUk",
+                "call_hash": "0x726c7d57dae840b048ac275fbc966e68e4b315b6ed3da5cf95f11da322dde696"
+              }
+            },
+            {
+              "event_index": "0507",
+              "module_id": "Balances",
+              "event_id": "Deposit",
+              "attributes": {
+                "who": "5FmFqyfeK2HEM2zXNJvJuPiwpZ8tDvsMnZfnJcN21ZYmJe1t",
+                "amount": 269761
+              }
+            },
+            {
+              "event_index": "0000",
+              "module_id": "System",
+              "event_id": "ExtrinsicSuccess",
+              "attributes": {
+                "dispatch_info": {
+                  "weight": {
+                    "ref_time": 338560646,
+                    "proof_size": 6811
+                  },
+                  "class": "Normal",
+                  "pays_fee": "Yes"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "block_number": 467,
+          "block_hash": "0xf4e8a119c09d02b4d1ea700cb0a0bed34938710fa30bc302e761263af23b78cd",
+          "extrinsic_index": 6,
+          "extrinsic_hash": "0xf80994e585ed7472da9d9a29f9a6ac30a9a28c63895f742d8831fb618795a989",
+          "call": "Multisig.as_multi",
+          "nonce": 8,
+          "success": true,
+          "error": null,
+          "events": [
+            {
+              "event_index": "0508",
+              "module_id": "Balances",
+              "event_id": "Withdraw",
+              "attributes": {
+                "who": "5Hm4yC7wxgGrYB1m2GxCEPjGYHggSYyFxf715T4En3MSfpNA",
+                "amount": 726884
+              }
+            },
+            {
+              "event_index": "0505",
+              "module_id": "Balances",
+              "event_id": "Unreserved",
+              "attributes": {
+                "who": "5FmFqyfeK2HEM2zXNJvJuPiwpZ8tDvsMnZfnJcN21ZYmJe1t",
+                "amount": 196000000
+              }
+            },
+            {
+              "event_index": "0502",
+              "module_id": "Balances",
+              "event_id": "Transfer",
+              "attributes": {
+                "from": "5FmFqyfeK2HEM2zXNJvJuPiwpZ8tDvsMnZfnJcN21ZYmJe1t",
+                "to": "5GLoYSdxTXnqawJXRgdCymZ8oh6YtyS3XzNYWPKyLP1WgPXc",
+                "amount": 1000000000
+              }
+            },
+            {
+              "event_index": "1000",
+              "module_id": "Proxy",
+              "event_id": "ProxyExecuted",
+              "attributes": {
+                "result": {
+                  "Ok": []
+                }
+              }
+            },
+            {
+              "event_index": "0d02",
+              "module_id": "Multisig",
+              "event_id": "MultisigExecuted",
+              "attributes": {
+                "approving": "5Hm4yC7wxgGrYB1m2GxCEPjGYHggSYyFxf715T4En3MSfpNA",
+                "timepoint": {
+                  "height": 464,
+                  "index": 6
+                },
+                "multisig": "5GuMnSmi6ijgKWo7GZ6GuZMsqcr395ehzbwYxFA17HXmeFUk",
+                "call_hash": "0x726c7d57dae840b048ac275fbc966e68e4b315b6ed3da5cf95f11da322dde696",
+                "result": {
+                  "Ok": []
+                }
+              }
+            },
+            {
+              "event_index": "0507",
+              "module_id": "Balances",
+              "event_id": "Deposit",
+              "attributes": {
+                "who": "5Hm4yC7wxgGrYB1m2GxCEPjGYHggSYyFxf715T4En3MSfpNA",
+                "amount": 234878
+              }
+            },
+            {
+              "event_index": "0000",
+              "module_id": "System",
+              "event_id": "ExtrinsicSuccess",
+              "attributes": {
+                "dispatch_info": {
+                  "weight": {
+                    "ref_time": 1967338271,
+                    "proof_size": 30974
+                  },
+                  "class": "Normal",
+                  "pays_fee": "Yes"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "proof_blocks": [
+        461,
+        464,
+        467
+      ],
+      "assertions": {
+        "final_balances_match_test": true,
+        "all_temporary_multisig_deposits_released": true,
+        "member_nonces_and_hashed_generations_exact": true,
+        "only_mode1_permanent_proxy_deposit_remains": true
+      }
+    }
+  ],
+  "verifier_sha256": "3a9b971c275691dee5fcbc960c02cf1c0ae62be3212fe767cbb6641e6ea010f6",
+  "scope": "Read-only public finalized state and events from a functional test-weight local chain; no secret-key reads or signing.",
+  "candidate": "437053f80d5ebebce950602b168901bfe6591483",
+  "all_verified": true
+}

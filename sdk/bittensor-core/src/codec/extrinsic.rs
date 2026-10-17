@@ -266,6 +266,28 @@ impl Runtime {
         signature_version: u8,
         params: &TxParams,
     ) -> Result<(Vec<u8>, [u8; 32]), CoreError> {
+        let mldsa = if crate::keys::is_mldsa_crypto(signature_version) {
+            let profile = if signature_version == crate::keys::CRYPTO_MLDSA65 {
+                subtensor_hashed::mldsa::ALGORITHM
+            } else {
+                subtensor_hashed::mldsa::FIXED_ALGORITHM
+            };
+            if !self.supports_mldsa_profile(profile) {
+                return Err(CoreError::Codec(
+                    "runtime does not advertise ML-DSA ML-DSA accounts".into(),
+                ));
+            }
+            let address = subtensor_hashed::mldsa::SignerAddress::from_bytes(signature)
+                .map_err(|_| CoreError::Codec("invalid ML-DSA authorization envelope".into()))?;
+            if address.account != public_key || address.algorithm != profile {
+                return Err(CoreError::Codec(
+                    "ML-DSA proof account does not match signer".into(),
+                ));
+            }
+            Some(address)
+        } else {
+            None
+        };
         let proof = if is_hashed_crypto(signature_version) {
             if signature.len() != 136 {
                 return Err(CoreError::Codec(
@@ -284,7 +306,13 @@ impl Runtime {
         } else {
             None
         };
-        let (address, signature, signature_version) = if let Some(proof) = &proof {
+        let (address, signature, signature_version) = if let Some(address) = &mldsa {
+            (
+                Value::record(vec![("Raw".into(), Value::Bytes(address.encode()))]),
+                subtensor_hashed::mldsa::CARRIER_SIGNATURE.as_slice(),
+                0,
+            )
+        } else if let Some(proof) = &proof {
             let scheme = if signature_version == crate::keys::CRYPTO_HASHED {
                 subtensor_hashed::Scheme::Sr25519
             } else {
@@ -362,6 +390,56 @@ impl Runtime {
         compact(body.len() as u128, &mut out)?;
         out.extend_from_slice(&body);
         Ok((out.clone(), blake2_256(&out)))
+    }
+
+    /// Detect the explicit ML-DSA registration variant on the original call.
+    /// Presence of HashedAccounts alone does not imply ML-DSA support.
+    pub fn supports_mldsa_profile(&self, profile: u8) -> bool {
+        self.supports_mldsa_accounts()
+            && match profile {
+                subtensor_hashed::mldsa::ALGORITHM => true,
+                subtensor_hashed::mldsa::FIXED_ALGORITHM => self
+                    .constant("HashedAccounts", "MldsaAccountProfiles")
+                    .is_some_and(|constant| {
+                        constant.value.as_slice()
+                            == [
+                                subtensor_hashed::mldsa::ALGORITHM,
+                                subtensor_hashed::mldsa::FIXED_ALGORITHM,
+                            ]
+                    }),
+                _ => false,
+            }
+    }
+
+    pub fn supports_mldsa_accounts(&self) -> bool {
+        self.pallets
+            .iter()
+            .filter(|p| p.name == "HashedAccounts")
+            .filter_map(|p| p.calls_type)
+            .any(|id| {
+                let Ok(ty) = self.resolve(id) else {
+                    return false;
+                };
+                let TypeDef::Variant(calls) = &ty.type_def else {
+                    return false;
+                };
+                calls.variants.iter().any(|call| {
+                    let [field] = call.fields.as_slice() else {
+                        return false;
+                    };
+                    if call.name != "register" || field.name.as_deref() != Some("descriptor") {
+                        return false;
+                    }
+                    let Ok(descriptor) = self.resolve(field.ty.id) else {
+                        return false;
+                    };
+                    matches!(&descriptor.type_def, TypeDef::Variant(schemes)
+                        if schemes.variants.iter().any(|scheme|
+                            scheme.name == "MlDsa65" && scheme.fields.len() == 1)
+                        && schemes.variants.iter().any(|scheme|
+                            scheme.name == "Classical" && scheme.fields.len() == 1))
+                })
+            })
     }
 
     /// Decode one raw extrinsic into cyscale's plain value dict:
@@ -646,6 +724,186 @@ pub(crate) mod hashed_tests {
         assert!(runtime
             .encode_signed_extrinsic(&[0, 0], [0; 32], &[0; 136], CRYPTO_HASHED, &params())
             .is_err());
+    }
+
+    pub(crate) fn runtime_mldsa() -> Runtime {
+        let mut runtime = runtime(true);
+        assert!(!runtime.supports_mldsa_accounts());
+        let pallet = runtime
+            .pallets
+            .iter_mut()
+            .find(|p| p.name == "HashedAccounts")
+            .unwrap();
+        let source = pallet.calls_type.unwrap();
+        let mut calls = runtime.types.resolve(source).unwrap().clone();
+        let TypeDef::Variant(variants) = &mut calls.type_def else {
+            panic!("call variants")
+        };
+        // Advertise the exact registration enum names without changing any
+        // golden extrinsic envelope, economic call, or signing extension type.
+        let mut marker = variants.variants[0].clone();
+        marker.name = "register".into();
+        marker.index = 0;
+        marker.fields.truncate(1);
+        marker.fields[0].name = Some("descriptor".into());
+        let mut registration = calls.clone();
+        let TypeDef::Variant(schemes) = &mut registration.type_def else {
+            panic!("registration variants")
+        };
+        let mut scheme = marker.clone();
+        scheme.name = "Classical".into();
+        scheme.fields[0].name = None;
+        schemes.variants = vec![scheme.clone()];
+        scheme.name = "MlDsa65".into();
+        scheme.index = 1;
+        schemes.variants.push(scheme);
+        let registration_id = runtime.types.types.len() as u32;
+        runtime.types.types.push(scale_info::PortableType {
+            id: registration_id,
+            ty: registration,
+        });
+        marker.fields[0].ty = registration_id.into();
+        let TypeDef::Variant(variants) = &mut calls.type_def else {
+            panic!("call variants")
+        };
+        variants.variants = vec![marker];
+        let id = runtime.types.types.len() as u32;
+        runtime
+            .types
+            .types
+            .push(scale_info::PortableType { id, ty: calls });
+        pallet.calls_type = Some(id);
+        pallet.constants.push(crate::runtime::ConstantInfo {
+            name: "MldsaAccountProfiles".into(),
+            ty: 0,
+            value: vec![4, 5],
+            docs: vec![],
+        });
+        assert!(runtime.supports_mldsa_accounts());
+        runtime
+    }
+
+    #[test]
+    fn fixed_profile_requires_advertised_runtime_support_before_encoding() {
+        let mut runtime = runtime_mldsa();
+        assert!(runtime.supports_mldsa_profile(4));
+        assert!(runtime.supports_mldsa_profile(5));
+        runtime
+            .pallets
+            .iter_mut()
+            .find(|p| p.name == "HashedAccounts")
+            .unwrap()
+            .constants
+            .retain(|c| c.name != "MldsaAccountProfiles");
+        assert!(runtime.supports_mldsa_profile(4));
+        assert!(!runtime.supports_mldsa_profile(5));
+        let fixed = Keypair::from_seed(&[23; 32], crate::keys::CRYPTO_MLDSA65_FIXED).unwrap();
+        let proof = fixed.sign_mldsa(b"call").unwrap();
+        assert!(runtime
+            .encode_signed_extrinsic(
+                &[0, 0],
+                fixed.public_key_bytes(),
+                &proof,
+                crate::keys::CRYPTO_MLDSA65_FIXED,
+                &params()
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn mldsa_support_requires_registration_enum_not_a_call_name_marker() {
+        let mut runtime = runtime_mldsa();
+        let call_id = runtime
+            .pallets
+            .iter()
+            .find(|pallet| pallet.name == "HashedAccounts")
+            .unwrap()
+            .calls_type
+            .unwrap();
+        let TypeDef::Variant(calls) = &mut runtime.types.types[call_id as usize].ty.type_def else {
+            panic!("call variants")
+        };
+        let descriptor_id = calls.variants[0].fields[0].ty.id;
+        calls.variants[0].name = "register_unsupported".into();
+        assert!(!runtime.supports_mldsa_accounts());
+        let TypeDef::Variant(calls) = &mut runtime.types.types[call_id as usize].ty.type_def else {
+            panic!("call variants")
+        };
+        calls.variants[0].name = "register".into();
+        assert!(runtime.supports_mldsa_accounts());
+        let TypeDef::Variant(schemes) =
+            &mut runtime.types.types[descriptor_id as usize].ty.type_def
+        else {
+            panic!("registration variants")
+        };
+        schemes.variants.retain(|variant| variant.name != "MlDsa65");
+        assert!(!runtime.supports_mldsa_accounts());
+    }
+
+    #[test]
+    fn mldsa_v4_proof_preserves_outer_types_and_call_bytes() {
+        for crypto in [
+            crate::keys::CRYPTO_MLDSA65,
+            crate::keys::CRYPTO_MLDSA65_FIXED,
+        ] {
+            let legacy_runtime = runtime(false);
+            let runtime = runtime_mldsa();
+            let call = runtime
+                .compose_call(
+                    "System",
+                    "remark",
+                    &Value::record(vec![("remark".into(), Value::Bytes(vec![7; 300]))]),
+                )
+                .unwrap();
+            let wallet = Keypair::from_seed(&[7; 32], crypto)
+                .unwrap()
+                .at_generation(3)
+                .unwrap();
+            let (extra, additional) = runtime.signature_payload_parts(&params()).unwrap();
+            let payload = [call.clone(), extra.clone(), additional].concat();
+            let proof = wallet
+                .sign_mldsa_with_randomness(&payload, &[0; 32])
+                .unwrap();
+            assert!(subtensor_hashed::mldsa::SignerAddress::from_bytes(&proof)
+                .unwrap()
+                .verify(&payload));
+            let (encoded, hash) = runtime
+                .encode_signed_extrinsic(
+                    &call,
+                    wallet.public_key_bytes(),
+                    &proof,
+                    crypto,
+                    &params(),
+                )
+                .unwrap();
+            assert_eq!(hash, blake2_256(&encoded));
+            runtime.decode_extrinsic(&encoded, true).unwrap();
+            let mut body = Cursor::new(&encoded);
+            let _ = compact_u128(&mut body).unwrap();
+            assert_eq!(body.byte().unwrap(), 0x84);
+            assert_eq!(body.byte().unwrap(), 2);
+            assert_eq!(compact_u128(&mut body).unwrap(), 5367);
+            assert_eq!(body.take(5367).unwrap(), proof);
+            assert_eq!(body.byte().unwrap(), 0);
+            assert_eq!(
+                body.take(64).unwrap(),
+                subtensor_hashed::mldsa::CARRIER_SIGNATURE
+            );
+            assert_eq!(body.take(extra.len()).unwrap(), extra);
+            assert_eq!(body.take(call.len()).unwrap(), call);
+            assert!(runtime
+                .encode_signed_extrinsic(&call, [0; 32], &proof, crypto, &params())
+                .is_err());
+            assert!(legacy_runtime
+                .encode_signed_extrinsic(
+                    &call,
+                    wallet.public_key_bytes(),
+                    &proof,
+                    crypto,
+                    &params()
+                )
+                .is_err());
+        }
     }
 
     #[test]

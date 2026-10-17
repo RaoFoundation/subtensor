@@ -1,0 +1,74 @@
+[
+  {
+    "name": "production",
+    "directory": "/tmp/ms-head-validation-20261017/production",
+    "rpc_port": 21044,
+    "p2p_port": 32034,
+    "normal_block_seconds": 12,
+    "archive": true
+  },
+  {
+    "name": "release",
+    "directory": "/tmp/ms-head-validation-20261017/release",
+    "rpc_port": 21144,
+    "p2p_port": 32134,
+    "normal_block_seconds": 12,
+    "archive": true
+  },
+  {
+    "name": "authority",
+    "directory": "/tmp/ms-head-validation-20261017/authority",
+    "rpc_port": 21244,
+    "p2p_port": 32234,
+    "normal_block_seconds": 12,
+    "archive": true
+  },
+  {
+    "name": "operations",
+    "directory": "/tmp/ms-head-validation-20261017/operations",
+    "rpc_port": 21344,
+    "p2p_port": 32334,
+    "normal_block_seconds": 12,
+    "archive": true
+  },
+  {
+    "name": "validators",
+    "directory": "/tmp/ms-head-validation-20261017/validators",
+    "rpc_port": 21444,
+    "p2p_port": 32434,
+    "normal_block_seconds": 12,
+    "archive": true
+  },
+  {
+    "name": "lifecycle",
+    "directory": "/tmp/ms-head-validation-20261017/lifecycle",
+    "rpc_port": 21544,
+    "p2p_port": 32534,
+    "normal_block_seconds": 12,
+    "archive": true
+  },
+  {
+    "name": "parity",
+    "directory": "/tmp/ms-head-validation-20261017/parity",
+    "rpc_port": 21644,
+    "p2p_port": 32634,
+    "normal_block_seconds": 12,
+    "archive": true
+  },
+  {
+    "name": "extended",
+    "directory": "/tmp/ms-head-validation-20261017/extended",
+    "rpc_port": 21744,
+    "p2p_port": 32734,
+    "normal_block_seconds": 12,
+    "archive": true
+  },
+  {
+    "name": "proxy-boundaries",
+    "directory": "/tmp/ms-head-validation-20261017/proxy-boundaries",
+    "rpc_port": 21844,
+    "p2p_port": 32834,
+    "normal_block_seconds": 12,
+    "archive": true
+  }
+]

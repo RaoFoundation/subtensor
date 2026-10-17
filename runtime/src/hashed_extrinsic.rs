@@ -2,7 +2,7 @@
 //! No call is intercepted or rewritten while decoding.
 use crate::{
     AccountId, Address, ChainContext, Runtime, RuntimeCall, Signature, TxExtension,
-    hashed_auth::AccountTxExtension,
+    hashed_auth::{AccountAuthorization, AccountTxExtension},
 };
 use codec::{
     Compact, CountedInput, Decode, DecodeLimit, DecodeWithMemTracking, Encode, Input,
@@ -44,7 +44,7 @@ impl UncheckedExtrinsic {
     ) -> Self {
         let mut extension: AccountTxExtension = extension.into();
         if let Address::Raw(bytes) = &address {
-            extension.1 = SignerAddress::from_bytes(bytes).ok();
+            extension.1 = AccountAuthorization::from_bytes(bytes).ok();
         }
         Self::Legacy(LegacyUnchecked::new_signed(
             call, address, signature, extension,
@@ -86,13 +86,16 @@ fn decode_address<I: Input>(input: &mut I) -> Result<Address, codec::Error> {
         }
         2 => {
             let len = Compact::<u32>::decode(input)?.0;
-            if len != SignerAddress::ENCODED_LEN as u32 {
+            if len != SignerAddress::ENCODED_LEN as u32
+                && len != subtensor_hashed::mldsa::SignerAddress::ENCODED_LEN as u32
+            {
                 return Err("Invalid hashed signer address length".into());
             }
-            let bytes: [u8; SignerAddress::ENCODED_LEN] = Decode::decode(input)?;
-            SignerAddress::from_bytes(&bytes)?;
-            input.on_before_alloc_mem(SignerAddress::ENCODED_LEN)?;
-            Ok(Address::Raw(bytes.to_vec()))
+            input.on_before_alloc_mem(len as usize)?;
+            let mut bytes = alloc::vec![0u8; len as usize];
+            input.read(&mut bytes)?;
+            AccountAuthorization::from_bytes(&bytes)?;
+            Ok(Address::Raw(bytes))
         }
         3 => Ok(Address::Address32(Decode::decode(input)?)),
         4 => Ok(Address::Address20(Decode::decode(input)?)),
@@ -119,7 +122,7 @@ impl Decode for UncheckedExtrinsic {
                 let signature = Signature::decode(&mut input)?;
                 let mut extension = AccountTxExtension::decode(&mut input)?;
                 if let Address::Raw(bytes) = &address {
-                    extension.1 = Some(SignerAddress::from_bytes(bytes)?);
+                    extension.1 = Some(AccountAuthorization::from_bytes(bytes)?);
                 }
                 Preamble::Signed(address, signature, extension)
             }
@@ -230,23 +233,60 @@ impl Checkable<ChainContext> for UncheckedExtrinsic {
                 if xt.0.function.is_self_contained() {
                     return Err(InvalidTransaction::Call.into());
                 }
-                let address =
-                    SignerAddress::from_bytes(bytes).map_err(|_| InvalidTransaction::BadProof)?;
-                let matches = matches!(
-                    (&*signature, address.scheme),
-                    (Signature::Sr25519(_), subtensor_hashed::Scheme::Sr25519)
-                        | (Signature::Ed25519(_), subtensor_hashed::Scheme::Ed25519)
-                );
-                if !matches
-                    || !signature.verify(
-                        signing_hash(&address, &xt.0.function, &extension.0)?.as_slice(),
-                        &AccountId::new(address.public_key),
-                    )
-                {
-                    return Err(InvalidTransaction::BadProof.into());
+                let authorization = AccountAuthorization::from_bytes(bytes)
+                    .map_err(|_| InvalidTransaction::BadProof)?;
+                let account = authorization.account();
+                match &authorization {
+                    AccountAuthorization::V1(address) => {
+                        let matches = matches!(
+                            (&*signature, address.scheme),
+                            (Signature::Sr25519(_), subtensor_hashed::Scheme::Sr25519)
+                                | (Signature::Ed25519(_), subtensor_hashed::Scheme::Ed25519)
+                        );
+                        if !matches
+                            || !signature.verify(
+                                signing_hash(address, &xt.0.function, &extension.0)?.as_slice(),
+                                &AccountId::new(address.public_key),
+                            )
+                        {
+                            return Err(InvalidTransaction::BadProof.into());
+                        }
+                    }
+                    AccountAuthorization::MlDsa(header) => {
+                        use pallet_hashed_accounts::weights::WeightInfo;
+                        if !matches!(signature, Signature::Ed25519(marker)
+                            if marker.0 == subtensor_hashed::mldsa::CARRIER_SIGNATURE)
+                        {
+                            return Err(InvalidTransaction::BadProof.into());
+                        }
+                        // Fail before matrix expansion when the protocol is disabled,
+                        // state is stale, or calibrated verification cannot fit a block.
+                        let len = u32::try_from(xt.0.function.encoded_size())
+                            .map_err(|_| InvalidTransaction::ExhaustsResources)?;
+                        let cost = <Runtime as pallet_hashed_accounts::Config>::WeightInfo::authorize_mldsa65(len)
+                            .max(<Runtime as pallet_hashed_accounts::Config>::WeightInfo::authorize_mldsa65_invalid(len));
+                        if cost.any_gt(
+                            <Runtime as frame_system::Config>::BlockWeights::get().max_block,
+                        ) {
+                            return Err(InvalidTransaction::ExhaustsResources.into());
+                        }
+                        crate::HashedAccounts::check_mldsa_authorization(
+                            &account,
+                            header.algorithm,
+                            &header.public_key,
+                            header.generation,
+                            header.next_commitment,
+                        )
+                        .map_err(|_| InvalidTransaction::BadProof)?;
+                        let address = subtensor_hashed::mldsa::SignerAddress::from_bytes(bytes)
+                            .map_err(|_| InvalidTransaction::BadProof)?;
+                        let payload = (&xt.0.function, &extension.0, extension.0.implicit()?);
+                        if !address.verify_encoded(&payload) {
+                            return Err(InvalidTransaction::BadProof.into());
+                        }
+                    }
                 }
-                let account = AccountId::new(address.account);
-                extension.1 = Some(address);
+                extension.1 = Some(authorization);
                 return Ok(CheckedExtrinsic(LegacyChecked {
                     signed: fp_self_contained::CheckedSignature::GenericDelegated(
                         ExtrinsicFormat::Signed(account, extension.clone()),
@@ -320,9 +360,20 @@ impl Applyable for CheckedExtrinsic {
     }
 }
 
-/// The actual signed call is inspected directly; no wrapper is decoded.
+/// Syntactic proposer recognition, not authorization. The API's extrinsic
+/// decoder already enforces memory and call-depth bounds. Inspect only the
+/// signed outer call, without repeating expensive signature verification.
+/// The proposer applies the outer extrinsic through Executive before decrypting
+/// or applying its inner transaction; both still require normal authorization.
 pub(crate) fn shielded_transaction(
     xt: UncheckedExtrinsic,
 ) -> Option<stp_shield::ShieldedTransaction> {
-    crate::MevShield::try_decode_shielded_tx::<crate::Block, ChainContext>(xt)
+    let UncheckedExtrinsic::Legacy(xt) = xt;
+    if !matches!(xt.0.preamble, Preamble::Signed(..)) {
+        return None;
+    }
+    let RuntimeCall::MevShield(call) = xt.0.function else {
+        return None;
+    };
+    stp_shield::ShieldedTransaction::parse(crate::MevShield::carrier_ciphertext(&call)?)
 }

@@ -1,0 +1,1823 @@
+{
+  "candidate": "483b52ceea5cf08a0fb492ca2915b7efa6a8690e",
+  "started_utc": "2026-10-17T22:14:26.973584+00:00",
+  "scope": "Persisted suite receipt files; activation extrinsics excluded. This verifies recorded outcomes, not completeness of operation coverage or all test assertions.",
+  "deduplication_key": "(local chain name, block hash, extrinsic index)",
+  "files": [
+    {
+      "path": "authority/receipts/mldsa-authority-7.json",
+      "sha256": "b4d6016a6c6bef0b4b76cd9fa586ff9f052b48d571d2b13136c0dc5d7d58d9b9",
+      "receipt_references": 10,
+      "declared_successful": null
+    },
+    {
+      "path": "authority/receipts/mldsa-authority-8.json",
+      "sha256": "7fcf06dfdfdd1639063fb7ab92d5586ad0b6740c85452e780b00f17fff6e3443",
+      "receipt_references": 10,
+      "declared_successful": null
+    },
+    {
+      "path": "authority/receipts/mldsa-multisig-7-1.json",
+      "sha256": "a3d25d403238c6a1bbe896069ba071792bb0cf1e3d8db923ecd11b89fad76159",
+      "receipt_references": 6,
+      "declared_successful": null
+    },
+    {
+      "path": "authority/receipts/mldsa-multisig-7-8.json",
+      "sha256": "3fb316d99f14e02742447d3deda65904d3cb21c22ce90bfaebd58d4bfc82b5d7",
+      "receipt_references": 6,
+      "declared_successful": null
+    },
+    {
+      "path": "authority/receipts/mldsa-multisig-8-0.json",
+      "sha256": "3d785c2b30703aea7ac327910a4da9407dbb4f9c5de2eabcecbf20b562486963",
+      "receipt_references": 6,
+      "declared_successful": null
+    },
+    {
+      "path": "authority/receipts/mldsa-orders-7.json",
+      "sha256": "4d0a6bbc9a50cd3b453a119aa485f10024c7c450e2c4d5f3c9a04843db96604a",
+      "receipt_references": 11,
+      "declared_successful": null
+    },
+    {
+      "path": "authority/receipts/mldsa-orders-8.json",
+      "sha256": "18cdda7b535edc17d5019e98737ee6450f1487d56bc7d80618033b64f64021ac",
+      "receipt_references": 11,
+      "declared_successful": null
+    },
+    {
+      "path": "authority/receipts/mldsa-two-of-three.json",
+      "sha256": "25f0a4b2464b5ee265ee5c17fd85550b6c661de446dc487a682585f9f5827447",
+      "receipt_references": 13,
+      "declared_successful": null
+    }
+  ],
+  "chains": {
+    "authority": {
+      "endpoint": "ws://127.0.0.1:21244",
+      "unique_receipts": 73,
+      "verified_receipts": 73,
+      "status_counts": {
+        "success": 55,
+        "outer_success_inner_failure": 4,
+        "system_failure": 14
+      },
+      "errors": [],
+      "genesis": "0xd99a3805d0f8e721b3dd7544295a3991a9e7d685fefd38541cfb76fc3de9b85c",
+      "finalized_snapshot": {
+        "height": 177,
+        "hash": "0xcdd279d69aabbbcc390c857d03ddafa7a3c8eedf55578d59cfc5512741d89005"
+      }
+    }
+  },
+  "receipts": [
+    {
+      "chain": "authority",
+      "height": 19,
+      "extrinsic_index": 7,
+      "block_hash": "0xc8f12fa9e76a715a4a5ce189c7dcba3ede0b77d2d416d5422ccf0a4d172b7d05",
+      "extrinsic_hash": "0xee996e3e6769fe9b25745407646d8f28b1aeea728f0d692e31228ed39537ee3e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "86e5d58052ab7c3e45d769a5776ac4eca788000ee9729eb4bf018b4afd1300ff",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-7.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 22,
+      "extrinsic_index": 6,
+      "block_hash": "0x85fd195341b3e3d1794dbeaa4ff946e4ef0c7a725291ccc0dee83af85d82c72d",
+      "extrinsic_hash": "0x4d3692554f851c57763967511cf22d9009586a3d785d193d5ad658de2e44c7d3",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "d9ae45f49ca113713ef396e035d321d5ec0567bc66e5555af9264a04d765b8cd",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-7.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 25,
+      "extrinsic_index": 7,
+      "block_hash": "0xab0f6c667d38054f1f0e12f9bdf24f26601f5b822c1fae13ead82f034adb2a92",
+      "extrinsic_hash": "0x35f70cbb026feb0ac5f3c293aa23dbc9127d6d1a30235a7262c5a116d5bd62b8",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "ceee3bb292f75e9400244337a14f1b078324b6f8299f1f7c653243922788f576",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-7.json",
+          "pointer": "$[6]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 25,
+      "extrinsic_index": 8,
+      "block_hash": "0xab0f6c667d38054f1f0e12f9bdf24f26601f5b822c1fae13ead82f034adb2a92",
+      "extrinsic_hash": "0x09c21bcd3cc64dbe46ca626950d59fef60c00ce93b98eb33495fb7f37fc377af",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "ac78b7aab1d4c020aef87f6b132d6fda015eb690d15e9fd5399cddfcd7ec0412",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-7-8.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 28,
+      "extrinsic_index": 7,
+      "block_hash": "0x1880a4946c7e13fa573c1d6251a51fe400c4d7ed6ccd4e9c5ff0f061af71f261",
+      "extrinsic_hash": "0xdbf1aababc8860421d13a4c80ca4bc3a51f1e6c9dc36c87c41cd95f22d7c7eb4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "c5e9e47e42059c034d609b62ead743a24301b5ba2878f48a806a6fd3da1968db",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-7.json",
+          "pointer": "$[7]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 28,
+      "extrinsic_index": 8,
+      "block_hash": "0x1880a4946c7e13fa573c1d6251a51fe400c4d7ed6ccd4e9c5ff0f061af71f261",
+      "extrinsic_hash": "0x9bd34af74d8123075f181052844b99201e1ebae1d09b82134595c7534123863c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "70ebfdb3da784af45d263a24b349b595c96ab615ab7ecf77742c608a9968427e",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-7-8.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 31,
+      "extrinsic_index": 6,
+      "block_hash": "0x6a4ed0940f5dd776da2c7d6e236a88c39ff30b8ab7c976c0e2a55d8a5e2c8f9c",
+      "extrinsic_hash": "0x36fc731b19c2e2532055fdfdd43c5f0d05fc8785e52b5b54dc372cb3adfd7a55",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "09d4266f6248ecb10d759b0ec80eb4e0f7f7b43620e1b9fcefdb857d86d03e50",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-8-0.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 31,
+      "extrinsic_index": 7,
+      "block_hash": "0x6a4ed0940f5dd776da2c7d6e236a88c39ff30b8ab7c976c0e2a55d8a5e2c8f9c",
+      "extrinsic_hash": "0xeb95eb0e9cfec90ab16efc75ea32074b741f278838789472969aca3cb1b0f74c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "dabc49ab906d7e80defce8278dd63bf2a02744332160c9dd095f8f360798bca7",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-7-8.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 34,
+      "extrinsic_index": 6,
+      "block_hash": "0xaf797669b68d5835c06be2ec40fb5407b0cad4383da260f17240b439b9a2f1d6",
+      "extrinsic_hash": "0xfa10865d90e12948cd64e30e03bc1f2843156ed52eb7ac20a9c2519081210e5f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "416676310c13df455dd9e04cff93acf43c5f96600201c86b715c609898829ea5",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-8-0.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 34,
+      "extrinsic_index": 7,
+      "block_hash": "0xaf797669b68d5835c06be2ec40fb5407b0cad4383da260f17240b439b9a2f1d6",
+      "extrinsic_hash": "0x5fb9ebba01adcc268fb9c49ced61332ffac4e883e3559621aa102c3c2725e9e1",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "7c0f556a6ba79971a15189e976c75d87e02d3d608e8159a59b8433658bb5ffe1",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-7.json",
+          "pointer": "$[8]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 34,
+      "extrinsic_index": 8,
+      "block_hash": "0xaf797669b68d5835c06be2ec40fb5407b0cad4383da260f17240b439b9a2f1d6",
+      "extrinsic_hash": "0x8e22aa75a9a2865c3e478e1e46ec45db6abd138538e726e8d84229f5baf90ad2",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Multisig.MultisigExecuted",
+          "error": {
+            "Arithmetic": "Underflow"
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 7,
+      "events_sha256": "118bdb1e8272b0c0a81f8c4a1f2d7287014998c101f9e7cd9be1deb5d8ea807a",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-7-8.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 37,
+      "extrinsic_index": 6,
+      "block_hash": "0x45895ada0c2c4ba40754670520e135f8623ff1ab6334ebb53a96d240c07f54c7",
+      "extrinsic_hash": "0x566b2663b44d3ac79fdf2d231cc451366ed7bd6768a7ddacdd65e85ad2797965",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "166c8f57e3487ce3d9fd2cb8ba0fa422105b0bd5ffe914ab8b11fd4d1bd2a872",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-8-0.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 37,
+      "extrinsic_index": 7,
+      "block_hash": "0x45895ada0c2c4ba40754670520e135f8623ff1ab6334ebb53a96d240c07f54c7",
+      "extrinsic_hash": "0x02152e851171d6366d40369da6802c59aa763477c6a2e4cda57d440828bbb077",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "cdff27735d0baa52118a7454ae1fe6046068604969aa844fc7f80ff144f4fb5e",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-7.json",
+          "pointer": "$[9]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 37,
+      "extrinsic_index": 8,
+      "block_hash": "0x45895ada0c2c4ba40754670520e135f8623ff1ab6334ebb53a96d240c07f54c7",
+      "extrinsic_hash": "0x5a66e390e282a0a33c0f15e98d6758f8212c87d76a33ce7c333fe0b2cbefe8f0",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "7fca77c9cbaac17c4ea87f1a12d4a083421a788af7ebbb12ced4316c55b3163d",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-7-8.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 40,
+      "extrinsic_index": 6,
+      "block_hash": "0xb6623ab99f04be8ca7a327b1cf7dbd506f69f20033ad629fd395236c90aeb956",
+      "extrinsic_hash": "0x9b5d7759c6c87ea95cdb264ed2a705d0ca9bf24de50b80a4cf1c705a0bda89bc",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Multisig.MultisigExecuted",
+          "error": {
+            "Arithmetic": "Underflow"
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 6,
+      "events_sha256": "1331556f6fd805de307998f5027c728221229b05780944642b578d13177aac12",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-8-0.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 40,
+      "extrinsic_index": 7,
+      "block_hash": "0xb6623ab99f04be8ca7a327b1cf7dbd506f69f20033ad629fd395236c90aeb956",
+      "extrinsic_hash": "0x0b6d4c008747a35d6e4ed1a1f837796a806eb54b353b1e06249d244209e36151",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "ea36001c376de2ddb247d8805a7c241534c0bc864bc3bccb646f00848a97a1aa",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-7.json",
+          "pointer": "$[10]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 40,
+      "extrinsic_index": 8,
+      "block_hash": "0xb6623ab99f04be8ca7a327b1cf7dbd506f69f20033ad629fd395236c90aeb956",
+      "extrinsic_hash": "0x5c5efdef67750ae5cd6ea5a48465cec6a48fe3ec7f13190811cd3c33ea0696b6",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "02acd1c2ef7fa8290ed703d656803e50813864095c4822eab7ddd833c20214fe",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-7-8.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 43,
+      "extrinsic_index": 6,
+      "block_hash": "0x375fe03564934ff5b3727b6c6784c77c4fab4b7dacb3cbbca7637f94aebe07fe",
+      "extrinsic_hash": "0x8f8c54eed0735b30c1a928f03889302634e4e00da203fb49c5385dfd7721816f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "670253df28be21226148d64b9f8fc8d28669575eb5203b4c3fd1b86e4fd73dd4",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-8-0.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 43,
+      "extrinsic_index": 7,
+      "block_hash": "0x375fe03564934ff5b3727b6c6784c77c4fab4b7dacb3cbbca7637f94aebe07fe",
+      "extrinsic_hash": "0xc76c3da3b2fc918ac8ab0e1956222a8bfcc108eff2c903a14faeb389f3348d48",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 5,
+      "events_sha256": "c937ec48cd6cae2676d0cb2b13fca70196438a117a51a1b3e228bc12e91bd8fc",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-7.json",
+          "pointer": "$[11]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 46,
+      "extrinsic_index": 6,
+      "block_hash": "0x98a541df32b1d4232451d3da79de6a7f74e1f1708c53257abe4dc967ba2b44a4",
+      "extrinsic_hash": "0x702dfe997fdf5b84343ee1b457121b1028e5d4a24a5ad4c187f503c42d9cbb4a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "a78e7757c3f0f4820898b172718d062c8aa2a7b6c98ab763267db9577a6047c5",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-8-0.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 46,
+      "extrinsic_index": 7,
+      "block_hash": "0x98a541df32b1d4232451d3da79de6a7f74e1f1708c53257abe4dc967ba2b44a4",
+      "extrinsic_hash": "0x373c063478f8730b09f8ccbf9cf3edfb0f394709d509ea3da703f09cbda2b612",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "b380508ae547b92b0ba280cbd2c6a9a3dd749b28ecd490c6270f8771cdcff775",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-7.json",
+          "pointer": "$[12]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 49,
+      "extrinsic_index": 7,
+      "block_hash": "0xec7556a83a75a16b5b1584415b0292f847b1faa5dd1ecdb6817ed76ce98b9de8",
+      "extrinsic_hash": "0x4c819c238a3f46c6c9946bfee93054ff7aec31b25309e00af6551e684c542830",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "0f9f79173a20d959fa6d8ebb14b45588dd67a3ed8b2728b8c3ba319d70173a9c",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-7.json",
+          "pointer": "$[13]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 67,
+      "extrinsic_index": 7,
+      "block_hash": "0xb2bd0ad9c9b62b79a57bdc53c1eaf7d099a6a8eb341486a63906cd25975a3cc1",
+      "extrinsic_hash": "0xd8d83164958b51e07da409ee60e6554cbfe8a7d169e5874485d19ab9632caa65",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "91115f544b1ecbf8fb52cdedfc3048f663e4215edc98a653e17d27341413a349",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-7-1.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 70,
+      "extrinsic_index": 6,
+      "block_hash": "0x31f5b2f1a5306e5dc43a070c7bce0099b492527ebdc0fdd0188e72a2e382e678",
+      "extrinsic_hash": "0x39ccf500c7e2aeb0e61d5368cc8e60c6ce3d990d3ad82083cc74af6ad6436ce5",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "d8562cbcd91153141a6f50feaceab276a47749ad2ed7daa5d0fa72c283795a04",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-7-1.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 73,
+      "extrinsic_index": 6,
+      "block_hash": "0x2b86485470e5aeacd9a58425a4896d0f2f157f243e37dd0b4665bc892471ef53",
+      "extrinsic_hash": "0x8acd7fab0abb1b3cb6d439910f424bdc7ce1484cb91d9f8220dfa06b1c4042fa",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "f57dc6ff1e7d37810cab5f65dc3421e50cf80cbd85728eb85eec018300869e97",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-7-1.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 73,
+      "extrinsic_index": 7,
+      "block_hash": "0x2b86485470e5aeacd9a58425a4896d0f2f157f243e37dd0b4665bc892471ef53",
+      "extrinsic_hash": "0xb5e96abf42252eed87509984ea6878e701989364d6298e686eb33b254170f814",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "8e6e68132f6b815cce4fcb435e89fb614b260439edf8435885a3402c42cca3dc",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-two-of-three.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 73,
+      "extrinsic_index": 8,
+      "block_hash": "0x2b86485470e5aeacd9a58425a4896d0f2f157f243e37dd0b4665bc892471ef53",
+      "extrinsic_hash": "0x38df43f48c03bc765a44d74150b9bb1fa4d9c90b842969bde75885e1a177d54d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "dd0d5c59209191884f51f3495d02904ad568f54ddb83b5ae86bb25bd0093ead2",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-8.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 76,
+      "extrinsic_index": 6,
+      "block_hash": "0xcfa4f5eaca21710cc5a33905fdb1245b9f9d8362949fc0c09ade11df7eff9205",
+      "extrinsic_hash": "0xc5e9bece27c319cd614eccae9341a5cb7ddd316b2acb643d93a39011c576304b",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Multisig.MultisigExecuted",
+          "error": {
+            "Arithmetic": "Underflow"
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 6,
+      "events_sha256": "d09398752f43402ad71af0b2d196ed235f8748030838761508add321a06b82e0",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-7-1.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 76,
+      "extrinsic_index": 7,
+      "block_hash": "0xcfa4f5eaca21710cc5a33905fdb1245b9f9d8362949fc0c09ade11df7eff9205",
+      "extrinsic_hash": "0x3c53b1e653b7b7a8b578cc089b8ffb4eb7e07624b5b90f64aad175771b05a755",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "b5a6e2511dff702e2a783897259eb01fbfa54ee53576608af0282f21c3543984",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-8.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 76,
+      "extrinsic_index": 8,
+      "block_hash": "0xcfa4f5eaca21710cc5a33905fdb1245b9f9d8362949fc0c09ade11df7eff9205",
+      "extrinsic_hash": "0x4287c7238f4e32e1a24f631c66dab5878812dfebb4354ab1ba8256af69b0355e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "69dc9960b559799cb1bad9da8fd632725d4f249ccf0e0642f6b6c65cde5d2ac5",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-two-of-three.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 79,
+      "extrinsic_index": 6,
+      "block_hash": "0x4b61c35e6cd3a6842cd32485f550c0e2c50d0c40e3329c24fe5337f3c0e76a2e",
+      "extrinsic_hash": "0xa7688a267e9e0a77546e990841a3ff26d3d81eb1db88ec31475b07fb1c13e49d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "019dcb7474f1ea7e0d251cbfb4b783f15e7938f53de663d3b67b2b8ffc17c51b",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-8.json",
+          "pointer": "$[6]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 79,
+      "extrinsic_index": 7,
+      "block_hash": "0x4b61c35e6cd3a6842cd32485f550c0e2c50d0c40e3329c24fe5337f3c0e76a2e",
+      "extrinsic_hash": "0x7fecd2eb5b2916ba164ab8c3304fba83c9c7b289b91bad304c247d505a89cee9",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "0d6aa38988ffa6180019ce9ff860ea9600addbafe68eaf240c9b221ef3cba1e6",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-two-of-three.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 79,
+      "extrinsic_index": 8,
+      "block_hash": "0x4b61c35e6cd3a6842cd32485f550c0e2c50d0c40e3329c24fe5337f3c0e76a2e",
+      "extrinsic_hash": "0x1e746d24e8fb06855f656ad17cb97ee68c35aeb48ed6c6fbde3fc58a57b81449",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "9e74b3d9836d53b7b8fbf27d2fa7a9e2b501fbd53f6552b45746002be915f14e",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-7-1.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 82,
+      "extrinsic_index": 6,
+      "block_hash": "0x2bf60ad62158f577c63b4a07b791940d3ab0c68e00b47099610b6fc800fc20b0",
+      "extrinsic_hash": "0xa082202c4b36f7fc8113bad2d824278eef2241b7e414b637a0058068112efd40",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "df5f0d15e6e5c20d9f8686db97cb28bd76bc126d9e8d9df0627e450e00dc2bfc",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-two-of-three.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 82,
+      "extrinsic_index": 7,
+      "block_hash": "0x2bf60ad62158f577c63b4a07b791940d3ab0c68e00b47099610b6fc800fc20b0",
+      "extrinsic_hash": "0xacf043d91eda5e9d7e2998fb646195b0697219951374253c7896624ebcb3c9a1",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "3578099ef8d9af1b92b37457846c413a1d662b31d6ab8ec3f7248c6bf06a3955",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-multisig-7-1.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 82,
+      "extrinsic_index": 8,
+      "block_hash": "0x2bf60ad62158f577c63b4a07b791940d3ab0c68e00b47099610b6fc800fc20b0",
+      "extrinsic_hash": "0xc7f5c7a4b21990e111e819228b7466de48d91d6c7f4e1fce8fda22938bed08f2",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "c890be5d1cf1fc216010d4dd8349258b36e9fc0df262b1cdfd6efecfead7f0c1",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-8.json",
+          "pointer": "$[7]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 85,
+      "extrinsic_index": 8,
+      "block_hash": "0x98cca828712107b2d7d7b69df231d876090ccfeb25cced3da2bdecaa3dabad5c",
+      "extrinsic_hash": "0x102e131dce09fb5b9e360a8561ced5da9a887e17adba399ca99b7016565161a4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "6c41553b56a9b2c4fdc8c1d69e1e1ec3e62af1cb398ab2e6d9f9835ffac2784d",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-two-of-three.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 88,
+      "extrinsic_index": 6,
+      "block_hash": "0x01e851db9940f216940794373239f4c08fbf9f84f77f98077c6c225ba746adc9",
+      "extrinsic_hash": "0xe6084d4d83c1c965b6b7def33fdac9ece4b3d92bba73494ce33273e5a4d9da44",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "543546ea4f81d1e4bdbbaeb84db0027c1dc948e583e5b7e63e694bf249a524a8",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-8.json",
+          "pointer": "$[8]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 88,
+      "extrinsic_index": 8,
+      "block_hash": "0x01e851db9940f216940794373239f4c08fbf9f84f77f98077c6c225ba746adc9",
+      "extrinsic_hash": "0x39490b99a9cd918f20d3b35c2b091067cda4a7dc2e6ad7cee77fd62103b7dadd",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "8258fad71095c9871fd902a68de2a3a38437b324542230b300e274ecdf763fc7",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-two-of-three.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 91,
+      "extrinsic_index": 6,
+      "block_hash": "0x064716f42ae909c9c45723840390b9b3d7404cdfb3caa8d2aba5c5613dd0f163",
+      "extrinsic_hash": "0x996e165f26f7381425c885ad63d6d0f6f760e1ab4c859c4e2aa1bd1f58bf2a1d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "3022e18aaf25e963c3dba72f4e09eae1bd4e6384ff231f0dba69161f52f8f573",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-8.json",
+          "pointer": "$[9]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 91,
+      "extrinsic_index": 8,
+      "block_hash": "0x064716f42ae909c9c45723840390b9b3d7404cdfb3caa8d2aba5c5613dd0f163",
+      "extrinsic_hash": "0x0954c528942370a7bf497f95628768f3edaf7aa6f09789dd21494066d3047b16",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "34421acb32f364864ac20fcd035a20563f044b9b671947ca7112ef7565956903",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-two-of-three.json",
+          "pointer": "$[6]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 94,
+      "extrinsic_index": 6,
+      "block_hash": "0x854bc77501bbbfd7f543d4d4eb87af4c6669425aee2d5e5e8b4f76d49cb6b88a",
+      "extrinsic_hash": "0x3889f1447cd7271192a104c6ffa01168b8855ac0688ad1cb18421bcbc67d5f3f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "10570d2957d6f2f2d331d237d0172d92e68d5edc7c743d3d01123a4acb7e4781",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-two-of-three.json",
+          "pointer": "$[7]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 94,
+      "extrinsic_index": 7,
+      "block_hash": "0x854bc77501bbbfd7f543d4d4eb87af4c6669425aee2d5e5e8b4f76d49cb6b88a",
+      "extrinsic_hash": "0xf449db957495b5d5dcd2fd7da87c135407c9d202d310358f8b0bcd0c62ee9f1e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "820356ad8942da9a0dbd2b11a7cde2aaa3c62db5b592b20c0184d4ab2f5c9672",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-8.json",
+          "pointer": "$[10]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 97,
+      "extrinsic_index": 6,
+      "block_hash": "0x784f4f3b5adcc09b7b0a039c9687b5682583d9bfe1cfcaaecfe1093df43ca974",
+      "extrinsic_hash": "0x38ccc7c7c371f65570c90b5bd1d191742984e723148b70526cec5321a16abd0a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "75b1edb8ae3a05a7234209166756c5ba331dfb2f97c73d31994782be2417054f",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-two-of-three.json",
+          "pointer": "$[8]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 97,
+      "extrinsic_index": 8,
+      "block_hash": "0x784f4f3b5adcc09b7b0a039c9687b5682583d9bfe1cfcaaecfe1093df43ca974",
+      "extrinsic_hash": "0xd2fc74abb9c5912cc657851347643900554c80ad12c347775b55d1858dd487ac",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 5,
+      "events_sha256": "a0e733eb69ffaf349606c0eae3a1085209d0633807829c0079d650ac6d96defd",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-8.json",
+          "pointer": "$[11]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 100,
+      "extrinsic_index": 6,
+      "block_hash": "0x3bca5a0e2bb7706330fdf8239073cbd8fcc270519205d1677fcf36d98b8543e7",
+      "extrinsic_hash": "0xf638b55cc267d4c5b3bd028addb092ea718561bd1ed036b00bcfa0768f4e874b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "bf52e799c2e32a1232c587d201736ef9c2460989a44fcafbae2cfbb7af50640c",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-8.json",
+          "pointer": "$[12]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 100,
+      "extrinsic_index": 8,
+      "block_hash": "0x3bca5a0e2bb7706330fdf8239073cbd8fcc270519205d1677fcf36d98b8543e7",
+      "extrinsic_hash": "0x9529d8a1fc4b61777d1be409e5f4bd99840b2c7199eb90b7e59c2ee0ed472d09",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "8849622c5cc534af0f26a0a08d984a71cc67ce6033d8be5ae450728df67bfda6",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-two-of-three.json",
+          "pointer": "$[9]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 103,
+      "extrinsic_index": 6,
+      "block_hash": "0xb26955834cf2a118cdd9ba3cef22a5815ae7aab85a628bfb19a9a79eab38150a",
+      "extrinsic_hash": "0x3f25c63666c8678e2eca93484f548e0b4a8f91866aaf587d6cdaaa8d05a3df24",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "75b1edb8ae3a05a7234209166756c5ba331dfb2f97c73d31994782be2417054f",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-two-of-three.json",
+          "pointer": "$[10]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 103,
+      "extrinsic_index": 8,
+      "block_hash": "0xb26955834cf2a118cdd9ba3cef22a5815ae7aab85a628bfb19a9a79eab38150a",
+      "extrinsic_hash": "0x0e65b791887af9c0d23e9b858c389e1fb8aa52aa544fd9994c65035ff046e5c5",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "6df894942eb1b135fcc88f13682f5c6ef1b28131a03cb606182d35f0a4b2cea6",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-authority-8.json",
+          "pointer": "$[13]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 106,
+      "extrinsic_index": 8,
+      "block_hash": "0xe2649f2d2e618bf75b585ed4a89c03d908199fb18e42cbab9ff1e76887c4c890",
+      "extrinsic_hash": "0x867efe683f85250c9c2030e8e7d7c24d4c67c94c919a62e680d5b9032d146df2",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "3bd9cec4c63ca82a8d0d3c85350f14fb3504b7a12ff76f58683a6042b4d4727d",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-two-of-three.json",
+          "pointer": "$[11]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 109,
+      "extrinsic_index": 6,
+      "block_hash": "0x02ba36b5ca562a809db2d107b23b9f2b4f97a825155165c342187f471992a357",
+      "extrinsic_hash": "0x073d34302524e509f0e0d5ecd1bdbf843ec28034fac36c802766bb4706be2382",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "4b9a9907fd013801e95191d83fd3c502fc235ce491648880b19b2647421ebb83",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-7.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 112,
+      "extrinsic_index": 6,
+      "block_hash": "0x6bf1813a07c4b8cafe3f0cd970466d4072f022bcfb7088c14165fdf2a8672689",
+      "extrinsic_hash": "0xf8be1d6f74c90553d8045af321234db57218a3fe33ab21c4aaff395ddcefe2aa",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "OrderAlreadyProcessed",
+        "docs": [
+          "The order has already been Fulfilled or Cancelled."
+        ]
+      },
+      "event_count": 4,
+      "events_sha256": "5b6bc3f65e4d4ec3a18d6881e0a50af44994fe0101042dc2349c2ac5b76d2ca3",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-7.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 121,
+      "extrinsic_index": 6,
+      "block_hash": "0xfe9686c642f0f1c444fe5991653df04a25b48638bcfa1d59397c88b11b26b755",
+      "extrinsic_hash": "0x59a5c3a1d2f6f5b55c6792b0a444d37fa69d0888d21b38a7daeed518d6bfbf41",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "OrderCancelled",
+        "docs": [
+          "Order has been cancelled"
+        ]
+      },
+      "event_count": 4,
+      "events_sha256": "eaa04b289e803ecf1d7244ba7f4744ec4774bf1ec323585fefb40ed7f9edbd28",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-7.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 124,
+      "extrinsic_index": 6,
+      "block_hash": "0xbe223f7db27719afd412fda2fa1fdcaafce6633502898b5d7fc6b25fbec96dba",
+      "extrinsic_hash": "0x943d61473068f82bdd8d956f4f4bec2f43725659340b4d5d426df33cbd2f6b87",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "0b7e3bd1365b66fb7585858a4ed8175d0827a713f93cbd90c64ff06bef2c81ad",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-8.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 127,
+      "extrinsic_index": 6,
+      "block_hash": "0x9ba6143b2e177c1ee7ce3018162af4acb0c55e9302b6072892c654a1100cd414",
+      "extrinsic_hash": "0x9bd10e013bdd4e5b7af7dc60ded7bcc0a50c98bde856f5e639cc0c969676afe2",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "OrderAlreadyProcessed",
+        "docs": [
+          "The order has already been Fulfilled or Cancelled."
+        ]
+      },
+      "event_count": 4,
+      "events_sha256": "8f08534e559fe2c3fa6704b3f177cd80f7496699d242fb284b43cac985cb42c5",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-8.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 127,
+      "extrinsic_index": 8,
+      "block_hash": "0x9ba6143b2e177c1ee7ce3018162af4acb0c55e9302b6072892c654a1100cd414",
+      "extrinsic_hash": "0x8d49bce007af5e15348602cd7a7ff961c4cdc23a7a70df7af9b61325b6df60e3",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "62e7e416a422088e087ac15e21f33b8cd9b3491c14d79e819987e89eaa338a22",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-7.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 130,
+      "extrinsic_index": 6,
+      "block_hash": "0xb1e663b1ac9c5bcee70c9939e2448ce7633d0d1c114cf9e74d6edbcc7952255e",
+      "extrinsic_hash": "0xc89fa63823c44843dd3f2f7e1d2498c1e3b15bc49a937a95a5fa886a8dd35a43",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "OrderAlreadyProcessed",
+        "docs": [
+          "The order has already been Fulfilled or Cancelled."
+        ]
+      },
+      "event_count": 4,
+      "events_sha256": "182de9b219a2f8abf9932ba7672ec9b52a5f844a6ece510c86a281814148dbcf",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-7.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 130,
+      "extrinsic_index": 7,
+      "block_hash": "0xb1e663b1ac9c5bcee70c9939e2448ce7633d0d1c114cf9e74d6edbcc7952255e",
+      "extrinsic_hash": "0x667ba59485bc8de13af201656c60b878de248b50f8ac38c6b8a76c478c707210",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Multisig.MultisigExecuted",
+          "error": {
+            "Module": {
+              "index": 33,
+              "error": "0x0b000000"
+            }
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "Module",
+        "name": "InvalidDerivedAuthority",
+        "docs": [
+          "A derived descriptor is invalid or its dependencies are not protected."
+        ]
+      },
+      "event_count": 6,
+      "events_sha256": "cc124e30d7559708596492cb8c230e7aa86f9077708edf1af8a8b07b344ceb19",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-two-of-three.json",
+          "pointer": "$[12]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 136,
+      "extrinsic_index": 6,
+      "block_hash": "0xa9e20df76a741eeeea0cf5337c9493dbe96dd50dda18e2614ac5bb8c28972802",
+      "extrinsic_hash": "0x08faa9df46849cf3ba1fece1043014f8e3f01c29d1f95b45fd4b576f3b8ea940",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "OrderCancelled",
+        "docs": [
+          "Order has been cancelled"
+        ]
+      },
+      "event_count": 4,
+      "events_sha256": "45f968b5edaf7c1589865163bc0c279af47acb17c4418eff215436e124a1814d",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-8.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 136,
+      "extrinsic_index": 7,
+      "block_hash": "0xa9e20df76a741eeeea0cf5337c9493dbe96dd50dda18e2614ac5bb8c28972802",
+      "extrinsic_hash": "0x72c4ee023f7639750f97c84c38b66a681679359a493d4f5708babaadf2940b1d",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "CapabilityMissing",
+        "docs": []
+      },
+      "event_count": 4,
+      "events_sha256": "7d623c276725c9977d4e18f07085642544f25b973a2501b8676910b258b1d192",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-7.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 142,
+      "extrinsic_index": 6,
+      "block_hash": "0xacce93bc72fa0bf5f6623fca6ed6423ed2a01313ca64588b2fb87091310f1ff0",
+      "extrinsic_hash": "0x04fdee7c4046c144a18a2091f692b37247583f65e52af2dc2e7eac9600547016",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "OrderNotApproved",
+        "docs": [
+          "This full order has not been approved by its authenticated owner."
+        ]
+      },
+      "event_count": 4,
+      "events_sha256": "f91e7a00a86f0cf1328d61d53f7725a05bce18d262856a2a92fd9c126cccbc30",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-7.json",
+          "pointer": "$[6]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 142,
+      "extrinsic_index": 7,
+      "block_hash": "0xacce93bc72fa0bf5f6623fca6ed6423ed2a01313ca64588b2fb87091310f1ff0",
+      "extrinsic_hash": "0xdb61560f672f0955c7be09403df4a8d5f5fcf296d586f6246a7f332fe6bd6317",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "8350074470222c8af51d223dcc7432cbc1c3a3f22d8d743a0d6b92d600a0a51c",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-8.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 145,
+      "extrinsic_index": 6,
+      "block_hash": "0xc0395a88ca0bb00b68ab9277f17f891e27a5bdb7bda66804ab1a425dd67f6742",
+      "extrinsic_hash": "0x296eb2a8a960c4461e2efb3ab8b86e353ee0edfba8256dae0e545e38d14de01b",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "OrderAlreadyProcessed",
+        "docs": [
+          "The order has already been Fulfilled or Cancelled."
+        ]
+      },
+      "event_count": 4,
+      "events_sha256": "dc3c5f929bafe588d96aede1bfcde3b08b3f8fa50dfdcd598ae957e73419290f",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-8.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 145,
+      "extrinsic_index": 7,
+      "block_hash": "0xc0395a88ca0bb00b68ab9277f17f891e27a5bdb7bda66804ab1a425dd67f6742",
+      "extrinsic_hash": "0x45537895fdbdadbeefb146d57ffd680d69013b2907800272fc91579f0dacb295",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "90e9f12561d49b5757502ec6d123d8f777fcc9a09838ed2cba219dbf7088f0d0",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-7.json",
+          "pointer": "$[7]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 151,
+      "extrinsic_index": 6,
+      "block_hash": "0x1bbef435a88ae35d679cc3f48f36b09f6cd35d7d5d56afa06149be27bd742046",
+      "extrinsic_hash": "0x6975a6f250ab4761c71e0e70596324b200e6a2500977923331c95b6a923ff1a6",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "CapabilityMissing",
+        "docs": []
+      },
+      "event_count": 4,
+      "events_sha256": "70d44be099c2f54b940a1959430ca76f447d1398de8390742a51c88f1dac2eaf",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-8.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 151,
+      "extrinsic_index": 7,
+      "block_hash": "0x1bbef435a88ae35d679cc3f48f36b09f6cd35d7d5d56afa06149be27bd742046",
+      "extrinsic_hash": "0xf52935b1676916783de47aefd3507c50e23a39e820405b8392517b97a367f768",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "836f6ac9ed9bae03ad8ddab748d1d6bf9a1ead9d5da79f96351a7395a445c22e",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-7.json",
+          "pointer": "$[8]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 154,
+      "extrinsic_index": 6,
+      "block_hash": "0xe3d52d254968ed27b21090d547cb29e44434a6feeeb7b0a9030a342f26cd5ab6",
+      "extrinsic_hash": "0x5fd72a2fc6980654f103db2d4ab0281f67f75dcc13fb9e15304e846e6d61fc35",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "d7e8b580edff1aaa3f325a7e59097991395efdf17ebc033e7b297677c888d52f",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-7.json",
+          "pointer": "$[9]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 157,
+      "extrinsic_index": 6,
+      "block_hash": "0x717f58c1e594d4f1e6ef3850bfb0c73a13c10f2945a387b4784dcda996e14f5a",
+      "extrinsic_hash": "0x44b499340a57d159f70a1d5f38fc63ee7e72ebe8e3e029ae3ead622d173b08fd",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "OrderNotApproved",
+        "docs": [
+          "This full order has not been approved by its authenticated owner."
+        ]
+      },
+      "event_count": 4,
+      "events_sha256": "74598c1ceaf5dfa65b2326b0b96584bc99af6dd98810158d9155043d23dcf5b9",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-8.json",
+          "pointer": "$[6]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 157,
+      "extrinsic_index": 7,
+      "block_hash": "0x717f58c1e594d4f1e6ef3850bfb0c73a13c10f2945a387b4784dcda996e14f5a",
+      "extrinsic_hash": "0xdf457dad4804ef303fdc63f335212ee1770fed81b0205698be6713ab047eac5e",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "CapabilityScopeViolation",
+        "docs": []
+      },
+      "event_count": 4,
+      "events_sha256": "1837bf07af1581bb8d1190e70128cff0449b456a4e0fdee5f602a1c344f2c569",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-7.json",
+          "pointer": "$[10]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 160,
+      "extrinsic_index": 6,
+      "block_hash": "0xdfd9bc09edcea928fff700e1d67224a00073f760c4b66b3cd5eaeb58129cf611",
+      "extrinsic_hash": "0xfefd75483ea1b8b1da8bc50321bf3879189c577da36860e210f4310b0d468aaf",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "8c6816bf988c456e4c71854e8c8be72a154e9f95b501cf8a433eefbe7029050b",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-8.json",
+          "pointer": "$[7]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 166,
+      "extrinsic_index": 6,
+      "block_hash": "0xa15ba1eaa29b27dc6361670ff3eac7b1ff48c38a6155af5cc019d0eb84c8588f",
+      "extrinsic_hash": "0x00e7e021876c893f83c7f01326b1b33ea85be271e26a1b772f57cb1a49ee0ac0",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "2b33d39d81587861253ea5bcbba0e8948c2f8c6d40d75696e2c364a408fdf8bb",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-8.json",
+          "pointer": "$[8]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 169,
+      "extrinsic_index": 6,
+      "block_hash": "0xd0537ecec9d4d54fa0c88ba9badc8c49590e8ee0cde0f54d876003e00b2a4df0",
+      "extrinsic_hash": "0x2f6d99b61205cae96beeb52fcd1395d6af43be6703d3de626dd88a21ef9202ef",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "9fd2df281283a658ebda458c40ddd338bf81a421021a0b9290e5d5aa639e4c07",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-8.json",
+          "pointer": "$[9]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "authority",
+      "height": 172,
+      "extrinsic_index": 6,
+      "block_hash": "0x2805460b8668250ac07f4b45dbaccbedc7201cb4d46809737180c0b7a69fefec",
+      "extrinsic_hash": "0x8481e9802510b872d6d7a5e2c45a29ec18980431719b8bcfd1a4016f7d550e6b",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "CapabilityScopeViolation",
+        "docs": []
+      },
+      "event_count": 4,
+      "events_sha256": "21245cd6441acc9c50113d2bf4eca72a04662bb9dac1c3a0d9ec3485e3997ae2",
+      "references": [
+        {
+          "path": "authority/receipts/mldsa-orders-8.json",
+          "pointer": "$[10]",
+          "operation": null
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "suites": {
+    "authority": {
+      "chain": "authority",
+      "files": 8,
+      "receipt_references": 73
+    }
+  },
+  "finished_utc": "2026-10-17T22:14:28.601576+00:00",
+  "raw_receipt_references": 73,
+  "unique_receipts": 73,
+  "verified_receipts": 73,
+  "deduplicated_references": 0,
+  "status_counts": {
+    "success": 55,
+    "outer_success_inner_failure": 4,
+    "system_failure": 14
+  },
+  "all_recorded_receipts_verified": true,
+  "suites_without_receipt_evidence": []
+}

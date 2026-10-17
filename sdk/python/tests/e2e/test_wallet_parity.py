@@ -1,4 +1,7 @@
-"""Real CLI compatibility matrix on an isolated, activated Alice-root chain."""
+"""Real CLI compatibility matrix on an isolated, activated Alice-root chain.
+
+Parallel workers must share E2E_WALLET_ALICE_LOCK for sponsor submissions.
+"""
 
 from __future__ import annotations
 
@@ -6,26 +9,34 @@ import asyncio
 import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
 import bittensor as bt
 from bittensor.receiving import receiving_address
-from bittensor.sp_core import HASHED_CRYPTO_TYPES, Keypair, serialized_keypair_to_keyfile_data
+from bittensor.sp_core import (
+    MLDSA_CRYPTO_TYPES,
+    REGISTERED_CRYPTO_TYPES,
+    Keypair,
+    serialized_keypair_to_keyfile_data,
+)
+from tests.e2e.test_wallet_types import alice_submission
 from tests.harness.receiving import descriptor_receiving_address
 from tests.harness.samples import dev_wallet
 
 ENDPOINT = os.getenv("E2E_WALLET_ENDPOINT")
-SCHEMES = ("sr", "ed", "hashed", "hashed-ed25519")
+WALLET_MODES = [(scheme, mode) for scheme in ("sr", "ed", "ms") for mode in ("standard", "hashed")]
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(not ENDPOINT, reason="requires an isolated activated Alice-root chain"),
 ]
 
 
-@pytest.mark.parametrize("scheme", SCHEMES)
-async def test_cli_wallet_parity(tmp_path, scheme):
+@pytest.mark.parametrize("scheme,mode", WALLET_MODES)
+async def test_cli_wallet_parity(tmp_path, scheme, mode):
     env = dict(os.environ)
+    receipts = []
     for setting in (
         "CONFIG",
         "ADDRESSES_PATH",
@@ -45,6 +56,8 @@ async def test_cli_wallet_parity(tmp_path, scheme):
             "bittensor.cli.main",
             "--yes",
             "--json",
+            "--max-registration-deposit",
+            "2",
             "--network",
             ENDPOINT,
             "--fallback-endpoints",
@@ -72,22 +85,40 @@ async def test_cli_wallet_parity(tmp_path, scheme):
             assert process.returncode != 0, out.decode()
             return out.decode() + err.decode()
         assert process.returncode == 0, out.decode() + err.decode()
-        return json.loads(out)
+        result = json.loads(out)
+        if isinstance(result, dict) and result.get("block_hash"):
+            # Transaction receipts contain public data. Do not persist wallet
+            # creation/import output, which can contain recovery secrets.
+            receipts.append({"wallet": name, "operation": " ".join(args[:2]), **result})
+        return result
 
-    created = await cli("original", "wallet", "create", "--crypto-type", scheme, "--no-password")
+    created = await cli(
+        "original",
+        "wallet",
+        "create",
+        "--crypto-type",
+        scheme,
+        *(["--type", "hashed"] if mode == "hashed" else []),
+        "--no-password",
+    )
     original = bt.Wallet("original", path=wallet_path)
-    code = bt.wallets.parse_crypto_type(scheme)
-    protected = code in HASHED_CRYPTO_TYPES
+    code = bt.wallets.parse_crypto_type(scheme, mode)
+    protected = code in REGISTERED_CRYPTO_TYPES
     alice = dev_wallet()
     async with bt.Client(ENDPOINT, fallback_endpoints=[], archive_endpoints=[]) as client:
         assert await client.query(bt.storage.Sudo.Key) == alice.coldkey.ss58_address
         assert await client.query(("AdminUtils", "HashedAccountsEnabled")) is True
 
         async def fund(key, amount=100):
-            result = await client.execute(
-                bt.intents.Transfer(receiving_address(key), amount), alice
-            )
+            async with alice_submission():
+                result = await client.execute(
+                    bt.intents.Transfer(receiving_address(key), amount),
+                    alice,
+                    wait_for_finalization=True,
+                    max_registration_deposit=bt.Balance.from_tao(2),
+                )
             assert result.success, result.to_dict()
+            receipts.append({"operation": "sponsor transfer", **result.to_dict()})
 
         async def balance(key):
             value = await client.query(bt.storage.System.Account, [key.ss58_address])
@@ -111,16 +142,25 @@ async def test_cli_wallet_parity(tmp_path, scheme):
                 "original", "call", "System.remark", "--args", '{"remark":"0x01"}', "--signer", role
             )
 
-        # All 16 sender/recipient combinations use the normal transfer command.
-        for recipient_scheme in SCHEMES:
-            name = f"recipient-{recipient_scheme}"
-            await cli(name, "wallet", "create", "--crypto-type", recipient_scheme, "--no-password")
+        # All 36 sender/recipient combinations use the normal transfer command.
+        for recipient_scheme, recipient_mode in WALLET_MODES:
+            name = f"recipient-{recipient_scheme}-{recipient_mode}"
+            await cli(
+                name,
+                "wallet",
+                "create",
+                "--crypto-type",
+                recipient_scheme,
+                "--type",
+                recipient_mode,
+                "--no-password",
+            )
             recipient = bt.Wallet(name, path=wallet_path)
             before = await balance(recipient.coldkeypub)
             await cli("original", "wallet", "transfer", "--dest", name, "--amount", "1")
             assert await balance(recipient.coldkeypub) == before + 10**9
             address = receiving_address(recipient.coldkeypub)
-            if recipient.coldkeypub.crypto_type in HASHED_CRYPTO_TYPES:
+            if recipient.coldkeypub.crypto_type in REGISTERED_CRYPTO_TYPES:
                 address = descriptor_receiving_address(recipient.coldkeypub)
             await cli("original", "wallet", "transfer", "--dest", address, "--amount", "1")
             assert await balance(recipient.coldkeypub) == before + 2 * 10**9
@@ -143,6 +183,8 @@ async def test_cli_wallet_parity(tmp_path, scheme):
                     f"regen-{role}",
                     "--crypto-type",
                     scheme,
+                    "--type",
+                    mode,
                     f"--{form}",
                     value,
                     *flags,
@@ -165,6 +207,8 @@ async def test_cli_wallet_parity(tmp_path, scheme):
                 f"regen-{role}",
                 "--crypto-type",
                 scheme,
+                "--type",
+                mode,
                 "--seed",
                 seed.hex(),
                 *flags,
@@ -196,6 +240,17 @@ async def test_cli_wallet_parity(tmp_path, scheme):
                 public = getattr(bt.Wallet("watch-only", path=wallet_path), role + "pub")
                 assert public.ss58_address == key.ss58_address
                 assert public.crypto_type == code
+            if code in MLDSA_CRYPTO_TYPES:
+                from bittensor.mldsa import install_message_capability
+
+                grant = install_message_capability(
+                    key,
+                    epoch=1,
+                    expires_at=(await client.block()) + 100_000,
+                    audience=b"bittensor/wallet-message",
+                )
+                result = await client.submit_call(grant, key)
+                assert result.success, result.to_dict()
             signed = await cli(
                 "original",
                 "wallet",
@@ -220,7 +275,9 @@ async def test_cli_wallet_parity(tmp_path, scheme):
             assert verified["valid"], verified
 
         # Two actual approvals through a named preset, funded through the CLI.
-        await cli("peer", "wallet", "create", "--crypto-type", scheme, "--no-password")
+        await cli(
+            "peer", "wallet", "create", "--crypto-type", scheme, "--type", mode, "--no-password"
+        )
         peer = bt.Wallet("peer", path=wallet_path)
         await fund(peer.coldkey)
         saved = await cli(
@@ -234,8 +291,17 @@ async def test_cli_wallet_parity(tmp_path, scheme):
             "original,peer",
         )
         multi = saved["multisig_address"]
+        if code in MLDSA_CRYPTO_TYPES:
+            group = await client.multisig(
+                [original.coldkey.ss58_address, peer.coldkey.ss58_address], 2
+            )
+            protection = await group.protection_call(deposit_payer=peer.coldkey.ss58_address)
+            for member in (original, peer):
+                result = await group.approve(protection, member, wait_for_finalization=True)
+                assert result.success, result.to_dict()
+            assert (await group.protection_status())["registered"]
         await cli("original", "wallet", "transfer", "--dest", multi, "--amount", "20")
-        dest = bt.Wallet("recipient-hashed-ed25519", path=wallet_path).coldkeypub
+        dest = bt.Wallet("recipient-ed-hashed", path=wallet_path).coldkeypub
         before = await balance(dest)
         for signer in ("original", "peer"):
             await cli(
@@ -243,7 +309,7 @@ async def test_cli_wallet_parity(tmp_path, scheme):
                 "wallet",
                 "transfer",
                 "--dest",
-                "recipient-hashed-ed25519",
+                "recipient-ed-hashed",
                 "--amount",
                 "1",
                 "--signatory",
@@ -259,7 +325,7 @@ async def test_cli_wallet_parity(tmp_path, scheme):
             "wallet",
             "transfer",
             "--dest",
-            "recipient-hashed-ed25519",
+            "recipient-ed-hashed",
             "--amount",
             "1",
             "--proxy-for",
@@ -268,19 +334,29 @@ async def test_cli_wallet_parity(tmp_path, scheme):
         assert await balance(dest) == before + 10**9
 
         # Each scheme can create a subnet and exercise its owner permissions.
-        for call in (
+        setup = (
             bt.calls.AdminUtils.sudo_set_lock_reduction_interval(interval=1),
             bt.calls.AdminUtils.sudo_set_network_rate_limit(rate_limit=0),
             bt.calls.AdminUtils.sudo_set_owner_hparam_rate_limit(epochs=0),
             bt.calls.AdminUtils.sudo_set_admin_freeze_window(window=0),
             bt.calls.Balances.force_set_balance(who=original.coldkey.ss58_address, new_free=10**15),
-        ):
+        )
+        async with alice_submission():
             result = await client.submit_call(
-                bt.calls.Sudo.sudo(call=await client.compose(call)), alice
+                bt.calls.Sudo.sudo(
+                    call=await client.compose(
+                        bt.calls.Utility.batch_all(
+                            calls=[await client.compose(call) for call in setup]
+                        )
+                    )
+                ),
+                alice,
+                wait_for_finalization=True,
             )
-            assert result.success, result.to_dict()
-        await cli("original", "subnets", "create")
-        netuid = max(subnet.netuid for subnet in await client.subnets.all())
+        assert result.success, result.to_dict()
+        receipts.append({"operation": "root subnet setup", **result.to_dict()})
+        created_subnet = await cli("original", "subnets", "create")
+        netuid = int(created_subnet["data"]["netuid"])
         assert await client.query(bt.storage.SubtensorModule.SubnetOwner, [netuid]) == (
             original.coldkey.ss58_address
         )
@@ -337,3 +413,14 @@ async def test_cli_wallet_parity(tmp_path, scheme):
             str(password),
         )
         assert await nonce(original.coldkey) == before + 1
+        if directory := os.getenv("E2E_EVIDENCE_DIR"):
+            evidence_path = Path(directory)
+            evidence_path.mkdir(parents=True, exist_ok=True)
+            (evidence_path / f"wallet-parity-{scheme}-{mode}.json").write_text(
+                json.dumps(
+                    {"scheme": scheme, "mode": mode, "netuid": netuid, "receipts": receipts},
+                    indent=2,
+                    default=str,
+                )
+                + "\n"
+            )

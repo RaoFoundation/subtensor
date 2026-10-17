@@ -1,0 +1,2454 @@
+{
+  "candidate": "483b52ceea5cf08a0fb492ca2915b7efa6a8690e",
+  "started_utc": "2026-10-17T22:36:53.496986+00:00",
+  "scope": "Persisted suite receipt files; activation extrinsics excluded. This verifies recorded outcomes, not completeness of operation coverage or all test assertions.",
+  "deduplication_key": "(local chain name, block hash, extrinsic index)",
+  "files": [
+    {
+      "path": "operations/receipts/contracts-families-7.json",
+      "sha256": "5bf8de74ca7b38a067a38410dca9a2692f86f3e35d4ea6db513d5eac2cbbf1a8",
+      "receipt_references": 5,
+      "declared_successful": null
+    },
+    {
+      "path": "operations/rerun/receipts/business-families-7.json",
+      "sha256": "d4baab15f9bbc8caa98979607a3020ae863a6d9d77b8053444ebe7be34d57468",
+      "receipt_references": 26,
+      "declared_successful": null
+    },
+    {
+      "path": "operations/rerun/receipts/business-families-8.json",
+      "sha256": "1fbba6938acb72a177f1f41c59ef17a7a2a78cd3a517bdbba33ca27f8c6b4d95",
+      "receipt_references": 26,
+      "declared_successful": null
+    },
+    {
+      "path": "operations/rerun/receipts/contracts-families-7.json",
+      "sha256": "67f2bb6e5b5a8c77927e88c02e9e7e3c50801a0ea9842166d97ee8377f3c4048",
+      "receipt_references": 5,
+      "declared_successful": null
+    },
+    {
+      "path": "operations/rerun/receipts/contracts-families-8.json",
+      "sha256": "6fbdf3775f306ac52beb1b89d2569fae92bf30d5bc695a2ebbd34670a4bf6a5e",
+      "receipt_references": 5,
+      "declared_successful": null
+    },
+    {
+      "path": "operations/rerun/receipts/crowdloan-families-7.json",
+      "sha256": "b4d0b2f4a695f743809aae583a4347902902ebc023f8b49a9396fa9e86b90f53",
+      "receipt_references": 13,
+      "declared_successful": null
+    },
+    {
+      "path": "operations/rerun/receipts/crowdloan-families-8.json",
+      "sha256": "bd7fb7bf23fa5e0765117aed1d0e1c8a5a98e87692c04f5e4af39b833ed6c231",
+      "receipt_references": 13,
+      "declared_successful": null
+    },
+    {
+      "path": "operations/rerun/receipts/utility-preimage-7.json",
+      "sha256": "857f0e4b5efbb29955a4502f1afb533a7f472c29d46af77c1ec6de3f0c925638",
+      "receipt_references": 6,
+      "declared_successful": null
+    },
+    {
+      "path": "operations/rerun/receipts/utility-preimage-8.json",
+      "sha256": "bb300179f7621b08dec27e80e02fab578891ba366ab783b1923bb9b1597ca459",
+      "receipt_references": 6,
+      "declared_successful": null
+    }
+  ],
+  "chains": {
+    "operations": {
+      "endpoint": "ws://127.0.0.1:21344",
+      "unique_receipts": 105,
+      "verified_receipts": 105,
+      "status_counts": {
+        "success": 101,
+        "outer_success_inner_failure": 4
+      },
+      "errors": [],
+      "genesis": "0x5ca7927b3928620005119758cdc7d41926406d2490f385c0d99e635931e624dc",
+      "finalized_snapshot": {
+        "height": 289,
+        "hash": "0x2396474c0065ef8ba919ea3fc8576de239e4c46c0ddce17a0d2cef586ed7c9d5"
+      }
+    }
+  },
+  "receipts": [
+    {
+      "chain": "operations",
+      "height": 10,
+      "extrinsic_index": 6,
+      "block_hash": "0x3e63d8f8dd6afdfdd7c517bbf278ac19aab017aebd366c2894336a7a1977efa2",
+      "extrinsic_hash": "0x8800847913c4b2a0833c309dfd2d74bc28917b9a2a68c14c28d65023080f172f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "e0ead84c924aa36252b3811995ec2a580350c7818cde4c5832a52553216d0d6c",
+      "references": [
+        {
+          "path": "operations/receipts/contracts-families-7.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 13,
+      "extrinsic_index": 7,
+      "block_hash": "0x69af8d7a2b3985e5f971158feac112a619057871bad0e5d33fdbc927a52eb270",
+      "extrinsic_hash": "0x9c892c2190d42958651eaa4b1c590051e2bce3092f0a34eb0e2177b9006c8e2b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "6fa85919d174b18c3ca925763b38532bdc5487d2edde747a92f0d5402ed6db6f",
+      "references": [
+        {
+          "path": "operations/receipts/contracts-families-7.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 16,
+      "extrinsic_index": 7,
+      "block_hash": "0xc98a9ab19f929fe494c20d75f5ac932dfb472dcbaa7b6768d5dbd9b631162aed",
+      "extrinsic_hash": "0x44a605f6f4d3b1e4b007701fbc11e9b6277e210ff2c969574e1cb375c1a76844",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "e6600ae8c4087c3f76a5a6ba7e6ba4685c687758138a2b24e0cb3ddfca4bf7a4",
+      "references": [
+        {
+          "path": "operations/receipts/contracts-families-7.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 19,
+      "extrinsic_index": 7,
+      "block_hash": "0x1b58c0c544b37e555973ab879590a0c6d6f46ca7ca6b1df88ef014812039ec6c",
+      "extrinsic_hash": "0x1858c13eecabe7561b1336dbf111759b036044afab9214ea82e0c92de57e76c1",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "40846d27e959c3f38be7fe5cd6940394b1a3d162458a363a966459a4e10580c5",
+      "references": [
+        {
+          "path": "operations/receipts/contracts-families-7.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 22,
+      "extrinsic_index": 6,
+      "block_hash": "0x8acffb2c60cef74c94f7ee915e0cffaf2b8b0767b82be8a358eeb3f1e202fda2",
+      "extrinsic_hash": "0x3fd2e49e0494e7e2c100a0988ce660284d068b88db8256dd5a20a8de9338fa25",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "1a296f1bf3857b7a2727a5bd6c730499338b125245651d4e4ee69e9e532135d0",
+      "references": [
+        {
+          "path": "operations/receipts/contracts-families-7.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 64,
+      "extrinsic_index": 6,
+      "block_hash": "0x65029f8539b7ef741e837d8f820b9275547fff84c9f9568375d3cfbfbaac48b0",
+      "extrinsic_hash": "0x47d97222b8f0092a41d88d04644113cb5a713fd1f4f7521021d8bc26becae359",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Utility.BatchInterrupted",
+          "error": {
+            "Arithmetic": "Underflow"
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 10,
+      "events_sha256": "47623ba1cf619410ff794d48e9cc7e6ed48a95c840d29b0c9d658ab56c991a2a",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/utility-preimage-7.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 67,
+      "extrinsic_index": 6,
+      "block_hash": "0xaf58f0332827287cc44a4174421adbf738d8ae798691b0f36af91f80322a60f7",
+      "extrinsic_hash": "0x6cee1d8c62ed4366e65572de7381a2a78fadaf1da959fe71ad76a70b61bb2e5f",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Utility.ItemFailed",
+          "error": {
+            "Arithmetic": "Underflow"
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 11,
+      "events_sha256": "8b48ce439c42398ab3131e0c84ea613feb6b4df9626a819376b3cc6a0cd316e7",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/utility-preimage-7.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 67,
+      "extrinsic_index": 7,
+      "block_hash": "0xaf58f0332827287cc44a4174421adbf738d8ae798691b0f36af91f80322a60f7",
+      "extrinsic_hash": "0x10fcd2ea893920021c8200daa5cf71b9db76532291ce7a71aedd18b6512970b0",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "fae44eca42842831b30b69a1f1b769cd090c0b1502c044f343050b0ba085c110",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/contracts-families-7.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 70,
+      "extrinsic_index": 7,
+      "block_hash": "0x1aef7426d8410e1c40b2bacb3ac2024345dddd3665ff372dd05230a366187950",
+      "extrinsic_hash": "0x95b52f05ed0e5e985fadab1cde8991c8dabc519b104ccfefe4a94dd7e8c54eb1",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "ef4df910884aaa961db064d51132a2320dc8762e36e3fb12a213e052cdc3bc33",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/utility-preimage-7.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 70,
+      "extrinsic_index": 8,
+      "block_hash": "0x1aef7426d8410e1c40b2bacb3ac2024345dddd3665ff372dd05230a366187950",
+      "extrinsic_hash": "0x97352237550d331ec0e62b09a607c1f16192b8c6625a75c4b807352e2020a829",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "cd258f4dd7001fde3a24295d844e08629c2823d258100ae8fe6652787cd2ec01",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/contracts-families-7.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 73,
+      "extrinsic_index": 6,
+      "block_hash": "0x42330a8c6149a8e5575cca81ad831221bb8de8a13ab4c3ab0f4a9196d96066ee",
+      "extrinsic_hash": "0xf9eca5acf2300283212a1c58d8467843915cf74cfeffd04df8e184a170a042ac",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "00cc7501b552086ae0a77e119c0c43825eee8ac89af57fc64cb2c118b47d7347",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/utility-preimage-7.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 73,
+      "extrinsic_index": 7,
+      "block_hash": "0x42330a8c6149a8e5575cca81ad831221bb8de8a13ab4c3ab0f4a9196d96066ee",
+      "extrinsic_hash": "0x0a5a473f0153931f3cda92ca9ce4e8c219e369997aa6a9eaf6403b3bf7f6a54b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "ca549af927215e220db1f1ad69754b9c1f7e45f4955dac7f79f0d2b0cb43f4ae",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/contracts-families-7.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 76,
+      "extrinsic_index": 6,
+      "block_hash": "0x25b2a3fb268a0e07a662d60eccee89f68e3d9e0622aef9935fe48ca50a847792",
+      "extrinsic_hash": "0x2aec1f600dc9771e6257f8eb429fba4ea22b27f3d35dc2aa7d1312a386c63ea0",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "4a16c7935eeef4076217250ea233cc8909ae43e7c33735de274c78278a443b9b",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/contracts-families-7.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 76,
+      "extrinsic_index": 7,
+      "block_hash": "0x25b2a3fb268a0e07a662d60eccee89f68e3d9e0622aef9935fe48ca50a847792",
+      "extrinsic_hash": "0x0f8d97921e6f9a370b0e99f1fa0d5995a41e7bbb3593d9d3e13ab09ef1fe551f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "fcf068040a9c8808e92866264e179a8d052fc20197bb57347e56f582f0b4fd7a",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/utility-preimage-7.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 79,
+      "extrinsic_index": 7,
+      "block_hash": "0xacb2e286ccc8d87b6c09e97e4db0e71108012a108fb74932fe522a18b756a0e4",
+      "extrinsic_hash": "0x4b0c9a45763388a4719cfe73d398e913072d1dbc72109a217cac037520cd7f92",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "b4d6c8260a4616472e49077f6eab1db3d351fcc3a4ea80dd460a019f355bea96",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/contracts-families-7.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 79,
+      "extrinsic_index": 8,
+      "block_hash": "0xacb2e286ccc8d87b6c09e97e4db0e71108012a108fb74932fe522a18b756a0e4",
+      "extrinsic_hash": "0x928e2f174223264974c3a8d96b9fb77a1717e12377aafd1789ffc316cfe93caa",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "dcfec2c20e89f9060bbede612ac5af89196ccf0e5d1049d9c424ed5b482fedef",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/utility-preimage-7.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 85,
+      "extrinsic_index": 7,
+      "block_hash": "0xdae14acc9326db38300d7822ed9479277502f7ccb9ca15295778be51e0b87250",
+      "extrinsic_hash": "0x30613fcccb6d09cefb1eb2d4b378eb461d7a0a50d6c0e5d7b8fddc9923664147",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "879e422764f56808aa871574916270007cb5098b916dff331cdd16e0ef29816b",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[0]",
+          "operation": "register_subnet"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 94,
+      "extrinsic_index": 6,
+      "block_hash": "0x0fd7a57064593a581177719bb458c649822ea3315a1fc5902e130f48a2f2da5c",
+      "extrinsic_hash": "0x68b6384e8a8b624466e6c926d5c15ea78b14de0495bdfc7ccc382eccbf6db527",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "f23149512a6df5d342f4692e8075a9560ff37a3e5032051e3dbef2420078ec01",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-7.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 97,
+      "extrinsic_index": 6,
+      "block_hash": "0x9b24292df43a658335f87a0a5ec7b925315de94e3d585e48963e23a8c388cae3",
+      "extrinsic_hash": "0xb1b5ede6d88faeeda352eccb6db91f023c985b0b896b97ae56231eb592a0b981",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "f787ed6c0ba7a268943a82127e213ec4c5bdc57e31cb35227c182a9e7f1aab4b",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-7.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 97,
+      "extrinsic_index": 8,
+      "block_hash": "0x9b24292df43a658335f87a0a5ec7b925315de94e3d585e48963e23a8c388cae3",
+      "extrinsic_hash": "0x7decbaab1cc4398f95aefb69ec295d767e225bcd338072910cd77e2bbdb09d83",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "6ca44b6232991482383c7d2ccc2d66a9dee8d4f97819e832cad387d8c8bf77cb",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/contracts-families-8.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 100,
+      "extrinsic_index": 7,
+      "block_hash": "0x0e94d700e62f904066796d33d6f0fe7edc3b680671ecf5086518e006d98f3b89",
+      "extrinsic_hash": "0x194238e9818566ce47253fab86a2f2b087dbb33af0331524b47ffc9f6b4dc908",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "8a85d2b9c60779212e5d164147145e2116e1178f1ac4f9163c6bd39ea120419b",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-7.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 100,
+      "extrinsic_index": 8,
+      "block_hash": "0x0e94d700e62f904066796d33d6f0fe7edc3b680671ecf5086518e006d98f3b89",
+      "extrinsic_hash": "0x4301dbc6d6de10e6b211ed0c3e22b8636c3c6293079e43df219894b0de19de78",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "17da9c68c93b75d116ec435c3594c3b307e1df8d67eeeef028bbb103dcd6009a",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/contracts-families-8.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 101,
+      "extrinsic_index": 7,
+      "block_hash": "0xb3d415364ed37e98a5858b784359f4ade56e3b0de100c0597933c858522df388",
+      "extrinsic_hash": "0xe03eb41070711c80f6281bf61fef819220328fb4368cd6bf50795f9187b69c3a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "ee358bd235c09dff07df33d6e6b01fcfdd41ef19dec31b9f118f0e48f9d4e76a",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[1]",
+          "operation": "burned_register"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 103,
+      "extrinsic_index": 6,
+      "block_hash": "0xa2a4af70f359518a3627672443998252b0511077675645cb7651388e703eb404",
+      "extrinsic_hash": "0x22b243e63cbd040b87c6d3df3390f8738c8e6fd7948d0ddfdbdccac1d770676c",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Utility.BatchInterrupted",
+          "error": {
+            "Arithmetic": "Underflow"
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 10,
+      "events_sha256": "212f14f083b6ce5c7aaec367a4c9f0e92da1038828408577a060fbbf9148638f",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/utility-preimage-8.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 103,
+      "extrinsic_index": 7,
+      "block_hash": "0xa2a4af70f359518a3627672443998252b0511077675645cb7651388e703eb404",
+      "extrinsic_hash": "0x1afe904c98e76d08e51c4abffede8dd26081c7f07c3e8f438eb3fade5f64c482",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "8ff0754d875fb4c89de4b6b23dd4ba47f3fc38143da3aba29a9fdca3096fd94b",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-7.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 103,
+      "extrinsic_index": 8,
+      "block_hash": "0xa2a4af70f359518a3627672443998252b0511077675645cb7651388e703eb404",
+      "extrinsic_hash": "0x9e634d3b9de122f50d4f8989f87afd68961e284c25ebcca9203f7c8df4bb4725",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "eb9e70767e130616aee9ee4f3c5f0b06f6515f189750775960d8c651d58427f2",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/contracts-families-8.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 104,
+      "extrinsic_index": 6,
+      "block_hash": "0xd1c7e81ef353e7b3d4451094986367fc15cdbceba4c37c227f366144b5ba5cb3",
+      "extrinsic_hash": "0xafb55128f532e164e83bf1296be2ed7c262d9abd37cb5a0418ccea6284fa51d4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "4894eaab1585c337aefab6a77de5c9c926827908968a41dc12c17a1cfd320a1c",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[2]",
+          "operation": "register_subnet"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 106,
+      "extrinsic_index": 6,
+      "block_hash": "0xe4cde45fbc975df6feb16c431fa5a12b4affb852da4e2f5941bad07b30970f4f",
+      "extrinsic_hash": "0x32b3c0ae3797b54d8795e5b1393665255e6008eb07626557d61d5fe1ade7b0cf",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Utility.ItemFailed",
+          "error": {
+            "Arithmetic": "Underflow"
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 11,
+      "events_sha256": "ea40b03aaadeb2e429671cfb60ca8df938b994ff6814922e8b24a3216170374f",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/utility-preimage-8.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 106,
+      "extrinsic_index": 7,
+      "block_hash": "0xe4cde45fbc975df6feb16c431fa5a12b4affb852da4e2f5941bad07b30970f4f",
+      "extrinsic_hash": "0x1f2faa51a16adfbfe51b18abfcf6913c0333b5b9ea9e6c471a06138b244dbbcd",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "da63dccc4bb39d692e34ffdd4345d66f0998e005d4257cbb0627a043f0f280b0",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-7.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 106,
+      "extrinsic_index": 8,
+      "block_hash": "0xe4cde45fbc975df6feb16c431fa5a12b4affb852da4e2f5941bad07b30970f4f",
+      "extrinsic_hash": "0x9d1cc61412ad3f018dd5932921e620f3f5988769f54e82c1314e969246a4e518",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "2ab279e263da304e6790ea95142a68eae4b24d9f8b154e90ad76f5408909bb82",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/contracts-families-8.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 109,
+      "extrinsic_index": 6,
+      "block_hash": "0xbea720694ff4c6f95ef776707062cb9aa5afb15d5ea688d26f4217a38cf353bd",
+      "extrinsic_hash": "0xb178ad826471b3f2be0777a1b752a3e553dad5edf21c3d31d7535f4ee20e6d98",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "1c8908a9591d906aeca033cfc4b818f9a2f323e6e17e55315341072e3277db56",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/contracts-families-8.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 109,
+      "extrinsic_index": 7,
+      "block_hash": "0xbea720694ff4c6f95ef776707062cb9aa5afb15d5ea688d26f4217a38cf353bd",
+      "extrinsic_hash": "0x033975421bad13ad0976eb9b00dde28d5b7e99b8a1e63574c549f13f2753ba09",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "d4476fa0a61612b501e71063c97b5b97a794eaffa4cdbd1895e6cb303b7aaaae",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/utility-preimage-8.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 109,
+      "extrinsic_index": 8,
+      "block_hash": "0xbea720694ff4c6f95ef776707062cb9aa5afb15d5ea688d26f4217a38cf353bd",
+      "extrinsic_hash": "0x297ef59d1082adb06ffc95bd23acb55fcd2f27ba81faa664b083fb38bcd6bbb8",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "971796333b3fcc749537bb80ecaccca9486e19f99c817f662e4394abece757a8",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-7.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 111,
+      "extrinsic_index": 7,
+      "block_hash": "0xafa1ead56c2362030e1e009dd2543e58bcb33a92381bc9dfa3fd9afb44737b7f",
+      "extrinsic_hash": "0x136e4745fa808e7358c004fede3dab4dfd622d8a0562e51a846f71f101c41d8e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "9b4596e75bcf3e97af75821b4c7c552046dcac749b34ff56c43078318fe5e53c",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[3]",
+          "operation": "burned_register"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 112,
+      "extrinsic_index": 6,
+      "block_hash": "0x2a44e940a484538bd76747443c622c95d8e851ff4c2322b037d3e57cd060eb43",
+      "extrinsic_hash": "0xb8ccdeae4cb74da290f8e5a47c159d4fead0eefadff5f24396d17fd37ef46d5b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "29aa56d16905dd76f6905736a89b03a71dd5fa9f8d2946915e2e4c4d4e7605f8",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-7.json",
+          "pointer": "$[6]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 112,
+      "extrinsic_index": 7,
+      "block_hash": "0x2a44e940a484538bd76747443c622c95d8e851ff4c2322b037d3e57cd060eb43",
+      "extrinsic_hash": "0x0b58dcd6106778ab8b9173a0f096103a52cf7e6ebe8ee229d6a9af8e0defdfb3",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "c17b261ee222049d44bcb98ff3f7bd2c1be13850c464845ffcf14e9b83de5c4c",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/utility-preimage-8.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 114,
+      "extrinsic_index": 6,
+      "block_hash": "0x5cb3de44ddd1509004290f8985c56919cb72c090fb014f8fca73ea20ab79fa9a",
+      "extrinsic_hash": "0x7bee692699202aebacb15fb2d726399263aae252ff8aa989e079a0ba355bbeed",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "f1e5e688bf0e320b6bcebab771d2e84102de731020011141baa132754d18e5c6",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[4]",
+          "operation": "set_children"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 115,
+      "extrinsic_index": 6,
+      "block_hash": "0x0d278cdf3b9e1dd0297a95ce529d65665067ff240eb50ff60f635cc6c9ba0ba0",
+      "extrinsic_hash": "0x491f239b6ce054f1269fe3e32557a1744763d45f6950edf15ea98dc593e9c59d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "67ec6e20a9c56c752e8f3f676d878acc561f7d75aed54bd3680cb1fec4bd5024",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/utility-preimage-8.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 115,
+      "extrinsic_index": 7,
+      "block_hash": "0x0d278cdf3b9e1dd0297a95ce529d65665067ff240eb50ff60f635cc6c9ba0ba0",
+      "extrinsic_hash": "0xe151070b8afb176cc45b3c9c630c8bde3a1075558444b749e11847aea4920d73",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "dae1b002eeb6a16ac5a9a41fa510240c1f185bfcfb450f0f25713a858297185d",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-7.json",
+          "pointer": "$[7]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 117,
+      "extrinsic_index": 6,
+      "block_hash": "0x0b33d3ee2f4ba3b004749a46f7a45d81f622358fedfaf52dbd39617ee988c0c9",
+      "extrinsic_hash": "0x0e2159ba12959c07f3ce1a5274630386d91c765b41d86c0d116f8485d05cc9a3",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "06cbab7de41e5bc25a4fc4ebae702e5dcb02d33072ee27a9ba92a6383f033d13",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[5]",
+          "operation": "set_identity"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 118,
+      "extrinsic_index": 6,
+      "block_hash": "0x24c1fe8932ea19a8db1bf763ee79f8c042650ec8fff506559e8b10b8ecf50f82",
+      "extrinsic_hash": "0xcef5ef90f7a6fa3a0f580f96ab29ea868188ec18f2fec453f3c391cc62e84fdb",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "d15a6bc65199ce6bb67a235da8c949b3526b4b220a320e2adde33d8c6eb45e89",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/utility-preimage-8.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 118,
+      "extrinsic_index": 7,
+      "block_hash": "0x24c1fe8932ea19a8db1bf763ee79f8c042650ec8fff506559e8b10b8ecf50f82",
+      "extrinsic_hash": "0xed773659e51a1d4a788c4db3e356c9faef8b3cdc3179d2aa320d2d69131e4782",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "b38f71be8768d4804238517be1326f7703b5659f7aaf5ce328c08e83bdbe20b9",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-7.json",
+          "pointer": "$[8]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 120,
+      "extrinsic_index": 6,
+      "block_hash": "0x405ce850aeb1375bbfef6804187588b4f2677b6fae34ac86c5e11e2b8bbfddbc",
+      "extrinsic_hash": "0x2dc669abe2a4d7b66d28859e025c6ad0c26e303cf1fc3d4093b5d1b6619dffff",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "b5ea34ed8efb7be842b448cfff4b04627355f1faaed6e468d4cdd8934e2fbd5c",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[6]",
+          "operation": "set_subnet_identity"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 121,
+      "extrinsic_index": 6,
+      "block_hash": "0xa0008ade2a97b02397a2f2d1f33e688e1ee67c637e54ae18c910919a9ee3ada8",
+      "extrinsic_hash": "0x909ec50c8a320b2f9858e988b908e28e4fe099a26cab4d8b5962f4bda0d8f809",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "72a9cabcc8d8a47f168a41f742d033920dd085d75a342bcad5ce41d0beca3f2f",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-7.json",
+          "pointer": "$[9]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 123,
+      "extrinsic_index": 6,
+      "block_hash": "0x943bc8345c35a5abb1f5eec5142d2abd711e7596227985951e1a888bda23a8c0",
+      "extrinsic_hash": "0xa9f51eb7a8ea6ba95145946ddd1ab7f3e23b8ed097e0d6be1048e926bcf1cbf6",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "d89a33a76680b3c1cfd55a12df86a48d805af6aba11ac0b99229ebd9de1f2240",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[7]",
+          "operation": "serve_axon"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 124,
+      "extrinsic_index": 6,
+      "block_hash": "0xf10f6bc7753920a69fa84d048893684f20f88f36b35282ba597ba27c2e4f899c",
+      "extrinsic_hash": "0x4c2ff43a16529209c1288000481e4ea99d70cb90fcf6570bb0113bd9ceb3759e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "0f293c9e6f3ee9260131f9d5c01d8820009b5fe72e57cdf079e6fd7ee5e26831",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-7.json",
+          "pointer": "$[10]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 126,
+      "extrinsic_index": 6,
+      "block_hash": "0xdc08837b2b133267dd46cc2440cc0bc706c67acbb349d274519c8ab7def5700e",
+      "extrinsic_hash": "0xd6fd64e482ea9f44fa8dcecaeb1e22c3cdcc36b1b6301ef96be803c8418f0b7b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "8c92636928a0529c73fb407d4933a63607405a53c7cd5119a37102bae9db6f47",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[8]",
+          "operation": "serve_prometheus"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 127,
+      "extrinsic_index": 6,
+      "block_hash": "0xdb90fce416c1759fc2f588b022ec4d0562654d8e8dee3deae0e0cd9a45a0b35f",
+      "extrinsic_hash": "0x3da4566ba6e1b989af895222a7e541f85a788bd71b49e93a020aafbc4b76819d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "45e9832530a2d0558a5f4fc3b303efedcf3a0bc4e1b216c6f067b75c127cdc47",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-7.json",
+          "pointer": "$[11]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 129,
+      "extrinsic_index": 6,
+      "block_hash": "0x57d9fac8cccae219c807b205782100cad6f194b4e98a30a08861c4fffa714e87",
+      "extrinsic_hash": "0x3dd6a578946496c0908395e0e5b9e567aec0c701b79376f305d0b7b405551a42",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "ac01614a656fd22816177f45c797ab26cf60fef96142649a35b3e4183aa45186",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[9]",
+          "operation": "reset_axon"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 130,
+      "extrinsic_index": 6,
+      "block_hash": "0xb9726a02eab759c34e99fc2a4980a4faa71ce7857b2e6ef00becf2d95575d4e2",
+      "extrinsic_hash": "0x4d1ce739d3b2c0a3a13987b6a8835e4f8cbd558c7498446a809b9bc56e39335f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "7a93424549165f28cd185bd8ef671df18cb78dd87aedb6f3ef977d8dcfaf7dfc",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-7.json",
+          "pointer": "$[12]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 135,
+      "extrinsic_index": 7,
+      "block_hash": "0x858990bf0a5312411dbaf3bb5a778adf19bc6717cafd60cb00986cd78c7602e4",
+      "extrinsic_hash": "0x29afd11efa92f42be1f1079d03b558d1bb7bfbe00dd68163a28c2bb8ab216579",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "bf204c3b83f952180064fe20038aec15f078c7c7ebb6829d41f6d9b1d880c9fd",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[10]",
+          "operation": "add_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 138,
+      "extrinsic_index": 7,
+      "block_hash": "0x1387a009467922961c212b79c2fc8abf1a3ecdb7345af8ae22e33237f2090f25",
+      "extrinsic_hash": "0x6c7a5ebc6079217b4581af9d2fe3e8f6490135703d6deb2672a2f277b0d172bf",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "1aebdbb30fafd4e0c4cf8408ece672e09e65e0959b4fa4730bb446bfb4a08bdd",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[11]",
+          "operation": "add_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 141,
+      "extrinsic_index": 7,
+      "block_hash": "0x82b9177a35be455c8908473a3ca46b24128065d88c97962d9f8fad5b747496cd",
+      "extrinsic_hash": "0x2d45f85815f57878ba07a6153abba77c18df0362da14b223883bbe103d186fec",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "276a23b2a42a01312c97a7e6de35f6196531ec4c11c50d3374be9c098c57ad9f",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[12]",
+          "operation": "move_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 144,
+      "extrinsic_index": 6,
+      "block_hash": "0x5817c6b67f9bee45fc4edb1c8ce29bdd34c2c9933dbcdc9ad0d47b40ac66c2e7",
+      "extrinsic_hash": "0x35bc6d900f52a8f378e6317ef65d19f8ac0ca9e045342c6a04a06ee6b90541ad",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "ca0f898b3a3db6cf60c98414359d67fb7b70ed3a70ea905b2519ad61c7fc7a51",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-8.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 144,
+      "extrinsic_index": 7,
+      "block_hash": "0x5817c6b67f9bee45fc4edb1c8ce29bdd34c2c9933dbcdc9ad0d47b40ac66c2e7",
+      "extrinsic_hash": "0x4890095bf84373c7bedcc900221b12b0777aadb47a4241830fa5c9f0379e0715",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "89bd9f8d46f5e208eda385dcab486bc4b8b8d39b55ac52ee13b3c0a36b6e264b",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[13]",
+          "operation": "transfer_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 147,
+      "extrinsic_index": 6,
+      "block_hash": "0xe80006df19d4c938907170243d0918ea0479b3b6ccd2a01eb385b72be41a8889",
+      "extrinsic_hash": "0x5f01b30f1ea2e361c40e9671eca0485f3b0a3814a3d3355eb9440a41903777f4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "022a6253c0b7742dfc8a5e76e6755ffebd91a7636e22b4b82d6555514f195456",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-8.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 147,
+      "extrinsic_index": 7,
+      "block_hash": "0xe80006df19d4c938907170243d0918ea0479b3b6ccd2a01eb385b72be41a8889",
+      "extrinsic_hash": "0x8397c6b192c868c08378dae00da056612c8739e599f8045d9524c83db572b38d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "792481f545e39c0f5ea68734d409d0bd496e904b15ffb528279f56858018b53f",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[14]",
+          "operation": "swap_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 150,
+      "extrinsic_index": 6,
+      "block_hash": "0x655e2379dd7ec6ef1cec4acb6e152d31e554ba69154bc6e59c9fa62eb9aff2cf",
+      "extrinsic_hash": "0xb70e03fa9659909b53ea1835de698c59ea55856725c20ea8da79cae0900409e9",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "a6ab6a1198f37c330cfebb5b0206c8c13061a7b79fbc813061c2078bc4c2efca",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-8.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 150,
+      "extrinsic_index": 7,
+      "block_hash": "0x655e2379dd7ec6ef1cec4acb6e152d31e554ba69154bc6e59c9fa62eb9aff2cf",
+      "extrinsic_hash": "0xcbe8bbfd4deb6b667b87b3912666280b3557108f138825f5528d32586d9e397c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "dd1870cfae5620f3117a33cd76a97e57b0f4345bac6aceee27299bbf85d25c1e",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[15]",
+          "operation": "move_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 153,
+      "extrinsic_index": 6,
+      "block_hash": "0x25dcc78982d321985624a8303b3c7146307030f10167c5fed5c2d013f59ef938",
+      "extrinsic_hash": "0xb7bd655f8ca1295123b592d1ae41966405a632e8ff1781d34818013f0aa34a5b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "fd29f369cbf6f4e92dc2cc0435d0b7a695f41ffc389450b89b1593ee7f7e3013",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-8.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 153,
+      "extrinsic_index": 7,
+      "block_hash": "0x25dcc78982d321985624a8303b3c7146307030f10167c5fed5c2d013f59ef938",
+      "extrinsic_hash": "0xa341f71c0d15b19a9dfb7750fbdcc449457a004b08e1e2e21581f32dd154ee9c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "ffbb6748ec46e1f09c50e15be7e055b13ce3f0745c16d68b02c3e8fe96944018",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[16]",
+          "operation": "set_perpetual_lock"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 156,
+      "extrinsic_index": 6,
+      "block_hash": "0x6fe6eb834d06cdfffb75b1b884c05052c6ef36be2880f2a6b790708abfe00225",
+      "extrinsic_hash": "0xe95b9ed662f026eb5cdb1731ab464d98910ee4a77baf2e12a8b2aaab2eae129f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "1e195070c6fcfcb1135bef44b13eefaa81ffa94a04dab6148a0be5e1342819fd",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-8.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 156,
+      "extrinsic_index": 7,
+      "block_hash": "0x6fe6eb834d06cdfffb75b1b884c05052c6ef36be2880f2a6b790708abfe00225",
+      "extrinsic_hash": "0x1d13b27e477b11679ae7081ec0abe13741702ab2e3a24fc0a7a2c9633f871656",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "cb06f4f0a2626fd78667192fced348819f8e845f0500f2de5cbc79fc7720864b",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[17]",
+          "operation": "lock_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 159,
+      "extrinsic_index": 6,
+      "block_hash": "0x28b104c4bcfe03a92584da1b5c10ecd15513d38c50552782a0ee5cf79e69cfd0",
+      "extrinsic_hash": "0xed6e30ec02bf380a419aff8c0965a768b6277039d63093f2ababd39f056129e8",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "aa0ccedefb534bad5a4562f70c7f50314d4ee0304e600eda9d8a8a4cf14eb8ae",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-8.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 159,
+      "extrinsic_index": 7,
+      "block_hash": "0x28b104c4bcfe03a92584da1b5c10ecd15513d38c50552782a0ee5cf79e69cfd0",
+      "extrinsic_hash": "0x90266f80c9bdfca46801c059fa56b5983794844d79c6900b1b8d183a632de0bf",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "ff05340d06800eb317aba583f38d5f14f1857536ac1b9e9dd2b1d7f93fe51597",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[18]",
+          "operation": "move_lock"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 162,
+      "extrinsic_index": 6,
+      "block_hash": "0x731a02725d4451db802216cea9c932a881a64f2c0f59541a310c51011784f9ab",
+      "extrinsic_hash": "0x1e786a696dd6e4bf351e9e21a85615ee5723ac71501bbdd40218375f2bdf7b8a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "dc51f1decdf06d9346e6c1d85300ab5bfd684f4ea8754362c8298e2a98483f63",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-8.json",
+          "pointer": "$[6]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 162,
+      "extrinsic_index": 7,
+      "block_hash": "0x731a02725d4451db802216cea9c932a881a64f2c0f59541a310c51011784f9ab",
+      "extrinsic_hash": "0x5800c99166e4540ad1086b9dbc99606a1dfe750a0e5a9e5cc80c9ffb7d944740",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "bcca1566bba18f18e6aafdbb0adbd8a61d36360e82fc062e05d7b52066148deb",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[19]",
+          "operation": "set_perpetual_lock"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 165,
+      "extrinsic_index": 6,
+      "block_hash": "0x00e5e6c71ee9a225182b4d18677aac82c8eb33878e587f326d7d1b92cc1a75a6",
+      "extrinsic_hash": "0x450fc596242af2fa803afd986ca676794dc5cfc5e750e3f6232afe2b1ce742e3",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "707c864730482fa7965c3fe748216b1f99ee4c0129f208dd759b998b30ea557d",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-8.json",
+          "pointer": "$[7]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 165,
+      "extrinsic_index": 7,
+      "block_hash": "0x00e5e6c71ee9a225182b4d18677aac82c8eb33878e587f326d7d1b92cc1a75a6",
+      "extrinsic_hash": "0xb604d6763dabf3885597b5855439d1d2be8ca68f51cae189cfc4434b33febc79",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "a278cccc5592eadbdecff5d9d379a5ff3de84c2b491f9dafa88376db34a4c7fc",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[20]",
+          "operation": "set_reject_locked_alpha"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 168,
+      "extrinsic_index": 6,
+      "block_hash": "0xb3314965c376b5351ba3e3d3d214c891413770caa8fd35fa6b1c23d6931237db",
+      "extrinsic_hash": "0x51da673cbf21122e02268f4188fde55ad362f794dede3750a67ef0764e1a8684",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "8c1f479b15b9e0e9b43d8a873ecfbeacab180b532bf4a0845b9e397bdb09fb01",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-8.json",
+          "pointer": "$[8]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 168,
+      "extrinsic_index": 7,
+      "block_hash": "0xb3314965c376b5351ba3e3d3d214c891413770caa8fd35fa6b1c23d6931237db",
+      "extrinsic_hash": "0xb0686a4cad4fc45cbe89c8deb6be7fbcc4ba6c68474475117d815a7db5e3b451",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "6a1748903a756500d924f5e39983e258029bce207feb1ebfc37422bc9cd44bc3",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[21]",
+          "operation": "set_min_collateral"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 171,
+      "extrinsic_index": 6,
+      "block_hash": "0xb6458dfc13320594ac2f2517351152f4aa5abcf20d3ab88ec99114a3cc201711",
+      "extrinsic_hash": "0x572592c559be87bf605f49aa7464d74a7b8f77ba96b26687bbff806828fe56c0",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "c54e970f5c6ff7d2fcdbb49a50126de6850b63626488da7feea8624b8203d204",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-8.json",
+          "pointer": "$[9]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 172,
+      "extrinsic_index": 7,
+      "block_hash": "0xa42bafe22f72d91ee3caa490160f14692d5f6186bcf36c6537bd07b97c624b5e",
+      "extrinsic_hash": "0xd20988260989eb9ae7ad3ab0f1fc050f4355942918a23594962fc838293a31e5",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "11b723c375c7430becf492cf56af7e49debca9d7176709327b88a6f5c2972610",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[22]",
+          "operation": "add_collateral"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 174,
+      "extrinsic_index": 6,
+      "block_hash": "0xe6b36b26b004d30582e9f6bde1c3ecfa167eac75403ea87e6b51d77dde3ddcf1",
+      "extrinsic_hash": "0x68b6c6c90d6f101f4434b666894ea7b8128ef3296519acd950f8f82fa69e06a5",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "441180bc2a51be79bd9a851f30d6e5a4a2368aca7e6e24a482104c80501816d6",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-8.json",
+          "pointer": "$[10]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 175,
+      "extrinsic_index": 6,
+      "block_hash": "0x0550c9bfb2fa804ca572feb7e5a9ada6ca8f4553b13b23cc5c15d48c4b7a8ec1",
+      "extrinsic_hash": "0x780434fafbc58827e68642e582cedc2fcd2c948900aecd3b1545ef4793be81a7",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "3184e14df728f384367efdfac3de853896cfa3ad05641d805433f56fc240424a",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[23]",
+          "operation": "remove_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 177,
+      "extrinsic_index": 6,
+      "block_hash": "0xbeb9353b68a526930b5b9ac758155906104b9f52fd124e821c0cf61e1c0bf9fb",
+      "extrinsic_hash": "0x0f790741137ae50757d4d900f6274aa004224847284e690dcd268a596d3bc84a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "28911c350d9c707c6f25884b2f32c8baac71456a5d8b39a8ddd7272c87010818",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-8.json",
+          "pointer": "$[11]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 178,
+      "extrinsic_index": 6,
+      "block_hash": "0x8fe1090e27ebb843361ad2dbb4baef3f8ea48d95534fa93a2bda4e7e738d1160",
+      "extrinsic_hash": "0xe56974fa48eb9f6210f7c73b043b7f6f2ca5b9bed60f3c101e107f8091ea8dd9",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "f740110e61aeb17dbb8b484b3106fe9ed6a1d363d91dcc5dbe2cbf48245c59e6",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[24]",
+          "operation": "swap_hotkey"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 180,
+      "extrinsic_index": 6,
+      "block_hash": "0x1567f1cf6b69522b8adcd19061d9b879a7e470276b8aff9e05a7fed4816da99b",
+      "extrinsic_hash": "0x53bf1039e841511c4712f6862c5f6055ee02670618b76016751b2d79272a6726",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "104064a26bbef5f707f2f038d5543122f9998bdff4437066888d615fe848ff0c",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/crowdloan-families-8.json",
+          "pointer": "$[12]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 181,
+      "extrinsic_index": 6,
+      "block_hash": "0xa2bafa482747706e6ad44510d00f0d16331f000ff110a699c9fe260503efc36c",
+      "extrinsic_hash": "0xa3cddb0aedeaf115a1b707c54ad6c0ce410e7b57b9d522553b5f3e4fd5347777",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "ed7a1f8c166b856ed441ba45f7d89a4c9a5492d0d083c10bc2608b3b8608697c",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-7.json",
+          "pointer": "$.receipts[25]",
+          "operation": "System.remark"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 202,
+      "extrinsic_index": 6,
+      "block_hash": "0x11d0db71e7646c9c0f08e10d3c390fe99a5f8f77295c4c7f92a3b7414a2985ee",
+      "extrinsic_hash": "0xc9f4b12c5065675544eab4656b6476cca0ab665f24ace99fac69c8ee5f94c016",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "c0cdbec796cceaa863233da0ed9be9bcc06dddd2497f5eb6a500578289882bea",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[0]",
+          "operation": "register_subnet"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 209,
+      "extrinsic_index": 7,
+      "block_hash": "0x5483bdc9f11925f29ac2195f73e83bcfa5542b019a241186420f0ddb854ba7df",
+      "extrinsic_hash": "0xb87dbef982467c792a75a7ce660a205b70af65eb513a0b7a3250936b67a2250d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "ff65c3cc57ca4adf8f9629600567d28e56f595add35a4766e3e77e4cdadcc65a",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[1]",
+          "operation": "burned_register"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 212,
+      "extrinsic_index": 6,
+      "block_hash": "0xe8ababfad054dcd3fcd741691ad5adc5d9bcc20b921b2d4b6bb3ce1bf0f162cd",
+      "extrinsic_hash": "0x624e90681227df4d1a2206f20700fe7b820872f63459d554ef8ef83c4c80f167",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "a43da8419ca172de522146c80573d0c67b8a5c4959b382b9049c2bf32437c773",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[2]",
+          "operation": "register_subnet"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 219,
+      "extrinsic_index": 7,
+      "block_hash": "0xcc69bd645921a5a6bf1e5c93b482b5be104676c5cd6d7c2a001bc2b5a0c8390e",
+      "extrinsic_hash": "0xd4ef134988da0089461f554aed6cfe0f34c905b0ab7508270acc21406968b663",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "ce6b25941bf3d25d72b64099953d42d11d39e5bb3c040c8069f247af26848c5f",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[3]",
+          "operation": "burned_register"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 222,
+      "extrinsic_index": 6,
+      "block_hash": "0xdb55242bd7e3e3bfb4ba1cd121ffaab915a6f1f0ec45c3269263a793052223b6",
+      "extrinsic_hash": "0x67315ce8db3afc30f0a91f4f1e29f4ffda54aadfb8f039b5fc9f737505004309",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "f70445d90adbd621fecbc119218ba84de97fe5970d9ad4ffd0ff3e35af25844b",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[4]",
+          "operation": "set_children"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 225,
+      "extrinsic_index": 6,
+      "block_hash": "0x53815296293f972d613c527c3b57ead3dd7fe0446cd02a1bf921855a2eb8dfba",
+      "extrinsic_hash": "0xd953ffbd9c2b529d650990976879ab8ece90f2be18d124ee0923db8d261f0d6d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "e921daed6102bbb313bc79bb813c1e1a919e68205b30a1bfe3bb80f334a0a3ab",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[5]",
+          "operation": "set_identity"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 228,
+      "extrinsic_index": 6,
+      "block_hash": "0x3fcafda985fa268624a448efdde9f3722aaa8fa45aadaafa339967dab6e7e793",
+      "extrinsic_hash": "0x5995368285fcf6061ae3bfa1699842996dd23244e5776633e64ca849959a312f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "444785a41c12398c1bd2dd28d3fc1a721845517f7f6ef6aea7e9ed87d153ecaf",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[6]",
+          "operation": "set_subnet_identity"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 231,
+      "extrinsic_index": 6,
+      "block_hash": "0x877a29e259d22ffd4e8821530ca0c710736a1b0755466388e45a4c7b98bb2f60",
+      "extrinsic_hash": "0xa42b489f856b4bf2f9cc3d725d0de924425da482e20604077b2f052882ed581b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "5105d41fff30578c905aac408153eef957a1b41c099a8bfc7ea075277e3eb779",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[7]",
+          "operation": "serve_axon"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 234,
+      "extrinsic_index": 6,
+      "block_hash": "0xecd0a381c82e1534ac88695d0a3b240ea675db744d032bd9e2a8e43dc82f6626",
+      "extrinsic_hash": "0xafddf204420af5026a04e4c11536035d1ac8dbf2a4deccaca0779e0ce916bee0",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "604daff160a8501e9e8719f5590a7fb84a13290f2ea88db8dead799f7c282602",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[8]",
+          "operation": "serve_prometheus"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 237,
+      "extrinsic_index": 6,
+      "block_hash": "0x8736ced37585582a23c6097e0a4e3b85a260a4a74e3763ba003698a421700aba",
+      "extrinsic_hash": "0x5a65648cbff66dfb7078ed04a2544a6acec5b788b13f0d1dcd8890e17750c806",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "653b6f9ddcf1f0296276d9eff14a17557d82652d494bb8723d4f8ad9ca37a426",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[9]",
+          "operation": "reset_axon"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 243,
+      "extrinsic_index": 6,
+      "block_hash": "0xafd53142e3d173e04cdbe5d23f8a79c5ee372cb6981d311945a3b54e77af6248",
+      "extrinsic_hash": "0x3f2d678be5c467a158f984e0fbfa8b336785a5e443c84cbd06e3ed6604b1f05e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "34105c39805b68e8db72a6f190f50aabea10163a371f4539a3092fda4927ba3d",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[10]",
+          "operation": "add_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 246,
+      "extrinsic_index": 6,
+      "block_hash": "0x43c93f16792177b7af180393bd1a0ccab5febd637b4742f2801fdc611995a5b4",
+      "extrinsic_hash": "0xfb62a51dc9f1bfbef58cb9a4ea4e084d075f337707412864fd86d3fde0afac6e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "3c61483b7ae8285e767922783ec8e12e06c0a32b1090a050f57a83931f3bc6dd",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[11]",
+          "operation": "add_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 249,
+      "extrinsic_index": 6,
+      "block_hash": "0xa1ac9b6edca6424f610af098af902b0110e4cd219705f90743d1aea24ea307ee",
+      "extrinsic_hash": "0xa607dd08c56ca6ca29802ed6d46fb147b5754449285a923d5f0b3d7ba18498aa",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "1520aef4433c165d8a51de0a97a16c870c3e50eef993d0894373ebfdd5bab213",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[12]",
+          "operation": "move_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 252,
+      "extrinsic_index": 6,
+      "block_hash": "0x95d286e169b66d7ac909ec48f5df61eea9ef7424c6de8a90f9dd769e39b6396a",
+      "extrinsic_hash": "0x4ccf5c7c7e577dc873850eed9c088d0a7215e55aa8c02d21a414d25fae2d20c9",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "ae804c30e35c17d9fbcd76df0f302c31c7d938c767e70d067572a3488c817068",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[13]",
+          "operation": "transfer_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 255,
+      "extrinsic_index": 6,
+      "block_hash": "0xff71ebd75c15f23a8138dff3c86314858916b599d09a5fcd858cf95aed453706",
+      "extrinsic_hash": "0x26e7a05bbe46cd3d3b3e4479caa8c9079fc2b345fd1bb3ec1200cf9649b91a47",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "49b097f5f20bb7d83e415b74c45ae8b549d7af6fab25fa46d5a167c8679844e0",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[14]",
+          "operation": "swap_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 258,
+      "extrinsic_index": 6,
+      "block_hash": "0xeea2bce0d5f2e1c5e551b3b41b83c9a88cc0524a3af1417e2bb1fad72094edc7",
+      "extrinsic_hash": "0x6d73f3d07b75a28254aab4839647b1328bfac43f35537dbc011806d87f060c0c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "0a284ce159b842f9d561d9974d69af0257ec7cd813590cae84565a52e1c936ca",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[15]",
+          "operation": "move_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 261,
+      "extrinsic_index": 6,
+      "block_hash": "0xfc1c725ab255e54f98a2a6a3655a984b2063988cb87723e47e539ac24d58ed56",
+      "extrinsic_hash": "0x18e85780579a451f1f928d03e9319a1ea186a9d9088650de7bfdf1e2a2e948fc",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "bf6490b2944ccc55d9a7300a8e604e13a3e3263fdf20b46bf5f08e38869ba877",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[16]",
+          "operation": "set_perpetual_lock"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 264,
+      "extrinsic_index": 6,
+      "block_hash": "0xf115d1bf273f2bcb2cdd701418ab0e119be9a372597bce1dd7ec78b2b96d5ca2",
+      "extrinsic_hash": "0x4f6a4217de423d4df871f18a944b0627929db4da34efc6eefec1936039bbd7b0",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "bca11191732ae5967616949c67d9cabe5054506b57c3f00db7218ba5233c1e46",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[17]",
+          "operation": "lock_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 267,
+      "extrinsic_index": 6,
+      "block_hash": "0xf490693c816b05bcb834abcebe59467a60a4822737ca08a696c3b9ec1b81c2fd",
+      "extrinsic_hash": "0xe0bf9c3e82785560d3e45e5fc35e9fedd2d4d0ca119bd0544eabc6d89457dfc4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "7593738f5873d173c4486b0f52c3d1d45f0928443f648e6ae37ee4de699b9103",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[18]",
+          "operation": "move_lock"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 270,
+      "extrinsic_index": 6,
+      "block_hash": "0x9b38568435a408e98ffc5cfd9cf2ec8aa0ee5d772d672b5a012814cc80d9a14e",
+      "extrinsic_hash": "0x587bee8bd8542754a475c3f795de3b65f94c428b9ac3923fbe93ee039ea125e4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "4f706bba7045ee309b9a953f0da86bc8c182af9068dece9e54d8a0ea722b4851",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[19]",
+          "operation": "set_perpetual_lock"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 273,
+      "extrinsic_index": 6,
+      "block_hash": "0xb0d23dbcd9a8fac2e2480b3990b248a165294379f82ee5a9f9049ca7570c7404",
+      "extrinsic_hash": "0x8e4f30157cd5acd79ab6b91f269b373ca6e4157210026b0366faaeaf20fca91b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "7fd67a16be211986c33af5b8eb2a1ae9fb70cad64bfdfb8bfb273a2660c4cfc0",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[20]",
+          "operation": "set_reject_locked_alpha"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 276,
+      "extrinsic_index": 6,
+      "block_hash": "0xd7be9fb8d64a560e1f77d343ed723e0cf3918fca2e22b9bfaddafc13fe7f77af",
+      "extrinsic_hash": "0xde42fe81d9cdef8f93b8a97195440bb41a52b0aca5c9ddf312b3b2a8f055347e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "45ed3aa66671de8bef48e71537b6cdd1294bd9dd81c5fba16f09d6d911373765",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[21]",
+          "operation": "set_min_collateral"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 280,
+      "extrinsic_index": 7,
+      "block_hash": "0x2eb5ea84396e45fdb0afc3cb4d323d1667fed56dacce2aa08f0063ad80833128",
+      "extrinsic_hash": "0x7741d54b3abca875f7af8cdc6ee11d606b527b973ed164bdc79d3e2a9a985315",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "efb8c0ff4b2ac75d475177d615afe9eb648d57b362cc32d7e40fe7fead062286",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[22]",
+          "operation": "add_collateral"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 283,
+      "extrinsic_index": 6,
+      "block_hash": "0x43adcb9ab8ffbe0242be5e4dc669fd30c12211a4d695bc3b79c9cf47f5207c75",
+      "extrinsic_hash": "0x35e6bbfd8b55293b6f7272467009ffd75bc250f811a25910d8834f2c1ded1778",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "fb9589a268bed485a7315714da06e094b6aa48ec504e73847407fc81ce60e891",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[23]",
+          "operation": "remove_stake"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 286,
+      "extrinsic_index": 6,
+      "block_hash": "0xa70ab738c575333ef694e7bce04afeecaafea4b1f766ba696e7fdafef2c5cb97",
+      "extrinsic_hash": "0xe6bbf6f34614687ae9fc4600022633fca35856defcbe7c204d131d5e1719d06f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "8cc8d69b232224f6446794420e3073579bc760f111b7a2376c2492a05d8c9f40",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[24]",
+          "operation": "swap_hotkey"
+        }
+      ]
+    },
+    {
+      "chain": "operations",
+      "height": 289,
+      "extrinsic_index": 6,
+      "block_hash": "0x2396474c0065ef8ba919ea3fc8576de239e4c46c0ddce17a0d2cef586ed7c9d5",
+      "extrinsic_hash": "0x51c7b4cadf820f98a4225250da75656ed8abae0ae086aae91a773a4ac83e45d5",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "26389f131ef0e05c8cb3b8ae5bfcf58bad55b45b92cc33d5753611b7f0b6dac2",
+      "references": [
+        {
+          "path": "operations/rerun/receipts/business-families-8.json",
+          "pointer": "$.receipts[25]",
+          "operation": "System.remark"
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "suites": {
+    "operations": {
+      "chain": "operations",
+      "files": 9,
+      "receipt_references": 105
+    }
+  },
+  "finished_utc": "2026-10-17T22:36:56.664521+00:00",
+  "raw_receipt_references": 105,
+  "unique_receipts": 105,
+  "verified_receipts": 105,
+  "deduplicated_references": 0,
+  "status_counts": {
+    "success": 101,
+    "outer_success_inner_failure": 4
+  },
+  "all_recorded_receipts_verified": true,
+  "suites_without_receipt_evidence": []
+}

@@ -1,0 +1,42 @@
+{
+  "head": "8d6104b58aa5df1f53011cf8fbc81ac6b86f37ec",
+  "benchmark_head": "437053f80d5ebebce950602b168901bfe6591483",
+  "run_id": 39060946210,
+  "methods_applied": 17,
+  "traits_and_implementations_verified": 156,
+  "preflight_exit": 0,
+  "rust_passed": 3584,
+  "rust_failed": 0,
+  "rust_ignored": 47,
+  "fee_quotes": 25,
+  "production_default_tests_passed": 2,
+  "mainnet_fee_multiplier": 1,
+  "usd_per_tao": "271.935",
+  "price_timestamp_utc": "2026-10-17T21:04:08.511196+00:00",
+  "committed_or_pushed": false,
+  "source_hashes": {
+    "pallets/hashed-accounts/src/weights.rs": "e51560b02fa266f0df414c76e4d2659c5ee50f73b48c8b98819d1c3e9d07cd72",
+    "pallets/limit-orders/src/weights.rs": "72d3c830e0faec94e19689ed30dcc1940aad9d0804e7ccaec7ada3fa9f48a546",
+    "pallets/proxy/src/weights.rs": "f6af3fd48e5af5e79e09990e99c41ed20ffa30260f41c47b9e702608250a969c",
+    "pallets/utility/src/weights.rs": "15ad38c2eb918469c350c085571f1acb9c6347f9003415b16e24d172dcb04aab",
+    "pallets/shield/src/weights.rs": "7bf4d933e7a350c04f62dfe58c6257f5cac5cdfc0eccba96e52a2091624e4739",
+    "pallets/hashed-accounts/src/tests.rs": "23f5ffe389e1b17378d6333830dd3e026e5f551abfbae91486ce1713f877b4f9",
+    "pallets/shield/src/tests.rs": "344386e3ee0553bbf747e85337823508d478c8be124e517dbe1ade84696f8bbe",
+    "runtime/src/mldsa_test_weights.rs": "2d97d19936921b88f4409177849b21ddbd87e7da6698f52a30f39cf7e9764e36",
+    "runtime/tests/mldsa_reference_fees.rs": "ef647197fe2c0f7e8daa407417e8426a80e8a6c966ab5b8ebc56a19e51990cea"
+  },
+  "files": {
+    "fees.csv": "04db5713ce3476dbc84e01149ee0fc997942986db3221a9775d15bcd594c1305",
+    "benchmark-summary.txt": "46e039400f9ce7b05ddcc0b7ecc636f7230160cbbea1f7931f0490c51bf706ca",
+    "preflight.log.gz": "62291c9d2c7c629c53df695bfd4194c9dedb4f6bc52de3cabd44041861c75a77",
+    "selection.json": "36178c5819d5f76571f5215890c4b260adacab76f906752182f2ef9f251dca73",
+    "job-summary.log": "de7adfbb074c08bfda8e17577bab8bdb28da9ad854e6b517437b2db63073ee0d",
+    "selection-verification.json": "b8e7034c8ced44750a654d1aee7c51ae0e0259f411f2dd575f4275bb88a467db",
+    "mainnet-fee-state.json": "7f05fa22e0cad8875e850343498070be808c0d1c30c517bffee10ac4d75d8a04",
+    "tao-usd.json": "6bf916580fe610bac97369bd87aad56d39e4e5d82180095549c972f2acbe0edf",
+    "fee-test-default-final.log": "660584ac4fe470690cf4d68941bafbd27059575acd69baf80edb273b78beb010",
+    "artifact.zip": "5aa10aa331f894533d29c71c2191b36d4d2394ffba717c69d2e60975fe3baad5",
+    "shutdown.json": "7ee9fed3e23c4881508fd2dfddef42bedf853731cfaee953bf1fbf16e1d8b582",
+    "fee-quotes.json": "9d16c624aa133d3fbe76dec7fab615ebb38a6a574811902f54351c04afa5d5ac"
+  }
+}

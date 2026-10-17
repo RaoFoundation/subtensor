@@ -1,0 +1,36 @@
+{
+  "fixture_sha256": "f15f83394cd873f1a6539d724f45a9dfb19325812a7a7a9b0bc7166297a30c28",
+  "sdk_call_evidence_sha256": "1fce5ac1770623016769a65d062af367a342d1939ef1720775523ceb614f0cb4",
+  "script_sha256": "f359a60bccf2d2a875fb438d01768be56cd556a0ed92e1edfe7701bb6f012e2e",
+  "lockfile_sha256": "e56d73f0bd3cd500f2e9382eabbb19f0b504e4c8bf756b0a893cfce65ce212f4",
+  "packages": {
+    "polkadot-api": "1.23.3",
+    "@polkadot-api/observable-client": "0.17.3",
+    "@polkadot-api/substrate-bindings": "0.17.0",
+    "@polkadot-api/metadata-builders": "0.13.9"
+  },
+  "runtime_context_sha256": "30b248e6dce9d13ae0dd9da042f9ea267d550ac34df7dee74e17e16dd5cea9ad",
+  "metadata": {
+    "14": {
+      "consolidated_calls_decoded": 32,
+      "actual_papi_mortality_decoder": 7,
+      "dynamic_complete_body_roundtrips": 7,
+      "mldsa_raw_length": 5367,
+      "call": "System.remark"
+    },
+    "15": {
+      "consolidated_calls_decoded": 32,
+      "actual_papi_mortality_decoder": 7,
+      "dynamic_complete_body_roundtrips": 7,
+      "mldsa_raw_length": 5367,
+      "call": "System.remark"
+    },
+    "16": {
+      "consolidated_calls_decoded": 32,
+      "actual_papi_mortality_decoder": 7,
+      "dynamic_complete_body_roundtrips": 7,
+      "mldsa_raw_length": 5367,
+      "call": "System.remark"
+    }
+  }
+}

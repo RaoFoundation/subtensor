@@ -1,0 +1,23 @@
+[
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xb363b9292b493bc311826a24e2ddff8d5ada7ed185b26ff69a6ee0cb18cc5559",
+    "extrinsic_id": "68-0006",
+    "fee_tao": 0.000101875
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x0a2a9d5416094443fb8d6116d3be9864b7e9865c21312f2e1389441a1a89140d",
+    "extrinsic_id": "71-0006",
+    "fee_tao": 6.3376e-05
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xcf02708fe1108c9e8f5b76de0c5f315a578067482d4e2626ec869894f31d31ed",
+    "extrinsic_id": "77-0006",
+    "fee_tao": 0.000228723
+  }
+]

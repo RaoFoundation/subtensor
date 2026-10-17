@@ -1,0 +1,12 @@
+{
+  "runtime_source_path": "/home/johnreed/Desktop/work/subtensor/target/production/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm",
+  "runtime_wasm_sha256": "a847e29c66bb8b6a6e116f2fdc2d81db0f99b2f9963f5c1f59682e404d3a1045",
+  "runtime_wasm_size_bytes": 2879278,
+  "runner_sha256": "aa2c1f0191771fc056114eac58093fc4ffe750c0ca6af15186e8c40201aa1aba",
+  "build_features": [
+    "try-runtime",
+    "metadata-hash"
+  ],
+  "build_profile": "production",
+  "build_exit_code": 0
+}

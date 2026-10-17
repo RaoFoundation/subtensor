@@ -1,0 +1,65 @@
+{
+  "observed_at": "2026-10-16T20:43:11.063685+00:00",
+  "chains": [
+    {
+      "rpc_port": 19944,
+      "genesis": "0xcf4d757e5181d80e8b61dabddc05eb57a3df3885334701a0703ce4378298c15f",
+      "finalized_block": 270,
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "minimum_period_ms": 6000,
+      "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b"
+    },
+    {
+      "rpc_port": 20044,
+      "genesis": "0x0c5be242041eaa73415498b3681f05e7d11733758d4740d70cd554f0ba5ddee0",
+      "finalized_block": 194,
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "minimum_period_ms": 6000,
+      "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b"
+    },
+    {
+      "rpc_port": 20144,
+      "genesis": "0xa05bf3b82cf3f9797b36010ec5e652d4bb296f09b57d352f5ef778405e39d27e",
+      "finalized_block": 193,
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "minimum_period_ms": 6000,
+      "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b"
+    },
+    {
+      "rpc_port": 20244,
+      "genesis": "0x6365693095056ba7a80cb34bfe43a16a48fc617989ed81379a416c49309bced9",
+      "finalized_block": 192,
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "minimum_period_ms": 6000,
+      "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b"
+    },
+    {
+      "rpc_port": 20444,
+      "genesis": "0xda926a6f798f923be0119322a2bfc8bec87890babb6eb3fcd4c88acc5a769bbd",
+      "finalized_block": 11,
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "minimum_period_ms": 6000,
+      "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b"
+    }
+  ]
+}

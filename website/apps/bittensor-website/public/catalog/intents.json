@@ -112,9 +112,9 @@
         "pallet": "Proxy",
         "call": "add_proxy",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 307,
-        "end_line": 316,
-        "url": "/code/pallets/proxy/src/lib.rs#L305-L316",
+        "line": 329,
+        "end_line": 338,
+        "url": "/code/pallets/proxy/src/lib.rs#L327-L338",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -427,6 +427,57 @@
     ]
   },
   {
+    "name": "authorize_order",
+    "summary": "Authorize every economic term of a order through the account's origin.",
+    "description": "Authorize every economic term of a order through the account's origin.\n\nSupports direct ML-DSA owners, proxies, derivatives, and multisigs. This\ngrants relayers the complete specified trade; funds move only on execution.\nCancel with the same nonce and complete order to revoke its unfilled part.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "LimitOrders",
+        "authorize_order"
+      ]
+    ],
+    "docs_url": "/docs/tx/authorize-order",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "nonce": {
+          "type": "integer",
+          "description": "Permanent owner-local u64 order nonce."
+        },
+        "order": {
+          "type": "object",
+          "description": "Complete V1 or V2 VersionedOrder, including every economic term."
+        },
+        "order_data": {
+          "type": "string",
+          "description": "Optional pinned canonical VersionedOrder SCALE bytes as hex."
+        }
+      },
+      "required": [
+        "nonce",
+        "order"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx authorize-order --nonce <int> --order '<json>'",
+    "python_class": "AuthorizeOrder",
+    "markdown_url": "/llms.mdx/docs/tx/authorize-order/content.md",
+    "sources": [
+      {
+        "pallet": "LimitOrders",
+        "call": "authorize_order",
+        "path": "pallets/limit-orders/src/lib.rs",
+        "line": 769,
+        "end_line": 800,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L766-L800",
+        "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "batch",
     "summary": "Execute several intents atomically in one extrinsic (all-or-nothing).",
     "description": "Execute several intents atomically in one extrinsic (all-or-nothing).\n\nWraps the child calls in `Utility.batch_all`: they run in order and if\nany one fails the whole extrinsic reverts, so there is never a\npartially-applied result. Use it for multi-step operations that must land\ntogether (e.g. move funds then act on them) instead of submitting the\nsteps separately and risking a half-done state. All children must share\none signer \u2014 an extrinsic has a single signature \u2014 and batches cannot\ncontain other batches. Spend limits and policy checks aggregate across\nevery child, and the transaction plan lists each child's effects.",
@@ -461,9 +512,9 @@
         "pallet": "Utility",
         "call": "batch_all",
         "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "line": 345,
+        "end_line": 393,
+        "url": "/code/pallets/utility/src/lib.rs#L339-L393",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
@@ -511,6 +562,57 @@
         "end_line": 847,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L839-L847",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "cancel_order",
+    "summary": "Cancel a order and any unfilled remainder using its complete terms.",
+    "description": "Cancel a order and any unfilled remainder using its complete terms.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "LimitOrders",
+        "cancel_order"
+      ]
+    ],
+    "docs_url": "/docs/tx/cancel-order",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "nonce": {
+          "type": "integer",
+          "description": "Permanent owner-local u64 order nonce."
+        },
+        "order": {
+          "type": "object",
+          "description": "Complete V1 or V2 VersionedOrder, including every economic term."
+        },
+        "order_data": {
+          "type": "string",
+          "description": "Optional pinned canonical VersionedOrder SCALE bytes as hex."
+        }
+      },
+      "required": [
+        "nonce",
+        "order"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx cancel-order --nonce <int> --order '<json>'",
+    "python_class": "CancelOrder",
+    "markdown_url": "/llms.mdx/docs/tx/cancel-order/content.md",
+    "sources": [
+      {
+        "pallet": "LimitOrders",
+        "call": "cancel_order",
+        "path": "pallets/limit-orders/src/lib.rs",
+        "line": 689,
+        "end_line": 713,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L687-L713",
+        "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
       }
     ]
   },
@@ -871,6 +973,10 @@
       [
         "Proxy",
         "create_pure"
+      ],
+      [
+        "Proxy",
+        "create_protected_pure"
       ]
     ],
     "docs_url": "/docs/tx/create-pure-proxy",
@@ -901,9 +1007,18 @@
         "pallet": "Proxy",
         "call": "create_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 372,
-        "end_line": 404,
-        "url": "/code/pallets/proxy/src/lib.rs#L370-L404",
+        "line": 394,
+        "end_line": 406,
+        "url": "/code/pallets/proxy/src/lib.rs#L392-L406",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+      },
+      {
+        "pallet": "Proxy",
+        "call": "create_protected_pure",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 766,
+        "end_line": 778,
+        "url": "/code/pallets/proxy/src/lib.rs#L763-L778",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1082,6 +1197,102 @@
     "markdown_url": "/llms.mdx/docs/tx/evm-withdraw/content.md"
   },
   {
+    "name": "execute_batched_orders",
+    "summary": "Relay a bounded order batch through the atomic subnet netting engine.",
+    "description": "Relay a bounded order batch through the atomic subnet netting engine.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "LimitOrders",
+        "execute_batched_orders"
+      ]
+    ],
+    "docs_url": "/docs/tx/execute-batched-orders",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "orders": {
+          "type": "array",
+          "description": "Complete SignedOrder objects."
+        },
+        "should_fail": {
+          "type": "boolean",
+          "description": "Revert the batch if any order fails."
+        },
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet shared by all orders in the atomic netted batch."
+        }
+      },
+      "required": [
+        "orders"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx execute-batched-orders --orders <a,b,c>",
+    "python_class": "ExecuteBatchedOrders",
+    "markdown_url": "/llms.mdx/docs/tx/execute-batched-orders/content.md",
+    "sources": [
+      {
+        "pallet": "LimitOrders",
+        "call": "execute_batched_orders",
+        "path": "pallets/limit-orders/src/lib.rs",
+        "line": 667,
+        "end_line": 680,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L665-L680",
+        "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "execute_orders",
+    "summary": "Relay classical orders and up to eight account-approved or ML-DSA orders.",
+    "description": "Relay classical orders and up to eight account-approved or ML-DSA orders.\n\nEach signed order includes complete terms, its signature, and an optional\npartial fill. Authorized terms also bind an owner-local nonce. With\nshould_fail true, any failed order reverts the whole batch.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "LimitOrders",
+        "execute_orders"
+      ]
+    ],
+    "docs_url": "/docs/tx/execute-orders",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "orders": {
+          "type": "array",
+          "description": "Complete SignedOrder objects."
+        },
+        "should_fail": {
+          "type": "boolean",
+          "description": "Revert the batch if any order fails."
+        }
+      },
+      "required": [
+        "orders"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx execute-orders --orders <a,b,c>",
+    "python_class": "ExecuteOrders",
+    "markdown_url": "/llms.mdx/docs/tx/execute-orders/content.md",
+    "sources": [
+      {
+        "pallet": "LimitOrders",
+        "call": "execute_orders",
+        "path": "pallets/limit-orders/src/lib.rs",
+        "line": 615,
+        "end_line": 640,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L613-L640",
+        "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "execute_proxy_announced",
     "summary": "Execute a proxy call that was announced and has passed its delay.",
     "description": "Execute a proxy call that was announced and has passed its delay.\n\nThe delayed-proxy flow: a delegate added with `delay` > 0 first announces\nthe call's hash, waits out the delay (during which the real account can\nveto), then anyone may dispatch the announced call with this intent. The\ninner call is given as an intent op name plus its arguments and must hash\nto exactly what was announced. Fails if the delay has not elapsed or no\nmatching announcement exists.",
@@ -1135,9 +1346,9 @@
         "pallet": "Proxy",
         "call": "proxy_announced",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 589,
-        "end_line": 616,
-        "url": "/code/pallets/proxy/src/lib.rs#L580-L616",
+        "line": 591,
+        "end_line": 618,
+        "url": "/code/pallets/proxy/src/lib.rs#L582-L618",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1286,6 +1497,63 @@
     ]
   },
   {
+    "name": "install_order_capability",
+    "summary": "Grant a revocable ML-DSA order key with an explicit trading scope.",
+    "description": "Grant a revocable ML-DSA order key with an explicit trading scope.\n\nA permanent epoch tombstone prevents revoked signatures from becoming\nvalid after reinstalling. Expiry is a block number, not an order timestamp.\nUnrestrictedTrading explicitly permits every trade until expiry/revocation.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "HashedAccounts",
+        "install_capability"
+      ]
+    ],
+    "docs_url": "/docs/tx/install-order-capability",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "expected_epoch": {
+          "type": "integer",
+          "description": "Finalized owner/Order epoch plus one."
+        },
+        "key_commitment": {
+          "type": "string",
+          "description": "64-byte commitment to the purpose-specific ML-DSA order public key, in hex."
+        },
+        "expires_at": {
+          "type": "integer",
+          "description": "Inclusive chain block-number expiry."
+        },
+        "scope": {
+          "type": "object",
+          "description": "Explicit Trading bounds, or UnrestrictedTrading."
+        }
+      },
+      "required": [
+        "expected_epoch",
+        "key_commitment",
+        "expires_at",
+        "scope"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx install-order-capability --expected-epoch <int> --key-commitment <value> --expires-at <int> --scope '<json>'",
+    "python_class": "InstallOrderCapability",
+    "markdown_url": "/llms.mdx/docs/tx/install-order-capability/content.md",
+    "sources": [
+      {
+        "pallet": "HashedAccounts",
+        "call": "install_capability",
+        "path": "pallets/hashed-accounts/src/lib.rs",
+        "line": 314,
+        "end_line": 323,
+        "url": "/code/pallets/hashed-accounts/src/lib.rs#L311-L323",
+        "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "kill_pure_proxy",
     "summary": "Close a pure proxy account and return its reserved deposit.",
     "description": "Close a pure proxy account and return its reserved deposit.\n\nMust be signed *by the pure proxy itself* (i.e. dispatched through it with\n`proxy_for=<pure proxy>`), and the parameters must reproduce the exact\ncreation: spawner, type, index, plus the block height and extrinsic index\nof the `create_pure_proxy` call. Irreversible \u2014 any funds left in the\naccount become permanently inaccessible, so empty it first.",
@@ -1336,9 +1604,9 @@
         "pallet": "Proxy",
         "call": "kill_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 424,
-        "end_line": 450,
-        "url": "/code/pallets/proxy/src/lib.rs#L422-L450",
+        "line": 426,
+        "end_line": 452,
+        "url": "/code/pallets/proxy/src/lib.rs#L424-L452",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1577,9 +1845,9 @@
         "pallet": "Utility",
         "call": "batch_all",
         "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "line": 345,
+        "end_line": 393,
+        "url": "/code/pallets/utility/src/lib.rs#L339-L393",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
@@ -1701,9 +1969,9 @@
         "pallet": "Utility",
         "call": "batch_all",
         "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "line": 345,
+        "end_line": 393,
+        "url": "/code/pallets/utility/src/lib.rs#L339-L393",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
@@ -2120,9 +2388,9 @@
         "pallet": "Proxy",
         "call": "remove_proxies",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 346,
-        "end_line": 350,
-        "url": "/code/pallets/proxy/src/lib.rs#L344-L350",
+        "line": 368,
+        "end_line": 372,
+        "url": "/code/pallets/proxy/src/lib.rs#L366-L372",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -2170,9 +2438,9 @@
         "pallet": "Proxy",
         "call": "remove_proxy",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 327,
-        "end_line": 336,
-        "url": "/code/pallets/proxy/src/lib.rs#L325-L336",
+        "line": 349,
+        "end_line": 358,
+        "url": "/code/pallets/proxy/src/lib.rs#L347-L358",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -2288,9 +2556,9 @@
         "pallet": "Utility",
         "call": "batch_all",
         "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "line": 345,
+        "end_line": 393,
+        "url": "/code/pallets/utility/src/lib.rs#L339-L393",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
@@ -2407,9 +2675,9 @@
         "pallet": "Utility",
         "call": "batch_all",
         "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "line": 345,
+        "end_line": 393,
+        "url": "/code/pallets/utility/src/lib.rs#L339-L393",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
@@ -2523,6 +2791,41 @@
         "end_line": 284,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L273-L284",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "revoke_order_capability",
+    "summary": "Revoke the active order key and permanently advance its epoch tombstone.",
+    "description": "Revoke the active order key and permanently advance its epoch tombstone.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "HashedAccounts",
+        "revoke_capability"
+      ]
+    ],
+    "docs_url": "/docs/tx/revoke-order-capability",
+    "input_schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx revoke-order-capability",
+    "python_class": "RevokeOrderCapability",
+    "markdown_url": "/llms.mdx/docs/tx/revoke-order-capability/content.md",
+    "sources": [
+      {
+        "pallet": "HashedAccounts",
+        "call": "revoke_capability",
+        "path": "pallets/hashed-accounts/src/lib.rs",
+        "line": 328,
+        "end_line": 331,
+        "url": "/code/pallets/hashed-accounts/src/lib.rs#L325-L331",
+        "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
       }
     ]
   },
@@ -5011,9 +5314,9 @@
         "pallet": "Utility",
         "call": "batch_all",
         "path": "pallets/utility/src/lib.rs",
-        "line": 314,
-        "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "line": 345,
+        "end_line": 393,
+        "url": "/code/pallets/utility/src/lib.rs#L339-L393",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]

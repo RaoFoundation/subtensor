@@ -70,6 +70,10 @@ from .reads import (
     SubnetInfo,
     SwapQuote,
 )
+from .registration_sponsorship import (
+    RegistrationSponsorship,
+    RegistrationSponsorshipRequired,
+)
 from .result import (
     BittensorError,
     ChainError,
@@ -140,6 +144,8 @@ __all__ = [
     "NeuronCommitment",
     "SubnetInfo",
     "Balance",
+    "RegistrationSponsorship",
+    "RegistrationSponsorshipRequired",
     "UnitMismatchError",
     "tao",
     "alpha",

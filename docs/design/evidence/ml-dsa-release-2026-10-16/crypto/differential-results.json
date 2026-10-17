@@ -1,0 +1,14 @@
+{
+  "acvp_revision": "65370b861b96efd30dfe0daae607bde26a78a5c8",
+  "counts": {
+    "all_signature_byte_mutations": 3309,
+    "malformed_hint_differential": 61,
+    "mutated_signature_differential": 1280,
+    "nist_keygen": 25,
+    "nist_siggen": 20,
+    "nist_sigver": 15,
+    "upstream_key_sign_verify_mu_differential": 128
+  },
+  "status": "PASS",
+  "upstream_commit": "8d456d989dce681233ef963d3c3306da8f76d7c7"
+}

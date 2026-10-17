@@ -220,6 +220,24 @@ class WalletSigner:
         """Derive a rotating signer only after the transport reads chain state."""
         return self._unlock().at_generation(generation)
 
+    def mldsa_capability_commitment(self, role: int, epoch: int) -> bytes:
+        return bytes(self._unlock().mldsa_capability_commitment(role, epoch))
+
+    def mldsa_capability_public_key(self, role: int, epoch: int) -> bytes:
+        return bytes(self._unlock().mldsa_capability_public_key(role, epoch))
+
+    def sign_mldsa_capability(
+        self, role: int, epoch: int, genesis_hash: bytes, payload: bytes, owner: bytes | None = None
+    ) -> bytes:
+        return bytes(
+            self._unlock().sign_mldsa_capability(role, epoch, genesis_hash, payload, owner)
+        )
+
+    def sign_mldsa_order(
+        self, epoch: int, nonce: int, genesis_hash: bytes, order: bytes, owner: bytes | None = None
+    ) -> bytes:
+        return bytes(self._unlock().sign_mldsa_order(epoch, nonce, genesis_hash, order, owner))
+
     def sign(self, payload: bytes) -> bytes:
         # The first unlock can block on getpass/Keychain/dialog subprocesses;
         # when called from async transport code that blocks the event loop

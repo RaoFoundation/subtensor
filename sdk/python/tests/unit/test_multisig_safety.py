@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 import bittensor.executor as executor_module
-from bittensor import Policy
+from bittensor import Balance, Policy
 from bittensor._generated import calls
 from bittensor.cli import multisig_helpers
 from bittensor.client import Client
@@ -161,6 +161,8 @@ async def test_required_mev_shield_survives_multisig_dispatch():
         wait_for_registration=True,
         registration_timeout=None,
         on_progress=None,
+        max_registration_deposit=None,
+        on_registration_sponsorship=None,
     )
 
 
@@ -176,8 +178,17 @@ async def test_required_mev_shield_passes_proxy_for():
     expected = Mock()
     executor.submit_shielded = AsyncMock(return_value=expected)
     wallet = Mock()
+    max_deposit = Balance.from_rao(200_000_000)
+    on_sponsorship = Mock(return_value=True)
 
-    result = await executor.execute(wrapped, wallet, proxy_for=BOB, proxy_type="Staking")
+    result = await executor.execute(
+        wrapped,
+        wallet,
+        proxy_for=BOB,
+        proxy_type="Staking",
+        max_registration_deposit=max_deposit,
+        on_registration_sponsorship=on_sponsorship,
+    )
 
     assert result is expected
     executor.submit_shielded.assert_awaited_once_with(
@@ -191,6 +202,8 @@ async def test_required_mev_shield_passes_proxy_for():
         wait_for_registration=True,
         registration_timeout=None,
         on_progress=None,
+        max_registration_deposit=max_deposit,
+        on_registration_sponsorship=on_sponsorship,
     )
 
 

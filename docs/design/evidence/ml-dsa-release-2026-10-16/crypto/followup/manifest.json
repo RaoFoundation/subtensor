@@ -1,0 +1,22 @@
+{
+  "status": "PASS",
+  "date": "2026-10-16",
+  "files_sha256": {
+    "audit.md": "feaf33665342bbe8668a536a566b45eeadfed8e26edb61240790db69b2381ca8",
+    "bridge-artifacts.json": "8e59a0f7ced0bc784e421d231fb87d9d0bd93312f83c15b699fd187da0eda9a7",
+    "build_bridge.py": "745664451dfde01226f35cb7df06bc54c48ac682325da4d5fde3ba30f95a8253",
+    "crosscheck-results.json": "139509dabf97c73821ed686f3393d3d3fda007a209f90ab65e16eea3252058e6",
+    "crosscheck.py": "542b7b20705449a2634dae9f004188a701e9378289334dc11850ef0e9929af59",
+    "nist-errata.json": "8fbd038b81520718b4d4172b0bbaae5a84831b03167a559021139dcfe62ec4b2",
+    "primitive_bridge.rs": "9aff493b4b2bc28b80b5a6c1ca152057379b8b2074863ba604408769e8d9cc33",
+    "source-hashes.json": "8c0b5fc7cc70c7455ac96149fd83e24ceed0b95ab48267998254e92973b89531"
+  },
+  "exclusions": [
+    "compiled libraries",
+    "reference source checkout",
+    "wallet files",
+    "private material",
+    "node databases"
+  ],
+  "new_production_changes": []
+}

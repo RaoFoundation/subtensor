@@ -19,8 +19,11 @@ from bittensor.sp_core import (
     CRYPTO_HASHED_ED25519,
     CRYPTO_SR25519,
     HASHED_CRYPTO_TYPES,
+    MLDSA_CRYPTO_TYPES,
+    REGISTERED_CRYPTO_TYPES,
     Keypair,
     serialized_keypair_to_keyfile_data,
+    verify_mldsa_authorization,
 )
 from bittensor.wallet import Wallet
 
@@ -65,7 +68,7 @@ def test_missing_crypto_type_lists_choices(
     output = Text.from_ansi(capsys.readouterr().err).plain
     output = " ".join(output.replace("│", " ").split())
     assert "requires an argument" in output
-    for choice in ("sr (sr25519)", "ed (ed25519)", "hashed"):
+    for choice in ("sr (sr25519)", "ed (ed25519)", "ms (ML-DSA-65)", "hashed"):
         assert choice in output
     assert not wallet_path.exists()
 
@@ -90,6 +93,8 @@ def test_missing_other_option_does_not_list_crypto_types(wallet_path, monkeypatc
         ("sr25519", CRYPTO_SR25519),
         ("hashed", CRYPTO_HASHED),
         ("hashed-ed25519", CRYPTO_HASHED_ED25519),
+        ("ms", 8),
+        ("ml-dsa", 8),
     ],
 )
 def test_cli_selection_applies_to_both_keys_and_mnemonic_recovery(wallet_path, name, code):
@@ -100,12 +105,14 @@ def test_cli_selection_applies_to_both_keys_and_mnemonic_recovery(wallet_path, n
     for role in ("coldkey", "hotkey"):
         key = getattr(wallet, role)
         public = getattr(wallet, role + "pub")
-        assert len(details[role + "_mnemonic"].split()) == 12
+        assert len(details[role + "_mnemonic"].split()) == (
+            24 if code in MLDSA_CRYPTO_TYPES else 12
+        )
         recovered = Keypair.create_from_mnemonic(details[role + "_mnemonic"], code)
         assert key.crypto_type == public.crypto_type == recovered.crypto_type == code
         assert key.ss58_address == public.ss58_address == recovered.ss58_address
         assert details[role + "_crypto_type"] == wallets.format_crypto_type(code)
-        if code in HASHED_CRYPTO_TYPES:
+        if code in REGISTERED_CRYPTO_TYPES:
             assert bytes(key.hashed_descriptor) == bytes(recovered.hashed_descriptor)
         else:
             payload = b"wallet selection survives signing and recovery"
@@ -151,7 +158,7 @@ def test_sdk_explicit_ed25519_override_is_not_treated_as_missing(wallet_path):
     assert wallet.hotkey.crypto_type == CRYPTO_ED25519
 
 
-@pytest.mark.parametrize("name", ["unknown", "ms", "mldsa", "ml-dsa", "5", "7"])
+@pytest.mark.parametrize("name", ["unknown", "5", "9"])
 def test_unsupported_scheme_fails_before_creating_keys(wallet_path, name):
     result = invoke("create", "--crypto-type", name, "--no-password")
     assert result.exit_code != 0
@@ -160,7 +167,8 @@ def test_unsupported_scheme_fails_before_creating_keys(wallet_path, name):
 
 
 @pytest.mark.parametrize(
-    "scheme,code", [("ed", 0), ("sr", 1), ("hashed", 4), ("hashed-ed25519", 6)]
+    "scheme,code",
+    [("ed", 0), ("sr", 1), ("hashed", 4), ("hashed-ed25519", 6), ("mldsa65", 7), ("ms", 8)],
 )
 @pytest.mark.parametrize("role", ["coldkey", "hotkey"])
 def test_cli_recovers_exported_private_key(wallet_path, scheme, code, role):
@@ -176,10 +184,16 @@ def test_cli_recovers_exported_private_key(wallet_path, scheme, code, role):
     restored = getattr(Wallet("schemes", path=str(wallet_path)), role)
     assert restored.crypto_type == code
     assert restored.ss58_address == original.ss58_address
-    if code in HASHED_CRYPTO_TYPES:
+    if code in REGISTERED_CRYPTO_TYPES:
         assert restored.hashed_descriptor == original.hashed_descriptor
         restored, original = restored.at_generation(1), original.at_generation(1)
-    assert restored.verify(b"restored key", original.sign(b"restored key"))
+    if code in MLDSA_CRYPTO_TYPES:
+        assert restored.mldsa_current_commitment == original.mldsa_current_commitment
+        assert restored.mldsa_capability_commitment(2, 4) == original.mldsa_capability_commitment(
+            2, 4
+        )
+    else:
+        assert restored.verify(b"restored key", original.sign(b"restored key"))
 
 
 @pytest.mark.parametrize("scheme", ["hashed", "hashed-ed25519"])
@@ -221,7 +235,7 @@ def test_missing_account_type_lists_modes(wallet_path, monkeypatch, capsys, opti
     assert not wallet_path.exists()
 
 
-@pytest.mark.parametrize("scheme", ["sr", "ed"])
+@pytest.mark.parametrize("scheme", ["sr", "ed", "ms"])
 @pytest.mark.parametrize("mode", ["standard", "hashed"])
 def test_explicit_scheme_and_mode_create_recover_and_sign(wallet_path, scheme, mode):
     result = invoke("create", "--crypto-type", scheme, "--type", mode, "--no-password")
@@ -254,12 +268,22 @@ def test_explicit_scheme_and_mode_create_recover_and_sign(wallet_path, scheme, m
             assert restored.ss58_address == address
             assert restored.crypto_type == code
         signer = key.at_generation(1) if code in HASHED_CRYPTO_TYPES else key
-        signature = signer.sign(b"composable accounts")
-        assert key.verify(b"composable accounts", signature)
-        assert not key.verify(b"different message", signature)
-    shown = json.loads(invoke("show").output)
+        if code in MLDSA_CRYPTO_TYPES:
+            signature = signer.sign_mldsa(b"composable accounts")
+            args = (
+                key.hashed_descriptor,
+                signer.hashed_generation,
+                signer.hashed_current_commitment,
+            )
+            assert verify_mldsa_authorization(signature, b"composable accounts", *args)
+            assert not verify_mldsa_authorization(signature, b"different message", *args)
+        else:
+            signature = signer.sign(b"composable accounts")
+            assert key.verify(b"composable accounts", signature)
+            assert not key.verify(b"different message", signature)
+    shown = json.loads(invoke("show", "--offline").output)
     assert shown["coldkey_account_type"] == mode
-    listed = json.loads(invoke("list").output)
+    listed = json.loads(invoke("list", "--offline").output)
     assert mode in json.dumps(listed)
 
 
@@ -330,16 +354,30 @@ def test_sr_seed_recovery_preserves_selected_identity(wallet_path, mode, role):
     assert restored.ss58_address == original.ss58_address
 
 
-@pytest.mark.parametrize("scheme", ["ms", "mldsa", "ml-dsa"])
+@pytest.mark.parametrize("scheme", ["ms", "ml-dsa"])
 @pytest.mark.parametrize("role", ["coldkey", "hotkey"])
 @pytest.mark.parametrize("source", ["mnemonic", "seed", "private-key"])
-def test_removed_scheme_recovery_fails_before_writing(wallet_path, scheme, role, source):
+def test_fixed_mldsa_recovery_preserves_identity(wallet_path, scheme, role, source):
     secret = Keypair.generate_mnemonic(24) if source == "mnemonic" else "31" * 32
-    result = invoke(f"regen-{role}", "--crypto-type", scheme, f"--{source}", secret)
-    assert result.exit_code == 1, result.output
-    assert "unknown crypto type" in result.output
-    assert secret not in result.output
-    assert not wallet_path.exists()
+    original = (
+        Keypair.create_from_mnemonic(secret, 8)
+        if source == "mnemonic"
+        else Keypair.create_from_seed(bytes.fromhex(secret), 8)
+    )
+    result = invoke(
+        f"regen-{role}",
+        "--crypto-type",
+        scheme,
+        f"--{source}",
+        secret,
+        *(["--no-password"] if role == "coldkey" else []),
+    )
+    assert result.exit_code == 0, result.output
+    restored = getattr(Wallet("schemes", path=str(wallet_path)), role)
+    assert restored.crypto_type == 8
+    assert restored.account_type == "standard"
+    assert restored.ss58_address == original.ss58_address
+    assert restored.hashed_descriptor == original.hashed_descriptor
 
 
 @pytest.mark.parametrize("scheme", ["sr", "ed"])
@@ -371,3 +409,28 @@ def test_receiving_address_verification_preserves_scheme_and_mode(wallet_path, s
             *(["--type", selected_mode] if selected_mode else []),
         )
         assert (result.exit_code == 0) == success, result.output
+
+
+@pytest.mark.parametrize("alias", ["mldsa65", "mldsa", "ml-dsa-65", "7"])
+def test_mldsa_wallet_defaults_to_256_bit_entropy_and_restores(wallet_path, alias):
+    seen = []
+    wallet = wallets.create(
+        name="schemes",
+        path=str(wallet_path),
+        coldkey_crypto_type=wallets.parse_crypto_type(alias),
+        use_password=False,
+        on_mnemonic=lambda role, phrase: seen.append((role, phrase)),
+    )
+    assert len(seen) == 2
+    for role, phrase in seen:
+        assert len(phrase.split()) == 24
+        restored = Keypair.create_from_mnemonic(phrase, 7)
+        assert restored.crypto_type == 7
+        assert restored.ss58_address == getattr(wallet, role).ss58_address
+        assert restored.hashed_descriptor == getattr(wallet, role).hashed_descriptor
+
+
+def test_mldsa_short_mnemonic_rejected_before_wallet_write(wallet_path):
+    with pytest.raises(ValueError, match="24-word"):
+        wallets.create(name="schemes", path=str(wallet_path), coldkey_crypto_type=7, n_words=12)
+    assert not wallet_path.exists()

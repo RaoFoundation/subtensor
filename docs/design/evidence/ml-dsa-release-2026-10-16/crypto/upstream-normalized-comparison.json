@@ -1,0 +1,45 @@
+{
+  "files": [
+    {
+      "file": "vendor/fips204/src/conversion.rs",
+      "same_after_matching_rustfmt": true
+    },
+    {
+      "file": "vendor/fips204/src/encodings.rs",
+      "same_after_matching_rustfmt": true
+    },
+    {
+      "file": "vendor/fips204/src/hashing.rs",
+      "same_after_matching_rustfmt": false
+    },
+    {
+      "file": "vendor/fips204/src/helpers.rs",
+      "same_after_matching_rustfmt": true
+    },
+    {
+      "file": "vendor/fips204/src/high_low.rs",
+      "same_after_matching_rustfmt": true
+    },
+    {
+      "file": "vendor/fips204/src/lib.rs",
+      "same_after_matching_rustfmt": false
+    },
+    {
+      "file": "vendor/fips204/src/ml_dsa.rs",
+      "same_after_matching_rustfmt": false
+    },
+    {
+      "file": "vendor/fips204/src/ntt.rs",
+      "same_after_matching_rustfmt": true
+    },
+    {
+      "file": "vendor/fips204/src/traits.rs",
+      "same_after_matching_rustfmt": true
+    },
+    {
+      "file": "vendor/fips204/src/types.rs",
+      "same_after_matching_rustfmt": true
+    }
+  ],
+  "keygen_signing_prefix_identical_after_rustfmt": true
+}

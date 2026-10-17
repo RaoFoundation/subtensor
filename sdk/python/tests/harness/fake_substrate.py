@@ -27,7 +27,7 @@ from hashlib import blake2b
 from typing import Any, AsyncIterator, Optional
 
 from bittensor._transport import codec as codec_mod
-from bittensor._transport.contract import MultisigAccount
+from bittensor._transport.contract import HashedSigningSnapshot, MultisigAccount
 from bittensor.balance import Balance
 from bittensor.result import ExtrinsicResult
 
@@ -329,6 +329,18 @@ class FakeSubstrate:
     async def estimate_fee(self, call, keypair) -> Balance:
         return self.fee
 
+    async def estimate_shielded_carrier_fee(self, call, keypair, *, period: int) -> Balance:
+        from bittensor._transport.extrinsics import shielded_ciphertext_size
+
+        # Mirror this fake's sign_extrinsic representation without asking a signer.
+        inner = repr((call, keypair.ss58_address, self._nonces[keypair.ss58_address] + 1)).encode()
+        carrier = ComposedCall(
+            "MevShield",
+            "submit_encrypted",
+            {"ciphertext": bytes(shielded_ciphertext_size(len(inner)))},
+        )
+        return await self.estimate_fee(carrier, keypair)
+
     async def estimate_weight(self, call, keypair) -> dict:
         return dict(self.weight)
 
@@ -340,9 +352,37 @@ class FakeSubstrate:
     async def mev_next_key(self) -> Optional[bytes]:
         return self.mev_key
 
+    async def prepare_hashed_snapshot(self, keypair) -> HashedSigningSnapshot:
+        from bittensor.hashed import descriptor_bytes, raw_bytes
+
+        registry = "MlDsaAccounts" if keypair.crypto_type in (7, 8) else "Accounts"
+        record = await self.query("HashedAccounts", registry, [keypair.ss58_address])
+        generation = int(record["generation"]) if record else keypair.hashed_generation
+        return HashedSigningSnapshot(
+            await self.block_hash(self.finalized),
+            keypair.ss58_address,
+            keypair.crypto_type,
+            descriptor_bytes(record["descriptor"]) if record else bytes(keypair.hashed_descriptor),
+            generation,
+            raw_bytes(record["commitment"]) if record else bytes(keypair.hashed_current_commitment),
+            self._nonces[keypair.ss58_address],
+        )
+
     async def sign_extrinsic(
-        self, call, keypair, *, nonce: int, period: int, hashed_generation_offset: int = 0
+        self,
+        call,
+        keypair,
+        *,
+        nonce: int,
+        period: int,
+        hashed_generation_offset: int = 0,
+        hashed_signing_snapshot: Optional[HashedSigningSnapshot] = None,
     ) -> tuple[bytes, str]:
+        if hashed_signing_snapshot is not None:
+            if self._nonces[keypair.ss58_address] != hashed_signing_snapshot.nonce:
+                raise ValueError("hashed signing snapshot has a stale nonce")
+            if nonce != hashed_signing_snapshot.nonce + hashed_generation_offset:
+                raise ValueError("hashed signing snapshot nonce does not match the inner offset")
         payload = repr((call, keypair.ss58_address, nonce)).encode()
         return payload, "0x" + payload.hex()[:64].ljust(64, "0")
 
@@ -365,10 +405,19 @@ class FakeSubstrate:
         *,
         nonce: Optional[int] = None,
         period: Optional[int] = None,
+        hashed_signing_snapshot: Optional[HashedSigningSnapshot] = None,
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = True,
     ) -> ExtrinsicResult:
-        self.submissions.append((call, keypair.ss58_address, {"nonce": nonce, "period": period}))
+        options = {"nonce": nonce, "period": period}
+        if hashed_signing_snapshot is not None:
+            if (
+                self._nonces[keypair.ss58_address] != hashed_signing_snapshot.nonce
+                or nonce != hashed_signing_snapshot.nonce
+            ):
+                raise ValueError("hashed signing snapshot has a stale nonce")
+            options["hashed_signing_snapshot"] = hashed_signing_snapshot
+        self.submissions.append((call, keypair.ss58_address, options))
         self._nonces[keypair.ss58_address] += 1
         self.block += 1
         return self._next_result()

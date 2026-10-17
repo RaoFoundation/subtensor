@@ -4970,6 +4970,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0399f9d26e5191ce32c498bebd31e7a3ceabc2745f0ac54af3f335126c3f24b3"
 
 [[package]]
+name = "fips204"
+version = "0.4.6"
+dependencies = [
+ "rand_core 0.6.4",
+ "sha2 0.10.9",
+ "sha3 0.10.8",
+ "zeroize",
+]
+
+[[package]]
 name = "fixed-hash"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8871,6 +8881,7 @@ dependencies = [
  "sp-inherents",
  "sp-io",
  "sp-keyring",
+ "sp-keystore",
  "sp-npos-elections",
  "sp-offchain",
  "sp-runtime",
@@ -10434,6 +10445,7 @@ dependencies = [
  "sp-runtime",
  "sp-std",
  "substrate-fixed",
+ "subtensor-hashed",
  "subtensor-macros",
  "subtensor-runtime-common",
  "subtensor-swap-interface",
@@ -15021,9 +15033,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "log",
  "once_cell",
@@ -16424,7 +16436,6 @@ dependencies = [
 [[package]]
 name = "sc-transaction-pool"
 version = "40.1.0"
-source = "git+https://github.com/RaoFoundation/polkadot-sdk.git?rev=cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a#cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
 dependencies = [
  "async-trait",
  "futures",
@@ -18978,10 +18989,12 @@ dependencies = [
 name = "subtensor-hashed"
 version = "0.1.0"
 dependencies = [
+ "fips204",
  "hex",
  "parity-scale-codec",
  "scale-info",
  "serde_json",
+ "sha3 0.10.8",
  "sp-core",
  "sp-io",
 ]

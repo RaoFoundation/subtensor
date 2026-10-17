@@ -1,0 +1,51 @@
+[
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x6a4ed0940f5dd776da2c7d6e236a88c39ff30b8ab7c976c0e2a55d8a5e2c8f9c",
+    "extrinsic_id": "31-0006",
+    "fee_tao": 0.000315162
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xaf797669b68d5835c06be2ec40fb5407b0cad4383da260f17240b439b9a2f1d6",
+    "extrinsic_id": "34-0006",
+    "fee_tao": 0.000219404
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x45895ada0c2c4ba40754670520e135f8623ff1ab6334ebb53a96d240c07f54c7",
+    "extrinsic_id": "37-0006",
+    "fee_tao": 0.000315169
+  },
+  {
+    "success": false,
+    "message": "An arithmetic error occurred while dispatching the call.",
+    "block_hash": "0xb6623ab99f04be8ca7a327b1cf7dbd506f69f20033ad629fd395236c90aeb956",
+    "extrinsic_id": "40-0006",
+    "error": {
+      "message": "An arithmetic error occurred while dispatching the call.",
+      "name": "Arithmetic",
+      "code": "internal",
+      "remediation": "a chain-side invariant failed; nothing to fix client-side \u2014 report it if it persists",
+      "description": "An arithmetic error occurred while dispatching the call.",
+      "docs_url": "https://www.bittensor.com/docs/errors/internal"
+    }
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x375fe03564934ff5b3727b6c6784c77c4fab4b7dacb3cbbca7637f94aebe07fe",
+    "extrinsic_id": "43-0006",
+    "fee_tao": 0.000315162
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x98a541df32b1d4232451d3da79de6a7f74e1f1708c53257abe4dc967ba2b44a4",
+    "extrinsic_id": "46-0006",
+    "fee_tao": 0.000219404
+  }
+]

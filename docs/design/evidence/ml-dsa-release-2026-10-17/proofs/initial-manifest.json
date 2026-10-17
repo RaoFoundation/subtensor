@@ -1,0 +1,26 @@
+{
+  "head": "437053f80d5ebebce950602b168901bfe6591483",
+  "status": "",
+  "prior_overlay_source_differences": [
+    "docs/design/evidence/ml-dsa-release-2026-10-16/crypto/differential-harness/main.rs",
+    "docs/design/evidence/ml-dsa-release-2026-10-16/crypto/differential-harness/manifest.toml",
+    "docs/design/evidence/ml-dsa-release-2026-10-16/crypto/followup/primitive_bridge.rs",
+    "docs/design/evidence/ml-dsa-release-2026-10-16/crypto/pending-helper/pending_helper_tests.rs",
+    "node/src/execution_admission.rs",
+    "pallets/hashed-accounts/src/weights.rs",
+    "pallets/limit-orders/src/weights.rs",
+    "pallets/proxy/src/weights.rs",
+    "pallets/shield/src/weights.rs",
+    "pallets/subtensor/src/subnets/registration.rs",
+    "pallets/utility/src/weights.rs",
+    "runtime/src/hashed_native_evm_tests.rs",
+    "runtime/src/hashed_tests.rs",
+    "runtime/src/mldsa_dispatch_matrix_tests.rs",
+    "sdk/bittensor-core/src/keys/mldsa.rs",
+    "sdk/bittensor-core/src/keys/receiving.rs",
+    "vendor/frontier/client/rpc/src/eth/execute.rs",
+    "vendor/frontier/client/rpc/src/eth/pending.rs",
+    "vendor/frontier/client/rpc/src/eth/state.rs",
+    "vendor/frontier/client/rpc/src/execution_admission.rs"
+  ]
+}

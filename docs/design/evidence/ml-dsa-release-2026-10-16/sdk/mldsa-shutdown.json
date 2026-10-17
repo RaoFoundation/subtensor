@@ -1,0 +1,61 @@
+{
+  "node_pids": [
+    3937744,
+    3937745,
+    3937746
+  ],
+  "launcher_pid": 3937545,
+  "final_state": [
+    {
+      "pid": 3937744,
+      "port": 20444,
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "genesis": "0xda926a6f798f923be0119322a2bfc8bec87890babb6eb3fcd4c88acc5a769bbd",
+      "finalized": "0xae2370bf4456327b837fbdb86103a08d28284c343c42bd4a83478f3f7d646cf8",
+      "finalized_height": 128
+    },
+    {
+      "pid": 3937745,
+      "port": 20445,
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "genesis": "0xda926a6f798f923be0119322a2bfc8bec87890babb6eb3fcd4c88acc5a769bbd",
+      "finalized": "0xae2370bf4456327b837fbdb86103a08d28284c343c42bd4a83478f3f7d646cf8",
+      "finalized_height": 128
+    },
+    {
+      "pid": 3937746,
+      "port": 20446,
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "genesis": "0xda926a6f798f923be0119322a2bfc8bec87890babb6eb3fcd4c88acc5a769bbd",
+      "finalized": "0xae2370bf4456327b837fbdb86103a08d28284c343c42bd4a83478f3f7d646cf8",
+      "finalized_height": 128
+    }
+  ],
+  "signal": "SIGTERM to validated owned launcher",
+  "verified_node_alive": {
+    "3937744": false,
+    "3937745": false,
+    "3937746": false
+  },
+  "verified_port_listening": {
+    "20444": false,
+    "20445": false,
+    "20446": false,
+    "31434": false,
+    "31435": false,
+    "31436": false
+  },
+  "pid_file_removed": true
+}

@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="1.777" timestamp="2026-10-17T15:33:21.014879-07:00" hostname="pop-os"><testcase classname="tests.unit.test_keyfiles_golden" name="test_legacy_fernet_fixture_roundtrip" time="1.766" /></testsuite></testsuites>

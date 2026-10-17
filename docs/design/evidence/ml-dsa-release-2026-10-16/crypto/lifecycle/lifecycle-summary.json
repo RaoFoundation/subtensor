@@ -1,0 +1,36 @@
+{
+  "cases": [
+    {
+      "name": "test_composable_wallet_lifecycle[hashed-sr]",
+      "seconds": 2384.136,
+      "status": "passed"
+    },
+    {
+      "name": "test_composable_wallet_lifecycle[standard-sr]",
+      "seconds": 2276.157,
+      "status": "passed"
+    },
+    {
+      "name": "test_composable_wallet_lifecycle[standard-ed]",
+      "seconds": 2420.185,
+      "status": "passed"
+    },
+    {
+      "name": "test_composable_wallet_lifecycle[hashed-ed]",
+      "seconds": 2456.155,
+      "status": "passed"
+    },
+    {
+      "name": "test_composable_wallet_lifecycle[hashed-ms]",
+      "seconds": 2528.208,
+      "status": "passed"
+    },
+    {
+      "name": "test_composable_wallet_lifecycle[standard-ms]",
+      "seconds": 2204.146,
+      "status": "passed"
+    }
+  ],
+  "exit_code": 0,
+  "test_file_sha256": "34f4cc6d83e5e843745b99c222afeb9f55714a3f27fa02a43d7e343b89bb1f53"
+}

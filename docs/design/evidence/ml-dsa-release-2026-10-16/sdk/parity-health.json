@@ -1,0 +1,68 @@
+{
+  "peers": {
+    "20044": {
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "genesis": "0x0c5be242041eaa73415498b3681f05e7d11733758d4740d70cd554f0ba5ddee0",
+      "header": {
+        "parentHash": "0xf657ba25ef74e5e3ba765006034aff10b55eb536b8cf0bc5ff4b136d1e7338c7",
+        "number": "0x2",
+        "stateRoot": "0x72ace70dd3001651cbaa615ee599574244477e8c2f403f3e954d9592af8d1eb1",
+        "extrinsicsRoot": "0x2b4b0ff4f36297fe303d2736334b78280383d2659fd58acc3ae84e046bb0713e",
+        "digest": {
+          "logs": [
+            "0x06617572612045e0e60800000000",
+            "0x0466726f6e88017df5090008691d14cc4ab655283ea35c2d41864eb77923ca57f25e5e2623a11f00",
+            "0x0561757261010158a17936b4f97e01350ed396b0f0b7fb5e320d37d6aa6232b70b94b128fb512be1eb2d145cea22a4ac8a9753e61e8f354d1f18cc7bffec27fb9c191b68839e8c"
+          ]
+        }
+      }
+    },
+    "20045": {
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "genesis": "0x0c5be242041eaa73415498b3681f05e7d11733758d4740d70cd554f0ba5ddee0",
+      "header": {
+        "parentHash": "0xf657ba25ef74e5e3ba765006034aff10b55eb536b8cf0bc5ff4b136d1e7338c7",
+        "number": "0x2",
+        "stateRoot": "0x72ace70dd3001651cbaa615ee599574244477e8c2f403f3e954d9592af8d1eb1",
+        "extrinsicsRoot": "0x2b4b0ff4f36297fe303d2736334b78280383d2659fd58acc3ae84e046bb0713e",
+        "digest": {
+          "logs": [
+            "0x06617572612045e0e60800000000",
+            "0x0466726f6e88017df5090008691d14cc4ab655283ea35c2d41864eb77923ca57f25e5e2623a11f00",
+            "0x0561757261010158a17936b4f97e01350ed396b0f0b7fb5e320d37d6aa6232b70b94b128fb512be1eb2d145cea22a4ac8a9753e61e8f354d1f18cc7bffec27fb9c191b68839e8c"
+          ]
+        }
+      }
+    },
+    "20046": {
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "genesis": "0x0c5be242041eaa73415498b3681f05e7d11733758d4740d70cd554f0ba5ddee0",
+      "header": {
+        "parentHash": "0xf657ba25ef74e5e3ba765006034aff10b55eb536b8cf0bc5ff4b136d1e7338c7",
+        "number": "0x2",
+        "stateRoot": "0x72ace70dd3001651cbaa615ee599574244477e8c2f403f3e954d9592af8d1eb1",
+        "extrinsicsRoot": "0x2b4b0ff4f36297fe303d2736334b78280383d2659fd58acc3ae84e046bb0713e",
+        "digest": {
+          "logs": [
+            "0x06617572612045e0e60800000000",
+            "0x0466726f6e88017df5090008691d14cc4ab655283ea35c2d41864eb77923ca57f25e5e2623a11f00",
+            "0x0561757261010158a17936b4f97e01350ed396b0f0b7fb5e320d37d6aa6232b70b94b128fb512be1eb2d145cea22a4ac8a9753e61e8f354d1f18cc7bffec27fb9c191b68839e8c"
+          ]
+        }
+      }
+    }
+  },
+  "root_chain_genesis": "0xcf4d757e5181d80e8b61dabddc05eb57a3df3885334701a0703ce4378298c15f"
+}

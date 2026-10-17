@@ -53,7 +53,7 @@ type SubnetLeaseAllowed = (
 /// Contracts, and Crowdloan calls that can move value indirectly, Multisig
 /// wrappers (they re-dispatch on a fresh origin that drops this filter),
 /// `MevShield::store_encrypted` (decrypt-and-dispatch drops the filter),
-/// owner-key rotation, and basket trading (which needs the explicit
+/// owner-key rotation, deferred order approvals, protected-account creation, and basket trading (which needs the explicit
 /// `BasketTrading` grant). Sudo is excluded because a sudo-key principal
 /// would otherwise hand the delegate root, including forced transfers.
 /// `SudoCalls` is inventory-only: no restricted proxy grants it.
@@ -77,7 +77,7 @@ type NonTransferAllowed = (
 
 /// `NonFungible`: nothing that moves, locks, burns or spends TAO/alpha, no key
 /// swaps, no sudo, no Multisig wrappers (fresh-origin re-dispatch), no
-/// `store_encrypted`, and no owner-key rotation.
+/// `store_encrypted`, deferred order approvals, protected-account creation, and no owner-key rotation.
 type NonFungibleAllowed = (
     InfraCommonCalls,
     AdminAll,
@@ -94,11 +94,13 @@ type NonFungibleAllowed = (
 /// `NonCritical`: day-to-day operations including value movement, but no sudo,
 /// network dissolution, root/burned registration, coldkey swaps, Crowdloan
 /// wrappers (they re-dispatch a caller-supplied call as the real coldkey),
-/// Multisig wrappers, `store_encrypted`, owner-key rotation, or basket
-/// trading (which needs the explicit `BasketTrading` grant).
+/// Multisig wrappers, `store_encrypted`, owner-key rotation, deferred order approvals,
+/// protected-account creation, or basket
+/// trading (which needs the explicit `BasketTrading` grant). EVM execution can
+/// reconstruct an unrestricted native origin through precompiles, so it requires
+/// full authority even when the requested target is an ordinary contract.
 type NonCriticalAllowed = (
     InfraCommonCalls,
-    EvmCalls,
     ContractsCalls,
     AdminAll,
     BalanceTransferCalls,
@@ -307,7 +309,11 @@ mod tests {
         calls
             .iter()
             .copied()
-            .chain(["HashedAccounts::check_registered", "Utility::batch_all"])
+            .chain([
+                "HashedAccounts::check_registered",
+                "HashedAccounts::check_derived",
+                "Utility::batch_all",
+            ])
             .map(str::to_string)
             .collect()
     }
@@ -348,6 +354,8 @@ mod tests {
                 MevShieldStoreEncryptedCalls,
                 OwnerKeyCalls,
                 HashedAccountsCalls,
+                LimitOrderApprovalCalls,
+                ProtectedAccountCreationCalls,
             )>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
@@ -372,6 +380,8 @@ mod tests {
                 MevShieldStoreEncryptedCalls,
                 OwnerKeyCalls,
                 HashedAccountsCalls,
+                LimitOrderApprovalCalls,
+                ProtectedAccountCreationCalls,
             )>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
@@ -563,13 +573,15 @@ mod tests {
         let denied = &(&(&group_calls::<SudoCalls>() | &group_calls::<BurnedRegistrationCalls>())
             | &(&group_calls::<RootRegistrationCalls>() | &group_calls::<CriticalNetworkCalls>()))
             | &group_calls::<ColdkeySwapCalls>();
-        let denied = &denied | &group_calls::<(CrowdloanCalls, MultisigCalls)>();
+        let denied = &denied | &group_calls::<(EvmCalls, CrowdloanCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
         let denied = &denied
             | &group_calls::<(
                 MevShieldStoreEncryptedCalls,
                 OwnerKeyCalls,
                 HashedAccountsCalls,
+                LimitOrderApprovalCalls,
+                ProtectedAccountCreationCalls,
             )>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
@@ -631,12 +643,12 @@ mod tests {
             assert_eq!(info.proxy_type, proxy_type as u8);
             for call in &calls {
                 let metadata = call.get_call_metadata();
-                let is_crowdloan = metadata.pallet_name == "Crowdloan";
+                let recreates_origin = matches!(metadata.pallet_name, "Crowdloan" | "EVM");
                 // Crowdloan wrappers re-dispatch as the real coldkey; they stay on Any
-                // only. EVM / Contracts remain on NonCritical.
+                // only. EVM precompiles also recreate an unrestricted origin.
                 let expected = match proxy_type {
                     ProxyType::Any => true,
-                    ProxyType::NonCritical => !is_crowdloan,
+                    ProxyType::NonCritical => !recreates_origin,
                     ProxyType::NonTransfer | ProxyType::NonFungible => false,
                     _ => false,
                 };
@@ -873,6 +885,9 @@ mod tests {
             assert!(!allowed.contains("Crowdloan::finalize"));
             assert!(!allowed.contains("Sudo::sudo"));
             assert!(!allowed.contains("MevShield::store_encrypted"));
+            assert!(!allowed.contains("LimitOrders::authorize_order"));
+            assert!(!allowed.contains("Utility::as_protected_derivative"));
+            assert!(!allowed.contains("Proxy::create_protected_pure"));
             assert!(!allowed.contains("AdminUtils::sudo_set_sn_owner_hotkey"));
         }
         // `root_dissolve_network` leaked into NonCritical specifically.

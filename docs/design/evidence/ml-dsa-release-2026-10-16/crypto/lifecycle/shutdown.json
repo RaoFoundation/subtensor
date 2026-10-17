@@ -1,0 +1,14 @@
+{
+  "launcher_signal": "SIGTERM",
+  "remaining_open_ports": [],
+  "verified_at_utc": "2026-10-16T21:02:38.687161+00:00",
+  "checked_pids": [
+    3846562,
+    3846747,
+    3846748,
+    3846749,
+    3891696,
+    3891702
+  ],
+  "remaining_alive_pids": []
+}

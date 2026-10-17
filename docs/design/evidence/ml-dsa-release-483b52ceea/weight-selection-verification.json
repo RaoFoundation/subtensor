@@ -1,0 +1,1191 @@
+{
+  "passed": true,
+  "head": "483b52ceea5cf08a0fb492ca2915b7efa6a8690e",
+  "reference_run_id": 39060946210,
+  "reference_benchmark_commit": "437053f80d5ebebce950602b168901bfe6591483",
+  "reference_artifact_sha256": "5aa10aa331f894533d29c71c2191b36d4d2394ffba717c69d2e60975fe3baad5",
+  "imported_method_count": 16,
+  "checked_trait_and_implementation_items": 153,
+  "removed_method": "pallets/hashed-accounts/src/weights.rs::set_mldsa_enabled",
+  "comparison": "Formula token equality after removing comments/whitespace and optional trailing argument commas",
+  "scope": "Static comparison only; no benchmark, build, or fee execution performed",
+  "conservative_reads": "Reference formulas retain charges for the removed subordinate gate storage reads; no remaining measured formula was reduced or otherwise altered.",
+  "files": [
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "original_sha256": "d6b5ba0333c7b0fa0c3379b8561c1722d3b61311d68b6460c882a667d2adcd6a",
+      "reference_sha256": "c7d5a9ea402683cb40ebe15cb3b9a9deaf8ed4e8f1ca72e25aacf4ac786ceec2",
+      "current_sha256": "0123c9d90df0cea56b2a5bf4ae93321c93b8a8a1b0a17a09a8b17cc48dbdb06e",
+      "removed_methods": [
+        "set_mldsa_enabled"
+      ]
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "original_sha256": "e56c77ef693f0a0ca97d2ca0d649e12596d6ccdfdc1242b6a802b7b8f0496de7",
+      "reference_sha256": "9802ef1db0a4c4c62532e00ff568810685c31a1795f681315d7ce0aeb37842ac",
+      "current_sha256": "8e878b26cdcfd3e9f5c6855570e147e787f6040391293a38480a901b1f5ba9a3",
+      "removed_methods": []
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "original_sha256": "065593eb0b4c10a85db209050022304d31924a95388d9d9a3bcb5f4d567dde2e",
+      "reference_sha256": "f920e33ca7426ea101b639fec352288928a48cf61ab2308cfb3d89ac95ec146d",
+      "current_sha256": "b5d16db1b3b21839f97c954c33c011d724793b92d10cca0d109f92b7914259ea",
+      "removed_methods": []
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "original_sha256": "5ccab69816d49707f4f796f1fa3ff5448f5a2f7300de41f46c16a8e61eb0b7ff",
+      "reference_sha256": "1e7f26b94a8857ceca7771c5ff49b89a5958963e1c25b0df2f799b9509f9284b",
+      "current_sha256": "446626bce5179f71b78f28941d0c7f7ea9a516e6f996f9980dd6a6681a8f04a3",
+      "removed_methods": []
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "original_sha256": "591999bdbcb42ea477a6249ab1da3a91862bbba3830884b2c61662a528c3aff1",
+      "reference_sha256": "26e9d4e2cac699194289893fa1e30337d6fce5d51738de8a6e0e067b824b936b",
+      "current_sha256": "7bf4d933e7a350c04f62dfe58c6257f5cac5cdfc0eccba96e52a2091624e4739",
+      "removed_methods": []
+    }
+  ],
+  "selected_methods": [
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "method": "authorize_mldsa65"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "method": "authorize_mldsa65_invalid"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "method": "check_derived"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "method": "check_registered_mldsa65"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "method": "install_capability"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "method": "register_derived"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "method": "register_derived_sponsored"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "method": "register_mldsa65"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "method": "revoke_capability"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "method": "authorize_order"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "method": "cancel_authenticated_order"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "method": "execute_authenticated_batched_orders"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "method": "execute_authenticated_orders"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "method": "create_protected_pure"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "method": "as_protected_derivative"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "method": "submit_encrypted_large"
+    }
+  ],
+  "checks": [
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "register",
+      "source": "unchanged",
+      "normalized_sha256": "22df52866eac47ca4802196ea89ef9790227d2fd737520c04c72212f120e026f"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "check_registered",
+      "source": "unchanged",
+      "normalized_sha256": "5a2155e1bb9845190bd669ad15f6505df1d2722e197b66bd2107b31203d1c6f0"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "authorize",
+      "source": "unchanged",
+      "normalized_sha256": "228eb4c7605621707951cf34f0240818bb978b7f5f0f7f9da4e9b457f4032f48"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "authorize_ed25519",
+      "source": "unchanged",
+      "normalized_sha256": "5edf8f08c91e59eb75c670b59415b9ce91760d524f3e432932352c0399d29cd7"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "register_mldsa65",
+      "source": "reference",
+      "normalized_sha256": "f7bc5696a71e1d88ef13992aa69f9eec9a33b50c66cc65ff9c6a78ea74014a7c"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "check_registered_mldsa65",
+      "source": "reference",
+      "normalized_sha256": "10be1676533a79fcfd8bc74c0494f733f37135370332d7e705d73a74104757bc"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "authorize_mldsa65",
+      "source": "reference",
+      "normalized_sha256": "fe8831838e914910f5e0c75f42268fda0294a3574fa0d9e76a4f641115ca4568"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "authorize_mldsa65_invalid",
+      "source": "reference",
+      "normalized_sha256": "007b8563949a3f6e14347be0e56921fc54b3d839a2d7e219fec87abad4c0f258"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "register_derived",
+      "source": "reference",
+      "normalized_sha256": "ced56c01cd39ec35e53d25f303f87dc944a1e049bc5c544f5e5db8d769b09cd6"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "register_derived_sponsored",
+      "source": "reference",
+      "normalized_sha256": "7225bf041b52bbd525c52f2bd98810f9e615dc09493ac60822067265a5d0cb5c"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "check_derived",
+      "source": "reference",
+      "normalized_sha256": "b9cc6c7a0a925703ceba946c21ddca2975282be4ed9e953b8f8454ec480494ed"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "install_capability",
+      "source": "reference",
+      "normalized_sha256": "6e363628b143f9ac88e02e529d5f2b257e86f683cd8ab284bc345afaa386eb80"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "trait",
+      "method": "revoke_capability",
+      "source": "reference",
+      "normalized_sha256": "bc7512f30269d90a5c9436e48ba4dfd40f6633e83f3270c4e205759a8062f8b4"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "authorize_ed25519",
+      "source": "unchanged",
+      "normalized_sha256": "0a2cbda390dfd38a7de9ebbbc2fbedafd52f4a437eede0e196a5d93d8e040fa8"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "check_registered",
+      "source": "unchanged",
+      "normalized_sha256": "39da72e0b253803c38319946833be34eba3fa3124da1e3cc99110bffa1e0f5a7"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "install_capability",
+      "source": "reference",
+      "normalized_sha256": "27c53e3b60bff70d84943e70080497b38c66738ea4dddf48c9ca805c135e1128"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "revoke_capability",
+      "source": "reference",
+      "normalized_sha256": "b7b17a6fec5bf53b6aaf848447f3625375836bf7eb2066dfe7b70187331592a0"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "register_mldsa65",
+      "source": "reference",
+      "normalized_sha256": "94a15d759b6e0cd37a156d725ac0ca671129c8e180bed42665209c268b4af8e8"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "check_registered_mldsa65",
+      "source": "reference",
+      "normalized_sha256": "b73efb3c2f25df6c11428f752c107dcbfbf5d7544e0135d0943dad194d4b9cc2"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "register_derived",
+      "source": "reference",
+      "normalized_sha256": "a0af956667f75f7bf65cd83751372a86f4f64dfb9c47f789368aa1aeef6edfa3"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "register_derived_sponsored",
+      "source": "reference",
+      "normalized_sha256": "d967de386979fd9409181eb2a11260eda72bb6c14e4f6bb88af9a5f0ef17683b"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "check_derived",
+      "source": "reference",
+      "normalized_sha256": "5aae7d8151b137827924a47cd9c05f1a6b4f237e8cac365936be560be06ff66d"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "authorize_mldsa65",
+      "source": "reference",
+      "normalized_sha256": "038d6d8e11e320cb70826a3bfe8602a1c0bdfb6044f725028ebd80cbbf35647c"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "authorize_mldsa65_invalid",
+      "source": "reference",
+      "normalized_sha256": "b11d39e7f56d8cd2b59700102dbacd7d8334a9aed3a6c713f455c995394b6e8f"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "register",
+      "source": "unchanged",
+      "normalized_sha256": "6753408b1f27ad950d0fd03dfec2eaf8841253127296940c1b9f8e349794f659"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "generic",
+      "method": "authorize",
+      "source": "unchanged",
+      "normalized_sha256": "a877d389a2897e58fc7d5930a8ea503751fe847963f1da41298e46c25b894b6b"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "authorize_ed25519",
+      "source": "unchanged",
+      "normalized_sha256": "0d6ea51028e3bb4531f7b7ca3877e2972da3ce067a56787536e5f54e0745302c"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "check_registered",
+      "source": "unchanged",
+      "normalized_sha256": "73711547ade7e6e2776a878d1979d96ab02ff7ea5eb5b1647a8fe9740368e843"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "install_capability",
+      "source": "reference",
+      "normalized_sha256": "945d3b70740672815549c7ccc9d5da4dd236689dcbc72638fba340eedc937016"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "revoke_capability",
+      "source": "reference",
+      "normalized_sha256": "2df8c381d8f7fd5b6149713bfe93586648ed81e10f83954febf55ec79a92595e"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "register_mldsa65",
+      "source": "reference",
+      "normalized_sha256": "c30ea27390f6c07c729cae20b22f65163f11fcc34ef219d8734c181cb6da8cb0"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "check_registered_mldsa65",
+      "source": "reference",
+      "normalized_sha256": "7e944b94bed14dbd4b40fe534caf98521cdcf2454c9462a7a40491e80e700a72"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "register_derived",
+      "source": "reference",
+      "normalized_sha256": "ac6cf7e814b2095449df901a260059f5db2828f4d7b4fab6cf457038e1d036ba"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "register_derived_sponsored",
+      "source": "reference",
+      "normalized_sha256": "265cf86c9bc9dcc4489e527a9f0ca8ab4a481dacafb4a4734d013dc9093d595a"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "check_derived",
+      "source": "reference",
+      "normalized_sha256": "1e6340858f4d656bade076b09768d48e62c73d9774fc6ea6f5f360290112586a"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "authorize_mldsa65",
+      "source": "reference",
+      "normalized_sha256": "d89c676f3891c8137d0a749034d616ec85a6ce1fe541fb05c2bdc17a8168176c"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "authorize_mldsa65_invalid",
+      "source": "reference",
+      "normalized_sha256": "a2a2e617c0f8b282e42f81b05a35b33aef4a9aa60fd26c1fa0ac2d2e7aef8aca"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "register",
+      "source": "unchanged",
+      "normalized_sha256": "d6ce2b14efab6a62b0118929fb8a1bc0da1691249b987331494d719decf4e0bc"
+    },
+    {
+      "file": "pallets/hashed-accounts/src/weights.rs",
+      "section": "fallback",
+      "method": "authorize",
+      "source": "unchanged",
+      "normalized_sha256": "74eeb606892e4f101bcd9b0af454ebb14f05d2c62f02ed103cbb71648f83ba51"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "authorize_order",
+      "source": "reference",
+      "normalized_sha256": "29c663c1e1eaf2a3a81d2daba4e9d3139c298428c04d0f830154c689860362f8"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "execute_authenticated_orders",
+      "source": "reference",
+      "normalized_sha256": "0fe6bb0ebd00c4a9ee63894310dd02b2847706547055405f4cc60576b140067e"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "execute_authenticated_batched_orders",
+      "source": "reference",
+      "normalized_sha256": "f1f1c0c417d55c15c2ee73bfa8f551346ce64571d00495ebc983984e49b449d4"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "cancel_authenticated_order",
+      "source": "reference",
+      "normalized_sha256": "6b45465e823d67ec53ba48d038795c5fed65edfdc47743c1bc14e06ad6f62911"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "cancel_order",
+      "source": "unchanged",
+      "normalized_sha256": "1b171e79c93b6062d0e794727fffd657b835069287cb30153943d26a0d9bee1e"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "set_pallet_status",
+      "source": "unchanged",
+      "normalized_sha256": "f691652264ced459743ee44db2daaf45379cafc78b9da2188472319ccd46a79c"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "execute_orders",
+      "source": "unchanged",
+      "normalized_sha256": "d2a203bc21998e5de56931ad6e5791b1ad86627bbad8470756b15d200926467a"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "execute_batched_orders",
+      "source": "unchanged",
+      "normalized_sha256": "bac80af5091e1a4f008292d69016858efcf299f0b5ad6fd6e1b9ede5176bf14f"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "trait",
+      "method": "prune_linked_output",
+      "source": "unchanged",
+      "normalized_sha256": "23951ff3227f038eaecf063d3e54f7cfd0a04938496720eeca80140062ffea42"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "cancel_order",
+      "source": "unchanged",
+      "normalized_sha256": "e0240391e3befcbc58549a66e4c81d766c6de46480351538b6bc3ec2581c36b4"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "prune_linked_output",
+      "source": "unchanged",
+      "normalized_sha256": "2e1e9e57ef779affa49308e26e033c9258b689122e26c653ef6d8b6cf978d934"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "set_pallet_status",
+      "source": "unchanged",
+      "normalized_sha256": "2645ad5d4976564156ef6fc76fa761ff6a81785a7c53216804ded27410a5fc2b"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "execute_orders",
+      "source": "unchanged",
+      "normalized_sha256": "e77a5fde03bdc0f23247b02f3457c9fda2d43a06f8d28fbfbe5db6d522f24f44"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "execute_batched_orders",
+      "source": "unchanged",
+      "normalized_sha256": "7446aac70509b92842b58f8bc86c136b9b3bea4e81dfa509a9dc754dd60b440c"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "authorize_order",
+      "source": "reference",
+      "normalized_sha256": "f40edec1171042612334fcd052f18943ac3784b4a189c8610b9af27197c8cd2a"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "cancel_authenticated_order",
+      "source": "reference",
+      "normalized_sha256": "c9c8b933535615f9cbf8452250cda43c164e501999dde5bd97aa4877cd734d30"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "execute_authenticated_orders",
+      "source": "reference",
+      "normalized_sha256": "bed4fd00d3e766ddcc1b350303d695d047c76dbdcfb51cc0222a8fe57bff6251"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "generic",
+      "method": "execute_authenticated_batched_orders",
+      "source": "reference",
+      "normalized_sha256": "302a88414c641935bb161834832a6423319ec7129bfcc132e6f6556fdb0f64a3"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "cancel_order",
+      "source": "unchanged",
+      "normalized_sha256": "a37b60cdf4ae3c6480c6bde44893d17457d76a89aac11621ef3aa240ca125bc3"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "prune_linked_output",
+      "source": "unchanged",
+      "normalized_sha256": "b8f63dfae150ebdd96652a8ca6131eeeeceb556bce2e43fbd16f730d9279ec62"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "set_pallet_status",
+      "source": "unchanged",
+      "normalized_sha256": "3724f6e7d3281c6ca60539823f28b2abad9ce0a558f2f293d417704b5b401eaf"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "execute_orders",
+      "source": "unchanged",
+      "normalized_sha256": "d43835b28ebb2a626b29955daa33f297468e0659cf6a58b10c6427a53e654eda"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "execute_batched_orders",
+      "source": "unchanged",
+      "normalized_sha256": "fbe0e353f44fa162db20ee5a91233330cd316242ae27543cc054e1f21517a155"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "authorize_order",
+      "source": "reference",
+      "normalized_sha256": "55f4db5c73161826845f95fe1da3823ee7c517a42744c628d9d1e39bbccbf560"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "cancel_authenticated_order",
+      "source": "reference",
+      "normalized_sha256": "b61421648551526a7935eae9bd1a4b4ad7002f69ed9a8318a12daa2321b002bf"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "execute_authenticated_orders",
+      "source": "reference",
+      "normalized_sha256": "dc866e5e715b66aad1c4019154e1a989b539588828eb84d660356067e77de8bd"
+    },
+    {
+      "file": "pallets/limit-orders/src/weights.rs",
+      "section": "fallback",
+      "method": "execute_authenticated_batched_orders",
+      "source": "reference",
+      "normalized_sha256": "59d5de8dff9f6986a9365c0472ac1618ebc14061a5044ee2b67eebff8111743c"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "create_protected_pure",
+      "source": "reference",
+      "normalized_sha256": "a7a893633905026c10c2db0b1acf66fc1efd272e78a56cbaca26aaa9f4f6d457"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "proxy",
+      "source": "unchanged",
+      "normalized_sha256": "d1079101ef7a4cf179de5414a6e91962c62a0a95703bac1e4d0aa2dbf910edcb"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "proxy_announced",
+      "source": "unchanged",
+      "normalized_sha256": "952d55764b322bf94798027de693a6abba0b28a46a96c519af706d13bdd6241f"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "remove_announcement",
+      "source": "unchanged",
+      "normalized_sha256": "18f39214afeb0989192150dd3336b4008a3a267325b8350785d577755aadce42"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "reject_announcement",
+      "source": "unchanged",
+      "normalized_sha256": "187034d70d5d35bdbb23e2fad97db3b46ece78e2f74ac52412523bc376d7cf86"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "announce",
+      "source": "unchanged",
+      "normalized_sha256": "a90fa068c606232c7a2e7d511d535e7a6c9e53e4af65b422cb7183e6d1621c32"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "add_proxy",
+      "source": "unchanged",
+      "normalized_sha256": "20065d21c4ca68c2a74f1899aeb9b2ccb431ec8c23a539a64a51f113ebdd77f8"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "remove_proxy",
+      "source": "unchanged",
+      "normalized_sha256": "4db6e19f7cddb8e97e4e09bff9f51d84c7cc60aab1cad0b95190e403a3a4035a"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "remove_proxies",
+      "source": "unchanged",
+      "normalized_sha256": "9de4730b8ebeb87ef0a8f60dc9d15fd38f0d11d8ca83df945d5ec95118c71297"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "create_pure",
+      "source": "unchanged",
+      "normalized_sha256": "166fa486b1d135948ed3a4a58dae6782b5a1a66810a36968f96590a426e910cf"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "kill_pure",
+      "source": "unchanged",
+      "normalized_sha256": "ebb6c1bb1e146a5c83ac1dd0bebef491a82edf87acd52caeb82d521d85bba6e3"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "poke_deposit",
+      "source": "unchanged",
+      "normalized_sha256": "4c45068faca507d170c4c8839b989ac5ebf83143b29ce25a3c12cf3cfdc5b3d8"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "trait",
+      "method": "set_real_pays_fee",
+      "source": "unchanged",
+      "normalized_sha256": "73136801cd5d37c086c4f98755e1ac87075d0fb2362f10a2b487bbe3a09afec2"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "proxy",
+      "source": "unchanged",
+      "normalized_sha256": "b151511c1ea815336641435a825639e02b9a38f0e3c0c211bb9bfcabadf208df"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "proxy_announced",
+      "source": "unchanged",
+      "normalized_sha256": "1e8619e170953b4b91c29cb938150750a82fa8d86687e4138d69f40f417e0ff4"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "remove_announcement",
+      "source": "unchanged",
+      "normalized_sha256": "0ad94bb304c910c985f9782891ff425e79f571416610cbd3094875ee0bbf3e9a"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "reject_announcement",
+      "source": "unchanged",
+      "normalized_sha256": "46c8d447f3be73a8e4c9e95eaf7f6317250884f3b79b759981fbdd04ff343149"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "announce",
+      "source": "unchanged",
+      "normalized_sha256": "c3839bbb530080db94218ddb54205e90e0ac1af9315d05d29de3e1f73362c914"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "add_proxy",
+      "source": "unchanged",
+      "normalized_sha256": "0183370029d7879998c10b05fc8038ee2a1781dce6a7144d8841c5cf3193cc83"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "remove_proxy",
+      "source": "unchanged",
+      "normalized_sha256": "5e8af85d885bb767b372e25ed9d1215e1f2a3ecf42d6860add15036aaa15fb90"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "remove_proxies",
+      "source": "unchanged",
+      "normalized_sha256": "1f98411f886f0880b9d43243ff4e549f0ca4ae8f7daf440f1ff49d19729512c6"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "create_protected_pure",
+      "source": "reference",
+      "normalized_sha256": "dee057d9f0fe593b0ffd5d9e9d02c4b70dc8864247ca4e4642b243045374bd4e"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "create_pure",
+      "source": "unchanged",
+      "normalized_sha256": "5ccab1c7a84114286466efc19a074dc0489b790ba0ae16720917c781b746836f"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "kill_pure",
+      "source": "unchanged",
+      "normalized_sha256": "b91c48353254603011939260fba2f44e028f0b43a263a372ce926f2778aa29fc"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "poke_deposit",
+      "source": "unchanged",
+      "normalized_sha256": "c707a78fa087879fe4c1d053f1fa91106c280f138c9c13ccc2e834e27750932e"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "generic",
+      "method": "set_real_pays_fee",
+      "source": "unchanged",
+      "normalized_sha256": "c9885e052649ea79ff4f92821cf224a898340ad045e4bceb18e0c64d11bd85c7"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "proxy",
+      "source": "unchanged",
+      "normalized_sha256": "63e10c281d3035da50bf358e1f62a08f5b06b03846868712178174734689795d"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "proxy_announced",
+      "source": "unchanged",
+      "normalized_sha256": "bf9a63739e709c1b931a4d368154ac3ca25333dcb1dfbd793e9e85dba4bb4eac"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "remove_announcement",
+      "source": "unchanged",
+      "normalized_sha256": "45599cb4dc8c078c55c42cb99ad65acd27bca1608a3409a980a6e24b4eb06da9"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "reject_announcement",
+      "source": "unchanged",
+      "normalized_sha256": "679dd687fcaf7aac3b2a16ace211fd7e9ec0c14fc9ac45a7aadc9e2887318363"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "announce",
+      "source": "unchanged",
+      "normalized_sha256": "f31843e1a898ecdf4c985462b97091ad6265ddab371eebad1432de33e380e17a"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "add_proxy",
+      "source": "unchanged",
+      "normalized_sha256": "82319b6d323be6ddd5ef500d90defac2c7b2a82279deca2bdc1ab7e141085f73"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "remove_proxy",
+      "source": "unchanged",
+      "normalized_sha256": "04dcca2b08c900ea7a5c85454a6f0efa8f560e2e28bd485055b0e87bef2e56e2"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "remove_proxies",
+      "source": "unchanged",
+      "normalized_sha256": "f52c59545146c171f33da1c83cc71edd51de34e610cbd8f1c2613798e06d8771"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "create_protected_pure",
+      "source": "reference",
+      "normalized_sha256": "41694d7410d6d625180aecc487f777b4e0878d13443ea58045012d2c87c2701c"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "create_pure",
+      "source": "unchanged",
+      "normalized_sha256": "e32c89e445ef4166f67fe3ea76f1512743bcfd5b963a99cef702d8c818d03687"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "kill_pure",
+      "source": "unchanged",
+      "normalized_sha256": "dcd72507ee8d006b62f917c336847cdfeba87359a07747874ba908ccdbe7367f"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "poke_deposit",
+      "source": "unchanged",
+      "normalized_sha256": "c084d0d490e50c95f93f579c10f5d69c0c8f6aa3c7a5adf6c8dd1692f14968c5"
+    },
+    {
+      "file": "pallets/proxy/src/weights.rs",
+      "section": "fallback",
+      "method": "set_real_pays_fee",
+      "source": "unchanged",
+      "normalized_sha256": "645fc26f4a566a6c92baa73d729428f2fe9e94b021f8ec4f84f8b3a1ac5af25e"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "as_protected_derivative",
+      "source": "reference",
+      "normalized_sha256": "bddbd4132d3506a9fce70750c47f437ebc9e1cf0e74890d2b110dd6cec63b08e"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "batch",
+      "source": "unchanged",
+      "normalized_sha256": "6f09d507c8c9f5dc1d6c777b30217c6ff6a52cd7c95873e4407a4352757eac1a"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "as_derivative",
+      "source": "unchanged",
+      "normalized_sha256": "9ccddbc4ce52c27ebe6e5b3f960576a76ccee709b2c6f4fb36225f2c8aa72f07"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "batch_all",
+      "source": "unchanged",
+      "normalized_sha256": "6bb95cd4e0beeb53843f27488a707d12943c9cd8d7ce6c817ab962836c70eb28"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "dispatch_as",
+      "source": "unchanged",
+      "normalized_sha256": "2bf938ca78cb2caba05a3a693245074ea19b8ac304f9c0a40e72d4139ef00f2e"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "force_batch",
+      "source": "unchanged",
+      "normalized_sha256": "2a0c7f9fe5151ccb3a1edf87e11747b8072f7a23511528faa8cd4e404e6ed7d7"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "dispatch_as_fallible",
+      "source": "unchanged",
+      "normalized_sha256": "2eb15a31c5c5a08441e424c90ab43556279fdf4482feb2a55673c67e6f5ca22b"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "if_else",
+      "source": "unchanged",
+      "normalized_sha256": "0f90c8381ef71ab178d0e500e60b40a3b773d12803d84ac5ea1f06d623eaa187"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "trait",
+      "method": "with_weight",
+      "source": "unchanged",
+      "normalized_sha256": "4ec7d743d1f807abe6e22005723cc3a33f6b1417f319e13cda972b8552738fff"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "batch",
+      "source": "unchanged",
+      "normalized_sha256": "769026f7df4df47d611834d203c71c3794d9ab87b2639e75db775e6b080a8388"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "as_protected_derivative",
+      "source": "reference",
+      "normalized_sha256": "4273662ba529f1dd9af59b05271e28f8b2bb35b0b3b9f20b2d493cd0ffc19bfa"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "as_derivative",
+      "source": "unchanged",
+      "normalized_sha256": "045d1c7c112baa8d2accc76cf00b5d36929fb04caa98ae9825e33276fb7c01b9"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "batch_all",
+      "source": "unchanged",
+      "normalized_sha256": "2671938aba3d6b0846aed260b495b775742c08c83b114be35ee46462f1c68a99"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "dispatch_as",
+      "source": "unchanged",
+      "normalized_sha256": "f05b157a59adf8af5f71e59eac7a265a5114a8c28fc871ed7186b9f03a989009"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "force_batch",
+      "source": "unchanged",
+      "normalized_sha256": "63d25f467918b395fb276b10040d60672ec88309e63d0548873525e69ff2b792"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "dispatch_as_fallible",
+      "source": "unchanged",
+      "normalized_sha256": "8ce5590b2c413972f0869478b06360f2b3d67580858e1c9771b3cf770f64ac99"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "if_else",
+      "source": "unchanged",
+      "normalized_sha256": "3dde53d7011f4ab57194b83ef179581e1b5f2cc159b5147897b99bbf172fc169"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "generic",
+      "method": "with_weight",
+      "source": "unchanged",
+      "normalized_sha256": "47641be41f98f0d0fd7ec8572465eb016c1545466394aa34982d31fa1e763cf5"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "batch",
+      "source": "unchanged",
+      "normalized_sha256": "4e978cc1fbd0dfacf3d3f8427657b9bad29a107dcadd6afabbe6dbf4cd7ff85d"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "as_protected_derivative",
+      "source": "reference",
+      "normalized_sha256": "b6d65d8879ef41642671855503ada38281be48db4fb0fab119861c64fe81c150"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "as_derivative",
+      "source": "unchanged",
+      "normalized_sha256": "44cf30144c8f88c955ab86830105154c60c7048441140fe047cfff24de54bf5e"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "batch_all",
+      "source": "unchanged",
+      "normalized_sha256": "7cea6e612f78105b63990a38bba03f63166e3efa2590df5077a4c92ac06df120"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "dispatch_as",
+      "source": "unchanged",
+      "normalized_sha256": "f05b157a59adf8af5f71e59eac7a265a5114a8c28fc871ed7186b9f03a989009"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "force_batch",
+      "source": "unchanged",
+      "normalized_sha256": "9f6facf1025aab9487c9bc0b32ee9630b3f7025c56645d780d72c7ab28dc47d7"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "dispatch_as_fallible",
+      "source": "unchanged",
+      "normalized_sha256": "8ce5590b2c413972f0869478b06360f2b3d67580858e1c9771b3cf770f64ac99"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "if_else",
+      "source": "unchanged",
+      "normalized_sha256": "a0764cedf6a08c8d39863891146a0ea848c908dc82beb83c83d28c5c8dcf6267"
+    },
+    {
+      "file": "pallets/utility/src/weights.rs",
+      "section": "fallback",
+      "method": "with_weight",
+      "source": "unchanged",
+      "normalized_sha256": "47641be41f98f0d0fd7ec8572465eb016c1545466394aa34982d31fa1e763cf5"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "submit_encrypted_large",
+      "source": "reference",
+      "normalized_sha256": "a564158835a4cd62d7ac2eede198d8a9c57dc38abec9ce0ed89a8a1350e538b5"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "announce_next_key",
+      "source": "unchanged",
+      "normalized_sha256": "bc951f2b77460333100760ba2570f17b8824f5c3acdd09c2b11953f078a1ebba"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "submit_encrypted",
+      "source": "unchanged",
+      "normalized_sha256": "91ee4410692d3fc94e2f7d9f41e0c70136c0218bcf5be14ee3bd045b3829c5ac"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "set_max_pending_extrinsics_number",
+      "source": "unchanged",
+      "normalized_sha256": "784eba9ec3b1a784a7022d49734d58826d99511a4af6d5ac174f6aeb26358269"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "set_on_initialize_weight",
+      "source": "unchanged",
+      "normalized_sha256": "aae2bf71c9b364043c2ab2b8f8fe5187947ab1f1f50c8f1556b483a52a79f8b7"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "set_stored_extrinsic_lifetime",
+      "source": "unchanged",
+      "normalized_sha256": "ae406065d25f7e2306d8eebe85ceb8822ab4ac515783ec28e9319937d857aa8e"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "trait",
+      "method": "set_max_extrinsic_weight",
+      "source": "unchanged",
+      "normalized_sha256": "9d88dd7fecf07124b83d37f76a82d203a957135fef616c2b963d6170ade25ee8"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "announce_next_key",
+      "source": "unchanged",
+      "normalized_sha256": "f605898d64e255c15cfbde804bd26e2abd8291616daa66cb45caaf9a36876739"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "submit_encrypted",
+      "source": "unchanged",
+      "normalized_sha256": "d02f19c64c497410c8f1aac1bd1beb39346f26b0a0ec9d4d7b4a746c86b3f81a"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "submit_encrypted_large",
+      "source": "reference",
+      "normalized_sha256": "078b9cd09fd5913890d4b2a1ab7a42e9c4d73ab71012f6dbf7150ea504e4a933"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "set_max_pending_extrinsics_number",
+      "source": "unchanged",
+      "normalized_sha256": "7b9bee1ba61fdc412a13951ecb91efcbae0ee4bb6eeda048f37b8060cf02ff5c"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "set_on_initialize_weight",
+      "source": "unchanged",
+      "normalized_sha256": "48f5427610c2abbd2ebb3aab30f213db93ccb2b6495acb07db9382bfa0dd2956"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "set_stored_extrinsic_lifetime",
+      "source": "unchanged",
+      "normalized_sha256": "abc8bb9d640aebc6731d169b133c06a9cc0a4007e894faed318cf2fd21f5d21f"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "generic",
+      "method": "set_max_extrinsic_weight",
+      "source": "unchanged",
+      "normalized_sha256": "4fe01cd0a2964d4a1775f22d43c7d3129032194e85da72213ecc2922eecc7c2f"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "announce_next_key",
+      "source": "unchanged",
+      "normalized_sha256": "b711db2ba981a3991c1e8991b40ef1399737120233d079c4689f1ce037deb884"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "submit_encrypted",
+      "source": "unchanged",
+      "normalized_sha256": "d02f19c64c497410c8f1aac1bd1beb39346f26b0a0ec9d4d7b4a746c86b3f81a"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "submit_encrypted_large",
+      "source": "reference",
+      "normalized_sha256": "078b9cd09fd5913890d4b2a1ab7a42e9c4d73ab71012f6dbf7150ea504e4a933"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "set_max_pending_extrinsics_number",
+      "source": "unchanged",
+      "normalized_sha256": "a47d4bdba2a933c209b89844b57b7a0af9be499cb5ee6f4a4204e11dc7fd7c5b"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "set_on_initialize_weight",
+      "source": "unchanged",
+      "normalized_sha256": "297d723d2e7a5847d554236963e74b4132d80111fd0d1c8729858cd11cf3db5f"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "set_stored_extrinsic_lifetime",
+      "source": "unchanged",
+      "normalized_sha256": "7ae99e85b0a08046037b86e428e15d70adcce359ebc27d09e33e3087fe44396b"
+    },
+    {
+      "file": "pallets/shield/src/weights.rs",
+      "section": "fallback",
+      "method": "set_max_extrinsic_weight",
+      "source": "unchanged",
+      "normalized_sha256": "b33171ac63a958d95bad70adef202e5b6f621221d8ee3fc7bc657871a739bfc7"
+    }
+  ]
+}

@@ -11,6 +11,14 @@ use sp_runtime::{
 use subtensor_hashed::{Descriptor, Scheme};
 #[path = "hashed_envelope_tests.rs"]
 mod envelope;
+#[path = "mldsa_tests.rs"]
+mod mldsa;
+#[path = "mldsa_benchmark_tests.rs"]
+mod mldsa_benchmarks;
+#[path = "mldsa_dispatch_matrix_tests.rs"]
+mod mldsa_dispatch_matrix;
+#[path = "mldsa_order_tests.rs"]
+mod mldsa_orders;
 #[path = "hashed_native_evm_tests.rs"]
 mod native_evm;
 fn ext() -> sp_io::TestExternalities {
@@ -66,7 +74,7 @@ fn setup() {
     pallet_hashed_accounts::Accounts::<Runtime>::insert(
         account(),
         pallet_hashed_accounts::AccountRecord {
-            descriptor: descriptor(),
+            descriptor: descriptor().into(),
             generation: 0,
             commitment: descriptor().initial_commitment,
         },
@@ -421,7 +429,7 @@ fn sponsor_can_register_without_revealing_signer_and_fund_atomically() {
         let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
             calls: alloc::vec![
                 RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register {
-                    descriptor: descriptor()
+                    descriptor: descriptor().into()
                 }),
                 RuntimeCall::Balances(BalancesCall::transfer_keep_alive {
                     dest: account().into(),
@@ -451,7 +459,7 @@ fn registered_identity_cannot_use_legacy_signature_path() {
         pallet_hashed_accounts::Accounts::<Runtime>::insert(
             &who,
             pallet_hashed_accounts::AccountRecord {
-                descriptor: descriptor(),
+                descriptor: descriptor().into(),
                 generation: 0,
                 commitment: descriptor().initial_commitment,
             },
@@ -482,7 +490,7 @@ fn recipient_checks_preserve_restricted_proxy_permissions_and_atomicity() {
             pallet_subtensor::Owner::<Runtime>::insert(account(), account());
             let guard =
                 RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::check_registered {
-                    descriptor: descriptor(),
+                    descriptor: descriptor().into(),
                 });
             let stake = RuntimeCall::SubtensorModule(pallet_subtensor::Call::add_stake {
                 hotkey: account(),
@@ -516,7 +524,7 @@ fn recipient_checks_preserve_restricted_proxy_permissions_and_atomicity() {
             assert_eq!(
                 dispatch(batch(vec![
                     RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register {
-                        descriptor: descriptor()
+                        descriptor: descriptor().into()
                     }),
                     stake.clone()
                 ])),
@@ -558,7 +566,7 @@ fn hashed_accounts_only_accept_hashed_proxy_delegates() {
         pallet_hashed_accounts::Accounts::<Runtime>::insert(
             &delegate,
             pallet_hashed_accounts::AccountRecord {
-                descriptor: descriptor(),
+                descriptor: descriptor().into(),
                 generation: 0,
                 commitment: descriptor().initial_commitment,
             },
@@ -596,7 +604,7 @@ fn registration_benchmark_context_covers_outer_decode_and_proxy_cleanup() {
         assert!(System::extrinsic_data(0).len() > 16_000);
         frame_support::assert_ok!(HashedAccounts::register(
             RuntimeOrigin::signed(sponsor),
-            descriptor()
+            descriptor().into()
         ));
         assert!(Proxy::proxies(account()).0.is_empty());
     });
@@ -652,7 +660,7 @@ fn setup_through_derivative_wrapper_cannot_change_authorization() {
             TaoBalance::new(1_000_000_000_000),
         );
         let registration = RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register {
-            descriptor: descriptor(),
+            descriptor: descriptor().into(),
         });
         let call = RuntimeCall::Utility(pallet_utility::Call::as_derivative {
             index: 0,
@@ -748,7 +756,7 @@ fn failed_first_funding_rolls_back_registration_and_can_be_retried() {
             RuntimeCall::Utility(pallet_utility::Call::batch_all {
                 calls: alloc::vec![
                     RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register {
-                        descriptor: descriptor(),
+                        descriptor: descriptor().into(),
                     }),
                     RuntimeCall::Balances(BalancesCall::transfer_keep_alive {
                         dest: account().into(),
@@ -900,7 +908,9 @@ fn first_funding(descriptor: Descriptor, value: TaoBalance) -> RuntimeCall {
     let recipient = AccountId::new(subtensor_hashed::account_id(&descriptor));
     RuntimeCall::Utility(pallet_utility::Call::batch_all {
         calls: alloc::vec![
-            RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register { descriptor }),
+            RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register {
+                descriptor: descriptor.into()
+            }),
             RuntimeCall::Balances(BalancesCall::transfer_keep_alive {
                 dest: recipient.into(),
                 value,
@@ -993,7 +1003,7 @@ fn first_funding_send_all_reserves_registration_before_computing_transferable_fu
         let batch = RuntimeCall::Utility(pallet_utility::Call::batch_all {
             calls: alloc::vec![
                 RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register {
-                    descriptor: descriptor()
+                    descriptor: descriptor().into()
                 }),
                 RuntimeCall::Balances(BalancesCall::transfer_all {
                     dest: account().into(),
@@ -1237,7 +1247,9 @@ mod composable_accounts {
         let account = AccountId::new(subtensor_hashed::account_id(&descriptor));
         let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
             calls: alloc::vec![
-                RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register { descriptor }),
+                RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register {
+                    descriptor: descriptor.into()
+                }),
                 RuntimeCall::Balances(BalancesCall::transfer_keep_alive {
                     dest: account.clone().into(),
                     value: TaoBalance::new(10_000_000_000)
@@ -1282,6 +1294,17 @@ mod composable_accounts {
                 Signature::Ed25519(signature),
                 extra,
             );
+            let before = HashedAccounts::accounts(&account);
+            frame_support::assert_ok!(AdminUtils::sudo_set_hashed_accounts_enabled(
+                RuntimeOrigin::root(),
+                false
+            ));
+            assert!(Executive::apply_extrinsic(xt.clone()).is_err());
+            assert_eq!(HashedAccounts::accounts(&account), before);
+            frame_support::assert_ok!(AdminUtils::sudo_set_hashed_accounts_enabled(
+                RuntimeOrigin::root(),
+                true
+            ));
             frame_support::assert_ok!(Executive::apply_extrinsic(xt.clone()).unwrap());
             let record = HashedAccounts::accounts(&account).unwrap();
             assert_eq!(record.generation, 1);

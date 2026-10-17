@@ -18,15 +18,17 @@ from bittensor.cli.main import app
 from bittensor.cli.output import Output
 from bittensor.client import Client
 from bittensor.evm.precompiles import encode_call, get_precompile
-from bittensor.hashed import descriptor_value
+from bittensor.hashed import descriptor_storage, descriptor_value
 from bittensor.receiving import account_for_registered_write, receiving_address
-from bittensor.sp_core import HASHED_CRYPTO_TYPES, Keypair
+from bittensor.sp_core import REGISTERED_CRYPTO_TYPES, Keypair
 from bittensor.wallet import Wallet
 from tests.harness.fake_substrate import FakeSubstrate
 from tests.harness.receiving import descriptor_receiving_address
 
 
-@pytest.fixture(params=[0, 1, 4, 6], ids=["ed", "sr", "hashed", "hashed-ed"])
+@pytest.fixture(
+    params=[0, 1, 4, 6, 7, 8], ids=["ed", "sr", "hashed", "hashed-ed", "hashed-ms", "ms"]
+)
 def wallet_case(request, tmp_path, monkeypatch):
     for variable in ("BTCLI_CONFIG", "BTCLI_ADDRESSES_PATH"):
         monkeypatch.setenv(variable, str(tmp_path / variable))
@@ -40,13 +42,14 @@ def wallet_case(request, tmp_path, monkeypatch):
             suppress=True,
         )
     substrate = FakeSubstrate()
-    substrate.seed_constant("HashedAccounts", "Enabled", True)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], True)
+    substrate.seed_constant("HashedAccounts", "RegistrationDeposit", 200_000_000)
     for role in ("coldkey", "hotkey"):
         key = getattr(wallet, role)
-        if request.param in HASHED_CRYPTO_TYPES:
+        if request.param in REGISTERED_CRYPTO_TYPES:
             substrate.seed(
                 "HashedAccounts",
-                "Accounts",
+                descriptor_storage(bytes(key.hashed_descriptor)),
                 [key.ss58_address],
                 {
                     "descriptor": descriptor_value(bytes(key.hashed_descriptor)),
@@ -95,7 +98,9 @@ def test_evm_commands_encode_all_wallet_types(wallet_case, command, reference):
         "contact": "friend",
         "address": address,
         "independent": (
-            descriptor_receiving_address(key) if key.crypto_type in HASHED_CRYPTO_TYPES else address
+            descriptor_receiving_address(key)
+            if key.crypto_type in REGISTERED_CRYPTO_TYPES
+            else address
         ),
     }
     if reference != "default":
@@ -108,9 +113,12 @@ def test_evm_commands_encode_all_wallet_types(wallet_case, command, reference):
     expected = [key.ss58_address] if command == "send" else [key.ss58_address, 10**9, 1]
     assert captured[0]["data"] == encode_call(fn, expected)
     queries = [
-        c for c in substrate.query.call_args_list if c.args[:2] == ("HashedAccounts", "Accounts")
+        c
+        for c in substrate.query.call_args_list
+        if c.args[:2]
+        == ("HashedAccounts", "MlDsaAccounts" if key.crypto_type in (7, 8) else "Accounts")
     ]
-    if key.crypto_type in HASHED_CRYPTO_TYPES:
+    if key.crypto_type in REGISTERED_CRYPTO_TYPES:
         assert len(queries) == 1
         assert queries[0].kwargs["block_hash"] == f"0x{substrate.finalized:064x}"
     else:
@@ -118,7 +126,9 @@ def test_evm_commands_encode_all_wallet_types(wallet_case, command, reference):
 
 
 @pytest.mark.parametrize("command", COMMANDS)
-@pytest.mark.parametrize("wallet_case", [4, 6], indirect=True, ids=["hashed", "hashed-ed"])
+@pytest.mark.parametrize(
+    "wallet_case", [4, 6, 7, 8], indirect=True, ids=["hashed", "hashed-ed", "hashed-ms", "ms"]
+)
 @pytest.mark.parametrize("failure", ["unfinalized", "mismatch", "rpc_override", "no_finality"])
 def test_protected_commands_fail_before_evm_submission(wallet_case, command, failure):
     wallet, substrate, captured, prefix = wallet_case
@@ -130,7 +140,10 @@ def test_protected_commands_fail_before_evm_submission(wallet_case, command, fai
         original = substrate.query
 
         async def query(*a, **kw):
-            if a[:2] == ("HashedAccounts", "Accounts") and kw.get("block_hash"):
+            if a[:2] == (
+                "HashedAccounts",
+                "MlDsaAccounts" if key.crypto_type in (7, 8) else "Accounts",
+            ) and kw.get("block_hash"):
                 return None
             return await original(*a, **kw)
 
@@ -139,7 +152,7 @@ def test_protected_commands_fail_before_evm_submission(wallet_case, command, fai
         other = Keypair.create_from_seed(bytes([19]) * 32, key.crypto_type)
         substrate.seed(
             "HashedAccounts",
-            "Accounts",
+            descriptor_storage(bytes(key.hashed_descriptor)),
             [key.ss58_address],
             {
                 "descriptor": descriptor_value(bytes(other.hashed_descriptor)),
@@ -166,7 +179,7 @@ def test_protected_commands_fail_before_evm_submission(wallet_case, command, fai
 
 async def test_registered_write_does_not_depend_on_registration_being_enabled(wallet_case):
     wallet, substrate, _, _ = wallet_case
-    substrate.seed_constant("HashedAccounts", "Enabled", False)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], False)
     address = receiving_address(wallet.coldkey)
     assert await account_for_registered_write(substrate, address) == wallet.coldkey.ss58_address
 
@@ -190,11 +203,16 @@ def test_generic_views_resolve_descriptor_addresses_without_registration(wallet_
         "local", "recipient", "default", str(wallet.path), True, False, Output(json_mode=True)
     )
     fn = {"inputs": [{"type": "bytes32[]"}], "stateMutability": "view"}
-    substrate.seed("HashedAccounts", "Accounts", [wallet.hotkey.ss58_address], None)
+    substrate.seed(
+        "HashedAccounts",
+        "MlDsaAccounts" if wallet.hotkey.crypto_type in (7, 8) else "Accounts",
+        [wallet.hotkey.ss58_address],
+        None,
+    )
     assert _native_arguments(ctx, fn, [json.dumps([address])], None) == [
         [wallet.hotkey.ss58_address]
     ]
-    if wallet.hotkey.crypto_type in HASHED_CRYPTO_TYPES:
+    if wallet.hotkey.crypto_type in REGISTERED_CRYPTO_TYPES:
         assert _native_arguments(
             ctx,
             fn,
@@ -204,7 +222,9 @@ def test_generic_views_resolve_descriptor_addresses_without_registration(wallet_
     assert not substrate.query.call_args_list
 
 
-@pytest.mark.parametrize("wallet_case", [4, 6], indirect=True, ids=["hashed", "hashed-ed"])
+@pytest.mark.parametrize(
+    "wallet_case", [4, 6, 7, 8], indirect=True, ids=["hashed", "hashed-ed", "hashed-ms", "ms"]
+)
 def test_generic_writes_require_registration_for_every_array_member(wallet_case):
     wallet, substrate, _, _ = wallet_case
     ctx = AppContext(
@@ -215,16 +235,28 @@ def test_generic_writes_require_registration_for_every_array_member(wallet_case)
     assert _native_arguments(ctx, fn, [json.dumps(addresses)], None) == [
         [wallet.coldkey.ss58_address, wallet.hotkey.ss58_address]
     ]
-    substrate.seed("HashedAccounts", "Accounts", [wallet.hotkey.ss58_address], None)
+    substrate.seed(
+        "HashedAccounts",
+        "MlDsaAccounts" if wallet.hotkey.crypto_type in (7, 8) else "Accounts",
+        [wallet.hotkey.ss58_address],
+        None,
+    )
     with pytest.raises(typer.Exit):
         _native_arguments(ctx, fn, [json.dumps(addresses)], None)
 
 
-@pytest.mark.parametrize("wallet_case", [4, 6], indirect=True, ids=["hashed", "hashed-ed"])
+@pytest.mark.parametrize(
+    "wallet_case", [4, 6, 7, 8], indirect=True, ids=["hashed", "hashed-ed", "hashed-ms", "ms"]
+)
 def test_generic_precompile_write_rejects_unregistered_recipient(wallet_case):
     wallet, substrate, captured, prefix = wallet_case
     address = receiving_address(wallet.coldkey)
-    substrate.seed("HashedAccounts", "Accounts", [wallet.coldkey.ss58_address], None)
+    substrate.seed(
+        "HashedAccounts",
+        descriptor_storage(bytes(wallet.coldkey.hashed_descriptor)),
+        [wallet.coldkey.ss58_address],
+        None,
+    )
     result = CliRunner().invoke(
         app, [*prefix, "evm", "call", "balance-transfer", "transfer", address, "--value-tao", "1"]
     )

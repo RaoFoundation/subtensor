@@ -1,0 +1,443 @@
+{
+  "head": "437053f80d5ebebce950602b168901bfe6591483",
+  "source": "full-preflight.log",
+  "ignored_count": 47,
+  "categories": {
+    "hardware_boundary": 1,
+    "exhaustive_range_boundary": 1,
+    "manual_graph_or_plot": 4,
+    "superseded_fee_expectation": 4,
+    "legacy_unrelated_ignored_test": 1,
+    "long_numerical_sweep": 5,
+    "ignored_documentation_snippet": 31
+  },
+  "ignored_mldsa_tests": 0,
+  "unexplained_ignore_annotations_not_claimed_passed": [
+    "tests::staking::test_add_stake_total_issuance_no_change"
+  ],
+  "entries": [
+    {
+      "test": "pow::tests::gpu_mines_and_revalidates_chain_compatible_work",
+      "log_line": 823,
+      "category": "hardware_boundary",
+      "source": "sdk/bittensor-core/src/pow/mod.rs:119",
+      "reason": "Requires physical OpenCL GPUs explicitly.",
+      "annotation": "requires physical OpenCL GPUs; run explicitly on the GPU test host",
+      "executed": false
+    },
+    {
+      "test": "test_subnet_account_id_no_panics",
+      "log_line": 1196,
+      "category": "exhaustive_range_boundary",
+      "source": "runtime/tests/account_conversion.rs:25",
+      "reason": "Full 0..65535 netuid sweep; the bounded 0..1024 quick case passed.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "tests::consensus::map_consensus_guarantees",
+      "log_line": 2662,
+      "category": "manual_graph_or_plot",
+      "source": "pallets/subtensor/src/tests/consensus.rs:486",
+      "reason": "Explicit comment: Not an automated test; consumes manual arguments and prints a consensus graph.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "tests::locks::plot_decaying_non_owner_lock_curve",
+      "log_line": 2844,
+      "category": "manual_graph_or_plot",
+      "source": "pallets/subtensor/src/tests/locks.rs:621",
+      "reason": "Ignored lock-curve plotting helper.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "tests::locks::plot_perpetual_decay_perpetual_lock_curve",
+      "log_line": 2845,
+      "category": "manual_graph_or_plot",
+      "source": "pallets/subtensor/src/tests/locks.rs:555",
+      "reason": "Ignored lock-curve plotting helper.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "tests::locks::plot_perpetual_decay_perpetual_non_owner_lock_curve",
+      "log_line": 2846,
+      "category": "manual_graph_or_plot",
+      "source": "pallets/subtensor/src/tests/locks.rs:664",
+      "reason": "Ignored lock-curve plotting helper.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "tests::staking2::test_stake_fee_calculation",
+      "log_line": 3544,
+      "category": "superseded_fee_expectation",
+      "source": "pallets/subtensor/src/tests/staking2.rs:919",
+      "reason": "Ignore annotation: fees are now calculated by SwapInterface.",
+      "annotation": "fees are now calculated by SwapInterface",
+      "executed": false
+    },
+    {
+      "test": "tests::staking::test_add_stake_fee_goes_to_subnet_tao",
+      "log_line": 3557,
+      "category": "superseded_fee_expectation",
+      "source": "pallets/subtensor/src/tests/staking.rs:3276",
+      "reason": "Ignore annotation: fee now goes to liquidity provider.",
+      "annotation": "fee now goes to liquidity provider",
+      "executed": false
+    },
+    {
+      "test": "tests::staking::test_add_stake_total_issuance_no_change",
+      "log_line": 3569,
+      "category": "legacy_unrelated_ignored_test",
+      "source": "pallets/subtensor/src/tests/staking.rs:302",
+      "reason": "No reason in ignore annotation; legacy staking total-issuance assertion, ignored since commit3d0be663d11 dated2023-05-02. Not classified as passed or assumed obsolete.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "tests::staking::test_remove_stake_fee_goes_to_subnet_tao",
+      "log_line": 3637,
+      "category": "superseded_fee_expectation",
+      "source": "pallets/subtensor/src/tests/staking.rs:3323",
+      "reason": "Ignore annotation: fees now go to liquidity providers.",
+      "annotation": "fees no go to liquidity providers",
+      "executed": false
+    },
+    {
+      "test": "tests::staking::test_remove_stake_fee_realistic_values",
+      "log_line": 3638,
+      "category": "superseded_fee_expectation",
+      "source": "pallets/subtensor/src/tests/staking.rs:3375",
+      "reason": "Ignore annotation: fees now calculated on the SwapInterface side.",
+      "annotation": "fees are now calculated on the SwapInterface side",
+      "executed": false
+    },
+    {
+      "test": "pallet::balancer::tests::test_exp_quote_broad_range",
+      "log_line": 4222,
+      "category": "long_numerical_sweep",
+      "source": "pallets/swap/src/pallet/balancer.rs:909",
+      "reason": "Explicit broad-range quote sweep, 800,000,001 points.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "pallet::balancer::tests::test_exp_quote_fuzzy",
+      "log_line": 4223,
+      "category": "long_numerical_sweep",
+      "source": "pallets/swap/src/pallet/balancer.rs:943",
+      "reason": "One billion randomized Balancer quote iterations.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "pallet::tests::dispatchables::test_adjust_protocol_liquidity_deltas",
+      "log_line": 4238,
+      "category": "long_numerical_sweep",
+      "source": "pallets/swap/src/pallet/tests.rs:292",
+      "reason": "Explicit long-running liquidity precision test, 2,700,000 iterations per scenario.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "tests::test_safefloat_div_wide_range",
+      "log_line": 4371,
+      "category": "long_numerical_sweep",
+      "source": "primitives/share-pool/src/lib.rs:2174",
+      "reason": "Ignore annotation: long-running broad-range test; run explicitly when needed.",
+      "annotation": "long-running broad-range test; run explicitly when needed",
+      "executed": false
+    },
+    {
+      "test": "tests::test_safefloat_mul_div_wide_range",
+      "log_line": 4376,
+      "category": "long_numerical_sweep",
+      "source": "primitives/share-pool/src/lib.rs:2006",
+      "reason": "Ignore annotation: long-running sweep test; run explicitly when needed.",
+      "annotation": "long-running sweep test; run explicitly when needed",
+      "executed": false
+    },
+    {
+      "test": "runtime/src/lib.rs - benches::add_benchmarks (line 1896)",
+      "log_line": 4808,
+      "category": "ignored_documentation_snippet",
+      "source": "runtime/src/lib.rs:1896",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "runtime/src/lib.rs - benches::list_benchmarks (line 1896)",
+      "log_line": 4809,
+      "category": "ignored_documentation_snippet",
+      "source": "runtime/src/lib.rs:1896",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "pallets/subtensor/src/migrations/migrate_create_root_network.rs - migrations::migrate_create_root_network::migrate_create_root_network (line 39)",
+      "log_line": 4864,
+      "category": "ignored_documentation_snippet",
+      "source": "pallets/subtensor/src/migrations/migrate_create_root_network.rs:39",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "pallets/subtensor/src/migrations/migrate_delete_subnet_21.rs - migrations::migrate_delete_subnet_21::migrate_delete_subnet_21 (line 40)",
+      "log_line": 4865,
+      "category": "ignored_documentation_snippet",
+      "source": "pallets/subtensor/src/migrations/migrate_delete_subnet_21.rs:40",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "pallets/subtensor/src/migrations/migrate_delete_subnet_3.rs - migrations::migrate_delete_subnet_3::migrate_delete_subnet_3 (line 40)",
+      "log_line": 4866,
+      "category": "ignored_documentation_snippet",
+      "source": "pallets/subtensor/src/migrations/migrate_delete_subnet_3.rs:40",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "pallets/subtensor/src/migrations/migrate_to_v1_separate_emission.rs - migrations::migrate_to_v1_separate_emission::migrate_to_v1_separate_emission (line 38)",
+      "log_line": 4867,
+      "category": "ignored_documentation_snippet",
+      "source": "pallets/subtensor/src/migrations/migrate_to_v1_separate_emission.rs:38",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "pallets/subtensor/src/migrations/migrate_to_v2_fixed_total_stake.rs - migrations::migrate_to_v2_fixed_total_stake::migrate_to_v2_fixed_total_stake (line 39)",
+      "log_line": 4868,
+      "category": "ignored_documentation_snippet",
+      "source": "pallets/subtensor/src/migrations/migrate_to_v2_fixed_total_stake.rs:39",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "pallets/subtensor/src/migrations/migrate_transfer_ownership_to_foundation.rs - migrations::migrate_transfer_ownership_to_foundation::migrate_transfer_ownership_to_foundation (line 37)",
+      "log_line": 4869,
+      "category": "ignored_documentation_snippet",
+      "source": "pallets/subtensor/src/migrations/migrate_transfer_ownership_to_foundation.rs:37",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "pallets/subtensor/src/staking/move_stake.rs - staking::move_stake::Pallet<T>::get_max_amount_move (line 574)",
+      "log_line": 4875,
+      "category": "ignored_documentation_snippet",
+      "source": "pallets/subtensor/src/staking/move_stake.rs:574",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/construct_runtime/expand/outer_enums.rs - construct_runtime::expand::outer_enums::expand_outer_enum (line 75)",
+      "log_line": 4912,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/construct_runtime/expand/outer_enums.rs:75",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/construct_runtime/mod.rs - construct_runtime (line 124)",
+      "log_line": 4913,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/construct_runtime/mod.rs:124",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/construct_runtime/mod.rs - construct_runtime (line 146)",
+      "log_line": 4914,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/construct_runtime/mod.rs:146",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/construct_runtime/mod.rs - construct_runtime (line 163)",
+      "log_line": 4915,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/construct_runtime/mod.rs:163",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/construct_runtime/mod.rs - construct_runtime (line 86)",
+      "log_line": 4916,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/construct_runtime/mod.rs:86",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/construct_runtime/mod.rs - construct_runtime (line 96)",
+      "log_line": 4917,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/construct_runtime/mod.rs:96",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/pallet/expand/documentation.rs - pallet::expand::documentation::expand_documentation (line 98)",
+      "log_line": 4918,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/pallet/expand/documentation.rs:98",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/runtime/mod.rs - runtime (line 120)",
+      "log_line": 4919,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/runtime/mod.rs:120",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/runtime/mod.rs - runtime (line 145)",
+      "log_line": 4920,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/runtime/mod.rs:145",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/runtime/mod.rs - runtime (line 165)",
+      "log_line": 4921,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/runtime/mod.rs:165",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/runtime/mod.rs - runtime (line 76)",
+      "log_line": 4922,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/runtime/mod.rs:76",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/runtime/mod.rs - runtime (line 89)",
+      "log_line": 4923,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/runtime/mod.rs:89",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/tt_macro.rs - tt_macro::create_tt_return_macro (line 56)",
+      "log_line": 4924,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/tt_macro.rs:56",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/construct_runtime/mod.rs - construct_runtime (line 174)",
+      "log_line": 4930,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/construct_runtime/mod.rs:174",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/construct_runtime/mod.rs - construct_runtime (line 184)",
+      "log_line": 4931,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/construct_runtime/mod.rs:184",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/construct_runtime/mod.rs - construct_runtime (line 47)",
+      "log_line": 4932,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/construct_runtime/mod.rs:47",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/construct_runtime/parse.rs - construct_runtime::parse::PalletsConversion (line 655)",
+      "log_line": 4933,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/construct_runtime/parse.rs:655",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/pallet/parse/mod.rs - pallet::parse::PalletAttr::RuntimeCall (line 622)",
+      "log_line": 4934,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/pallet/parse/mod.rs:622",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/pallet/parse/mod.rs - pallet::parse::PalletAttr::RuntimeCall (line 630)",
+      "log_line": 4935,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/pallet/parse/mod.rs:630",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/runtime/mod.rs - runtime (line 179)",
+      "log_line": 4936,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/runtime/mod.rs:179",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/runtime/mod.rs - runtime (line 189)",
+      "log_line": 4937,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/runtime/mod.rs:189",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    },
+    {
+      "test": "support/procedural-fork/src/runtime/mod.rs - runtime (line 44)",
+      "log_line": 4938,
+      "category": "ignored_documentation_snippet",
+      "source": "support/procedural-fork/src/runtime/mod.rs:44",
+      "reason": "Rustdoc example or FRAME generated macro example explicitly marked ignored; not an ignored executable ML-DSA test.",
+      "annotation": null,
+      "executed": false
+    }
+  ]
+}

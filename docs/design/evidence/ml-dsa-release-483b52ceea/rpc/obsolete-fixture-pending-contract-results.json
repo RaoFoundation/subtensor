@@ -1,0 +1,17 @@
+{
+  "test": "typed pending simulation creation, EIP-1559/access-list and rollback semantics",
+  "status": "failed",
+  "endpoint": "ws://127.0.0.1:21046",
+  "started_at_utc": "2026-10-17T21:45:25.340756+00:00",
+  "script_sha256": "06cf7435ce3dacbe1a58519253fc353a4e229bcccdbe49fb8a7e68ee0c8f5c20",
+  "boundaries": "One disposable real contract plus read-only pending simulations; does not claim legacy runtime API-version, EIP-7702, throughput or exhaustive opcode coverage.",
+  "native_setup_receipts": [],
+  "checks": {},
+  "sender": "0xd934a7046c77dD190fEFf6C0CF2E36824F2beBBb",
+  "sender_mirror": "5FDVrGi4sAFsU5e2oC6LYedMGvjUDKRNdK86X2MkYWGx4YZs",
+  "stateful_initcode": "0x602a600055607d6011600039607d6000f360003580600114602b5780600214604c578060031460605780600414606b575060005460005260206000f35b5060005480602a14603c5760006000fd5b6001018060005560005260206000f35b50606360005563deadbeef6000526004601cfd5b503a60005260206000f35b505a600054505a900360005260206000f3",
+  "stateful_runtime": "0x60003580600114602b5780600214604c578060031460605780600414606b575060005460005260206000f35b5060005480602a14603c5760006000fd5b6001018060005560005260206000f35b50606360005563deadbeef6000526004601cfd5b503a60005260206000f35b505a600054505a900360005260206000f3",
+  "genesis_hash": "0x5585506f26a90c77da7797472c05ee1d92e8de4513b172d0b2c2c1ac07f32f18",
+  "error": "StorageFunctionNotFound: storage function HashedAccounts.MlDsaRegistrationEnabled not found",
+  "finished_at_utc": "2026-10-17T21:45:25.351822+00:00"
+}

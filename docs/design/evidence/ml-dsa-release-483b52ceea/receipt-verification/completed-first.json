@@ -1,0 +1,3346 @@
+{
+  "candidate": "483b52ceea5cf08a0fb492ca2915b7efa6a8690e",
+  "started_utc": "2026-10-17T21:59:47.316046+00:00",
+  "scope": "Persisted suite receipt files; activation extrinsics excluded. This verifies recorded outcomes, not completeness of operation coverage or all test assertions.",
+  "deduplication_key": "(local chain name, block hash, extrinsic index)",
+  "files": [
+    {
+      "path": "validators/receipts/validator-paths-7.json",
+      "sha256": "c44943fa665c7af71197cd1e8af0491e7f1b31d6420e8ec742ec5e8437b07ea1",
+      "receipt_references": 14,
+      "declared_successful": true
+    },
+    {
+      "path": "validators/receipts/validator-paths-8.json",
+      "sha256": "37efd305d9c3661556ccdadc85788548a3206000fe2ff218c4260e300934a189",
+      "receipt_references": 14,
+      "declared_successful": true
+    },
+    {
+      "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+      "sha256": "37bbd8dd46bfa54bb5bb509931a68d6d93497329c45ecd2c20ca6c841b973055",
+      "receipt_references": 16,
+      "declared_successful": null
+    },
+    {
+      "path": "sponsorship/receipts/sponsorship-sweep-recovery-4.json",
+      "sha256": "0ceff155ad362e22698e57c672ea3298fb61327a77a3658e2a795b7213514581",
+      "receipt_references": 7,
+      "declared_successful": true
+    },
+    {
+      "path": "sponsorship/receipts/sponsorship-sweep-recovery-6.json",
+      "sha256": "da86d6f7acd4afd08d46bfca9763f83025dbfd7fb0995e6773e93d1ed91b91b7",
+      "receipt_references": 7,
+      "declared_successful": true
+    },
+    {
+      "path": "sponsorship/receipts/sponsorship-sweep-recovery-7.json",
+      "sha256": "18c68b5dc78334ee6e3c5de1f88029ffc27b4543d29ce2a1c31fb8fe98befdf9",
+      "receipt_references": 7,
+      "declared_successful": true
+    },
+    {
+      "path": "sponsorship/receipts/sponsorship-sweep-recovery-8.json",
+      "sha256": "0c75b41981309dc8fc997acfaa3cb8d400abc526a02c0a8e6f0047a6c50b18b1",
+      "receipt_references": 7,
+      "declared_successful": true
+    },
+    {
+      "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-7.json",
+      "sha256": "4f70a179c60c20ef1388d7ae3faa4af7ab2414eac16bb68ddcb31a3fd55fb3b3",
+      "receipt_references": 10,
+      "declared_successful": true
+    },
+    {
+      "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-8.json",
+      "sha256": "658cd75ec0480603958c845b286aacbb14db59a22fe6621e6465c79a6c4613f9",
+      "receipt_references": 10,
+      "declared_successful": true
+    },
+    {
+      "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-7.json",
+      "sha256": "054e6fc53e0d0d3cc1dfa39ef0405a17bf90dd59f95e353d6a00d467d3e0e106",
+      "receipt_references": 8,
+      "declared_successful": true
+    },
+    {
+      "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-8.json",
+      "sha256": "1cabf81026512c1c3d2892949b4876a8fc9ba92d0c07f4afdf40f1f6cb233e9e",
+      "receipt_references": 8,
+      "declared_successful": true
+    },
+    {
+      "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+      "sha256": "53ba8dd59075e0ada0e89b9d5a39f31572b6795ec77ea1625657f36a6c649492",
+      "receipt_references": 13,
+      "declared_successful": true
+    },
+    {
+      "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+      "sha256": "795995b7f119d19ec635fb8b0632083a8246b962bbf355764d1d90fca4708412",
+      "receipt_references": 13,
+      "declared_successful": true
+    }
+  ],
+  "chains": {
+    "nested": {
+      "endpoint": "ws://127.0.0.1:22244",
+      "unique_receipts": 16,
+      "verified_receipts": 16,
+      "status_counts": {
+        "success": 15,
+        "outer_success_inner_failure": 1
+      },
+      "errors": [],
+      "genesis": "0x1dfcc681722cf905deae46f15082a41f97231c24ead3e623dbbc92d218662f82",
+      "finalized_snapshot": {
+        "height": 103,
+        "hash": "0xbaf0d0f53ee3eae43f2275e15be39a3263b2c4d00ea93d4104546a6e06889012"
+      }
+    },
+    "proxy-boundaries": {
+      "endpoint": "ws://127.0.0.1:21844",
+      "unique_receipts": 36,
+      "verified_receipts": 36,
+      "status_counts": {
+        "success": 28,
+        "outer_success_inner_failure": 6,
+        "system_failure": 2
+      },
+      "errors": [],
+      "genesis": "0x3012c6eb45f528608ba00bc8e1e82c90e4a810122d23bcfcb0293c8f579d87bc",
+      "finalized_snapshot": {
+        "height": 103,
+        "hash": "0x4dc487e89568dfe9659a1a1b2198795eeb117a1b70b493c073b4153425cceaf6"
+      }
+    },
+    "sponsorship": {
+      "endpoint": "ws://127.0.0.1:22144",
+      "unique_receipts": 28,
+      "verified_receipts": 28,
+      "status_counts": {
+        "success": 24,
+        "system_failure": 4
+      },
+      "errors": [],
+      "genesis": "0x448b395d229c341b474d4221ef1299dd7620de4603d48eb2f0b613ec6ebfa757",
+      "finalized_snapshot": {
+        "height": 103,
+        "hash": "0x5da9529489617b8de8cd2b60d814db134627c2aa41ee54528f27e6c88e246689"
+      }
+    },
+    "validator-proxy": {
+      "endpoint": "ws://127.0.0.1:22344",
+      "unique_receipts": 26,
+      "verified_receipts": 26,
+      "status_counts": {
+        "success": 22,
+        "outer_success_inner_failure": 2,
+        "system_failure": 2
+      },
+      "errors": [],
+      "genesis": "0x116762b3029187ffc7e98b6e6ebb27fc31bded9ca8fdca35f477c087df37fa7c",
+      "finalized_snapshot": {
+        "height": 103,
+        "hash": "0x001ba3976d1746aa2758e2ecef9661fa84ace53a0d93b71f55bc31a4597a765b"
+      }
+    },
+    "validators": {
+      "endpoint": "ws://127.0.0.1:21444",
+      "unique_receipts": 28,
+      "verified_receipts": 28,
+      "status_counts": {
+        "success": 28
+      },
+      "errors": [],
+      "genesis": "0xc62cdedcf2ad9c6540e2730891f2935d70640db27be33786da4a1ec86046852e",
+      "finalized_snapshot": {
+        "height": 103,
+        "hash": "0x94242012fd3b9effc6cdd337965a254cef8ae3dd027fa900919f93c6d842923a"
+      }
+    }
+  },
+  "receipts": [
+    {
+      "chain": "nested",
+      "height": 7,
+      "extrinsic_index": 6,
+      "block_hash": "0x2af0b3d4e8a329d91385f33dcb951551fe46f705da729df87d64cfbedebdc086",
+      "extrinsic_hash": "0x015408de71191bb6baf50079d89fd6be131de54625693fda135bd9c3387a4578",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "6f27df9f3fa4581b4b56db95699bf5c04d0c88b11d87c773860a5f81aa010e1a",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[0].receipt",
+          "operation": "fund-and-register"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 10,
+      "extrinsic_index": 6,
+      "block_hash": "0x99c36da7b4c9764101883def5ca97100dc84072245075e77b827901e2fd03df1",
+      "extrinsic_hash": "0x46a3beb380443107ae4ddb90879392d1ea9359f7b019c4b5e24622af0f7f8e81",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "036619b4e0424a32a886478352194cbac3fbde8acddf3278c2e6ab0a27f81516",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[1].receipt",
+          "operation": "fund-and-register"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 13,
+      "extrinsic_index": 6,
+      "block_hash": "0x3938c7a1d37edf3b503a3a4dace05e8f8ff8fad33af06fb1528595fbd589a04d",
+      "extrinsic_hash": "0x826928302d787913d93255961488b389f6ef0c5560ff9a2f275f0d5f7f6af108",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "7a6d8e4c96c74defea2d931a6abc62b71b8e1fc0134f225a791176600192d9e3",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[2].receipt",
+          "operation": "fund-and-register"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 16,
+      "extrinsic_index": 6,
+      "block_hash": "0x5c21db3d4f0b9d2b8daffb0a543573668393584dfda577f47408b24a140427c8",
+      "extrinsic_hash": "0x939843ca33e46b21709a017b5c531438e2f324dc69a2fc87c9d6503274521281",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "b8ef7ba1832b8183bf6bd9dc77bcd62911f63e0eb2f57fe2f17d63303218f643",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[3].receipt",
+          "operation": "fund-and-register"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 19,
+      "extrinsic_index": 6,
+      "block_hash": "0x25efb5033de8fcc6e0fa3af1787f29cd93c6777f6fd293e7f2349f89bb047c35",
+      "extrinsic_hash": "0x9963171cb398c9d81aabf3ef5de3a0e83b417ea54e71c536d4bf7022ba90096e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "21e9cfe1d6a53e7c43aa56934409c21a222716c5e9aba569493723e15b54f714",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[4].receipt",
+          "operation": "protect-group"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 22,
+      "extrinsic_index": 6,
+      "block_hash": "0x40f70f4201c3005a9647883dbe8f4715f8dbe0aba8cddab511eb0ae0e20df7e9",
+      "extrinsic_hash": "0x24b47f0e9eedf0fc11f1d79db1f8e06ac5be568449079f4b29ff00512d5d4afb",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "d7812c3df6273f63b9f7b75703f8b527224ffc5d7548824deb81828915908781",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[5].receipt",
+          "operation": "protect-group"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 25,
+      "extrinsic_index": 6,
+      "block_hash": "0x396a890866fffd82cbc3fc56e1cff1a6d3198dbada3cbd1de069e35a50c0a4e7",
+      "extrinsic_hash": "0x4b6c1e161d17204874d8b957729724dfd10035f61d75a5532cc42c33e65ff6b8",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "9ed2fc6100818bb87aa6b697aa33230e666f9b54e159f2054ac26dc00f473dd8",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[6].receipt",
+          "operation": "fund-group"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 28,
+      "extrinsic_index": 6,
+      "block_hash": "0x0456abcbf1e88d6f5cd0eaffc9daf53b4d43a7b1f9de8a25804d4d89147dca3d",
+      "extrinsic_hash": "0x39f3aeeba8150607eab8b52f3f0f079d0b4fb974427749ed5cbca3087216a230",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "43c3e418c7bfdfb4f5b928ef3daff49d638f73ce4621cac65b4274ca3a2a90a4",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[7].receipt",
+          "operation": "grant-protected-group-proxy"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 31,
+      "extrinsic_index": 6,
+      "block_hash": "0xee2a7b9858de3c69038bde07f8dea775c17f690489ddb298353c176c83c1a83a",
+      "extrinsic_hash": "0x142769d14827fc8231e4d69cbe2c1ff35568b6fe92527db19a53e1d432e71edc",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "1d409239d034ef56b5426e4bf296cded07cffb2bd3f06c7aca478eec4ed6c87e",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[8].receipt",
+          "operation": "multisig-executes-proxy"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 34,
+      "extrinsic_index": 6,
+      "block_hash": "0x9f737a782f8d3ffa3b9308828a2a4d43a2a4e4aa57c873cea258dac0a63d1b87",
+      "extrinsic_hash": "0x93260008e63aca8812d0f51e1da95802a643a81b4b10e698c3ccdaf2e19fb7fb",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "37f54255bcda8de73bf72a4d843176f5d4e571ba846d7427fd3eef2c740ce42e",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[9].receipt",
+          "operation": "multisig-executes-proxy"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 37,
+      "extrinsic_index": 6,
+      "block_hash": "0xa69e80f73ebd4b1c6f7fc2a881e5fbe26632e3b5231343c20a709312166fa870",
+      "extrinsic_hash": "0x95636139af87cf7e9363fb257099abe5475c9f69b2f0259afe567a2432ed77a9",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "9d6f1daeba5ed084492eee564ae7e674ab24314503a1f7bf4c528b235effb092",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[10].receipt",
+          "operation": "group-grants-ms-delegate"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 40,
+      "extrinsic_index": 6,
+      "block_hash": "0x2f52e988ce9b714002d43a24f9641049579bd9960888b3c9951b928b57252e37",
+      "extrinsic_hash": "0x781123464f1f4f906eaf0bfbea90397f9f847e13e479ead1d1a0ec198db4d2b0",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "eba4f9c1c4999f9168cba192f2a039bc4ea30758d0044d14730dfac2698fbaec",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[11].receipt",
+          "operation": "group-grants-ms-delegate"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 43,
+      "extrinsic_index": 6,
+      "block_hash": "0x7de91c7fba53365435d80d7e0dc1137ed6964711381a51d8dac05d6d8b3b5272",
+      "extrinsic_hash": "0xfe53522588da3998b789cea817930be906884fcc6cef1e7ec85d035d7628e59d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "c075280828687e4e36e8ad1c63fc35060c0e222c1a61e5ffb315c80d2602f56f",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[12].receipt",
+          "operation": "ms-proxies-for-protected-group"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 46,
+      "extrinsic_index": 6,
+      "block_hash": "0xe9fe1b63a494918bae57c4f555a911b8fadf6bca94814d072e1435cbe54712fa",
+      "extrinsic_hash": "0xd24994e3b8cd45a3043043fdb024805ff43bc01965312e1a3ad47700bbdeb8d4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "ae9510e96b8fc66a903e2fd1df17c2a5723add6eeeb44d04fd650211a7197c33",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[13].receipt",
+          "operation": "revoke-group-delegation"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 49,
+      "extrinsic_index": 6,
+      "block_hash": "0xdb655e6d1f0ef5a978339f409d18cf8236b5d2da0466cdb77e33a0c53c045b04",
+      "extrinsic_hash": "0xdb36f4e3c63954b5517fb763e648041416120a8e91f0423d977efad30955985d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "5e749fd9711630b75cd2075551800fb48030dde066953df689ea34d7f5e6dc3f",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[14].receipt",
+          "operation": "old-quorum-call-rejected-after-revocation"
+        }
+      ]
+    },
+    {
+      "chain": "nested",
+      "height": 52,
+      "extrinsic_index": 6,
+      "block_hash": "0xd36c560c3305b4e0b597d51967bfd72f2b4608dcd76ce4f86bf0357ba7488e5e",
+      "extrinsic_hash": "0x6da9116d609cacc07ef0cf3b3f89e2834f4e007fbead268d0880c8eb4ae717bb",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Multisig.MultisigExecuted",
+          "error": {
+            "Module": {
+              "index": 16,
+              "error": "0x02000000"
+            }
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "Module",
+        "name": "NotProxy",
+        "docs": [
+          "Sender is not a proxy of the account to be proxied."
+        ]
+      },
+      "event_count": 7,
+      "events_sha256": "058915ae9bda0bc407463063b61216f4be68b335d063cd96364bc1a6b56d4512",
+      "references": [
+        {
+          "path": "nested/receipts/mldsa-nested-multisig-proxy.json",
+          "pointer": "$[15].receipt",
+          "operation": "old-quorum-call-rejected-after-revocation"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 7,
+      "extrinsic_index": 6,
+      "block_hash": "0x8d44ff6bd19c0930d9c66205ebb18c87ebe148a03c27aa3d20bca8b77a659db2",
+      "extrinsic_hash": "0xc98dab6a77af2b1a3136bc79bfcecde355c84c20e420fa31ac96f9a4218a30c8",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "9ff75136bb8d22a44d0c0b5da58043e8cb531988d9784390529e3b3de1bbad73",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-7.json",
+          "pointer": "$.receipts[0]",
+          "operation": "Alice explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 10,
+      "extrinsic_index": 6,
+      "block_hash": "0x5982e5069b51a0e28e9f6e612686093794d3e8655ea02320486ef4b8ece751b7",
+      "extrinsic_hash": "0x4dc7617ba436823941299f50c545b5564bced4ead2dd7388422a53895e97cb36",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "c2fdd396d7183701a67b768481b8c15d11bafe8d6a72633fce4baed21b16b37d",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-7.json",
+          "pointer": "$.receipts[1]",
+          "operation": "Alice explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 13,
+      "extrinsic_index": 6,
+      "block_hash": "0x1598a94dc3b94ff2dac5807d83c36638cd4760b24e1175e92d37d0d06dfbb9ea",
+      "extrinsic_hash": "0xebe80afe55f6f2d91b4f484a6111ad81ae866ef9da1a9d2c20506253bbba69f2",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "b42e170711f2cecc77ff636a6df170f485aeb84df5f44e6b9e3692d5300debc5",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-7.json",
+          "pointer": "$.receipts[0]",
+          "operation": "Alice explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 13,
+      "extrinsic_index": 7,
+      "block_hash": "0x1598a94dc3b94ff2dac5807d83c36638cd4760b24e1175e92d37d0d06dfbb9ea",
+      "extrinsic_hash": "0x65f82d7e27092f6283db1dda9599babfa90cdcf65ef8d8a0ee49238940929dbd",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "6466ddee42c5db8316ad3aed9d7a572542001abe3f9eaa4a80d8f7f9aff59c18",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-7.json",
+          "pointer": "$.receipts[2]",
+          "operation": "owner registers recipient and grants proxy"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 16,
+      "extrinsic_index": 6,
+      "block_hash": "0x2a610d1f24b350ff156cd6031e5f24fbd52eef20d41f56604cf5266c6a90ba64",
+      "extrinsic_hash": "0xb0151ae171693f993c7709177b79131e1048ff99f22f65b64eab397bdd642681",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "20fa2212066759eeb53feecd15809df3c22a5f2f218c002dec8c127379b385ad",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-7.json",
+          "pointer": "$.receipts[1]",
+          "operation": "Alice explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 16,
+      "extrinsic_index": 7,
+      "block_hash": "0x2a610d1f24b350ff156cd6031e5f24fbd52eef20d41f56604cf5266c6a90ba64",
+      "extrinsic_hash": "0xd67d4aa96fd611c6970d9c63271398fe9eb34a5b567bfa5ebba5b7749d11825c",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Utility.BatchInterrupted",
+          "error": {
+            "Module": {
+              "index": 16,
+              "error": "0x06000000"
+            }
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "Module",
+        "name": "Unannounced",
+        "docs": [
+          "Announcement, if made at all, was made too recently."
+        ]
+      },
+      "event_count": 9,
+      "events_sha256": "7ac385a43edf542f8041cec176ef24c8d0634ad12519406af5d447b014376637",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-7.json",
+          "pointer": "$.receipts[3]",
+          "operation": "announce then execute too early in the same block"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 19,
+      "extrinsic_index": 6,
+      "block_hash": "0x28516d88bf474460c71d80d36cacfc4e2c1558d18236da906d99da1bade490b0",
+      "extrinsic_hash": "0xcffa6f05a59dadefac7dd3031bee00142656afa650b2a5e3ea7f549c0f69f547",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "02df836c43cac6f89c2f1a21e216bfe3a2622c2677ee2e149db5f563bd6b1022",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-7.json",
+          "pointer": "$.receipts[2]",
+          "operation": "owner registers recipient and grants proxy"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 21,
+      "extrinsic_index": 6,
+      "block_hash": "0xf5e5c17b0f0aafea820c0ee2a502084858217b30a39b13c8e92a6f1ee650c3af",
+      "extrinsic_hash": "0x3c3a497188ac033c12fd866be2071b9841f2c5ef71fb2660f4bca2fa4f5097cb",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "8e01d68b2c63b958f703399fd2ffde86e577bea4e1aacce09d7283432cb4d860",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-7.json",
+          "pointer": "$.receipts[4]",
+          "operation": "announced guarded transfer after delay"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 22,
+      "extrinsic_index": 6,
+      "block_hash": "0x29306ceef00d817ba615a5e8491a061a21dfb5aa6e846052bf80a2760ff10c6b",
+      "extrinsic_hash": "0x8ba550084e3959b77bfad4218fb9f3aea14de87bf5acd326f8b2254324238295",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Proxy.ProxyExecuted",
+          "error": {
+            "Module": {
+              "index": 0,
+              "error": "0x05000000"
+            }
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "Module",
+        "name": "CallFiltered",
+        "docs": [
+          "The origin filter prevent the call to be dispatched."
+        ]
+      },
+      "event_count": 6,
+      "events_sha256": "e2e089eef65d2deb6f4eeb2025b3dadd7be01467dbac7f82a96a7090326fc00e",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-7.json",
+          "pointer": "$.receipts[3]",
+          "operation": "direct EVM escalation"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 24,
+      "extrinsic_index": 6,
+      "block_hash": "0x2d5a3cbfb51ad98eea7dffaffc17abbaa282b6e7b6ccf617f9fc632d8d1140a5",
+      "extrinsic_hash": "0x144e30ee04895cb79430be157c89d81d2e5bb2d7511aa6e16718346ea75b7ac1",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "b34857b8f37be0250b1fcb10977a8134a39395c918aac59f2ed6de67ca5eece8",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-7.json",
+          "pointer": "$.receipts[5]",
+          "operation": "announce again before revocation"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 25,
+      "extrinsic_index": 6,
+      "block_hash": "0xc867e1cb097dd620b6b56dd434b61524ae1fe4e0cceecae53433a44bd1be6418",
+      "extrinsic_hash": "0x07853d0b5544ba837e50d5b4156fc4b5f985006b27ea84076c56fd628a1a3ab3",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Proxy.ProxyExecuted",
+          "error": {
+            "Module": {
+              "index": 0,
+              "error": "0x05000000"
+            }
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "Module",
+        "name": "CallFiltered",
+        "docs": [
+          "The origin filter prevent the call to be dispatched."
+        ]
+      },
+      "event_count": 6,
+      "events_sha256": "84665ed1065423d8fd5e8d1bf1c7d9d7c9d537d6eadd6bc10060a1a17e26ab07",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-7.json",
+          "pointer": "$.receipts[4]",
+          "operation": "nested EVM escalation"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 27,
+      "extrinsic_index": 6,
+      "block_hash": "0x5529f4679bbd8095398adbca6562be51963f74a7971f75224265cf332e7ae16c",
+      "extrinsic_hash": "0x81ee715a5ad9932fda36a2bdbce7b760c97388be27cf41f98f23ed3a27a30fcd",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "a393f129328c4e4049a6c1e7058628943d7d7bb76285dfb9893c13d1963b56f4",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-7.json",
+          "pointer": "$.receipts[6]",
+          "operation": "owner revokes and recreates the identical delayed grant"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 28,
+      "extrinsic_index": 6,
+      "block_hash": "0x6b995fcf4ac0cef0c8f79cfdb0b0968a7762035b0a86a0672ac1cbe81d47ccdf",
+      "extrinsic_hash": "0x08eaf5130caf1a94165ca4f771d57140d75b88fe192cf922d66b043d8baffa4e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "5bab2a333eb9fe24bc7d9b438af1aed8f5e7181b94d64a5187e654f7947091ce",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-7.json",
+          "pointer": "$.receipts[5]",
+          "operation": "NonCritical transfer succeeds"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 30,
+      "extrinsic_index": 6,
+      "block_hash": "0x8805faec22430980e27ef8db8bd4d0255d03211ffd818a5d0678e400df7bd965",
+      "extrinsic_hash": "0xd8a4ac136e637ebdd26473ecadb7d74cdcde116f2da3441da92dae5b7f995966",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "Unannounced",
+        "docs": [
+          "Announcement, if made at all, was made too recently."
+        ]
+      },
+      "event_count": 5,
+      "events_sha256": "e2574bb6ac4648be81f5bb9a0bd72af8c81467844726434b62f85151487ddc88",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-7.json",
+          "pointer": "$.receipts[7]",
+          "operation": "old announcement cannot execute after regrant"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 31,
+      "extrinsic_index": 6,
+      "block_hash": "0x2af5cd3fac6dfcb94bd8ec9cab9f3f8068114c4b99a96591b7ed1e917c2c2e63",
+      "extrinsic_hash": "0xddd5cf9368044e0a6e413bb0113791c6314daed54dca9169a6d19cc02f2d55cd",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "9512838c82b979f27ba60229c37cff5c98496b17118aba4786203ca3939121d7",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-7.json",
+          "pointer": "$.receipts[6]",
+          "operation": "owner explicitly grants Any"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 33,
+      "extrinsic_index": 6,
+      "block_hash": "0xec08bb0d4a3de20b2496c5515450b52ceee47a94e64d781be2b03fe970265a09",
+      "extrinsic_hash": "0x5bc0e6b6eeb77c7166eb11cab0397389436d0c53ceba5f8a4209715f0f359bf0",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "548b5521da1eaf4f3ac41908c7ce89cb2206d5d8c87b43437bc51d17b6ab665e",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-7.json",
+          "pointer": "$.receipts[8]",
+          "operation": "fresh announcement after regrant"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 34,
+      "extrinsic_index": 6,
+      "block_hash": "0xa9ee9229bf324622fc3cbd09bcfbe1e2fd6c07f33630dc0554454fda1a129a98",
+      "extrinsic_hash": "0x43d7cb2e6d2ed2b17fbc48216722582c178942842b969626b5ccf90385869950",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "5e5cc9c6173f1408cb1c8ab26e2089c3a4c88ef68054f18f2069fe32fa90cd6a",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-7.json",
+          "pointer": "$.receipts[7]",
+          "operation": "same EVM dispatch payload succeeds with Any"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 37,
+      "extrinsic_index": 6,
+      "block_hash": "0xa622d1db6dfe8cb6cb4df575ed636c385974dd1cbf2e1bf664d1aee1eff75bc9",
+      "extrinsic_hash": "0xe66c42ee66a66e350f94f2226b90b44566d7457bfb5c77261ad9e381de76d3a7",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "e33f04649d521768520d4ead776c451814c9d1f334affa5113861edaefea67d7",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-8.json",
+          "pointer": "$.receipts[0]",
+          "operation": "Alice explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 38,
+      "extrinsic_index": 6,
+      "block_hash": "0x26f83e8760fddd6ff3245a25aeaa73f63f6df5678d324763fedd82c668d34e91",
+      "extrinsic_hash": "0x04294ed68e38532b2bdbbbd55487f9c5faed3b1e09c29567c0101a0323089fa3",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "3ddcaaed717e83064a9a075057e89753aabc364d39301cabffc83e1f1041a2b7",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-7.json",
+          "pointer": "$.receipts[9]",
+          "operation": "fresh guarded transfer after regrant and delay"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 40,
+      "extrinsic_index": 6,
+      "block_hash": "0x63c8908743693a5b1d0d8b33a99e2f78c3663107853890173cd5cdd49e220f57",
+      "extrinsic_hash": "0xf7f91e96e3e671057d59fcf74a73a4face6476f3e217f650ebc3a17d629e04c6",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "ab253321476c4a93c57b3471531e928cf60d12a75d40671aa5f2bafbde28318c",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-8.json",
+          "pointer": "$.receipts[1]",
+          "operation": "Alice explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 43,
+      "extrinsic_index": 6,
+      "block_hash": "0xeacf8c70e0c3bf34c546842b367ea6354548ff1008be439d5f57cdadb8c8445e",
+      "extrinsic_hash": "0xd53b7fdbf68ee7481804fa8147ccab244d41c64f5b11fbf7932e13d33a3bf3b7",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "f287bfac4d4ccacde39b00f981216177daff0e644f435f963d0466c8c68ffe37",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-8.json",
+          "pointer": "$.receipts[2]",
+          "operation": "owner registers recipient and grants proxy"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 43,
+      "extrinsic_index": 7,
+      "block_hash": "0xeacf8c70e0c3bf34c546842b367ea6354548ff1008be439d5f57cdadb8c8445e",
+      "extrinsic_hash": "0xe793737c9d0d19267a80469d3b2fdb4af67d064a2db51fce86214d70c7356623",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "641ad26f2e00341c4b8a125fd01b79334df0366b70f633d7cd9f4b10466d1ac9",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-8.json",
+          "pointer": "$.receipts[0]",
+          "operation": "Alice explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 46,
+      "extrinsic_index": 6,
+      "block_hash": "0xc1d517cc78ca76a9862746e67df4e1164cc29a3b09ed9b601e80b109b3f711e2",
+      "extrinsic_hash": "0xc1c71663da75f6fb3729d4b6a8221c0af4798e15e4a18f10a0ebc0cab1b36ec4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "4d4f83b59719583c59c936b856a1396a3fd4a98605e339ad3ba96b330d3d2623",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-8.json",
+          "pointer": "$.receipts[1]",
+          "operation": "Alice explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 46,
+      "extrinsic_index": 7,
+      "block_hash": "0xc1d517cc78ca76a9862746e67df4e1164cc29a3b09ed9b601e80b109b3f711e2",
+      "extrinsic_hash": "0x4c748ef7ecbd8b1e833ddd4e3a06fd5be2417ef5c9ed314e5effe286c0e3bb40",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Proxy.ProxyExecuted",
+          "error": {
+            "Module": {
+              "index": 0,
+              "error": "0x05000000"
+            }
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "Module",
+        "name": "CallFiltered",
+        "docs": [
+          "The origin filter prevent the call to be dispatched."
+        ]
+      },
+      "event_count": 6,
+      "events_sha256": "b5b19e1f81920e4a7760085d8f4268a7a7bd79b3d57c8fe7ac4e63d16cf46a75",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-8.json",
+          "pointer": "$.receipts[3]",
+          "operation": "direct EVM escalation"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 49,
+      "extrinsic_index": 6,
+      "block_hash": "0x1d6c90aa616285752ce429667ba51f92b6e5c8bc002e3c690f92da556cf57f73",
+      "extrinsic_hash": "0x21b35ff50ae90606dfba07b1be495c2fab90f2e3965ebc1f2aeb7a03da694669",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Proxy.ProxyExecuted",
+          "error": {
+            "Module": {
+              "index": 0,
+              "error": "0x05000000"
+            }
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "Module",
+        "name": "CallFiltered",
+        "docs": [
+          "The origin filter prevent the call to be dispatched."
+        ]
+      },
+      "event_count": 6,
+      "events_sha256": "dd3dae06f51e6a0b9c11912465ff239786b1484189682735590ad53b4e5a1778",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-8.json",
+          "pointer": "$.receipts[4]",
+          "operation": "nested EVM escalation"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 49,
+      "extrinsic_index": 7,
+      "block_hash": "0x1d6c90aa616285752ce429667ba51f92b6e5c8bc002e3c690f92da556cf57f73",
+      "extrinsic_hash": "0x30848752d6c7bc8d504076899af2a7fe3e0bcafbc37f224fe1346444049e4fa4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "caed9086e9aae986ab463104ff5bed4044232d4a933de653466a6955df5e3459",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-8.json",
+          "pointer": "$.receipts[2]",
+          "operation": "owner registers recipient and grants proxy"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 52,
+      "extrinsic_index": 6,
+      "block_hash": "0xcf43e8b0c6bb781ed1dcb39b0cfc43007d099b0c3aed73d47cb699df0f0bab73",
+      "extrinsic_hash": "0x0b8cbc37d82ca9529d95d5c6dafa02f34ef6b0af86b6aad1d3f90786f516de1e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "d1b3ec0df088b4797919c897d32dca34c184db03f15868a245709e4aed56a699",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-8.json",
+          "pointer": "$.receipts[5]",
+          "operation": "NonCritical transfer succeeds"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 52,
+      "extrinsic_index": 7,
+      "block_hash": "0xcf43e8b0c6bb781ed1dcb39b0cfc43007d099b0c3aed73d47cb699df0f0bab73",
+      "extrinsic_hash": "0xf98427223cca4426bcafd136f0f19b916f94e01dd11bedade484480513abb3e6",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Utility.BatchInterrupted",
+          "error": {
+            "Module": {
+              "index": 16,
+              "error": "0x06000000"
+            }
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "Module",
+        "name": "Unannounced",
+        "docs": [
+          "Announcement, if made at all, was made too recently."
+        ]
+      },
+      "event_count": 9,
+      "events_sha256": "7339561f5f3109386397bf1aeb19144e9698aa1306001fb5380aa8d00e346b91",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-8.json",
+          "pointer": "$.receipts[3]",
+          "operation": "announce then execute too early in the same block"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 55,
+      "extrinsic_index": 6,
+      "block_hash": "0xb5faffe82e0edb21a4f4b1c65e407ba63fba4ad93c80755b77b35788f0c1dc28",
+      "extrinsic_hash": "0xf43a4517b2680829b1866f86486666f8b9be303c994ed9c36f230ef1149a466e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "5320004169ce6e971f2094f1964761488d964a61797db2c6cd0bacac88361607",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-8.json",
+          "pointer": "$.receipts[6]",
+          "operation": "owner explicitly grants Any"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 57,
+      "extrinsic_index": 6,
+      "block_hash": "0x12d2b35c2248e2a37c39b8a0a7131f5d0cc1ef0c7192cfd63609cafdae04ffc5",
+      "extrinsic_hash": "0x07517d9685525c9e027c18eaec0671407d0b4ed33772a7bafce96023ec9c08d4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "3f683e1839733d86d4f35e72d8594ec1851b569cec1303448e8c0a15c490ee4c",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-8.json",
+          "pointer": "$.receipts[4]",
+          "operation": "announced guarded transfer after delay"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 58,
+      "extrinsic_index": 6,
+      "block_hash": "0x90f2b1836eacdbdb4ec702a770a2f4f14f397cbfbb95106354f3ab062f5e83c7",
+      "extrinsic_hash": "0x6a9fbb1c0daa8f01db79aaaa1c206d42f2f96e3c9aef0bd10e06aba17e25804d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "58b396d62344158bf841ee8f3e053930cb3a46f532cacf5fe1f153f5e9c147f3",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-evm-boundary-8.json",
+          "pointer": "$.receipts[7]",
+          "operation": "same EVM dispatch payload succeeds with Any"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 60,
+      "extrinsic_index": 6,
+      "block_hash": "0xccc2b8877db569293531526df7d8201fddfbe902c374a703cf20af1adef12187",
+      "extrinsic_hash": "0x63b0108e52201dd51b25bc3ef4935a5ca47ac2506a04430995011518c2b77974",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "4c98bdefe78d96ec4ccf93dfdd52065dd5df3c15a7ba999f0236e5d3dfab3a23",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-8.json",
+          "pointer": "$.receipts[5]",
+          "operation": "announce again before revocation"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 63,
+      "extrinsic_index": 6,
+      "block_hash": "0x6a4d6c95c88f4b7c0fb0ebb0e3495aad4ba61da6c9af3b481782582890fac905",
+      "extrinsic_hash": "0x5023ed81a28cb3a1191815d78ffe4c3cef36adc1adecaf040b02aa6577b1f60a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "a5e24df800ad48d533f8b0cdb50115992fd830f9aff348a0fe87daa95ab5abf8",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-8.json",
+          "pointer": "$.receipts[6]",
+          "operation": "owner revokes and recreates the identical delayed grant"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 66,
+      "extrinsic_index": 6,
+      "block_hash": "0xc63c01b07c9b6b7e1d2d86f782292d9e07ee0a21d94b02092c658ece1c21ed47",
+      "extrinsic_hash": "0x2c5e6a02dbb01f150502838c3bcc0ea3b98c39ef9bc36c54e75b9e3aebafb63f",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "Unannounced",
+        "docs": [
+          "Announcement, if made at all, was made too recently."
+        ]
+      },
+      "event_count": 5,
+      "events_sha256": "b94bcadfbea516080e121dea1859fcb4240ff5cc4869781a854b26ff8b5fc6b5",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-8.json",
+          "pointer": "$.receipts[7]",
+          "operation": "old announcement cannot execute after regrant"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 69,
+      "extrinsic_index": 6,
+      "block_hash": "0xd6b24a108a8140c6347aa374df19c924fc6bf35acb299ded6fbbed0a319efc67",
+      "extrinsic_hash": "0xef5f9c2ef5996c6eafdd8e72033fb889c6ae84a1ddf9fd95a2299f780879ac92",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "634984393771ecc9713d555840a7a58cd6d74f1f5ff377fa6b5a98b1864969e5",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-8.json",
+          "pointer": "$.receipts[8]",
+          "operation": "fresh announcement after regrant"
+        }
+      ]
+    },
+    {
+      "chain": "proxy-boundaries",
+      "height": 74,
+      "extrinsic_index": 6,
+      "block_hash": "0x94c59acaa3b74381dc276dc4e0389a67c1ff095956af427cf373ec3a24fe4b53",
+      "extrinsic_hash": "0xa7245bd3259ce941ee95bfd13b7d5b054fba69649c6f55a14aa5c72667c00cb9",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "d6ee23c8f1f16540a0b3162adabe8a1af4f8259dfd854b12091d11061bc3842b",
+      "references": [
+        {
+          "path": "proxy-boundaries/receipts/ms-proxy-announcement-boundary-8.json",
+          "pointer": "$.receipts[9]",
+          "operation": "fresh guarded transfer after regrant and delay"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 7,
+      "extrinsic_index": 6,
+      "block_hash": "0xb5b61657cf6e0a1d21e2469bf649df17538cbba19706de84b9117be132a97a77",
+      "extrinsic_hash": "0x715bf6b2040c4dedbfca5d1e6df8f6593d8975ba885c71097093758ccd93175f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "a7ecdf697e4b1897449722d94aab7d8085b27c57a3725ec769ca8f706c5af4a9",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-6.json",
+          "pointer": "$.receipts[0]",
+          "operation": "Dave explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 10,
+      "extrinsic_index": 6,
+      "block_hash": "0xf6206a58ed9150d092b311c6cc4454154eadec8527ec470ed134382a908c0643",
+      "extrinsic_hash": "0xc64b4209ac999dd6fed36b74e298fa44772e110ea0a1e1524e14ad2b22a89a94",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "fe1d59fe775b2c5799f5812fb3acbc32e8c0b546a77262809e75c8c5571d7c7d",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-6.json",
+          "pointer": "$.receipts[1]",
+          "operation": "Dave explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 13,
+      "extrinsic_index": 6,
+      "block_hash": "0x8fd3f2438ef8d6d23cc1a52fa5cd161e6030f0700ebd8213c276e092f9bddd30",
+      "extrinsic_hash": "0x288f5a4b7ff1d66c057eba2e047157492bfc96c8d8b9cc90a21aba1d18008ea8",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "b828d31c431493f6fb96142c13158fc5f26cd0aad7e77e46987bf20cb1871431",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-8.json",
+          "pointer": "$.receipts[0]",
+          "operation": "Dave explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 13,
+      "extrinsic_index": 7,
+      "block_hash": "0x8fd3f2438ef8d6d23cc1a52fa5cd161e6030f0700ebd8213c276e092f9bddd30",
+      "extrinsic_hash": "0x64a28a3b005cb90d2600b34845619a2cb37c13cdcbdf73d6a9c97ce76cafffba",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "InsufficientBalance",
+        "docs": [
+          "Balance too low to send value."
+        ]
+      },
+      "event_count": 5,
+      "events_sha256": "2fbf3f58bd1e4ce35ee86b4dce2ee85882ef1af5e6481012db40c9b7f13fc4d6",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-6.json",
+          "pointer": "$.receipts[2]",
+          "operation": "underfunded reserve fails atomically on chain"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 16,
+      "extrinsic_index": 6,
+      "block_hash": "0x4f26eff18d709ca0b45e8fc2a5a4cb3fddc988d70641a710a137820c4b9e88e6",
+      "extrinsic_hash": "0xb9f0ba5d0207c99788d524c917e1585020153d75bbfa788e1538b9fc342a2993",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "b44723bd51ed1fe6e9894da9882655a1bdc46ec011113bc1b6b133ed9c4b685c",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-8.json",
+          "pointer": "$.receipts[1]",
+          "operation": "Dave explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 16,
+      "extrinsic_index": 7,
+      "block_hash": "0x4f26eff18d709ca0b45e8fc2a5a4cb3fddc988d70641a710a137820c4b9e88e6",
+      "extrinsic_hash": "0x7e224fe2bea976efce3411c6e59dd076d8da0e708f4f98e8186c26270ca19187",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "61d95972246f1b6d6900c08add413931fabbdcefc045959178e0cb7a0f564ad6",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-6.json",
+          "pointer": "$.receipts[3]",
+          "operation": "first-payment sweep with exact reserve allowance"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 19,
+      "extrinsic_index": 6,
+      "block_hash": "0xc035cc4f477c40ec5f487fc2c6e971b45e0b8190c3534016ec5b9507a7cbd890",
+      "extrinsic_hash": "0xec35669338be3c386ae869bcc784f624612ef9d911eccef3cdeb9122205047f4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "52b1a40d5f0a330f290e82003c113630dd937388b60514f0054a9580df7a7383",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-6.json",
+          "pointer": "$.receipts[4]",
+          "operation": "recipient drains all spendable free balance"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 19,
+      "extrinsic_index": 7,
+      "block_hash": "0xc035cc4f477c40ec5f487fc2c6e971b45e0b8190c3534016ec5b9507a7cbd890",
+      "extrinsic_hash": "0xaac2276398ed63edbb219208e61ee8c98000dbddf60293de8c8e559ecf39bb60",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "InsufficientBalance",
+        "docs": [
+          "Balance too low to send value."
+        ]
+      },
+      "event_count": 5,
+      "events_sha256": "63413e0cbda5ca17850e7db5568b96389ea26f19a088e3e10a524f0739f2c8ff",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-8.json",
+          "pointer": "$.receipts[2]",
+          "operation": "underfunded reserve fails atomically on chain"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 19,
+      "extrinsic_index": 8,
+      "block_hash": "0xc035cc4f477c40ec5f487fc2c6e971b45e0b8190c3534016ec5b9507a7cbd890",
+      "extrinsic_hash": "0xafbe6301af457dc871bfd3f0a14dddd451a0a8d9a0cbd1d655071808c6aa2777",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "c72d7548f0d86495ed6b842651c3dffb29ded98dffe45667574ef1b3c6043da8",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-4.json",
+          "pointer": "$.receipts[0]",
+          "operation": "Dave explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 22,
+      "extrinsic_index": 6,
+      "block_hash": "0xf8ce14a45b100c83d3e1a3dfd03874534c8d9af541d51a4b22c70ea269eecdd8",
+      "extrinsic_hash": "0xec2563af71c02719ef48b5e8bafe47adaea3e5d5cb0a1a54deb1ae5f5ab074cd",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "4e1f4aef11eca7d77aa8e3b043731cd65068271e6c91163fb0a6f81898e9ea7b",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-4.json",
+          "pointer": "$.receipts[1]",
+          "operation": "Dave explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 22,
+      "extrinsic_index": 7,
+      "block_hash": "0xf8ce14a45b100c83d3e1a3dfd03874534c8d9af541d51a4b22c70ea269eecdd8",
+      "extrinsic_hash": "0x39e398b1cee66d72305ee5e2a17206c70a646e315931584e9f12acb5c467548e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "f9fe57acc9844085e56e7a26a10fe4ba2606e0c760dc974eab68b5364f487ede",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-8.json",
+          "pointer": "$.receipts[3]",
+          "operation": "first-payment sweep with exact reserve allowance"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 25,
+      "extrinsic_index": 6,
+      "block_hash": "0x5bc0d9ebfcf9e419b8246acfc2e66597e08543938f3aa3e870b2028def9ad101",
+      "extrinsic_hash": "0xf1e58fd5dd876a8345cb9b717b76804e9c760c018d829700c9932d9340b784e3",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "200627bc43844f75c4e701120de14887c38c5edc8eec8d41796e777aa1fbc3a3",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-8.json",
+          "pointer": "$.receipts[4]",
+          "operation": "recipient drains all spendable free balance"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 25,
+      "extrinsic_index": 7,
+      "block_hash": "0x5bc0d9ebfcf9e419b8246acfc2e66597e08543938f3aa3e870b2028def9ad101",
+      "extrinsic_hash": "0x84d98c50014f378bd7f5c0fcc91772edd1c7f1317973360e62ae326c59c9c133",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "bb1d7658d0f45dda16a7c55d3584d1854cc42ade9ac078b8344261750b732cb9",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-7.json",
+          "pointer": "$.receipts[0]",
+          "operation": "Dave explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 25,
+      "extrinsic_index": 8,
+      "block_hash": "0x5bc0d9ebfcf9e419b8246acfc2e66597e08543938f3aa3e870b2028def9ad101",
+      "extrinsic_hash": "0xa81c1a23b9f806c978cd64891f7a425be176d2d48ea04b5aa8a9aafdc18a4147",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "InsufficientBalance",
+        "docs": [
+          "Balance too low to send value."
+        ]
+      },
+      "event_count": 5,
+      "events_sha256": "f23370df09f4fb84ee00a95dd628fbf0475fc1a5fd448d016126d7c1425cda39",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-4.json",
+          "pointer": "$.receipts[2]",
+          "operation": "underfunded reserve fails atomically on chain"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 28,
+      "extrinsic_index": 6,
+      "block_hash": "0x4eeb52a7bb0531549d63f853b21afbef60cf24cdb24747f0a06fd00a5625da1b",
+      "extrinsic_hash": "0xb4fa4aa3c214348de5fac12868d1585adb559f4b7510bc2b530efcdac26e1e23",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "8cdcfe92016274226159f48bec694e5b2693993d899a01406747004ec7ebe33b",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-8.json",
+          "pointer": "$.receipts[5]",
+          "operation": "Dave explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 28,
+      "extrinsic_index": 7,
+      "block_hash": "0x4eeb52a7bb0531549d63f853b21afbef60cf24cdb24747f0a06fd00a5625da1b",
+      "extrinsic_hash": "0x5a870a282f5b82ee72eea80aa48dc39a80a427e95ccb6b578806691409ee1566",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "ef896a7583526845afa0985b75a4096e69d62f05e51039486aaa65addc52f05b",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-4.json",
+          "pointer": "$.receipts[3]",
+          "operation": "first-payment sweep with exact reserve allowance"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 31,
+      "extrinsic_index": 6,
+      "block_hash": "0x3f3853f87a221d72b399f9e89f1e34de668d7d2f3320492405baea6f5dfc0e20",
+      "extrinsic_hash": "0x94112cf4515665ebfc179dc55f793324c8be57713ab6dff0a369be5623059460",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "a4346b908c93de7a2c131f835f83d2600c4c98d4436925240a5ffc2d68913c3e",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-4.json",
+          "pointer": "$.receipts[4]",
+          "operation": "recipient drains all spendable free balance"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 31,
+      "extrinsic_index": 7,
+      "block_hash": "0x3f3853f87a221d72b399f9e89f1e34de668d7d2f3320492405baea6f5dfc0e20",
+      "extrinsic_hash": "0x970ea78f0bed83fd332aee5a31d3bab024e68eea45b60150c9dbeca461f5ecf3",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "45e48831219881b743aa03a9a8e77075c4dbea1ebe093ec33adf22a621e3739c",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-6.json",
+          "pointer": "$.receipts[5]",
+          "operation": "Dave explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 31,
+      "extrinsic_index": 8,
+      "block_hash": "0x3f3853f87a221d72b399f9e89f1e34de668d7d2f3320492405baea6f5dfc0e20",
+      "extrinsic_hash": "0x3155f9b03f454b2529b127b0484b2726c3d22576861a4f2aaf4bdc559a939999",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "817db75fd63056f17d576d97788dc365248753848e67953f85ca1cc2c2a1c81b",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-8.json",
+          "pointer": "$.receipts[6]",
+          "operation": "restored seed spends after drain and re-funding"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 34,
+      "extrinsic_index": 6,
+      "block_hash": "0xbdf5e68c1d2dad139fe9cabe24e82638cd48df7fe367a20662ff8aaccbb6dc6b",
+      "extrinsic_hash": "0x0baba9520627addd1535da3f1802fe4be241dcbb9f79fdbd1b10bc54d0221c89",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "302f5e020fdf80600ecfbf4f4555906965781b834a551df67e28a60d1a567a1b",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-4.json",
+          "pointer": "$.receipts[5]",
+          "operation": "Dave explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 34,
+      "extrinsic_index": 7,
+      "block_hash": "0xbdf5e68c1d2dad139fe9cabe24e82638cd48df7fe367a20662ff8aaccbb6dc6b",
+      "extrinsic_hash": "0xd7dc64c7b08aedb85dcb51f448d3ee822e6ab13a17cf99ff18b6d6021a2f7d85",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "afeb6f8344c0677bce30634b306e939ce0c289a80c426b2da8587e9a45ef5e59",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-6.json",
+          "pointer": "$.receipts[6]",
+          "operation": "restored seed spends after drain and re-funding"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 37,
+      "extrinsic_index": 6,
+      "block_hash": "0x2fa7059a4bdb4bfc12433d21776eb636bc8cbac5943180b755e07f676181ed31",
+      "extrinsic_hash": "0xe6b0ad36435b1336c8cd2ca601c2faec94f03b1a943ae6cad9c65a1b403a4c46",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "605b832d80190dcd6d53fe36f4b2c2f66e8b15cdffeca10db12c1b05a67a984d",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-7.json",
+          "pointer": "$.receipts[1]",
+          "operation": "Dave explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 37,
+      "extrinsic_index": 7,
+      "block_hash": "0x2fa7059a4bdb4bfc12433d21776eb636bc8cbac5943180b755e07f676181ed31",
+      "extrinsic_hash": "0x2ed6530601ab96e07fa3db71fcde983fc374c3cbb63f26579cb22872b70ece8d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "1650ac1c4f94f8aa89eaed16295db3e38b788f71a782ae87ee6f6f0a258a2017",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-4.json",
+          "pointer": "$.receipts[6]",
+          "operation": "restored seed spends after drain and re-funding"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 40,
+      "extrinsic_index": 6,
+      "block_hash": "0x2cd4982967c79055ac9e67cadd33924e3d16ff1ac79e7275878b768c985df5da",
+      "extrinsic_hash": "0x15d0e61aedd9027706f80f71c78d4cf5207a9c727665258f1a947c94a87dfc75",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "InsufficientBalance",
+        "docs": [
+          "Balance too low to send value."
+        ]
+      },
+      "event_count": 5,
+      "events_sha256": "aef1b3ff4f32d47cc3c85f67d9ffb174f575d26a841613c03cf899dbb17ea3b8",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-7.json",
+          "pointer": "$.receipts[2]",
+          "operation": "underfunded reserve fails atomically on chain"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 43,
+      "extrinsic_index": 6,
+      "block_hash": "0x326fe157ad2904e28c82679e7f9da18e7ef6e8b12396de4a9b0539d1573c8be7",
+      "extrinsic_hash": "0xe035199060f241c07f1b5d48d8203da6e82c923aab4aa052d458f426fad98571",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "259391a213c4aa2189a62fc8d62b61f6799d2352d6e9f82fcd3d84dd29982739",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-7.json",
+          "pointer": "$.receipts[3]",
+          "operation": "first-payment sweep with exact reserve allowance"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 46,
+      "extrinsic_index": 6,
+      "block_hash": "0xad6bb429af26aca8a36786bbde569206e27e488698aa4f1fde7617b0c22855eb",
+      "extrinsic_hash": "0xeafce8b3f0c5020bb7134c0f297a35a086533335393475c2247b4ede18971bf3",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "b7b9ff52cd96315be5177cbb8ad4e59a7da52dd1bf97fd24ebbf56ff209e7a68",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-7.json",
+          "pointer": "$.receipts[4]",
+          "operation": "recipient drains all spendable free balance"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 49,
+      "extrinsic_index": 6,
+      "block_hash": "0x1e5e7a5a67fab29bdad9bd1149981671bcdaac03376112e9b34c2cf36b060007",
+      "extrinsic_hash": "0x2e3a1ac0738af363ea9079b605d9c5bedb82cd2d6ab14cd79df9e9a6a8c9de73",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "70a1303f418d1163365870e013ba877d53d63880fa9a38acb83e3943cbdf195a",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-7.json",
+          "pointer": "$.receipts[5]",
+          "operation": "Dave explicitly sponsors and funds account"
+        }
+      ]
+    },
+    {
+      "chain": "sponsorship",
+      "height": 52,
+      "extrinsic_index": 6,
+      "block_hash": "0x3fffcc7f971066eef6691a05bb66b32a639d5955aa9f8ed8238dc261dcbc6b66",
+      "extrinsic_hash": "0xf5d10de83257c7a3ddd8be6f1508f624500fa7121ae50a4f6f6c6946ee18b41f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "ab7c0fce0c598b88db7d86d61e7fbb35216ca7ac8f1a6cc57fa757a8d4bb7334",
+      "references": [
+        {
+          "path": "sponsorship/receipts/sponsorship-sweep-recovery-7.json",
+          "pointer": "$.receipts[6]",
+          "operation": "restored seed spends after drain and re-funding"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 7,
+      "extrinsic_index": 6,
+      "block_hash": "0x90a822d23ff985a425422aa44d59cad14cd47ff532441fab774fddb65fabb3a8",
+      "extrinsic_hash": "0x79f5bcfbf3595d2299c16b88c8d4f9289d637baec561a4f2e549245c9234b7c2",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "7ffe4d2a162905ee76ecd39eb9036f83c17080fb238c3d6ab2f7c4e498867936",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+          "pointer": "$.receipts[0]",
+          "operation": "Alice funds and explicitly sponsors fresh descriptor"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 10,
+      "extrinsic_index": 6,
+      "block_hash": "0x4e97b5a1ff9af3e8dd0c41f06fae623a08ba54888be9d0a9101e5bd3710aab02",
+      "extrinsic_hash": "0xf0b3ad85b9a324203cecd6a8196faac7da7f95a0c3ae6f7f31dac8fa758c0dcb",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "53f8755bb52664af557be809d41b51fe53444b7265a3bdfb0dc3c20c46de55a2",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+          "pointer": "$.receipts[1]",
+          "operation": "Alice funds and explicitly sponsors fresh descriptor"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 13,
+      "extrinsic_index": 6,
+      "block_hash": "0x0069abe0ae546e560104cced74bd74e1c4e7b98d82b8f59d0cd1633c5d718ead",
+      "extrinsic_hash": "0x0bff1fb08bb1111f244b4c4f3379d18c35b07dc16aa7e6bcd4f949e136c18c90",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "97fc280ea1ecf740e87fb417c607c07d1307751a8eac74362b38ea8d75095300",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+          "pointer": "$.receipts[2]",
+          "operation": "Alice funds and explicitly sponsors fresh descriptor"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 16,
+      "extrinsic_index": 6,
+      "block_hash": "0x38f6d7821de9e83c502fcf9f4fa7e8bd52d562c30f93f5ba53173faea683bdea",
+      "extrinsic_hash": "0x96f2fd3465a96e17a56c8d2f449161756a699ddcd781ba64aec6638495655811",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "3b4d9b340d7cf96a5ba42105fa6b98280027a5bd40e32e139e1aec1cc2d6c5ee",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+          "pointer": "$.receipts[3]",
+          "operation": "Alice funds and explicitly sponsors fresh descriptor"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 19,
+      "extrinsic_index": 6,
+      "block_hash": "0x9256d4ce5e73089d4a791906dd7532ece4ef7bb1ada91e5d082b961b8eb07029",
+      "extrinsic_hash": "0xb96952797d82eba33ebd70a734355bf6cd7e82e36bed7db295cb1608547188c6",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "b908883c9d2aaba0e3ae9c98e45df8d1241cee8d0f74219b613c833d29fd4a3c",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+          "pointer": "$.receipts[4]",
+          "operation": "Alice funds and explicitly sponsors fresh descriptor"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 22,
+      "extrinsic_index": 6,
+      "block_hash": "0x7d2ef94200e941f91fcae9d90e3edfdeccf1144012663e13957bcfce597efeb4",
+      "extrinsic_hash": "0xf36c2723d3f0f41a5edc446f85ee54e7d082a4bad3116376644127861e30c28b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "cd529adff529c45699f6719e0591cf17fd45c8cdb4176b35738ac260514ee3c1",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+          "pointer": "$.receipts[0]",
+          "operation": "Alice funds and explicitly sponsors fresh descriptor"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 22,
+      "extrinsic_index": 7,
+      "block_hash": "0x7d2ef94200e941f91fcae9d90e3edfdeccf1144012663e13957bcfce597efeb4",
+      "extrinsic_hash": "0x87c35baf1da21cf9dbd6d955e4eee5977169f8c6c9fc349cb7ae496fbeff96a6",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "02117d10facc0e24e74b3a1158b82e63eb873c740cc2af0ec344b9fc5dd79884",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+          "pointer": "$.receipts[5]",
+          "operation": "MS owner creates subnet"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 25,
+      "extrinsic_index": 6,
+      "block_hash": "0x1b65ae7b67d453202b275199a75fca4c04cd2da2138aaf0f803fd5730bbf6348",
+      "extrinsic_hash": "0x0a63564472371c5ee675dfc26cdae0a23eb4fee780e4c644b23c789d4fd03673",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "427e4356e2c9565aee04a5ea01b29e81b7bfb34771146913eac2c0a9c0e1f68a",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+          "pointer": "$.receipts[1]",
+          "operation": "Alice funds and explicitly sponsors fresh descriptor"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 28,
+      "extrinsic_index": 6,
+      "block_hash": "0x8af95070c705f8a91d4a5dd94b464281a81f9b444269d90b4e02fc2193c19665",
+      "extrinsic_hash": "0x733556e72b318a92b4a69ee5299b275bafe19deccc3f0c3749c55eca7668eea4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "aeb6fd9635de195e84fff4a7795b16782fe008721d2b099853fb4459f59ef997",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+          "pointer": "$.receipts[2]",
+          "operation": "Alice funds and explicitly sponsors fresh descriptor"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 31,
+      "extrinsic_index": 6,
+      "block_hash": "0x62a4cde2e51173ea6d282760f6ed8e83856adba380aff33a365216260f56d2d2",
+      "extrinsic_hash": "0xc03aa2d144b4a35212b7870050cca0f34403b82b680d103facefb31604935f41",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "b1b1e78e95910defddc36d5359132ad52d44b5c6d19bfe0739678873a0daffd2",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+          "pointer": "$.receipts[3]",
+          "operation": "Alice funds and explicitly sponsors fresh descriptor"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 34,
+      "extrinsic_index": 6,
+      "block_hash": "0x17ec0e58f7084106c2d68720fcd0960297c3d16ff69c6f68f088bb5b25fc60f3",
+      "extrinsic_hash": "0xba792487556c10110c8e840283df2f723e2fbeaadee08bdf5bc4347ccdd11441",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "fb2828b1196e8952b3b7aa079b41a4d13c63f4c8ca3dd8003ea1310f393b022b",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+          "pointer": "$.receipts[4]",
+          "operation": "Alice funds and explicitly sponsors fresh descriptor"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 37,
+      "extrinsic_index": 6,
+      "block_hash": "0x01151be593474832f1df7a951f37ca7c0dbe9477e21da4310f29d581c02c901d",
+      "extrinsic_hash": "0xe424a25c84a99432573236ce5a6c7655a8b3b52ef4458057c8cc7b95de910c80",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "ea9e30ac5fa379e8f9365356a92beaf4b709f5c8c82bf5f9e2dd630a6c272a10",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+          "pointer": "$.receipts[5]",
+          "operation": "MS owner creates subnet"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 37,
+      "extrinsic_index": 7,
+      "block_hash": "0x01151be593474832f1df7a951f37ca7c0dbe9477e21da4310f29d581c02c901d",
+      "extrinsic_hash": "0x9ddb3678ab6d3d134246803f591b2b27e09285b38eea16f26da62e0a3b1b380b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 29,
+      "events_sha256": "5f9847331ec5b01fe07ee0b929546bdf4df52d259fdf2d43540fd3e8ad515be2",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+          "pointer": "$.receipts[6]",
+          "operation": "Alice configures only the fresh subnet"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 40,
+      "extrinsic_index": 6,
+      "block_hash": "0xc466028af7420d8d0997a629410e266249bb8b794c6cb1ea900f3a8bc83917d9",
+      "extrinsic_hash": "0x69882b17742dc9a546a96f8418e93b214bcbfc23bfabd718e2eeefda382b8a7a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 16,
+      "events_sha256": "e92c9491f09fe0a613895c95290738bc0b296184323162eb98d9e25402542507",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+          "pointer": "$.receipts[7]",
+          "operation": "MS owner registers two non-self miner destinations"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 40,
+      "extrinsic_index": 7,
+      "block_hash": "0xc466028af7420d8d0997a629410e266249bb8b794c6cb1ea900f3a8bc83917d9",
+      "extrinsic_hash": "0xb1d58ac9c20ab8a58978001a48416e55f6c7d8221148605853563e28ff8ce991",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 29,
+      "events_sha256": "36703087a5c19fa5ad28388eef65642b9a911ff554155e816b3464c82dbe5e43",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+          "pointer": "$.receipts[6]",
+          "operation": "Alice configures only the fresh subnet"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 43,
+      "extrinsic_index": 6,
+      "block_hash": "0xebfea140b59c289f15c93774c7eef256624e3f5ff7caac4297d027d7370000f9",
+      "extrinsic_hash": "0xbb08bc767969f5ad9c77774d291f713379cde276f66c9b44f5e9b57a7405620b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 16,
+      "events_sha256": "4b708a989c19fa42f0ec26ef538aa333beac6badbeafa17d16980678e5637ac0",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+          "pointer": "$.receipts[7]",
+          "operation": "MS owner registers two non-self miner destinations"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 43,
+      "extrinsic_index": 7,
+      "block_hash": "0xebfea140b59c289f15c93774c7eef256624e3f5ff7caac4297d027d7370000f9",
+      "extrinsic_hash": "0x981525974ab02c6c2da2febd542e4441e8120ce00893262bd2d4258467a8636a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "206cf68df4bcbbc14d58a771c9c6f43824ed1911fa5db907bb837c13ed7ccdfa",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+          "pointer": "$.receipts[8]",
+          "operation": "MS hotkey grants NonTransfer proxy"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 46,
+      "extrinsic_index": 6,
+      "block_hash": "0x3aca491b012e109378f130b5e68a2c331ade4c43cc8b38b8eeb793094f5348dc",
+      "extrinsic_hash": "0x65d518ef3cedd7d76f7aa592363e236b103e4e32087a9fff9a3343e7d65d5dc5",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "fb2584084313f91caed6428f1feb9d073df168fb388ed2d301b00490bea689de",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+          "pointer": "$.receipts[8]",
+          "operation": "MS hotkey grants NonTransfer proxy"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 46,
+      "extrinsic_index": 7,
+      "block_hash": "0x3aca491b012e109378f130b5e68a2c331ade4c43cc8b38b8eeb793094f5348dc",
+      "extrinsic_hash": "0x675768998e93841dd6b327b427f9984c29772bb66b8e50f26ed4c0350def58db",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "dd7d96f360ddd1c793e3768e931ffce5dcbadc893978c36569dfe114d3f74741",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+          "pointer": "$.receipts[9]",
+          "operation": "restricted MS proxy sets non-self weights"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 49,
+      "extrinsic_index": 6,
+      "block_hash": "0xdf309d7d3e36f9ade823e56fe0412bfb0541f62769288274b6e3961b1c58fa29",
+      "extrinsic_hash": "0xe1d53b0b0e3d8e5467e3580d7e057be46c301833230975de946831c1bcc9abc2",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Proxy.ProxyExecuted",
+          "error": {
+            "Module": {
+              "index": 0,
+              "error": "0x05000000"
+            }
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "Module",
+        "name": "CallFiltered",
+        "docs": [
+          "The origin filter prevent the call to be dispatched."
+        ]
+      },
+      "event_count": 6,
+      "events_sha256": "61ac26010bdcf22c99ff0c10ea05c1e6a27f9735c0dc90c4aeaf70547abd81fa",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+          "pointer": "$.receipts[10]",
+          "operation": "restricted MS proxy cannot transfer validator funds"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 49,
+      "extrinsic_index": 7,
+      "block_hash": "0xdf309d7d3e36f9ade823e56fe0412bfb0541f62769288274b6e3961b1c58fa29",
+      "extrinsic_hash": "0xa72100b82b4bd16bae0a1aae88307ca979866f41c2b0a1846294605e6baf366c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "fff678517179c4a4effa42d188893c6ae760d32a6d5a5faced43e9e51c6cae0b",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+          "pointer": "$.receipts[9]",
+          "operation": "restricted MS proxy sets non-self weights"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 52,
+      "extrinsic_index": 6,
+      "block_hash": "0xf17809be868108212340bc27352d70ce1d8df13a3857c3edf94d155e7bba6944",
+      "extrinsic_hash": "0x4973240a425818c00909932464802bd7219b88c5a6d7faa63e277b0ce4e9b60f",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Proxy.ProxyExecuted",
+          "error": {
+            "Module": {
+              "index": 0,
+              "error": "0x05000000"
+            }
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "Module",
+        "name": "CallFiltered",
+        "docs": [
+          "The origin filter prevent the call to be dispatched."
+        ]
+      },
+      "event_count": 6,
+      "events_sha256": "cfbac52204ada9dd666696af7fa1e94d49f348fac43498775612c56a639a0cc0",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+          "pointer": "$.receipts[10]",
+          "operation": "restricted MS proxy cannot transfer validator funds"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 52,
+      "extrinsic_index": 7,
+      "block_hash": "0xf17809be868108212340bc27352d70ce1d8df13a3857c3edf94d155e7bba6944",
+      "extrinsic_hash": "0x0a5b8ebb82a2699e86c0c10ef6787d71dfef7c266cd145b96feeb2fbf8ccdb57",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "4d69a4bd653866cd1b435d18b4f28133e5ea9837633620c7f26bf4fdfe0fb928",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+          "pointer": "$.receipts[11]",
+          "operation": "MS hotkey revokes validator proxy"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 55,
+      "extrinsic_index": 6,
+      "block_hash": "0x2e61b77a0fe6a08e09e8317cdd52e10e85bced6f9f89cc31ad894c6fccb700d9",
+      "extrinsic_hash": "0x8bb08f1f2fecf5c159172506fe1afb62169e1e3dc13362a7afbb4605f1ec661d",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "NotProxy",
+        "docs": [
+          "Sender is not a proxy of the account to be proxied."
+        ]
+      },
+      "event_count": 3,
+      "events_sha256": "d4cfeb63ef0155ce2956754e868305d388c95dde16017f4a2ef40b8eaac31fd7",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-7.json",
+          "pointer": "$.receipts[12]",
+          "operation": "revoked proxy cannot redirect weights to another non-self miner"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 55,
+      "extrinsic_index": 7,
+      "block_hash": "0x2e61b77a0fe6a08e09e8317cdd52e10e85bced6f9f89cc31ad894c6fccb700d9",
+      "extrinsic_hash": "0x0bfb8300fa2e890161bb43df3d0d5a76475bec7fa49fed1f9360cc01662cd60c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "93419b0bece8f1824600e850c67bfe7f8dbfb86f97aa0ef76c3db4f49be150cf",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+          "pointer": "$.receipts[11]",
+          "operation": "MS hotkey revokes validator proxy"
+        }
+      ]
+    },
+    {
+      "chain": "validator-proxy",
+      "height": 58,
+      "extrinsic_index": 6,
+      "block_hash": "0x413f6ae537033888a13764fb985bc6acdc8b1c2fdb4ac4d8a027e72df3ba2b72",
+      "extrinsic_hash": "0x2d1d37ef9035186807697dfc2c6b20770e8d29dfc015fbacf18f611d996a19a8",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "NotProxy",
+        "docs": [
+          "Sender is not a proxy of the account to be proxied."
+        ]
+      },
+      "event_count": 3,
+      "events_sha256": "5163024a8b827f07fd59d8c5d0067b4ec349a69d8878c5222fdce58d39153da5",
+      "references": [
+        {
+          "path": "validator-proxy/receipts/ms-validator-proxy-8.json",
+          "pointer": "$.receipts[12]",
+          "operation": "revoked proxy cannot redirect weights to another non-self miner"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 7,
+      "extrinsic_index": 6,
+      "block_hash": "0x576956fea71217e7144246281052233352fc20a70b69f1da962eef1004f784bc",
+      "extrinsic_hash": "0x2e327ad71a4b9ae324a9ad59542c6bf9fd63b5977c434872a4a84d8302547310",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 35,
+      "events_sha256": "a0911818df070352bea1eebfdd48de03e2e3093386fdfa7ad5607045c2946ff0",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[0]",
+          "operation": "Alice atomic descriptor registration and funding"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 10,
+      "extrinsic_index": 6,
+      "block_hash": "0x057989c8a0d55a63f97d37c8ff9d4e77edc24b1d9dbfd89d51fb00bb6d92b826",
+      "extrinsic_hash": "0x3714c50dfa1eae0ac34e5eca16bb9fdeb4f8f8f615e61e5f6e1afa7e311a7390",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "5bba1e34ee10161ffc0dd53f886b317a17673a4b5bf8fb545e15dd049625c963",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[1]",
+          "operation": "register_subnet"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 10,
+      "extrinsic_index": 7,
+      "block_hash": "0x057989c8a0d55a63f97d37c8ff9d4e77edc24b1d9dbfd89d51fb00bb6d92b826",
+      "extrinsic_hash": "0x40473cf40e0a93a6a7f3bd20aa84e3d49579cd140faa7000fc5fcd5484580b79",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 35,
+      "events_sha256": "2551b234af6e94d190c2bcd3ff0a5d81aa401e946f919d7e09d6bf28cb387d35",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[0]",
+          "operation": "Alice atomic descriptor registration and funding"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 13,
+      "extrinsic_index": 6,
+      "block_hash": "0x2bec1d1ee3075f15145c503bc4b8e92b5f773f634a6af5a74784c794f388853c",
+      "extrinsic_hash": "0x40834285460f5c6d7342fdce7652c3b7e0422f9b5a89be06f0a444781e5c6a56",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 34,
+      "events_sha256": "735b886f0b0fa61e3959c95e1f866da2e2ce033d6e0d91c0ba88533259203f63",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[2]",
+          "operation": "Alice subnet-local setup"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 13,
+      "extrinsic_index": 7,
+      "block_hash": "0x2bec1d1ee3075f15145c503bc4b8e92b5f773f634a6af5a74784c794f388853c",
+      "extrinsic_hash": "0x0133424ce760a3c0cd57f0fbd6fea628eaf2583fc7ac6f5924f36b7ac0059e53",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "04bdc54d655bf1ea7e2a7480cd4fcb39c2d1cf3d5c41e4c17b09cde4334f9b04",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[1]",
+          "operation": "register_subnet"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 16,
+      "extrinsic_index": 6,
+      "block_hash": "0x2b47322bfedcaacd0748e34130ec2ea4ecea051a2c14f9429d181ed6a2e93744",
+      "extrinsic_hash": "0x6c3ec0e9e376c2884d00bf415fb852e33bb9bc1ef417da71a9526de28f28d09b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 34,
+      "events_sha256": "2308505c96b4fa54819bad82c3acf32dcd12f72aa8b479d4c53f8857070eabd5",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[2]",
+          "operation": "Alice subnet-local setup"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 17,
+      "extrinsic_index": 7,
+      "block_hash": "0x1768914196c2977ccced4a4eb29309200107997f7a392f16b72886dd5ec57118",
+      "extrinsic_hash": "0xde373770ef61d258a82ccf70fecb3c1bcab9533b701ea750a5b5d87f46ed982d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "0f9d42b36590df55c0821887485dd011f49b536757b94cb2d70a14bd89213d96",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[3]",
+          "operation": "burned_register"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 20,
+      "extrinsic_index": 7,
+      "block_hash": "0xe700813e07597e4b5a30805e59cd0320d3cd7b27d3bcb12b2f74e4ebf74cfc89",
+      "extrinsic_hash": "0xaed6494a3bda498f032286c950ff803b1bd832d8b00a6c91190eedcedfe5ba3d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "9ee43728e7f3c79c94aec8a29bce42d3202f49c3861aa2df6ea0ad1c3b780e1f",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[3]",
+          "operation": "burned_register"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 20,
+      "extrinsic_index": 8,
+      "block_hash": "0xe700813e07597e4b5a30805e59cd0320d3cd7b27d3bcb12b2f74e4ebf74cfc89",
+      "extrinsic_hash": "0x01dd9f74e2b1857ba62135be361a015aa2666aa494b1863b3937983448f67e96",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "ad6e289286bed9a24cbbfa68f76f1dfe5a77e5a8535e9ee6663735572c1b8666",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[4]",
+          "operation": "set_weights"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 23,
+      "extrinsic_index": 6,
+      "block_hash": "0x388f0a13b5a609b60447f6a1b558ffca1b4270a7c95a71fad3b016ba77846099",
+      "extrinsic_hash": "0x5ff89f9ee3bacef1423bec6ea6c9c0211fa5a9991a70137ccd26ce3ca18114e7",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "e4f179ae80f7b370879ac04b533d30be5cd0806127a8f228d49825b288d1962e",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[5]",
+          "operation": "add_stake"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 23,
+      "extrinsic_index": 7,
+      "block_hash": "0x388f0a13b5a609b60447f6a1b558ffca1b4270a7c95a71fad3b016ba77846099",
+      "extrinsic_hash": "0xf6023f0d7186b240861503ddf8817bcb75b381c13ff716d96cdb6a692be8ad0b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "42cf1397a5a3abe6e06d1e8c80d47bebac00fc3fe860efe8dcafea7f81d28aeb",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[4]",
+          "operation": "set_weights"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 26,
+      "extrinsic_index": 6,
+      "block_hash": "0xb5daa7ad2e754c6d99114b730ea87678ac0660605e6288a0a34163a688232fb4",
+      "extrinsic_hash": "0x4ae1c2198ae92ffcab59fa05c652a9f6fe1710b5efcc93622972f57ae085ecc8",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "c06ddb0b484d022f2b0e3de1f393acbdc1306f9e8db803e3eb14c97d8d37d209",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[6]",
+          "operation": "AdminUtils.sudo_set_epoch_consensus"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 26,
+      "extrinsic_index": 7,
+      "block_hash": "0xb5daa7ad2e754c6d99114b730ea87678ac0660605e6288a0a34163a688232fb4",
+      "extrinsic_hash": "0x5d991d44b83868d548b979cd3b315504ab6412231dcdab4cae452919a81b6536",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "e8233dab5aa8cd89fb6b03d5cc8de36185ebb581e355231b05af25fa23e56fbf",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[5]",
+          "operation": "add_stake"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 29,
+      "extrinsic_index": 6,
+      "block_hash": "0x47fec8af488f5cbff4865a4c3405b65767a533bea3d39fe2c4cd54a4d20dc11c",
+      "extrinsic_hash": "0x8c916c4def259024151c1e26b4337f399e1035ce1c8cacaa112acb0c4d698d9a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "e34716f1fef570db62d465844e6e1fb3152a82f4d908fccaa572528089897566",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[6]",
+          "operation": "AdminUtils.sudo_set_epoch_consensus"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 29,
+      "extrinsic_index": 7,
+      "block_hash": "0x47fec8af488f5cbff4865a4c3405b65767a533bea3d39fe2c4cd54a4d20dc11c",
+      "extrinsic_hash": "0x931e48633d1af3a228623368f0043f153b0a0753855886cdc0999f3701060e3b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "50b6860ef67419acb095d06248b1e5e7515d592d37ca44f8228cd1297622406b",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[7]",
+          "operation": "set_weights"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 32,
+      "extrinsic_index": 6,
+      "block_hash": "0x6baddd4bf2f125c1bbe774ef81393e7bbc59a87ffc50ce8a1fb7fe4700c2dc23",
+      "extrinsic_hash": "0xa215b346afdcfbf6cea895bf66a0eb738a0a813ae95c4197cfbf74bc12b5d993",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "8dcf943cb952a61f42cdc8fc7ee83ea3ce0ea77a006b4629695f324f8954e9d4",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[8]",
+          "operation": "Commitments.set_commitment"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 32,
+      "extrinsic_index": 7,
+      "block_hash": "0x6baddd4bf2f125c1bbe774ef81393e7bbc59a87ffc50ce8a1fb7fe4700c2dc23",
+      "extrinsic_hash": "0xbcb66b52759d56b127d415c37fb9f1b86914b7c655fd7d6af21069ec42901f42",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "dbbc4ec4915f5a19e731feb1705e49589c7d564b4c06befe75b33c56e6d0937d",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[7]",
+          "operation": "set_weights"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 35,
+      "extrinsic_index": 6,
+      "block_hash": "0x27c15831c61ebdbc99c70925511a17ec24bd4ecdd56dc7356526b4a58a92f793",
+      "extrinsic_hash": "0x03014bf9d6d5c85b27119fe3a072cf85ad2c9d0c4271528ba31505a3cc924103",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "c1bba8ae5dc5c7f644e992f548e4e6ed9f18b430377838552f5fe443106e880c",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[8]",
+          "operation": "Commitments.set_commitment"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 35,
+      "extrinsic_index": 7,
+      "block_hash": "0x27c15831c61ebdbc99c70925511a17ec24bd4ecdd56dc7356526b4a58a92f793",
+      "extrinsic_hash": "0x82ba12afe579a77895071ad89c5be2fef6fdde0d7de5c22edad6088caeee8876",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "e83ee34979895da9e68f63ea6327cdc8b3b63605dca65dea74f4f11006a271b2",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[9]",
+          "operation": "Commitments.set_commitment"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 38,
+      "extrinsic_index": 6,
+      "block_hash": "0x9906ca6c0144472a5b103df341e64befa43bb0ef719500e33cf6b430bfe439f9",
+      "extrinsic_hash": "0x8b1e4e5f58f885fbd9c0d2b795879e85020bbcf3b456e181007b466422167823",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "541876de1bdb048aaf7a57ee85cbc1f06e06e4415eba75534b86386ddcea79e3",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[9]",
+          "operation": "Commitments.set_commitment"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 42,
+      "extrinsic_index": 6,
+      "block_hash": "0xca75068a9551f7c72c41842cb18c546ea4febc2d2088eb21c421b84cc8363381",
+      "extrinsic_hash": "0xc254558cfe646670089df163f4d5b343cc6b28c15bb7f2316a8815a08fa0ba61",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "71586ad420b250338a856b8fc1cfc496fdd44ce2e24b5539313d0faf04817680",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[10]",
+          "operation": "Alice subnet-local setup"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 45,
+      "extrinsic_index": 6,
+      "block_hash": "0x6767a6fbeccbf3d62686582fef45e0409511e0bf2433fd965839e529cf0f9c1b",
+      "extrinsic_hash": "0xc806d52f88aa377765076cde71911527ecc84d0a7bfd34a5bc4c40e11a0b5d32",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "4f046c59bb6aff3fd5aa2e31155c51cef5f4943ad852f80ca6d68fd8deb05c3a",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[10]",
+          "operation": "Alice subnet-local setup"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 45,
+      "extrinsic_index": 7,
+      "block_hash": "0x6767a6fbeccbf3d62686582fef45e0409511e0bf2433fd965839e529cf0f9c1b",
+      "extrinsic_hash": "0x10d447d5c4a7d95fc7a3fdf807b268efa27b87cef0391bfe88a942ef08bc1d44",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "8f93ff9aa050b0406181f4892ee26e01f970905b566d9dd015733e0c8314182a",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[11]",
+          "operation": "commit_weights"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 48,
+      "extrinsic_index": 6,
+      "block_hash": "0x46f97431dc90ef20ffdd1bb734d60fee9dcfb89aeffb872cebe876922441f627",
+      "extrinsic_hash": "0x21a82ca8bb67b64236d750169906e810e15a885c37248f0eae877719ad73d90e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "104c38caa78a8f55bcfda812948ea9978d2ca732efeb0c5ab2913ea396231860",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[11]",
+          "operation": "commit_weights"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 55,
+      "extrinsic_index": 6,
+      "block_hash": "0x3bb7b43101245613c49d153243a9231620342212c97c6d22c9abb91b99bf11bc",
+      "extrinsic_hash": "0x70107c157f31b21cd0122a6b336dcbdada16ef1dbc4ce73d153d2d0debb91033",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "5551d21e6b7012306cd378c8cdf1b51bda5094ba3d234c3f2a823950125bb787",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[12]",
+          "operation": "SubtensorModule.commit_weights"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 58,
+      "extrinsic_index": 6,
+      "block_hash": "0x92d273faafa6abec5f52fc695db3d8ca324f363d0f047ff9706f275bef59f657",
+      "extrinsic_hash": "0x487289bae48e7fda7dbc62bcc292f2dd9bcbaf6ae4c66d9b6ff17eae33c173e9",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "16b2e3bb0fe6f4d8e56aa87055a9ad0f05e1b25fb99c8008e7bf40f555d7f26c",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[12]",
+          "operation": "SubtensorModule.commit_weights"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 60,
+      "extrinsic_index": 6,
+      "block_hash": "0x5b900f4f004246cd29c33da3f4ff366263ae4ecddcdb8c9699e117258dbdeaf1",
+      "extrinsic_hash": "0x109917b23e0b86cb17b6a2a6f48560c1bf8dab0475be8fe7015221565c6e4092",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "5296c979d89fff42cec7cce94a5ffc987a793110b3cfd037996ea097e0dbbb2d",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-7.json",
+          "pointer": "$.receipts[13]",
+          "operation": "reveal_weights"
+        }
+      ]
+    },
+    {
+      "chain": "validators",
+      "height": 63,
+      "extrinsic_index": 6,
+      "block_hash": "0x136af398a550ce3fabf8b4333dc23300f4b320d30d99298d125d0d2a41b6e77a",
+      "extrinsic_hash": "0x6d7e4ef069326abd4afed7c9768f6fdab8e23ee64f1f655883f6f2fd2bdc4630",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "5a76f9f68b339b9a6c657cc5c61d5c35038425f8fbbe82951913fef26e0370ee",
+      "references": [
+        {
+          "path": "validators/receipts/validator-paths-8.json",
+          "pointer": "$.receipts[13]",
+          "operation": "reveal_weights"
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "suites": {
+    "validators": {
+      "chain": "validators",
+      "files": 2,
+      "receipt_references": 28
+    },
+    "nested": {
+      "chain": "nested",
+      "files": 1,
+      "receipt_references": 16
+    },
+    "sponsorship": {
+      "chain": "sponsorship",
+      "files": 4,
+      "receipt_references": 28
+    },
+    "proxy-boundaries": {
+      "chain": "proxy-boundaries",
+      "files": 4,
+      "receipt_references": 36
+    },
+    "validator-proxy": {
+      "chain": "validator-proxy",
+      "files": 2,
+      "receipt_references": 26
+    }
+  },
+  "finished_utc": "2026-10-17T21:59:48.456779+00:00",
+  "raw_receipt_references": 134,
+  "unique_receipts": 134,
+  "verified_receipts": 134,
+  "deduplicated_references": 0,
+  "status_counts": {
+    "success": 117,
+    "outer_success_inner_failure": 9,
+    "system_failure": 8
+  },
+  "all_recorded_receipts_verified": true,
+  "suites_without_receipt_evidence": []
+}

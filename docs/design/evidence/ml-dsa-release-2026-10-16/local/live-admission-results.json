@@ -1,0 +1,47 @@
+{
+  "node": "20246",
+  "genesis": "0x6365693095056ba7a80cb34bfe43a16a48fc617989ed81379a416c49309bced9",
+  "wasm_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b",
+  "unknown_requests": 64,
+  "unknown_capacity_rejections": 48,
+  "mldsa_prefix_requests": 64,
+  "validation_capacity_rejections": 48,
+  "after_unknown": {
+    "evm": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": "0x"
+    },
+    "contracts_malformed_reached_runtime": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": 4003,
+        "message": "Client error: Execution failed: Execution aborted due to trap: wasm trap: wasm `unreachable` instruction executed\nWASM backtrace:\nerror while executing at wasm backtrace:\n    0: 0x9945df - node_subtensor_runtime.wasm!__rustc[5224e6b81cd82a8f]::rust_begin_unwind\n    1: 0x299ed - node_subtensor_runtime.wasm!core::panicking::panic_fmt::h4f1a54382be6d50f\n    2: 0x5644ed - node_subtensor_runtime.wasm!ContractsApi_upload_code"
+      }
+    },
+    "read_available": true
+  },
+  "after_validation": {
+    "evm": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": "0x"
+    },
+    "contracts_malformed_reached_runtime": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": 4003,
+        "message": "Client error: Execution failed: Execution aborted due to trap: wasm trap: wasm `unreachable` instruction executed\nWASM backtrace:\nerror while executing at wasm backtrace:\n    0: 0x9945df - node_subtensor_runtime.wasm!__rustc[5224e6b81cd82a8f]::rust_begin_unwind\n    1: 0x299ed - node_subtensor_runtime.wasm!core::panicking::panic_fmt::h4f1a54382be6d50f\n    2: 0x5644ed - node_subtensor_runtime.wasm!ContractsApi_upload_code"
+      }
+    },
+    "read_available": true
+  },
+  "elapsed_seconds": 0.07040018995758146,
+  "limits": [
+    "Synthetic malformed requests test service isolation, not throughput or full signature validation.",
+    "Contracts request deliberately malformed; assertion proves separate admission only.",
+    "No transactions submitted."
+  ]
+}

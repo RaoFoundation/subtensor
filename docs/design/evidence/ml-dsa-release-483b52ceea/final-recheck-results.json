@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "accepted_logs": {
+    "preflight-final.log": "073f8c288cf43ccb24abdc8ab70d7b3a54ff1db1bfd7502f96723d1e129d4ee4",
+    "sdk-final.log": "5ec60f78b33ea031399ac10bbfa7f68afdc756fb8e9a4f96f4fc77924336e31f",
+    "sdk-types-final.log": "418c114723b09442f941bcbbe4652311c29c4d179001f0d6ad492757b37690f6",
+    "sdk-legacy-final.log": "4bd73b366564b44348c8f29719bb50c6e999cfba188512750ab212bbe3ad35e9"
+  },
+  "sdk_passed": 3584,
+  "optional_legacy_passed": 1,
+  "retry_regressions_included": 20,
+  "superseded_wrapper": "final-recheck.py retained the first preflight formatting rejection and therefore exited nonzero; formatting was corrected and final-preflight.sh reran the entire gate successfully."
+}

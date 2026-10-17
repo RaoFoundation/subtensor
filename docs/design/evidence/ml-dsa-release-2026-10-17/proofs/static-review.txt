@@ -1,0 +1,53 @@
+# Latest-head ML-DSA static and focused-unit validation
+
+- Candidate: `437053f80d5ebebce950602b168901bfe6591483` (`Fix wallet addresses and registration consent`).
+- Checkout was clean at inspection. This reviewer made no repository edits, builds, commits, pushes, localnet launches, weight changes or production calls.
+- Scope: re-trace cryptographic identity, proof admission/consumption, alternative authorities, receiving-address handling and new sponsorship consent; identify gaps in previous live operation coverage.
+
+## Conclusion
+
+No new release-blocking defect was established in this source pass. Runtime, node and primitive sources are unchanged since the previously tested/hardened `8dabdbb33` commit. The later relevant behavior changes are the receiving-prefix codec and SDK/CLI presentation/sponsorship paths, with associated tests.
+
+This is not an assertion that every business state succeeds, an external cryptographic certification, or proof that funds can never be lost. Live execution and production weight/capacity validation remain distinct evidence classes owned by the parent validation run.
+
+## Source integrity and current invariants
+
+Recomputed SHA-256 for all 27 repository files in `docs/design/evidence/ml-dsa-release-2026-10-16/crypto/followup/source-hashes.json`: 25 match exactly. The only changed files are `sdk/bittensor-core/src/keys/mldsa.rs` (receiving-format test changes only) and `sdk/bittensor-core/src/keys/receiving.rs` (canonical `tao_` encoding and accepted legacy prefix). No primitive, KDF, ML-DSA signing/verifying, capability, backup-recovery or runtime authentication source changed in this set.
+
+- `primitives/hashed/src/mldsa.rs:59-93,118-174,194-239,249-264`: profile is bound by descriptor/account identity and signed header; fixed keys preserve the initial commitment while rotating keys require a distinct next commitment. The full canonical call/extensions/implicit tuple is streamed into pure-mode ML-DSA verification, without the legacy 256-byte shortening rule. Exact lengths, supported version/profile and payload ceiling fail closed.
+- `runtime/src/hashed_extrinsic.rs:225-295`: raw signer bytes are the source of authority; exact carrier marker is necessary but never sufficient; current registry/resource/gate checks precede expensive verification. The ML-DSA signature covers the complete signed payload. Native wrappers cannot authorize Ethereum self-contained transactions.
+- `runtime/src/hashed_auth.rs:188-269` and `pallets/hashed-accounts/src/mldsa.rs:409-486`: protected accounts reject ordinary signatures; validation tickets recheck profile, commitment and generation when consumed. Normal inclusion nonce/fee rules remain. Inner dispatch failure does not restore the already-consumed generation.
+- `pallets/hashed-accounts/src/mldsa.rs:249-402` and `runtime/src/hashed_auth.rs:357-528`: protected multisig thresholds must exceed the number of weak members, so every quorum intersects a permanent PQ dependency; derived graphs are immutable, bounded and cycle-checked. Registration authority and deposit-payer consent are independently checked.
+- `runtime/src/hashed_auth.rs:708-820`, `pallets/proxy/src/lib.rs:1050-1093,1204-1265`, and `runtime/src/proxy_filters/mod.rs:94-120`: grants/use retain security floors and nested filters; restricted NonCritical grants exclude EVM execution because its precompiles recreate a native origin. Full-authority grants may execute it. Protected derivative/pure creation retains the parent's policy.
+- `runtime/src/evm_origin.rs:28-169`: protected alias ownership remains attached to the complete AccountId, with a separately reserved EVM nonce and no Ethereum-ECDSA alternative authority.
+- `sdk/bittensor-core/src/keys/receiving.rs:108-144`: `tao_` decoding requires exact length, canonical base64, valid checksum and supported descriptor; the prefix does not change descriptor bytes or account identity.
+- `sdk/python/bittensor/registration_sponsorship.py:42-99`, `executor.py:990-1003,1164-1174`, `cli/context.py:1158-1185,1480-1494`: positive automatic registration reserve requires explicit native cap or literal-True callback before signing; a callback cannot override a cap. CLI approval precedes native key unlocking, and consent caching binds payer, recipient and exact deposit.
+- `sdk/python/bittensor/executor.py:255-262`: automatic first-use registration remains prohibited inside proxy/multisig/sudo wrappers; setup must be separately sponsored, then guarded operations can execute. This eliminates the apparent fee-payer-versus-origin quote mismatch: a positive automatic quote cannot reach those wrappers.
+- `sdk/python/bittensor/_transport/interface.py:753-770`: dummy fee signing preserves an explicit nonce, including the Shield inner nonce + 1, rather than replacing it with confirmed nonce.
+
+## Executed focused checks
+
+Commands were run from `sdk/python` with its existing `.venv` and no dependency mutation.
+
+1. `pytest tests/unit/test_keyfile_atomicity.py tests/unit/test_mldsa_accounts.py tests/unit/test_multisig_safety.py tests/unit/test_registration_sponsorship.py -q`: **308 passed**. Log `/tmp/ms-head-validation-static-units.log`.
+2. `pytest tests/unit/test_mldsa_signing.py tests/unit/test_mldsa_orders.py tests/unit/test_mldsa_messages.py tests/unit/test_keyfiles_golden.py tests/unit/test_hashed_receiving.py -q`: **362 passed, 1 skipped**. Log `/tmp/ms-head-validation-static-signing.log`.
+
+These 670 passes may overlap the parent's broad SDK run and should not be added to that run's unique count. The skipped fixture is not a pass.
+
+## Cases to add to the live run
+
+1. Sponsorship no consent, false consent, cap one rao below required, exact cap, registered repeat (no new reserve/prompt), and first-payment `transfer_all` reserve accounting for fixed MS, rotating MS, hashed SR and hashed ED.
+2. Proxy/multisig first payment to an unregistered descriptor must fail before submission; after separately finalized sponsor registration, the same wrapped payment must succeed.
+3. NonCritical MS proxy attempts EVM dispatch of `Proxy.add_proxy(Any)` and remains blocked without changing grants; equivalent Any-proxy call may succeed. Both before and after derived protection if feasible.
+4. Delayed `proxy_announced` execution: too early rejects, after delay succeeds, revoke/regrant invalidates old announcement, receiver guards do not consume an otherwise valid announcement incorrectly.
+5. Preserve the old mixed/all-PQ multisig tests and extend nested protected multisig-as-proxy / proxy-as-multisig paths with fixed and rotating MS members, cancellation, and an inner business failure.
+6. The existing validator suite covers owner-authorized Yuma, stake-derived Null permit, direct weights, timelocked weights and legacy commit/reveal for both MS modes; retain all of those, then add a permitted validator proxy path if supported by the selected proxy type.
+
+Fixture drift identified and reported to the parent: funding helpers in `test_mldsa_localnet.py:45`, `test_mldsa_release.py:61` and `test_wallet_parity.py:112` perform automatic descriptor registration without the newly required sponsorship consent. Update those test helpers explicitly; do not relax production consent.
+
+## Retained boundaries, not new findings
+
+- Registration must finalize before publicly disclosing or bare-funding a fresh descriptor account. The existing hostile weak-hotkey association boundary remains unchanged; the user has explicitly adopted this ordering as an operational rule. Atomic descriptor registration/payment fails without funding if setup has been poisoned, but cannot recover previously bare-funded poisoned accounts.
+- The master toggle pauses direct protected authentication, registration and capability use. It is not a global freeze of all previously approved mixed-multisig/order effects completed by ordinary relayers.
+- Raw Ethereum RLP uses secp256k1. MS EVM support is through the native signed EVM call/create routes and permanently protected aliases.
+- Production Weight::MAX activation gates remain; functional localnet overlays do not establish calibrated production capacity.

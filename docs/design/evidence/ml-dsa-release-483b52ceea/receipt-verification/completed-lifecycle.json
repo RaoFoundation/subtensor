@@ -1,0 +1,3606 @@
+{
+  "candidate": "483b52ceea5cf08a0fb492ca2915b7efa6a8690e",
+  "started_utc": "2026-10-17T22:25:03.388067+00:00",
+  "scope": "Persisted suite receipt files; activation extrinsics excluded. This verifies recorded outcomes, not completeness of operation coverage or all test assertions.",
+  "deduplication_key": "(local chain name, block hash, extrinsic index)",
+  "files": [
+    {
+      "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+      "sha256": "9a18e8eee8fd42ffdd6c8131f557720446d9cace0efa10da5944495edf3826e9",
+      "receipt_references": 27,
+      "declared_successful": null
+    },
+    {
+      "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+      "sha256": "ae25d9371014847b688242d6cf47b70cc401ddd8fa4cac2a6ec4f58fb9caf1b2",
+      "receipt_references": 23,
+      "declared_successful": null
+    },
+    {
+      "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+      "sha256": "bec050aa145754214afd5667f5c76f0d84dbfd79428c863173eacb209a0e2b10",
+      "receipt_references": 29,
+      "declared_successful": null
+    },
+    {
+      "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+      "sha256": "176682423e278fff4be2fb251f04a9f9e7730b69b5e45fb5237494dea9b0ac1d",
+      "receipt_references": 29,
+      "declared_successful": null
+    },
+    {
+      "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+      "sha256": "24692b8a1b0f9b35b38eada0ddfe5f3588de096bfc92e2604302084b29d6086a",
+      "receipt_references": 27,
+      "declared_successful": null
+    },
+    {
+      "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+      "sha256": "1fbd1c7cf19b0ab0aa16e0f6c4bd9921461c31378b1db157e00d8266693a2f49",
+      "receipt_references": 23,
+      "declared_successful": null
+    }
+  ],
+  "chains": {
+    "lifecycle": {
+      "endpoint": "ws://127.0.0.1:21544",
+      "unique_receipts": 158,
+      "verified_receipts": 158,
+      "status_counts": {
+        "success": 148,
+        "system_failure": 10
+      },
+      "errors": [],
+      "genesis": "0x3b329e2dbe52b15e9f04bc31fee3dbbec9ab0377c7e739ccebb0444dbaff852f",
+      "finalized_snapshot": {
+        "height": 230,
+        "hash": "0x43ecbf8d7035f245a303d9f6f582ec4da483383c416b6ed865748e8f51b3f197"
+      }
+    }
+  },
+  "receipts": [
+    {
+      "chain": "lifecycle",
+      "height": 7,
+      "extrinsic_index": 6,
+      "block_hash": "0x78807c6f2eb577cca6a8f72ed33725123aa581a774dc1cf3e3a098de2a124047",
+      "extrinsic_hash": "0xba96d2960b3b7e491c07dafee66d45d91d7fc69bf1a3127d47a76abe1f0c9457",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "61aef77742b107999a75d181c8ac9f2cf68e5a66ef765a4d832d2b6cb94bad1c",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 13,
+      "extrinsic_index": 6,
+      "block_hash": "0xd5dfcc8355f90fe04fd57a4177c972fdf74b590f7f9b94eff7b0916176d504b9",
+      "extrinsic_hash": "0x7e433c2688311f212a632b152dd5bcd2564bcf7e7cc7bc33b0b391fc4959cf7f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 16,
+      "events_sha256": "5141c0fce4e8c4888e073150e6921cbb3abd6b4d0130f0b99dc3a2a8999c249d",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 16,
+      "extrinsic_index": 6,
+      "block_hash": "0x4cf67a170f94684790710877b81042eb3b3927db12e24e6f106d4f58b9060403",
+      "extrinsic_hash": "0xe9c0daad90863a89ce63f4a9a1c97d37733717c7b8cd0346a26b2fa86e1657ae",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "75a7f6ced912c9aa229cfbdd14836caa16dfcfc4a1d4203ac4520d29c0191ab9",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 19,
+      "extrinsic_index": 6,
+      "block_hash": "0xcb6b890e6d0db180f8dfbbef4b03947242beb35a548adf3e8716623d19dace79",
+      "extrinsic_hash": "0x00fe20e3fdb3058a5670a8d6e60702303c3bd94a00d8327f6257e579b41fbefc",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "5493aca368b26d78695a23a9d8ab502c0b53146d41cd6da9cab58b89df40f73a",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 22,
+      "extrinsic_index": 6,
+      "block_hash": "0x46e2b6f357c3c04722dd466c491d63d34a7fdc7936aeaa48d90d156e975ad879",
+      "extrinsic_hash": "0xb0854b1a15fafe2d24af04155e99cceb771f8b38b9c9b20af3a70440d1a5172f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "ad9384ac5f5dfd1c22260c11092451575241d5c65c7885c8a7ab7b514bbff071",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 28,
+      "extrinsic_index": 6,
+      "block_hash": "0x4880d4deca13aea5a680440a39e00f4a260d83ebe59f6741da38c0eb271d79aa",
+      "extrinsic_hash": "0x01d1d42e7bcadd6c1b4c96eee0bd38dbf9b599bba381a91ab7d83cb1a8dfb6f4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 16,
+      "events_sha256": "d04d5452fa1c3f1c76cb961a3cb64b7cd15f2cb78338209e5eaed8cb5da477f2",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 31,
+      "extrinsic_index": 6,
+      "block_hash": "0x72da15452a624dc13bd3b5dfe04d185aaaa3fd19cc27126803e5137e5b6e5aad",
+      "extrinsic_hash": "0x75209baffdb41ede5e7da0c1222af2b3e9df0a3a2c2a84b52e25f76173dad684",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "daf7c3edbe638280256110c4b7e05edce0330c2b913c000cbf61593c0426bc33",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 34,
+      "extrinsic_index": 6,
+      "block_hash": "0x13fbe47d0e4d72edcd64f5f74979c1234123c718d43f2ed32b07fc4963259278",
+      "extrinsic_hash": "0xb93667781819b2f98976e499b610c445549f0dc8da0d6c6a63dbd471d7d8a30b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "6842e07008aab16a15b3bfdef7ca4c54db0c86bf35020c23b48fbd80e075f845",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 37,
+      "extrinsic_index": 6,
+      "block_hash": "0x91c1659f0e11125a3470264073483202509dd13e3c1e622bce692ff24c18ac42",
+      "extrinsic_hash": "0xe7434a6feb466d1c8aba9f52226be74296a32ef727cc146332a62ea3bfd12c4c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "2dcb2d0322d5feb9e2405fe9461048373404a20459f86f8534e254b407c7fcee",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 43,
+      "extrinsic_index": 6,
+      "block_hash": "0x3442688f4443bb513740a42d8be2bc9af753deffb75f5655b48646fc1138edd8",
+      "extrinsic_hash": "0x6d6499e22e85d554b9e129bbac0bae8f2c63ff8cf1d7fcaa551a32a6ff58975b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 16,
+      "events_sha256": "2ce95fe16810c6a264553c126e307bda6219fe53d2d53f2b223b38eb9a2e798d",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 46,
+      "extrinsic_index": 6,
+      "block_hash": "0x7e42238c51a3bfdd9d7a70d7a7816da3d111b92153d284971e768c310a2ab048",
+      "extrinsic_hash": "0x64942a44032e476ea875178732999b2b027b86fabd6a3af1df628d1c88a57035",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "3176ae3f7e9bb3cd6c671230a905ba1ba318f84b0e05928e81b798181f9b8be9",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 49,
+      "extrinsic_index": 6,
+      "block_hash": "0xf66d076f94bba082a57d7acf1d731fc024d4d6a8d3e3457233c73ec46f6c770b",
+      "extrinsic_hash": "0xe69f676995e00c83e4ddeea19d95e17923dc8cc0a5584177ff9f4a56af04e3d6",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "b4e466f636206d3dd3685279764277aba3b2bfc71fba57b8b7444d399b50f690",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 52,
+      "extrinsic_index": 6,
+      "block_hash": "0x143f66603d92c2ffb77317ed72aea812e1aa37f60a45e4c35249484dd5d2b089",
+      "extrinsic_hash": "0x8a2c243f16994e78d0b7de59557b9f5464954cf8f7920bd1d4a59accb0c791f8",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "f77b7e9ab78992d5ce6a2b48c9d89be4d8ce69592a73fe3258daa246d88274f2",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 55,
+      "extrinsic_index": 6,
+      "block_hash": "0xd54161e26ed23d1d28598f27c701a68b1551da41a57d20720dd1cfbb49a3b64f",
+      "extrinsic_hash": "0x02ab9c5a46ca107abef2611424aaaad13c6b13ef2bf0c588b42c3d91cf105454",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "fad333f9e7933101a95088b673353ed68833b32f5be10ec4fc63bac67f4924c8",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 58,
+      "extrinsic_index": 6,
+      "block_hash": "0x2e6e448370634117f22c329de6ef0395991146036f71164be0c014e42f8bed02",
+      "extrinsic_hash": "0x2696e1f529208249e02c5bd9962d4c99e65f3afafd9d21adc1da012c256fbab4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "3ecf62c5d0bb0498e92221fe202f954d1eac9492253a855896749894b91b4fe1",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 64,
+      "extrinsic_index": 6,
+      "block_hash": "0x3d4cb0540e493fe26f81114475cb77e9fd8adbfce6f337ebb4e0763527c90a76",
+      "extrinsic_hash": "0x5e9676d5fd11a306114c8b39df277c2dfbe9a8d6fe1e8aa1b9d44c58e5ea0841",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 16,
+      "events_sha256": "a018e96764066949bb36e5390fa8b227bb84705e3013190706400a9ad8deb12a",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 67,
+      "extrinsic_index": 6,
+      "block_hash": "0x8e0486fa343724b83f50ae4500072c6a95c8038c58df2018a74bf3a19b2bd8d1",
+      "extrinsic_hash": "0x85bd455f0396284a0b70b7e940eb33c230e14678fb1479fb503ab0ba8f224c57",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "7d48dc9915e99bfe52d3a36041fa28a609cc2ee462c77c8b9b3df9d24a0612ae",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 70,
+      "extrinsic_index": 6,
+      "block_hash": "0x6faf9154b8e9071549c06aa4274e5e79f7b2697402eb90da9f9cc6135a832adc",
+      "extrinsic_hash": "0x0bebca64992029fba851c8792e737946789b8f29ece76102cfe678e488adfb93",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "91cda35ef8f95743a3722f45726ce1cf8430677e6141dbf368f7b1c49b913489",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 73,
+      "extrinsic_index": 6,
+      "block_hash": "0x67caf81ad95830918658de9cb293cadd0f8e5ac41d6969313c6be00548f0afcd",
+      "extrinsic_hash": "0x2bd6c8c02d60aeae2e71bf1ce23ea473bcdc80d6d225e199b73b331d99e71b2a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "26555b157f44cd73c4711b62cbaf5d89f09578b2ea1b88fccd84fb6025391e82",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 74,
+      "extrinsic_index": 6,
+      "block_hash": "0x924b57cc2f15203f8b23b7d2909555152d059eabaa1485add614e59c84544b36",
+      "extrinsic_hash": "0x67c22776c474497c56ec58af81ed1fd3c0f3c31146dc9c26dbcf89b15de3579d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "503973df9fa14436f1ec4fb424f578a21200cedcbe8913ae65a448d47007e397",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 76,
+      "extrinsic_index": 6,
+      "block_hash": "0xaf1161361dbf269ae8b72acce0b10660e515c17d24c2fcadb0975bc0ef3d25e9",
+      "extrinsic_hash": "0x969f615bde58560185dc4502917f502a8e6682092bd205a6afbbc605069baf41",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "0f4ce26d48ed2fb3ed2ba338e445e68969d659338d617d0afe6296ed843fba3e",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 77,
+      "extrinsic_index": 6,
+      "block_hash": "0x8b86cc570cccca16817f1d5c251753a4b7cafa339e9e59d6e08ed5db6a9ddf8f",
+      "extrinsic_hash": "0xae8569453c7c10b35d25630ca19d2528aed83125073efffce771ca114ec701e5",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "503973df9fa14436f1ec4fb424f578a21200cedcbe8913ae65a448d47007e397",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[6]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 80,
+      "extrinsic_index": 6,
+      "block_hash": "0x1871ba96e11e78770b4ef3945cceefab49b2623b4dd85296d4b86d7bd247bee2",
+      "extrinsic_hash": "0xc461d3cebf6969f072103a9fe5fe3b04293295643ffbc4bb7ad5781dddc224f7",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 4,
+      "events_sha256": "a1506ddf361b669efc168742dd8e9e3c4309fe83b1992f8c881e724ea6790caf",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[7]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 82,
+      "extrinsic_index": 6,
+      "block_hash": "0xc00a86722815ccc5572578ac8f5902bf7dc2e270f98ccfd710984e199f07d747",
+      "extrinsic_hash": "0xf76fbd4df488772556b2269875568e8c6615cf3b61494561cea34a92e994dd51",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 16,
+      "events_sha256": "e0fad4c99770e24d4e9964093d4066286742ff1b702403930688576a3b95d7e4",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 83,
+      "extrinsic_index": 6,
+      "block_hash": "0x00d5c368c490fc252d5fae37e0ae99c20bb52a5e62a45fb05c8bfaa4df1b6694",
+      "extrinsic_hash": "0x5a8b4bb6f72123ecac562cb1900e54d94bad9a6c5686be7cc82ca1570bbb5b19",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "187baee3513a42b0537de769c47e41b14c1fbe2b776328830de45c97cbf50ac2",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[8]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 85,
+      "extrinsic_index": 6,
+      "block_hash": "0x3478b97359571e49de603236952b9d56a72b4ec155e0cd8a21e2e93ac3ac582a",
+      "extrinsic_hash": "0x67c400da67538ab27f11aa2eae9e1ab825f389c4eadae634442e7e0522ddbbba",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "57b380a783bee0ca3556d86e3a4db1554e568b0d5ca34b4740f1a9fbecc3ad9d",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 86,
+      "extrinsic_index": 6,
+      "block_hash": "0x7b636dade6dd9d0e5db0eba6cb457587ea561983226e696ec2708f6e4f21c502",
+      "extrinsic_hash": "0xf547b968a5a2737d1a9274981913f4b06a741d84113433fc0b1b5da1b4fc56b9",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "088a534404cd8b42b37d9ae96d0d1dec7d2df451d57d66e21816c2d6e1bf2e92",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[9]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 88,
+      "extrinsic_index": 6,
+      "block_hash": "0x63c8bcb58fb6285a8ccfde2684481210d29073b34c52447548ee66d606930ffc",
+      "extrinsic_hash": "0x2dd23481fbb74f23c15d8cf7bce84ed6c9b939ceb4128f776f1a1b369ef2ffbe",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "c9af16b02cdfbe7b59cf9c2a78188ec87ca7c482fa57fd8929a45a267fd7d320",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 89,
+      "extrinsic_index": 6,
+      "block_hash": "0xf286f89dcdbe8c497f61bb83cf43f1a9be100acf6f4a9f988bbc21bd4d4e8a08",
+      "extrinsic_hash": "0x81556458cef852e741c9022442509e7fb7b06f14802b46855438a05c0d88bf17",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "5f49ee4283989ad25f1564a0da30ec664c93f435b4365e42dedd6d7a7531162d",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[10]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 91,
+      "extrinsic_index": 6,
+      "block_hash": "0x6f9ada84a4b8a34e6ca012c6953ba46986f3db501973b7dd1321d9597be3fbcb",
+      "extrinsic_hash": "0xe5733d721087cbf24d71569d12c751478682c9a2e156bd9e735339e99746d4d3",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "fba79872b7b91178f6d9c79c5229ccfa664b418a05166a99ffadcb61490e449b",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[0]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 94,
+      "extrinsic_index": 6,
+      "block_hash": "0xed527a16dbd6b99d62af0cc3c720768b1f22a2e7a92586653cc049bc90e7ad47",
+      "extrinsic_hash": "0xb891e8507c18b8b8574ab6612814fbb8eb1a2ab0fa571fc9cc9ee8eb683f690d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "cf944d3e958c22d4448bfaab743abc448cbdfe25845cfde41f435a2acc1e5e75",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[1]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 97,
+      "extrinsic_index": 6,
+      "block_hash": "0x2c9540a733a86313bb7b408360292787ab0e67f7a5433c9cf160acaba8782f94",
+      "extrinsic_hash": "0x87279dbaf813eb3e152bbde7797ffda02610f82b4cda2e32e37c26ad2181b10d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 15,
+      "events_sha256": "f8b1fc82577496c3c9eb2f06318edab7eeb405e139bd377633529622181e5c6a",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[2]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 103,
+      "extrinsic_index": 6,
+      "block_hash": "0xf735657f27456cf917ec0acf51044e7fc210496f429f36a6e15421f5f8cd89d9",
+      "extrinsic_hash": "0x945aa841f04aee2e345e24dce68901a5a74ee16c531a869b8007216ad72d41f1",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 16,
+      "events_sha256": "eb26bc37f2f982a303374c13b1690484d6816a44353f2073f449f4beaa9762d4",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[3]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 106,
+      "extrinsic_index": 6,
+      "block_hash": "0x3d27b92ab6040cc517254e67c0cf580d50d902aac033ef754c34181c99657495",
+      "extrinsic_hash": "0x909ce03db157eae313e57c9bb96c2f8b2d9f038da611734b28d0966ab2a96c99",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 17,
+      "events_sha256": "aeee13cc482027abd7a3e4b98b74af2172c133f55ba2f04789a73ff55b79935b",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[11]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 109,
+      "extrinsic_index": 6,
+      "block_hash": "0xf99a4b051ea0794903dadad9b49810cb20e59d5906ae79754293c60a0b746764",
+      "extrinsic_hash": "0xd28f59034941a16e12f8ab04bff119175ba51fa1116ab8ad9511771ac1a794bb",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "d83c13647147bc10b49b4bdb99deb1a39ac6c3d772cf8fe2ea6606df0eee0ad9",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[12]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 109,
+      "extrinsic_index": 7,
+      "block_hash": "0xf99a4b051ea0794903dadad9b49810cb20e59d5906ae79754293c60a0b746764",
+      "extrinsic_hash": "0xe29a902b9160eee5ec367cd6682576bca0fa1675f7bbff301bcf97bfde289e8e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "0120fe8ff66ecc4d02bee7cdc27133b25cc0e2ff7be73fae63a80b3690fb8778",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 112,
+      "extrinsic_index": 6,
+      "block_hash": "0x8a76a049dc3b67689bf8100a3409b9ec8f297da8b9ea09615edab51ded31932d",
+      "extrinsic_hash": "0x8b21bfa863c434afbfb3a2b26f8d8d1730eb83d92d12ed121215f53413a7bea4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "1e21f5a23ae64ece46b158202d7ea16ef0ec13472fd6092d779fc2cb3f9630d1",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[13]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 112,
+      "extrinsic_index": 7,
+      "block_hash": "0x8a76a049dc3b67689bf8100a3409b9ec8f297da8b9ea09615edab51ded31932d",
+      "extrinsic_hash": "0x7b9f1b12ca68c68a8c5ba1fd54f2ca868f93282e806d61967fbdda8d72eed817",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "7ea922498c710defeba7b00ddecad6a3229e8b571b4c8ed4e2a2ce090d527084",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 115,
+      "extrinsic_index": 6,
+      "block_hash": "0xe115b04dcd504ac2a10ad29a1596dcfb42ef3ab23d454fa0b13a3eeb6f5ff62d",
+      "extrinsic_hash": "0x5dbb5c7f52ef9627c73c4bbdf287cf7e1b6792440b4e32a32427790e8ac9ec2b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "cdb869f812d4318b00256fdfa158d86d598630e9d3493df80f7b5be1795b59e7",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[14]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 115,
+      "extrinsic_index": 7,
+      "block_hash": "0xe115b04dcd504ac2a10ad29a1596dcfb42ef3ab23d454fa0b13a3eeb6f5ff62d",
+      "extrinsic_hash": "0x59a2baa622a2a7dacb0a212732dafddef91ec30add35acaf8f03b9952b50afcb",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "2c2c00394a2f65d88cfd3ab31eb4a8c276a4aef391db8776d989f311b4493515",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 118,
+      "extrinsic_index": 6,
+      "block_hash": "0x935850743b55364ae7ceb956fbb8c9bb3755b50dd6edfaf43a4e35f6a8d9a27c",
+      "extrinsic_hash": "0x83986344294e0b1fb3958b6ceaab75eece0b60a23f76bf0590c462fe4ea75a27",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "829a656c066fc8d0a5b08c5c09ca08ef7ab213bae30a619c710713cd7f390761",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 121,
+      "extrinsic_index": 6,
+      "block_hash": "0x474213cc425004130189b0d7284a5c15333ed0ab0cddf2984994d06090e88f48",
+      "extrinsic_hash": "0x7a6e4adee149faf017fa96e22666c5ca881ee993997b719d1f607a47c52915ef",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "5f2c28b907b95662895393dfa20c32cdc38dbc0cfe3ba7884790e4700b967474",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 122,
+      "extrinsic_index": 6,
+      "block_hash": "0x50c4026a95cc4e95a7c9337e412b406fa0666c0b36e205b047d9704e8035e63c",
+      "extrinsic_hash": "0x24d391d78eb797db022a793f2179abb5162444986024399a64e3f730b58213ce",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "dd9aa3cab518b904415f9b12cbc4cf893b95aea74f5b2a52b4bb3eabd18806d7",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 124,
+      "extrinsic_index": 6,
+      "block_hash": "0x8eeccf34dc4e9e26cb19d1094ebbc799bd5d07429ac8c9f3f7bd3ac4c659d41c",
+      "extrinsic_hash": "0x82c873be8c149b5b799ae314dc45676f83c971177c2e2d9d3ba45053fc8bc1b2",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "cfc5338ef81e762167c2d918e22be85563eb4d41be4743a14e78b1972123f41c",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[6]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 125,
+      "extrinsic_index": 6,
+      "block_hash": "0x1d54300365514091d351a7c3d74207da334a72f30dd02f139908fec253409928",
+      "extrinsic_hash": "0x2fdc67fa73edc3073118e3f40c4022afc9d8608d2c3acbc61ae294a9c9c70e63",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "dd9aa3cab518b904415f9b12cbc4cf893b95aea74f5b2a52b4bb3eabd18806d7",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[6]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 127,
+      "extrinsic_index": 6,
+      "block_hash": "0x558c0cb96dc83d7ab4851f547d7f2078f6da3bc39ecb563cc0105e8bd63131f0",
+      "extrinsic_hash": "0xe00828a1b7debde72201f29d240e8eae399273cd824a6287dc198ad1fc0e14e2",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "523ff0384df46cb8b23f0324e8e1ca846d350450e9af28c83b8454d583b6f298",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[6]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 128,
+      "extrinsic_index": 6,
+      "block_hash": "0x8f733557851d998a062e23d29ac186f7fff26f241e0e96440b846b4f9c7ba6c0",
+      "extrinsic_hash": "0x14f056ebfd9162d680ef03b0de601ab0f7cae918ec1bbab60b73e14eee38372f",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 4,
+      "events_sha256": "732c4c6ac1c9f7c7f7d68ce8535da0a22cc68df6930fa3c055e616ce4a80b663",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[7]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 130,
+      "extrinsic_index": 6,
+      "block_hash": "0x579511bfcc130f660c40557a7c962ba7a307b16ce8a837d24bad29bbeb5dba7c",
+      "extrinsic_hash": "0xacef18faf62fc57e352919515701bb8d76f8ef51230fcd1d95662dd612f67944",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "c6b2ddcfa7913fe93af00002cffbc1308bbbdb16674469488dadf22b49aa8aa3",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[4]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 131,
+      "extrinsic_index": 6,
+      "block_hash": "0x75631c799a4280c837dd89b2cb337a9aa9b084f882a63093be36bf4b79798f8f",
+      "extrinsic_hash": "0x71912dd85cd995c185a73038d288e149b8557ae241620e3173dd1569f277d0f1",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "098bf3eee17b815f66b9c756f4a79f5937972c19aebcd4e3d046120c1b036b28",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[8]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 131,
+      "extrinsic_index": 8,
+      "block_hash": "0x75631c799a4280c837dd89b2cb337a9aa9b084f882a63093be36bf4b79798f8f",
+      "extrinsic_hash": "0x21d577e74b59026b0153afceb983d2ff1b0494329e75517b413c3064356c872e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "f48ac8366888b5f2fe9247720972a3c354bc4a23e4ea7ab7cf7be43376bfc877",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[7]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 133,
+      "extrinsic_index": 6,
+      "block_hash": "0x63904bbdfe56940dafc2aa1290b834a47439ce1ee35613435d20cc71ebfbd032",
+      "extrinsic_hash": "0x1277ed302a22c68535f21349b5b80703357808165e7f0b0012ad916b4506e105",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "37451fc1f76a2df370dbd54d0caac06ce7d64dda38dbe974a99b7830f60f9074",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[5]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 134,
+      "extrinsic_index": 6,
+      "block_hash": "0x883c11e2a142916c76475fd2995db452c5bf42f18f6a60c712319750f239b721",
+      "extrinsic_hash": "0x98909ac73b7b97b0260cfb471e248ce77bd031ad595fb8d35814fde4d0d69f1c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "8579f09030be167115d99f6d289093327150830501e9edd0c1f4f0f7ecf463d7",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[8]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 134,
+      "extrinsic_index": 7,
+      "block_hash": "0x883c11e2a142916c76475fd2995db452c5bf42f18f6a60c712319750f239b721",
+      "extrinsic_hash": "0xfd5c47c41b1a4236fc6f70cafc9fc64ca1c286ae4693537ec54d0de31be18a34",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "22d4f55f8176c08170bf8475deba258404d05c8de5649abd7b3c1f41bb3ddaa0",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[7]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 134,
+      "extrinsic_index": 8,
+      "block_hash": "0x883c11e2a142916c76475fd2995db452c5bf42f18f6a60c712319750f239b721",
+      "extrinsic_hash": "0x37ceba3f9ca106f452abe2e080dcfc02ca8c82096bb08c2a1d76356775e69e10",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "a7e79474b27c86cda221daa00e3dcee164436282ea759a49833f5b1b1f22b42d",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[9]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 136,
+      "extrinsic_index": 6,
+      "block_hash": "0xb498cae8719b3c98e648b2e968fd73f8491a17726d0db332b6d476fed8b28a9f",
+      "extrinsic_hash": "0xbe96752641efce09f9df779c727eda613a4c888b159ef3f4ee6258e6959fa082",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "7d19a1d52f16ff514fa2183c2190d75d405cbaa7d3caf33224d7fc51e6161dc6",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[15]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 137,
+      "extrinsic_index": 6,
+      "block_hash": "0x98e5a21576717bdc224b689ebad38218b4a16465159c1969d652fb139ec988b6",
+      "extrinsic_hash": "0x60b69cb150c392ee48f3b7e3c2d474aeed016bc03e4fba19040b24e9ec2020d2",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "2f61c1e0d6a272cbd72615ad3a9cb8f3f6f38513794d782d814c44e2b15d6608",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[10]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 137,
+      "extrinsic_index": 7,
+      "block_hash": "0x98e5a21576717bdc224b689ebad38218b4a16465159c1969d652fb139ec988b6",
+      "extrinsic_hash": "0xc0a3ed550435278cb6b9775dec896c80381454e88f99c726094545159927b0e9",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 5,
+      "events_sha256": "a20565ede07a57f54dc8c1273ab035d820a5801ee319b49b41de63b9eb2c1912",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[9]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 137,
+      "extrinsic_index": 8,
+      "block_hash": "0x98e5a21576717bdc224b689ebad38218b4a16465159c1969d652fb139ec988b6",
+      "extrinsic_hash": "0x7f4099bdb83be53400734cd54cccb41a2a48b987623a9ec5ab32452dbefa037c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "c43951712b2c6bf9ec5c35af037ccab96ba398e9290d9530f4e6376543421d6c",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[8]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 139,
+      "extrinsic_index": 6,
+      "block_hash": "0x574846cab023e155932a973f4cd818734b439807687fe9989914b93f0d3f3fb7",
+      "extrinsic_hash": "0x12b223d0d3ed70f0f9bb82e5f4a8ac08039570b894527c62516ec300e3fb1ef5",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "a13970ac087c28ecaeaa2960ffb39ddce7a63efb8bcf4fa1ee1019e737a352cb",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[16]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 139,
+      "extrinsic_index": 7,
+      "block_hash": "0x574846cab023e155932a973f4cd818734b439807687fe9989914b93f0d3f3fb7",
+      "extrinsic_hash": "0x28b10545b78dfa938714bdccba0e12012b20a68faf52c3a66dcd51adbd7b0937",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "a47e4364a9d6e6c88d4b96bfa7e7927ca269bfacaddd7dffa552054dbc17386e",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[6]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 140,
+      "extrinsic_index": 6,
+      "block_hash": "0xb4199a8837ec85c4ee699f751f893058b59063bd84002093baef72ff0b3e5c3a",
+      "extrinsic_hash": "0xab1a21afebe66bee4f822c7db179d0979c9809af06a24945806a4f9615a637be",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 5,
+      "events_sha256": "ed3afbfe09308a2b8dec27aaa33caba94b59b26b528b1bd5d64a3ef690d63623",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[9]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 140,
+      "extrinsic_index": 7,
+      "block_hash": "0xb4199a8837ec85c4ee699f751f893058b59063bd84002093baef72ff0b3e5c3a",
+      "extrinsic_hash": "0x49702f98519dd7b2ac57bd9cceb8a3d4ea8f28be07ea442914397393ba083b60",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "28fecfc93aadc0143afa82caae250c4c94892fe503c072d21a52bd406fd9ce8e",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[10]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 142,
+      "extrinsic_index": 6,
+      "block_hash": "0x65c3442709677aebd399b0a2c35545750eb32c4344c5fede19d5ea1a9bec2265",
+      "extrinsic_hash": "0xbb2027819e0de33b696c44ec95d488eb14507621c3f1f2a6d246fd5549586f67",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "b801271c5b6861f48c667b3a00b38260a51d4f4515eb53f2373e9a94799ff0ca",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[17]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 142,
+      "extrinsic_index": 7,
+      "block_hash": "0x65c3442709677aebd399b0a2c35545750eb32c4344c5fede19d5ea1a9bec2265",
+      "extrinsic_hash": "0x9fa409e2c075b71fe47923bd674a5f102d5b931252d7f518f43027e539d7559a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 17,
+      "events_sha256": "421d6f0414bca840fa5681f5784d35b00c15322605dbdf5cca4767cb7f3e57fa",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[11]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 143,
+      "extrinsic_index": 6,
+      "block_hash": "0xd848ba7ecb43926361243a359f3fa7dca60c3ca5455db36fe77948384a61953a",
+      "extrinsic_hash": "0x291337e264983913caa324c0df268fafc6f8fe26c8c5cce9b35a6ebe322b78b5",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "4456e7b2cbb461e15ba4c7f6dd398c0b04af5f13ba66cdaedea1fc0155710755",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[10]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 143,
+      "extrinsic_index": 7,
+      "block_hash": "0xd848ba7ecb43926361243a359f3fa7dca60c3ca5455db36fe77948384a61953a",
+      "extrinsic_hash": "0xc33903e2d36110ce189702ddd142c06db39607a45ec299bd84e7761a6518938a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "793cd8f40aac782e3f6f0e6f1defa3372db390004adc0502ab787419880d75fa",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[11]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 145,
+      "extrinsic_index": 6,
+      "block_hash": "0xcd6a090f84811f310007f5b40c7920965804ee7907a703dbfc66be81fb1605d7",
+      "extrinsic_hash": "0x532eda544001bb004707ef8c9b49b2f08694ecd4bcfdfd0feda5fd7ff3680f6b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "23c1d4ef6bf476478b882c98e6a44840a9291edd5e492102552ba32ec22089e9",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[12]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 145,
+      "extrinsic_index": 7,
+      "block_hash": "0xcd6a090f84811f310007f5b40c7920965804ee7907a703dbfc66be81fb1605d7",
+      "extrinsic_hash": "0xb34daea19c4b8a8695fb46aea9aaed2de9f73a93f098fb5c926824f5ed34000d",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "4d38d108abaf22632f64fcb98ae30fb99f76f8679bfbf7f22a2adc5ab1c00c39",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[18]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 146,
+      "extrinsic_index": 6,
+      "block_hash": "0xac58cbbcaf54e79039bda022381fe385799671e137c19111dec7c25dce8bf937",
+      "extrinsic_hash": "0x8fe3de985a8d1934ab3e25d144a3e5bb4d0c1bfde24e267c595d4742487f096b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "4f0b19a9bb768c71e160876e444a92d578d5caa9971a6d14df92e375c2c661ab",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[12]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 146,
+      "extrinsic_index": 7,
+      "block_hash": "0xac58cbbcaf54e79039bda022381fe385799671e137c19111dec7c25dce8bf937",
+      "extrinsic_hash": "0xeb24313c16fe321ea4b9f6233a323f8e3b6e34bbdfae3f7bb6d37ce216aa4133",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "a735c862cb79e3d059e07de83b1cc841f116f34e0fb76c4a4c5e06d8da07b591",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[7]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 146,
+      "extrinsic_index": 8,
+      "block_hash": "0xac58cbbcaf54e79039bda022381fe385799671e137c19111dec7c25dce8bf937",
+      "extrinsic_hash": "0x5507b45649e29a2e998ca3e2f750354f0c881904aad7708bc18994d83b5a75b5",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "a9f6071a5821eb173650dd35666e3e06ce6e28ff3f70a201af714006005516f4",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[11]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 148,
+      "extrinsic_index": 6,
+      "block_hash": "0xc7f627bb35d6064e494fc68c3637b8c3cc852d29ebe97a874ea65d451086bb2c",
+      "extrinsic_hash": "0x51be3df9d54793f47eeaa353ed88d2119cb24c399176eed5d188cfb86473c811",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "42d34553176fbc405655fff7b897f93a3a0992818c2c757ae712feac3e2353c6",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[13]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 148,
+      "extrinsic_index": 7,
+      "block_hash": "0xc7f627bb35d6064e494fc68c3637b8c3cc852d29ebe97a874ea65d451086bb2c",
+      "extrinsic_hash": "0xb49a9034540c6afe1b89c2af9e7db8cd5d5738377723fc0cf80a067ba3a5e0a8",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "765bdd484459a926e4d9f28071aa9dd0bde0f0e3d91240e0c90dd8f88b1ec59a",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[19]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 148,
+      "extrinsic_index": 8,
+      "block_hash": "0xc7f627bb35d6064e494fc68c3637b8c3cc852d29ebe97a874ea65d451086bb2c",
+      "extrinsic_hash": "0x9200539892591d938a9cce2ca540dc2496566e7ff2ce25f62ee340814383e62f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 12,
+      "events_sha256": "8df3c4da68aeaa1f513cc385210c7350fc20bc779e794e4c6e73ba0d31a72f89",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[6]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 149,
+      "extrinsic_index": 6,
+      "block_hash": "0x94eef754f520f403a52f06ee4238c208854c856b8fd70c560eb8d98f8f27b582",
+      "extrinsic_hash": "0x13bf6fb5d92780cddce89d47efff678224beb34b7ca064d31f9ce3e78f290ec4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "516e639338042dffc93ac97e65f86448ae3c3e497af73e65b08b8de0db84c849",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[12]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 149,
+      "extrinsic_index": 7,
+      "block_hash": "0x94eef754f520f403a52f06ee4238c208854c856b8fd70c560eb8d98f8f27b582",
+      "extrinsic_hash": "0x6fa1eff88a8211c38618a1151405ef6a0878d9988b90adb8e389899c60b65fbc",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "2f9f194152456376e7ec376b17c55ea0d7a71684e6c0f4e4eb9d1ee9e86d459d",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[13]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 149,
+      "extrinsic_index": 8,
+      "block_hash": "0x94eef754f520f403a52f06ee4238c208854c856b8fd70c560eb8d98f8f27b582",
+      "extrinsic_hash": "0x2fac1abde299f4f620a870c394ee8a57a13be42eabd3103258e7c02189c084f4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "3a4552a05eca98e4a737c84eff85350371ef93c0d0df4633d592fd438955352a",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[8]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 151,
+      "extrinsic_index": 6,
+      "block_hash": "0x9d9a818588027b015ebc0fd2189cbfa59748f1bd308a4847a3b720832c6fd45a",
+      "extrinsic_hash": "0x67e400c214919e097474f3674080f3b46b7cd558cb98ebe5de44cd7fc3f8ecdd",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "2e07eceb7aa8d8ba7cb3dd2b0e044d9d474d12a6059886db58fda87cdf8fb839",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[14]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 152,
+      "extrinsic_index": 6,
+      "block_hash": "0xa8ae721ad8ccaedc72ba551570e62ffa289b2fd6d99b41b114642446983217a5",
+      "extrinsic_hash": "0xe812fdc604aef06a2fa98676bccb38ac3c661a2f2e4711cb03d8e3e9269cf8d2",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 5,
+      "events_sha256": "b82c5294087bd7ad3b2d013284a0817ff19b07add5b5e82644c7298a8c078f65",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[9]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 152,
+      "extrinsic_index": 8,
+      "block_hash": "0xa8ae721ad8ccaedc72ba551570e62ffa289b2fd6d99b41b114642446983217a5",
+      "extrinsic_hash": "0x0eefb77ecb219cded2aa35eea69a3138441a7fb047bc35d307d2b0d14cc8fa72",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "4f35b3ea85d849e4e8191781211cdb63d7fd4c52d4e4921e4065f86fa602e3f9",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[14]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 154,
+      "extrinsic_index": 6,
+      "block_hash": "0x5df831b02d82d55fe1552442c57e3e0c3dae9bd031b165cb5ece5145a8f5f9d0",
+      "extrinsic_hash": "0x57da8f86730ae1cc8794b72ced3b18fe63b189a724e7a82ae22f8a15145b7aa0",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "ee82e601136118021d5b73c3b4f0482ecb143b51f805abb2fe7868421685f800",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[20]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 154,
+      "extrinsic_index": 8,
+      "block_hash": "0x5df831b02d82d55fe1552442c57e3e0c3dae9bd031b165cb5ece5145a8f5f9d0",
+      "extrinsic_hash": "0x3973bb994cbcccba53a355eb6a718cdddc97a2c2eed2a81e4db558a62ad94f04",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "8d20bcf7f1ecfe62d6052eb9dcd21506abb91b7dcb7fc2e5a00cc45f5891a7fb",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[15]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 155,
+      "extrinsic_index": 6,
+      "block_hash": "0xbaf5eb124f0cf2fc2b9ee9a9cf4d57980da7264c62210f982cb80d7b9df4c137",
+      "extrinsic_hash": "0x7bcdb8404e65fdae12ac29baeedb55d95819b036ebbe58eba4dd9bc303d64425",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "335bcc7516685d9263118331df20e137868a9287f97c020e5586592f88fb8b7d",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[10]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 155,
+      "extrinsic_index": 8,
+      "block_hash": "0xbaf5eb124f0cf2fc2b9ee9a9cf4d57980da7264c62210f982cb80d7b9df4c137",
+      "extrinsic_hash": "0x8a1b3a490d11d8103e87ffd551ae2e5f6dd654b7bef89fab0415c3c8f5c3d1b1",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "5dedd698bedd74ef6fe01d5ebf5e15c9fdcee384e093668d532875078adb8211",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[7]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 157,
+      "extrinsic_index": 6,
+      "block_hash": "0xa82185ee352f85aed8094f47ea18f0ca66fb0eca97973fe51aaad20465fc4662",
+      "extrinsic_hash": "0x7b807aa1c8ca2b15183bf6f1ea434d6ad51de7e026de082621208c91e36e356f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "18b5697153a5f6ff9fdc41a3e4d04b53a47250a99e77f2d4acdab0ae6a39a358",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[16]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 157,
+      "extrinsic_index": 7,
+      "block_hash": "0xa82185ee352f85aed8094f47ea18f0ca66fb0eca97973fe51aaad20465fc4662",
+      "extrinsic_hash": "0x44cba304ebbc4b7c7d26a4e28fa0851aa999b86f851c0912642d60165cb5101e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 17,
+      "events_sha256": "421d6f0414bca840fa5681f5784d35b00c15322605dbdf5cca4767cb7f3e57fa",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[13]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 158,
+      "extrinsic_index": 6,
+      "block_hash": "0xcfcd9b07778139c4f06ee81745fb8d7527e83b063ab36e5d574d173d72aab7d1",
+      "extrinsic_hash": "0x5d1a57c8cbc32339d8ee9d010abb1d1fb80c9601eb1fb88718be8ec3c6c57988",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "5ff16564b5d23dbc98629c096d83d2185f0b51c8517c76564195c3b0cbb72874",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[8]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 158,
+      "extrinsic_index": 7,
+      "block_hash": "0xcfcd9b07778139c4f06ee81745fb8d7527e83b063ab36e5d574d173d72aab7d1",
+      "extrinsic_hash": "0x7ebdceab64f8736c0c8b9477d449f10269ba805d30c15457b4f75d923ffa8cfd",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "66be32c7b7cd783bc459186048084ac45176875ae043457080f632adbfaebf8b",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[11]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 160,
+      "extrinsic_index": 6,
+      "block_hash": "0x4547f43b221e925a22a0d7507db014212164e45266c0aea4c5e0d24dbe062274",
+      "extrinsic_hash": "0x5ea58cf77aa718adeff95be33e52e5e172ad0703b9ba53f9f48ba4d697e361e9",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "9be50a83ef1a73ec0cd508e1009df90ec30d4147d137d617eee6c7aaf5e09cfa",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[21]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 160,
+      "extrinsic_index": 7,
+      "block_hash": "0x4547f43b221e925a22a0d7507db014212164e45266c0aea4c5e0d24dbe062274",
+      "extrinsic_hash": "0xe5ba96d1e2a126fb936f2fcc39b195e59bb494ce693fea50c29a5a9a456b0443",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "df53677fe9dd187e10ac584c056d014f205d083dc9d68864a13ea84f0b85de4b",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[17]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 160,
+      "extrinsic_index": 8,
+      "block_hash": "0x4547f43b221e925a22a0d7507db014212164e45266c0aea4c5e0d24dbe062274",
+      "extrinsic_hash": "0x0ff3c6279226ca15b0750304a488a881cf00dc01224a0aace6044e8bd4386775",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 17,
+      "events_sha256": "42d4cb7da81a8b71324baff610ec9746d5bf362d1698fe1ffd98aa6cf3c16b45",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[15]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 160,
+      "extrinsic_index": 9,
+      "block_hash": "0x4547f43b221e925a22a0d7507db014212164e45266c0aea4c5e0d24dbe062274",
+      "extrinsic_hash": "0x9239bd819ad584e6849b3e004fae587298111e8a58da3e21b6fc4d3d81b04bd0",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 17,
+      "events_sha256": "a17a62a91c71d6749a2cb2268c06b3f9f18e99c37cd236973f9ce1a65be0981b",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[14]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 161,
+      "extrinsic_index": 6,
+      "block_hash": "0x90dcd0390c0b74602cb74e26093b5a31e261e800fd6b4b2b539df0fa013e2fac",
+      "extrinsic_hash": "0x424f305a138f7fa2279a24ac7b713d894982bfbc9b313eb3d1e6f123beb97e79",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "System",
+        "name": "Arithmetic",
+        "docs": "An arithmetic error occurred while dispatching the call."
+      },
+      "event_count": 5,
+      "events_sha256": "28fecb65360391a164f2f1f2c27fd41ffaba380b8cc6cb3d485d06feb4f20e5e",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[9]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 161,
+      "extrinsic_index": 7,
+      "block_hash": "0x90dcd0390c0b74602cb74e26093b5a31e261e800fd6b4b2b539df0fa013e2fac",
+      "extrinsic_hash": "0xb23c36185d02f3b2c552a952d3c26e22c2960522b95bc9c5cd39c45e928eccce",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "bf0d8003f9d323e9939fc801467ae93c3b59b6f48070814db87862e0695277a0",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[12]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 163,
+      "extrinsic_index": 6,
+      "block_hash": "0x12e5c87af105978a70167b9d5c1d0be4e8d797af6c53e134ad2fa77c900261ab",
+      "extrinsic_hash": "0x3d8c317c67b9b35e14eec1c8b0b7798d7907b870a2c06a360d4acc2d44c190c8",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "35825e8e7971ed3833f8eb5922ca1d57d62f9355ff8d235c5904e0bd88f75238",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-standard.json",
+          "pointer": "$[22]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 163,
+      "extrinsic_index": 7,
+      "block_hash": "0x12e5c87af105978a70167b9d5c1d0be4e8d797af6c53e134ad2fa77c900261ab",
+      "extrinsic_hash": "0x376026ad1deb8b1f808453911b890b1a1ad97fa7455966b657d308eff628b2b4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "4d38d108abaf22632f64fcb98ae30fb99f76f8679bfbf7f22a2adc5ab1c00c39",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[18]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 163,
+      "extrinsic_index": 8,
+      "block_hash": "0x12e5c87af105978a70167b9d5c1d0be4e8d797af6c53e134ad2fa77c900261ab",
+      "extrinsic_hash": "0x72c3c3aa951c3de935118e1706d6a8e55fa83539cef4192c34ce22daa9582938",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 17,
+      "events_sha256": "7b02762a8602adbffb0e62bd11abcabdadc6c7797027ec7c072a67cd834e9ec4",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[16]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 163,
+      "extrinsic_index": 9,
+      "block_hash": "0x12e5c87af105978a70167b9d5c1d0be4e8d797af6c53e134ad2fa77c900261ab",
+      "extrinsic_hash": "0x4e7e9f4c8aff5519ac964da7ac3cf29de720d4a9bf467f3a6e9a0ff2c4eb7e37",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "dfa0d22e6cd3b037214d8aeb75cd1c8222fb1d473b4f86cf7a85d0774d0ad0a5",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[15]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 164,
+      "extrinsic_index": 7,
+      "block_hash": "0x8ab39d37a3af87c032e582dd94c3dd85d676fefb8b0475a10935c4243b20dc44",
+      "extrinsic_hash": "0xd4e291edd1c632d2d7d67d742c27eb60cae451565e76dfdd2bdb210f70f84787",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "0609dc01028d08a1bec158d68effbc3fc0eb43f9f3ad4ccd1a86c35a73e0e71f",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[10]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 166,
+      "extrinsic_index": 6,
+      "block_hash": "0xa47395834bab4ca85b36f619dcdb07e72a1cd92442368d84d3762652b403f6d6",
+      "extrinsic_hash": "0x28c4ec40f8710012e46cfc5408e651845e036100d031ed6a637926715622a041",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "d4967c32b26b40b82ab34ee407d0af90279672b90585b6df1418c64c2e57266f",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[19]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 166,
+      "extrinsic_index": 7,
+      "block_hash": "0xa47395834bab4ca85b36f619dcdb07e72a1cd92442368d84d3762652b403f6d6",
+      "extrinsic_hash": "0x6e8bd58981ff50dc4998b2fe330dd4e58982f74d88b260ee1ac710112b8d5ffb",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "e8d281c00752e1d493e940beba0dbad152ef62e34b20c2b2b6ee3155ffbecdd5",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[16]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 166,
+      "extrinsic_index": 8,
+      "block_hash": "0xa47395834bab4ca85b36f619dcdb07e72a1cd92442368d84d3762652b403f6d6",
+      "extrinsic_hash": "0xeddd42e25ea51c647b1616ac74447f0a34be555042d3e22f343799ac404dd7a1",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "930af9ba8d52a88abc228e7a06ae242767f0bab18a98f7f96ad42e25c8c11527",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[17]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 167,
+      "extrinsic_index": 6,
+      "block_hash": "0xbda64440186726fdeeb752ff7bb8551b9308522158417c15be378ce5fc547ef3",
+      "extrinsic_hash": "0x0fb5da43394d6f92ec7c3d3d855fe59add88389b0086ae08599b9caa5a49e786",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 17,
+      "events_sha256": "aeee13cc482027abd7a3e4b98b74af2172c133f55ba2f04789a73ff55b79935b",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[13]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 167,
+      "extrinsic_index": 7,
+      "block_hash": "0xbda64440186726fdeeb752ff7bb8551b9308522158417c15be378ce5fc547ef3",
+      "extrinsic_hash": "0xfe37c8d451b4deeb5bae02ba2d9d66252302a2863a0cb1d4a8c2669aef660ac4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "1495d008320f5305567361eb1864cb00fa475be5c0613aedcde80a30eab89e55",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[11]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 169,
+      "extrinsic_index": 6,
+      "block_hash": "0xc68c08a32e65b6395ffbfdd7832edb2656db4adae82036bbd781c01772db88b9",
+      "extrinsic_hash": "0xf0b2f338d236ca3bba2d4bf932de853760a8d59c854e0d3d150e478ba019cbea",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "cbcc29ab1086166db7b744307b2ddcbc8b8a1de8d4141412ae8fe125ceae6268",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[18]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 170,
+      "extrinsic_index": 6,
+      "block_hash": "0x3e0a0f02420b3c6b0ae852d986b6ce5a03491d7d722b327de8b6ccdc1be8cc9c",
+      "extrinsic_hash": "0x512730a0dca17e61a876ae409deaf7aa9426e6654e20034eae1f578a15929ab2",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "65b81b60c932211683dc81059f5749a0537fd169c50e496961c37ec4f0795e37",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[12]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 170,
+      "extrinsic_index": 7,
+      "block_hash": "0x3e0a0f02420b3c6b0ae852d986b6ce5a03491d7d722b327de8b6ccdc1be8cc9c",
+      "extrinsic_hash": "0xb565383c14f60154d54f3b2a20190a5bfe22388f8b3b64bcf212c30b93f3d982",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "a6026a531cf08b778df4a3fdded50f6ba849a68c883ee748757f7ee7a9997d24",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[17]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 170,
+      "extrinsic_index": 8,
+      "block_hash": "0x3e0a0f02420b3c6b0ae852d986b6ce5a03491d7d722b327de8b6ccdc1be8cc9c",
+      "extrinsic_hash": "0xffa7cf9ef41f5951b6c5bd07890d05954e7fdfdcdde089ca62c74cfc50859859",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 17,
+      "events_sha256": "bce858c864f03351d77ee71c886404156dbeaa219323028b48d0169a966ab79f",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[14]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 172,
+      "extrinsic_index": 6,
+      "block_hash": "0xc6eaf55c25bd40eb21aa06d4b8725db51ca332d683fc633cbefc96b2b3642177",
+      "extrinsic_hash": "0x34e56f6af6061b0fe1cd07caf03530b2b3d34e735bdc8b9f39babe4d7a5d177f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "80e01751ab30ad2f13d1ce4172013d9a0f734dfebcf2d23812ee932b86b3946f",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[20]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 173,
+      "extrinsic_index": 6,
+      "block_hash": "0xc065e7b29056b00a95689a124a3aeb13d5396b6b6f229b8cc6ae3a872b2732e0",
+      "extrinsic_hash": "0xc6f46c112af3780dcb95cdafd5e937ce24086f0ea2db902e83899feb2f2e7d5f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "e070e27d56da11460b6a8ee53eb65ac62323b487220d4d386954cde241e1ae89",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[13]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 173,
+      "extrinsic_index": 7,
+      "block_hash": "0xc065e7b29056b00a95689a124a3aeb13d5396b6b6f229b8cc6ae3a872b2732e0",
+      "extrinsic_hash": "0x3bde68ca1f15efc6cef5eeb99844f01cf9a7fa5780c26a1d2b0af0aa057ac41c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "b5fd7ec8a3ef813683cb04a856f815a1ad77daaa29c0e6b8f4a46dc7fd4155fc",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[19]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 173,
+      "extrinsic_index": 8,
+      "block_hash": "0xc065e7b29056b00a95689a124a3aeb13d5396b6b6f229b8cc6ae3a872b2732e0",
+      "extrinsic_hash": "0xaac2adab153a85db5f5368b3b26a13ab72811c966f38ca99ee00140feae04812",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "d8c1e73ea7da0d48458cf20dc6a13625329e9143f58bf923bedc38fbfd422c8a",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[18]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 173,
+      "extrinsic_index": 9,
+      "block_hash": "0xc065e7b29056b00a95689a124a3aeb13d5396b6b6f229b8cc6ae3a872b2732e0",
+      "extrinsic_hash": "0xddaac0224719479bda235188e7c3b19110ee050349552b446569fc4a403361b8",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "7e76c647f3070d0a451a4a36c6d4ffbeb38bdede75845bcf64ecb3478e2ed1ea",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[15]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 176,
+      "extrinsic_index": 6,
+      "block_hash": "0x42163bf6597b4e921f815da42d9dce785a0e5b03d2d8d116e59dff75abe3baa6",
+      "extrinsic_hash": "0x3282e2cb58ca9807a7803a0dd97e55fbe30397ce6ecfcd7289f329429d6eff4e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "28af5674b4f613537cf57356b7c06b40a09c09ade89b3b93acaa1f11d22b0664",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[19]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 176,
+      "extrinsic_index": 7,
+      "block_hash": "0x42163bf6597b4e921f815da42d9dce785a0e5b03d2d8d116e59dff75abe3baa6",
+      "extrinsic_hash": "0x36582c3ee2f90f59d4245c88ca11a8d26b6a62ae983107620874aa2e590ec17c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "8f1f8f4491533fa54a90445df945fdd0cd275bea087c11fde7d887fa8b61ddf7",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[16]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 176,
+      "extrinsic_index": 8,
+      "block_hash": "0x42163bf6597b4e921f815da42d9dce785a0e5b03d2d8d116e59dff75abe3baa6",
+      "extrinsic_hash": "0x788cc34ff446954aaabe8b7bc94c2c945203fdc16734d533319627e9324a24e2",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "3f6c46d2e846b068566eb085a434eb3df18cbd36ba330bf099702eb416a270f8",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[20]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 176,
+      "extrinsic_index": 9,
+      "block_hash": "0x42163bf6597b4e921f815da42d9dce785a0e5b03d2d8d116e59dff75abe3baa6",
+      "extrinsic_hash": "0x0057523e7ffe89b3d025d414117aeb69b245e72b80210ec687083545edd7cfa1",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "cdf857b8f159162fbf12fa30b74d60b12ec39ac18be7ea4da4c2bfa0bf4703ef",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[14]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 178,
+      "extrinsic_index": 6,
+      "block_hash": "0x3a56366dba18bd5f7c1eb37edcce68e456074ab28692bd6a849d37a295d47b58",
+      "extrinsic_hash": "0x15dcd309d9ae05993d6190d28a395e06aeafb15b6b9b86ab5a7b7f74c8693521",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "bbd5b9ea8072b6b615ecf4282c9b8aa7fa63961839cec1352a503f7912060d48",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[21]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 179,
+      "extrinsic_index": 6,
+      "block_hash": "0x8f6b9a9f6ce01318cb253e44d1fba2439fa1936f8312e25bcd141feff21220bc",
+      "extrinsic_hash": "0x2b2e174005898d47db2792a70d2e1e48a8c3295c5818d01b86d4222e9ee82d1c",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "AccountPolicyViolation",
+        "docs": [
+          "This delegation would weaken the real account's authorization policy."
+        ]
+      },
+      "event_count": 5,
+      "events_sha256": "2a11473d754f3e8efa00c920b33dfe4ec3aa3502b34694aca44534eaae4d9ffe",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[20]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 179,
+      "extrinsic_index": 7,
+      "block_hash": "0x8f6b9a9f6ce01318cb253e44d1fba2439fa1936f8312e25bcd141feff21220bc",
+      "extrinsic_hash": "0x2033cf2b6aa19a78a03ded16ec21ba2e28422ebeda0136c472c510a40b8eae45",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "6fa7edc1f347b00494dc60e90e3671877311a15b2e9c6a0a08403e70407dc948",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[21]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 179,
+      "extrinsic_index": 9,
+      "block_hash": "0x8f6b9a9f6ce01318cb253e44d1fba2439fa1936f8312e25bcd141feff21220bc",
+      "extrinsic_hash": "0xe6dc4999388646e0b71a65c4a2ea285f70c8b1550794d464a0e943bc35721764",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "9f860582f9fd56975143996c32de5a78fd5b2fb57dd7c3b6fb70b338609de938",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[17]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 181,
+      "extrinsic_index": 6,
+      "block_hash": "0xf77bed0e69367217b21be51a8e337111542f076d38aaff8b48edd445ad7de1ed",
+      "extrinsic_hash": "0xd4a259288770b6111efd3f719df34d84808c80a89b14ffb49524f903a2119e7e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 4,
+      "events_sha256": "c3a636b78be8b3980e5408e1c47e3aa2b82e058692f6295d92b2e6b59940cea7",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-standard.json",
+          "pointer": "$[22]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 182,
+      "extrinsic_index": 6,
+      "block_hash": "0xc2ecf340543b7a01110c46e78cf9eccc8e7626a0a56eacbcbb4d0caf391cc4fd",
+      "extrinsic_hash": "0x2fdbf2c80071aecc0f55b046472df1b59331a473f5c1d3d27d31ab7932bba14f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 17,
+      "events_sha256": "aeee13cc482027abd7a3e4b98b74af2172c133f55ba2f04789a73ff55b79935b",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[15]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 182,
+      "extrinsic_index": 7,
+      "block_hash": "0xc2ecf340543b7a01110c46e78cf9eccc8e7626a0a56eacbcbb4d0caf391cc4fd",
+      "extrinsic_hash": "0xea4b54a43940710580a19fbcce90b8a506c36855d033ca868b88549112f417f9",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "0ddad530abfb69f8833a71e76ba9454e22d8fdd45194a9b0833a4ffee7313790",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[18]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 182,
+      "extrinsic_index": 8,
+      "block_hash": "0xc2ecf340543b7a01110c46e78cf9eccc8e7626a0a56eacbcbb4d0caf391cc4fd",
+      "extrinsic_hash": "0xa5597714055d358ce1a4c6b9294eb6584df68c2bb48a38e3d264e5a08508ccbe",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "d466da1f988f84fa94c90a1f6cd52afacd0b37c48787f66bfd151233ee0b17b8",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[21]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 182,
+      "extrinsic_index": 9,
+      "block_hash": "0xc2ecf340543b7a01110c46e78cf9eccc8e7626a0a56eacbcbb4d0caf391cc4fd",
+      "extrinsic_hash": "0xdf7c96a8a953f14391a5accf209f19c78e5205c3ac4842914ea5d7d9f08b82eb",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "AccountPolicyViolation",
+        "docs": [
+          "This delegation would weaken the real account's authorization policy."
+        ]
+      },
+      "event_count": 5,
+      "events_sha256": "4cf5f17e66a8d432a9d71be983e18b0db56bfb62d5dfca489f2902f642a53612",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[22]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 185,
+      "extrinsic_index": 6,
+      "block_hash": "0x9c086c4f009bfaae5909851e08634bcad97f57fdcf7cff5015e4daa8d369ed7a",
+      "extrinsic_hash": "0xc99eaf1f1ed2aaf2e8fda33b8ac2b87b2cced3413071722845cfab60f117c289",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "1287ac683404d228ade7ada18c1519aac80faf76368dc1dde56d3578213daeb6",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[19]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 185,
+      "extrinsic_index": 7,
+      "block_hash": "0x9c086c4f009bfaae5909851e08634bcad97f57fdcf7cff5015e4daa8d369ed7a",
+      "extrinsic_hash": "0x531e464ed61ee4f8c5ec0a2e9d564e35eecc85fe6649c06f0c0ee773b664fc78",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "4d38d108abaf22632f64fcb98ae30fb99f76f8679bfbf7f22a2adc5ab1c00c39",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[22]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 185,
+      "extrinsic_index": 8,
+      "block_hash": "0x9c086c4f009bfaae5909851e08634bcad97f57fdcf7cff5015e4daa8d369ed7a",
+      "extrinsic_hash": "0x319964e25699a1fc4e07bbe56f1430810ec1594644a658300ca2e83a63fd855a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "68f2a56cd12a8fca1302da1ee6cc6d4fb0356a9a4815c02631361d28c17f5f47",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[23]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 185,
+      "extrinsic_index": 9,
+      "block_hash": "0x9c086c4f009bfaae5909851e08634bcad97f57fdcf7cff5015e4daa8d369ed7a",
+      "extrinsic_hash": "0xfadd2c3df06b96e16b373c53f8547db1dbec250a4b13e0936ac4929657b81fd1",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 17,
+      "events_sha256": "1c8b29f5ba39df910aeb3d6962e83b57cfa7fe45b01c3085ce00ef5224c18e95",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[16]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 188,
+      "extrinsic_index": 6,
+      "block_hash": "0x6329c0305ac95a7851184a87c161d4ffa105b9d0c86086cff3977f07f61d01ee",
+      "extrinsic_hash": "0x3c0ca817ee007f3f068e14004d01b4171792d1bf4501a958b2aafcfa28a1dddd",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "AccountPolicyViolation",
+        "docs": [
+          "This delegation would weaken the real account's authorization policy."
+        ]
+      },
+      "event_count": 5,
+      "events_sha256": "b686af0cfa48284f91b760a6c91456ee9aab13b8dd4c929b9025e08a857b2c4b",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[20]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 188,
+      "extrinsic_index": 7,
+      "block_hash": "0x6329c0305ac95a7851184a87c161d4ffa105b9d0c86086cff3977f07f61d01ee",
+      "extrinsic_hash": "0xfd9f2b42fe2596246c4d3c181092d0478ac6da16405e1c49fc42b7298668d7cb",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "4d38d108abaf22632f64fcb98ae30fb99f76f8679bfbf7f22a2adc5ab1c00c39",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[24]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 188,
+      "extrinsic_index": 8,
+      "block_hash": "0x6329c0305ac95a7851184a87c161d4ffa105b9d0c86086cff3977f07f61d01ee",
+      "extrinsic_hash": "0x9ff54fa74d5e1fed08d4d61a2661c4374c2da897a6a2b7081c642b44c49f60f0",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "e31fb4d1c856a1414fcbe2596a80919815bf7b2ce68f8563580a10e02cdc209c",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[23]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 188,
+      "extrinsic_index": 9,
+      "block_hash": "0x6329c0305ac95a7851184a87c161d4ffa105b9d0c86086cff3977f07f61d01ee",
+      "extrinsic_hash": "0x9fc2dc083b6675b554dd99d0d984369116740d1391f379e58856799f288ac81e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "e71240d5f6c36482e3c62826ef0c3e7c3bcfbd83f55488b31587e2cfa482702b",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[17]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 191,
+      "extrinsic_index": 6,
+      "block_hash": "0xe2d40de2608696dd7cdb2e88e03a9c4e22ba95cea0c0e75ee7ef345f193a68b2",
+      "extrinsic_hash": "0xc088ee8c15bc17c153fbc97019480eba02a277e1a38c8c83d2b79b6a517be66f",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "cdbca1e72a6adf462948dc42f7b0f27c9b1439494bf9ab5f533c5ede3060b3a4",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[21]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 191,
+      "extrinsic_index": 7,
+      "block_hash": "0xe2d40de2608696dd7cdb2e88e03a9c4e22ba95cea0c0e75ee7ef345f193a68b2",
+      "extrinsic_hash": "0xd53236465ea34c13fb57b14e3f48a0bc9838ba72a3bed903ae497708c5744914",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "0dc1934e414434d8de8a6787a26cc33cc77f8f3fc57a766be88d468c3e7b3ea1",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[25]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 191,
+      "extrinsic_index": 8,
+      "block_hash": "0xe2d40de2608696dd7cdb2e88e03a9c4e22ba95cea0c0e75ee7ef345f193a68b2",
+      "extrinsic_hash": "0xeb58dc7881597f718040463aee30e3af3f72ad78c36c328d369e773dea10062e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "99da08e8aad0a7a28c788f33bb5724cdf78d03c791abbdd6975e3ab281a2934e",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[18]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 194,
+      "extrinsic_index": 6,
+      "block_hash": "0x572cec418943f59c7f49b233316e4e161f107490d58a75713c01dde9c6431777",
+      "extrinsic_hash": "0xf11bdba08325dc4757be0c55b4c18ab5367b1bc34bdb4891eabb995cdcf5a287",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "90ed1b69605798949e600f98093d579b7359b0157ef6ad1b8304c125bcf0bdb3",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[24]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 194,
+      "extrinsic_index": 7,
+      "block_hash": "0x572cec418943f59c7f49b233316e4e161f107490d58a75713c01dde9c6431777",
+      "extrinsic_hash": "0x2ae69e4a04b19bf4d2b831fb570a1ac309ae59cce78aaf986ce3481b52f133a2",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "4d38d108abaf22632f64fcb98ae30fb99f76f8679bfbf7f22a2adc5ab1c00c39",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[22]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 197,
+      "extrinsic_index": 6,
+      "block_hash": "0x6c8de678d20fc01c2907bca747e28ad31dbd45119a995c072dac9353d5d003c2",
+      "extrinsic_hash": "0x79c6fa21b24bf7e50ead07b1006c73f2f1ec7d7bc880320e9eaa51acfd9a2dde",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "dd94b6b1b74c52d272581c43ffa95b5106341e38f7e06004283004af64b56c39",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[26]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 197,
+      "extrinsic_index": 7,
+      "block_hash": "0x6c8de678d20fc01c2907bca747e28ad31dbd45119a995c072dac9353d5d003c2",
+      "extrinsic_hash": "0xdd3e151cca8a3a984caa8ca87ec468bedbff5ef81222c10efd7a5d738d1e07b4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "bb2e3bb2b52d68cc6193e8ead547fd46a08bbead21baf84d6853407bc5380dfa",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[19]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 197,
+      "extrinsic_index": 8,
+      "block_hash": "0x6c8de678d20fc01c2907bca747e28ad31dbd45119a995c072dac9353d5d003c2",
+      "extrinsic_hash": "0x18aaf29ff1c57cc50f4dc0730d4182c8d934b76d0cbba98af6cf53e8ef216abc",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "b37a4bd7ea69f784962085de56ab7d4ea061dd8871c97bee337f2b1c40cb2472",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[23]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 200,
+      "extrinsic_index": 6,
+      "block_hash": "0xd9e381fcacc3c2f4af2e22d23d7d2337fe2125ad8b55b30361c150d967a44c54",
+      "extrinsic_hash": "0x1e66024b9f3674797664928c33891c150e6b124bacd2927676732023aa389bb4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "c52457758ced64eb7b04a07eeb40271d99fae65bb14fb3eae556e67863ea4389",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[25]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 200,
+      "extrinsic_index": 7,
+      "block_hash": "0xd9e381fcacc3c2f4af2e22d23d7d2337fe2125ad8b55b30361c150d967a44c54",
+      "extrinsic_hash": "0xde6b19644301dcade52ae068a1fec8c39a438dc10bd083e8ba2ed4155af4ec07",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "7fb4a4e204d852a1c1605ca7ba117c0fc033dd4b808b7dde06aba6e156a59903",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[20]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 203,
+      "extrinsic_index": 6,
+      "block_hash": "0xf722450eb4ea1c9848284661abaa47f567b58a1a7450d053f493313fab1ac294",
+      "extrinsic_hash": "0xb2a65ac2b483257bb23819d6004eb56edf1edb026da682f92abbed10ddedf754",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "b00f541b9702791ee6334fd5246e1ec272185f6ae371ab1d4653e0cf6a09f33a",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[24]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 203,
+      "extrinsic_index": 7,
+      "block_hash": "0xf722450eb4ea1c9848284661abaa47f567b58a1a7450d053f493313fab1ac294",
+      "extrinsic_hash": "0xb307c751d5d932e92c1d085a0204b050532e870fd0f32a17721841f66d34f1fa",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "c28126b3fda059d7386594892d3c0fc58a93246cc797ce6233af78f9b9db1a0b",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[27]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 203,
+      "extrinsic_index": 8,
+      "block_hash": "0xf722450eb4ea1c9848284661abaa47f567b58a1a7450d053f493313fab1ac294",
+      "extrinsic_hash": "0xf405cc1d2a5a2cf00ddd87504df356f98ade7f025fbdde81326ad9e75eb6b74c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "080d18383675fa32d4df320a09ad5bfacea19da4d64ad6e2e2db1e528b452692",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-sr-hashed.json",
+          "pointer": "$[26]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 203,
+      "extrinsic_index": 9,
+      "block_hash": "0xf722450eb4ea1c9848284661abaa47f567b58a1a7450d053f493313fab1ac294",
+      "extrinsic_hash": "0x02fa614bc3d0afa039dd766b722f16b0a0c83bce258c5b5f797bbdb372ac28f4",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "04faa6013555a2a06bd7db413e5b60eefa330b12d08c21a8c98dd98e0d26d6aa",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[21]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 206,
+      "extrinsic_index": 6,
+      "block_hash": "0xe0651fd5ec35ef44ff4c91572416c2d46fa898f5b04d8625a7f4d0a5862de26f",
+      "extrinsic_hash": "0xef4fdd39998666f0f3fb19ba9999339ca507969fad8ffc11656343f58a27862d",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "AccountPolicyViolation",
+        "docs": [
+          "This delegation would weaken the real account's authorization policy."
+        ]
+      },
+      "event_count": 5,
+      "events_sha256": "b9e5369e2c929bc66ef9facc549528c57ee3ce7dad751393deb2ed161606a3de",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[22]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 206,
+      "extrinsic_index": 7,
+      "block_hash": "0xe0651fd5ec35ef44ff4c91572416c2d46fa898f5b04d8625a7f4d0a5862de26f",
+      "extrinsic_hash": "0x507ceaa73d472b19e1da4aa67fafb431cd969c283d65573825e0cecdcd689e93",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "5335f4e913bb2db0e67e1cd1d187cf529bb4ffc999bfc07f156323d30b95c62a",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-standard.json",
+          "pointer": "$[28]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 209,
+      "extrinsic_index": 6,
+      "block_hash": "0x2f22d60135fc77a3d70c07fc2571875e0bb53bf5f1e81bed6bcb6bda02cdafd5",
+      "extrinsic_hash": "0x186e10c4177139ec5dc3a4ba5c47036ec001c174ab73582db034a8a7a98cd6ff",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "78f417a84a3a53bb04054009b83b4b9bcf31ef8f8bce1ed3ee014b7229a2bc1b",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[25]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 209,
+      "extrinsic_index": 7,
+      "block_hash": "0x2f22d60135fc77a3d70c07fc2571875e0bb53bf5f1e81bed6bcb6bda02cdafd5",
+      "extrinsic_hash": "0x00137aee0ffeb49b07545f9bc1a8fe15452cf0e64c5d6bec62beb853ac85457e",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "b7455e0cdcfaa8d6c37d36ee585c69234bd7d648c0161359d80dab2b7d027838",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[23]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 212,
+      "extrinsic_index": 6,
+      "block_hash": "0x33b7146ac7cbce8570da8306ab1cc06d1730be973412b415c2094115e58fb77e",
+      "extrinsic_hash": "0x686b5ecff5d4149b2db02485c9a5b64ce714c1198a77909339cdc0ecb29b2b1b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "12c442fab907011478d403f89fbfa77bb70e8ddf2547b0a317ba29cbcbc63307",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ed-hashed.json",
+          "pointer": "$[26]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 212,
+      "extrinsic_index": 7,
+      "block_hash": "0x33b7146ac7cbce8570da8306ab1cc06d1730be973412b415c2094115e58fb77e",
+      "extrinsic_hash": "0x474138825384f51b0a5c895bbcc7e1824f7fd5b022438216ea44c7025dd15424",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "4d38d108abaf22632f64fcb98ae30fb99f76f8679bfbf7f22a2adc5ab1c00c39",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[24]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 215,
+      "extrinsic_index": 6,
+      "block_hash": "0x9669d4cdac9f5e0b164f13cc3d1f4ea72d1b5a6939adaceaafb85df13b4ee919",
+      "extrinsic_hash": "0x63f7e21ee4796ba447bd0a0f8dc242342746d576202f41ed1e35bebc81ede832",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "5ecdb28c59fa929071cd2cc6c91e2ad0f7dd1344f1bfaef66c6c77a5f397c692",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[25]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 221,
+      "extrinsic_index": 6,
+      "block_hash": "0x3987b112c4415bae48ab0e92511c02a2258045fcd2fd71a72ac7844885b1153e",
+      "extrinsic_hash": "0x25457b169c3f36d3fe927a1af1da726b5b2a0c1e88f251d6bf5f2f570805fc9c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "b07ad3cd90f42b9b3e8d9a4dae00c61aeef0e9d0550477087e33b5f7d75184b6",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[26]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 227,
+      "extrinsic_index": 6,
+      "block_hash": "0xade1846b7a2b8e79734a08e263dfb7e83d066c549f3e0502e8addf84ea00916e",
+      "extrinsic_hash": "0x933409487bd3242ed48ec4b2f26dccad312c0ad5ac2c8bb27d066d279128f5d2",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 8,
+      "events_sha256": "991033ce84a9ab73425e61e10c0d25fea7e151d2aea06ead75ff197b0ce60ddf",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[27]",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "chain": "lifecycle",
+      "height": 230,
+      "extrinsic_index": 6,
+      "block_hash": "0x43ecbf8d7035f245a303d9f6f582ec4da483383c416b6ed865748e8f51b3f197",
+      "extrinsic_hash": "0xf2b6448a3192ae1a2abcecf1b1514b3badb240dd39b4d69b655b989d467d7aca",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "a038da87829c4ae740332b1b2be8facb15523b2c6b7a9f87ff81b925101a4ae8",
+      "references": [
+        {
+          "path": "lifecycle/receipts/lifecycle-ms-hashed.json",
+          "pointer": "$[28]",
+          "operation": null
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "suites": {
+    "lifecycle": {
+      "chain": "lifecycle",
+      "files": 6,
+      "receipt_references": 158
+    }
+  },
+  "finished_utc": "2026-10-17T22:25:04.923882+00:00",
+  "raw_receipt_references": 158,
+  "unique_receipts": 158,
+  "verified_receipts": 158,
+  "deduplicated_references": 0,
+  "status_counts": {
+    "success": 148,
+    "system_failure": 10
+  },
+  "all_recorded_receipts_verified": true,
+  "suites_without_receipt_evidence": []
+}

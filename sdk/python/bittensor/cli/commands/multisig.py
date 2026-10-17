@@ -135,9 +135,10 @@ def multisig_add(
     async def derive(client):
         ms = await client.multisig(resolved, threshold)
         sudo_key = await client.query(storage.Sudo.Key)
-        return ms.address, sudo_key
+        protection = await ms.protection_status()
+        return ms.address, sudo_key, protection
 
-    address, sudo_key = app_ctx.run(derive)
+    address, sudo_key, protection = app_ctx.run(derive)
     coldkey_exists = False
     try:
         wallets.open_wallet(name=name, path=app_ctx.wallet_path)
@@ -150,6 +151,16 @@ def multisig_add(
         "multisig_address": address,
         "coldkey_wallet_also_exists": coldkey_exists,
     }
+    if protection["eligible"]:
+        detail["quantum_resistant_protection"] = (
+            "registered" if protection["registered"] else "registration required"
+        )
+        if not protection["registered"]:
+            detail["funding_requirement"] = (
+                "Approve protection_call(deposit_payer=...) through the multisig quorum "
+                "and wait for finalization before funding. The final approving member "
+                "pays the registration deposit, including for new unfunded accounts."
+            )
     # Only worth mentioning in the rare case this multisig governs the chain.
     if address == str(sudo_key):
         detail["is_chain_sudo_key"] = True
@@ -186,10 +197,12 @@ def multisig_show(
     async def derive(client):
         ms = await client.multisig(signatories, entry["threshold"])
         sudo_key = await client.query(storage.Sudo.Key)
-        return ms.address, sudo_key
+        protection = await ms.protection_status()
+        return ms.address, sudo_key, protection
 
-    address, sudo_key = app_ctx.run(derive)
+    address, sudo_key, protection = app_ctx.run(derive)
     detail = {
+        "quantum_resistant_protection": protection,
         "threshold": entry["threshold"],
         "signatories": signatories,
         "multisig_address": address,

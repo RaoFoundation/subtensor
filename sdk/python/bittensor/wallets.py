@@ -15,16 +15,21 @@ from typing import Callable
 
 from ._transport.codec import is_valid_ss58_address
 from .keyfiles import Keypair, WrongPasswordError, resolve_key_password
+from .mldsa import MessageCapability, sign_payload, user_message_payload, verify_payload
 from .settings import SS58_FORMAT
 from .sp_core import (
     CLASSICAL_HASHED_CRYPTO_TYPES,
     CRYPTO_ED25519,
     CRYPTO_HASHED,
     CRYPTO_HASHED_ED25519,
+    CRYPTO_MLDSA65,
+    CRYPTO_MLDSA65_FIXED,
     CRYPTO_SR25519,
+    MLDSA_CRYPTO_TYPES,
     account_crypto_type,
 )
 from .sp_core import HASHED_CRYPTO_TYPES as HASHED_CRYPTO_TYPES
+from .sp_core import REGISTERED_CRYPTO_TYPES as REGISTERED_CRYPTO_TYPES
 from .wallet import DEFAULT_WALLET_PATH, Wallet
 
 CRYPTO_TYPE_NAMES: dict[int, str] = {
@@ -32,9 +37,19 @@ CRYPTO_TYPE_NAMES: dict[int, str] = {
     CRYPTO_SR25519: "sr25519",
     CRYPTO_HASHED: "hashed",
     CRYPTO_HASHED_ED25519: "hashed-ed25519",
+    CRYPTO_MLDSA65: "mldsa65",
+    CRYPTO_MLDSA65_FIXED: "ms",
 }
 _NAME_TO_CRYPTO_TYPE: dict[str, int] = {name: code for code, name in CRYPTO_TYPE_NAMES.items()}
-_NAME_TO_CRYPTO_TYPE.update({"ed": CRYPTO_ED25519, "sr": CRYPTO_SR25519})
+_NAME_TO_CRYPTO_TYPE.update(
+    {
+        "ed": CRYPTO_ED25519,
+        "sr": CRYPTO_SR25519,
+        "ml-dsa-65": CRYPTO_MLDSA65,
+        "mldsa": CRYPTO_MLDSA65,
+        "ml-dsa": CRYPTO_MLDSA65_FIXED,
+    }
+)
 DEFAULT_CRYPTO_TYPE = CRYPTO_SR25519
 
 
@@ -64,7 +79,7 @@ def parse_crypto_type(value: str, account_type: str | None = None) -> int:
 
 
 def account_type_name(crypto_type: int | None) -> str:
-    return "hashed" if crypto_type in (CRYPTO_HASHED, CRYPTO_HASHED_ED25519) else "standard"
+    return "hashed" if crypto_type in HASHED_CRYPTO_TYPES else "standard"
 
 
 def signing_scheme_name(crypto_type: int | None) -> str:
@@ -72,6 +87,8 @@ def signing_scheme_name(crypto_type: int | None) -> str:
         return "sr25519"
     if crypto_type in (CRYPTO_HASHED_ED25519, CRYPTO_ED25519):
         return "ed25519"
+    if crypto_type in MLDSA_CRYPTO_TYPES:
+        return "mldsa65"
     return format_crypto_type(crypto_type)
 
 
@@ -195,6 +212,7 @@ def sign_message(
     macos_prompt: bool = False,
     keychain: bool = False,
     hashed_generation: int | None = None,
+    message_capability: MessageCapability | None = None,
 ) -> dict[str, str]:
     """Sign a message with a wallet key; returns the signer address and bare-hex signature.
 
@@ -212,13 +230,28 @@ def sign_message(
         macos_prompt=macos_prompt,
         keychain=keychain,
     )
-    return sign_message_key(message, keypair, hashed_generation=hashed_generation)
+    return sign_message_key(
+        message, keypair, hashed_generation=hashed_generation, message_capability=message_capability
+    )
 
 
 def sign_message_key(
-    message: str, keypair: Keypair, *, hashed_generation: int | None = None
+    message: str,
+    keypair: Keypair,
+    *,
+    hashed_generation: int | None = None,
+    message_capability: MessageCapability | None = None,
 ) -> dict[str, str]:
     """Sign with an unlocked key; a classical hashed key needs its finalized generation."""
+    if keypair.crypto_type in MLDSA_CRYPTO_TYPES:
+        if message_capability is None:
+            raise ValueError(
+                "ML-DSA message signing requires a finalized owner-approved message capability"
+            )
+        signature = sign_payload(
+            keypair, user_message_payload(message.encode(), message_capability), message_capability
+        )
+        return {"ss58": message_capability.owner, "signature": signature.hex()}
     if keypair.crypto_type in CLASSICAL_HASHED_CRYPTO_TYPES:
         if hashed_generation is None or hashed_generation < 1:
             raise ValueError(
@@ -231,7 +264,12 @@ def sign_message_key(
 
 
 def verify_message(
-    message: str, signature: str, ss58_address: str, crypto_type: int | None = None
+    message: str,
+    signature: str,
+    ss58_address: str,
+    crypto_type: int | None = None,
+    *,
+    message_capability: MessageCapability | None = None,
 ) -> bool:
     """Verify using a trusted scheme, never one inferred from the signature.
 
@@ -243,11 +281,28 @@ def verify_message(
     try:
         raw = bytes.fromhex(signature.removeprefix("0x"))
         recipient = parse_recipient(ss58_address)
-        if recipient.descriptor is not None:
-            key = Keypair.from_hashed_descriptor(recipient.descriptor)
-            if crypto_type is not None and crypto_type != key.crypto_type:
+        descriptor_key = (
+            Keypair.from_hashed_descriptor(recipient.descriptor)
+            if recipient.descriptor is not None
+            else None
+        )
+        if (
+            descriptor_key is not None
+            and crypto_type is not None
+            and crypto_type != descriptor_key.crypto_type
+        ):
+            return False
+        if message_capability is not None:
+            if recipient.account != message_capability.owner or crypto_type not in (
+                None,
+                *MLDSA_CRYPTO_TYPES,
+            ):
                 return False
-            return key.verify(message.encode(), raw)
+            return verify_payload(
+                raw, user_message_payload(message.encode(), message_capability), message_capability
+            )
+        if descriptor_key is not None:
+            return descriptor_key.verify(message.encode(), raw)
     except (ValueError, TypeError):
         return False
     if crypto_type is None:
@@ -579,6 +634,8 @@ def _read_keyfile(key_file: Path) -> tuple[str | None, int | None]:
         data = json.loads(key_file.read_text())
     except (OSError, ValueError):
         return None, None
+    if not isinstance(data, dict):
+        return None, None
     address = data.get("ss58Address")
     ss58 = address if isinstance(address, str) else None
     raw_type = data.get("cryptoType", data.get("crypto_type"))
@@ -608,6 +665,8 @@ def list_wallets_detailed(path: str = DEFAULT_WALLET_PATH) -> list[ColdkeyInfo]:
             for hk in sorted(hotkeys_dir.iterdir(), key=lambda p: natural_name_key(p.name)):
                 if hk.is_file() and not _is_hotkey_companion_file(hk.name):
                     hk_ss58, hk_crypto = _read_keyfile(hk)
+                    if hk_ss58 is None and hk_crypto is None:
+                        hk_ss58, hk_crypto = _read_keyfile(hk.with_name(f"{hk.name}pub.txt"))
                     info.hotkeys.append(
                         HotkeyInfo(name=hk.name, ss58=hk_ss58, crypto_type=hk_crypto)
                     )

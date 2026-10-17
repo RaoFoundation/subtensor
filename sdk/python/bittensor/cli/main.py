@@ -59,6 +59,7 @@ from .logs import setup_logging
 from .output import Output
 from .prompt import run_app
 from .query import build_query_app
+from .registration import parse_registration_deposit
 from .tx import build_tx_app
 
 
@@ -218,7 +219,14 @@ def main_callback(
         "--yes",
         "-y",
         "--no-prompt",  # the v9 btcli spelling, kept as an alias
-        help="Skip confirmation prompts.",
+        help="Skip transaction prompts; registration sponsorship still needs explicit consent.",
+        rich_help_panel=g.PANEL_EXECUTION,
+    ),
+    max_registration_deposit: Optional[str] = typer.Option(
+        None,
+        "--max-registration-deposit",
+        help="Explicitly authorize up to this much TAO to be permanently locked for "
+        "automatic recipient registration, separate from transfer and fees.",
         rich_help_panel=g.PANEL_EXECUTION,
     ),
     dry_run: bool = typer.Option(
@@ -306,6 +314,7 @@ def main_callback(
         wallet_given=wallet_source is not None and wallet_source.name != "DEFAULT",
         hotkey_given=hotkey_source is not None and hotkey_source.name != "DEFAULT",
         assume_yes=assume_yes,
+        max_registration_deposit=parse_registration_deposit(max_registration_deposit),
         dry_run=dry_run,
         mev_shield=mev_shield,
         verbosity=verbosity,

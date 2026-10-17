@@ -38,4 +38,36 @@ DESCRIPTIONS: dict[str, str] = {
         "The derived EVM alias is already bound to another account. This descriptor cannot be "
         "registered safely; create a new hashed wallet and use its new descriptor."
     ),
+    "AuthenticationKindConflict": (
+        "The account already has a different permanent authorization kind. Direct and derived "
+        "authorities cannot replace one another; check the registered account and descriptor."
+    ),
+    "InvalidDerivedAuthority": (
+        "The composite descriptor, derived account ID, or approving origin is invalid. "
+        "Multisig protection must be approved by the composite's actual quorum."
+    ),
+    "DerivedAuthorityTooComplex": (
+        "The derived authority exceeds the runtime's member, depth, or resolution bounds. "
+        "Use a smaller supported authority structure."
+    ),
+    "CapabilityMissing": (
+        "No active capability authorizes this owner's purpose key. Install the intended "
+        "Order or Message capability through the owner's authority before signing."
+    ),
+    "CapabilityInvalid": (
+        "The capability key, scope, expiry, or proof is invalid. Check the full capability "
+        "record and ensure the signing key matches its registered commitment."
+    ),
+    "CapabilityExpired": (
+        "The capability's block-height expiry has passed. The owner must install a new grant "
+        "and the purpose key must sign with its new epoch."
+    ),
+    "CapabilityEpochMismatch": (
+        "The capability epoch is stale or does not match the owner's permanent epoch counter. "
+        "Refresh finalized capability state; revocation permanently invalidates old proofs."
+    ),
+    "CapabilityScopeViolation": (
+        "The operation exceeds the installed capability's identities, fee, audience, per-order "
+        "amount, or total spending limits. Obtain an appropriate owner-approved grant."
+    ),
 }

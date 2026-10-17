@@ -21,6 +21,8 @@ pub mod hashed_extrinsic;
 mod hashed_owner;
 #[cfg(test)]
 mod hashed_tests;
+#[cfg(test)]
+mod mldsa_test_weights;
 mod proxy_filters;
 pub mod small_order;
 pub mod staking_fee;
@@ -166,13 +168,21 @@ impl pallet_shield::Config for Runtime {
     type FindAuthors = FindAuraAuthors;
     type RuntimeCall = RuntimeCall;
     type ExtrinsicDecryptor = ();
+    #[cfg(not(test))]
     type WeightInfo = pallet_shield::weights::SubstrateWeight<Runtime>;
+    #[cfg(test)]
+    type WeightInfo = mldsa_test_weights::Shield;
 }
 
 parameter_types! {
     /// Permanent descriptor plus account record. This uses the chain's existing
     /// storage-price function; it is separate from unmeasured verification cost.
     pub const HashedRegistrationDeposit: Balance = deposit(2, 160);
+    /// Descriptor, rotating commitment, alias and two bounded purpose-key grants
+    /// with permanent epoch tombstones. Storage pricing is not a verifier weight.
+    pub const MlDsaRegistrationDeposit: Balance = deposit(6, 1024);
+    /// Maximum immutable multisig membership plus the same bounded capabilities.
+    pub const DerivedRegistrationDeposit: Balance = deposit(6, 8192);
 }
 
 parameter_types! {
@@ -183,6 +193,8 @@ impl pallet_hashed_accounts::Config for Runtime {
     type Enabled = HashedEnabled;
     type Currency = Balances;
     type RegistrationDeposit = HashedRegistrationDeposit;
+    type MlDsaRegistrationDeposit = MlDsaRegistrationDeposit;
+    type DerivedRegistrationDeposit = DerivedRegistrationDeposit;
     #[cfg(not(test))]
     type WeightInfo = pallet_hashed_accounts::weights::SubstrateWeight<Runtime>;
     #[cfg(test)]
@@ -447,8 +459,12 @@ impl pallet_timestamp::Config for Runtime {
 
 impl pallet_utility::Config for Runtime {
     type RuntimeCall = RuntimeCall;
+    type DerivedAccountPolicy = hashed_auth::HashedDerivedPolicy;
     type PalletsOrigin = OriginCaller;
+    #[cfg(not(test))]
     type WeightInfo = pallet_utility::weights::SubstrateWeight<Runtime>;
+    #[cfg(test)]
+    type WeightInfo = mldsa_test_weights::Utility;
 }
 
 parameter_types! {
@@ -624,7 +640,10 @@ impl pallet_proxy::Config for Runtime {
     type ProxyDepositBase = ProxyDepositBase;
     type ProxyDepositFactor = ProxyDepositFactor;
     type MaxProxies = MaxProxies;
+    #[cfg(not(test))]
     type WeightInfo = pallet_proxy::weights::SubstrateWeight<Runtime>;
+    #[cfg(test)]
+    type WeightInfo = mldsa_test_weights::Proxy;
     type MaxPending = MaxPending;
     type CallHasher = BlakeTwo256;
     type AnnouncementDepositBase = AnnouncementDepositBase;
@@ -1489,11 +1508,78 @@ impl frame_support::traits::UnixTime for LimitOrdersUnixTime {
 }
 
 pub struct LimitOrderSignerFilter;
+pub struct AuthenticatedLimitOrderSignerFilter;
+impl frame_support::traits::Contains<AccountId> for AuthenticatedLimitOrderSignerFilter {
+    fn contains(signer: &AccountId) -> bool {
+        !pallet_subtensor::ColdkeySwapAnnouncements::<Runtime>::contains_key(signer)
+            && !pallet_subtensor::ColdkeySwapDisputes::<Runtime>::contains_key(signer)
+    }
+}
+
+pub struct MlDsaOrderCapabilities;
+impl pallet_limit_orders::OrderCapabilities for MlDsaOrderCapabilities {
+    fn check(
+        owner: &AccountId,
+        epoch: u64,
+        public_key: &subtensor_hashed::mldsa::PublicKeyBytes,
+        order: &pallet_limit_orders::OrderView<AccountId>,
+        full_amount: u64,
+        fill_amount: u64,
+    ) -> DispatchResult {
+        HashedAccounts::check_order_capability(
+            owner,
+            epoch,
+            public_key,
+            <u16 as From<NetUid>>::from(order.netuid),
+            &order.hotkey,
+            &order.fee_recipient,
+            order.fee_rate.deconstruct(),
+            order.order_type.is_buy(),
+            full_amount,
+            fill_amount,
+        )
+    }
+    fn consume(owner: &AccountId, epoch: u64, is_buy: bool, fill_amount: u64) -> DispatchResult {
+        HashedAccounts::consume_order_capability(owner, epoch, is_buy, fill_amount)
+    }
+    #[cfg(feature = "runtime-benchmarks")]
+    fn setup_benchmark(
+        owner: &AccountId,
+        epoch: u64,
+        public_key: &subtensor_hashed::mldsa::PublicKeyBytes,
+        order: &pallet_limit_orders::OrderView<AccountId>,
+    ) -> DispatchResult {
+        hashed_auth::setup_pq_benchmark_parent(owner)?;
+        pallet_hashed_accounts::CapabilityEpochs::<Runtime>::insert(
+            owner,
+            pallet_hashed_accounts::CapabilityRole::Order,
+            epoch.saturating_sub(1),
+        );
+        HashedAccounts::do_install_capability(
+            owner,
+            epoch,
+            subtensor_hashed::mldsa::commitment(public_key),
+            u64::MAX,
+            pallet_hashed_accounts::CapabilityScope::Trading(
+                pallet_hashed_accounts::TradingScope {
+                    netuid: <u16 as From<NetUid>>::from(order.netuid),
+                    hotkey: order.hotkey.clone(),
+                    fee_recipient: order.fee_recipient.clone(),
+                    max_fee_perbill: 1_000_000_000,
+                    max_tao_per_order: u64::MAX,
+                    max_alpha_per_order: u64::MAX,
+                    total_tao: u64::MAX,
+                    total_alpha: u64::MAX,
+                },
+            ),
+        )
+    }
+}
 impl frame_support::traits::Contains<AccountId> for LimitOrderSignerFilter {
     fn contains(signer: &AccountId) -> bool {
         // The current order envelope only supports classical signatures. Never let
         // that separate authorization path bypass a registered Hashed's policy.
-        !pallet_hashed_accounts::Accounts::<Runtime>::contains_key(signer)
+        !HashedAccounts::is_protected(signer)
             && !pallet_subtensor::ColdkeySwapAnnouncements::<Runtime>::contains_key(signer)
             && !pallet_subtensor::ColdkeySwapDisputes::<Runtime>::contains_key(signer)
     }
@@ -1519,6 +1605,8 @@ fn limit_order_signers_are_blocked_during_recovery_or_dispute() {
 impl pallet_limit_orders::Config for Runtime {
     type SwapInterface = SubtensorModule;
     type OrderSignerFilter = LimitOrderSignerFilter;
+    type AuthenticatedOrderSignerFilter = AuthenticatedLimitOrderSignerFilter;
+    type Capabilities = MlDsaOrderCapabilities;
     #[cfg(feature = "runtime-benchmarks")]
     type TimeProvider = LimitOrdersUnixTime;
     #[cfg(not(feature = "runtime-benchmarks"))]
@@ -1526,7 +1614,10 @@ impl pallet_limit_orders::Config for Runtime {
     type MaxOrdersPerBatch = LimitOrdersMaxOrdersPerBatch;
     type PalletId = LimitOrdersPalletId;
     type PalletHotkey = LimitOrdersPalletHotkey;
+    #[cfg(not(test))]
     type WeightInfo = pallet_limit_orders::weights::SubstrateWeight<Runtime>;
+    #[cfg(test)]
+    type WeightInfo = mldsa_test_weights::Orders;
     type ChainId = ConfigurableChainId;
     type LinkedOutputTtl = LimitOrdersLinkedOutputTtl;
 }

@@ -1,0 +1,545 @@
+{
+  "scheme": "ms",
+  "mode": "standard",
+  "netuid": 6,
+  "receipts": [
+    {
+      "operation": "sponsor transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x6ef4e35e4dac880e3683f097d9b790a2e792e6741686aa46dc66e8b39f8fcdf8",
+      "extrinsic_id": "100-0006",
+      "fee_tao": 0.000137561,
+      "data": {
+        "hashed_registration_guards": [
+          "5CMKqaxbs7ZqpDWUq7BSwb115Xq5k2f1MEFnN4iH6UcF7FPw"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5CMKqaxbs7ZqpDWUq7BSwb115Xq5k2f1MEFnN4iH6UcF7FPw",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    },
+    {
+      "operation": "sponsor transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x9f29b53f80972f5720302ee569cb59f50cd08a53b2495791e1f3bd1a62558faa",
+      "extrinsic_id": "103-0007",
+      "fee_tao": 0.000137561,
+      "data": {
+        "hashed_registration_guards": [
+          "5EsoLFrBoSnRqJgm7gHEToFpt5khHBPgbR6RSR4qVcYXCN5R"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5EsoLFrBoSnRqJgm7gHEToFpt5khHBPgbR6RSR4qVcYXCN5R",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    },
+    {
+      "wallet": "original",
+      "operation": "call System.remark",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x34088a5349ec0211e402f6634d8ebfe08d384c0d156a8bc3bc2703fea045e71f",
+      "extrinsic_id": "106-0009",
+      "fee_tao": 0.000188091
+    },
+    {
+      "wallet": "original",
+      "operation": "call System.remark",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x8b6c6c84bbb588be72a4c7d1ae903f0fb3a6b57ed26304988251e18c0fd51597",
+      "extrinsic_id": "109-0009",
+      "fee_tao": 0.000188091
+    },
+    {
+      "wallet": "original",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x71eab42d4b8143d278dd01a44d5f2eb282f7137c1973bffc519177ff7061f1e0",
+      "extrinsic_id": "112-0009",
+      "fee_tao": 0.000228723
+    },
+    {
+      "wallet": "original",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xb002e6dd37fc757328cc5d3bcd81017a7baf94750b9db58e6565dcdddcdd355d",
+      "extrinsic_id": "115-0009",
+      "fee_tao": 0.000228723
+    },
+    {
+      "wallet": "original",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xb3ec2b345b1d770d6168319c23f42b794b531831d57f7d2b3ad98303cf869fd1",
+      "extrinsic_id": "118-0009",
+      "fee_tao": 0.000569261,
+      "data": {
+        "hashed_registration_guards": [
+          "5D8Voa5L2kHikUbPawNsvHT5R7xScuAEx1z4xJh4eiWVZJfZ"
+        ],
+        "hashed_registration_max_deposit_rao": 200000000,
+        "hashed_registration": "5D8Voa5L2kHikUbPawNsvHT5R7xScuAEx1z4xJh4eiWVZJfZ",
+        "hashed_registration_deposit_rao": 200000000
+      }
+    },
+    {
+      "wallet": "original",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x0b796876de52d33ab06a986ae9832bc6c409f0d9dc60b63d9cba92bc3327cd4e",
+      "extrinsic_id": "121-0007",
+      "fee_tao": 0.000278466,
+      "data": {
+        "hashed_registration_guards": [
+          "5D8Voa5L2kHikUbPawNsvHT5R7xScuAEx1z4xJh4eiWVZJfZ"
+        ],
+        "hashed_registration_max_deposit_rao": 0
+      }
+    },
+    {
+      "wallet": "original",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x7b1d74c23c9a87864986617a4f9a18bd4aac3488af4fdcf85d3aa27ca9c543c9",
+      "extrinsic_id": "124-0009",
+      "fee_tao": 0.000228723
+    },
+    {
+      "wallet": "original",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x0a87d8ff1ae417dd1ce0a49fe53ebab9678f1e3431973f816096860a74037534",
+      "extrinsic_id": "127-0009",
+      "fee_tao": 0.000228723
+    },
+    {
+      "wallet": "original",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x86282de65c8e6534c1555b199f594efff757801cdf88f1d4a3af92dbb943dcfd",
+      "extrinsic_id": "130-0009",
+      "fee_tao": 0.000569261,
+      "data": {
+        "hashed_registration_guards": [
+          "5FtWCp4MnzVGJoFTkFx71dwd3h2TPrFbv1QQxiptG1z8R3Sw"
+        ],
+        "hashed_registration_max_deposit_rao": 200000000,
+        "hashed_registration": "5FtWCp4MnzVGJoFTkFx71dwd3h2TPrFbv1QQxiptG1z8R3Sw",
+        "hashed_registration_deposit_rao": 200000000
+      }
+    },
+    {
+      "wallet": "original",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xd10f45fa921a638482344990b03429ad7bcc45e6d18c01ba011de4f519b40379",
+      "extrinsic_id": "133-0009",
+      "fee_tao": 0.000278466,
+      "data": {
+        "hashed_registration_guards": [
+          "5FtWCp4MnzVGJoFTkFx71dwd3h2TPrFbv1QQxiptG1z8R3Sw"
+        ],
+        "hashed_registration_max_deposit_rao": 0
+      }
+    },
+    {
+      "wallet": "original",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x73423edef05903fbb7e23f54d924ef1d3c398ca9a23fc764cfb592b29e9ba5e7",
+      "extrinsic_id": "136-0007",
+      "fee_tao": 0.000264409,
+      "data": {
+        "hashed_registration_guards": [
+          "5Ds7eTVbsRKKFSLLtufjgB3mSMEun8NA2ee8AmykPFP5XWfs"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5Ds7eTVbsRKKFSLLtufjgB3mSMEun8NA2ee8AmykPFP5XWfs",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    },
+    {
+      "wallet": "original",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x3268142bf5719fd60481fc9d54e075c805996a8672f98e1e1cb35f63b6828d82",
+      "extrinsic_id": "139-0008",
+      "fee_tao": 0.000264409,
+      "data": {
+        "hashed_registration_guards": [
+          "5Ds7eTVbsRKKFSLLtufjgB3mSMEun8NA2ee8AmykPFP5XWfs"
+        ],
+        "hashed_registration_max_deposit_rao": 0
+      }
+    },
+    {
+      "wallet": "original",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x7b7056d135f2dc4245acb8f9a74993090ba20a43edca68206002900dc2bc409f",
+      "extrinsic_id": "142-0008",
+      "fee_tao": 0.000264409,
+      "data": {
+        "hashed_registration_guards": [
+          "5HUtjnHvZi5UsfCEy4aCkLwhkfJrkGry9SFP7xJzDeWeZRCX"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5HUtjnHvZi5UsfCEy4aCkLwhkfJrkGry9SFP7xJzDeWeZRCX",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    },
+    {
+      "wallet": "original",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xdf2e27d5a930e4132a85a936d14c780fccfa9d61c84e33c877866e025fdba7ef",
+      "extrinsic_id": "145-0009",
+      "fee_tao": 0.000264409,
+      "data": {
+        "hashed_registration_guards": [
+          "5HUtjnHvZi5UsfCEy4aCkLwhkfJrkGry9SFP7xJzDeWeZRCX"
+        ],
+        "hashed_registration_max_deposit_rao": 0
+      }
+    },
+    {
+      "wallet": "restored-mnemonic",
+      "operation": "call System.remark",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x9d5721678e1a365880abd9a07871cf918ea17c77bd98a2d1f75b9e784a002607",
+      "extrinsic_id": "148-0007",
+      "fee_tao": 0.000188091
+    },
+    {
+      "wallet": "restored-mnemonic",
+      "operation": "call System.remark",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xa49e7f4565b2695866b6e32dbd044057057ab7c6297ba36a505a0b586d0d889f",
+      "extrinsic_id": "151-0011",
+      "fee_tao": 0.000188091
+    },
+    {
+      "wallet": "restored-private-key",
+      "operation": "call System.remark",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x4b708ca9e4f77ab125849a06f9cf39cbed155b4c371de6c295527dc6b7ee3645",
+      "extrinsic_id": "154-0007",
+      "fee_tao": 0.000188091
+    },
+    {
+      "wallet": "restored-private-key",
+      "operation": "call System.remark",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xcc1e5047215531794c7e6ce3c647c3d2b5c31fa3d2456055d92c4e7abc55bf5a",
+      "extrinsic_id": "157-0009",
+      "fee_tao": 0.000188091
+    },
+    {
+      "operation": "sponsor transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xaa1112699f5d5ba47c687c6b613e3a9cc1011191c0acff232be7815e80d72cdf",
+      "extrinsic_id": "160-0006",
+      "fee_tao": 0.000137561,
+      "data": {
+        "hashed_registration_guards": [
+          "5CTuLZmYRm39cXLqyGvPS1484FXwfsLok4s31STBB6fDmpLv"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5CTuLZmYRm39cXLqyGvPS1484FXwfsLok4s31STBB6fDmpLv",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    },
+    {
+      "wallet": "seed-backup",
+      "operation": "call System.remark",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xe2c3ddc92a9fc569c4da0a07ab90e0c4c1b91e18472218ad161fc5d2d9ba4d51",
+      "extrinsic_id": "163-0006",
+      "fee_tao": 0.000188091
+    },
+    {
+      "operation": "sponsor transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x8018cf78df7b75687d469b2eb5a6f872f14e0e001bd847ab4796794bdb84ef77",
+      "extrinsic_id": "169-0006",
+      "fee_tao": 0.000137561,
+      "data": {
+        "hashed_registration_guards": [
+          "5Fvj2uTA6KVLUhzSdWiaygGSfmUNBJX4STf6A4qy4iPzDiQH"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5Fvj2uTA6KVLUhzSdWiaygGSfmUNBJX4STf6A4qy4iPzDiQH",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    },
+    {
+      "wallet": "seed-backup",
+      "operation": "call System.remark",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x2acfc5099481b2ad622c781f28aff1799675b291e3908a4b0a89f8f6a20c1adf",
+      "extrinsic_id": "172-0006",
+      "fee_tao": 0.000188091
+    },
+    {
+      "operation": "sponsor transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xd39b4a45d14b691d6d2fec935b3307a6db71e0b1def37aaf448e57e89f80d668",
+      "extrinsic_id": "187-0006",
+      "fee_tao": 0.000137561,
+      "data": {
+        "hashed_registration_guards": [
+          "5DCGrMoxJxFGFiADDmdHeiSV5zGeicrkZBGMckE7Bix96XMU"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5DCGrMoxJxFGFiADDmdHeiSV5zGeicrkZBGMckE7Bix96XMU",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    },
+    {
+      "wallet": "original",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x67e4dc4415dc1ba3b73809f02b74638d1cfbd5f04c57712249d855869985a20d",
+      "extrinsic_id": "196-0006",
+      "fee_tao": 0.000228724
+    },
+    {
+      "wallet": "team",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xb9f60460f4be9292fc3286a92ebb68992a3f09e38e81f3e50485cfec8229b7bd",
+      "extrinsic_id": "199-0008",
+      "fee_tao": 0.000211569,
+      "data": {
+        "hashed_registration_guards": [
+          "5FtWCp4MnzVGJoFTkFx71dwd3h2TPrFbv1QQxiptG1z8R3Sw"
+        ],
+        "hashed_registration_max_deposit_rao": 0,
+        "multisig_call_hash": "0x68950d7d984e14cb5a68e4663cc10af4bc7a404d290bc0937e4c2646e41a8335",
+        "multisig_call_data": "0x0b020821010001030c026e705412a87d72f00293ab1a989e0ad26546e0f105634eb649541c4f4b8b050300a92940d7367e184251f74bf3d21702c9003dd28c819bb4dd7cbc418d9e2cdf1a02286bee",
+        "multisig_followup": {
+          "status": "pending",
+          "target": "Utility.batch_all",
+          "sudo": false,
+          "proxy_for": null,
+          "force_proxy_type": null,
+          "params": {
+            "calls": [
+              {
+                "call_index": "0x2101",
+                "call_function": "check_registered",
+                "call_module": "HashedAccounts",
+                "call_args": [
+                  {
+                    "name": "descriptor",
+                    "type": "RegistrationDescriptor",
+                    "value": {
+                      "Classical": {
+                        "version": 1,
+                        "scheme": "Ed25519",
+                        "initial_commitment": "0x0c026e705412a87d72f00293ab1a989e0ad26546e0f105634eb649541c4f4b8b"
+                      }
+                    }
+                  }
+                ],
+                "call_hash": "0xd7f4dd40874119b6867729c005e46c73e8f4256427d13ccbddeb911a3a235d87"
+              },
+              {
+                "call_index": "0x0503",
+                "call_function": "transfer_keep_alive",
+                "call_module": "Balances",
+                "call_args": [
+                  {
+                    "name": "dest",
+                    "type": "AccountIdLookupOf",
+                    "value": "5FtWCp4MnzVGJoFTkFx71dwd3h2TPrFbv1QQxiptG1z8R3Sw"
+                  },
+                  {
+                    "name": "value",
+                    "type": "Balance",
+                    "value": 1000000000
+                  }
+                ],
+                "call_hash": "0x3cb7054cc30e27707e09f389ccb1a980b3dc3a0177bffb5bcc2d08af29e00be2"
+              }
+            ]
+          },
+          "approvals": 1,
+          "threshold": 2,
+          "call_hash": "0x68950d7d984e14cb5a68e4663cc10af4bc7a404d290bc0937e4c2646e41a8335",
+          "call_data": "0x0b020821010001030c026e705412a87d72f00293ab1a989e0ad26546e0f105634eb649541c4f4b8b050300a92940d7367e184251f74bf3d21702c9003dd28c819bb4dd7cbc418d9e2cdf1a02286bee",
+          "timepoint": {
+            "height": 199,
+            "index": 8
+          },
+          "timepoint_display": "199:8",
+          "multisig_address": "5HNAwopRS9pV4EyWNskAnxLacEA72iJs67SoT4q87rX9JDvx",
+          "multisig_preset": "team",
+          "depositor": "5CMKqaxbs7ZqpDWUq7BSwb115Xq5k2f1MEFnN4iH6UcF7FPw",
+          "depositor_label": "original (5CMKqaxbs7ZqpDWUq7BSwb115Xq5k2f1MEFnN4iH6UcF7FPw)",
+          "approvals_so_far": [
+            "5CMKqaxbs7ZqpDWUq7BSwb115Xq5k2f1MEFnN4iH6UcF7FPw"
+          ],
+          "approval_labels": [
+            "original (5CMKqaxbs7ZqpDWUq7BSwb115Xq5k2f1MEFnN4iH6UcF7FPw)"
+          ],
+          "remaining_signatories": [
+            "5DCGrMoxJxFGFiADDmdHeiSV5zGeicrkZBGMckE7Bix96XMU"
+          ],
+          "remaining_labels": [
+            "peer (5DCGrMoxJxFGFiADDmdHeiSV5zGeicrkZBGMckE7Bix96XMU)"
+          ],
+          "co_signer_commands": [
+            {
+              "ss58": "5DCGrMoxJxFGFiADDmdHeiSV5zGeicrkZBGMckE7Bix96XMU",
+              "label": "peer (5DCGrMoxJxFGFiADDmdHeiSV5zGeicrkZBGMckE7Bix96XMU)",
+              "name": "peer",
+              "command": "btcli -n ws://127.0.0.1:20044 call Utility.batch_all --args '{\"calls\":[{\"call_index\":\"0x2101\",\"call_function\":\"check_registered\",\"call_module\":\"HashedAccounts\",\"call_args\":[{\"name\":\"descriptor\",\"type\":\"RegistrationDescriptor\",\"value\":{\"Classical\":{\"version\":1,\"scheme\":\"Ed25519\",\"initial_commitment\":\"0x0c026e705412a87d72f00293ab1a989e0ad26546e0f105634eb649541c4f4b8b\"}}}],\"call_hash\":\"0xd7f4dd40874119b6867729c005e46c73e8f4256427d13ccbddeb911a3a235d87\"},{\"call_index\":\"0x0503\",\"call_function\":\"transfer_keep_alive\",\"call_module\":\"Balances\",\"call_args\":[{\"name\":\"dest\",\"type\":\"AccountIdLookupOf\",\"value\":\"5FtWCp4MnzVGJoFTkFx71dwd3h2TPrFbv1QQxiptG1z8R3Sw\"},{\"name\":\"value\",\"type\":\"Balance\",\"value\":1000000000}],\"call_hash\":\"0x3cb7054cc30e27707e09f389ccb1a980b3dc3a0177bffb5bcc2d08af29e00be2\"}]}' -w team --signatory peer"
+            }
+          ],
+          "commands_available": true,
+          "decode_note": null,
+          "decode_hint": null
+        }
+      }
+    },
+    {
+      "wallet": "team",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xaa8ed23009ef688f649ed2d487ad21298266153d31ca685f2b7bef1db81f0baf",
+      "extrinsic_id": "202-0008",
+      "fee_tao": 0.000362268,
+      "data": {
+        "hashed_registration_guards": [
+          "5FtWCp4MnzVGJoFTkFx71dwd3h2TPrFbv1QQxiptG1z8R3Sw"
+        ],
+        "hashed_registration_max_deposit_rao": 0,
+        "multisig_call_hash": "0x68950d7d984e14cb5a68e4663cc10af4bc7a404d290bc0937e4c2646e41a8335",
+        "multisig_call_data": "0x0b020821010001030c026e705412a87d72f00293ab1a989e0ad26546e0f105634eb649541c4f4b8b050300a92940d7367e184251f74bf3d21702c9003dd28c819bb4dd7cbc418d9e2cdf1a02286bee",
+        "multisig_followup": {
+          "status": "executed",
+          "target": "Utility.batch_all",
+          "sudo": false,
+          "proxy_for": null,
+          "call_hash": "0x68950d7d984e14cb5a68e4663cc10af4bc7a404d290bc0937e4c2646e41a8335",
+          "call_data": "0x0b020821010001030c026e705412a87d72f00293ab1a989e0ad26546e0f105634eb649541c4f4b8b050300a92940d7367e184251f74bf3d21702c9003dd28c819bb4dd7cbc418d9e2cdf1a02286bee",
+          "multisig_address": "5HNAwopRS9pV4EyWNskAnxLacEA72iJs67SoT4q87rX9JDvx",
+          "multisig_preset": "team"
+        }
+      }
+    },
+    {
+      "wallet": "original",
+      "operation": "proxy add",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xcd0d1c9061cec02055be48f970a3ade7d8cbdfc3363d8e96e956e1ec2816238f",
+      "extrinsic_id": "205-0008",
+      "fee_tao": 0.000378517,
+      "data": {
+        "hashed_registration_guards": [
+          "5DCGrMoxJxFGFiADDmdHeiSV5zGeicrkZBGMckE7Bix96XMU"
+        ],
+        "hashed_registration_max_deposit_rao": 0
+      }
+    },
+    {
+      "wallet": "peer",
+      "operation": "wallet transfer",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x536ded5f960a9bd3bee438e629fd09d5c38f214b849a25e920fe75926c6ac2a3",
+      "extrinsic_id": "208-0009",
+      "fee_tao": 0.000398511,
+      "data": {
+        "proxy_for": "5CMKqaxbs7ZqpDWUq7BSwb115Xq5k2f1MEFnN4iH6UcF7FPw",
+        "hashed_registration_guards": [
+          "5FtWCp4MnzVGJoFTkFx71dwd3h2TPrFbv1QQxiptG1z8R3Sw"
+        ],
+        "hashed_registration_max_deposit_rao": 0
+      }
+    },
+    {
+      "operation": "root subnet setup",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x47b96d48ccc0b1bf8092854ac4984da121428ae70a95783e2440452da10b608d",
+      "extrinsic_id": "214-0006",
+      "fee_tao": 0.0
+    },
+    {
+      "wallet": "original",
+      "operation": "subnets create",
+      "success": true,
+      "message": "Subnet 6 registered.",
+      "block_hash": "0x29e6ce71ab7af7f2ec0a850c79ba5dc2d77b5f213c44f1f315425dc62f152d97",
+      "extrinsic_id": "217-0006",
+      "fee_tao": 0.001969314,
+      "data": {
+        "hashed_registration_guards": [
+          "5EsoLFrBoSnRqJgm7gHEToFpt5khHBPgbR6RSR4qVcYXCN5R"
+        ],
+        "hashed_registration_max_deposit_rao": 0,
+        "netuid": 6,
+        "registration_mode": "immediate",
+        "registered_at_block": 217,
+        "registration_price_rao": 1000000000000
+      }
+    },
+    {
+      "wallet": "original",
+      "operation": "call AdminUtils.sudo_set_network_pow_registration_allowed",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x73e44ca8804f7e8aee028e67a5b6a29c77505b6a5bf5cae0e7176c7c2aeb90f2",
+      "extrinsic_id": "220-0007",
+      "fee_tao": 0.000188171
+    },
+    {
+      "wallet": "original",
+      "operation": "call AdminUtils.sudo_set_network_registration_allowed",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x866b9b2a0fc99e9772f8f872831e163ca76115d96482796f74f9158937dee937",
+      "extrinsic_id": "223-0006",
+      "fee_tao": 0.000214484
+    },
+    {
+      "wallet": "original",
+      "operation": "call System.remark",
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x1f5f9d4b0086f336282cd7dc2dc86c3dc9f83fdf0bcc1c642c1b366b7265e371",
+      "extrinsic_id": "226-0007",
+      "fee_tao": 0.000188091
+    }
+  ]
+}

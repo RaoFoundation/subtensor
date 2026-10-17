@@ -1,0 +1,2050 @@
+[
+  {
+    "step": "fund-disposable-signer",
+    "address": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xc6a19d65305cdbb12e5feea341c3f59e7043ff19ad83b87c76734995929eb0d3",
+      "extrinsic_id": "7-0006",
+      "fee_tao": 0.000969015,
+      "data": {
+        "hashed_registration_guards": [
+          "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    }
+  },
+  {
+    "step": "fund-disposable-signer",
+    "address": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x80ebb769581a169fd539b8da1d9172be642fd903a973b437448d41ac916f1c1f",
+      "extrinsic_id": "10-0006",
+      "fee_tao": 0.000969015,
+      "data": {
+        "hashed_registration_guards": [
+          "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    }
+  },
+  {
+    "step": "grant-restricted-proxy",
+    "signer": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x2fd6c01e1f4205c42f3266a4d6ff45bd699f8ba37b8f9ca83197bd04a3cce0d8",
+      "extrinsic_id": "13-0006",
+      "fee_tao": 0.000446461
+    },
+    "events": [
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "2103",
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "generation": 1
+          }
+        },
+        "event_index": 33,
+        "module_id": "HashedAccounts",
+        "event_id": "RotatedMlDsa",
+        "attributes": {
+          "account": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "generation": 1
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 446461
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Withdraw",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 446461
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0504",
+          "module_id": "Balances",
+          "event_id": "Reserved",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 93000000
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Reserved",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 93000000
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "1004",
+          "module_id": "Proxy",
+          "event_id": "ProxyAdded",
+          "attributes": {
+            "delegator": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "delegatee": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "proxy_type": "NonTransfer",
+            "delay": 0
+          }
+        },
+        "event_index": 16,
+        "module_id": "Proxy",
+        "event_id": "ProxyAdded",
+        "attributes": {
+          "delegator": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "delegatee": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "proxy_type": "NonTransfer",
+          "delay": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 0
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Deposit",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "actual_fee": 446461,
+            "tip": 0
+          }
+        },
+        "event_index": 6,
+        "module_id": "TransactionPayment",
+        "event_id": "TransactionFeePaid",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "actual_fee": 446461,
+          "tip": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0000",
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 1774880045,
+                "proof_size": 32018
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        },
+        "event_index": 0,
+        "module_id": "System",
+        "event_id": "ExtrinsicSuccess",
+        "attributes": {
+          "dispatch_info": {
+            "weight": {
+              "ref_time": 1774880045,
+              "proof_size": 32018
+            },
+            "class": "Normal",
+            "pays_fee": "Yes"
+          }
+        },
+        "topics": []
+      }
+    ],
+    "signer_before": {
+      "account": {
+        "nonce": 1,
+        "consumers": 0,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 100000000000,
+          "reserved": 0,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 4,
+          "initial_commitment": "0x67bf7ff862e27afdca453ddfd5ff4e5ff6db4e850a37c152083a1c4aaa672407299b52a3c0f27ba4f44898e3245d8323b9dd0877991c1ad8b95fb5d7644bc1c3"
+        },
+        "generation": 0,
+        "commitment": "0x67bf7ff862e27afdca453ddfd5ff4e5ff6db4e850a37c152083a1c4aaa672407299b52a3c0f27ba4f44898e3245d8323b9dd0877991c1ad8b95fb5d7644bc1c3"
+      }
+    },
+    "signer_after": {
+      "account": {
+        "nonce": 2,
+        "consumers": 1,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 99906553539,
+          "reserved": 93000000,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 4,
+          "initial_commitment": "0x67bf7ff862e27afdca453ddfd5ff4e5ff6db4e850a37c152083a1c4aaa672407299b52a3c0f27ba4f44898e3245d8323b9dd0877991c1ad8b95fb5d7644bc1c3"
+        },
+        "generation": 1,
+        "commitment": "0xf2ecbace128949edd49af18a20fc9a6e2fcc5efe4c7bd4ac11d5690b02b8e51badb618827a8d2d2e88120237f923ca8e2bd9fb7fe4e446ce493b115471463605"
+      }
+    }
+  },
+  {
+    "step": "missing-wrapped-and-declined-consent-preserve-state",
+    "before": {
+      "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW": {
+        "account": {
+          "nonce": 2,
+          "consumers": 1,
+          "providers": 2,
+          "sufficients": 0,
+          "data": {
+            "free": 99906553539,
+            "reserved": 93000000,
+            "frozen": 0,
+            "flags": 170141183460469231731687303715884105728
+          }
+        },
+        "authority": {
+          "descriptor": {
+            "version": 2,
+            "algorithm": 4,
+            "initial_commitment": "0x67bf7ff862e27afdca453ddfd5ff4e5ff6db4e850a37c152083a1c4aaa672407299b52a3c0f27ba4f44898e3245d8323b9dd0877991c1ad8b95fb5d7644bc1c3"
+          },
+          "generation": 1,
+          "commitment": "0xf2ecbace128949edd49af18a20fc9a6e2fcc5efe4c7bd4ac11d5690b02b8e51badb618827a8d2d2e88120237f923ca8e2bd9fb7fe4e446ce493b115471463605"
+        }
+      },
+      "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt": {
+        "account": {
+          "nonce": 1,
+          "consumers": 0,
+          "providers": 2,
+          "sufficients": 0,
+          "data": {
+            "free": 100000000000,
+            "reserved": 0,
+            "frozen": 0,
+            "flags": 170141183460469231731687303715884105728
+          }
+        },
+        "authority": {
+          "descriptor": {
+            "version": 2,
+            "algorithm": 5,
+            "initial_commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+          },
+          "generation": 0,
+          "commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+        }
+      },
+      "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU": {
+        "account": {
+          "nonce": 0,
+          "consumers": 0,
+          "providers": 0,
+          "sufficients": 0,
+          "data": {
+            "free": 0,
+            "reserved": 0,
+            "frozen": 0,
+            "flags": 170141183460469231731687303715884105728
+          }
+        },
+        "authority": null
+      }
+    }
+  },
+  {
+    "step": "principal-explicitly-sponsors-recipient",
+    "signer": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0xb6cab9e7dba54dc162435921f04dd1037f4df4e15e3949c36d931e1b7d936038",
+      "extrinsic_id": "16-0006",
+      "fee_tao": 0.001199533,
+      "data": {
+        "hashed_registration_guards": [
+          "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU"
+        ],
+        "hashed_registration_max_deposit_rao": 1144000000,
+        "hashed_registration": "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU",
+        "hashed_registration_deposit_rao": 1144000000
+      }
+    },
+    "events": [
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "2103",
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "generation": 2
+          }
+        },
+        "event_index": 33,
+        "module_id": "HashedAccounts",
+        "event_id": "RotatedMlDsa",
+        "attributes": {
+          "account": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "generation": 2
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 1214533
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Withdraw",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 1214533
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0003",
+          "module_id": "System",
+          "event_id": "NewAccount",
+          "attributes": {
+            "account": "5GamazgRb5Vj4BP8NtNA9HXNG7ev3RUJd3bXpxSfNxALXV25"
+          }
+        },
+        "event_index": 0,
+        "module_id": "System",
+        "event_id": "NewAccount",
+        "attributes": {
+          "account": "5GamazgRb5Vj4BP8NtNA9HXNG7ev3RUJd3bXpxSfNxALXV25"
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0504",
+          "module_id": "Balances",
+          "event_id": "Reserved",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 1144000000
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Reserved",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 1144000000
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0003",
+          "module_id": "System",
+          "event_id": "NewAccount",
+          "attributes": {
+            "account": "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU"
+          }
+        },
+        "event_index": 0,
+        "module_id": "System",
+        "event_id": "NewAccount",
+        "attributes": {
+          "account": "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU"
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "2102",
+          "module_id": "HashedAccounts",
+          "event_id": "RegisteredMlDsa",
+          "attributes": {
+            "account": "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU",
+            "sponsor": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "deposit": 1144000000
+          }
+        },
+        "event_index": 33,
+        "module_id": "HashedAccounts",
+        "event_id": "RegisteredMlDsa",
+        "attributes": {
+          "account": "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU",
+          "sponsor": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "deposit": 1144000000
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0b03",
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null
+        },
+        "event_index": 11,
+        "module_id": "Utility",
+        "event_id": "ItemCompleted",
+        "attributes": null,
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0500",
+          "module_id": "Balances",
+          "event_id": "Endowed",
+          "attributes": {
+            "account": "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU",
+            "free_balance": 1000000000
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Endowed",
+        "attributes": {
+          "account": "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU",
+          "free_balance": 1000000000
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0502",
+          "module_id": "Balances",
+          "event_id": "Transfer",
+          "attributes": {
+            "from": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "to": "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU",
+            "amount": 1000000000
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Transfer",
+        "attributes": {
+          "from": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "to": "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU",
+          "amount": 1000000000
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0b03",
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null
+        },
+        "event_index": 11,
+        "module_id": "Utility",
+        "event_id": "ItemCompleted",
+        "attributes": null,
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0b01",
+          "module_id": "Utility",
+          "event_id": "BatchCompleted",
+          "attributes": null
+        },
+        "event_index": 11,
+        "module_id": "Utility",
+        "event_id": "BatchCompleted",
+        "attributes": null,
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 15000
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Deposit",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 15000
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "actual_fee": 1199533,
+            "tip": 0
+          }
+        },
+        "event_index": 6,
+        "module_id": "TransactionPayment",
+        "event_id": "TransactionFeePaid",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "actual_fee": 1199533,
+          "tip": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0000",
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 4787025145,
+                "proof_size": 228483
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        },
+        "event_index": 0,
+        "module_id": "System",
+        "event_id": "ExtrinsicSuccess",
+        "attributes": {
+          "dispatch_info": {
+            "weight": {
+              "ref_time": 4787025145,
+              "proof_size": 228483
+            },
+            "class": "Normal",
+            "pays_fee": "Yes"
+          }
+        },
+        "topics": []
+      }
+    ],
+    "signer_before": {
+      "account": {
+        "nonce": 2,
+        "consumers": 1,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 99906553539,
+          "reserved": 93000000,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 4,
+          "initial_commitment": "0x67bf7ff862e27afdca453ddfd5ff4e5ff6db4e850a37c152083a1c4aaa672407299b52a3c0f27ba4f44898e3245d8323b9dd0877991c1ad8b95fb5d7644bc1c3"
+        },
+        "generation": 1,
+        "commitment": "0xf2ecbace128949edd49af18a20fc9a6e2fcc5efe4c7bd4ac11d5690b02b8e51badb618827a8d2d2e88120237f923ca8e2bd9fb7fe4e446ce493b115471463605"
+      }
+    },
+    "signer_after": {
+      "account": {
+        "nonce": 3,
+        "consumers": 1,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 97761354006,
+          "reserved": 1237000000,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 4,
+          "initial_commitment": "0x67bf7ff862e27afdca453ddfd5ff4e5ff6db4e850a37c152083a1c4aaa672407299b52a3c0f27ba4f44898e3245d8323b9dd0877991c1ad8b95fb5d7644bc1c3"
+        },
+        "generation": 2,
+        "commitment": "0x01545ab3925a7f53a97c76b312929af7026ca682a7441700baaa395be76fcf5934f3992e5df77bd573feb53cb913471226889005c89c9d51035ff47d67a4de4b"
+      }
+    }
+  },
+  {
+    "step": "restricted-proxy-inner-transfer-denied",
+    "signer": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+    "receipt": {
+      "success": false,
+      "message": "The origin filter prevent the call to be dispatched.",
+      "block_hash": "0xa6842a6fd456ccd27ac91e403b5db92d87e31793d9561e613431b139d5a1a331",
+      "extrinsic_id": "19-0006",
+      "error": {
+        "message": "The origin filter prevent the call to be dispatched.",
+        "name": "CallFiltered",
+        "code": "not_authorized",
+        "remediation": "sign with the key or origin that owns the target object, then retry",
+        "description": "The runtime's origin call filter (e.g. `BaseCallFilter` or a restricted origin) rejected this call before dispatch. Check whether the specific call is permitted for the origin you used, including any proxy or safe-mode filtering in effect.",
+        "docs_url": "https://www.bittensor.com/docs/errors/chain/CallFiltered"
+      }
+    },
+    "events": [
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "2108",
+          "module_id": "HashedAccounts",
+          "event_id": "AuthorizedFixed",
+          "attributes": {
+            "account": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "generation": 1
+          }
+        },
+        "event_index": 33,
+        "module_id": "HashedAccounts",
+        "event_id": "AuthorizedFixed",
+        "attributes": {
+          "account": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "generation": 1
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "amount": 531934
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Withdraw",
+        "attributes": {
+          "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "amount": 531934
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "1000",
+          "module_id": "Proxy",
+          "event_id": "ProxyExecuted",
+          "attributes": {
+            "result": {
+              "Err": {
+                "Module": {
+                  "index": 0,
+                  "error": "0x05000000"
+                }
+              }
+            }
+          }
+        },
+        "event_index": 16,
+        "module_id": "Proxy",
+        "event_id": "ProxyExecuted",
+        "attributes": {
+          "result": {
+            "Err": {
+              "Module": {
+                "index": 0,
+                "error": "0x05000000"
+              }
+            }
+          }
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "amount": 30000
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Deposit",
+        "attributes": {
+          "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "amount": 30000
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "actual_fee": 501934,
+            "tip": 0
+          }
+        },
+        "event_index": 6,
+        "module_id": "TransactionPayment",
+        "event_id": "TransactionFeePaid",
+        "attributes": {
+          "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "actual_fee": 501934,
+          "tip": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0000",
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 1996556018,
+                "proof_size": 39568
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        },
+        "event_index": 0,
+        "module_id": "System",
+        "event_id": "ExtrinsicSuccess",
+        "attributes": {
+          "dispatch_info": {
+            "weight": {
+              "ref_time": 1996556018,
+              "proof_size": 39568
+            },
+            "class": "Normal",
+            "pays_fee": "Yes"
+          }
+        },
+        "topics": []
+      }
+    ],
+    "signer_before": {
+      "account": {
+        "nonce": 1,
+        "consumers": 0,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 100000000000,
+          "reserved": 0,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 5,
+          "initial_commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+        },
+        "generation": 0,
+        "commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+      }
+    },
+    "signer_after": {
+      "account": {
+        "nonce": 2,
+        "consumers": 0,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 99999498066,
+          "reserved": 0,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 5,
+          "initial_commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+        },
+        "generation": 1,
+        "commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+      }
+    }
+  },
+  {
+    "step": "grant-full-proxy",
+    "signer": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x44af79e34e3612dea1067509b53e0ff9238116f9c0d6f52d74c282bbe767f920",
+      "extrinsic_id": "22-0006",
+      "fee_tao": 0.000446461
+    },
+    "events": [
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "2103",
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "generation": 3
+          }
+        },
+        "event_index": 33,
+        "module_id": "HashedAccounts",
+        "event_id": "RotatedMlDsa",
+        "attributes": {
+          "account": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "generation": 3
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 446461
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Withdraw",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 446461
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0504",
+          "module_id": "Balances",
+          "event_id": "Reserved",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 33000000
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Reserved",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 33000000
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "1004",
+          "module_id": "Proxy",
+          "event_id": "ProxyAdded",
+          "attributes": {
+            "delegator": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "delegatee": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "proxy_type": "Any",
+            "delay": 0
+          }
+        },
+        "event_index": 16,
+        "module_id": "Proxy",
+        "event_id": "ProxyAdded",
+        "attributes": {
+          "delegator": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "delegatee": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "proxy_type": "Any",
+          "delay": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 0
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Deposit",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "actual_fee": 446461,
+            "tip": 0
+          }
+        },
+        "event_index": 6,
+        "module_id": "TransactionPayment",
+        "event_id": "TransactionFeePaid",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "actual_fee": 446461,
+          "tip": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0000",
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 1774880045,
+                "proof_size": 32018
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        },
+        "event_index": 0,
+        "module_id": "System",
+        "event_id": "ExtrinsicSuccess",
+        "attributes": {
+          "dispatch_info": {
+            "weight": {
+              "ref_time": 1774880045,
+              "proof_size": 32018
+            },
+            "class": "Normal",
+            "pays_fee": "Yes"
+          }
+        },
+        "topics": []
+      }
+    ],
+    "signer_before": {
+      "account": {
+        "nonce": 3,
+        "consumers": 1,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 97761354006,
+          "reserved": 1237000000,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 4,
+          "initial_commitment": "0x67bf7ff862e27afdca453ddfd5ff4e5ff6db4e850a37c152083a1c4aaa672407299b52a3c0f27ba4f44898e3245d8323b9dd0877991c1ad8b95fb5d7644bc1c3"
+        },
+        "generation": 2,
+        "commitment": "0x01545ab3925a7f53a97c76b312929af7026ca682a7441700baaa395be76fcf5934f3992e5df77bd573feb53cb913471226889005c89c9d51035ff47d67a4de4b"
+      }
+    },
+    "signer_after": {
+      "account": {
+        "nonce": 4,
+        "consumers": 1,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 97727907545,
+          "reserved": 1270000000,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 4,
+          "initial_commitment": "0x67bf7ff862e27afdca453ddfd5ff4e5ff6db4e850a37c152083a1c4aaa672407299b52a3c0f27ba4f44898e3245d8323b9dd0877991c1ad8b95fb5d7644bc1c3"
+        },
+        "generation": 3,
+        "commitment": "0xd7981974344cf656de46cbf813bf8d5f467aca027483a5d295d3b114178aa29f70788c1dd57e942863a5cebfb13641f14dbf574e345b4592b304694cb34ba14f"
+      }
+    }
+  },
+  {
+    "step": "full-proxy-transfers-without-new-registration",
+    "signer": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x8a1d76df7498f46f2c1a706eb350cc5e7f04723002b9a03b3cedb73092e4f989",
+      "extrinsic_id": "25-0006",
+      "fee_tao": 0.000501934,
+      "data": {
+        "proxy_for": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+        "hashed_registration_guards": [
+          "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU"
+        ],
+        "hashed_registration_max_deposit_rao": 0
+      }
+    },
+    "events": [
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "2108",
+          "module_id": "HashedAccounts",
+          "event_id": "AuthorizedFixed",
+          "attributes": {
+            "account": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "generation": 2
+          }
+        },
+        "event_index": 33,
+        "module_id": "HashedAccounts",
+        "event_id": "AuthorizedFixed",
+        "attributes": {
+          "account": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "generation": 2
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "amount": 531934
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Withdraw",
+        "attributes": {
+          "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "amount": 531934
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0b03",
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null
+        },
+        "event_index": 11,
+        "module_id": "Utility",
+        "event_id": "ItemCompleted",
+        "attributes": null,
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0502",
+          "module_id": "Balances",
+          "event_id": "Transfer",
+          "attributes": {
+            "from": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "to": "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU",
+            "amount": 1000000000
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Transfer",
+        "attributes": {
+          "from": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "to": "5Fqu2CM1GZ4CKzmNmut6pxbRCZh4H2yzqq28Ykh16dpzK8mU",
+          "amount": 1000000000
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0b03",
+          "module_id": "Utility",
+          "event_id": "ItemCompleted",
+          "attributes": null
+        },
+        "event_index": 11,
+        "module_id": "Utility",
+        "event_id": "ItemCompleted",
+        "attributes": null,
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0b01",
+          "module_id": "Utility",
+          "event_id": "BatchCompleted",
+          "attributes": null
+        },
+        "event_index": 11,
+        "module_id": "Utility",
+        "event_id": "BatchCompleted",
+        "attributes": null,
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "1000",
+          "module_id": "Proxy",
+          "event_id": "ProxyExecuted",
+          "attributes": {
+            "result": {
+              "Ok": []
+            }
+          }
+        },
+        "event_index": 16,
+        "module_id": "Proxy",
+        "event_id": "ProxyExecuted",
+        "attributes": {
+          "result": {
+            "Ok": []
+          }
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "amount": 30000
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Deposit",
+        "attributes": {
+          "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "amount": 30000
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "actual_fee": 501934,
+            "tip": 0
+          }
+        },
+        "event_index": 6,
+        "module_id": "TransactionPayment",
+        "event_id": "TransactionFeePaid",
+        "attributes": {
+          "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "actual_fee": 501934,
+          "tip": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0000",
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 1996556018,
+                "proof_size": 39568
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        },
+        "event_index": 0,
+        "module_id": "System",
+        "event_id": "ExtrinsicSuccess",
+        "attributes": {
+          "dispatch_info": {
+            "weight": {
+              "ref_time": 1996556018,
+              "proof_size": 39568
+            },
+            "class": "Normal",
+            "pays_fee": "Yes"
+          }
+        },
+        "topics": []
+      }
+    ],
+    "signer_before": {
+      "account": {
+        "nonce": 2,
+        "consumers": 0,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 99999498066,
+          "reserved": 0,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 5,
+          "initial_commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+        },
+        "generation": 1,
+        "commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+      }
+    },
+    "signer_after": {
+      "account": {
+        "nonce": 3,
+        "consumers": 0,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 99998996132,
+          "reserved": 0,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 5,
+          "initial_commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+        },
+        "generation": 2,
+        "commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+      }
+    }
+  },
+  {
+    "step": "revoke-full-proxy",
+    "signer": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x2f33dc919b30b37ee3591289792fd82ce2a7da5018ac1c4bc71f7c791ec42003",
+      "extrinsic_id": "28-0006",
+      "fee_tao": 0.000354923
+    },
+    "events": [
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "2103",
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "generation": 4
+          }
+        },
+        "event_index": 33,
+        "module_id": "HashedAccounts",
+        "event_id": "RotatedMlDsa",
+        "attributes": {
+          "account": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "generation": 4
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 354923
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Withdraw",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 354923
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0505",
+          "module_id": "Balances",
+          "event_id": "Unreserved",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 33000000
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Unreserved",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 33000000
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "1005",
+          "module_id": "Proxy",
+          "event_id": "ProxyRemoved",
+          "attributes": {
+            "delegator": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "delegatee": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "proxy_type": "Any",
+            "delay": 0
+          }
+        },
+        "event_index": 16,
+        "module_id": "Proxy",
+        "event_id": "ProxyRemoved",
+        "attributes": {
+          "delegator": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "delegatee": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "proxy_type": "Any",
+          "delay": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 0
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Deposit",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "actual_fee": 354923,
+            "tip": 0
+          }
+        },
+        "event_index": 6,
+        "module_id": "TransactionPayment",
+        "event_id": "TransactionFeePaid",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "actual_fee": 354923,
+          "tip": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0000",
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 1408727136,
+                "proof_size": 23403
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        },
+        "event_index": 0,
+        "module_id": "System",
+        "event_id": "ExtrinsicSuccess",
+        "attributes": {
+          "dispatch_info": {
+            "weight": {
+              "ref_time": 1408727136,
+              "proof_size": 23403
+            },
+            "class": "Normal",
+            "pays_fee": "Yes"
+          }
+        },
+        "topics": []
+      }
+    ],
+    "signer_before": {
+      "account": {
+        "nonce": 4,
+        "consumers": 1,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 96727907545,
+          "reserved": 1270000000,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 4,
+          "initial_commitment": "0x67bf7ff862e27afdca453ddfd5ff4e5ff6db4e850a37c152083a1c4aaa672407299b52a3c0f27ba4f44898e3245d8323b9dd0877991c1ad8b95fb5d7644bc1c3"
+        },
+        "generation": 3,
+        "commitment": "0xd7981974344cf656de46cbf813bf8d5f467aca027483a5d295d3b114178aa29f70788c1dd57e942863a5cebfb13641f14dbf574e345b4592b304694cb34ba14f"
+      }
+    },
+    "signer_after": {
+      "account": {
+        "nonce": 5,
+        "consumers": 1,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 96760552622,
+          "reserved": 1237000000,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 4,
+          "initial_commitment": "0x67bf7ff862e27afdca453ddfd5ff4e5ff6db4e850a37c152083a1c4aaa672407299b52a3c0f27ba4f44898e3245d8323b9dd0877991c1ad8b95fb5d7644bc1c3"
+        },
+        "generation": 4,
+        "commitment": "0xf555e7deefbb1e420496edcbe3a41236265280bd7e58f4346dfb06aee26d5362d67cdbe189aabecee385a1270245b3dccf54e4721dbeaf52758b33e4a88d6c29"
+      }
+    }
+  },
+  {
+    "step": "previously-composed-call-rejected-after-revocation",
+    "signer": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+    "receipt": {
+      "success": false,
+      "message": "Sender is not a proxy of the account to be proxied.",
+      "block_hash": "0x16cd8a8675a7926f720d73b7ba0ef0455a43bc4e60214be6f51d12de29d0f93f",
+      "extrinsic_id": "31-0006",
+      "error": {
+        "message": "Sender is not a proxy of the account to be proxied.",
+        "name": "NotProxy",
+        "code": "not_authorized",
+        "remediation": "sign with the key or origin that owns the target object, then retry",
+        "description": "The sender is not registered as a proxy for the account it tried to act for. Check the `Proxies` entry of the `real` account and confirm the sender appears there with a proxy type and delay compatible with the call.",
+        "docs_url": "https://www.bittensor.com/docs/errors/chain/NotProxy"
+      }
+    },
+    "events": [
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "2108",
+          "module_id": "HashedAccounts",
+          "event_id": "AuthorizedFixed",
+          "attributes": {
+            "account": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "generation": 3
+          }
+        },
+        "event_index": 33,
+        "module_id": "HashedAccounts",
+        "event_id": "AuthorizedFixed",
+        "attributes": {
+          "account": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "generation": 3
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "amount": 531934
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Withdraw",
+        "attributes": {
+          "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "amount": 531934
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "amount": 0
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Deposit",
+        "attributes": {
+          "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "amount": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "actual_fee": 531934,
+            "tip": 0
+          }
+        },
+        "event_index": 6,
+        "module_id": "TransactionPayment",
+        "event_id": "TransactionFeePaid",
+        "attributes": {
+          "who": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "actual_fee": 531934,
+          "tip": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0001",
+          "module_id": "System",
+          "event_id": "ExtrinsicFailed",
+          "attributes": {
+            "dispatch_error": {
+              "Module": {
+                "index": 16,
+                "error": "0x02000000"
+              }
+            },
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 2116556018,
+                "proof_size": 47964
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        },
+        "event_index": 0,
+        "module_id": "System",
+        "event_id": "ExtrinsicFailed",
+        "attributes": {
+          "dispatch_error": {
+            "Module": {
+              "index": 16,
+              "error": "0x02000000"
+            }
+          },
+          "dispatch_info": {
+            "weight": {
+              "ref_time": 2116556018,
+              "proof_size": 47964
+            },
+            "class": "Normal",
+            "pays_fee": "Yes"
+          }
+        },
+        "topics": []
+      }
+    ],
+    "signer_before": {
+      "account": {
+        "nonce": 3,
+        "consumers": 0,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 99998996132,
+          "reserved": 0,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 5,
+          "initial_commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+        },
+        "generation": 2,
+        "commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+      }
+    },
+    "signer_after": {
+      "account": {
+        "nonce": 4,
+        "consumers": 0,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 99998464198,
+          "reserved": 0,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 5,
+          "initial_commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+        },
+        "generation": 3,
+        "commitment": "0xbc42a71c92a7e777bf04847ac1913d83e48c5e635526e93c1e235ba173f19f1c05f2882b4ffa032445514a010a3224412348b9940acb2d1d4136e308d74a97c5"
+      }
+    }
+  },
+  {
+    "step": "remove-last-proxy-and-release-proxy-deposit",
+    "signer": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+    "receipt": {
+      "success": true,
+      "message": "Success",
+      "block_hash": "0x1a7b30817f9eeeb0f208f918ed2db4abf13155a91f589d2592daabac62cb31bb",
+      "extrinsic_id": "34-0006",
+      "fee_tao": 0.000354923
+    },
+    "events": [
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "2103",
+          "module_id": "HashedAccounts",
+          "event_id": "RotatedMlDsa",
+          "attributes": {
+            "account": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "generation": 5
+          }
+        },
+        "event_index": 33,
+        "module_id": "HashedAccounts",
+        "event_id": "RotatedMlDsa",
+        "attributes": {
+          "account": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "generation": 5
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0508",
+          "module_id": "Balances",
+          "event_id": "Withdraw",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 354923
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Withdraw",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 354923
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0505",
+          "module_id": "Balances",
+          "event_id": "Unreserved",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 93000000
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Unreserved",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 93000000
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "1005",
+          "module_id": "Proxy",
+          "event_id": "ProxyRemoved",
+          "attributes": {
+            "delegator": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "delegatee": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+            "proxy_type": "NonTransfer",
+            "delay": 0
+          }
+        },
+        "event_index": 16,
+        "module_id": "Proxy",
+        "event_id": "ProxyRemoved",
+        "attributes": {
+          "delegator": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "delegatee": "5HKWCfBgoAkU23Yjg2RaU5EURQkQtBAKgX5BRX3iNs4W7kZt",
+          "proxy_type": "NonTransfer",
+          "delay": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0507",
+          "module_id": "Balances",
+          "event_id": "Deposit",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "amount": 0
+          }
+        },
+        "event_index": 5,
+        "module_id": "Balances",
+        "event_id": "Deposit",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "amount": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0600",
+          "module_id": "TransactionPayment",
+          "event_id": "TransactionFeePaid",
+          "attributes": {
+            "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+            "actual_fee": 354923,
+            "tip": 0
+          }
+        },
+        "event_index": 6,
+        "module_id": "TransactionPayment",
+        "event_id": "TransactionFeePaid",
+        "attributes": {
+          "who": "5ErsYeJwAhzYdAkpg19qFviq58owyQ1aZf5dLzDhjm9WyRPW",
+          "actual_fee": 354923,
+          "tip": 0
+        },
+        "topics": []
+      },
+      {
+        "phase": "ApplyExtrinsic",
+        "extrinsic_idx": 6,
+        "event": {
+          "event_index": "0000",
+          "module_id": "System",
+          "event_id": "ExtrinsicSuccess",
+          "attributes": {
+            "dispatch_info": {
+              "weight": {
+                "ref_time": 1408727136,
+                "proof_size": 23403
+              },
+              "class": "Normal",
+              "pays_fee": "Yes"
+            }
+          }
+        },
+        "event_index": 0,
+        "module_id": "System",
+        "event_id": "ExtrinsicSuccess",
+        "attributes": {
+          "dispatch_info": {
+            "weight": {
+              "ref_time": 1408727136,
+              "proof_size": 23403
+            },
+            "class": "Normal",
+            "pays_fee": "Yes"
+          }
+        },
+        "topics": []
+      }
+    ],
+    "signer_before": {
+      "account": {
+        "nonce": 5,
+        "consumers": 1,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 96760552622,
+          "reserved": 1237000000,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 4,
+          "initial_commitment": "0x67bf7ff862e27afdca453ddfd5ff4e5ff6db4e850a37c152083a1c4aaa672407299b52a3c0f27ba4f44898e3245d8323b9dd0877991c1ad8b95fb5d7644bc1c3"
+        },
+        "generation": 4,
+        "commitment": "0xf555e7deefbb1e420496edcbe3a41236265280bd7e58f4346dfb06aee26d5362d67cdbe189aabecee385a1270245b3dccf54e4721dbeaf52758b33e4a88d6c29"
+      }
+    },
+    "signer_after": {
+      "account": {
+        "nonce": 6,
+        "consumers": 1,
+        "providers": 2,
+        "sufficients": 0,
+        "data": {
+          "free": 96853197699,
+          "reserved": 1144000000,
+          "frozen": 0,
+          "flags": 170141183460469231731687303715884105728
+        }
+      },
+      "authority": {
+        "descriptor": {
+          "version": 2,
+          "algorithm": 4,
+          "initial_commitment": "0x67bf7ff862e27afdca453ddfd5ff4e5ff6db4e850a37c152083a1c4aaa672407299b52a3c0f27ba4f44898e3245d8323b9dd0877991c1ad8b95fb5d7644bc1c3"
+        },
+        "generation": 5,
+        "commitment": "0xff338aaf712adaa6467b2e855bbf6d2ed81c8c8ed097789e45fb8b191947941643ee1542d5293358342637d5d5465ef71a28c15aa61369ff74b546667c182105"
+      }
+    }
+  }
+]

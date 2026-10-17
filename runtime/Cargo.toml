@@ -162,6 +162,7 @@ stp-shield.workspace = true
 ethereum.workspace = true
 
 [dev-dependencies]
+sp-keystore = { workspace = true, features = ["std"] }
 frame-metadata.workspace = true
 sp-tracing.workspace = true
 sp-keyring.workspace = true
@@ -227,6 +228,7 @@ std = [
 	"serde_json/std",
 	"sp-io/std",
 	"sp-keyring/std",
+	"sp-keystore/std",
 	"sp-tracing/std",
 	"log/std",
 	"safe-math/std",

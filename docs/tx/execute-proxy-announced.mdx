@@ -14,7 +14,7 @@ matching announcement exists.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.proxy_announced`](/code/pallets/proxy/src/lib.rs#L580-L616) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.proxy_announced`](/code/pallets/proxy/src/lib.rs#L582-L618) |
 
 ## Parameters
 
@@ -73,7 +73,7 @@ result = sub.execute_tool("execute_proxy_announced", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.proxy_announced` — [`pallets/proxy/src/lib.rs#L589`](/code/pallets/proxy/src/lib.rs#L580-L616):
+`Proxy.proxy_announced` — [`pallets/proxy/src/lib.rs#L591`](/code/pallets/proxy/src/lib.rs#L582-L618):
 
 ```rust
         #[pallet::call_index(9)]
@@ -115,6 +115,6 @@ result = sub.execute_tool("execute_proxy_announced", {...}, wallet)
         }
 ```
 
-Delegates to [`find_proxy`](/code/pallets/proxy/src/lib.rs#L1142).
+Delegates to [`find_proxy`](/code/pallets/proxy/src/lib.rs#L1204).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

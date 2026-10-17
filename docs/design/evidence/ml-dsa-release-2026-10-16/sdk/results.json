@@ -1,0 +1,117 @@
+{
+  "parity": {
+    "result": "6 passed in 1834.82s (0:30:34)",
+    "private_log_sha256": "6a7ad45037fc76afc67ae1b31d58f75fad0ca23fade7cfb10ae2a037898d9b49"
+  },
+  "mldsa_authority_rerun": {
+    "result": "2 passed in 705.91s (0:11:45)",
+    "private_log_sha256": "d14192969fded8ca90c983dbc36517660bdaca1ea26803eecc97e0361775d05d"
+  },
+  "mldsa": {
+    "result": "8 unique scenarios passed: six unchanged cases in the initial run, two corrected authority cases in the targeted rerun",
+    "initial_result": "2 failed, 6 passed in 1434.99s (0:23:54)",
+    "initial_passed_cases": [
+      "sdk/python/tests/e2e/test_mldsa_localnet.py::test_mixed_protected_multisig_cancellation_failure_and_quorum[codes1]",
+      "sdk/python/tests/e2e/test_mldsa_localnet.py::test_mixed_protected_multisig_cancellation_failure_and_quorum[codes2]",
+      "sdk/python/tests/e2e/test_mldsa_localnet.py::test_original_limit_order_execution_cancellation_and_capability_revocation[8]",
+      "sdk/python/tests/e2e/test_mldsa_localnet.py::test_two_of_three_all_mixed_quorums_and_runtime_rejection_of_weak_quorum",
+      "sdk/python/tests/e2e/test_mldsa_localnet.py::test_mixed_protected_multisig_cancellation_failure_and_quorum[codes0]",
+      "sdk/python/tests/e2e/test_mldsa_localnet.py::test_original_limit_order_execution_cancellation_and_capability_revocation[7]"
+    ],
+    "initial_failed_cases": [
+      "sdk/python/tests/e2e/test_mldsa_localnet.py::test_offline_replay_capabilities_native_evm_and_derived_accounts[7]",
+      "sdk/python/tests/e2e/test_mldsa_localnet.py::test_offline_replay_capabilities_native_evm_and_derived_accounts[8]"
+    ],
+    "initial_private_log_sha256": "2fd989303e9b57074a5ae63a5fd1053b03a4cd0da7721860732d65f9be011a36",
+    "accepted_authority_rerun": {
+      "result": "2 passed in 705.91s (0:11:45)",
+      "private_log_sha256": "d14192969fded8ca90c983dbc36517660bdaca1ea26803eecc97e0361775d05d"
+    }
+  },
+  "head": "2d5089da3bcb292cbf557d9b22ff34582e23b3f4",
+  "captured_at": "2026-10-16T21:06:42.436674+00:00",
+  "sources_sha256": {
+    "sdk/python/bittensor/_transport/interface.py": "127aa4bf02c45339fa731caf0ede5f9dc7262d762846cc0b1a204409f7e597f9",
+    "sdk/python/bittensor/keyfiles.py": "725b2428d63c1b3c625f2bdb298c599a700f705fd707b6c2321b9ae7a6b6f7b7",
+    "sdk/python/tests/unit/test_mldsa_accounts.py": "401f63f2d26f6704e565e243a4dc5528f2981abb94f4e553397b01e715247034",
+    "sdk/python/tests/e2e/test_wallet_parity.py": "fc255669dc20b7493c15427a76c08ee6b7816b91b5103788d4d3a4c3ec105b48",
+    "sdk/python/tests/e2e/test_mldsa_localnet.py": "0bb5467007987d1e9927043205251b365cde15ccccfd10883bdb70fa4891c7dd",
+    "sdk/python/tests/e2e/test_wallet_types.py": "34f4cc6d83e5e843745b99c222afeb9f55714a3f27fa02a43d7e343b89bb1f53"
+  },
+  "offline": {
+    "unit": "3105 passed, 1 skipped in 341.19s; before separate keyfile-atomicity additions",
+    "focused": "127 passed in 0.47s",
+    "original_method_replay": "48 new compact-boundary regressions failed, 67 deselected",
+    "native_sha256": "fdc0c3dbcb29d75a73956b6c6ff26b497ab7ca273f65d1640daa28f3aa7e7849",
+    "production_shield_patch_sha256": "e20691e910228454d622ca89a0d51de91cdcd9dbb3a2f3a66deb73795fff26d9",
+    "original_source_manifest": {
+      "head": "2d5089da3bcb292cbf557d9b22ff34582e23b3f4",
+      "files": {
+        "sdk/python/bittensor/_transport/interface.py": "127aa4bf02c45339fa731caf0ede5f9dc7262d762846cc0b1a204409f7e597f9",
+        "sdk/python/tests/unit/test_mldsa_accounts.py": "401f63f2d26f6704e565e243a4dc5528f2981abb94f4e553397b01e715247034",
+        "sdk/python/tests/e2e/test_mldsa_release.py": "de180505756a80c3f81eaf4295ceeaf71f3dd49a7bf59029bc886ac7994c44dc",
+        "sdk/python/tests/e2e/test_mldsa_operation_families.py": "931738351583a770e258f717f8458bc8f31400ec8d712729e5e7e6b05d208eb9"
+      },
+      "unit_result": "3105 passed, 1 skipped in 341.19s",
+      "native_sha256": "fdc0c3dbcb29d75a73956b6c6ff26b497ab7ca273f65d1640daa28f3aa7e7849",
+      "new_live_tests_collected": 23,
+      "live_execution_by_this_worker": false,
+      "fixture_checks": "23 collected; ruff check and ruff format --check pass after strengthened invalid-proof, storage and balance assertions"
+    },
+    "log_sha256": {
+      "sdk-unit.log": "c363abe6bb41500dd7af0bf006b11b89ed6e0a42741a8bfb7fd1ed556f38e2d7",
+      "shield-regression-before.log": "289841b161bd4f9e8808703892d3aa8efa0c0bd62e218fe1aa162f74efd1fb88",
+      "shield-regression-after.log": "e0a0bdee40266888522abcea30506b9d141fad5c754c8b9b8a964ddc2a4bd894"
+    }
+  },
+  "earlier_attempts": [
+    {
+      "suite": "parity",
+      "attempt": "serial",
+      "status": "cancelled for parallel restart",
+      "result": "no tests ran in 652.79s",
+      "log_sha256": "a62cc76cbcc47bba01a30377d6f21026c913533f80509a07223f5d50154874a6"
+    },
+    {
+      "suite": "parity",
+      "attempt": "parallel1",
+      "status": "fixture error, not accepted",
+      "result": "2 failed in 147.64s",
+      "cause": "Receipt collector called .get on wallet balance --all's valid list result. Fixed collector to require dict; restarted all six modes.",
+      "log_sha256": "f3661685ad7903c0ea0349edf569ae42f84157651fe820e36a9dc467d953d5fb"
+    },
+    {
+      "suite": "mldsa",
+      "attempt": "initial authority cases",
+      "status": "fixture error, not accepted",
+      "result": "Both authority cases rejected the replay as Transaction is temporarily banned, omitted from the replay-only regex.",
+      "cause": "Explicit temporary pool ban is now accepted only for replay, with unchanged account/authority assertions. Malformed proofs require BadProof/bad-signature. Both authority cases were rerun with fresh keys.",
+      "log_sha256": "2fd989303e9b57074a5ae63a5fd1053b03a4cd0da7721860732d65f9be011a36"
+    },
+    {
+      "suite": "derived rollback postcheck",
+      "attempt": "first read-only helper invocation",
+      "status": "helper type error, repaired and rerun",
+      "result": "TypeError: fromhex() argument must be str, not bytes",
+      "cause": "Native sp_core.ss58_decode returns bytes; use bytes(...) directly. No transaction submitted by either postcheck invocation."
+    }
+  ],
+  "public_receipt_files": [
+    "derived-rollback-postcheck.json",
+    "mldsa-authority-7.json",
+    "mldsa-authority-8.json",
+    "mldsa-multisig-7-1.json",
+    "mldsa-multisig-7-8.json",
+    "mldsa-multisig-8-0.json",
+    "mldsa-orders-7.json",
+    "mldsa-orders-8.json",
+    "mldsa-two-of-three.json",
+    "wallet-parity-ed-hashed.json",
+    "wallet-parity-ed-standard.json",
+    "wallet-parity-ms-hashed.json",
+    "wallet-parity-ms-standard.json",
+    "wallet-parity-sr-hashed.json",
+    "wallet-parity-sr-standard.json"
+  ],
+  "private_material": "Raw CLI logs and disposable wallet files remain outside the repository under /tmp; no recovery secrets copied."
+}

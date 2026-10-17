@@ -12,9 +12,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from hashlib import blake2b
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Awaitable, Callable, Optional, TypeVar
 
-from ..sp_core import HASHED_CRYPTO_TYPES
+from ..mldsa import supports_fixed_profile
+from ..sp_core import MLDSA_CRYPTO_TYPES, REGISTERED_CRYPTO_TYPES
 from .codec import is_valid_ss58_address as _is_valid_ss58_address
 from .codec import multisig_account as _multisig_account
 from .codec import ss58_decode as _ss58_decode
@@ -22,6 +23,7 @@ from .codec import ss58_encode as _ss58_encode
 from .const import SS58_FORMAT
 from .contract import (
     BlockData,
+    HashedSigningSnapshot,
     InclusionReport,
     MetadataIR,
     MultisigAccount,
@@ -34,6 +36,7 @@ from .extrinsics import (
     NonceCache,
     hashed_proof_length,
     resolve_outcome,
+    shielded_ciphertext_size,
     watch_status_block,
 )
 from .extrinsics import attach_signature as _attach_signature
@@ -50,6 +53,33 @@ logger = logging.getLogger("bittensor.transport")
 
 # How long a probed finalized-head height is trusted (one mainnet block).
 _FINALIZED_TTL = 12.0
+
+_SubmissionResult = TypeVar("_SubmissionResult")
+_ADMISSION_DELAYS = (0.125, 0.25, 0.5, 1.0)
+_ADMISSION_ERRORS = (
+    "Local transaction admission capacity reached; retry later",
+    "Local runtime execution capacity reached; retry later",
+)
+
+
+async def _submit_with_admission_retry(
+    submit: Callable[[], Awaitable[_SubmissionResult]],
+) -> _SubmissionResult:
+    """Retry only explicit pre-admission rejection, never an ambiguous send.
+
+    The caller retains the same signed bytes. Once a watch is accepted, its
+    updates and failures are outside this retry boundary.
+    """
+    for attempt in range(len(_ADMISSION_DELAYS) + 1):
+        try:
+            return await submit()
+        except SubstrateRequestException as error:
+            if attempt == len(_ADMISSION_DELAYS) or not any(
+                message in str(error) for message in _ADMISSION_ERRORS
+            ):
+                raise
+            await asyncio.sleep(_ADMISSION_DELAYS[attempt])
+    raise AssertionError("unreachable admission retry state")
 
 
 class QueryMapResult:
@@ -189,7 +219,10 @@ class SubstrateConnection:
         return await self._session.request("chain_getFinalizedHead", [])
 
     async def get_finalized_block_number(self) -> int:
-        return await self.get_block_number(await self.get_chain_finalised_head())
+        finalized = await self.get_chain_finalised_head()
+        if not finalized:
+            raise SubstrateRequestException("could not resolve finalized block")
+        return await self.get_block_number(finalized)
 
     async def get_block_hash(self, block_id: Optional[int]) -> str:
         if block_id is None:
@@ -516,6 +549,7 @@ class SubstrateConnection:
         tip_asset_id: Optional[int] = None,
         signature: Optional[bytes | str] = None,
         hashed_generation_offset: int = 0,
+        hashed_signing_snapshot: Optional[HashedSigningSnapshot] = None,
     ) -> SignedExtrinsic:
         """Sign a composed call at the current runtime, for submission.
 
@@ -524,7 +558,7 @@ class SubstrateConnection:
         without touching the nonce cache (fee estimation, offline vectors) use
         :meth:`sign_without_nonce_tracking`.
         """
-        if keypair.crypto_type in HASHED_CRYPTO_TYPES:
+        if keypair.crypto_type in REGISTERED_CRYPTO_TYPES:
             return await self._sign_hashed(
                 call,
                 keypair,
@@ -534,9 +568,10 @@ class SubstrateConnection:
                 tip_asset_id=tip_asset_id,
                 signature=signature,
                 generation_offset=hashed_generation_offset,
+                signing_snapshot=hashed_signing_snapshot,
             )
-        if hashed_generation_offset:
-            raise ValueError("a generation offset is only valid for hashed accounts")
+        if hashed_generation_offset or hashed_signing_snapshot is not None:
+            raise ValueError("a generation offset or snapshot is only valid for hashed accounts")
         if nonce is None:
             nonce = await self._nonces.next_for(keypair.ss58_address)
         else:
@@ -567,7 +602,7 @@ class SubstrateConnection:
         For extrinsics that will not be submitted from this session (fee
         estimation, externally-submitted payloads, deterministic test vectors).
         """
-        if keypair.crypto_type in HASHED_CRYPTO_TYPES:
+        if keypair.crypto_type in REGISTERED_CRYPTO_TYPES:
             return await self._sign_hashed(
                 call,
                 keypair,
@@ -592,38 +627,36 @@ class SubstrateConnection:
             signature=signature,
         )
 
-    async def _sign_hashed(
-        self,
-        call: Any,
-        keypair: Any,
-        *,
-        nonce: Optional[int],
-        era: Optional[dict | str],
-        tip: int,
-        tip_asset_id: Optional[int],
-        signature: Optional[bytes | str],
-        generation_offset: int = 0,
-    ) -> SignedExtrinsic:
-        """Recover current authority from chain state, never from local counters.
-
-        A rotation and the account nonce are separate state. Pin both reads to
-        the same head; do not pre-sign future generations or pipeline nonces.
-        Rebuilding after a failed dispatch works because rotation is consumed
-        by authorization even when the dispatched call fails.
-        """
+    async def _hashed_snapshot_at(self, keypair, block_hash: str) -> HashedSigningSnapshot:
         from ..hashed import descriptor_bytes, raw_bytes
 
-        if generation_offset not in (0, 1):
-            raise ValueError("hashed generation offset must be zero or one for a Shield inner call")
-        block_hash = await self.get_chain_head()
+        if not block_hash:
+            raise SubstrateRequestException("could not resolve hashed authority block")
+        mldsa = keypair.crypto_type in MLDSA_CRYPTO_TYPES
         codec = await self._runtimes.codec_at(block_hash)
-        enabled = codec.constant("HashedAccounts", "Enabled")
-        if not isinstance(enabled, bool):
-            enabled = await self.query("AdminUtils", "HashedAccountsEnabled", block_hash=block_hash)
-        if enabled is not True:
+        if codec.constant("HashedAccounts", "RegistrationDeposit") is None:
+            raise SubstrateRequestException("runtime does not support hashed accounts")
+        if mldsa:
+            if codec.constant("HashedAccounts", "MlDsaRegistrationDeposit") is None:
+                raise SubstrateRequestException("runtime does not support ML-DSA accounts")
+            if bytes(keypair.hashed_descriptor)[1] == 5:
+                profiles = codec.constant("HashedAccounts", "MldsaAccountProfiles")
+                if not supports_fixed_profile(profiles):
+                    raise SubstrateRequestException(
+                        "runtime does not support fixed-key ML-DSA accounts"
+                    )
+        master_enabled = await self.query(
+            "AdminUtils", "HashedAccountsEnabled", block_hash=block_hash
+        )
+        if master_enabled is not True:
             raise SubstrateRequestException("hashed accounts are not enabled on this chain")
         state, account = await asyncio.gather(
-            self.query("HashedAccounts", "Accounts", [keypair.ss58_address], block_hash=block_hash),
+            self.query(
+                "HashedAccounts",
+                "MlDsaAccounts" if mldsa else "Accounts",
+                [keypair.ss58_address],
+                block_hash=block_hash,
+            ),
             self.query("System", "Account", [keypair.ss58_address], block_hash=block_hash),
         )
         if state is None:
@@ -637,19 +670,86 @@ class SubstrateConnection:
             generation = int(state["generation"])
             commitment = raw_bytes(state["commitment"])
             confirmed_nonce = int((account or {}).get("nonce", 0))
-            if not 0 <= generation < 2**64 - 1 - generation_offset or len(commitment) != 32:
+            if not 0 <= generation < 2**64 - 1 or len(commitment) != (64 if mldsa else 32):
                 raise ValueError("invalid generation or commitment")
         except (KeyError, TypeError, ValueError) as error:
             raise SubstrateRequestException(
                 "registered hashed account does not match this wallet"
             ) from error
 
+        return HashedSigningSnapshot(
+            block_hash,
+            keypair.ss58_address,
+            keypair.crypto_type,
+            descriptor_bytes(state["descriptor"]),
+            generation,
+            commitment,
+            confirmed_nonce,
+        )
+
+    async def prepare_hashed_snapshot(self, keypair) -> HashedSigningSnapshot:
+        """Pin both Shield proofs to finalized authority before signing either."""
+        if keypair.crypto_type not in REGISTERED_CRYPTO_TYPES:
+            raise ValueError("a signing snapshot requires a hashed account")
+        finalized = await self.get_chain_finalised_head()
+        if not finalized:
+            raise SubstrateRequestException("could not resolve finalized hashed authority")
+        snapshot = await self._hashed_snapshot_at(keypair, finalized)
+        if await self._nonces.next_for(keypair.ss58_address, use_cache=False) != snapshot.nonce:
+            raise SubstrateRequestException(
+                "hashed account has a pending transaction; "
+                "wait for finalization before preparing Shield"
+            )
+        return snapshot
+
+    async def _sign_hashed(
+        self,
+        call: Any,
+        keypair: Any,
+        *,
+        nonce: Optional[int],
+        era: Optional[dict | str],
+        tip: int,
+        tip_asset_id: Optional[int],
+        signature: Optional[bytes | str],
+        generation_offset: int = 0,
+        signing_snapshot: Optional[HashedSigningSnapshot] = None,
+    ) -> SignedExtrinsic:
+        """Recover current authority from chain state, never from local counters.
+
+        A rotation and the account nonce are separate state. Pin both reads to
+        the same head; do not pre-sign future generations or pipeline nonces.
+        Rebuilding after a failed dispatch works because rotation is consumed
+        by authorization even when the dispatched call fails.
+        """
+        if generation_offset not in (0, 1):
+            raise ValueError("hashed generation offset must be zero or one for a Shield inner call")
+        mldsa = keypair.crypto_type in MLDSA_CRYPTO_TYPES
+        block_hash = (
+            signing_snapshot.block_hash
+            if signing_snapshot is not None
+            else (await self.get_chain_finalised_head() if mldsa else await self.get_chain_head())
+        )
+        snapshot = await self._hashed_snapshot_at(keypair, block_hash)
+        if signing_snapshot is not None and snapshot != signing_snapshot:
+            raise SubstrateRequestException(
+                "hashed signing snapshot does not match the pinned account authority"
+            )
+        generation, commitment, confirmed_nonce = (
+            snapshot.generation,
+            snapshot.commitment,
+            snapshot.nonce,
+        )
+        if not 0 <= generation < 2**64 - 1 - generation_offset:
+            raise SubstrateRequestException("hashed signing generation is exhausted")
+        codec = await self._runtimes.codec_at(block_hash)
+
         if signature is None:
             pending_nonce = await self._nonces.next_for(keypair.ss58_address, use_cache=False)
             if pending_nonce != confirmed_nonce:
                 raise SubstrateRequestException(
                     "hashed account has a pending transaction; "
-                    "wait for inclusion before signing again"
+                    "wait for finalization before signing again"
                 )
             if nonce is not None and nonce != confirmed_nonce + generation_offset:
                 raise SubstrateRequestException(
@@ -666,24 +766,89 @@ class SubstrateConnection:
                 else current_key
             )
         elif signature == b"\x00" * 64:
-            # The existing fee-estimation seam uses a 64-byte sentinel. Price
-            # the complete General envelope without unlocking a public wallet.
-            signature = generation.to_bytes(8, "little") + b"\x00" * (
-                hashed_proof_length(keypair.crypto_type) - 8
-            )
+            # Quote the complete envelope without disclosing a signer or
+            # unlocking a public wallet. These proofs can never authorize use.
+            if mldsa:
+                signature = (
+                    bytes(keypair.public_key)
+                    + bytes(keypair.hashed_descriptor)[:2]
+                    + generation.to_bytes(8, "little")
+                    + bytes(1952)
+                    + bytes([1]) * 64
+                    + bytes(3309)
+                )
+            else:
+                signature = generation.to_bytes(8, "little") + b"\x00" * (
+                    hashed_proof_length(keypair.crypto_type) - 8
+                )
         era, era_block_hash = await self._normalize_era(era)
         return await _sign_and_assemble(
             codec,
             call,
             keypair,
             era=era,
-            nonce=confirmed_nonce + generation_offset,
+            # Fee quotes and externally supplied proofs already carry their
+            # requested nonce. Shield's inner envelope uses the next nonce;
+            # replacing it with the current one undercounts compact boundaries.
+            nonce=confirmed_nonce + generation_offset if nonce is None else nonce,
             tip=tip,
             tip_asset_id=tip_asset_id,
             genesis_hash=await self.genesis_hash(),
             era_block_hash=era_block_hash,
             signature=signature,
         )
+
+    async def prepare_mldsa_unsigned(
+        self,
+        call,
+        *,
+        descriptor: bytes,
+        era=None,
+        tip=0,
+        tip_asset_id=None,
+        metadata_hash=None,
+    ):
+        """Prepare a full-payload versioned request for an ML-DSA-capable signer."""
+        from ..mldsa_signing import prepare_mldsa_extrinsic
+        from ..sp_core import Keypair
+
+        public = Keypair.from_hashed_descriptor(bytes(descriptor))
+        if public.crypto_type not in MLDSA_CRYPTO_TYPES:
+            raise ValueError("offline ML-DSA preparation requires a ML-DSA descriptor")
+        snapshot = await self.prepare_hashed_snapshot(public)
+        codec = await self._runtimes.codec_at(snapshot.block_hash)
+        era, era_block_hash = await self._normalize_era(era)
+        return prepare_mldsa_extrinsic(
+            codec,
+            call,
+            snapshot,
+            era=era,
+            genesis_hash=await self.genesis_hash(),
+            era_block_hash=era_block_hash,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+            metadata_hash=metadata_hash,
+        )
+
+    async def attach_mldsa_proof(self, prepared, proof):
+        from ..mldsa_signing import attach_mldsa_proof
+        from ..sp_core import Keypair
+
+        prepared.validate()
+        public = Keypair.from_hashed_descriptor(prepared.authority.descriptor)
+        current = await self.prepare_hashed_snapshot(public)
+        previous = prepared.authority
+        if (current.descriptor, current.generation, current.commitment, current.nonce) != (
+            previous.descriptor,
+            previous.generation,
+            previous.commitment,
+            previous.nonce,
+        ) or await self.genesis_hash() != prepared.unsigned.genesis_hash:
+            raise SubstrateRequestException(
+                "ML-DSA authority or chain changed since preparation; prepare and sign again"
+            )
+        codec = await self._runtimes.codec_at(None)
+        return attach_mldsa_proof(codec, prepared, proof)
 
     async def prepare_unsigned(
         self,
@@ -738,6 +903,10 @@ class SubstrateConnection:
         better to fail here with a reason than at submission with a cryptic
         ``BadProof``.
         """
+        from ..mldsa_signing import PreparedMldsaExtrinsic
+
+        if isinstance(unsigned, PreparedMldsaExtrinsic):
+            return await self.attach_mldsa_proof(unsigned, signature)
         codec = await self._runtimes.codec_at(None)
         if codec.spec_version != unsigned.spec_version:
             raise SubstrateRequestException(
@@ -755,14 +924,19 @@ class SubstrateConnection:
         wait_for_finalization: bool = False,
     ) -> InclusionReport:
         """Submit; optionally watch until included/finalized and resolve the outcome."""
+        data_hex, extrinsic_hash = extrinsic.data_hex, extrinsic.extrinsic_hash
         if not (wait_for_inclusion or wait_for_finalization):
-            result = await self._session.request("author_submitExtrinsic", [extrinsic.data_hex])
+            result = await _submit_with_admission_retry(
+                lambda: self._session.request("author_submitExtrinsic", [data_hex])
+            )
             return InclusionReport(extrinsic_hash=str(result))
 
-        subscription = await self._session.subscribe(
-            "author_submitAndWatchExtrinsic",
-            [extrinsic.data_hex],
-            "author_unwatchExtrinsic",
+        subscription = await _submit_with_admission_retry(
+            lambda: self._session.subscribe(
+                "author_submitAndWatchExtrinsic",
+                [data_hex],
+                "author_unwatchExtrinsic",
+            )
         )
         block_hash: Optional[str] = None
         finalized = False
@@ -781,10 +955,9 @@ class SubstrateConnection:
 
         if block_hash is None:
             raise SubstrateRequestException(
-                f"extrinsic watch for {extrinsic.extrinsic_hash} ended without "
-                "reaching the awaited state"
+                f"extrinsic watch for {extrinsic_hash} ended without reaching the awaited state"
             )
-        return await self._resolve_inclusion(extrinsic.extrinsic_hash, block_hash, finalized)
+        return await self._resolve_inclusion(extrinsic_hash, block_hash, finalized)
 
     async def resolve_extrinsic(
         self, extrinsic_hash: str, block_hash: str, *, finalized: bool = False
@@ -835,11 +1008,37 @@ class SubstrateConnection:
             error_message=outcome["error_message"],
         )
 
-    async def get_payment_info(self, call: Any, keypair: Keypair) -> dict:
-        """Fee/weight estimation for a call (no valid signature required)."""
+    async def get_shielded_payment_info(self, call: Any, keypair: Keypair, *, period: int) -> dict:
+        """Quote the real carrier tier without signing or disclosing the inner call.
+
+        Dummy proofs have the complete signing envelope's size for every scheme.
+        Shield uses the next nonce for the inner transaction and a mortal era for
+        both envelopes. Only a zero-filled carrier is sent to the fee RPC.
+        """
         nonce = await self._nonces.next_for(keypair.ss58_address, use_cache=False)
+        era = {"period": period}
+        inner = await self.sign_without_nonce_tracking(
+            call, keypair, nonce=nonce + 1, era=era, signature=bytes(64)
+        )
+        size = shielded_ciphertext_size(len(inner.data))
+        outer = await self.compose_call(
+            "MevShield", "submit_encrypted", {"ciphertext": bytes(size)}
+        )
+        return await self.get_payment_info(outer, keypair, nonce=nonce, era=era)
+
+    async def get_payment_info(
+        self,
+        call: Any,
+        keypair: Keypair,
+        *,
+        nonce: Optional[int] = None,
+        era: Optional[dict | str] = None,
+    ) -> dict:
+        """Fee/weight estimation for a call (no valid signature required)."""
+        if nonce is None:
+            nonce = await self._nonces.next_for(keypair.ss58_address, use_cache=False)
         extrinsic = await self.sign_without_nonce_tracking(
-            call, keypair, nonce=nonce, signature=b"\x00" * 64
+            call, keypair, nonce=nonce, era=era, signature=b"\x00" * 64
         )
         codec = await self._runtimes.codec_at(None)
         length = len(extrinsic.data)

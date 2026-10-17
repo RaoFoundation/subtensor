@@ -2,6 +2,7 @@
 
 Vault's QR transport is simulated with a test key; metadata proofs, signatures,
 extrinsic encoding and chain execution are real. This is not a phone firmware test.
+Parallel workers must share E2E_WALLET_ALICE_LOCK for sponsor submissions.
 """
 
 from __future__ import annotations
@@ -15,10 +16,11 @@ from itertools import permutations
 import pytest
 
 import bittensor as bt
-from bittensor.hashed import descriptor_value
+from bittensor.hashed import registration_descriptor_value
 from bittensor.receiving import receiving_address
 from bittensor.sp_core import HASHED_CRYPTO_TYPES, Keypair
 from bittensor.vault.signer import VaultSigner
+from tests.e2e.test_wallet_types import alice_submission
 from tests.harness.samples import dev_wallet
 
 ENDPOINT = os.getenv("E2E_WALLET_ENDPOINT")
@@ -29,7 +31,35 @@ pytestmark = [
 
 
 async def fund(client, key, amount=100):
-    result = await client.execute(bt.intents.Transfer(receiving_address(key), amount), dev_wallet())
+    async with alice_submission():
+        result = await client.execute(
+            bt.intents.Transfer(receiving_address(key), amount),
+            dev_wallet(),
+            wait_for_finalization=True,
+            max_registration_deposit=bt.Balance.from_tao(2),
+        )
+    assert result.success, result.to_dict()
+
+
+async def fund_multisig(client, address, amount):
+    async with alice_submission():
+        result = await client.execute(
+            bt.intents.Transfer(address, amount),
+            dev_wallet(),
+            wait_for_finalization=True,
+        )
+    assert result.success, result.to_dict()
+
+
+async def register_recipient(client, key):
+    async with alice_submission():
+        result = await client.submit_call(
+            bt.calls.HashedAccounts.register(
+                descriptor=registration_descriptor_value(bytes(key.hashed_descriptor)),
+            ),
+            dev_wallet(),
+            wait_for_finalization=True,
+        )
     assert result.success, result.to_dict()
 
 
@@ -104,8 +134,7 @@ async def test_cli_mixed_two_of_three_all_pairs_and_orders(tmp_path, modes):
         assert await client.query(bt.storage.AdminUtils.HashedAccountsEnabled) is True
         for key in keys.values():
             await fund(client, key)
-        result = await client.execute(bt.intents.Transfer(address, 20), dev_wallet())
-        assert result.success, result.to_dict()
+        await fund_multisig(client, address, 20)
         # Both spellings and all member permutations derive the same account.
         for names in permutations(keys):
             multi = await client.multisig([receiving_address(keys[name]) for name in names], 2)
@@ -115,14 +144,7 @@ async def test_cli_mixed_two_of_three_all_pairs_and_orders(tmp_path, modes):
         args = ("wallet", "transfer", "--dest", receiving_address(recipient), "--amount", "1")
         rejected = await cli("team", *args, "--signatory", "rotating", success=False)
         assert "direct sponsor wallet" in rejected, rejected
-        result = await client.submit_call(
-            bt.calls.HashedAccounts.register(
-                descriptor=descriptor_value(bytes(recipient.hashed_descriptor)),
-            ),
-            dev_wallet(),
-            wait_for_finalization=True,
-        )
-        assert result.success, result.to_dict()
+        await register_recipient(client, recipient)
         hashed_member = next(
             name for name, key in keys.items() if key.crypto_type in HASHED_CRYPTO_TYPES
         )
@@ -260,8 +282,7 @@ async def test_vault_adapter_co_signs_hashed_both_orders(vault_code, hashed_code
         multi = await client.multisig(
             [receiving_address(rotating), vault.ss58_address, third.ss58_address], 2
         )
-        result = await client.execute(bt.intents.Transfer(multi.address, 10), dev_wallet())
-        assert result.success, result.to_dict()
+        await fund_multisig(client, multi.address, 10)
         call = bt.calls.Balances.transfer_keep_alive(dest=destination, value=10**9)
         for first, second in ((rotating, vault), (vault, rotating)):
             before = int((await account(client, destination))["data"]["free"])
@@ -317,20 +338,12 @@ async def test_direct_sdk_multisig_receiving_transfer(
                 (await account(client, key.ss58_address))["data"]["reserved"]
             )
         multi = await client.multisig([key.ss58_address for key in members], threshold)
-        result = await client.execute(bt.intents.Transfer(multi.address, 10), dev_wallet())
-        assert result.success, result.to_dict()
+        await fund_multisig(client, multi.address, 10)
         with pytest.raises(ValueError, match="direct sponsor"):
             await client.plan(intent_for(0), wallets[0])
         assert int((await account(client, multi.address))["data"]["free"]) == 10**10
 
-        registered = await client.submit_call(
-            bt.calls.HashedAccounts.register(
-                descriptor=descriptor_value(bytes(recipient.hashed_descriptor))
-            ),
-            dev_wallet(),
-            wait_for_finalization=True,
-        )
-        assert registered.success, registered.to_dict()
+        await register_recipient(client, recipient)
         first = await client.execute(intent_for(0), wallets[0])
         assert first.success, first.to_dict()
         if threshold == 2:
@@ -381,8 +394,7 @@ async def test_direct_sdk_receiving_signatories_approve_execute_and_cancel(hashe
         multi = await client.multisig([receiving_address(key) for key in members], 3)
         canonical = await client.multisig([key.ss58_address for key in members], 3)
         assert multi.address == canonical.address
-        funded = await client.execute(bt.intents.Transfer(multi.address, 10), dev_wallet())
-        assert funded.success, funded.to_dict()
+        await fund_multisig(client, multi.address, 10)
 
         reserved = int((await account(client, members[0].ss58_address))["data"]["reserved"])
         first = await client.execute(intent_for(bt.intents.MultisigApprove, 0), members[0])

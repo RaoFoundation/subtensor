@@ -1,0 +1,36 @@
+{
+  "label": "installed-legacy",
+  "capture_sha256": "4f6a775bdf8ffafd9936d437cbeff38126127f1437dc0892732872e83541044b",
+  "binding_sha256": {
+    "bittensor_core.abi3.so": "8a69b7c12eb5af0ed0b2735a656bcab0f7f8538de1605705e1f932f076af110f"
+  },
+  "six_wallet_block": "0x5f42b5d0754377fa35c369eee1c4d48fd7f0eabfde00722326e9d3c3d86daa25",
+  "metadata": {
+    "14": {
+      "extrinsics_decoded": 9,
+      "wallet_types": [
+        0,
+        1,
+        4,
+        6,
+        7,
+        8
+      ]
+    },
+    "15": {
+      "extrinsics_decoded": 9,
+      "wallet_types": [
+        0,
+        1,
+        4,
+        6,
+        7,
+        8
+      ]
+    },
+    "16": {
+      "supported": false,
+      "reason": "unsupported metadata version V16"
+    }
+  }
+}

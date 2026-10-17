@@ -1,0 +1,96 @@
+{
+  "test": "unknown-export flood still blocks EVM pending reconstruction",
+  "performed_at": "2026-10-16T20:18:58.589211+00:00",
+  "endpoint": "http://127.0.0.1:20245",
+  "genesis": "0x6365693095056ba7a80cb34bfe43a16a48fc617989ed81379a416c49309bced9",
+  "runtime_wasm_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b",
+  "test_script_sha256": "69a4917f0df63768a1382a0369b6d66e86f177c4e773213234643e68193b4358",
+  "read_only_rpc_methods": [
+    "author_pendingExtrinsics",
+    "chain_getBlockHash",
+    "chain_getHeader",
+    "eth_getBalance",
+    "state_call",
+    "state_getStorage"
+  ],
+  "submitted_transactions": 0,
+  "pool_drain_observations": [
+    {
+      "elapsed_seconds": 0.0009878429118543863,
+      "count": 4
+    }
+  ],
+  "pool_count_before_flood": 4,
+  "pool_count_after_flood": 4,
+  "baseline_latest": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  },
+  "baseline_pending": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  },
+  "unknown_export_requests": 64,
+  "unknown_export_capacity_rejections": 48,
+  "unknown_response_samples": {
+    "first": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": 4003,
+        "message": "Client error: Execution failed: Other: Exported method MldsaAdmissionProbe_unexported is not found"
+      }
+    },
+    "last": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": 4003,
+        "message": "Client error: Execution failed: Other: Local runtime execution capacity reached; retry later"
+      }
+    }
+  },
+  "flood_elapsed_seconds": 0.0227786130271852,
+  "named_initialize_pending_block_probe": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": 4003,
+      "message": "Client error: Execution failed: Other: Local runtime execution capacity reached; retry later"
+    }
+  },
+  "initialize_probe_elapsed_seconds": 0.02320879092440009,
+  "pending_after_flood": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32603,
+      "message": "Create pending runtime api error: Failed to call runtime API, Execution failed: Other: Local runtime execution capacity reached; retry later"
+    }
+  },
+  "pending_elapsed_seconds": 0.023595992010086775,
+  "latest_after_flood": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  },
+  "pending_after_refill": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  },
+  "stage_classification": {
+    "initialize_pending_block_export_admission_denied": true,
+    "pending_rpc_internal_failure_stage": "RPC wrapper does not report exact failed export; cannot distinguish initial API, fallback Core_initialize_block, or an inherent apply from this response alone",
+    "ready_pool_transaction_apply_not_needed_for_reproduction": false,
+    "relation_to_36_entry_test": "This previously healthy, small-pool flood reproduces independent-service coupling. The separate 36-entry test exercises pending reconstruction under a populated pool; its generic API error also does not identify the exact failing call."
+  },
+  "verdict": "CONFIRMED MEDIUM pending-service availability isolation gap; fail-closed balance behavior retained",
+  "limits": [
+    "Only validator20245 was probed",
+    "No chain writes or signed transactions",
+    "No internal per-export tracing was enabled; exact nested failure stage remains unobserved"
+  ]
+}

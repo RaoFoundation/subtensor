@@ -20,7 +20,11 @@ from bittensor.evm.addresses import (
     ss58_to_h160_truncated,
     ss58_to_pubkey,
 )
-from bittensor.hashed import descriptor_value, has_receiving_setup_inputs
+from bittensor.hashed import (
+    descriptor_value,
+    has_receiving_setup_inputs,
+    registration_descriptor_value,
+)
 from bittensor.intents import EvmWithdraw, FundEvmKey
 from bittensor.receiving import parse_recipient, receiving_address
 from bittensor.result import BittensorError
@@ -34,7 +38,7 @@ def protected():
     key = Keypair.create_from_seed(bytes([7]) * 32, CRYPTO_HASHED)
     alias = ss58_to_h160_truncated(key.ss58_address)
     substrate = FakeSubstrate()
-    substrate.seed_constant("HashedAccounts", "Enabled", True)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], True)
     substrate.seed_constant("HashedAccounts", "RegistrationDeposit", 200_000_000)
     substrate.seed("HashedAccounts", "EvmAliases", [alias], key.ss58_address)
     substrate.seed(
@@ -52,7 +56,7 @@ def protected():
 
 async def test_older_chain_uses_legacy_mapping_without_alias_reads(protected):
     substrate, _, alias = protected
-    substrate.seed_constant("HashedAccounts", "Enabled", None)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], None)
     substrate.seed_constant("HashedAccounts", "RegistrationDeposit", None)
     substrate.query = AsyncMock(side_effect=AssertionError("alias lookup on older chain"))
     recipient = await resolve_evm_funding_recipient(substrate, alias)
@@ -68,7 +72,7 @@ async def test_protected_mapping_validates_and_returns_full_receiving_address(
     protected, encoding, enabled
 ):
     substrate, key, alias = protected
-    substrate.seed_constant("HashedAccounts", "Enabled", enabled)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], enabled)
     raw = bytes(key.public_key)
     bound = {"ss58": key.ss58_address, "hex": "0x" + raw.hex(), "bytes": raw, "list": list(raw)}[
         encoding
@@ -86,7 +90,7 @@ async def test_protected_mapping_validates_and_returns_full_receiving_address(
 @pytest.mark.parametrize("failure", ["short", "wrong_prefix", "missing_record", "wrong_descriptor"])
 async def test_malformed_protected_mapping_fails_closed(protected, failure, enabled):
     substrate, key, alias = protected
-    substrate.seed_constant("HashedAccounts", "Enabled", enabled)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], enabled)
     if failure == "short":
         substrate.seed("HashedAccounts", "EvmAliases", [alias], bytes(31))
     elif failure == "wrong_prefix":
@@ -112,7 +116,9 @@ async def test_protected_funding_guards_and_credits_native_account(protected, am
     assert (built.call.module, built.call.function) == ("Utility", "batch_all")
     registration, transfer = built.call.params["calls"]
     assert (registration.module, registration.function) == ("HashedAccounts", "check_registered")
-    assert registration.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
+    assert registration.params["descriptor"] == registration_descriptor_value(
+        bytes(key.hashed_descriptor)
+    )
     assert transfer.function == function
     assert transfer.params["dest"] == key.ss58_address
     assert built.extras["hashed_registration_guards"] == [key.ss58_address]
@@ -160,7 +166,7 @@ async def test_protected_claim_is_blocked_before_balance_query_or_composition(pr
 
 async def test_ordinary_claim_still_reads_legacy_mirror(protected):
     substrate, _, _ = protected
-    substrate.seed_constant("HashedAccounts", "Enabled", False)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], False)
     key = Keypair.create_from_seed(bytes([3]) * 32)
     alias = ss58_to_h160_truncated(key.ss58_address)
     substrate.seed("System", "Account", [h160_to_ss58(alias)], {"data": {"free": 123}})
@@ -270,7 +276,7 @@ def test_cli_stake_show_reads_the_runtime_mapped_coldkey(
     evm_cli, monkeypatch, enabled, hashed_hotkey
 ):
     substrate, key, alias = evm_cli
-    substrate.seed_constant("HashedAccounts", "Enabled", enabled)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], enabled)
     info = SimpleNamespace(name="default", address=alias, ss58_mirror=h160_to_ss58(alias))
     monkeypatch.setattr("bittensor.cli.commands.evm.stake._key_info", lambda *args: info)
     requests = []
@@ -404,7 +410,7 @@ def test_cli_doctor_recommends_evm_receive_route_without_legacy_mirror(evm_cli, 
 @pytest.mark.parametrize("amount", [1, "all"])
 async def test_disabled_existing_alias_cannot_fund_abandoned_mirror(protected, amount):
     substrate, key, alias = protected
-    substrate.seed_constant("HashedAccounts", "Enabled", False)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], False)
     recipient = await resolve_evm_funding_recipient(substrate, alias)
     assert recipient.account == key.ss58_address
     assert recipient.descriptor == bytes(key.hashed_descriptor)
@@ -417,7 +423,7 @@ async def test_disabled_existing_alias_cannot_fund_abandoned_mirror(protected, a
 
 async def test_disabled_unbound_alias_keeps_legacy_funding(protected):
     substrate, _, alias = protected
-    substrate.seed_constant("HashedAccounts", "Enabled", False)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], False)
     substrate.seed("HashedAccounts", "EvmAliases", [alias], None)
     call = await FundEvmKey(alias, 1).build(substrate, object())
     assert call.params["dest"] == h160_to_ss58(alias)

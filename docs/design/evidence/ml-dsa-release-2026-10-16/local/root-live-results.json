@@ -1,0 +1,65 @@
+{
+  "passed": true,
+  "accepted_unique_cases": 25,
+  "release_cases": [
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_failed_registration_payment_batch_preserves_funds_and_next_authority[4]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_failed_registration_payment_batch_preserves_funds_and_next_authority[6]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_failed_registration_payment_batch_preserves_funds_and_next_authority[7]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_failed_registration_payment_batch_preserves_funds_and_next_authority[8]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_prefunded_bare_account_can_register_and_spend_recovered_balance[4]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_prefunded_bare_account_can_register_and_spend_recovered_balance[6]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_prefunded_bare_account_can_register_and_spend_recovered_balance[7]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_prefunded_bare_account_can_register_and_spend_recovered_balance[8]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_master_and_mldsa_gates_preserve_funds_and_resume_authority",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_mldsa_sudo_authority_can_dispatch_and_restore_root[7]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_mldsa_sudo_authority_can_dispatch_and_restore_root[8]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_shield_nonce_boundary_quote_matches_real_carrier_and_executes[4]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_shield_nonce_boundary_quote_matches_real_carrier_and_executes[6]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_shield_nonce_boundary_quote_matches_real_carrier_and_executes[7]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_shield_nonce_boundary_quote_matches_real_carrier_and_executes[8]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_wrong_chain_and_payload_proofs_cannot_change_authority_or_balance[7]",
+    "sdk/python/tests/e2e/test_mldsa_release.py::test_wrong_chain_and_payload_proofs_cannot_change_authority_or_balance[8]"
+  ],
+  "operation_cases": [
+    "sdk/python/tests/e2e/test_mldsa_operation_families.py::test_contracts_upload_remove_instantiate_and_call[7]",
+    "sdk/python/tests/e2e/test_mldsa_operation_families.py::test_contracts_upload_remove_instantiate_and_call[8]",
+    "sdk/python/tests/e2e/test_mldsa_operation_families.py::test_crowdloan_finalize_withdraw_refund_and_dissolve[7]",
+    "sdk/python/tests/e2e/test_mldsa_operation_families.py::test_crowdloan_finalize_withdraw_refund_and_dissolve[8]",
+    "sdk/python/tests/e2e/test_mldsa_operation_families.py::test_staking_locks_children_identity_serving_and_hotkey_swap[7]",
+    "sdk/python/tests/e2e/test_mldsa_operation_families.py::test_staking_locks_children_identity_serving_and_hotkey_swap[8]",
+    "sdk/python/tests/e2e/test_mldsa_operation_families.py::test_utility_branches_and_preimage_deposits[7]",
+    "sdk/python/tests/e2e/test_mldsa_operation_families.py::test_utility_branches_and_preimage_deposits[8]"
+  ],
+  "runs": [
+    {
+      "log": "live-release.log.gz",
+      "accepted_cases": 8,
+      "note": "Only eight unchanged prefunding/atomic rollback cases are retained from this attempt. The Shield capture helper keyword mismatch is a superseded fixture failure. Gate/proof cases were repeated with stronger rejection evidence.",
+      "original_log": "live-release.log"
+    },
+    {
+      "log": "live-release-final.log.gz",
+      "accepted_cases": 9,
+      "note": "All selected cases passed. Twelve retained RPC rejections were additionally verified as exact code1010 bad-signature errors.",
+      "original_log": "live-release-final.log"
+    },
+    {
+      "log": "live-operations-parallel.log.gz",
+      "accepted_cases": 2,
+      "note": "Only unchanged contract cases are retained. Utility fixture incorrectly expected nested failed events in compact SDK result; corrected fixture reads actual finalized events.",
+      "original_log": "live-operations-parallel.log"
+    },
+    {
+      "log": "live-operations-final.log.gz",
+      "accepted_cases": 6,
+      "note": "All six selected cases passed.",
+      "original_log": "live-operations-final.log"
+    }
+  ],
+  "limits": [
+    "Functional overlay weights; no production capacity or reference weights claimed.",
+    "Privileged disposable setup supplies balances, subnet parameters and the nonce63 boundary fixture.",
+    "Test success includes deliberate failed inner calls with checked rollback/nonce/generation outcomes.",
+    "Earlier canceled or failed attempts are not counted as full-suite passes."
+  ]
+}

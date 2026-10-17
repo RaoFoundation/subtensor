@@ -1,0 +1,62 @@
+{
+  "head": "8d6104b58aa5df1f53011cf8fbc81ac6b86f37ec",
+  "observed_at_utc": "2026-10-17T21:24:38.165542+00:00",
+  "retained_reference_methods": 16,
+  "preflight_exit": 0,
+  "rust_passed": 3583,
+  "rust_failed": 0,
+  "rust_ignored": 47,
+  "sdk_focused_passed": 1127,
+  "sdk_cli_passed": 5,
+  "production_default_tests_passed": 2,
+  "unchanged_remaining_fee_quotes": 24,
+  "live_tests_passed": 2,
+  "block_period_seconds": 12,
+  "production_weights": true,
+  "single_activation_control": "AdminUtils.sudo_set_hashed_accounts_enabled",
+  "deleted": [
+    "HashedAccounts.set_mldsa_enabled",
+    "HashedAccounts.MlDsaRegistrationEnabled",
+    "HashedAccounts.MlDsaAuthorizationEnabled",
+    "HashedAccounts.MlDsaEnabled",
+    "set_mldsa_enabled benchmark and weight method",
+    "experimental HashedAccounts.Enabled SDK fallback"
+  ],
+  "unchanged_spec_version": 480,
+  "committed_or_pushed": false,
+  "shutdown": {
+    "node_processes": [],
+    "live_runners": [],
+    "sdk_test_processes": [],
+    "ports_closed": {
+      "9977": true,
+      "9978": true
+    },
+    "all_stopped": true
+  },
+  "source_hashes": {
+    "pallets/hashed-accounts/src/lib.rs": "d7937bdef066ac93e41476b222209c8ae03427c7b8cd17c78c9126be8efc3f93",
+    "pallets/hashed-accounts/src/mldsa.rs": "65fb6847c234a05aa0ce287b8a9ad379807dbd497959a9a4fa37038c42cbe82b",
+    "pallets/hashed-accounts/src/capabilities.rs": "9a0d1099a0546c01216966750a585bb666dad77022342ff13ed15b436031cb50",
+    "pallets/admin-utils/src/lib.rs": "5ed46ee3cac50b9d13e64c5227ad4b440e3f144ebc2ce32ac5b5000117a4f838",
+    "runtime/src/hashed_envelope_tests.rs": "f89ba1349ed8e993678f349d81c00441d9af9bddb5cecb0e36420cb43701b12c",
+    "runtime/src/mldsa_tests.rs": "01354b2715a40478c0494d5292bbfa4db715586c88a6cbbe4b7e9ba39186eed3",
+    "runtime/tests/mldsa_reference_fees.rs": "54a0f8332c33109bd1239990ec2fb0f3e859a8cd8aeb68eac7f06c76cb7b33be",
+    "sdk/bittensor-core/src/client.rs": "be532c7ed283930c6d5f4e8fd563112647975c66f2425345a3192aede1949f97",
+    "sdk/python/bittensor/hashed.py": "cfe0b42393f839529f5ce59a0dba911ee216bbd92dd5dd656f55a1d85fbc8de5",
+    "sdk/python/bittensor/_transport/interface.py": "58e2ac1c73ff601f6bb0901d2c7beaf83935c882fc73e4d0c0e19237405bc6cc",
+    "sdk/python/bittensor/evm/addresses.py": "92e5316c7d061a52f562fc6d759a3f9de145a2dc38e5a8e6fb375a48ef09c52a",
+    "sdk/python/tests/e2e/test_mldsa_release.py": "bd0075181d89dc6c1efd58ad32c7b00cab33606d6f6413fe80c0cc1f6ba2dd7e"
+  },
+  "evidence_hashes": {
+    "activation-preflight.log.gz": "00c8c22f7e7365555e3f532553e31397da81218cbc9d2e0cced3d620430026ac",
+    "activation-live-tests.log.gz": "3ea0f218b6525371d2d35141a8fa54ca087b83640d34416aaa84623971aaf1ae",
+    "activation-production-tests.log.gz": "2ea4655f66436b2e1bb3c1b842ffd6c1678d4a49fba61aa3080dffac7230687f",
+    "activation-sdk-tests.log.gz": "c6b9274cfc6eabd80f6520ce314e6234173d8b989e514747aae8764e5c3b6208",
+    "activation-cli-tests.log.gz": "f36ca4307a5448909216aacccc7bb464e631c2626d7ed88f88350d2a8f6e9018",
+    "activation-fee-quotes.json": "e7f78ef284ceab312506d2cf7db7f7f343af1ee642b9c6de5e94999fc7b5b370",
+    "activation-fees.csv": "8080f5708f23ef26256af2e6352f5b838b9963119d2e8cc659ceb050b37f8008",
+    "activation-weight-selection.json": "8d97c91aeed6e6b39730eb417ba19bb39ffff13ce3f65e6ee3e488c31ff251db",
+    "activation-live-receipts.json": "081c987a8d380f57fe83176cb96631df106fcd1334d67ae9533cb8a7ea428657"
+  }
+}

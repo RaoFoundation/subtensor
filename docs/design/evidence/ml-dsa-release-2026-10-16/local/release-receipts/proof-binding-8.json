@@ -1,0 +1,36 @@
+{
+  "block_hash": "0xdc84c69ab33d573d512938ea264bf3b8958c5456c21c97296931c90de833f374",
+  "account": "5CoaByeuchTYmaKtEMdham28rVLDhwho9PdaaALMrCfYPqMv",
+  "rejections": [
+    {
+      "message": "Invalid Transaction: Transaction has a bad signature",
+      "payload": {
+        "error": {
+          "code": 1010,
+          "message": "Invalid Transaction",
+          "data": "Transaction has a bad signature"
+        }
+      }
+    },
+    {
+      "message": "Invalid Transaction: Transaction has a bad signature",
+      "payload": {
+        "error": {
+          "code": 1010,
+          "message": "Invalid Transaction",
+          "data": "Transaction has a bad signature"
+        }
+      }
+    },
+    {
+      "message": "Invalid Transaction: Transaction has a bad signature",
+      "payload": {
+        "error": {
+          "code": 1010,
+          "message": "Invalid Transaction",
+          "data": "Transaction has a bad signature"
+        }
+      }
+    }
+  ]
+}

@@ -17,7 +17,9 @@ use sodiumoxide::crypto::secretbox;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::CoreError;
-use crate::keys::{ensure_sodium, is_hashed_crypto, Keypair, CRYPTO_ED25519, CRYPTO_SR25519};
+use crate::keys::{
+    ensure_sodium, is_mldsa_crypto, is_registered_crypto, Keypair, CRYPTO_ED25519, CRYPTO_SR25519,
+};
 
 const NACL_SALT: &[u8] = b"\x13q\x83\xdf\xf1Z\t\xbc\x9c\x90\xb5Q\x879\xe9\xb1";
 const LEGACY_SALT: &[u8] = b"Iguesscyborgslikemyselfhaveatendencytobeparanoidaboutourorigins";
@@ -204,12 +206,15 @@ pub fn serialized_keypair_to_keyfile_data(keypair: &Keypair) -> Result<Vec<u8>, 
     data.insert("cryptoType", json!(keypair.crypto_type()));
     data.insert("accountType", json!(keypair.account_type()));
     data.insert("signingScheme", json!(keypair.signing_scheme()));
-    if is_hashed_crypto(keypair.crypto_type()) {
-        if let Ok(descriptor) = keypair.hashed_descriptor() {
-            data.insert(
-                "hashedDescriptor",
-                json!(format!("0x{}", hex::encode(descriptor))),
-            );
+    if is_registered_crypto(keypair.crypto_type()) {
+        let field = if is_mldsa_crypto(keypair.crypto_type()) {
+            data.insert("walletVersion", json!(2));
+            "mldsaDescriptor"
+        } else {
+            "hashedDescriptor"
+        };
+        if let Ok(descriptor) = keypair.authorization_descriptor() {
+            data.insert(field, json!(format!("0x{}", hex::encode(descriptor))));
         }
         // A persisted generation would be stale after use on another machine.
         // Restore the genesis identity here; always select state from chain.
@@ -297,7 +302,25 @@ fn keypair_from_raw_text(text: &str) -> Option<Keypair> {
 }
 
 fn deserialize_hashed(keyfile: &serde_json::Value, crypto_type: u8) -> Result<Keypair, CoreError> {
-    let public = match keyfile.get("hashedDescriptor") {
+    let descriptor_field = if is_mldsa_crypto(crypto_type) {
+        if keyfile
+            .get("walletVersion")
+            .and_then(serde_json::Value::as_u64)
+            != Some(2)
+            || keyfile.get("hashedDescriptor").is_some()
+        {
+            return Err(key_err(
+                "ML-DSA keyfiles require walletVersion 2 and mldsaDescriptor",
+            ));
+        }
+        "mldsaDescriptor"
+    } else {
+        if keyfile.get("mldsaDescriptor").is_some() {
+            return Err(key_err("v2 descriptor requires ML-DSA cryptoType"));
+        }
+        "hashedDescriptor"
+    };
+    let public = match keyfile.get(descriptor_field) {
         Some(serde_json::Value::String(encoded)) => {
             let descriptor = hex::decode(encoded.trim_start_matches("0x"))
                 .map_err(|_| key_err("invalid hashed descriptor encoding"))?;
@@ -333,7 +356,7 @@ fn deserialize_hashed(keyfile: &serde_json::Value, crypto_type: u8) -> Result<Ke
     }
     let keypair = match (private, public) {
         (Some(private), Some(public)) => {
-            if private.hashed_descriptor()? != public.hashed_descriptor()? {
+            if private.authorization_descriptor()? != public.authorization_descriptor()? {
                 return Err(key_err(
                     "hashedDescriptor does not match the recovered master seed",
                 ));
@@ -419,10 +442,12 @@ pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> Result<Keyp
         })
         .unwrap_or(CRYPTO_SR25519);
 
-    if is_hashed_crypto(crypto_type) {
+    if is_registered_crypto(crypto_type) {
         return deserialize_hashed(&keyfile_dict, crypto_type);
     }
-    if keyfile_dict.get("hashedDescriptor").is_some() {
+    if keyfile_dict.get("hashedDescriptor").is_some()
+        || keyfile_dict.get("mldsaDescriptor").is_some()
+    {
         return Err(key_err(
             "hashedDescriptor requires a registered-account cryptoType",
         ));

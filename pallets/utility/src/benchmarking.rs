@@ -68,6 +68,16 @@ mod benchmark {
     }
 
     #[benchmark]
+    fn as_protected_derivative() -> Result<(), BenchmarkError> {
+        let caller = account("caller", SEED, SEED);
+        let caller = T::DerivedAccountPolicy::setup_protected_benchmark(&caller)?;
+        let call = Box::new(frame_system::Call::remark { remark: vec![] }.into());
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller), SEED as u16, call);
+        Ok(())
+    }
+
+    #[benchmark]
     fn as_derivative() {
         let caller = account("caller", SEED, SEED);
         let call = Box::new(frame_system::Call::remark { remark: vec![] }.into());

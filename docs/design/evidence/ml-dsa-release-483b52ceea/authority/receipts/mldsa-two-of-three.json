@@ -1,0 +1,100 @@
+[
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x2b86485470e5aeacd9a58425a4896d0f2f157f243e37dd0b4665bc892471ef53",
+    "extrinsic_id": "73-0007",
+    "fee_tao": 0.000315233
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xcfa4f5eaca21710cc5a33905fdb1245b9f9d8362949fc0c09ade11df7eff9205",
+    "extrinsic_id": "76-0008",
+    "fee_tao": 0.000677757
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x4b61c35e6cd3a6842cd32485f550c0e2c50d0c40e3329c24fe5337f3c0e76a2e",
+    "extrinsic_id": "79-0007",
+    "fee_tao": 0.000315233
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x2bf60ad62158f577c63b4a07b791940d3ab0c68e00b47099610b6fc800fc20b0",
+    "extrinsic_id": "82-0006",
+    "fee_tao": 0.000219469
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x98cca828712107b2d7d7b69df231d876090ccfeb25cced3da2bdecaa3dabad5c",
+    "extrinsic_id": "85-0008",
+    "fee_tao": 0.000315233
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x01e851db9940f216940794373239f4c08fbf9f84f77f98077c6c225ba746adc9",
+    "extrinsic_id": "88-0008",
+    "fee_tao": 0.000677757
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x064716f42ae909c9c45723840390b9b3d7404cdfb3caa8d2aba5c5613dd0f163",
+    "extrinsic_id": "91-0008",
+    "fee_tao": 0.000315233
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x854bc77501bbbfd7f543d4d4eb87af4c6669425aee2d5e5e8b4f76d49cb6b88a",
+    "extrinsic_id": "94-0006",
+    "fee_tao": 0.000219469
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x784f4f3b5adcc09b7b0a039c9687b5682583d9bfe1cfcaaecfe1093df43ca974",
+    "extrinsic_id": "97-0006",
+    "fee_tao": 8.4733e-05
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x3bca5a0e2bb7706330fdf8239073cbd8fcc270519205d1677fcf36d98b8543e7",
+    "extrinsic_id": "100-0008",
+    "fee_tao": 0.000677757
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xb26955834cf2a118cdd9ba3cef22a5815ae7aab85a628bfb19a9a79eab38150a",
+    "extrinsic_id": "103-0006",
+    "fee_tao": 8.4733e-05
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xe2649f2d2e618bf75b585ed4a89c03d908199fb18e42cbab9ff1e76887c4c890",
+    "extrinsic_id": "106-0008",
+    "fee_tao": 0.000677757
+  },
+  {
+    "success": false,
+    "message": "A derived descriptor is invalid or its dependencies are not protected.",
+    "block_hash": "0xb1e663b1ac9c5bcee70c9939e2448ce7633d0d1c114cf9e74d6edbcc7952255e",
+    "extrinsic_id": "130-0007",
+    "error": {
+      "message": "A derived descriptor is invalid or its dependencies are not protected.",
+      "name": "InvalidDerivedAuthority",
+      "code": "invalid_argument",
+      "remediation": "check the argument values against the operation schema",
+      "description": "The composite descriptor, derived account ID, or approving origin is invalid. Multisig protection must be approved by the composite's actual quorum.",
+      "docs_url": "https://www.bittensor.com/docs/errors/chain/InvalidDerivedAuthority"
+    }
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "reason": "Vault requires the normal localnet metadata-hash runtime build feature",
+  "wasm_sha256": "3fe63d249738985010d10da7e3a336356d636307a1b167b90dfbe2d4c78a5ac0",
+  "receipt": {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x068516a921d7d3741d22eff694b72fcbdf3eadf7c27eccf3c2fa9f1130bca8d2",
+    "extrinsic_id": "33-0006",
+    "fee_tao": 0.0
+  }
+}

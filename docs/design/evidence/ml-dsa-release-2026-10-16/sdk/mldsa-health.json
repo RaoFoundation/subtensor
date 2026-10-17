@@ -1,0 +1,71 @@
+{
+  "peers": {
+    "20444": {
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "genesis": "0xda926a6f798f923be0119322a2bfc8bec87890babb6eb3fcd4c88acc5a769bbd",
+      "header": {
+        "parentHash": "0x056bbe261ce0f7a306f2bc6a6b4aa5614efeeb111dd484075d729b3417315ea4",
+        "number": "0x2",
+        "stateRoot": "0xd50ebcf3cc43950975b7bd9686c3ae3e6f67413a6b012138b4eaf40045f50863",
+        "extrinsicsRoot": "0xb380be25c5feeb77bc1629366efe8905ffedfdb703a8874eeceecf0f869264d4",
+        "digest": {
+          "logs": [
+            "0x066175726120fce0e60800000000",
+            "0x0466726f6e88013fb628be6abcedafe92ef02a5db80a118a184ae19bdf71265b14d686857e068000",
+            "0x05617572610101aa9b1610ced09378a8f2d4188c6b49037e9855dfd3cd1488c05ffb51bc92311b8ba3cca7ea879557bb2b3a67c2264cabeea727d8eac0fcfe3639ed140ab81d8d"
+          ]
+        }
+      }
+    },
+    "20445": {
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "genesis": "0xda926a6f798f923be0119322a2bfc8bec87890babb6eb3fcd4c88acc5a769bbd",
+      "header": {
+        "parentHash": "0x056bbe261ce0f7a306f2bc6a6b4aa5614efeeb111dd484075d729b3417315ea4",
+        "number": "0x2",
+        "stateRoot": "0xd50ebcf3cc43950975b7bd9686c3ae3e6f67413a6b012138b4eaf40045f50863",
+        "extrinsicsRoot": "0xb380be25c5feeb77bc1629366efe8905ffedfdb703a8874eeceecf0f869264d4",
+        "digest": {
+          "logs": [
+            "0x066175726120fce0e60800000000",
+            "0x0466726f6e88013fb628be6abcedafe92ef02a5db80a118a184ae19bdf71265b14d686857e068000",
+            "0x05617572610101aa9b1610ced09378a8f2d4188c6b49037e9855dfd3cd1488c05ffb51bc92311b8ba3cca7ea879557bb2b3a67c2264cabeea727d8eac0fcfe3639ed140ab81d8d"
+          ]
+        }
+      }
+    },
+    "20446": {
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "genesis": "0xda926a6f798f923be0119322a2bfc8bec87890babb6eb3fcd4c88acc5a769bbd",
+      "header": {
+        "parentHash": "0x056bbe261ce0f7a306f2bc6a6b4aa5614efeeb111dd484075d729b3417315ea4",
+        "number": "0x2",
+        "stateRoot": "0xd50ebcf3cc43950975b7bd9686c3ae3e6f67413a6b012138b4eaf40045f50863",
+        "extrinsicsRoot": "0xb380be25c5feeb77bc1629366efe8905ffedfdb703a8874eeceecf0f869264d4",
+        "digest": {
+          "logs": [
+            "0x066175726120fce0e60800000000",
+            "0x0466726f6e88013fb628be6abcedafe92ef02a5db80a118a184ae19bdf71265b14d686857e068000",
+            "0x05617572610101aa9b1610ced09378a8f2d4188c6b49037e9855dfd3cd1488c05ffb51bc92311b8ba3cca7ea879557bb2b3a67c2264cabeea727d8eac0fcfe3639ed140ab81d8d"
+          ]
+        }
+      }
+    }
+  },
+  "other_geneses": [
+    "0xcf4d757e5181d80e8b61dabddc05eb57a3df3885334701a0703ce4378298c15f",
+    "0x0c5be242041eaa73415498b3681f05e7d11733758d4740d70cd554f0ba5ddee0"
+  ]
+}

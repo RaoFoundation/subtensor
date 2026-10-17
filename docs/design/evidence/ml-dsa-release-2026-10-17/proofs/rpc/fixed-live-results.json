@@ -1,0 +1,148 @@
+{
+  "mode": "fixed",
+  "at": "2026-10-17T19:10:25.153745+00:00",
+  "endpoint": "http://127.0.0.1:21046",
+  "script_sha256": "a2d2f5d6c8e910a767c492294623d5c573e075126b4a4cbd127359c80f773d39",
+  "genesis": "0x80eaa2a9dc7a279de064ba459b4b18f67d2ce6a57fcd950b3e5e4a3a86914720",
+  "runtime_wasm_sha256": "8a928b07796c445d864ae021562629cf9524e2a30d940e8b490234c33e769377",
+  "existential_deposit_rao": 500,
+  "pending_overlay": {
+    "target": "0xb4c471ea800404a2e0ff234d7207c39e04543d41",
+    "tx": "0xd6346769213fc2a52825865916cf27a0cfb38a87ecc2e625f148ed5cdee6070b",
+    "latest_balance": {
+      "result": "0x0",
+      "seconds": 0.0012213940499350429
+    },
+    "pending_balance": {
+      "result": "0xde0b63f3d117800",
+      "seconds": 0.0029606589814648032
+    },
+    "pending_call": {
+      "result": "0x",
+      "seconds": 0.0039893839275464416
+    },
+    "pending_estimate": {
+      "result": "0x6ef6",
+      "seconds": 1.0075453370809555
+    },
+    "latest_balance_after": {
+      "result": "0x0",
+      "seconds": 0.0003931139362975955
+    },
+    "finalized": {
+      "block_hash": "0xb90ad4bab2b5579d6e4fc6b9abfd2d596c38ae0f39323f5a7a729ef4ce68873b",
+      "balance_rao": 1000000000
+    }
+  },
+  "existential_deposit_control": {
+    "below_ed_latest_call": {
+      "error": "evm error: OutOfFund: 0x",
+      "seconds": 0.0019575690384954214
+    },
+    "valid_latest_call": {
+      "result": "0x",
+      "seconds": 0.0002882019616663456
+    }
+  },
+  "read_and_simulation_semantics": {
+    "call_0": {
+      "result": "0x",
+      "seconds": 0.0007212050259113312
+    },
+    "estimate_0": {
+      "result": "0x6ef6",
+      "seconds": 0.0009782559936866164
+    },
+    "call_1": {
+      "result": "0x",
+      "seconds": 0.2528618860524148
+    },
+    "estimate_1": {
+      "result": "0x6ef6",
+      "seconds": 1.772419148008339
+    },
+    "pending_code": {
+      "result": "0x",
+      "seconds": 1.7723814110504463
+    },
+    "pending_storage": {
+      "result": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "seconds": 1.7748857160331681
+    },
+    "latest_override": {
+      "result": "0x000000000000000000000000000000000000000000000000000000000000002a",
+      "seconds": 0.0004919590428471565
+    },
+    "pending_override": {
+      "error": "state overrides are not supported with pending state",
+      "seconds": 1.7752211559563875
+    },
+    "latest_balance_before_after": [
+      "0xde0b63f3d117800",
+      "0xde0b63f3d117800"
+    ]
+  },
+  "isolation": {
+    "unknown_requests": 68,
+    "capacity_rejections": 59,
+    "direct_pending_export": {
+      "error": "Client error: Execution failed: Other: Local runtime execution capacity reached; retry later",
+      "seconds": 0.0002748098922893405
+    },
+    "pending_balance": {
+      "result": "0xde0b63f3d117800",
+      "seconds": 0.01283087395131588
+    },
+    "latest_balance": {
+      "result": "0xde0b63f3d117800",
+      "seconds": 0.00048249796964228153
+    }
+  },
+  "populated_pool": {
+    "target": "0x3374d03871f2a099528abf47ee6a6cf94748bdc3",
+    "txs": [
+      "0x9935cce20c6d9dcc49e1bcf7777c82139376b4429e02c4532e5f03a1fcedac3e",
+      "0x8cb127da873e9b7b6b5fa277c2f8080c1629677308095cf0ac31b900cfc027fa",
+      "0x9016a8dc6127e82bb305922db02f0b0ddfacfff51907332c067bb4cd726ead8a",
+      "0x3509b56e1c2dd3eb52190c503f5d33c46237349457769c6b4b49e7216e07b7ac",
+      "0x601ae704a815493786ce55f7ebdf3c614fbc2e13d5ddcf1849cdc14ebb81ae9f",
+      "0xed0b4087d7bafbea810a42395989a7883ea9e7d68f8461b3674418fac609aca0",
+      "0x3866353c6bbf95b3b0fd3a0c564486b8c44b83f5acf88425c1994d9356b20a11",
+      "0xa0fa30860f8ad0c75b0f65c99bba734cc0ad3863dd0b36887565f5202a8100d0",
+      "0xffef48d96099af3e0b82f35c29d5f6c59ad77eff44ce552684fbdcb16064c3ec",
+      "0x4de590ec1c311252070a3831d57dea56abb4cae434a1dc55504914fb1d935415",
+      "0x75b83ac5b976cbba23469962315c749f908e8f3d4aa963cc1dd7f11afc772d64",
+      "0xd1007cdf7ec1ee3a03511c308d15658a713b08f564e71b0394ccad1a950189e8",
+      "0xa0f0a113803fbe9cef32c17983b245a048acd2229ddb57a70e4cb4c6ccfe5150",
+      "0x5b5fa6386357dd7689fde3a22ab55a8d6b4a5a9cdafb35122232c350e164e44c",
+      "0xccbc2f64e2c9f9457db9267f7b755b19f54b4e416b168a0c049bd554a22f39fc",
+      "0xf60a25ae5b0769918c3172b2c6c2edd3852967bc0e1506f012a888f686f79d0a",
+      "0xe53cbe66f6460824c3ababeaf0e7b44960efd40fae3e33c8dafebfb947e49b41",
+      "0x5fd79c0b3bc7931226a5c886b3a431f9516e91355dc56646065e0f90e59dd8a1",
+      "0x39b03a6988a017c27a19202967963d1aa84df2816b4f8fdea1dcb259eb24c61f",
+      "0x332bc43903a5000202da3847fa4d818b8b94df331225e8b779eabe9831f60943",
+      "0x27f6966d677d6a798f308ef2eca149587f49bbba471fa5c40a6be58bdc6647c6",
+      "0xc659907919c09e3ca4c070ccc5d274d5aae4e6b90a29f34103c0e244699591ed",
+      "0x5eb605686b9ab514c70c7786f3e0957a4a649f135a36662c82ee5567ea277d62",
+      "0x37a08e34c472600ada61b90520f30e70cde6cd3a31f657643cab2b4390c40d99",
+      "0x8dc11e58eeb4953daa169d5e4e9a0eec8766fc7db4ac4b331f6b3d5e5d21443a",
+      "0xd68958395bab0e286d092de5bf16a253b9f76f4070cae1e5f9f3e272a5819506",
+      "0xd6ea1780f8a60de5e96b14eae9a244d7b0879e751a05f01efedb8d2815d4df02",
+      "0xccad9a4a8dbcc864740ab946fd3e28e3f1e780b7e4ddc4445d723996f042732f",
+      "0x11dec97ce04e5c2da598627c2eda4b4efac25945f703f46d6d8e0f0af8f62f35",
+      "0xed538a2ffc7027351c8fe2febcb84117f78e2c61a7cbdc7a1b2f64ac66332ebf",
+      "0x1054c326c9890770385696a1ea81c5e1d5660b0e7b12e10699d739ca68cb7411",
+      "0x706245189f5eea60c0ad9c24c68d20a963338aaa3b1ac44dcbf7cf69f24c053c"
+    ],
+    "pool_count": 32,
+    "pending_balance": {
+      "result": "0x1bc16d600822d7800",
+      "seconds": 6.795913666952401
+    },
+    "finalized": {
+      "block_hash": "0x38b06859e6a039df8d0e9d12e866a52ad170ad7b62269f4e0857f7e41c5d1553",
+      "balance_rao": 32000000000
+    }
+  },
+  "status": "passed"
+}

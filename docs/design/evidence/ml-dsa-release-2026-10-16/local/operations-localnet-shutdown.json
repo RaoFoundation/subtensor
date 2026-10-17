@@ -1,0 +1,25 @@
+{
+  "observed_at": "2026-10-16T21:05:31.497530+00:00",
+  "launcher": 3847455,
+  "owned_node_pids": [
+    3847684,
+    3847685,
+    3847686
+  ],
+  "prior_commands": {
+    "3847455": "bash /tmp/ms-release-validation/operations-localnet.sh False ",
+    "3847684": "/tmp/ms-release-validation/production/node-subtensor-fixed --base-path /tmp/ms-release-validation/operations-localnet/one --chain=/tmp/ms-release-validation/operations-localnet/specs/local.json --one --port 31234 --state-pruning archive --blocks-pruning archive --rpc-port 20244 --validator --rpc-cors=all --allow-private-ipv4 --discover-local --unsafe-force-node-key-generation ",
+    "3847685": "/tmp/ms-release-validation/production/node-subtensor-fixed --base-path /tmp/ms-release-validation/operations-localnet/two --chain=/tmp/ms-release-validation/operations-localnet/specs/local.json --two --port 31235 --state-pruning archive --blocks-pruning archive --rpc-port 20245 --validator --rpc-cors=all --allow-private-ipv4 --discover-local --unsafe-force-node-key-generation ",
+    "3847686": "/tmp/ms-release-validation/production/node-subtensor-fixed --base-path /tmp/ms-release-validation/operations-localnet/three --chain=/tmp/ms-release-validation/operations-localnet/specs/local.json --name Three --port 31236 --state-pruning archive --blocks-pruning archive --rpc-port 20246 --validator --rpc-cors=all --allow-private-ipv4 --discover-local --unsafe-force-node-key-generation "
+  },
+  "remaining": {},
+  "ports_closed": {
+    "20244": true,
+    "20245": true,
+    "20246": true,
+    "31234": true,
+    "31235": true,
+    "31236": true
+  },
+  "passed": true
+}

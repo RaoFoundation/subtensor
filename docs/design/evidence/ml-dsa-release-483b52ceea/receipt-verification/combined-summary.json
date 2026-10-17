@@ -1,0 +1,191 @@
+{
+  "candidate": "483b52ceea5cf08a0fb492ca2915b7efa6a8690e",
+  "finished_utc": "2026-10-17T22:37:55.067365+00:00",
+  "unique_receipts": 768,
+  "status_counts": {
+    "success": 706,
+    "outer_success_inner_failure": 19,
+    "system_failure": 43
+  },
+  "all_recorded_receipts_verified": true,
+  "chains": [
+    "authority",
+    "extended",
+    "lifecycle",
+    "nested",
+    "operations",
+    "parity",
+    "proxy-boundaries",
+    "release",
+    "sponsorship",
+    "validator-proxy",
+    "validators"
+  ],
+  "parts": {
+    "completed-first": {
+      "sha256": "dd5dd49278a03cb3f73349c2ff34ca1b1270a5620ca1c835e2941557e4de31d7",
+      "finished_utc": "2026-10-17T21:59:48.456779+00:00",
+      "raw_receipt_references": 134,
+      "unique_receipts": 134,
+      "verified_receipts": 134,
+      "deduplicated_references": 0,
+      "status_counts": {
+        "success": 117,
+        "outer_success_inner_failure": 9,
+        "system_failure": 8
+      },
+      "all_recorded_receipts_verified": true,
+      "suites_without_receipt_evidence": []
+    },
+    "completed-extended": {
+      "sha256": "a809755fae83d31851ecb409ea8b21b5c65e2d295d84f4330599865787f404f6",
+      "finished_utc": "2026-10-17T22:08:04.102152+00:00",
+      "raw_receipt_references": 45,
+      "unique_receipts": 45,
+      "verified_receipts": 45,
+      "deduplicated_references": 0,
+      "status_counts": {
+        "success": 40,
+        "outer_success_inner_failure": 2,
+        "system_failure": 3
+      },
+      "all_recorded_receipts_verified": true,
+      "suites_without_receipt_evidence": []
+    },
+    "completed-parity": {
+      "sha256": "26c2f932cba3c8e536a7c89f263fa67efc9a4b7daffc7c779fb63ec1527219fb",
+      "finished_utc": "2026-10-17T22:10:46.755507+00:00",
+      "raw_receipt_references": 210,
+      "unique_receipts": 210,
+      "verified_receipts": 210,
+      "deduplicated_references": 0,
+      "status_counts": {
+        "success": 210
+      },
+      "all_recorded_receipts_verified": true,
+      "suites_without_receipt_evidence": []
+    },
+    "completed-authority": {
+      "sha256": "7fe81958e1e262039e44af9a35ac890c962c94026d2884e36b21ffee417dfe1a",
+      "finished_utc": "2026-10-17T22:14:28.601576+00:00",
+      "raw_receipt_references": 73,
+      "unique_receipts": 73,
+      "verified_receipts": 73,
+      "deduplicated_references": 0,
+      "status_counts": {
+        "success": 55,
+        "outer_success_inner_failure": 4,
+        "system_failure": 14
+      },
+      "all_recorded_receipts_verified": true,
+      "suites_without_receipt_evidence": []
+    },
+    "completed-release": {
+      "sha256": "743aa0111186120b46a7f8a18e4649ae88e4b374be373dfe8a75f849f2d58175",
+      "finished_utc": "2026-10-17T22:22:39.065920+00:00",
+      "raw_receipt_references": 43,
+      "unique_receipts": 43,
+      "verified_receipts": 43,
+      "deduplicated_references": 0,
+      "status_counts": {
+        "success": 35,
+        "system_failure": 8
+      },
+      "all_recorded_receipts_verified": true,
+      "suites_without_receipt_evidence": []
+    },
+    "completed-operations": {
+      "sha256": "e0e85c864e76214efb6256c03844516aa7b62bc8268430f37319b5b673eac144",
+      "finished_utc": "2026-10-17T22:36:56.664521+00:00",
+      "raw_receipt_references": 105,
+      "unique_receipts": 105,
+      "verified_receipts": 105,
+      "deduplicated_references": 0,
+      "status_counts": {
+        "success": 101,
+        "outer_success_inner_failure": 4
+      },
+      "all_recorded_receipts_verified": true,
+      "suites_without_receipt_evidence": []
+    },
+    "completed-lifecycle": {
+      "sha256": "8f109b52fb0d7780d66e684c1e42b733a259444bece544998af85c1fe296e013",
+      "finished_utc": "2026-10-17T22:25:04.923882+00:00",
+      "raw_receipt_references": 158,
+      "unique_receipts": 158,
+      "verified_receipts": 158,
+      "deduplicated_references": 0,
+      "status_counts": {
+        "success": 148,
+        "system_failure": 10
+      },
+      "all_recorded_receipts_verified": true,
+      "suites_without_receipt_evidence": []
+    }
+  },
+  "source_receipt_files_sha256": {
+    "validators/receipts/validator-paths-7.json": "c44943fa665c7af71197cd1e8af0491e7f1b31d6420e8ec742ec5e8437b07ea1",
+    "validators/receipts/validator-paths-8.json": "37efd305d9c3661556ccdadc85788548a3206000fe2ff218c4260e300934a189",
+    "nested/receipts/mldsa-nested-multisig-proxy.json": "37bbd8dd46bfa54bb5bb509931a68d6d93497329c45ecd2c20ca6c841b973055",
+    "sponsorship/receipts/sponsorship-sweep-recovery-4.json": "0ceff155ad362e22698e57c672ea3298fb61327a77a3658e2a795b7213514581",
+    "sponsorship/receipts/sponsorship-sweep-recovery-6.json": "da86d6f7acd4afd08d46bfca9763f83025dbfd7fb0995e6773e93d1ed91b91b7",
+    "sponsorship/receipts/sponsorship-sweep-recovery-7.json": "18c68b5dc78334ee6e3c5de1f88029ffc27b4543d29ce2a1c31fb8fe98befdf9",
+    "sponsorship/receipts/sponsorship-sweep-recovery-8.json": "0c75b41981309dc8fc997acfaa3cb8d400abc526a02c0a8e6f0047a6c50b18b1",
+    "proxy-boundaries/receipts/ms-proxy-announcement-boundary-7.json": "4f70a179c60c20ef1388d7ae3faa4af7ab2414eac16bb68ddcb31a3fd55fb3b3",
+    "proxy-boundaries/receipts/ms-proxy-announcement-boundary-8.json": "658cd75ec0480603958c845b286aacbb14db59a22fe6621e6465c79a6c4613f9",
+    "proxy-boundaries/receipts/ms-proxy-evm-boundary-7.json": "054e6fc53e0d0d3cc1dfa39ef0405a17bf90dd59f95e353d6a00d467d3e0e106",
+    "proxy-boundaries/receipts/ms-proxy-evm-boundary-8.json": "1cabf81026512c1c3d2892949b4876a8fc9ba92d0c07f4afdf40f1f6cb233e9e",
+    "validator-proxy/receipts/ms-validator-proxy-7.json": "53ba8dd59075e0ada0e89b9d5a39f31572b6795ec77ea1625657f36a6c649492",
+    "validator-proxy/receipts/ms-validator-proxy-8.json": "795995b7f119d19ec635fb8b0632083a8246b962bbf355764d1d90fca4708412",
+    "extended/receipts/mldsa-extended-proxy-7-8.json": "c162130534583f98ab03a45e88aad1a4fd95eb74a6e367bad4d1c1cc4155ef63",
+    "extended/receipts/mldsa-extended-proxy-8-7.json": "dec0e77cf18e775deeecf1f1d8752ade12904b1ee61dd06228b9d5883d63815f",
+    "extended/receipts/mldsa-extended-three-of-four.json": "1ccdabd45f03ab856c53c054163b3bf8d26a980f9ed4d41f703eceb67a56f313",
+    "parity/receipts/wallet-parity-ed-hashed.json": "9c970e9e7f1490d37eb9be88769c6d193729d978eb2217285e11e2c6e5bb0f1b",
+    "parity/receipts/wallet-parity-ed-standard.json": "ac2143d7d3d2f1af08738a1eeb83d91b3b930d9f773bb055afa1de55b0d60d21",
+    "parity/receipts/wallet-parity-ms-hashed.json": "85829a680edd3a8011399513c2e2e89dd277dbe573d89cacba35b7c88bcb50c3",
+    "parity/receipts/wallet-parity-ms-standard.json": "a595ff90645ee09eaa468f5e3dc2fd5fd805bd714d548a5c51ccc1e82ccbd13b",
+    "parity/receipts/wallet-parity-sr-hashed.json": "f2d15d89a2a24316c6184ff1f64095abe996192d2b39b7ccb805e1f8a4886105",
+    "parity/receipts/wallet-parity-sr-standard.json": "6e259edae766c324ccdcead007047941698530a2368df08d2dccc77283edfd2d",
+    "authority/receipts/mldsa-authority-7.json": "b4d6016a6c6bef0b4b76cd9fa586ff9f052b48d571d2b13136c0dc5d7d58d9b9",
+    "authority/receipts/mldsa-authority-8.json": "7fcf06dfdfdd1639063fb7ab92d5586ad0b6740c85452e780b00f17fff6e3443",
+    "authority/receipts/mldsa-multisig-7-1.json": "a3d25d403238c6a1bbe896069ba071792bb0cf1e3d8db923ecd11b89fad76159",
+    "authority/receipts/mldsa-multisig-7-8.json": "3fb316d99f14e02742447d3deda65904d3cb21c22ce90bfaebd58d4bfc82b5d7",
+    "authority/receipts/mldsa-multisig-8-0.json": "3d785c2b30703aea7ac327910a4da9407dbb4f9c5de2eabcecbf20b562486963",
+    "authority/receipts/mldsa-orders-7.json": "4d0a6bbc9a50cd3b453a119aa485f10024c7c450e2c4d5f3c9a04843db96604a",
+    "authority/receipts/mldsa-orders-8.json": "18cdda7b535edc17d5019e98737ee6450f1487d56bc7d80618033b64f64021ac",
+    "authority/receipts/mldsa-two-of-three.json": "25f0a4b2464b5ee265ee5c17fd85550b6c661de446dc487a682585f9f5827447",
+    "release/receipts/activation-resume.json": "c5eb098818f1d0040f5eacadf4a5b34f5d9a716e7a51110131e2497fe5dab986",
+    "release/receipts/atomic-failure-recovery-4.json": "24c53c47790cfd413fb3fa45fd77a770c543a8e1a3621b8c6fea115e3dda2152",
+    "release/receipts/atomic-failure-recovery-6.json": "40001f4572fd6efa834070f9622b0e9e8abec7b000ca2d0c6af92f1bd1afc434",
+    "release/receipts/atomic-failure-recovery-7.json": "61aa6378c877f062a68931a5ef8a81be61ef8d814ab14f108b29549b661a2a48",
+    "release/receipts/atomic-failure-recovery-8.json": "2ac307e266e89b892403708f5ef7a14e9f1ef6ded4e9a2f9373a8ed2e7dd1c6d",
+    "release/receipts/late-registration-4.json": "1860f18a95e3ed60d47743b51b20f6ea549ff7f507f79970aa08f7ab7d10faf5",
+    "release/receipts/late-registration-6.json": "9720dd13e74b9920f88fb151bdd39b4e62b611ad7d6e2a4fd94171020e47e6c1",
+    "release/receipts/late-registration-7.json": "062d98e2fefa2471b80e962fc50d367bcdcd7196d7dd1dbc1b4f67e3c96d6258",
+    "release/receipts/late-registration-8.json": "17781cfed1b494d0faa7100a49f04afd0cb37d3ff4d92952bcfeacad23f020b9",
+    "release/receipts/proof-binding-7.json": "f2c337f043c3f84e65e0fe5e9016ee0394bbab932931bc7b73550d5126c652e0",
+    "release/receipts/proof-binding-8.json": "df164fa16e6e67d7646d941c9bfef1c9e515ec91dd763fab166e0d70bee93aee",
+    "release/receipts/shield-nonce-boundary-4.json": "6b4a2b2055541b8b377e5f0b3f03b54883a963ebb1030bf119872fb0a603cc78",
+    "release/receipts/shield-nonce-boundary-6.json": "9d683d66e2281888311c88807431659f33b7e8cc3499fc73579ed7e499a6e652",
+    "release/receipts/shield-nonce-boundary-7.json": "5d6c59fc34c4fb83aac239687b66c6f41dd4dd7682669735461ed953def2580b",
+    "release/receipts/shield-nonce-boundary-8.json": "262fb789ab1e48b06be9810156ec47e804d33b1fa5c5f81e3264e326582310e3",
+    "release/receipts/sudo-authority-7.json": "960086d55532824959a5fba212ef013adb8c3cdf0ac38ac150bdd263856e88c7",
+    "release/receipts/sudo-authority-8.json": "df04120b298eaee748c767bc808d8ab08ed9217c28c6bee0a467048c81a76f55",
+    "operations/receipts/contracts-families-7.json": "5bf8de74ca7b38a067a38410dca9a2692f86f3e35d4ea6db513d5eac2cbbf1a8",
+    "operations/rerun/receipts/business-families-7.json": "d4baab15f9bbc8caa98979607a3020ae863a6d9d77b8053444ebe7be34d57468",
+    "operations/rerun/receipts/business-families-8.json": "1fbba6938acb72a177f1f41c59ef17a7a2a78cd3a517bdbba33ca27f8c6b4d95",
+    "operations/rerun/receipts/contracts-families-7.json": "67f2bb6e5b5a8c77927e88c02e9e7e3c50801a0ea9842166d97ee8377f3c4048",
+    "operations/rerun/receipts/contracts-families-8.json": "6fbdf3775f306ac52beb1b89d2569fae92bf30d5bc695a2ebbd34670a4bf6a5e",
+    "operations/rerun/receipts/crowdloan-families-7.json": "b4d0b2f4a695f743809aae583a4347902902ebc023f8b49a9396fa9e86b90f53",
+    "operations/rerun/receipts/crowdloan-families-8.json": "bd7fb7bf23fa5e0765117aed1d0e1c8a5a98e87692c04f5e4af39b833ed6c231",
+    "operations/rerun/receipts/utility-preimage-7.json": "857f0e4b5efbb29955a4502f1afb533a7f472c29d46af77c1ec6de3f0c925638",
+    "operations/rerun/receipts/utility-preimage-8.json": "bb300179f7621b08dec27e80e02fab578891ba366ab783b1923bb9b1597ca459",
+    "lifecycle/receipts/lifecycle-ed-hashed.json": "9a18e8eee8fd42ffdd6c8131f557720446d9cace0efa10da5944495edf3826e9",
+    "lifecycle/receipts/lifecycle-ed-standard.json": "ae25d9371014847b688242d6cf47b70cc401ddd8fa4cac2a6ec4f58fb9caf1b2",
+    "lifecycle/receipts/lifecycle-ms-hashed.json": "bec050aa145754214afd5667f5c76f0d84dbfd79428c863173eacb209a0e2b10",
+    "lifecycle/receipts/lifecycle-ms-standard.json": "176682423e278fff4be2fb251f04a9f9e7730b69b5e45fb5237494dea9b0ac1d",
+    "lifecycle/receipts/lifecycle-sr-hashed.json": "24692b8a1b0f9b35b38eada0ddfe5f3588de096bfc92e2604302084b29d6086a",
+    "lifecycle/receipts/lifecycle-sr-standard.json": "1fbd1c7cf19b0ab0aa16e0f6c4bd9921461c31378b1db157e00d8266693a2f49"
+  },
+  "scope": "Canonical finalized inclusion and independently classified System/wrapper events for persisted receipts on 11 suites. Includes recorded receipts from the superseded operation attempt. Does not claim every submitted extrinsic was inventoried. Mixed CLI, decoder/Shield, and RPC evidence are separate."
+}

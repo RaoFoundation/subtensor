@@ -10,7 +10,11 @@ import pytest
 
 from bittensor import Balance, Client, Policy, PolicyError
 from bittensor.executor import Executor, _compose_intent_call
-from bittensor.hashed import descriptor_value
+from bittensor.hashed import (
+    descriptor_value,
+    registration_descriptor_value,
+    with_recipient_registration,
+)
 from bittensor.intents import Batch, Transfer, TransferAll
 from bittensor.intents.coldkey import AnnounceColdkeySwap, SwapColdkeyAnnounced
 from bittensor.intents.evm import FundEvmKey
@@ -23,7 +27,7 @@ from bittensor.intents.multisig import (
 )
 from bittensor.intents.registration import BurnedRegister, PowRegister, RegisterSubnet
 from bittensor.intents.staking import MoveSwapStake, RemoveStake
-from bittensor.receiving import parse_recipient, receiving_address
+from bittensor.receiving import Recipient, parse_recipient, receiving_address
 from bittensor.result import BittensorError
 from bittensor.sp_core import CRYPTO_HASHED, Keypair
 from bittensor.wallet import Wallet
@@ -35,10 +39,23 @@ GENESIS = bytes(32)
 RESERVE = 200_000_000
 
 
+async def test_registration_rejects_missing_descriptor_before_chain_access():
+    chain = AsyncMock()
+    with pytest.raises(ValueError, match="requires a descriptor"):
+        await with_recipient_registration(
+            chain,
+            dev_wallet(),
+            Transfer(BOB, 1),
+            object(),
+            recipients={"dest_ss58": Recipient(BOB, BOB)},
+        )
+    assert not chain.mock_calls
+
+
 @pytest.fixture
 def setup():
     chain = FakeSubstrate()
-    chain.seed_constant("HashedAccounts", "Enabled", True)
+    chain.seed("AdminUtils", "HashedAccountsEnabled", [], True)
     chain.seed_constant("HashedAccounts", "RegistrationDeposit", RESERVE)
     chain.seed("System", "Account", [ALICE], {"data": {"free": 10**12, "frozen": 0}})
     key = Keypair.create_from_seed(bytes([91]) * 32, CRYPTO_HASHED)
@@ -88,7 +105,7 @@ async def test_multisig_discovers_local_ss58_recipient(
     )
     if exists:
         registered(chain, key)
-    chain.seed_constant("HashedAccounts", "Enabled", enabled)
+    chain.seed("AdminUtils", "HashedAccountsEnabled", [], enabled)
     transfer = Transfer(key.ss58_address, 1)
     kwargs = {"other_signatories": [BOB], "call": transfer.to_dict()}
     intent = (
@@ -117,7 +134,9 @@ async def test_multisig_discovers_local_ss58_recipient(
         assert (guarded.module, guarded.function) == ("Utility", "batch_all")
         check, payment = guarded.params["calls"]
         assert (check.module, check.function) == ("HashedAccounts", "check_registered")
-        assert check.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
+        assert check.params["descriptor"] == registration_descriptor_value(
+            bytes(key.hashed_descriptor)
+        )
         assert payment.params == {"dest": key.ss58_address, "value": 10**9}
     assert not chain.submissions
 
@@ -145,7 +164,7 @@ async def test_proxied_batch_discovers_local_ss58_recipient(
     )
     if exists:
         registered(chain, key)
-    chain.seed_constant("HashedAccounts", "Enabled", enabled)
+    chain.seed("AdminUtils", "HashedAccountsEnabled", [], enabled)
     build_transfer = Transfer.build
 
     async def check_origin(transfer, substrate, view):
@@ -166,7 +185,9 @@ async def test_proxied_batch_discovers_local_ss58_recipient(
         assert (batch.module, batch.function) == ("Utility", "batch_all")
         guard, payment = batch.params["calls"]
         assert (guard.module, guard.function) == ("HashedAccounts", "check_registered")
-        assert guard.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
+        assert guard.params["descriptor"] == registration_descriptor_value(
+            bytes(key.hashed_descriptor)
+        )
         assert payment.params == {"dest": key.ss58_address, "value": 10**9}
         assert extras["hashed_registration_guards"] == [key.ss58_address]
     assert not chain.submissions
@@ -242,7 +263,7 @@ async def test_direct_multisig_nested_receiving_payment_keeps_guards(
     assert (guarded.module, guarded.function) == ("Utility", "batch_all")
     check, payment = guarded.params["calls"]
     assert (check.module, check.function) == ("HashedAccounts", "check_registered")
-    assert check.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
+    assert check.params["descriptor"] == registration_descriptor_value(bytes(key.hashed_descriptor))
     assert payment.params == {"dest": key.ss58_address, "value": 10**9}
 
 
@@ -292,11 +313,13 @@ async def test_remote_payment_keeps_complete_input_and_registers_before_funding(
     assert plan.args["dest_ss58"] == address
     assert plan.call.function == "batch_all"
     guard, payment = plan.call.params["calls"]
-    assert guard.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
+    assert guard.params["descriptor"] == registration_descriptor_value(bytes(key.hashed_descriptor))
     assert payment.params["dest"] == key.ss58_address
     assert payment.params["value"] == 10**9
     assert plan.spend.rao == 10**9 + RESERVE
-    result = await Executor(chain).execute(intent, wallet)
+    result = await Executor(chain).execute(
+        intent, wallet, max_registration_deposit=Balance.from_rao(RESERVE)
+    )
     assert result.success
     assert chain.last_call == plan.call
 
@@ -317,18 +340,22 @@ async def test_remote_wallet_object_uses_only_its_public_file(tmp_path, setup, m
     assert plan.args["dest_ss58"].startswith("bth1_")
 
 
-@pytest.mark.parametrize("case", ["checksum", "version", "whitespace", "disabled"])
+@pytest.mark.parametrize(
+    "case", ["checksum", "version", "legacy_version", "whitespace", "disabled"]
+)
 async def test_bad_receiving_addresses_fail_before_composition_or_submission(setup, case):
     chain, wallet, _key, address = setup
     chain.compose = AsyncMock(wraps=chain.compose)
     if case == "checksum":
         address = address[:-2] + ("A" if address[-2] != "A" else "B") + address[-1]
     elif case == "version":
+        address = "tao_" + address[5:]
+    elif case == "legacy_version":
         address = "bth2_" + address[5:]
     elif case == "whitespace":
         address = " " + address
     else:
-        chain.seed_constant("HashedAccounts", "Enabled", False)
+        chain.seed("AdminUtils", "HashedAccountsEnabled", [], False)
     with pytest.raises(ValueError):
         await Executor(chain).execute(Transfer(address, 1), wallet)
     chain.compose.assert_not_awaited()
@@ -583,7 +610,7 @@ async def test_imported_multisig_bytes_cannot_bypass_recipient_information(setup
     else:
         semantic = FundEvmKey("0x" + "12" * 20, 1)
         if form == "evm_disabled":
-            chain.seed_constant("HashedAccounts", "Enabled", False)
+            chain.seed("AdminUtils", "HashedAccountsEnabled", [], False)
             registered(chain, key)
             alias = "0x" + bytes(key.public_key)[:20].hex()
             chain.seed("HashedAccounts", "EvmAliases", [alias], key.ss58_address)
@@ -634,7 +661,7 @@ async def test_default_in_memory_hashed_hotkey_retains_setup_descriptor(setup):
     call, extras = await _compose_intent_call(chain, BurnedRegister(netuid=1), wallet)
     assert extras["hashed_registration"] == key.ss58_address
     guard, registration = call.params["calls"]
-    assert guard.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
+    assert guard.params["descriptor"] == registration_descriptor_value(bytes(key.hashed_descriptor))
     assert registration.params["hotkey"] == key.ss58_address
 
 
@@ -812,7 +839,7 @@ def test_all_wallet_addresses_are_network_independent(code):
 @pytest.mark.parametrize("registered_here", [False, True])
 async def test_descriptor_address_uses_registration_on_selected_chain(code, registered_here):
     chain = FakeSubstrate()
-    chain.seed_constant("HashedAccounts", "Enabled", True)
+    chain.seed("AdminUtils", "HashedAccountsEnabled", [], True)
     chain.seed_constant("HashedAccounts", "RegistrationDeposit", RESERVE)
     key = Keypair.create_from_seed(bytes([39]) * 32, code)
     if registered_here:
@@ -823,7 +850,7 @@ async def test_descriptor_address_uses_registration_on_selected_chain(code, regi
     plan = await Executor(chain).plan(Transfer(address, 1), dev_wallet())
     guard, transfer = plan.call.params["calls"]
     assert guard.function == ("check_registered" if registered_here else "register")
-    assert guard.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
+    assert guard.params["descriptor"] == registration_descriptor_value(bytes(key.hashed_descriptor))
     assert transfer.params["dest"] == key.ss58_address
 
 
@@ -889,7 +916,7 @@ async def test_nested_recipient_keeps_guard_and_dispatch_origin(setup, monkeypat
     assert (inner.module, inner.function) == ("Utility", "batch_all")
     guard, payment = inner.params["calls"]
     assert guard.function == "check_registered"
-    assert guard.params["descriptor"] == descriptor_value(bytes(key.hashed_descriptor))
+    assert guard.params["descriptor"] == registration_descriptor_value(bytes(key.hashed_descriptor))
     assert payment.params["dest"] == key.ss58_address
 
 
@@ -963,7 +990,9 @@ async def test_announced_proxy_identity_addresses_preserve_guarded_call(
     assert (inner.module, inner.function) == ("Utility", "batch_all")
     guard, payment = inner.params["calls"]
     assert guard.function == "check_registered"
-    assert guard.params["descriptor"] == descriptor_value(bytes(recipient.hashed_descriptor))
+    assert guard.params["descriptor"] == registration_descriptor_value(
+        bytes(recipient.hashed_descriptor)
+    )
     assert payment.params["dest"] == recipient.ss58_address
     finalized_hash = await chain.block_hash(await chain.finalized_block_number())
     assert extras["hashed_registration_finalized_at"] == finalized_hash
@@ -1011,7 +1040,7 @@ async def test_announced_proxy_rejects_unverified_identity_before_submission(
 
         chain.block_hash = AsyncMock(side_effect=missing_finalized_hash)
     if state == "disabled":
-        chain.seed_constant("HashedAccounts", "Enabled", False)
+        chain.seed("AdminUtils", "HashedAccountsEnabled", [], False)
     error, message = {
         "missing": (ValueError, "registration is not finalized"),
         "mismatch": (ValueError, "descriptor does not match"),

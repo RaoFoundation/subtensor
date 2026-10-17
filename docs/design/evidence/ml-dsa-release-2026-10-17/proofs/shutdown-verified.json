@@ -1,0 +1,412 @@
+{
+  "verified_at_utc": "2026-10-17T20:48:48.585088+00:00",
+  "scope": "All eleven validation chains, owned test runners/coordinators/watchers, and temporary preflight RPC",
+  "ports": [
+    {
+      "chain": "production",
+      "kind": "rpc",
+      "port": 21044,
+      "closed": true
+    },
+    {
+      "chain": "production",
+      "kind": "rpc",
+      "port": 21045,
+      "closed": true
+    },
+    {
+      "chain": "production",
+      "kind": "rpc",
+      "port": 21046,
+      "closed": true
+    },
+    {
+      "chain": "production",
+      "kind": "p2p",
+      "port": 32034,
+      "closed": true
+    },
+    {
+      "chain": "production",
+      "kind": "p2p",
+      "port": 32035,
+      "closed": true
+    },
+    {
+      "chain": "production",
+      "kind": "p2p",
+      "port": 32036,
+      "closed": true
+    },
+    {
+      "chain": "release",
+      "kind": "rpc",
+      "port": 21144,
+      "closed": true
+    },
+    {
+      "chain": "release",
+      "kind": "rpc",
+      "port": 21145,
+      "closed": true
+    },
+    {
+      "chain": "release",
+      "kind": "rpc",
+      "port": 21146,
+      "closed": true
+    },
+    {
+      "chain": "release",
+      "kind": "p2p",
+      "port": 32134,
+      "closed": true
+    },
+    {
+      "chain": "release",
+      "kind": "p2p",
+      "port": 32135,
+      "closed": true
+    },
+    {
+      "chain": "release",
+      "kind": "p2p",
+      "port": 32136,
+      "closed": true
+    },
+    {
+      "chain": "authority",
+      "kind": "rpc",
+      "port": 21244,
+      "closed": true
+    },
+    {
+      "chain": "authority",
+      "kind": "rpc",
+      "port": 21245,
+      "closed": true
+    },
+    {
+      "chain": "authority",
+      "kind": "rpc",
+      "port": 21246,
+      "closed": true
+    },
+    {
+      "chain": "authority",
+      "kind": "p2p",
+      "port": 32234,
+      "closed": true
+    },
+    {
+      "chain": "authority",
+      "kind": "p2p",
+      "port": 32235,
+      "closed": true
+    },
+    {
+      "chain": "authority",
+      "kind": "p2p",
+      "port": 32236,
+      "closed": true
+    },
+    {
+      "chain": "operations",
+      "kind": "rpc",
+      "port": 21344,
+      "closed": true
+    },
+    {
+      "chain": "operations",
+      "kind": "rpc",
+      "port": 21345,
+      "closed": true
+    },
+    {
+      "chain": "operations",
+      "kind": "rpc",
+      "port": 21346,
+      "closed": true
+    },
+    {
+      "chain": "operations",
+      "kind": "p2p",
+      "port": 32334,
+      "closed": true
+    },
+    {
+      "chain": "operations",
+      "kind": "p2p",
+      "port": 32335,
+      "closed": true
+    },
+    {
+      "chain": "operations",
+      "kind": "p2p",
+      "port": 32336,
+      "closed": true
+    },
+    {
+      "chain": "validators",
+      "kind": "rpc",
+      "port": 21444,
+      "closed": true
+    },
+    {
+      "chain": "validators",
+      "kind": "rpc",
+      "port": 21445,
+      "closed": true
+    },
+    {
+      "chain": "validators",
+      "kind": "rpc",
+      "port": 21446,
+      "closed": true
+    },
+    {
+      "chain": "validators",
+      "kind": "p2p",
+      "port": 32434,
+      "closed": true
+    },
+    {
+      "chain": "validators",
+      "kind": "p2p",
+      "port": 32435,
+      "closed": true
+    },
+    {
+      "chain": "validators",
+      "kind": "p2p",
+      "port": 32436,
+      "closed": true
+    },
+    {
+      "chain": "lifecycle",
+      "kind": "rpc",
+      "port": 21544,
+      "closed": true
+    },
+    {
+      "chain": "lifecycle",
+      "kind": "rpc",
+      "port": 21545,
+      "closed": true
+    },
+    {
+      "chain": "lifecycle",
+      "kind": "rpc",
+      "port": 21546,
+      "closed": true
+    },
+    {
+      "chain": "lifecycle",
+      "kind": "p2p",
+      "port": 32534,
+      "closed": true
+    },
+    {
+      "chain": "lifecycle",
+      "kind": "p2p",
+      "port": 32535,
+      "closed": true
+    },
+    {
+      "chain": "lifecycle",
+      "kind": "p2p",
+      "port": 32536,
+      "closed": true
+    },
+    {
+      "chain": "parity",
+      "kind": "rpc",
+      "port": 21644,
+      "closed": true
+    },
+    {
+      "chain": "parity",
+      "kind": "rpc",
+      "port": 21645,
+      "closed": true
+    },
+    {
+      "chain": "parity",
+      "kind": "rpc",
+      "port": 21646,
+      "closed": true
+    },
+    {
+      "chain": "parity",
+      "kind": "p2p",
+      "port": 32634,
+      "closed": true
+    },
+    {
+      "chain": "parity",
+      "kind": "p2p",
+      "port": 32635,
+      "closed": true
+    },
+    {
+      "chain": "parity",
+      "kind": "p2p",
+      "port": 32636,
+      "closed": true
+    },
+    {
+      "chain": "extended",
+      "kind": "rpc",
+      "port": 21744,
+      "closed": true
+    },
+    {
+      "chain": "extended",
+      "kind": "rpc",
+      "port": 21745,
+      "closed": true
+    },
+    {
+      "chain": "extended",
+      "kind": "rpc",
+      "port": 21746,
+      "closed": true
+    },
+    {
+      "chain": "extended",
+      "kind": "p2p",
+      "port": 32734,
+      "closed": true
+    },
+    {
+      "chain": "extended",
+      "kind": "p2p",
+      "port": 32735,
+      "closed": true
+    },
+    {
+      "chain": "extended",
+      "kind": "p2p",
+      "port": 32736,
+      "closed": true
+    },
+    {
+      "chain": "proxy-boundaries",
+      "kind": "rpc",
+      "port": 21844,
+      "closed": true
+    },
+    {
+      "chain": "proxy-boundaries",
+      "kind": "rpc",
+      "port": 21845,
+      "closed": true
+    },
+    {
+      "chain": "proxy-boundaries",
+      "kind": "rpc",
+      "port": 21846,
+      "closed": true
+    },
+    {
+      "chain": "proxy-boundaries",
+      "kind": "p2p",
+      "port": 32834,
+      "closed": true
+    },
+    {
+      "chain": "proxy-boundaries",
+      "kind": "p2p",
+      "port": 32835,
+      "closed": true
+    },
+    {
+      "chain": "proxy-boundaries",
+      "kind": "p2p",
+      "port": 32836,
+      "closed": true
+    },
+    {
+      "chain": "mixed",
+      "kind": "rpc",
+      "port": 21944,
+      "closed": true
+    },
+    {
+      "chain": "mixed",
+      "kind": "rpc",
+      "port": 21945,
+      "closed": true
+    },
+    {
+      "chain": "mixed",
+      "kind": "rpc",
+      "port": 21946,
+      "closed": true
+    },
+    {
+      "chain": "mixed",
+      "kind": "p2p",
+      "port": 32934,
+      "closed": true
+    },
+    {
+      "chain": "mixed",
+      "kind": "p2p",
+      "port": 32935,
+      "closed": true
+    },
+    {
+      "chain": "mixed",
+      "kind": "p2p",
+      "port": 32936,
+      "closed": true
+    },
+    {
+      "chain": "shield",
+      "kind": "rpc",
+      "port": 22044,
+      "closed": true
+    },
+    {
+      "chain": "shield",
+      "kind": "rpc",
+      "port": 22045,
+      "closed": true
+    },
+    {
+      "chain": "shield",
+      "kind": "rpc",
+      "port": 22046,
+      "closed": true
+    },
+    {
+      "chain": "shield",
+      "kind": "p2p",
+      "port": 33034,
+      "closed": true
+    },
+    {
+      "chain": "shield",
+      "kind": "p2p",
+      "port": 33035,
+      "closed": true
+    },
+    {
+      "chain": "shield",
+      "kind": "p2p",
+      "port": 33036,
+      "closed": true
+    },
+    {
+      "chain": "preflight",
+      "kind": "rpc",
+      "port": 9977,
+      "closed": true
+    }
+  ],
+  "remaining_owned_processes": [],
+  "other_node_processes": [],
+  "all_closed": true,
+  "any_node_running": false
+}

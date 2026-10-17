@@ -28,7 +28,7 @@ import inspect
 from hashlib import blake2b
 from typing import Any, Optional
 
-from ..sp_core import HASHED_CRYPTO_TYPES
+from ..sp_core import MLDSA_CRYPTO_TYPES, REGISTERED_CRYPTO_TYPES
 from .codec import RuntimeCodec
 from .contract import SignedExtrinsic, SigningContext, UnsignedExtrinsic
 from .errors import SubstrateRequestException
@@ -52,10 +52,26 @@ from .utils.receipt import (
 
 IMMORTAL = "00"
 HASHED_PROOF_LENGTH = 136
+MLDSA_PROOF_LENGTH = 5367
+
+# Shield wire: key hash + KEM length + ML-KEM-768 ciphertext + XChaCha nonce + AEAD tag.
+SHIELD_ENCRYPTION_OVERHEAD = 16 + 2 + 1088 + 24 + 16
+MAX_SHIELDED_CIPHERTEXT_BYTES = 32768
+
+
+def shielded_ciphertext_size(extrinsic_size: int) -> int:
+    size = extrinsic_size + SHIELD_ENCRYPTION_OVERHEAD
+    if size > MAX_SHIELDED_CIPHERTEXT_BYTES:
+        raise ValueError(
+            f"encrypted transaction exceeds the {MAX_SHIELDED_CIPHERTEXT_BYTES}-byte carrier limit"
+        )
+    return size
 
 
 def hashed_proof_length(crypto_type: int) -> int:
-    if crypto_type not in HASHED_CRYPTO_TYPES:
+    if crypto_type in MLDSA_CRYPTO_TYPES:
+        return MLDSA_PROOF_LENGTH
+    if crypto_type not in REGISTERED_CRYPTO_TYPES:
         raise ValueError("unsupported hashed signing scheme")
     return HASHED_PROOF_LENGTH
 
@@ -160,7 +176,7 @@ def prepare_extrinsic(
     self-contained: it can cross a process boundary (QR display, file export)
     and later be reunited with a signature via :func:`attach_signature`.
     """
-    if crypto_type in HASHED_CRYPTO_TYPES:
+    if crypto_type in REGISTERED_CRYPTO_TYPES:
         raise ValueError(
             "hashed accounts require live generation synchronization; use the local wallet signer"
         )
@@ -235,7 +251,7 @@ def attach_signature(
     anywhere — an in-process keypair, an extension, a QR round-trip. The call
     is spliced back in from its raw bytes, so nothing needs re-composing.
     """
-    if unsigned.crypto_type in HASHED_CRYPTO_TYPES:
+    if unsigned.crypto_type in REGISTERED_CRYPTO_TYPES:
         raise ValueError("hashed accounts require the synchronized local wallet signing path")
     signature, signature_version = _normalize_signature(signature, unsigned.crypto_type)
     data, extrinsic_hash = codec.encode_signed_extrinsic(
@@ -297,7 +313,7 @@ async def create_signed_extrinsic(
     ``signature`` short-circuits signing (externally-signed or fee-estimation
     paths); a 65-byte value carries the signature version in its first byte.
     """
-    if keypair.crypto_type in HASHED_CRYPTO_TYPES:
+    if keypair.crypto_type in REGISTERED_CRYPTO_TYPES:
         return create_hashed_extrinsic(
             codec,
             call,
@@ -372,8 +388,8 @@ def create_hashed_extrinsic(
             genesis_hash=genesis_hash,
             era_block_hash=era_block_hash,
         )
-        # The native signer binds its entire address and the full payload before
-        # hashing. Never apply the ordinary 256-byte shortcut first.
+        # V1 binds and hashes the address; v2 signs the domain/header/full
+        # payload in pure ML-DSA mode. Neither uses the 256-byte shortcut.
         proof = bytes(keypair.sign_hashed(call_data + extra + additional))
     elif isinstance(proof, str):
         proof = bytes.fromhex(proof.removeprefix("0x"))

@@ -64,7 +64,8 @@ where
         };
 
         // Ensure the transaction is a shielded transaction, else we just skip the extension.
-        let Some(Call::submit_encrypted { ciphertext }) = IsSubType::<Call<T>>::is_sub_type(call)
+        let Some(ciphertext) = IsSubType::<Call<T>>::is_sub_type(call)
+            .and_then(crate::Pallet::<T>::carrier_ciphertext)
         else {
             return Ok((Default::default(), (), origin));
         };
@@ -83,13 +84,13 @@ mod tests {
     use super::*;
     use crate::mock::*;
     use frame_support::dispatch::GetDispatchInfo;
-    use frame_support::pallet_prelude::{BoundedVec, ConstU32};
+    use frame_support::pallet_prelude::BoundedVec;
     use sp_runtime::traits::TxBaseImplication;
     use sp_runtime::transaction_validity::{TransactionValidityError, ValidTransaction};
 
     /// Build wire-format ciphertext with a given key_hash.
     /// Layout: key_hash(16) || kem_ct_len(2 LE) || kem_ct(N) || nonce(24) || aead_ct(rest)
-    fn build_ciphertext(key_hash: [u8; 16]) -> BoundedVec<u8, ConstU32<8192>> {
+    fn build_ciphertext(key_hash: [u8; 16]) -> BoundedVec<u8, crate::MaxEncryptedCarrier> {
         let kem_ct = [0xAA; 4];
         let nonce = [0xBB; 24];
         let aead_ct = [0xDD; 16];

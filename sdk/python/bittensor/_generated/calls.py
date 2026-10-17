@@ -22,9 +22,11 @@ AlphaBalance = Any
 BTreeSet = Any
 BeaconConfigurationPayload = Any
 BoundedVec = Any
+CapabilityRole = Any
+CapabilityScope = Any
 CommitmentInfo = Any
 ConsensusMode = Any
-Descriptor = Any
+DerivedDescriptor = Any
 Determinism = Any
 EpochConsensus = Any
 EquivocationProof = Any
@@ -44,6 +46,7 @@ PrecompileEnum = Any
 ProxyType = Any
 PulsesPayload = Any
 RecycleOrBurnEnum = Any
+RegistrationDescriptor = Any
 RuntimeCall = Any
 TaoBalance = Any
 TickIndex = Any
@@ -641,6 +644,11 @@ class Utility:
         return Call('Utility', 'as_derivative', {'index': index, 'call': call})
 
     @staticmethod
+    def as_protected_derivative(index: 'u16', call: 'RuntimeCall') -> Call:
+        'Dispatch from the ordinary derivative address after establishing its permanent protection. A failed inner call rolls back fresh registration and child state, while any previously registered protection remains.'
+        return Call('Utility', 'as_protected_derivative', {'index': index, 'call': call})
+
+    @staticmethod
     def batch(calls: 'Any') -> Call:
         'Send a batch of dispatch calls.  May be called from any origin except `None`.  - `calls`: The calls to be dispatched from the same origin. The number of call must not exceed the constant: `batched_calls_limit` (available in constant metadata).  If origin is root then the calls are dispatched without checking origin filter. (This includes bypassing `frame_system::Config::BaseCallFilter`).  ## Complexity - O(C) where C is the number of calls to be batched.  This will return `Ok` in all circumstances. To determine the success of the batch, an event is deposited. If a call failed and the batch was interrupted, then the `BatchInterrupted` event is deposited, along with the number of successful calls made and the error of the failed call. If all were successful, then the `BatchCompleted` event is deposited.'
         return Call('Utility', 'batch', {'calls': calls})
@@ -829,6 +837,11 @@ class Proxy:
     def announce(real: 'MultiAddress', call_hash: 'H256') -> Call:
         'Publish the hash of a proxy-call that will be made in the future.  This must be called some number of blocks before the corresponding `proxy` is attempted if the delay associated with the proxy relationship is greater than zero.  No more than `MaxPending` announcements may be made at any one time.  This will take a deposit of `AnnouncementDepositFactor` as well as `AnnouncementDepositBase` if there are no other pending announcements.  The dispatch origin for this call must be _Signed_ and a proxy of `real`.  Parameters: - `real`: The account that the proxy will make a call on behalf of. - `call_hash`: The hash of the call to be made by the `real` account.'
         return Call('Proxy', 'announce', {'real': real, 'call_hash': call_hash})
+
+    @staticmethod
+    def create_protected_pure(proxy_type: 'ProxyType', delay: 'u32', index: 'u16') -> Call:
+        'Create a pure proxy and its permanent protection in one transaction. Its address derivation is identical to `create_pure`.'
+        return Call('Proxy', 'create_protected_pure', {'proxy_type': proxy_type, 'delay': delay, 'index': index})
 
     @staticmethod
     def create_pure(proxy_type: 'ProxyType', delay: 'u32', index: 'u16') -> Call:
@@ -1085,7 +1098,7 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_hashed_accounts_enabled(enabled: 'bool') -> Call:
-        'Enables or disables hashed registration and signing. Root-only. Defaults off. Disabling pauses existing accounts too; their records, generations, EVM aliases and restrictions on alternate authority remain.'
+        'Enables or disables registration and signing for all hashed SR/ED and fixed/rotating ML-DSA accounts. Ordinary SR/ED signing is unaffected. Root-only. Defaults off. Disabling pauses existing accounts too; their records, generations, EVM aliases and restrictions on alternate authority remain.'
         return Call('AdminUtils', 'sudo_set_hashed_accounts_enabled', {'enabled': enabled})
 
     @staticmethod
@@ -1695,18 +1708,23 @@ class LimitOrders:
     """Call builders for the LimitOrders pallet."""
 
     @staticmethod
+    def authorize_order(order: 'VersionedOrder') -> Call:
+        "Approve every economic term through the owner's normal origin. The explicit Authorized order includes its replay-protection nonce."
+        return Call('LimitOrders', 'authorize_order', {'order': order})
+
+    @staticmethod
     def cancel_order(order: 'VersionedOrder') -> Call:
         "Register a cancellation intent for an order.  Must be called by the order's signer. The full `Order` payload is provided so the pallet can derive the `OrderId`. Once marked Cancelled, the order can never be executed."
         return Call('LimitOrders', 'cancel_order', {'order': order})
 
     @staticmethod
     def execute_batched_orders(netuid: 'NetUid', orders: 'BoundedVec') -> Call:
-        'Execute a batch of signed limit orders for a single subnet using aggregated (netted) pool interaction.  Unlike `execute_orders`, which hits the pool once per order, this extrinsic:  1. Validates all orders (bad signature / expired / already processed / price-not-met orders are skipped and emit `OrderSkipped`). 2. Fetches the current price once. 3. Aggregates all valid buy inputs (TAO) and sell inputs (alpha). 4. Nets the two sides: only the residual amount touches the pool in a single swap, minimising price impact. 5. Distributes outputs pro-rata: - Dominant-side orders split the pool output proportionally to their individual net amounts. - Offset-side orders are filled internally at the current price (no pool interaction for them). 6. Collects protocol fees (TAO for buy orders, alpha → TAO for sell orders) and routes them to `FeeCollector`.  All orders in the batch must target `netuid`. Orders for a different subnet are skipped.'
+        "Execute a batch of signed limit orders for a single subnet using aggregated (netted) pool interaction.  Unlike `execute_orders`, which hits the pool once per order, this extrinsic:  1. Validates every order's authorization, expiry, status and price; any failure aborts the entire batch. 2. Fetches the current price once. 3. Aggregates all valid buy inputs (TAO) and sell inputs (alpha). 4. Nets the two sides: only the residual amount touches the pool in a single swap, minimising price impact. 5. Distributes outputs pro-rata: - Dominant-side orders split the pool output proportionally to their individual net amounts. - Offset-side orders are filled internally at the current price (no pool interaction for them). 6. Collects protocol fees (TAO for buy orders, alpha → TAO for sell orders) and routes them to `FeeCollector`.  All orders must target `netuid`; a mismatch aborts the batch. Classical, approved, and ML-DSA entries may be mixed, with at most eight entries using either new authorization mode."
         return Call('LimitOrders', 'execute_batched_orders', {'netuid': netuid, 'orders': orders})
 
     @staticmethod
     def execute_orders(orders: 'BoundedVec', should_fail: 'bool') -> Call:
-        'Execute a batch of signed limit orders. Admin-gated.  The `should_fail` flag controls how individual order failures are handled:  - When `false` (best-effort): orders whose price condition is not yet met are silently skipped so that a single stale order cannot block the rest of the batch. Orders that fail for any other reason (expired, bad signature, etc.) are also skipped; the admin is expected to filter these off-chain. - When `true` (all-or-nothing): the first order failure aborts the whole batch by returning the underlying error, reverting any orders already executed in this call.'
+        'Execute classical, account-approved, and ML-DSA orders in one batch. Each order independently authenticates its owner and permitted relayer; at most eight entries may use account approval or a purpose-key proof.  The `should_fail` flag controls how individual order failures are handled:  - When `false` (best-effort): orders whose price condition is not yet met are silently skipped so that a single stale order cannot block the rest of the batch. Orders that fail for any other reason (expired, bad signature, etc.) are also skipped; the admin is expected to filter these off-chain. - When `true` (all-or-nothing): the first order failure aborts the whole batch by returning the underlying error, reverting any orders already executed in this call.'
         return Call('LimitOrders', 'execute_orders', {'orders': orders, 'should_fail': should_fail})
 
     @staticmethod
@@ -1724,11 +1742,32 @@ class HashedAccounts:
     """Call builders for the HashedAccounts pallet."""
 
     @staticmethod
-    def check_registered(descriptor: 'Descriptor') -> Call:
+    def check_derived(descriptor: 'DerivedDescriptor') -> Call:
+        return Call('HashedAccounts', 'check_derived', {'descriptor': descriptor})
+
+    @staticmethod
+    def check_registered(descriptor: 'RegistrationDescriptor') -> Call:
         "Check a recipient's registration without reserving funds or creating an account. An atomic payment must fail if a reorg removed its setup."
         return Call('HashedAccounts', 'check_registered', {'descriptor': descriptor})
 
     @staticmethod
-    def register(descriptor: 'Descriptor') -> Call:
-        'Bind a derived account to its hidden initial key. Anyone may sponsor the permanent storage deposit; the sponsor gains no authority. Idempotent registration never changes an existing authorization.'
+    def install_capability(expected_epoch: 'u64', key_commitment: 'Any', expires_at: 'u64', scope: 'CapabilityScope') -> Call:
+        return Call('HashedAccounts', 'install_capability', {'expected_epoch': expected_epoch, 'key_commitment': key_commitment, 'expires_at': expires_at, 'scope': scope})
+
+    @staticmethod
+    def register(descriptor: 'RegistrationDescriptor') -> Call:
+        'Bind an account to its hidden initial key for the selected scheme. Anyone may sponsor the permanent deposit without gaining authority. Idempotent registration never changes an existing authorization.'
         return Call('HashedAccounts', 'register', {'descriptor': descriptor})
+
+    @staticmethod
+    def register_derived(descriptor: 'DerivedDescriptor') -> Call:
+        return Call('HashedAccounts', 'register_derived', {'descriptor': descriptor})
+
+    @staticmethod
+    def register_derived_sponsored(descriptor: 'DerivedDescriptor', deposit_payer: 'AccountId32') -> Call:
+        "Register through the derived account's own authority while an explicitly consenting outer signer pays the permanent deposit."
+        return Call('HashedAccounts', 'register_derived_sponsored', {'descriptor': descriptor, 'deposit_payer': deposit_payer})
+
+    @staticmethod
+    def revoke_capability(role: 'CapabilityRole') -> Call:
+        return Call('HashedAccounts', 'revoke_capability', {'role': role})

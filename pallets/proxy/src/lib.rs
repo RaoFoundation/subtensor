@@ -60,6 +60,28 @@ pub trait ProxyAccountPolicy<AccountId>:
 
     /// Invalidate authorizations from an older grant after a successful new grant.
     fn on_grant(_real: &AccountId, _delegate: &AccountId) {}
+
+    fn requires_protection(_account: &AccountId) -> bool {
+        false
+    }
+
+    /// Atomically register the newly created pure account's permanent policy.
+    /// Encoded type and height preserve this generic pallet's derivation bytes.
+    fn on_create_protected_pure(
+        _pure: &AccountId,
+        _spawner: &AccountId,
+        _proxy_type_encoded: &[u8],
+        _index: u16,
+        _height_encoded: &[u8],
+        _extrinsic_index: u32,
+    ) -> DispatchResult {
+        Err(DispatchError::Other("ProtectedPureUnsupported"))
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn setup_protected_benchmark(_account: &AccountId) -> Result<AccountId, DispatchError> {
+        Err(DispatchError::Other("ProtectedPureBenchmarkUnsupported"))
+    }
 }
 
 impl<AccountId> ProxyAccountPolicy<AccountId> for frame_support::traits::Everything {}
@@ -368,7 +390,7 @@ pub mod pallet {
         ///
         /// Fails if there are insufficient funds to pay for deposit.
         #[pallet::call_index(4)]
-        #[pallet::weight(T::WeightInfo::create_pure(T::MaxProxies::get()))]
+        #[pallet::weight(T::WeightInfo::create_pure(T::MaxProxies::get()).saturating_add(T::AccountPolicy::weight()))]
         pub fn create_pure(
             origin: OriginFor<T>,
             proxy_type: T::ProxyType,
@@ -376,31 +398,11 @@ pub mod pallet {
             index: u16,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-
-            let pure = Self::pure_account(&who, &proxy_type, index, None)?;
-            ensure!(!Proxies::<T>::contains_key(&pure), Error::<T>::Duplicate);
-
-            let proxy_def = ProxyDefinition {
-                delegate: who.clone(),
-                proxy_type: proxy_type.clone(),
-                delay,
-            };
-            let bounded_proxies: BoundedVec<_, T::MaxProxies> = vec![proxy_def]
-                .try_into()
-                .map_err(|_| Error::<T>::TooMany)?;
-
-            let deposit = T::ProxyDepositBase::get().saturating_add(T::ProxyDepositFactor::get());
-            T::Currency::reserve(&who, deposit)?;
-
-            Proxies::<T>::insert(&pure, (bounded_proxies, deposit));
-            Self::deposit_event(Event::PureCreated {
-                pure,
-                who,
-                proxy_type,
-                disambiguation_index: index,
-            });
-
-            Ok(())
+            ensure!(
+                !T::AccountPolicy::requires_protection(&who),
+                Error::<T>::AccountPolicyViolation
+            );
+            Self::do_create_pure(who, proxy_type, delay, index, false)
         }
 
         /// Removes a previously spawned pure proxy.
@@ -755,6 +757,25 @@ pub mod pallet {
 
             Ok(())
         }
+
+        /// Create a pure proxy and its permanent protection in one transaction.
+        /// Its address derivation is identical to `create_pure`.
+        #[pallet::call_index(12)]
+        #[pallet::weight(T::WeightInfo::create_protected_pure())]
+        #[frame_support::transactional]
+        pub fn create_protected_pure(
+            origin: OriginFor<T>,
+            proxy_type: T::ProxyType,
+            delay: BlockNumberFor<T>,
+            index: u16,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            ensure!(
+                T::AccountPolicy::requires_protection(&who),
+                Error::<T>::AccountPolicyViolation
+            );
+            Self::do_create_pure(who, proxy_type, delay, index, true)
+        }
     }
 
     #[pallet::event]
@@ -978,6 +999,47 @@ impl<T: Config> Pallet<T> {
 
         T::AccountId::decode(&mut TrailingZeroInput::new(entropy.as_ref()))
             .map_err(|_| Error::<T>::InvalidDerivedAccountId.into())
+    }
+
+    fn do_create_pure(
+        who: T::AccountId,
+        proxy_type: T::ProxyType,
+        delay: BlockNumberFor<T>,
+        index: u16,
+        protected: bool,
+    ) -> DispatchResult {
+        let height = T::BlockNumberProvider::current_block_number();
+        let ext_index = frame_system::Pallet::<T>::extrinsic_index().unwrap_or_default();
+        let pure = Self::pure_account(&who, &proxy_type, index, Some((height, ext_index)))?;
+        ensure!(!Proxies::<T>::contains_key(&pure), Error::<T>::Duplicate);
+        let proxy_def = ProxyDefinition {
+            delegate: who.clone(),
+            proxy_type: proxy_type.clone(),
+            delay,
+        };
+        let bounded_proxies: BoundedVec<_, T::MaxProxies> = vec![proxy_def]
+            .try_into()
+            .map_err(|_| Error::<T>::TooMany)?;
+        let deposit = T::ProxyDepositBase::get().saturating_add(T::ProxyDepositFactor::get());
+        T::Currency::reserve(&who, deposit)?;
+        Proxies::<T>::insert(&pure, (bounded_proxies, deposit));
+        if protected {
+            T::AccountPolicy::on_create_protected_pure(
+                &pure,
+                &who,
+                &proxy_type.encode(),
+                index,
+                &height.encode(),
+                ext_index,
+            )?;
+        }
+        Self::deposit_event(Event::PureCreated {
+            pure,
+            who,
+            proxy_type,
+            disambiguation_index: index,
+        });
+        Ok(())
     }
 
     /// Register a proxy account for the delegator that is able to make calls on its behalf.

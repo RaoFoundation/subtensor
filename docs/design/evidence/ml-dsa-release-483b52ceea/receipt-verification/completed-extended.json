@@ -1,0 +1,1107 @@
+{
+  "candidate": "483b52ceea5cf08a0fb492ca2915b7efa6a8690e",
+  "started_utc": "2026-10-17T22:08:03.046696+00:00",
+  "scope": "Persisted suite receipt files; activation extrinsics excluded. This verifies recorded outcomes, not completeness of operation coverage or all test assertions.",
+  "deduplication_key": "(local chain name, block hash, extrinsic index)",
+  "files": [
+    {
+      "path": "extended/receipts/mldsa-extended-proxy-7-8.json",
+      "sha256": "c162130534583f98ab03a45e88aad1a4fd95eb74a6e367bad4d1c1cc4155ef63",
+      "receipt_references": 10,
+      "declared_successful": null
+    },
+    {
+      "path": "extended/receipts/mldsa-extended-proxy-8-7.json",
+      "sha256": "dec0e77cf18e775deeecf1f1d8752ade12904b1ee61dd06228b9d5883d63815f",
+      "receipt_references": 10,
+      "declared_successful": null
+    },
+    {
+      "path": "extended/receipts/mldsa-extended-three-of-four.json",
+      "sha256": "1ccdabd45f03ab856c53c054163b3bf8d26a980f9ed4d41f703eceb67a56f313",
+      "receipt_references": 25,
+      "declared_successful": null
+    }
+  ],
+  "chains": {
+    "extended": {
+      "endpoint": "ws://127.0.0.1:21744",
+      "unique_receipts": 45,
+      "verified_receipts": 45,
+      "status_counts": {
+        "success": 40,
+        "outer_success_inner_failure": 2,
+        "system_failure": 3
+      },
+      "errors": [],
+      "genesis": "0xc4f14af2fbe454e326de77a660c1771112706349a1d4714234f5410e45664b9c",
+      "finalized_snapshot": {
+        "height": 145,
+        "hash": "0x3671c78061b38d99395d62af4c0bd458c8df4a67ca5492fc4fb1ebdcd9342f3f"
+      }
+    }
+  },
+  "receipts": [
+    {
+      "chain": "extended",
+      "height": 7,
+      "extrinsic_index": 6,
+      "block_hash": "0xc6a19d65305cdbb12e5feea341c3f59e7043ff19ad83b87c76734995929eb0d3",
+      "extrinsic_hash": "0x5334f98530c8104571837de7df84bceac8caf524ed7089437c28c7169fa3f857",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "9d208f8b82d055459d0e1b2806d8299023175e7e87f6bd065c964fdfc762f172",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-7-8.json",
+          "pointer": "$[0].receipt",
+          "operation": "fund-disposable-signer"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 10,
+      "extrinsic_index": 6,
+      "block_hash": "0x80ebb769581a169fd539b8da1d9172be642fd903a973b437448d41ac916f1c1f",
+      "extrinsic_hash": "0xe8171ca9a25a1731c0dec8bf556e4af73d5d2aa2953133ddfea680b0743109eb",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "d6b7b28cf358dbd4041d3f1ad87937207979b96e549cee183843da9a07cbce65",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-7-8.json",
+          "pointer": "$[1].receipt",
+          "operation": "fund-disposable-signer"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 13,
+      "extrinsic_index": 6,
+      "block_hash": "0x2fd6c01e1f4205c42f3266a4d6ff45bd699f8ba37b8f9ca83197bd04a3cce0d8",
+      "extrinsic_hash": "0x728d0017e510b8f2de19c85b3678141f621db5512f7c3093e432438d2c328342",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "e0717a2c7efbbb267fc77505e1d3bc2d9eae20343cfe0b8eace63de696e20c8a",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-7-8.json",
+          "pointer": "$[2].receipt",
+          "operation": "grant-restricted-proxy"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 16,
+      "extrinsic_index": 6,
+      "block_hash": "0xb6cab9e7dba54dc162435921f04dd1037f4df4e15e3949c36d931e1b7d936038",
+      "extrinsic_hash": "0xbc47286d421b861f301cb64e6de53e4db13c11fb4b35f3a447d5324f100d3cc6",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "e31bbf53e03f84e43a8d3cb5f28d4c9a97b85f206a5f0f0751e297c521d2d01e",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-7-8.json",
+          "pointer": "$[4].receipt",
+          "operation": "principal-explicitly-sponsors-recipient"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 19,
+      "extrinsic_index": 6,
+      "block_hash": "0xa6842a6fd456ccd27ac91e403b5db92d87e31793d9561e613431b139d5a1a331",
+      "extrinsic_hash": "0x0b1d28b4dbc8915b7d30e65882e4ec0459b3f561fd83b27a3ac7cbfeac59966a",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Proxy.ProxyExecuted",
+          "error": {
+            "Module": {
+              "index": 0,
+              "error": "0x05000000"
+            }
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "Module",
+        "name": "CallFiltered",
+        "docs": [
+          "The origin filter prevent the call to be dispatched."
+        ]
+      },
+      "event_count": 6,
+      "events_sha256": "7f9988fa69343a5ff364c5af733881f08ae5288835e3af8d45b11a4a49664666",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-7-8.json",
+          "pointer": "$[5].receipt",
+          "operation": "restricted-proxy-inner-transfer-denied"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 22,
+      "extrinsic_index": 6,
+      "block_hash": "0x44af79e34e3612dea1067509b53e0ff9238116f9c0d6f52d74c282bbe767f920",
+      "extrinsic_hash": "0x3ce0e640850067b269eebb4437d2d561d2e2004fe3786d03888982e334837ab3",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "32981d28535cf694cccde10181829441f77c4fc7dddd048899e50904c36e302f",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-7-8.json",
+          "pointer": "$[6].receipt",
+          "operation": "grant-full-proxy"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 25,
+      "extrinsic_index": 6,
+      "block_hash": "0x8a1d76df7498f46f2c1a706eb350cc5e7f04723002b9a03b3cedb73092e4f989",
+      "extrinsic_hash": "0x49a034c46d7cabf1c68fc0d17bd1bd65d679a19283f95aa0de710a69f887b8e6",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "d0c6c14a1ee8c32a22c4826a837f0feae71547ae1c5c4f41983d61de0d40bcab",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-7-8.json",
+          "pointer": "$[7].receipt",
+          "operation": "full-proxy-transfers-without-new-registration"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 28,
+      "extrinsic_index": 6,
+      "block_hash": "0x2f33dc919b30b37ee3591289792fd82ce2a7da5018ac1c4bc71f7c791ec42003",
+      "extrinsic_hash": "0x780b7087a43a9288913441df41994e2c35ddcc8610766594d8e133520e3b799b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "d4f99b3003780a140688d862241f07e6ad4e706853c9a2f9d740790dcb480150",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-7-8.json",
+          "pointer": "$[8].receipt",
+          "operation": "revoke-full-proxy"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 31,
+      "extrinsic_index": 6,
+      "block_hash": "0x16cd8a8675a7926f720d73b7ba0ef0455a43bc4e60214be6f51d12de29d0f93f",
+      "extrinsic_hash": "0x0284b7f8210e53e80e2a0abecab82861e6778a60b70519c1fd27a0ae7a4d39bf",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "NotProxy",
+        "docs": [
+          "Sender is not a proxy of the account to be proxied."
+        ]
+      },
+      "event_count": 5,
+      "events_sha256": "ea10fa478acd40a74438b6081c2fac39b65dca92970e4c299192910b293ac638",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-7-8.json",
+          "pointer": "$[9].receipt",
+          "operation": "previously-composed-call-rejected-after-revocation"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 34,
+      "extrinsic_index": 6,
+      "block_hash": "0x1a7b30817f9eeeb0f208f918ed2db4abf13155a91f589d2592daabac62cb31bb",
+      "extrinsic_hash": "0x19dc5327fe53f2eaddd19dc22e78d613013c999ceee096e646198ddc417c44ea",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "bdc60a08cd87027214e17a0325f9b8414fa0312a634f5bff017bfd2a4b5b96a8",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-7-8.json",
+          "pointer": "$[10].receipt",
+          "operation": "remove-last-proxy-and-release-proxy-deposit"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 37,
+      "extrinsic_index": 6,
+      "block_hash": "0x8fe95e57417479be67034d3b0a2c5203dbc12f9d68c69e5fae91aae117d21d94",
+      "extrinsic_hash": "0x8dcea088423aff0ac454c8c0a26b765994cd4f8f33fa06a648857c83c0245973",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "394f862d7235b1a5dc35ec3761c3738677136627cabe7853058ba15fe5a4bb10",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-8-7.json",
+          "pointer": "$[0].receipt",
+          "operation": "fund-disposable-signer"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 40,
+      "extrinsic_index": 6,
+      "block_hash": "0x4a9cf75acda1bbd57885196dfec8b489f722586045567eb8926d61114709ba57",
+      "extrinsic_hash": "0x45e879dd4177e5a6717557299505ffa1ff99c21df78447602b2723710f3f2d6c",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "bf7dca6067c096560af1337a4ed594fd5af3b4d89af9afe4f06ab604f7466139",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-8-7.json",
+          "pointer": "$[1].receipt",
+          "operation": "fund-disposable-signer"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 43,
+      "extrinsic_index": 6,
+      "block_hash": "0x95ed9fc42425af1fa6ac6ae45ea074311a57c7cb29e9aa71e287852937b12d33",
+      "extrinsic_hash": "0x3f00132c5598585d65e64c36a9eeacd52fffe9038ff725f27376431a62ae57ca",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "2f0203f8bbed4414e5176a8dbb9301e4e7501929b5b1ab8ca52f24bcfa19567f",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-8-7.json",
+          "pointer": "$[2].receipt",
+          "operation": "grant-restricted-proxy"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 46,
+      "extrinsic_index": 6,
+      "block_hash": "0xd983adaf688b60e1d002accfb4dac87b2d05d34c4bccd5cd99ea1e9333214325",
+      "extrinsic_hash": "0x6cf5a5e5a948011e8d31af8298b32a23fc7e75b8d0988b8fc0ce11b526a4cf95",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "6ae419bb0095d591b365389e71d8252cd204d9ef63dbca97eeafd497be1c54c5",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-8-7.json",
+          "pointer": "$[4].receipt",
+          "operation": "principal-explicitly-sponsors-recipient"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 49,
+      "extrinsic_index": 6,
+      "block_hash": "0xa459581cb6d6129602a42a94ed938d8c2d6d89f96290dcd2c49b693c746e70a3",
+      "extrinsic_hash": "0x3b95d5c15bf9fac67c2821a0f7d3f2b4fbb68d256256f3feb6f90591d471bc85",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "outer_success_inner_failure",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [
+        {
+          "event": "Proxy.ProxyExecuted",
+          "error": {
+            "Module": {
+              "index": 0,
+              "error": "0x05000000"
+            }
+          }
+        }
+      ],
+      "resolved_error": {
+        "type": "Module",
+        "name": "CallFiltered",
+        "docs": [
+          "The origin filter prevent the call to be dispatched."
+        ]
+      },
+      "event_count": 6,
+      "events_sha256": "d7135753d5a00c1b4aa0b1716188d7d31523ef2582f9c9de4569c7ff2180c921",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-8-7.json",
+          "pointer": "$[5].receipt",
+          "operation": "restricted-proxy-inner-transfer-denied"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 52,
+      "extrinsic_index": 6,
+      "block_hash": "0x87e18ea1d643fc58928aa5a8355c1673c584f9da55b34dee0bb4bd7618a18fe9",
+      "extrinsic_hash": "0xc051899c402403b1439755268b4b3762361ffb0265fd4ed038edf830b9287cc8",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "9643e34c44f767538367e13a6c3498bc46829af649d905647b741309c6494d38",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-8-7.json",
+          "pointer": "$[6].receipt",
+          "operation": "grant-full-proxy"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 55,
+      "extrinsic_index": 6,
+      "block_hash": "0x82a62980a17435f9565f75f985a1a229c4671051bdffabdd73ab86cf4964cc7d",
+      "extrinsic_hash": "0x229d4dfc146b58685449b16428e1d855275c6ad7e67078720c2d71caaf66b380",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 10,
+      "events_sha256": "9364d1d14aed4a4c7d88cf25a2bfa9d970135a952601bcbe453bfa26e99bbf93",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-8-7.json",
+          "pointer": "$[7].receipt",
+          "operation": "full-proxy-transfers-without-new-registration"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 58,
+      "extrinsic_index": 6,
+      "block_hash": "0x0d4f76dfbab9889a0ee7ed166f00841ac8bb9de6679ffece59539a9091daafda",
+      "extrinsic_hash": "0x7de572d40b6416eefeb6732b110a8e326c0716496a628f588f70b814bff17145",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "0c021486b05ad4edbe5148f31959eb0dae615cb402975b47bbce8e8d0968b2da",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-8-7.json",
+          "pointer": "$[8].receipt",
+          "operation": "revoke-full-proxy"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 61,
+      "extrinsic_index": 6,
+      "block_hash": "0xf7c91e69101861c77693a67d05df5f7b1bcd38b81cbd07142b0170d043e2777e",
+      "extrinsic_hash": "0xd20ae5120c340b65f3e33a3ef2d390364ef64c5d43ef23f126672a869d29be0d",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "NotProxy",
+        "docs": [
+          "Sender is not a proxy of the account to be proxied."
+        ]
+      },
+      "event_count": 5,
+      "events_sha256": "125bf00754bf6349deae2f9625c7d65e2ff33fac82b14c3686a0c71a2056c5a5",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-8-7.json",
+          "pointer": "$[9].receipt",
+          "operation": "previously-composed-call-rejected-after-revocation"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 64,
+      "extrinsic_index": 6,
+      "block_hash": "0xb64f51a5b03cc3219f3f3504c9da98376209bf30bc57d22fd079a34e650a4382",
+      "extrinsic_hash": "0x7d156c16e04201339638dfd00230ab4e091e0d078d6147b677e846207ce6a06a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "4322524c20bcf52112138fc6887c07ff5ef337436a3dde3374a322188a4a3248",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-proxy-8-7.json",
+          "pointer": "$[10].receipt",
+          "operation": "remove-last-proxy-and-release-proxy-deposit"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 67,
+      "extrinsic_index": 6,
+      "block_hash": "0x8199a3c00ea77f18311e3a0196fb7d186c62a5e6647e2c69cd05e3d3e282c66e",
+      "extrinsic_hash": "0x6b1ef3586f3106dd8d650bc9d578896c437bb5b36e42daaccdddb6d8e545f059",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "1756b7ff18b32ad484b82ef43db8af9d040f260de20f0a3b38aba6fbe71c957b",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[0].receipt",
+          "operation": "fund-disposable-signer"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 70,
+      "extrinsic_index": 6,
+      "block_hash": "0x83fc5e86f4d72fbbb0f47cfd9e6c7b5380a940ca64c2c1771235c7b0f28bc1cd",
+      "extrinsic_hash": "0xbe1d3ae38710649af7eb8bebe9c71b6075e2495d67c7dc04f294127882744868",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "2d1afeff5b7eb88cbbc845432fed6708e8bb978c80062862a64389dba6eb6774",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[1].receipt",
+          "operation": "fund-disposable-signer"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 73,
+      "extrinsic_index": 6,
+      "block_hash": "0xa7eb0151e98fd52e4974ba5ad846f64b70f1101107ad374278d481fe01d40edf",
+      "extrinsic_hash": "0x901ac1a4956cf359dd60f7896c7d380cd5a5dc73f2d41b36de46081015fa4f47",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "17ee641088e06955f5e436ebf6125c38d6170de69624600b2be570a648b17a6e",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[2].receipt",
+          "operation": "fund-disposable-signer"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 76,
+      "extrinsic_index": 6,
+      "block_hash": "0x7d4921f1f4b31135795c4de52eda0cf38b4c72f2b52ec940c9a6a6e1aac90613",
+      "extrinsic_hash": "0x7c3c09a4bb0fc583a494032c6c2b8f69eb660124e4519b75eaf08fe0fc6bfd2a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 13,
+      "events_sha256": "a9da611c6246a62cae18b7f17f4764b3d1bcb5c34ec614c2356e6476a0dd6e6e",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[3].receipt",
+          "operation": "fund-disposable-signer"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 79,
+      "extrinsic_index": 6,
+      "block_hash": "0x0db08338c32f1a3f9bca411086fd5914b2918b6ce05cfbfa374a98c8aacc9e20",
+      "extrinsic_hash": "0xb9167766273161adfe7a8e9ddb4e38e3fcbb3f68b3259b68a9d36bb72270a0f6",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "51b0d67fc8f6782a4ee679c994dffe52c91a53b6dc8300634ec8fbfe9ac0f5dd",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[4].receipt",
+          "operation": "protect-composite-approval-0"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 82,
+      "extrinsic_index": 6,
+      "block_hash": "0x3000a12a39e2b5ad550ea7d2df86d39f07854dfb831d5a7ad9c43ba2194eb6cd",
+      "extrinsic_hash": "0xba593285aaa78f651ef4c21ef2d1e478e0ecb2edd62ac015a76e8274372ec554",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "4ed465c2df2bea4a0bb74cd0b0850c75086da9441ffc560e56dbd9916520b52a",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[5].receipt",
+          "operation": "protect-composite-approval-1"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 85,
+      "extrinsic_index": 6,
+      "block_hash": "0x85ecbea74720009c656901b9514a4a717f45aa01d0b7586548a9469a3f737b24",
+      "extrinsic_hash": "0xeb3ea90ae377be04d230544223a0caae34ed3ec9453cb007799ddcd19efe56df",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "2e1c70e9ea21684d586288b1bf38f37bae026159c72a46c339aff474d3b57ea6",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[6].receipt",
+          "operation": "protect-composite-approval-3"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 88,
+      "extrinsic_index": 6,
+      "block_hash": "0x542c53a66aae2fd27269bea082aab639b28cbc2d790f9b509f4e0dd33719c8c2",
+      "extrinsic_hash": "0x62757cb4d2e2d07d5c17be58cbef80956879a325ad29f88053627b1d97799f77",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 9,
+      "events_sha256": "990d0bfeb87ca592ae7b654f898191df3a150ca09e1901a410109da48302fe74",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[7].receipt",
+          "operation": "fund-protected-composite"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 91,
+      "extrinsic_index": 6,
+      "block_hash": "0x3b0e26fdc432c2db9f21357431b1283489f02ee20b49a4e1d606a5d44e94d3a9",
+      "extrinsic_hash": "0x2477bf93314a1c72a3c40e6e7a31d97edc109ef7ae7ff66da036f92c6eb7ad90",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 14,
+      "events_sha256": "4b3c94a0245e1ad3ad733f6d28fae22162d36098000e582d37e3b7138d2a7502",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[9].receipt",
+          "operation": "fixed-ms-member-explicitly-sponsors-recipient"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 94,
+      "extrinsic_index": 6,
+      "block_hash": "0x4b62b2225b3f9e5f504d7c3d7c3b9c762a5f9ef607ca20620dd71c0a5076c0c2",
+      "extrinsic_hash": "0x5b9f27c032ea8fd9b95188b5c849d582c6965ecfbb0b4d0e7e05993de7165708",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "a6d714f176b6ce3de99f13633e0c66cc2f3c0ca5d62fe71328ae0dbf1fa8e40b",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[10].receipt",
+          "operation": "quorum-3-first-approval"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 97,
+      "extrinsic_index": 6,
+      "block_hash": "0x0007df8afb7329efcb82753bb10c65383cca83891019b8e6ca7c5a564c0f5dee",
+      "extrinsic_hash": "0x69aa1df6aed7662521ec8b4a1b02cc1c81ebecedae21a2c67d3215494ad69de2",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "9c4a928647ae9039ccaca8ede38c9cbc8fe4e22a8cf98312fb1556768638f930",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[11].receipt",
+          "operation": "quorum-3-second-approval"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 100,
+      "extrinsic_index": 6,
+      "block_hash": "0x411f989b40881155876e17e98003baf958d1cc75fd4855bc7bd112d79805ec33",
+      "extrinsic_hash": "0x1ad09cba9e7ddde7b79b1e511779480362b92236ab286123fe894608117b6c81",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "dcac4f8483b137fa756fe2a1892289ec40da2271ffdeeb61a6de16657bc0a5af",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[12].receipt",
+          "operation": "quorum-3-final-execution"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 103,
+      "extrinsic_index": 6,
+      "block_hash": "0xc0b6bf4a5515ca3267f2eb623b2cf5f21e60d2dbc5d0de053f3fd58b733f5abf",
+      "extrinsic_hash": "0x055f216064cff333792cf5a73479132acaa61840b04aa073e7c903ad119b8d68",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "23a2a2d77d549478ec2011d54cd71220db4e50d9ce0c68463ecfafd7ba90f5b4",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[13].receipt",
+          "operation": "quorum-2-first-approval"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 106,
+      "extrinsic_index": 6,
+      "block_hash": "0xf2876547ce73d89915088f3301ed02aae29ba13d78ab669858961d2619e5575c",
+      "extrinsic_hash": "0x0eab9b76333b3707c844101e7dbd283fc039ff1be3126616e965a0e31dfb4126",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "a9e969b510cec28bafd8e11d83d873b9133e8475f90f9d850014c1ca6a3071e7",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[14].receipt",
+          "operation": "quorum-2-second-approval"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 109,
+      "extrinsic_index": 6,
+      "block_hash": "0x15b5a3ce6be33e28ad8edf3af45820228d0559ad27bb03386a7b7a9d7ea70724",
+      "extrinsic_hash": "0xc612a9812e9391c6727573daa5cac1aba27fde0336fcbf3dd1c27c42873aefab",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 11,
+      "events_sha256": "7fd3f98c8b85c5f14d7b878e3a86786f08b0f1e252aaa65baf94b5b0501eb3b4",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[15].receipt",
+          "operation": "quorum-2-final-execution"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 112,
+      "extrinsic_index": 6,
+      "block_hash": "0x5d9561937b53e16fb6c956b8d762546581e0e1c6cff71f7c4bf41cc86ef32df1",
+      "extrinsic_hash": "0xbee66b6d074415013c5ffe807c66e883f2bef505242ec55eed7b20433dd15979",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "4b5a78462b98b69abaee6b96248b64eaae1a5091efa8944db7519fee35f6cd75",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[16].receipt",
+          "operation": "open-cancellable-1"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 115,
+      "extrinsic_index": 6,
+      "block_hash": "0x6181ac4980747ee91a3b78e5ef8fdcd4aea30831c3ea7442605e1025de34ceb0",
+      "extrinsic_hash": "0x093b459d2f81ab2c1a782a85b9db325a604a45d9ebb860d7279da3eb9644bfa7",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 5,
+      "events_sha256": "c3b14eb33d87bd03098a2d1291074f672242d008df59d47c06875dae9471501a",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[17].receipt",
+          "operation": "non-depositor-approves-cancellable-call"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 118,
+      "extrinsic_index": 6,
+      "block_hash": "0xdf0b3428710a997d438c28d85e1f861a5ce6a161c850d8919c394f6ee7dbfbfa",
+      "extrinsic_hash": "0x0a2b7894bb8cb941a5a404763cfd610fc65b6735f3a0d7e92c7c6475723c1460",
+      "canonical_finalized": true,
+      "recorded_success": false,
+      "status": "system_failure",
+      "system_event": "ExtrinsicFailed",
+      "inner_failures": [],
+      "resolved_error": {
+        "type": "Module",
+        "name": "NotOwner",
+        "docs": [
+          "Only the account that originally created the multisig is able to cancel it or update",
+          "its deposits."
+        ]
+      },
+      "event_count": 4,
+      "events_sha256": "9e5f4737942ad2309bdbf01a0805205d555f1c6e4f8591c905222c74e66cdcbc",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[18].receipt",
+          "operation": "non-depositor-cancellation-denied"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 121,
+      "extrinsic_index": 6,
+      "block_hash": "0xf50fa2139ae6d7041c33ddfc7ea8c5e75036ca79e89a2a76a56ad65d5a67ce6f",
+      "extrinsic_hash": "0x20f5151effbf85d579173be1c63ec91a57aa430b62a09e6d85d01f1d0829ac01",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "a72eb1c77c356dc30c20d7bb986e4e8b0ea28c4237d7eef68a85a2c45ed773bc",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[19].receipt",
+          "operation": "cancel-and-release-deposit-1"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 124,
+      "extrinsic_index": 6,
+      "block_hash": "0xb120da6f45723bbc7cbfe35b12566928fbb9436b283b8c3061a409feb5c3bc15",
+      "extrinsic_hash": "0x257095afedb0559bceb038fc130e1acda2b06e3c7bac1a0922acac5787249478",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "6412dd9465a960eb39602547eb87543187074e211942fdc207cf4f4c9fc0173c",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[20].receipt",
+          "operation": "open-cancellable-0"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 127,
+      "extrinsic_index": 6,
+      "block_hash": "0xcbe5ea02b4e5efbdc621090fec892578b86ca7aa11cc8326dcbdcd7fad24e67c",
+      "extrinsic_hash": "0x6e93bfd403a25ce24d4555ab5e9f666936bb276f1c30de2338b7b40c162f1b27",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 6,
+      "events_sha256": "c172b327a8433d9377a051a79841701b719267ef4333668f2b86711b17de88b3",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[21].receipt",
+          "operation": "cancel-and-release-deposit-0"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 130,
+      "extrinsic_index": 6,
+      "block_hash": "0xb31a561fea87ad1c158f7feccafeb77d1056ae4f8acb99ed1c32f819a2679494",
+      "extrinsic_hash": "0xed6f4717406c00e948b864e9ee38a75b90e3c0a72df4d5b2db51e6898bf2fb88",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "54bd073ed166f41ca7428fe0e65bc52e7291b503272b7f88f808b461fc5108ef",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[22].receipt",
+          "operation": "open-cancellable-8"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 133,
+      "extrinsic_index": 6,
+      "block_hash": "0x3f6fd00d883e27ca78c92c454bba956173574995b9c2985ae68dc006758249e1",
+      "extrinsic_hash": "0xf8e66079b7dfe9197dfbc7fda8306945c4921083ec8ea498604c4d35ed676207",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "85bdd64eeeb6640a362b0d21ba51729f649755aee5d40da0fd534991d2929367",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[23].receipt",
+          "operation": "cancel-and-release-deposit-8"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 136,
+      "extrinsic_index": 6,
+      "block_hash": "0xfc67899371e305b3f08011f92005727a25e8eefc4a82fc2968f43053898b0717",
+      "extrinsic_hash": "0x9b4ce608eefe40d729fa0e868e9e9cb577f02b5f230dceb0d45479a38d85266b",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "4fb7e90f92dad47ea3428149613ec7a5953dda00fde28533188ebcd961c614d2",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[24].receipt",
+          "operation": "open-cancellable-7"
+        }
+      ]
+    },
+    {
+      "chain": "extended",
+      "height": 139,
+      "extrinsic_index": 6,
+      "block_hash": "0x317553c89a42bca7ca93a6f013029ac1e3eef641fab1f968a4a317905b2cb6b7",
+      "extrinsic_hash": "0xf998fec78ef98353e187c657a64e6eaf64aa0086cf882d37e93cd4531b10da5a",
+      "canonical_finalized": true,
+      "recorded_success": true,
+      "status": "success",
+      "system_event": "ExtrinsicSuccess",
+      "inner_failures": [],
+      "resolved_error": null,
+      "event_count": 7,
+      "events_sha256": "e9be661fd5ce0824869fbb6ec051ab08f695a94247b243eb19e1492b56020918",
+      "references": [
+        {
+          "path": "extended/receipts/mldsa-extended-three-of-four.json",
+          "pointer": "$[25].receipt",
+          "operation": "cancel-and-release-deposit-7"
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "suites": {
+    "extended": {
+      "chain": "extended",
+      "files": 3,
+      "receipt_references": 45
+    }
+  },
+  "finished_utc": "2026-10-17T22:08:04.102152+00:00",
+  "raw_receipt_references": 45,
+  "unique_receipts": 45,
+  "verified_receipts": 45,
+  "deduplicated_references": 0,
+  "status_counts": {
+    "success": 40,
+    "outer_success_inner_failure": 2,
+    "system_failure": 3
+  },
+  "all_recorded_receipts_verified": true,
+  "suites_without_receipt_evidence": []
+}

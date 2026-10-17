@@ -1,0 +1,1120 @@
+{
+  "verified_at": "2026-10-16T21:05:02.920781+00:00",
+  "runs": {
+    "validator-live": [
+      {
+        "crypto_type": 7,
+        "netuid": 12,
+        "report_sha256": "ef035e97b754e73c7595ae1000019a39afe038b2c0022db612cf37a577dc00c7",
+        "receipts": [
+          {
+            "operation": "Alice atomic descriptor registration and funding",
+            "block_hash": "0xfeaae1cf3197ee50b1975396ac8f4b089048b1a58325c9df6f6242925e1039d9",
+            "extrinsic_id": "207-0006",
+            "extrinsic_blake2_256": "0x00971417861c5113aef91d9fa4ea0e30618128fd76560448723fc6ac48805397",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "Balances.Withdraw",
+              "System.NewAccount",
+              "Balances.Reserved",
+              "System.NewAccount",
+              "HashedAccounts.RegisteredMlDsa",
+              "Utility.ItemCompleted",
+              "Balances.Endowed",
+              "Balances.Issued",
+              "Balances.BalanceSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "System.NewAccount",
+              "Balances.Reserved",
+              "System.NewAccount",
+              "HashedAccounts.RegisteredMlDsa",
+              "Utility.ItemCompleted",
+              "Balances.Endowed",
+              "Balances.Issued",
+              "Balances.BalanceSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "System.NewAccount",
+              "Balances.Reserved",
+              "System.NewAccount",
+              "HashedAccounts.RegisteredMlDsa",
+              "Utility.ItemCompleted",
+              "Balances.Endowed",
+              "Balances.Issued",
+              "Balances.BalanceSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Utility.BatchCompleted",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "register_subnet",
+            "block_hash": "0x30992d702067c9f4b45e24204e12a4f3b5cf86d5c0a89f67244c393b66ee1d31",
+            "extrinsic_id": "210-0008",
+            "extrinsic_blake2_256": "0xe5f1e7fdcbfc727b3f07a8f3f4ed1080cfafdee0599cfde164f4097c160dcd4b",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "Balances.Withdraw",
+              "SubtensorModule.RegistrationAllowed",
+              "SubtensorModule.MaxAllowedUidsSet",
+              "SubtensorModule.MaxAllowedValidatorsSet",
+              "SubtensorModule.MinAllowedWeightSet",
+              "SubtensorModule.ImmunityPeriodSet",
+              "System.NewAccount",
+              "Balances.Endowed",
+              "Balances.Transfer",
+              "SubtensorModule.SubnetOwnerHotkeySet",
+              "SubtensorModule.NetworkAdded",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Alice subnet-local setup",
+            "block_hash": "0xadab41204d60b17da9e4b066f4658996701c287db73fa4ce5bd187ee225b9183",
+            "extrinsic_id": "213-0006",
+            "extrinsic_blake2_256": "0x5be10eee26b2946abf51eaa300a20f64e46322d35127be831f4366ba7d6ed839",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "Balances.Withdraw",
+              "SubtensorModule.MaxAllowedUidsSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MaxRegistrationsPerBlockSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.RegistrationAllowed",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MinBurnSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MaxBurnSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MinAllowedWeightSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.WeightsSetRateLimitSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.CommitRevealEnabled",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.TempoSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Utility.BatchCompleted",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "burned_register",
+            "block_hash": "0x8f5dfe134bc182014273a473a8435546972c20abb50cafc08fc703697e80f275",
+            "extrinsic_id": "217-0007",
+            "extrinsic_blake2_256": "0xc7491159485668e0f05c369171f037083ec382bd75a8fa323300deb9c3bea99a",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "Balances.Withdraw",
+              "Balances.Transfer",
+              "Balances.Transfer",
+              "SubtensorModule.RAORecycledForRegistrationSet",
+              "SubtensorModule.NeuronRegistered",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "set_weights",
+            "block_hash": "0xa193f07550390fbd212b676f9a0bd68612fc0adbe75b64760d7f3c926575038d",
+            "extrinsic_id": "220-0009",
+            "extrinsic_blake2_256": "0xc4945ee31aa52d5a7ec233b55cab32b3c4fd6472d10de91eaed59b44f6e46d4e",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "SubtensorModule.WeightsSet",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "add_stake",
+            "block_hash": "0x3d9d44a2d42ade612a891688b39f82f0de1bf944e58875768ceac2bf958ab49b",
+            "extrinsic_id": "223-0009",
+            "extrinsic_blake2_256": "0xedd2d9748dd64d90b768ddcdfcb432bb44657bc5a546fdc21fd908fb4bfa28a5",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "Balances.Withdraw",
+              "Balances.Transfer",
+              "Balances.Transfer",
+              "SubtensorModule.StakeAdded",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "AdminUtils.sudo_set_epoch_consensus",
+            "block_hash": "0x8c42b127325b70e5b0ccdc78d4aab80b9183b32c48f3c33320c7cc830f058166",
+            "extrinsic_id": "226-0007",
+            "extrinsic_blake2_256": "0x0805cd404f077360260e7a28c5ecfce499ec97709ca579630247268edeec97aa",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "Balances.Withdraw",
+              "SubtensorModule.MaxAllowedValidatorsSet",
+              "SubtensorModule.EpochConsensusSet",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "set_weights",
+            "block_hash": "0xae9b22a862924ddfec9140e674185399f6e2a2c4fcc13393c5a9c4314bab28e7",
+            "extrinsic_id": "229-0009",
+            "extrinsic_blake2_256": "0x666dee2517bb0bdf200914d2452754375cc687880aa6059712540c2ddfd8139f",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "SubtensorModule.WeightsSet",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Commitments.set_commitment",
+            "block_hash": "0x80e8d3a017d1f022e86e4a5893c58179b543ca920c1d8a3082d08b77bb687871",
+            "extrinsic_id": "232-0007",
+            "extrinsic_blake2_256": "0x34df56f032acbfad2d9b48007f2a3f05566360535554c80cd5c5d1624352b291",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "Commitments.Commitment",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Commitments.set_commitment",
+            "block_hash": "0x72776677bd30639abfcb631f441130e33c1844a7fe85c117695482b54c891022",
+            "extrinsic_id": "235-0006",
+            "extrinsic_blake2_256": "0x4f9b2912bde60e3775474c9ff75eb100dfdb3c5273c6ff53fab106270a65a897",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "Commitments.TimelockCommitment",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          }
+        ],
+        "revealed_plaintext": "MS timelock commitment 7",
+        "revealed_metadata": [
+          [
+            "MS timelock commitment 7",
+            239
+          ]
+        ],
+        "final_weights": [
+          [
+            1,
+            9
+          ]
+        ],
+        "remaining_legacy_commits": null
+      },
+      {
+        "crypto_type": 8,
+        "netuid": 10,
+        "report_sha256": "3373a9b90c98eaabdb9ffb43039e28fd1c6f035cd5b3fbbb3f17e1cf811c51c1",
+        "receipts": [
+          {
+            "operation": "Alice atomic descriptor registration and funding",
+            "block_hash": "0xec2996ea5f427688e4b2eb341f1620aa2670b4513e7031e05e57e09431ed00b6",
+            "extrinsic_id": "180-0006",
+            "extrinsic_blake2_256": "0xfa45775fed54786e4a7552b6ecb374838733c4a8479045cf196334d70557d602",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "Balances.Withdraw",
+              "System.NewAccount",
+              "Balances.Reserved",
+              "System.NewAccount",
+              "HashedAccounts.RegisteredMlDsa",
+              "Utility.ItemCompleted",
+              "Balances.Endowed",
+              "Balances.Issued",
+              "Balances.BalanceSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "System.NewAccount",
+              "Balances.Reserved",
+              "System.NewAccount",
+              "HashedAccounts.RegisteredMlDsa",
+              "Utility.ItemCompleted",
+              "Balances.Endowed",
+              "Balances.Issued",
+              "Balances.BalanceSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "System.NewAccount",
+              "Balances.Reserved",
+              "System.NewAccount",
+              "HashedAccounts.RegisteredMlDsa",
+              "Utility.ItemCompleted",
+              "Balances.Endowed",
+              "Balances.Issued",
+              "Balances.BalanceSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Utility.BatchCompleted",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "register_subnet",
+            "block_hash": "0x1243346517a5ee5a624fe592243c2d2edbbaef2e45414dd82ba094623dbe9546",
+            "extrinsic_id": "183-0009",
+            "extrinsic_blake2_256": "0x3887e8211402662e9d61c572fea323c6cfd53f58a200862dc846697f35b38d44",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "Balances.Withdraw",
+              "SubtensorModule.RegistrationAllowed",
+              "SubtensorModule.MaxAllowedUidsSet",
+              "SubtensorModule.MaxAllowedValidatorsSet",
+              "SubtensorModule.MinAllowedWeightSet",
+              "SubtensorModule.ImmunityPeriodSet",
+              "System.NewAccount",
+              "Balances.Endowed",
+              "Balances.Transfer",
+              "SubtensorModule.SubnetOwnerHotkeySet",
+              "SubtensorModule.NetworkAdded",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Alice subnet-local setup",
+            "block_hash": "0xa4a0800ecba0dbe5471d5c53a634e5b8fa7120690c694eb8e1f6a2f1c6c9b39d",
+            "extrinsic_id": "219-0006",
+            "extrinsic_blake2_256": "0x9a0f8026536aae0c94b4f475dba752bbd06d92ec540259b48d4c56d079eb33a1",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "Balances.Withdraw",
+              "SubtensorModule.MaxAllowedUidsSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MaxRegistrationsPerBlockSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.RegistrationAllowed",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MinBurnSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MaxBurnSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MinAllowedWeightSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.WeightsSetRateLimitSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.CommitRevealEnabled",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.TempoSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Utility.BatchCompleted",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "burned_register",
+            "block_hash": "0x3d9d44a2d42ade612a891688b39f82f0de1bf944e58875768ceac2bf958ab49b",
+            "extrinsic_id": "223-0007",
+            "extrinsic_blake2_256": "0x2e5be25533ab90860f6e4dccf1fe3d2bee9246c52b41dd3db8a2cdc86cd3042a",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "Balances.Withdraw",
+              "Balances.Transfer",
+              "Balances.Transfer",
+              "SubtensorModule.RAORecycledForRegistrationSet",
+              "SubtensorModule.NeuronRegistered",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "set_weights",
+            "block_hash": "0x8c42b127325b70e5b0ccdc78d4aab80b9183b32c48f3c33320c7cc830f058166",
+            "extrinsic_id": "226-0009",
+            "extrinsic_blake2_256": "0xb6d170bc4767924d81ae6568c7bd781976b5cbf2f73a9fdd4a5e422239201582",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "SubtensorModule.WeightsSet",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "add_stake",
+            "block_hash": "0xae9b22a862924ddfec9140e674185399f6e2a2c4fcc13393c5a9c4314bab28e7",
+            "extrinsic_id": "229-0008",
+            "extrinsic_blake2_256": "0x85fdc92190da13472062c8ad6205926410b6b71ceeb41d384d786892d18fad36",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "Balances.Withdraw",
+              "Balances.Transfer",
+              "Balances.Transfer",
+              "SubtensorModule.StakeAdded",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "AdminUtils.sudo_set_epoch_consensus",
+            "block_hash": "0x80e8d3a017d1f022e86e4a5893c58179b543ca920c1d8a3082d08b77bb687871",
+            "extrinsic_id": "232-0006",
+            "extrinsic_blake2_256": "0x886fdc67f38f0660980e1e40d8cab4490a818c19b5ea0da47bb180d120d82d39",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "Balances.Withdraw",
+              "SubtensorModule.MaxAllowedValidatorsSet",
+              "SubtensorModule.EpochConsensusSet",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "set_weights",
+            "block_hash": "0x72776677bd30639abfcb631f441130e33c1844a7fe85c117695482b54c891022",
+            "extrinsic_id": "235-0009",
+            "extrinsic_blake2_256": "0x9a0f81a34f84fae9d309098ed0f52667be1a01e20a1f085b4cf948ed93be5a31",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "SubtensorModule.WeightsSet",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Commitments.set_commitment",
+            "block_hash": "0x1079b0b1035568047a2d8d6bf996da22d6a7182d832bdc44d9289a4c40a79ff0",
+            "extrinsic_id": "238-0007",
+            "extrinsic_blake2_256": "0x6f822fc4c54afb585b5eb83efed2dfbe4e82e33202788a6e644125f5aebd5023",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "Commitments.Commitment",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Commitments.set_commitment",
+            "block_hash": "0x95dd8b523738447f160aa16d455537c110adf14a38d8eff02981ad3b9c47dfd0",
+            "extrinsic_id": "241-0007",
+            "extrinsic_blake2_256": "0xa93f4989466fb290f9a0c3d6e9c5f2515551b5e3151a31cb90b9bb0bc68f5806",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "Commitments.TimelockCommitment",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          }
+        ],
+        "revealed_plaintext": "MS timelock commitment 8",
+        "revealed_metadata": [
+          [
+            "MS timelock commitment 8",
+            245
+          ]
+        ],
+        "final_weights": [
+          [
+            1,
+            9
+          ]
+        ],
+        "remaining_legacy_commits": null
+      }
+    ],
+    "validator-live-corrected": [
+      {
+        "crypto_type": 7,
+        "netuid": 15,
+        "report_sha256": "6231363c377fba5befdf76461b952c2f4efc80f5ecefbbe98bfb2b21e4e097dd",
+        "receipts": [
+          {
+            "operation": "Alice atomic descriptor registration and funding",
+            "block_hash": "0x111104ced6984241f4a75b87bf0bfaa2b51b09a49d18661521a2d2295e2d1188",
+            "extrinsic_id": "247-0006",
+            "extrinsic_blake2_256": "0x658540b89046d2127fc4cfb327806e617b2d04e3267d862ba12d161148e6ae9a",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "Balances.Withdraw",
+              "System.NewAccount",
+              "Balances.Reserved",
+              "System.NewAccount",
+              "HashedAccounts.RegisteredMlDsa",
+              "Utility.ItemCompleted",
+              "Balances.Endowed",
+              "Balances.Issued",
+              "Balances.BalanceSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "System.NewAccount",
+              "Balances.Reserved",
+              "System.NewAccount",
+              "HashedAccounts.RegisteredMlDsa",
+              "Utility.ItemCompleted",
+              "Balances.Endowed",
+              "Balances.Issued",
+              "Balances.BalanceSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "System.NewAccount",
+              "Balances.Reserved",
+              "System.NewAccount",
+              "HashedAccounts.RegisteredMlDsa",
+              "Utility.ItemCompleted",
+              "Balances.Endowed",
+              "Balances.Issued",
+              "Balances.BalanceSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Utility.BatchCompleted",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "register_subnet",
+            "block_hash": "0xd93d75f6d2f638a4688a1b07ef10a714636ec1800a9f99481479c85100a65d04",
+            "extrinsic_id": "250-0007",
+            "extrinsic_blake2_256": "0x6a4fd3b5a4480e15f5e63157a4c5c22242a938e1654c55c38c80562a24f4b853",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "Balances.Withdraw",
+              "SubtensorModule.RegistrationAllowed",
+              "SubtensorModule.MaxAllowedUidsSet",
+              "SubtensorModule.MaxAllowedValidatorsSet",
+              "SubtensorModule.MinAllowedWeightSet",
+              "SubtensorModule.ImmunityPeriodSet",
+              "System.NewAccount",
+              "Balances.Endowed",
+              "Balances.Transfer",
+              "SubtensorModule.SubnetOwnerHotkeySet",
+              "SubtensorModule.NetworkAdded",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Alice subnet-local setup",
+            "block_hash": "0xe750fea24cc4fbc20acb3e15062089b5e6e17e3912c8a4356e6b2f1bd17533d4",
+            "extrinsic_id": "253-0006",
+            "extrinsic_blake2_256": "0x810ca70ff3bb6d0478ec5ae516106e0171730f7284849462a5d4f232c82a76cc",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "Balances.Withdraw",
+              "SubtensorModule.MaxAllowedUidsSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MaxRegistrationsPerBlockSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.RegistrationAllowed",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MinBurnSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MaxBurnSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MinAllowedWeightSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.WeightsSetRateLimitSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.CommitRevealEnabled",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.TempoSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Utility.BatchCompleted",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "burned_register",
+            "block_hash": "0xb7eaf656cf43c6c5444b9c358c9d9cadc1e8ebe2c5ab5de84ffc14ea9e3f9df2",
+            "extrinsic_id": "257-0007",
+            "extrinsic_blake2_256": "0x815a256be5c3cdf74c818e67319191b3b48b6ef037826ee8ec0181cd6f3cb46f",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "Balances.Withdraw",
+              "Balances.Transfer",
+              "Balances.Transfer",
+              "SubtensorModule.RAORecycledForRegistrationSet",
+              "SubtensorModule.NeuronRegistered",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "set_weights",
+            "block_hash": "0x1197b894b442f15ae00cf52d54473e70de466c160ce077e7b7c9223a5120e89e",
+            "extrinsic_id": "260-0007",
+            "extrinsic_blake2_256": "0xcfd596f6de75bb6bd1d96c9af513fe7bf886c7d8a3e76ec655a136a820f9da7c",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "SubtensorModule.WeightsSet",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "add_stake",
+            "block_hash": "0xb72a096b18cceff15640b5b9fb3a3a130c8f67e1659c11eddca928c0cc468e63",
+            "extrinsic_id": "263-0006",
+            "extrinsic_blake2_256": "0xf6bb2126d1b6861a625f1765662fc3371d2d00628b426fc2208cbc209f5085ea",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "Balances.Withdraw",
+              "Balances.Transfer",
+              "Balances.Transfer",
+              "SubtensorModule.StakeAdded",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "AdminUtils.sudo_set_epoch_consensus",
+            "block_hash": "0x90827e6e457211c0a251e735060629729c0c9598758cb1e03cbbf761e1767d16",
+            "extrinsic_id": "266-0008",
+            "extrinsic_blake2_256": "0xc7a9301e991f80c2b58798250f0989f23fbc92d80c632d046c8dac20a26857fe",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "Balances.Withdraw",
+              "SubtensorModule.MaxAllowedValidatorsSet",
+              "SubtensorModule.EpochConsensusSet",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "set_weights",
+            "block_hash": "0x3c7a88a735f0a10aa1aa64f12ac1374c8a2f28b9048bbc0cebe71f736e9cf506",
+            "extrinsic_id": "269-0008",
+            "extrinsic_blake2_256": "0xeb7e7316eff1341c3509a2e049a9a0e782332baf9bdab657db8acdf893edebff",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "SubtensorModule.WeightsSet",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Commitments.set_commitment",
+            "block_hash": "0xeed40f5c8491bb1dc2155cb50a9f00d7c18afece3600dfccf3953b0130accb51",
+            "extrinsic_id": "272-0007",
+            "extrinsic_blake2_256": "0xcaec5f6838e010486592cc20bb9f2b569553a27bb8bf6b7ebecb4d8c9ee9345e",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "Commitments.Commitment",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Commitments.set_commitment",
+            "block_hash": "0xcee38c6079a658a039713b29768809dac49efd56a17e8527247f53e40fda6d4a",
+            "extrinsic_id": "275-0007",
+            "extrinsic_blake2_256": "0x30a528b9f9ea4982d1678a169ab9f09f5d487f734ddeec3cc071582a537521bc",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "Commitments.TimelockCommitment",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Alice subnet-local setup",
+            "block_hash": "0x001e074dce83c2531ec8a6b5591e4ed6fd06f4eb2d0572c94db136796a5bd721",
+            "extrinsic_id": "282-0006",
+            "extrinsic_blake2_256": "0x91a1e78d9d3f45f9c41a2ef1aec47085b30f0d816f5dcc4e7aa8288dd953eec8",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "Balances.Withdraw",
+              "SubtensorModule.CommitRevealPeriodsSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.CommitRevealEnabled",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Utility.BatchCompleted",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "commit_weights",
+            "block_hash": "0x7e89ed4eef5418df50d322788fb293c1e68cdd7c6fb93c4fb58f17eccdb190b9",
+            "extrinsic_id": "285-0006",
+            "extrinsic_blake2_256": "0xbc8e9a6b0e5f7c1738a0693bf76c5ab7b60374ccec5c777674f823302e284274",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "SubtensorModule.TimelockedWeightsCommitted",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "SubtensorModule.commit_weights",
+            "block_hash": "0x7ba452ba023e4d6622d972e9136fd5e06fc241b58f92c2113718ae5a0fcb2d6f",
+            "extrinsic_id": "295-0006",
+            "extrinsic_blake2_256": "0x575f6d7a1d7cc931efd1075295ac4f096607ad3e72e24bb9644000224429c3a4",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "SubtensorModule.WeightsCommitted",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "reveal_weights",
+            "block_hash": "0xc9db63530e53ca9eb44b3b9b946ab4585726dc413628159b0c1b11e1728648c7",
+            "extrinsic_id": "300-0006",
+            "extrinsic_blake2_256": "0xcb167c8f696f89ef823e6ce0a89310adf6fba32e7aec0d26067463583bb04af0",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.RotatedMlDsa",
+              "SubtensorModule.WeightsSet",
+              "SubtensorModule.WeightsRevealed",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          }
+        ],
+        "revealed_plaintext": "MS timelock commitment 7",
+        "revealed_metadata": [
+          [
+            "MS timelock commitment 7",
+            279
+          ]
+        ],
+        "final_weights": [
+          [
+            1,
+            65535
+          ]
+        ],
+        "remaining_legacy_commits": null
+      },
+      {
+        "crypto_type": 8,
+        "netuid": 14,
+        "report_sha256": "d051e911dc0f457f4547182c60b814161ee99bdc14ff6afc331f1c06ced037f8",
+        "receipts": [
+          {
+            "operation": "Alice atomic descriptor registration and funding",
+            "block_hash": "0x1c0e542e1057761469396fcee9772a75e2881ca177b27316ec6d89b80db8c7e0",
+            "extrinsic_id": "244-0006",
+            "extrinsic_blake2_256": "0xcf774acd6b40ce0d1436f37509864a0f9b3b51befa44005cc02a37ac08eb50e9",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "Balances.Withdraw",
+              "System.NewAccount",
+              "Balances.Reserved",
+              "System.NewAccount",
+              "HashedAccounts.RegisteredMlDsa",
+              "Utility.ItemCompleted",
+              "Balances.Endowed",
+              "Balances.Issued",
+              "Balances.BalanceSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "System.NewAccount",
+              "Balances.Reserved",
+              "System.NewAccount",
+              "HashedAccounts.RegisteredMlDsa",
+              "Utility.ItemCompleted",
+              "Balances.Endowed",
+              "Balances.Issued",
+              "Balances.BalanceSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "System.NewAccount",
+              "Balances.Reserved",
+              "System.NewAccount",
+              "HashedAccounts.RegisteredMlDsa",
+              "Utility.ItemCompleted",
+              "Balances.Endowed",
+              "Balances.Issued",
+              "Balances.BalanceSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Utility.BatchCompleted",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "register_subnet",
+            "block_hash": "0x111104ced6984241f4a75b87bf0bfaa2b51b09a49d18661521a2d2295e2d1188",
+            "extrinsic_id": "247-0009",
+            "extrinsic_blake2_256": "0x66b8b7e9f544429215dad266922ee9073e03ac7e62de8c7b500b5d1d06ee5c02",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "Balances.Withdraw",
+              "SubtensorModule.RegistrationAllowed",
+              "SubtensorModule.MaxAllowedUidsSet",
+              "SubtensorModule.MaxAllowedValidatorsSet",
+              "SubtensorModule.MinAllowedWeightSet",
+              "SubtensorModule.ImmunityPeriodSet",
+              "System.NewAccount",
+              "Balances.Endowed",
+              "Balances.Transfer",
+              "SubtensorModule.SubnetOwnerHotkeySet",
+              "SubtensorModule.NetworkAdded",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Alice subnet-local setup",
+            "block_hash": "0xd93d75f6d2f638a4688a1b07ef10a714636ec1800a9f99481479c85100a65d04",
+            "extrinsic_id": "250-0006",
+            "extrinsic_blake2_256": "0xcaaf21913adffff597993bc9d09e9b9558dc9176fd755ecc1f8f039a8e67a0ef",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "Balances.Withdraw",
+              "SubtensorModule.MaxAllowedUidsSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MaxRegistrationsPerBlockSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.RegistrationAllowed",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MinBurnSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MaxBurnSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.MinAllowedWeightSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.WeightsSetRateLimitSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.CommitRevealEnabled",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.TempoSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Utility.BatchCompleted",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "burned_register",
+            "block_hash": "0x6e35c8411c8806c0a76e0c12ce64e111ae20d82fa64ebaa4a55d25ea3273272c",
+            "extrinsic_id": "254-0007",
+            "extrinsic_blake2_256": "0xf6e291b0f36b2dca95104922f684fe10384dcd8a4f3ebe0fb5d226cedd7df33a",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "Balances.Withdraw",
+              "Balances.Transfer",
+              "Balances.Transfer",
+              "SubtensorModule.RAORecycledForRegistrationSet",
+              "SubtensorModule.NeuronRegistered",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "set_weights",
+            "block_hash": "0xb7eaf656cf43c6c5444b9c358c9d9cadc1e8ebe2c5ab5de84ffc14ea9e3f9df2",
+            "extrinsic_id": "257-0008",
+            "extrinsic_blake2_256": "0x509f9930aefa5dfc62fd13895658dae41edbf4a05f9cce602a1240c2b71dc54b",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "SubtensorModule.WeightsSet",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "add_stake",
+            "block_hash": "0x1197b894b442f15ae00cf52d54473e70de466c160ce077e7b7c9223a5120e89e",
+            "extrinsic_id": "260-0006",
+            "extrinsic_blake2_256": "0x2b4c503de9229ca41bf50ade0c73b4b67e8875a194487a5d4032a03fb410bfa1",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "Balances.Withdraw",
+              "Balances.Transfer",
+              "Balances.Transfer",
+              "SubtensorModule.StakeAdded",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "AdminUtils.sudo_set_epoch_consensus",
+            "block_hash": "0xb72a096b18cceff15640b5b9fb3a3a130c8f67e1659c11eddca928c0cc468e63",
+            "extrinsic_id": "263-0007",
+            "extrinsic_blake2_256": "0x951c9dfb1f7535ab85cff963df143ca252df3035dea55cfed20ff1822a6c0676",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "Balances.Withdraw",
+              "SubtensorModule.MaxAllowedValidatorsSet",
+              "SubtensorModule.EpochConsensusSet",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "set_weights",
+            "block_hash": "0x90827e6e457211c0a251e735060629729c0c9598758cb1e03cbbf761e1767d16",
+            "extrinsic_id": "266-0009",
+            "extrinsic_blake2_256": "0xb0131b35e41c0e90f381ad1f1c9567586fe52fc112785552fd3cd173535ad7fa",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "SubtensorModule.WeightsSet",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Commitments.set_commitment",
+            "block_hash": "0x3c7a88a735f0a10aa1aa64f12ac1374c8a2f28b9048bbc0cebe71f736e9cf506",
+            "extrinsic_id": "269-0006",
+            "extrinsic_blake2_256": "0x101e31b262c2c244b4893b358954398581b4f26c0d0c5d9fc2c563996d019249",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "Commitments.Commitment",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Commitments.set_commitment",
+            "block_hash": "0xeed40f5c8491bb1dc2155cb50a9f00d7c18afece3600dfccf3953b0130accb51",
+            "extrinsic_id": "272-0006",
+            "extrinsic_blake2_256": "0x540c48a122cc2c7763b8fd0ff6565d5addb0b8d0333a931f52b8eb7936cac89a",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "Commitments.TimelockCommitment",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "Alice subnet-local setup",
+            "block_hash": "0xd2930b3e72f2aeb0cffd195db1f46d76aba44faefa7877c642bfc1b1b134dbb3",
+            "extrinsic_id": "279-0006",
+            "extrinsic_blake2_256": "0x25026d661bb5fc99a14ba2168969e5d851550c98f3b6706a3e0a2f1187414fb6",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "Balances.Withdraw",
+              "SubtensorModule.CommitRevealPeriodsSet",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "SubtensorModule.CommitRevealEnabled",
+              "Sudo.Sudid",
+              "Utility.ItemCompleted",
+              "Utility.BatchCompleted",
+              "Balances.Deposit",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "commit_weights",
+            "block_hash": "0x001e074dce83c2531ec8a6b5591e4ed6fd06f4eb2d0572c94db136796a5bd721",
+            "extrinsic_id": "282-0007",
+            "extrinsic_blake2_256": "0xfb610aba72e1229f5d906dd0b47964eee5d0a4863ea42b4f9e688ff63d96d5cb",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "SubtensorModule.TimelockedWeightsCommitted",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "SubtensorModule.commit_weights",
+            "block_hash": "0x797daf52d3915239650981f668adf32663fcacdc0386dfc20e603d62edd3a5a7",
+            "extrinsic_id": "292-0006",
+            "extrinsic_blake2_256": "0xb3579f4cbe04e9f2978fbd1ad6480f47a56d9953c1291c46e58699aa0b0de9c4",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "SubtensorModule.WeightsCommitted",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          },
+          {
+            "operation": "reveal_weights",
+            "block_hash": "0xc9efec336c1b9f953704d2d719345b6a65dd12d47f79622fb81924c8bfeb9bb0",
+            "extrinsic_id": "297-0006",
+            "extrinsic_blake2_256": "0x3a1fd2bd2035f5218edc785ce4531f40932c98ca040712c9d4743af4a7bc6511",
+            "system_extrinsic_success": true,
+            "nested_results_all_success": true,
+            "events": [
+              "HashedAccounts.AuthorizedFixed",
+              "SubtensorModule.WeightsSet",
+              "SubtensorModule.WeightsRevealed",
+              "TransactionPayment.TransactionFeePaid",
+              "System.ExtrinsicSuccess"
+            ]
+          }
+        ],
+        "revealed_plaintext": "MS timelock commitment 8",
+        "revealed_metadata": [
+          [
+            "MS timelock commitment 8",
+            276
+          ]
+        ],
+        "final_weights": [
+          [
+            1,
+            65535
+          ]
+        ],
+        "remaining_legacy_commits": null
+      }
+    ]
+  },
+  "finalized_block": "0x72fc43bfb0cb184f2343e23edec1b0d46ef72be0a817a3120563828608b6b7e1",
+  "finalized_number": 302,
+  "all_verified": true
+}

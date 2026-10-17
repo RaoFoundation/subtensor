@@ -1,0 +1,56 @@
+{
+  "comparison": "Formatting-normalized comparison is authoritative; raw SHA-256 values identify the exact source bytes.",
+  "upstream_commit": "8d456d989dce681233ef963d3c3306da8f76d7c7",
+  "files": [
+    {
+      "file": "vendor/fips204/src/conversion.rs",
+      "upstream_sha256": "eae808db881d6cb6048d517d34a3987b4e6d40270f6820d8ee6ce88c1e311b19",
+      "local_sha256": "3d30158218bffc30d67f645c2b69e25c2bfd42b3bff41fb72254287517cc10f5"
+    },
+    {
+      "file": "vendor/fips204/src/encodings.rs",
+      "upstream_sha256": "f9798a1135d75fc756a17fe1703514f72d3977d36234152faa32207c4d510b14",
+      "local_sha256": "448fada9f28517b3b9d130d4ff5b2e6e1471ed74c45d8e030185675a2fa5b3f3"
+    },
+    {
+      "file": "vendor/fips204/src/hashing.rs",
+      "upstream_sha256": "33269eaa1d05b126cc03a8c42e616aefa4a8c001bf92ea0a4a3eeeab18bd45ce",
+      "local_sha256": "368b365524aa4b8d8c318e8744a7c0804d0255216ac0cac6df886e9eb519d8b1"
+    },
+    {
+      "file": "vendor/fips204/src/helpers.rs",
+      "upstream_sha256": "97bf78a6c8e360fb8b2002b27fd17d67f5dc69a2a1c4dc2e5240b0b6ec53fdb4",
+      "local_sha256": "6625171ead7ca05893012e9d810d580de26b93501e1b943e2346d834982c66dc"
+    },
+    {
+      "file": "vendor/fips204/src/high_low.rs",
+      "upstream_sha256": "384fe7d5be5a69515f5e1a22620dd37257cc33964b7db7e73df1cf3ecf23b5db",
+      "local_sha256": "e0048cb0a42028cf3dd173c8924fe1e71eb8d17c33a0ecb1fb86c4c5ddc44e8f"
+    },
+    {
+      "file": "vendor/fips204/src/lib.rs",
+      "upstream_sha256": "fb073c02f39284431c072b587e8f97abe930c4b53fc40e47cd33f2e4c571ea0f",
+      "local_sha256": "fbaca18823d447796228027de3762226dd1f28201d1385832b3b42029216227d"
+    },
+    {
+      "file": "vendor/fips204/src/ml_dsa.rs",
+      "upstream_sha256": "8cd47b247be255f6eb2ea5e1ab9928b1fa3b27f0fafb1b06fa364c50e96013e8",
+      "local_sha256": "d4b6b435dab653f4641445aa5358f22bfcb76278494a35857fc6f047ed336b51"
+    },
+    {
+      "file": "vendor/fips204/src/ntt.rs",
+      "upstream_sha256": "934fdaf7e1bf3ffbab7316de87ede6ad630215bd1c9b386d96bc6e51ea71d76b",
+      "local_sha256": "35fb5407bd93efbc669bd514ae155b07a6b37eb36d65adcc3dfe41323ba1f9c7"
+    },
+    {
+      "file": "vendor/fips204/src/traits.rs",
+      "upstream_sha256": "1d6fe99ffbc2128629b7965b106145b63cc1e013d976545f9a7f09f321a94f1d",
+      "local_sha256": "d3796c6f91e4782612c068a83a25f5910ae7110ddd076f8dd97874c59b9d2dbe"
+    },
+    {
+      "file": "vendor/fips204/src/types.rs",
+      "upstream_sha256": "d811518ef64dbac77e0aead6f33edde8ae1ec89ef641334b6232d2a35bd1cb18",
+      "local_sha256": "e8b34e07a7d187cfacab5a94003fd046c6a39aa4a895d669e1b3eb70aa4e8c65"
+    }
+  ]
+}

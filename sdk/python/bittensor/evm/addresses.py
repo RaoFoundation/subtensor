@@ -88,11 +88,11 @@ async def resolve_evm_recipient(substrate: Any, evm_address: str) -> Recipient:
     a protected recipient's full receiving address through normal transfer
     composition, including its idempotent registration guard.
     """
-    from ..hashed import descriptor_bytes, hashed_accounts_enabled
+    from ..hashed import descriptor_bytes, protected_account_record
 
     address = normalize_h160(evm_address)
     legacy = h160_to_ss58(address)
-    if await hashed_accounts_enabled(substrate) is None:
+    if await substrate.constant("HashedAccounts", "RegistrationDeposit") is None:
         return Recipient(legacy, legacy)
     head = await substrate.block_hash()
     bound = await substrate.query("HashedAccounts", "EvmAliases", [address], block_hash=head)
@@ -108,9 +108,22 @@ async def resolve_evm_recipient(substrate: Any, evm_address: str) -> Recipient:
         if len(raw) != 32 or raw[:20] != bytes.fromhex(address[2:]):
             raise ValueError("alias does not match the bound account")
         account = ss58_encode(raw, ss58_format=SS58_FORMAT)
-        record = await substrate.query("HashedAccounts", "Accounts", [account], block_hash=head)
+        kind, record = await protected_account_record(substrate, account, block_hash=head)
         if record is None:
             raise ValueError("alias has no registered account")
+        if kind == "derived":
+            # A derived authority has no direct key descriptor or receiving
+            # guard. Its immutable binding must therefore already be final.
+            finalized = await substrate.block_hash(await substrate.finalized_block_number())
+            if not finalized:
+                raise ValueError("derived alias registration is not finalized")
+            final_bound = await substrate.query(
+                "HashedAccounts", "EvmAliases", [address], block_hash=finalized
+            )
+            final_kind, _ = await protected_account_record(substrate, account, block_hash=finalized)
+            if final_bound != bound or final_kind != "derived":
+                raise ValueError("derived alias registration is not finalized")
+            return Recipient(account, account)
         descriptor = descriptor_bytes(record["descriptor"])
         public = Keypair.from_hashed_descriptor(descriptor)
         if bytes(public.public_key) != raw:
@@ -125,7 +138,7 @@ async def resolve_evm_deposit(substrate: Any, native_address: str) -> tuple[str,
     native = parse_recipient(native_address)
     alias = ss58_to_h160_truncated(native.account)
     recipient = await resolve_evm_recipient(substrate, alias)
-    if recipient.descriptor is not None:
+    if recipient.descriptor is not None or recipient.account != h160_to_ss58(alias):
         if recipient.account != native.account:
             raise ValueError("this EVM alias belongs to another registered native account")
     elif native.descriptor is not None:
@@ -138,10 +151,13 @@ async def resolve_evm_deposit(substrate: Any, native_address: str) -> tuple[str,
 
 async def resolve_evm_funding_recipient(substrate: Any, evm_address: str) -> Recipient:
     """Resolve native funding only when its destination can be guarded atomically."""
-    from ..hashed import hashed_accounts_enabled
+    from ..hashed import hashed_accounts_enabled, protected_account_record
 
     recipient = await resolve_evm_recipient(substrate, evm_address)
     if recipient.descriptor is None and await hashed_accounts_enabled(substrate) is True:
+        kind, _ = await protected_account_record(substrate, recipient.account)
+        if kind == "derived":
+            return recipient
         raise ValueError(
             "native mirror funding is unavailable for an unprotected EVM address while hashed "
             "aliases are enabled; send from an EVM wallet to the H160 address instead"

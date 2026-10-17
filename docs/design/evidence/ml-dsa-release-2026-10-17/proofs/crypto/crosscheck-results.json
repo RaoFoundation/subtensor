@@ -1,0 +1,30 @@
+{
+  "status": "PASS",
+  "seconds": 1.801,
+  "case_counts": {
+    "primitive_public_key_equal": 256,
+    "primitive_signature_equal": 256,
+    "primitive_bidirectional_verification": 512,
+    "wrong_message_rejection": 384,
+    "wrong_context_rejection": 384,
+    "signature_single_byte_mutation_cases": 3309,
+    "public_key_single_byte_mutation_cases": 1952,
+    "malformed_hint_cases": 49,
+    "protocol_boundary_cases": 5,
+    "wallet_descriptor_and_identity_cases": 16,
+    "wallet_hkdf_generation_cases": 128,
+    "wallet_bidirectional_authorization_cases": 128,
+    "authorization_header_tamper_cases": 112,
+    "wallet_capability_derivation_cases": 256,
+    "order_transcript_cases": 128,
+    "capability_bidirectional_cases": 128
+  },
+  "primitive_transcript_sha256": "992cb01bee37151e7453086081c1db57db8a5fd7615695c50ae10b91c41038b8",
+  "liboqs_commit": "5a1a854b0dc9f2141bdc771c555ee60c37950183",
+  "mldsa_native_upstream": "9b0ee84f4cf399043eca59eca4e5f8531ca1d61b",
+  "backends": [
+    "C",
+    "X86_64"
+  ],
+  "scope": "Independent implementation interoperability, malformed inputs, protocol transcript and HKDF identity checks; not formal proof or side-channel certification."
+}

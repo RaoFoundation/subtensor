@@ -1,0 +1,57 @@
+{
+  "head": "2d5089da3bcb292cbf557d9b22ff34582e23b3f4",
+  "test_only_runtime_overlay": true,
+  "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b",
+  "node_sha256": "5cb0dc2735acdcc1d3afc16c3c389ac10020ef7d9ce0e686ad4497c7d749ae3c",
+  "chainspec_sha256": "1f06ed31986cce292db1343af9b4c1e78199c3925ff54b25c5f57b4fdeaca492",
+  "genesis_change": {
+    "alice_system_account_key": "0x26aa394eea5630e07c48ae0c9558cef7b99d880ec681799c0cf30e8886371da9de1e86a9a8c739864cf3cc5ec2bea59fd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d",
+    "nonce": 4,
+    "other_account_fields_preserved": true
+  },
+  "protocol_id": "ms-release-mldsa-20261016",
+  "fork_id": "ms-release-mldsa-20261016",
+  "rpc_ports": [
+    20444,
+    20445,
+    20446
+  ],
+  "p2p_ports": [
+    31434,
+    31435,
+    31436
+  ],
+  "normal_block_seconds": 12,
+  "archive": true,
+  "tests": {
+    "sdk/python/tests/e2e/test_mldsa_localnet.py": "85f8bfa380eec365d994fb385d8724fc5a72c968c8e7b59d141e7a0893d6d8f9",
+    "sdk/python/tests/e2e/test_wallet_types.py": "34f4cc6d83e5e843745b99c222afeb9f55714a3f27fa02a43d7e343b89bb1f53"
+  },
+  "source_note": "All8cases xdist8; shared Bob/Alice setup and whitelist RMW locked through finalization; each order worker has distinct funded relayer; network cost quote to creation locked; receipt-derived netuid.",
+  "native_sha256": "fdc0c3dbcb29d75a73956b6c6ff26b497ab7ca273f65d1640daa28f3aa7e7849",
+  "node_pids": [
+    3937744,
+    3937745,
+    3937746
+  ],
+  "launcher_session": 67593,
+  "sponsor_lock": "/tmp/ms-release-validation/mldsa-sponsor.lock",
+  "authority_rerun": {
+    "session": 7613,
+    "source_sha256": "f9d2508db8c63b432e380b4da870684b5b0e6c22ec161e7ca6d2d720c54bf720",
+    "reason": "Pool correctly returned Transaction is temporarily banned on replay; targeted rejection regex now accepts this exact replay outcome only. Malformed proofs require BadProof/bad-signature. Both reject paths additionally preserve System.Account snapshots.",
+    "command_selection": "-k offline_replay -n 2",
+    "fresh_keys": true,
+    "same_sponsor_lock": true,
+    "result": "2 passed in 705.91s (0:11:45)"
+  },
+  "final_fixture_sha256": "0bb5467007987d1e9927043205251b365cde15ccccfd10883bdb70fa4891c7dd",
+  "final_fixture_difference": "Explicit failed-derivative authority/alias rollback assertions added after worker import; equivalent finalized-block postcheck executed for both public parents.",
+  "derived_rollback_postcheck": {
+    "source_sha256": "8f30ac9f9d19be7e7d1dd0deaf511dda17320372b4e389a3d49eca8efe32983d",
+    "result": "passed codes7,8 at exact finalized inclusion blocks"
+  },
+  "initial_result": "2 failed, 6 passed in 1434.99s (0:23:54)",
+  "accepted_unique_scenarios": 8,
+  "shutdown_verified": true
+}

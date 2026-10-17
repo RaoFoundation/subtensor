@@ -1,0 +1,380 @@
+{
+  "schema_version": 1,
+  "head": "437053f80d5ebebce950602b168901bfe6591483",
+  "created_at_utc": "2026-10-17T20:40:41.249567+00:00",
+  "purpose": "Reconcile all six collected live tests not selected in the 91-case MS validation plan. Related coverage is not execution of the omitted case.",
+  "inventory": {
+    "collected_cases": 3658,
+    "distinct_offline_cases_passed": 3561,
+    "selected_live_cases": 91,
+    "unexecuted_live_cases": 6,
+    "equation": "3658 = 3561 offline + 91 selected live + 6 unselected live",
+    "selected_live_completion": "Recorded by the separate accepted-live-run evidence; this classification does not certify its completion."
+  },
+  "all_collected_live_tests_executed": false,
+  "unexecuted_tests_counted_as_passed": 0,
+  "cases": [
+    {
+      "test_id": "tests.e2e.test_emission_weights_cli::test_set_time_solve_preserves_root_via_python_sdk",
+      "pytest_nodeid": "tests/e2e/test_emission_weights_cli.py::test_set_time_solve_preserves_root_via_python_sdk",
+      "executed": false,
+      "counted_as_passed": false,
+      "source": {
+        "path": "sdk/python/tests/e2e/test_emission_weights_cli.py",
+        "line": 69,
+        "end_line": 133,
+        "sha256": "012f0b2180f267725de63bae300ed9c30dd44927f85a25e05464d073b7945633"
+      },
+      "classification": "classical_business_semantics_live_flow_unexecuted_with_offline_and_runtime_overlap",
+      "assertions_in_unexecuted_test": [
+        "SDK reads default emission weights and validator floor; rejects a below-floor plan before signing.",
+        "Submitting a 45% validator share freezes the predicted TAO weight while preserving the root share.",
+        "Restoring defaults clears the override when the owner rate-limit window permits."
+      ],
+      "relationship_to_ms_validation": "Uses the existing classical Alice wallet. This is emission allocation economics and SDK planning, not an ML-DSA-specific assertion. The generic dispatch matrix is not proof of these business-state outcomes.",
+      "related_executed_coverage": {
+        "rust": [
+          {
+            "name": "tests::emission_weights::test_set_rejects_validator_share_that_cannot_preserve_root",
+            "evidence": "preflight/full-preflight.log",
+            "line": 2717,
+            "result": "passed"
+          },
+          {
+            "name": "tests::emission_weights::test_round_trip_validator_changes_do_not_ratchet_root_share",
+            "evidence": "preflight/full-preflight.log",
+            "line": 2718,
+            "result": "passed"
+          },
+          {
+            "name": "tests::emission_weights::test_set_preserves_root_alpha_across_tao_weights_ratios_and_shares",
+            "evidence": "preflight/full-preflight.log",
+            "line": 2722,
+            "result": "passed"
+          }
+        ],
+        "sdk": [
+          {
+            "test_id": "tests.unit.test_emission_weights::test_tao_weight_after_set_mirrors_the_chain",
+            "evidence": "preflight/sdk-pytest.xml",
+            "result": "passed"
+          },
+          {
+            "test_id": "tests.unit.test_emission_weights::test_intent_plan_blocks_on_chain_rules",
+            "evidence": "preflight/sdk-pytest.xml",
+            "result": "passed"
+          },
+          {
+            "test_id": "tests.unit.test_emission_weights::test_intent_plan_renormalizes_and_reports_root_baseline",
+            "evidence": "preflight/sdk-pytest.xml",
+            "result": "passed"
+          },
+          {
+            "test_id": "tests.unit.test_emission_weights::test_read_decodes_runtime_payload",
+            "evidence": "preflight/sdk-pytest.xml",
+            "result": "passed"
+          }
+        ]
+      },
+      "not_repeated_as_this_live_test": [
+        "No live SDK plan/submit/read reconciliation of the emission TAO-weight prediction in this validation run; related unit and runtime tests are not a substitute for that integration result."
+      ]
+    },
+    {
+      "test_id": "tests.e2e.test_emission_weights_cli::test_btcli_subnets_emission_against_localnet",
+      "pytest_nodeid": "tests/e2e/test_emission_weights_cli.py::test_btcli_subnets_emission_against_localnet",
+      "executed": false,
+      "counted_as_passed": false,
+      "source": {
+        "path": "sdk/python/tests/e2e/test_emission_weights_cli.py",
+        "line": 148,
+        "end_line": 236,
+        "sha256": "012f0b2180f267725de63bae300ed9c30dd44927f85a25e05464d073b7945633"
+      },
+      "classification": "classical_cli_business_semantics_live_flow_unexecuted_with_offline_and_runtime_overlap",
+      "assertions_in_unexecuted_test": [
+        "CLI JSON show, invalid and valid dry runs, and real set-value submission against a live subnet.",
+        "Post-submit root share and effective TAO weight match the preview; owner-window rejection uses the expected exit code."
+      ],
+      "relationship_to_ms_validation": "Uses a classical Alice disk wallet and emission allocation commands. General MS CLI wallet/transaction coverage does not establish this specific command flow.",
+      "related_executed_coverage": {
+        "rust": [
+          {
+            "name": "tests::test_sudo_set_subnet_emission_weights_owner_and_rate_limit",
+            "evidence": "preflight/full-preflight.log",
+            "line": 1583,
+            "result": "passed"
+          },
+          {
+            "name": "tests::test_sudo_set_subnet_emission_weights_root_obeys_rules",
+            "evidence": "preflight/full-preflight.log",
+            "line": 1580,
+            "result": "passed"
+          },
+          {
+            "name": "tests::test_sudo_set_subnet_emission_weights_respects_freeze_window",
+            "evidence": "preflight/full-preflight.log",
+            "line": 1591,
+            "result": "passed"
+          }
+        ],
+        "sdk": [
+          {
+            "test_id": "tests.unit.test_emission_weights::test_cli_show_json_has_stable_fields",
+            "evidence": "preflight/sdk-pytest.xml",
+            "result": "passed"
+          },
+          {
+            "test_id": "tests.unit.test_emission_weights::test_cli_explains_rule_violations_before_submitting",
+            "evidence": "preflight/sdk-pytest.xml",
+            "result": "passed"
+          },
+          {
+            "test_id": "tests.unit.test_emission_weights::test_cli_set_value_submits_the_renormalized_vector",
+            "evidence": "preflight/sdk-pytest.xml",
+            "result": "passed"
+          },
+          {
+            "test_id": "tests.unit.test_emission_weights::test_cli_rate_limited_owner_is_blocked_with_exit_1",
+            "evidence": "preflight/sdk-pytest.xml",
+            "result": "passed"
+          }
+        ]
+      },
+      "not_repeated_as_this_live_test": [
+        "The emission CLI was tested offline with fixtures, not in this omitted live test. No live emission-CLI prediction or exit-code result is claimed."
+      ]
+    },
+    {
+      "test_id": "tests.e2e.test_hashed_activation::test_sudo_activation_is_live_and_root_only",
+      "pytest_nodeid": "tests/e2e/test_hashed_activation.py::test_sudo_activation_is_live_and_root_only",
+      "executed": false,
+      "counted_as_passed": false,
+      "source": {
+        "path": "sdk/python/tests/e2e/test_hashed_activation.py",
+        "line": 18,
+        "end_line": 36,
+        "sha256": "f608b826ed923e1c667e580b64365453a527f6ae2ab9269d8ddb3fd9af41c54a"
+      },
+      "classification": "feature_assertions_overlap_live_and_runtime_but_exact_live_sequence_unexecuted",
+      "assertions_in_unexecuted_test": [
+        "Fresh chain begins disabled; an ordinary signed admin toggle is denied.",
+        "Sudo toggles True/False/True/False and SDK/storage reads agree without changing spec_version."
+      ],
+      "relationship_to_ms_validation": "Directly relevant to hashed/MS activation. Completed live gates cover pause/resume and ordinary sr/ed availability; real-runtime Rust tests cover default-off and root-only origin.",
+      "related_executed_coverage": {
+        "live": [
+          {
+            "evidence": "release/results.xml",
+            "result": "passed",
+            "test_ids": [
+              "tests.e2e.test_mldsa_release::test_master_and_mldsa_gates_preserve_funds_and_resume_authority"
+            ]
+          }
+        ],
+        "rust": [
+          {
+            "name": "hashed_tests::admin_switch_defaults_off_requires_root_and_preserves_authority",
+            "evidence": "preflight/full-preflight.log",
+            "line": 1036,
+            "result": "passed"
+          },
+          {
+            "name": "hashed_tests::mldsa::admin_master_switch_pauses_ms_but_ordinary_sr_ed_transfers_still_execute",
+            "evidence": "preflight/full-preflight.log",
+            "line": 1093,
+            "result": "passed"
+          }
+        ]
+      },
+      "not_repeated_as_this_live_test": [
+        "The exact fresh-chain four-toggle sequence, SDK hashed_accounts_enabled parity, and explicit unchanged spec_version assertion were not rerun as this live test. Root-only denial was executed in the real-runtime Rust test, not claimed as this live RPC result."
+      ]
+    },
+    {
+      "test_id": "tests.e2e.test_null_consensus::test_null_yuma_null_emissions_via_python_sdk",
+      "pytest_nodeid": "tests/e2e/test_null_consensus.py::test_null_yuma_null_emissions_via_python_sdk",
+      "executed": false,
+      "counted_as_passed": false,
+      "source": {
+        "path": "sdk/python/tests/e2e/test_null_consensus.py",
+        "line": 22,
+        "end_line": 130,
+        "sha256": "a4d40ef1a07223b0e1900f6f1e8acf461e1cf2ca3a2c476641f57b8e09a998d2"
+      },
+      "classification": "classical_consensus_economics_live_cycle_unexecuted_with_partial_ms_live_and_runtime_overlap",
+      "assertions_in_unexecuted_test": [
+        "Owner switches Null/Yuma/Null and preserves/restores validator limits.",
+        "Raw 3:1 weights produce the expected miner emission ratio, and Null preserves bonds and weights.",
+        "Owner batch trimming updates the UID cap and restores a bounded Yuma validator limit."
+      ],
+      "relationship_to_ms_validation": "Full consensus/emission accounting is broader than the new key type. Both MS profiles did live owner-authorized Yuma and Null non-self/raw weight dispatch, but that does not prove the omitted complete emission cycle.",
+      "related_executed_coverage": {
+        "live": [
+          {
+            "evidence": "validators/results.xml",
+            "result": "passed",
+            "test_ids": [
+              "tests.e2e.test_mldsa_validator_paths::test_ms_validator_weights_and_commitments[7]",
+              "tests.e2e.test_mldsa_validator_paths::test_ms_validator_weights_and_commitments[8]"
+            ]
+          }
+        ],
+        "rust": [
+          {
+            "name": "tests::null_consensus_owner_switch_trim_and_emission_vector",
+            "evidence": "preflight/full-preflight.log",
+            "line": 1596,
+            "result": "passed"
+          },
+          {
+            "name": "tests::null_repeated_mode_setting_preserves_saved_yuma_validator_limit",
+            "evidence": "preflight/full-preflight.log",
+            "line": 1494,
+            "result": "passed"
+          },
+          {
+            "name": "tests::null_consensus::null_consensus_preserves_bonds_and_can_switch_back_to_yuma",
+            "evidence": "preflight/full-preflight.log",
+            "line": 3401,
+            "result": "passed"
+          },
+          {
+            "name": "tests::null_consensus::null_consensus_preserves_raw_weights_and_epoch_budget",
+            "evidence": "preflight/full-preflight.log",
+            "line": 3402,
+            "result": "passed"
+          }
+        ]
+      },
+      "not_repeated_as_this_live_test": [
+        "No live 3:1 emission-ratio assertion, complete Null/Yuma/Null cycle, or trim-and-return sequence from this named test was executed. These remain runtime-test evidence rather than a live integration claim."
+      ]
+    },
+    {
+      "test_id": "tests.e2e.test_pow_registration::test_pow_register_unfunded_coldkey_and_owner_toggle",
+      "pytest_nodeid": "tests/e2e/test_pow_registration.py::test_pow_register_unfunded_coldkey_and_owner_toggle",
+      "executed": false,
+      "counted_as_passed": false,
+      "source": {
+        "path": "sdk/python/tests/e2e/test_pow_registration.py",
+        "line": 20,
+        "end_line": 176,
+        "sha256": "6e0bbba03bf659ed0b5ef2f8d2d7be34b1c6b80722647a0b84a4b1ee7b23229d"
+      },
+      "classification": "wallet_feature_path_covered_live_six_modes_with_remaining_runtime_only_rules",
+      "assertions_in_unexecuted_test": [
+        "SDK mines and submits PoW for an unfunded classical coldkey without charging a fee, changing burn, or creating collateral.",
+        "A separate real CLI wallet registers unfunded; population, ownership, replay watermark, and owner PoW-toggle rules are checked."
+      ],
+      "relationship_to_ms_validation": "The MS-sensitive unfunded PoW path was executed by the normal CLI across plain sr/ed, hashed sr/ed, fixed MS and rotating MS. Protected storage registration is sponsored separately; the coldkey stays at zero free balance during PoW admission.",
+      "related_executed_coverage": {
+        "live": [
+          {
+            "evidence": "lifecycle/rerun-1/results.xml",
+            "result": "passed",
+            "test_ids": [
+              "tests.e2e.test_wallet_types::test_composable_wallet_lifecycle[hashed-ms]",
+              "tests.e2e.test_wallet_types::test_composable_wallet_lifecycle[standard-ed]",
+              "tests.e2e.test_wallet_types::test_composable_wallet_lifecycle[hashed-sr]",
+              "tests.e2e.test_wallet_types::test_composable_wallet_lifecycle[standard-sr]",
+              "tests.e2e.test_wallet_types::test_composable_wallet_lifecycle[hashed-ed]",
+              "tests.e2e.test_wallet_types::test_composable_wallet_lifecycle[standard-ms]"
+            ]
+          }
+        ],
+        "rust": [
+          {
+            "name": "tests::registration::pow_register_is_fee_free_and_preserves_burn_price",
+            "evidence": "preflight/full-preflight.log",
+            "line": 3444,
+            "result": "passed"
+          },
+          {
+            "name": "tests::registration::pow_register_pool_rejects_invalid_work_and_tags_valid_proofs",
+            "evidence": "preflight/full-preflight.log",
+            "line": 3445,
+            "result": "passed"
+          },
+          {
+            "name": "tests::registration::pow_register_rejects_redirected_disabled_and_stale_work_without_mutation",
+            "evidence": "preflight/full-preflight.log",
+            "line": 3446,
+            "result": "passed"
+          },
+          {
+            "name": "tests::pow_toggle_obeys_owner_cooldown_freeze_and_root_exclusion",
+            "evidence": "preflight/full-preflight.log",
+            "line": 1499,
+            "result": "passed"
+          }
+        ]
+      },
+      "not_repeated_as_this_live_test": [
+        "The omitted test combines direct mine_pow_registration SDK submission, separate CLI registration, unchanged burn/collateral/replay-watermark assertions and owner toggles in one live scenario. The completed six-mode lifecycle asserts zero free balance, owner/UID registration and protected generation; the other listed invariants have separate Rust evidence."
+      ]
+    },
+    {
+      "test_id": "tests.e2e.test_timelock_commitment::test_timelocked_commitment_reveals_via_python_sdk",
+      "pytest_nodeid": "tests/e2e/test_timelock_commitment.py::test_timelocked_commitment_reveals_via_python_sdk",
+      "executed": false,
+      "counted_as_passed": false,
+      "source": {
+        "path": "sdk/python/tests/e2e/test_timelock_commitment.py",
+        "line": 28,
+        "end_line": 86,
+        "sha256": "d2e8e65adffb35a199a56f383915002b3d045fbb261b72ec01f2fbab4a91c5db"
+      },
+      "classification": "ms_live_reveal_covered_with_cleanup_assertion_in_runtime_tests",
+      "assertions_in_unexecuted_test": [
+        "SDK encrypts a commitment for a future drand round and submits the inner ciphertext using a hotkey.",
+        "The chain reveals the expected plaintext with a nonzero reveal block and removes the pending CommitmentOf entry."
+      ],
+      "relationship_to_ms_validation": "Both fixed and rotating MS hotkeys executed this SDK encryption/Commitments.set_commitment/drand-reveal path, with finalized plaintext checks. The omitted standalone test uses classical Alice.",
+      "related_executed_coverage": {
+        "live": [
+          {
+            "evidence": "validators/results.xml",
+            "result": "passed",
+            "test_ids": [
+              "tests.e2e.test_mldsa_validator_paths::test_ms_validator_weights_and_commitments[7]",
+              "tests.e2e.test_mldsa_validator_paths::test_ms_validator_weights_and_commitments[8]"
+            ]
+          }
+        ],
+        "rust": [
+          {
+            "name": "timelock::tests::inner_ciphertext_unwraps_user_data_envelope",
+            "evidence": "preflight/full-preflight.log",
+            "line": 838,
+            "result": "passed"
+          },
+          {
+            "name": "tests::reveal_timelocked_commitment_userdata_envelope_writes_rc",
+            "evidence": "preflight/full-preflight.log",
+            "line": 1659,
+            "result": "passed"
+          },
+          {
+            "name": "tests::reveal_timelocked_commitment_single_field_entry_is_removed_after_reveal",
+            "evidence": "preflight/full-preflight.log",
+            "line": 1649,
+            "result": "passed"
+          }
+        ]
+      },
+      "not_repeated_as_this_live_test": [
+        "The standalone classical hotkey test itself was not run. The MS live tests do not repeat its explicit post-reveal CommitmentOf-is-None assertion or ciphertext-versus-envelope inequality; cleanup and inner-envelope handling have separate Rust coverage."
+      ]
+    }
+  ],
+  "evidence_sha256": {
+    "preflight/sdk-collect-latest.log": "89579c4914bf528d440ea1b0c48c6470361a9705e7616f30f0faddb9aafe72de",
+    "preflight/sdk-pytest.xml": "5c26ef221f162d8b47ece3b498df4a520733f242844e645b5946b62c0144138d",
+    "preflight/full-preflight.log": "e9e69d65214ed92b1b828bc92c3853b90a2cff39e7d67b4c5b38b1d712cd0eb2",
+    "release/results.xml": "5c9bc42c7e7a00726cc453a076a61c4600ec36702f0ad0419f7b90ccbdd54723",
+    "validators/results.xml": "d020c4ae91d3dc9323d5b23245d4751f483587c4431765fd1a1495d659629077",
+    "lifecycle/rerun-1/results.xml": "08476711a67b0c148ab283e4f1f57ff369780898ecfd5a310612bd392557a791"
+  },
+  "source_review_limit": "Source review maps overlapping assertions to verified passing test evidence. It does not establish complete integration equivalence, successful semantics for every call in the dispatch matrix, or execution of any of these six omitted live cases."
+}

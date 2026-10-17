@@ -1,0 +1,121 @@
+[
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xaf3f4148a61f486e28c5eaa74a886d1e98432fec91999602e4674469afc2758e",
+    "extrinsic_id": "76-0006",
+    "fee_tao": 6.3437e-05
+  },
+  {
+    "success": false,
+    "message": "The order has already been Fulfilled or Cancelled.",
+    "block_hash": "0x9755253aa0bfc6e4e5b980727fedb525c081b34f66bf0dd0fbd9d7557bdb8ed0",
+    "extrinsic_id": "79-0006",
+    "error": {
+      "message": "The order has already been Fulfilled or Cancelled.",
+      "name": "OrderAlreadyProcessed",
+      "code": "already_exists",
+      "remediation": "the object or state already exists; treat the goal as met or pick a different target",
+      "description": "The order id already has a terminal status: execution found it fulfilled, or `cancel_order` found any existing status for it. Check the `Orders` storage map under the blake2-256 hash of the SCALE-encoded `VersionedOrder`.",
+      "docs_url": "https://www.bittensor.com/docs/errors/chain/OrderAlreadyProcessed"
+    }
+  },
+  {
+    "success": false,
+    "message": "Order has been cancelled",
+    "block_hash": "0xcb0c7ef478455ee5a1fea2be6bda3498939d4554a921b1e0d7dcdee89c9eb9bb",
+    "extrinsic_id": "88-0006",
+    "error": {
+      "message": "Order has been cancelled",
+      "name": "OrderCancelled",
+      "code": "expired",
+      "remediation": "the window has closed; restart the flow with fresh state",
+      "description": "The order was previously cancelled via `cancel_order` and can never be executed. Check the `Orders` storage entry for the order id; a `Cancelled` status is terminal, so the signer must sign and submit a fresh order.",
+      "docs_url": "https://www.bittensor.com/docs/errors/chain/OrderCancelled"
+    }
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x50869122034e81b8cc16e62f9885cbf50beb19d2e839e89f5217d8aa427dc053",
+    "extrinsic_id": "94-0007",
+    "fee_tao": 6.6073e-05
+  },
+  {
+    "success": false,
+    "message": "The order has already been Fulfilled or Cancelled.",
+    "block_hash": "0xc8f752e309ddeba1ae84085131c9d74a14ad72c2b90484676e86ec6d8202e5b2",
+    "extrinsic_id": "97-0006",
+    "error": {
+      "message": "The order has already been Fulfilled or Cancelled.",
+      "name": "OrderAlreadyProcessed",
+      "code": "already_exists",
+      "remediation": "the object or state already exists; treat the goal as met or pick a different target",
+      "description": "The order id already has a terminal status: execution found it fulfilled, or `cancel_order` found any existing status for it. Check the `Orders` storage map under the blake2-256 hash of the SCALE-encoded `VersionedOrder`.",
+      "docs_url": "https://www.bittensor.com/docs/errors/chain/OrderAlreadyProcessed"
+    }
+  },
+  {
+    "success": false,
+    "message": "CapabilityMissing",
+    "block_hash": "0x2fb6104718354fab69dfd1fceba7a94dc683899db75bd28ddd2d89d1e2d9d3b6",
+    "extrinsic_id": "103-0006",
+    "error": {
+      "message": "CapabilityMissing",
+      "name": "CapabilityMissing",
+      "code": "not_authorized",
+      "remediation": "sign with the key or origin that owns the target object, then retry",
+      "description": "No active capability authorizes this owner's purpose key. Install the intended Order or Message capability through the owner's authority before signing.",
+      "docs_url": "https://www.bittensor.com/docs/errors/chain/CapabilityMissing"
+    }
+  },
+  {
+    "success": false,
+    "message": "This full order has not been approved by its authenticated owner.",
+    "block_hash": "0x7c1e3f555d0ba24ac416e57702136351ed0c89a8fd9e9c1b838a703357ba88c8",
+    "extrinsic_id": "109-0006",
+    "error": {
+      "message": "This full order has not been approved by its authenticated owner.",
+      "name": "OrderNotApproved",
+      "code": "not_authorized",
+      "remediation": "sign with the key or origin that owns the target object, then retry",
+      "description": "The account-approved order has no matching on-chain owner approval. Execute authorize_order through the owner's authority with the exact nonce and order.",
+      "docs_url": "https://www.bittensor.com/docs/errors/chain/OrderNotApproved"
+    }
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xed69b787a5d132ea764fedb70a5ae1908e59fd7d84f0e34ed68cb1795d9bad79",
+    "extrinsic_id": "112-0006",
+    "fee_tao": 6.3438e-05
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xdec21a8d15e1392ba1d4bdddc826b73ae8ef4ac7a5fc7fbc68d1981095f8692e",
+    "extrinsic_id": "118-0006",
+    "fee_tao": 6.6073e-05
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x1c47f05b2a7db82357b909480bd7827710f0fda0562dff5f4fb5d7e146de3cd2",
+    "extrinsic_id": "121-0006",
+    "fee_tao": 6.6073e-05
+  },
+  {
+    "success": false,
+    "message": "CapabilityScopeViolation",
+    "block_hash": "0x6f39bedf9de0bc3b624d0c7b87df306ccfcec43406aea0ca8822a9321f6a9e21",
+    "extrinsic_id": "124-0006",
+    "error": {
+      "message": "CapabilityScopeViolation",
+      "name": "CapabilityScopeViolation",
+      "code": "policy_violation",
+      "remediation": "the action exceeds a configured safety policy",
+      "description": "The operation exceeds the installed capability's identities, fee, audience, per-order amount, or total spending limits. Obtain an appropriate owner-approved grant.",
+      "docs_url": "https://www.bittensor.com/docs/errors/chain/CapabilityScopeViolation"
+    }
+  }
+]

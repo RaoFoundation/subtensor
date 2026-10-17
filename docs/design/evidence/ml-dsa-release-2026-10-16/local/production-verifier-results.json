@@ -1,0 +1,281 @@
+{
+  "cases": [
+    {
+      "apiResult": "0000",
+      "case": "valid_deterministic",
+      "dispatchResult": "Ok(())",
+      "expectedValid": true,
+      "nativeAndWasmAgree": true,
+      "orderStatus": "Some(Fulfilled)",
+      "ownerBalanceAfter": "TaoBalance(999000000000)",
+      "ownerBalanceBefore": "TaoBalance(1000000000000)",
+      "ownerStakeAfter": "AlphaBalance(1000000000)",
+      "ownerStakeBefore": "AlphaBalance(0)",
+      "signatureLength": 3309,
+      "storageRoot": "4c61948353762080f52d13c55f03caf5296a62c4530938eef2bcce1b3453b573"
+    },
+    {
+      "apiResult": "0000",
+      "case": "valid_randomized",
+      "dispatchResult": "Ok(())",
+      "expectedValid": true,
+      "nativeAndWasmAgree": true,
+      "orderStatus": "Some(Fulfilled)",
+      "ownerBalanceAfter": "TaoBalance(999000000000)",
+      "ownerBalanceBefore": "TaoBalance(1000000000000)",
+      "ownerStakeAfter": "AlphaBalance(1000000000)",
+      "ownerStakeBefore": "AlphaBalance(0)",
+      "signatureLength": 3309,
+      "storageRoot": "c45a202dfbb8951c8a6e90e802baa1c63034c247a81478838b0f245229860baf"
+    },
+    {
+      "apiResult": "0000",
+      "case": "empty_signature",
+      "dispatchResult": "Err(Module(ModuleError { index: 32, error: [0, 0, 0, 0], message: None }))",
+      "expectedValid": false,
+      "nativeAndWasmAgree": true,
+      "orderStatus": "None",
+      "ownerBalanceAfter": "TaoBalance(1000000000000)",
+      "ownerBalanceBefore": "TaoBalance(1000000000000)",
+      "ownerStakeAfter": "AlphaBalance(0)",
+      "ownerStakeBefore": "AlphaBalance(0)",
+      "signatureLength": 0,
+      "storageRoot": "8ffc1a7009304bb59cb920376a0157b3f6913d02a0f8d1af084615497e2fd10f"
+    },
+    {
+      "apiResult": "0000",
+      "case": "short_signature",
+      "dispatchResult": "Err(Module(ModuleError { index: 32, error: [0, 0, 0, 0], message: None }))",
+      "expectedValid": false,
+      "nativeAndWasmAgree": true,
+      "orderStatus": "None",
+      "ownerBalanceAfter": "TaoBalance(1000000000000)",
+      "ownerBalanceBefore": "TaoBalance(1000000000000)",
+      "ownerStakeAfter": "AlphaBalance(0)",
+      "ownerStakeBefore": "AlphaBalance(0)",
+      "signatureLength": 3308,
+      "storageRoot": "db5b7321c00df44f66cebfc668eb72050d43a56cefb6b472f7f7fce8a9139ffe"
+    },
+    {
+      "apiResult": "0000",
+      "case": "zero_signature",
+      "dispatchResult": "Err(Module(ModuleError { index: 32, error: [0, 0, 0, 0], message: None }))",
+      "expectedValid": false,
+      "nativeAndWasmAgree": true,
+      "orderStatus": "None",
+      "ownerBalanceAfter": "TaoBalance(1000000000000)",
+      "ownerBalanceBefore": "TaoBalance(1000000000000)",
+      "ownerStakeAfter": "AlphaBalance(0)",
+      "ownerStakeBefore": "AlphaBalance(0)",
+      "signatureLength": 3309,
+      "storageRoot": "b9de365272062fcac52b4fd6b1996584550149ff4eb848312b42a39481ff3f5d"
+    },
+    {
+      "apiResult": "0000",
+      "case": "wrong_context",
+      "dispatchResult": "Err(Module(ModuleError { index: 32, error: [0, 0, 0, 0], message: None }))",
+      "expectedValid": false,
+      "nativeAndWasmAgree": true,
+      "orderStatus": "None",
+      "ownerBalanceAfter": "TaoBalance(1000000000000)",
+      "ownerBalanceBefore": "TaoBalance(1000000000000)",
+      "ownerStakeAfter": "AlphaBalance(0)",
+      "ownerStakeBefore": "AlphaBalance(0)",
+      "signatureLength": 3309,
+      "storageRoot": "2daa733b7456648ea1a13095c1f74eb31994ec954b375ce0b59dc3d2a29ed80a"
+    },
+    {
+      "apiResult": "0000",
+      "case": "wrong_message",
+      "dispatchResult": "Err(Module(ModuleError { index: 32, error: [0, 0, 0, 0], message: None }))",
+      "expectedValid": false,
+      "nativeAndWasmAgree": true,
+      "orderStatus": "None",
+      "ownerBalanceAfter": "TaoBalance(1000000000000)",
+      "ownerBalanceBefore": "TaoBalance(1000000000000)",
+      "ownerStakeAfter": "AlphaBalance(0)",
+      "ownerStakeBefore": "AlphaBalance(0)",
+      "signatureLength": 3309,
+      "storageRoot": "f768efb54c5d3b7223250d490bea4bf2a4b5699fe79928090603ef66c2d63b61"
+    },
+    {
+      "apiResult": "0000",
+      "case": "challenge_bitflip",
+      "dispatchResult": "Err(Module(ModuleError { index: 32, error: [0, 0, 0, 0], message: None }))",
+      "expectedValid": false,
+      "nativeAndWasmAgree": true,
+      "orderStatus": "None",
+      "ownerBalanceAfter": "TaoBalance(1000000000000)",
+      "ownerBalanceBefore": "TaoBalance(1000000000000)",
+      "ownerStakeAfter": "AlphaBalance(0)",
+      "ownerStakeBefore": "AlphaBalance(0)",
+      "signatureLength": 3309,
+      "storageRoot": "f045ca3fb04c010b5a228e3b949c1af39890d279986bc3e86a8eea6fad45a727"
+    },
+    {
+      "apiResult": "0000",
+      "case": "response_bitflip",
+      "dispatchResult": "Err(Module(ModuleError { index: 32, error: [0, 0, 0, 0], message: None }))",
+      "expectedValid": false,
+      "nativeAndWasmAgree": true,
+      "orderStatus": "None",
+      "ownerBalanceAfter": "TaoBalance(1000000000000)",
+      "ownerBalanceBefore": "TaoBalance(1000000000000)",
+      "ownerStakeAfter": "AlphaBalance(0)",
+      "ownerStakeBefore": "AlphaBalance(0)",
+      "signatureLength": 3309,
+      "storageRoot": "bdf92ae08c3b44fc1d28b65e43534adf7861719f99d58bfb230925c1e8cdc1b1"
+    },
+    {
+      "apiResult": "0000",
+      "case": "hint_counter_out_of_range",
+      "dispatchResult": "Err(Module(ModuleError { index: 32, error: [0, 0, 0, 0], message: None }))",
+      "expectedValid": false,
+      "nativeAndWasmAgree": true,
+      "orderStatus": "None",
+      "ownerBalanceAfter": "TaoBalance(1000000000000)",
+      "ownerBalanceBefore": "TaoBalance(1000000000000)",
+      "ownerStakeAfter": "AlphaBalance(0)",
+      "ownerStakeBefore": "AlphaBalance(0)",
+      "signatureLength": 3309,
+      "storageRoot": "9a570077b159ca20b74faf493ac3d8ee95a576fa41c5dc138fc1e66c453c65a9"
+    },
+    {
+      "apiResult": "0000",
+      "case": "hint_duplicate",
+      "dispatchResult": "Err(Module(ModuleError { index: 32, error: [0, 0, 0, 0], message: None }))",
+      "expectedValid": false,
+      "nativeAndWasmAgree": true,
+      "orderStatus": "None",
+      "ownerBalanceAfter": "TaoBalance(1000000000000)",
+      "ownerBalanceBefore": "TaoBalance(1000000000000)",
+      "ownerStakeAfter": "AlphaBalance(0)",
+      "ownerStakeBefore": "AlphaBalance(0)",
+      "signatureLength": 3309,
+      "storageRoot": "fd9e24af26516ce3bc237679c05a23408c272c79aea12c6088db6931ad3dac7b"
+    },
+    {
+      "apiResult": "0000",
+      "case": "nonzero_hint_padding",
+      "dispatchResult": "Err(Module(ModuleError { index: 32, error: [0, 0, 0, 0], message: None }))",
+      "expectedValid": false,
+      "nativeAndWasmAgree": true,
+      "orderStatus": "None",
+      "ownerBalanceAfter": "TaoBalance(1000000000000)",
+      "ownerBalanceBefore": "TaoBalance(1000000000000)",
+      "ownerStakeAfter": "AlphaBalance(0)",
+      "ownerStakeBefore": "AlphaBalance(0)",
+      "signatureLength": 3309,
+      "storageRoot": "9932ea5cccc63ba0fd5a792613543d72e0ad1e577011a071255b548cb0334452"
+    }
+  ],
+  "limitations": [
+    "Ephemeral state and existing Sudo.sudo_unchecked_weight -> Utility.dispatch_as intentionally bypass dispatch weight admission only; this is not activation or throughput evidence.",
+    "The transaction-specific streaming-mu route remains unreachable before its production Weight::MAX gate; this exercises the shared pure-mode verifier via original LimitOrders.execute_orders.",
+    "Internal differential testing does not replace independent cryptographic review."
+  ],
+  "nativeEmbeddedWasmMatches": true,
+  "runtimeVersionBytes": "386e6f64652d73756274656e736f72386e6f64652d73756274656e736f7201000000e00100000100000064df6acb689907609b0500000037e397fc7c91f5e40200000040fe3ad401f8959a06000000fbc577b9d747efd601000000d2bc9897eed08f1503000000f78b278be53f454c02000000dd718d5cc53262d401000000ab3c0572291feb8b01000000ed99c5acb25eedf503000000bc9d89904f5b923f0100000037c8bb1350a9a2a804000000f3ff14d5ab52705903000000582211f65bb14b8906000000e65b00e46cedd0aa0200000068b66ba122c93fa70200000042e62be4a39e5b6001000000806df4ccaa9ed485010000008375104b299b74c5030000005d1fbfbe852f280701000000c6886e2f8e598b0a0100000043580abff6baab4505000000c0de4984d112f3b401000000cbca25e39f14238702000000a8b093e6508d9e9c010000001c4585bd5c707202010000000100000001",
+  "specVersion": 480,
+  "test": "unchanged release Wasm and matching native runtime ML-DSA order verifier differential",
+  "wasmSha256": "8a928b07796c445d864ae021562629cf9524e2a30d940e8b490234c33e769377",
+  "status": "PASS",
+  "caseCount": 12,
+  "harnessSha256": "438868385c3cac2e609a465e5c4854f2ffbff9abac8e2f8fe812fe231e37729a",
+  "launcherSha256": "9bf8495a4423cec61a8cf242fc83bd68057a8044466b074ab0dc5b3faa6c7e44",
+  "nativeNodeFingerprint": "target/release/.fingerprint/node-subtensor-b2d0c969a30cfc38/bin-node-subtensor.json",
+  "nativeRuntimeFeatures": "[\"frame-benchmarking\", \"frame-try-runtime\", \"std\", \"substrate-wasm-builder\"]",
+  "nativeArtifacts": {
+    "node_subtensor_runtime": {
+      "path": "target/release/deps/libnode_subtensor_runtime-61bc3435ebf1c3ae.rlib",
+      "sha256": "31d6db0660b54b7a0f0444e3ec0d32d8796106bb0f2dbae3dd2175da5312380b",
+      "fingerprint": "target/release/.fingerprint/node-subtensor-runtime-61bc3435ebf1c3ae/lib-node_subtensor_runtime.json"
+    },
+    "sc_executor": {
+      "path": "target/release/deps/libsc_executor-01cfb79552a8d035.rlib",
+      "sha256": "c78d1c0e5d30b4ac3625d7e4afa0852629ad29150c58f075ac9b6e408df2f964",
+      "fingerprint": "target/release/.fingerprint/sc-executor-01cfb79552a8d035/lib-sc_executor.json"
+    },
+    "sc_executor_common": {
+      "path": "target/release/deps/libsc_executor_common-6fbd340ec4d4984c.rlib",
+      "sha256": "3a100711c68e0157ff48673410fd8399e146ce2be495a0708895ce278b3dd801",
+      "fingerprint": "target/release/.fingerprint/sc-executor-common-6fbd340ec4d4984c/lib-sc_executor_common.json"
+    },
+    "codec": {
+      "path": "target/release/deps/libparity_scale_codec-32c06b3400e9bea0.rlib",
+      "sha256": "57be02cbb592620de7ec9a96cea8b77e57ad0fa90fb9eed140c9a751a62a974f",
+      "fingerprint": "target/release/.fingerprint/parity-scale-codec-32c06b3400e9bea0/lib-parity_scale_codec.json"
+    },
+    "sp_io": {
+      "path": "target/release/deps/libsp_io-c8bb46873082fc41.rlib",
+      "sha256": "5b849fca2487be813fa94ad456cee6c589630a7cf8e1d0afe887fd1cb958ef32",
+      "fingerprint": "target/release/.fingerprint/sp-io-c8bb46873082fc41/lib-sp_io.json"
+    },
+    "frame_support": {
+      "path": "target/release/deps/libframe_support-37424cedd7d5aae1.rlib",
+      "sha256": "fa9ec42b955c10d6d260ce2c207c8d488a712b0497791ec3fc15da55b1c737fe",
+      "fingerprint": "target/release/.fingerprint/frame-support-37424cedd7d5aae1/lib-frame_support.json"
+    },
+    "frame_system": {
+      "path": "target/release/deps/libframe_system-2e91e2e9bed7dd6a.rlib",
+      "sha256": "8678f56f2e94e7862c7199daebb1fab842d69696b9fd9725eaa30527078ad3dc",
+      "fingerprint": "target/release/.fingerprint/frame-system-2e91e2e9bed7dd6a/lib-frame_system.json"
+    },
+    "sp_core": {
+      "path": "target/release/deps/libsp_core-33a257e977afb56f.rlib",
+      "sha256": "6ca3a921b3fe9bbd2b7b9de3ebd17a3aa09449c4f38c13b569a393ff7fe3d694",
+      "fingerprint": "target/release/.fingerprint/sp-core-33a257e977afb56f/lib-sp_core.json"
+    },
+    "sp_runtime": {
+      "path": "target/release/deps/libsp_runtime-0738ba1787b205ca.rlib",
+      "sha256": "0b63e4e3d23162aab9ce4b7ba29131e31b64b3436ac451add82a92e6e011172d",
+      "fingerprint": "target/release/.fingerprint/sp-runtime-0738ba1787b205ca/lib-sp_runtime.json"
+    },
+    "subtensor_runtime_common": {
+      "path": "target/release/deps/libsubtensor_runtime_common-d82d3f1258a4d0ad.rlib",
+      "sha256": "2c5dc5ab7e54b9be1d70c56ddc69bf804cb1ac92c37816ffa107c3c0e8cf6bcd",
+      "fingerprint": "target/release/.fingerprint/subtensor-runtime-common-d82d3f1258a4d0ad/lib-subtensor_runtime_common.json"
+    },
+    "subtensor_hashed": {
+      "path": "target/release/deps/libsubtensor_hashed-6c034fa434257001.rlib",
+      "sha256": "b8d2c60a5a2aae6d4610516050f8b2efdc5c82a4ad48e264e59f28fcbda3e4ce",
+      "fingerprint": "target/release/.fingerprint/subtensor-hashed-6c034fa434257001/lib-subtensor_hashed.json"
+    },
+    "pallet_limit_orders": {
+      "path": "target/release/deps/libpallet_limit_orders-50d95490c72bedaf.rlib",
+      "sha256": "aaeef80807b5c1b198f5cf0f3e5ca5ddfab6034f0380c5b0cd6491c0b78ff9c0",
+      "fingerprint": "target/release/.fingerprint/pallet-limit-orders-50d95490c72bedaf/lib-pallet_limit_orders.json"
+    },
+    "pallet_hashed_accounts": {
+      "path": "target/release/deps/libpallet_hashed_accounts-e5cbfff989e71b81.rlib",
+      "sha256": "6d9ae6eb4501e4422649e6d3ddcb412f968cfb3c3e2e9cdf0f29274e9c35ba27",
+      "fingerprint": "target/release/.fingerprint/pallet-hashed-accounts-e5cbfff989e71b81/lib-pallet_hashed_accounts.json"
+    },
+    "pallet_sudo": {
+      "path": "target/release/deps/libpallet_sudo-e70366317fb95a1a.rlib",
+      "sha256": "5567a939c133b168e9cd2e6c4a9742900439fc59f82e53dd0fd0e99e205ca89d",
+      "fingerprint": "target/release/.fingerprint/pallet-sudo-e70366317fb95a1a/lib-pallet_sudo.json"
+    },
+    "pallet_subtensor_utility": {
+      "path": "target/release/deps/libpallet_subtensor_utility-cf2923c6f291e03e.rlib",
+      "sha256": "4139c6716cef117e70734e0e82cc623dd1441eed4b84ac13bedfe5913ffa280c",
+      "fingerprint": "target/release/.fingerprint/pallet-subtensor-utility-cf2923c6f291e03e/lib-pallet_subtensor_utility.json"
+    },
+    "pallet_subtensor": {
+      "path": "target/release/deps/libpallet_subtensor-6d36b4d5f6786286.rlib",
+      "sha256": "168466c1deffc0bc6d3dd5580565a3a7d5fcc8cb3cddb69785673fb3008d51cb",
+      "fingerprint": "target/release/.fingerprint/pallet-subtensor-6d36b4d5f6786286/lib-pallet_subtensor.json"
+    },
+    "serde_json": {
+      "path": "target/release/deps/libserde_json-31ba9175c7329ee2.rlib",
+      "sha256": "6c271e7efac2e1f2c2a16adea0ecb14a0000d25400829f4e1182820d07810893",
+      "fingerprint": "target/release/.fingerprint/serde_json-31ba9175c7329ee2/lib-serde_json.json"
+    },
+    "hex": {
+      "path": "target/release/deps/libhex-ae3ba25f484f0d09.rlib",
+      "sha256": "0436faaf23c93327982890e6e7194474de5011574e0764daafa58e4093c5ec47",
+      "fingerprint": "target/release/.fingerprint/hex-ae3ba25f484f0d09/lib-hex.json"
+    }
+  },
+  "rustc": "rustc 1.89.0 (29483883e 2025-08-04)\nbinary: rustc\ncommit-hash: 29483883eed69d5fb4db01964cdf2af4d86e9cb2\ncommit-date: 2025-08-04\nhost: x86_64-unknown-linux-gnu\nrelease: 1.89.0\nLLVM version: 20.1.7\n"
+}

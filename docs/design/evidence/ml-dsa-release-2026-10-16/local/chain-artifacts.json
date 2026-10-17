@@ -1,0 +1,110 @@
+{
+  "artifacts": {
+    "production/node-subtensor": {
+      "sha256": "45e229f133befe2cc1b590569123843b0e2965d2e074933de430c0736acf5d8b",
+      "size_bytes": 97714232
+    },
+    "production/node-subtensor-fixed": {
+      "sha256": "9ae119aac9c57072a90ce2724bc4e06031505ef0bd925dbc59d2ec05ce566f41",
+      "size_bytes": 97847480
+    },
+    "production/final/node-subtensor": {
+      "sha256": "5cb0dc2735acdcc1d3afc16c3c389ac10020ef7d9ce0e686ad4497c7d749ae3c",
+      "size_bytes": 97849480
+    },
+    "test-runtime.wasm": {
+      "sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b",
+      "size_bytes": 2994300
+    },
+    "production/runtime.wasm": {
+      "sha256": "124e4c6b6c7512ddc9f793f3d4e83eab4d6b1d7bc83b6f27d2bc7b51df8ae267",
+      "size_bytes": 2969710
+    },
+    "production/runtime-fixed.wasm": {
+      "sha256": "096a11ace63b14b72fdeb31eea5c6e4500cdb3ffe0fe049457a7bde08cb5a3fd",
+      "size_bytes": 2987102
+    },
+    "production/final/runtime.wasm": {
+      "sha256": "8a928b07796c445d864ae021562629cf9524e2a30d940e8b490234c33e769377",
+      "size_bytes": 2968912
+    }
+  },
+  "chains": [
+    {
+      "rpc_port": 19944,
+      "genesis": "0xcf4d757e5181d80e8b61dabddc05eb57a3df3885334701a0703ce4378298c15f",
+      "finalized_block": 270,
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "minimum_period_ms": 6000,
+      "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b",
+      "native_node": "production/node-subtensor",
+      "activated_runtime": "test-runtime.wasm"
+    },
+    {
+      "rpc_port": 20044,
+      "genesis": "0x0c5be242041eaa73415498b3681f05e7d11733758d4740d70cd554f0ba5ddee0",
+      "finalized_block": 194,
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "minimum_period_ms": 6000,
+      "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b",
+      "native_node": "production/node-subtensor-fixed",
+      "activated_runtime": "test-runtime.wasm"
+    },
+    {
+      "rpc_port": 20144,
+      "genesis": "0xa05bf3b82cf3f9797b36010ec5e652d4bb296f09b57d352f5ef778405e39d27e",
+      "finalized_block": 193,
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "minimum_period_ms": 6000,
+      "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b",
+      "native_node": "production/node-subtensor-fixed",
+      "activated_runtime": "test-runtime.wasm"
+    },
+    {
+      "rpc_port": 20244,
+      "genesis": "0x6365693095056ba7a80cb34bfe43a16a48fc617989ed81379a416c49309bced9",
+      "finalized_block": 192,
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "minimum_period_ms": 6000,
+      "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b",
+      "native_node": "production/node-subtensor-fixed",
+      "activated_runtime": "test-runtime.wasm"
+    },
+    {
+      "rpc_port": 20444,
+      "genesis": "0xda926a6f798f923be0119322a2bfc8bec87890babb6eb3fcd4c88acc5a769bbd",
+      "finalized_block": 11,
+      "health": {
+        "peers": 2,
+        "isSyncing": false,
+        "shouldHavePeers": false
+      },
+      "minimum_period_ms": 6000,
+      "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b",
+      "native_node": "production/final/node-subtensor",
+      "activated_runtime": "test-runtime.wasm"
+    }
+  ],
+  "scope": [
+    "Initial chain uses the earlier node and was upgraded to the functional test runtime before its activated suite.",
+    "Intermediate nodes contain the pending reconstruction correction; the final node additionally compiles the development-only faucet length guard.",
+    "All functional localnets execute the separately built weight overlay. Exact final production Wasm has separate native/Wasm differential evidence.",
+    "This manifest preserves distinct binaries instead of claiming every suite ran the final production artifact."
+  ]
+}

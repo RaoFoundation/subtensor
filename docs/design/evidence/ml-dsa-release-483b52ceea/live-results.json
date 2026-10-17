@@ -1,0 +1,57 @@
+{
+  "shield": {
+    "pytest_exit": 0,
+    "seconds": 276.7
+  },
+  "rpc": {
+    "rpc_exit": 1
+  },
+  "operations": {
+    "pytest_exit": 2,
+    "seconds": 570.42
+  },
+  "sponsorship": {
+    "pytest_exit": 0,
+    "seconds": 576.3
+  },
+  "nested": {
+    "pytest_exit": 0,
+    "seconds": 576.22
+  },
+  "validator-proxy": {
+    "pytest_exit": 0,
+    "seconds": 648.3
+  },
+  "validators": {
+    "pytest_exit": 0,
+    "seconds": 707.08
+  },
+  "proxy-boundaries": {
+    "pytest_exit": 0,
+    "seconds": 840.6
+  },
+  "extended": {
+    "pytest_exit": 0,
+    "seconds": 1620.57
+  },
+  "parity": {
+    "pytest_exit": 0,
+    "seconds": 1836.64
+  },
+  "authority": {
+    "pytest_exit": 0,
+    "seconds": 2016.62
+  },
+  "release": {
+    "pytest_exit": 0,
+    "seconds": 2567.46
+  },
+  "lifecycle": {
+    "pytest_exit": 0,
+    "seconds": 2711.52
+  },
+  "mixed": {
+    "pytest_exit": 0,
+    "seconds": 4644.25
+  }
+}

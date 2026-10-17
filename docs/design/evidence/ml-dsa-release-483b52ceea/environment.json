@@ -1,0 +1,29 @@
+{
+  "platform": "Linux-6.17.9-76061709-generic-x86_64-with-glibc2.35",
+  "tools": {
+    "rustc": {
+      "exit": 0,
+      "version": "rustc 1.89.0 (29483883e 2025-08-04)"
+    },
+    "cargo": {
+      "exit": 0,
+      "version": "cargo 1.89.0 (c24e10642 2025-06-23)"
+    },
+    "python": {
+      "exit": 0,
+      "version": "Python 3.12.13"
+    },
+    "node": {
+      "exit": 0,
+      "version": "v22.23.1"
+    },
+    "uv": {
+      "exit": 0,
+      "version": "uv 0.11.28 (x86_64-unknown-linux-gnu)"
+    },
+    "pnpm": {
+      "exit": 0,
+      "version": "10.34.5"
+    }
+  }
+}

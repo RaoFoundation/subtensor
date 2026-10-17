@@ -1,0 +1,52 @@
+{
+  "endpoint": "wss://archive.dev.opentensor.ai:443",
+  "genesis_hash": "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03",
+  "finalized_block_hash": "0xc6f4878f6a5ea1c102f4f5db383b076811cfb8815287d5bafef8bb3bbcbe6706",
+  "finalized_block_number": 9290353,
+  "state_root": "0x1b72cb61c0abb19fcca55ec28a5e2e29826fdbd089bf8093aca2dfe89e04a5e9",
+  "source_spec_name": "node-subtensor",
+  "source_spec_version": 479,
+  "queried_at": "2026-10-15T17:54:47.797608+00:00",
+  "acquisition": {
+    "mode": "fresh read-only archive snapshot",
+    "try_runtime_cli_version": "0.10.1",
+    "rpc_clients": 4,
+    "all_top_level_keys": true,
+    "child_tries": true,
+    "snapshot_command_template": [
+      "try-runtime",
+      "create-snapshot",
+      "<snapshot>",
+      "--uri",
+      "wss://archive.dev.opentensor.ai:443",
+      "wss://archive.dev.opentensor.ai:443",
+      "wss://archive.dev.opentensor.ai:443",
+      "wss://archive.dev.opentensor.ai:443",
+      "--at",
+      "0xc6f4878f6a5ea1c102f4f5db383b076811cfb8815287d5bafef8bb3bbcbe6706"
+    ]
+  },
+  "source_metadata": {
+    "sha256": "075ee9614fee27fb83a44bda737f6803bd3f6642d57ab492321aa47dad359080",
+    "transaction_version": 1,
+    "hashed_accounts_present": false,
+    "deployed_calls": {
+      "MevShield": [
+        "announce_next_key",
+        "submit_encrypted",
+        "store_encrypted",
+        "set_max_pending_extrinsics_number",
+        "set_on_initialize_weight",
+        "set_stored_extrinsic_lifetime",
+        "set_max_extrinsic_weight"
+      ],
+      "LimitOrders": [
+        "execute_orders",
+        "execute_batched_orders",
+        "cancel_order",
+        "set_pallet_status",
+        "prune_linked_output"
+      ]
+    }
+  }
+}

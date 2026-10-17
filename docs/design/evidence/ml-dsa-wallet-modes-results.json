@@ -1,0 +1,305 @@
+{
+  "schema_version": 1,
+  "kind": "fixed-and-rotating-wallet-mode-validation",
+  "date": "2026-10-15",
+  "branch": "codex/ml-dsa-accounts-v2",
+  "base_branch": "codex/hashed-accounts",
+  "head_and_base_commit": "f867191868d29c5b28d3afdf13f967a12f0af128",
+  "candidate_uncommitted": true,
+  "reference_weights_excluded_by_owner": true,
+  "cli_matrix": [
+    {
+      "command": "btcli wallet create --crypto-type sr",
+      "scheme": "sr",
+      "account_type": "standard",
+      "sdk_crypto_type": 1,
+      "authorization_profile": null,
+      "key_rotates_on_inclusion": false
+    },
+    {
+      "command": "btcli wallet create --crypto-type ed",
+      "scheme": "ed",
+      "account_type": "standard",
+      "sdk_crypto_type": 0,
+      "authorization_profile": null,
+      "key_rotates_on_inclusion": false
+    },
+    {
+      "command": "btcli wallet create --crypto-type ms",
+      "scheme": "ms",
+      "account_type": "standard",
+      "sdk_crypto_type": 8,
+      "authorization_profile": 5,
+      "key_rotates_on_inclusion": false
+    },
+    {
+      "command": "btcli wallet create --crypto-type sr --type hashed",
+      "scheme": "sr",
+      "account_type": "hashed",
+      "sdk_crypto_type": 4,
+      "authorization_profile": null,
+      "key_rotates_on_inclusion": true
+    },
+    {
+      "command": "btcli wallet create --crypto-type ed --type hashed",
+      "scheme": "ed",
+      "account_type": "hashed",
+      "sdk_crypto_type": 6,
+      "authorization_profile": null,
+      "key_rotates_on_inclusion": true
+    },
+    {
+      "command": "btcli wallet create --crypto-type ms --type hashed",
+      "scheme": "ms",
+      "account_type": "hashed",
+      "sdk_crypto_type": 7,
+      "authorization_profile": 4,
+      "key_rotates_on_inclusion": true
+    }
+  ],
+  "invariants": [
+    "Existing classical wallets and rotating ML-DSA code 7 / profile 4 retain identity, derivation and wire bytes.",
+    "Fixed ML-DSA code 8 / profile 5 binds account mode into its descriptor, permanent account ID and KDF; an existing account cannot switch modes.",
+    "Fixed ML-DSA preserves its transaction public key and commitment while consuming each included authorization generation; failed dispatch and Shield sequencing retain replay protection.",
+    "Rotating ML-DSA requires a nonzero, different next commitment; fixed ML-DSA requires the initial commitment as current and next.",
+    "Both profiles retain the same post-quantum owner, delegate, protected-multisig, derivative, EVM and capability rules.",
+    "Existing original dispatchables remain in use with unchanged deployed legacy call encodings; duplicate v2 dispatchables are absent.",
+    "Both profiles retain signed-v4, the existing outer MultiSignature, a 5367-byte Raw proof and the same nonzero framing carrier.",
+    "Finalized state supplies signing descriptor, generation and nonce; fixed signing rejects metadata without profile 5 before using private keys.",
+    "Descriptor-bearing recipient addresses are preserved for registration; scheme and mode are restored from versioned keyfiles."
+  ],
+  "regression_sources": [
+    "sdk/python/tests/unit/test_wallet_crypto_types.py",
+    "sdk/python/tests/unit/test_mldsa_accounts.py",
+    "sdk/python/tests/unit/test_mldsa_signing.py",
+    "sdk/python/tests/unit/test_mldsa_messages.py",
+    "sdk/python/tests/unit/test_mldsa_orders.py",
+    "sdk/python/tests/unit/test_evm_wallet_types.py",
+    "sdk/bittensor-core/src/keys/mldsa.rs",
+    "pallets/hashed-accounts/src/v2_tests.rs",
+    "runtime/src/mldsa_tests.rs",
+    "runtime/src/mldsa_order_tests.rs",
+    "runtime/src/hashed_native_evm_tests.rs",
+    "runtime/src/hashed_envelope_tests.rs"
+  ],
+  "validation_summary": "ml-dsa-local-validation-results.json",
+  "checks": [
+    {
+      "name": "workspace-tests",
+      "command": "SKIP_WASM_BUILD=1 cargo test --locked --offline --workspace --all-features",
+      "result": {
+        "passed": 3503,
+        "failed": 0,
+        "ignored": 47,
+        "target_summaries": 88
+      },
+      "log_path": "/tmp/mldsa-mode-workspace-tests.log",
+      "log_sha256": "da13112fd4aceb413efaa325c7ee94754d4cb9de55d190aeebaa41cc68162f2e",
+      "scope_note": "Followed by the final runtime rerun below after adding the explicit metadata constant name; no other Rust source changes followed the workspace suite."
+    },
+    {
+      "name": "final-runtime-suite-and-metadata-fixture",
+      "command": "ACCOUNT_ENVELOPE_FIXTURES=/tmp/mldsa-mode-envelopes.json SKIP_WASM_BUILD=1 cargo test --locked --offline -p node-subtensor-runtime --lib",
+      "result": {
+        "passed": 154,
+        "failed": 0,
+        "ignored": 0
+      },
+      "scope_note": "Final runtime source, including MldsaAccountProfiles metadata v14/v15/v16 and both fixed/rotating profile operations.",
+      "log_path": "/tmp/mldsa-mode-runtime-final.log",
+      "log_sha256": "b095252847f00130b3d1389abade170786bd440346809f39191d2bc92e2bc78c"
+    },
+    {
+      "name": "python-unit-tests",
+      "command": "PYTHONPATH=/tmp/mldsa-native-python:sdk/python sdk/python/.venv/bin/python -m pytest sdk/python/tests/unit -q",
+      "result": {
+        "passed": 2844,
+        "skipped": 1
+      },
+      "log_path": "/tmp/mldsa-mode-python-final.log",
+      "log_sha256": "c42dee6421e0a074b9d4520cd90a1ff5472de86292593258270a076a4ee5b575"
+    },
+    {
+      "name": "clippy-default",
+      "command": "SKIP_WASM_BUILD=1 cargo clippy --locked --offline --workspace --all-targets -- -D warnings",
+      "result": {
+        "passed": true
+      },
+      "log_path": "/tmp/mldsa-mode-clippy-default-final.log",
+      "log_sha256": "77fe8c1d617fc6fa5f9395cb4ec255f54945e545414694aeab90b388acadfba3"
+    },
+    {
+      "name": "clippy-all-features",
+      "command": "SKIP_WASM_BUILD=1 cargo clippy --locked --offline --workspace --all-targets --all-features -- -D warnings",
+      "result": {
+        "passed": true
+      },
+      "log_path": "/tmp/mldsa-mode-clippy-all-final.log",
+      "log_sha256": "f968da32c9dfe58db4ab0bbcccc825c55a723d5fe42ea2b1d461c87ba39b3efe"
+    },
+    {
+      "name": "release-node-and-wasm",
+      "command": "env -u SKIP_WASM_BUILD cargo build --locked --offline --release -p node-subtensor",
+      "result": {
+        "passed": true
+      },
+      "log_path": "/tmp/mldsa-mode-release-final.log",
+      "log_sha256": "e4a10fc8b50495bcc83ccd72f295d8a857236852ddf3480cef2a1bbd0d70f039"
+    },
+    {
+      "name": "production-try-runtime-wasm",
+      "command": "env -u SKIP_WASM_BUILD cargo build --locked --offline --profile production -p node-subtensor-runtime --features try-runtime",
+      "result": {
+        "passed": true
+      },
+      "log_path": "/tmp/mldsa-mode-try-runtime-build.log",
+      "log_sha256": "a401e284d84e195b2849fc8a8267d66004b77ad37186ca96e152bd9367c56838"
+    },
+    {
+      "name": "preflight",
+      "command": "PREFLIGHT_BASE=codex/hashed-accounts UV_CACHE_DIR=/tmp/mldsa-uv-cache PYTHONPATH=/tmp/mldsa-native-python:sdk/python scripts/preflight.sh",
+      "result": {
+        "passed": false,
+        "failed_gate": "push actor is unarbos",
+        "observed_actor": "UnArbosSix",
+        "required_actor": "unarbos",
+        "heavy_checks": "Skipped by preflight after actor failure; independently executed as recorded above.",
+        "exit_code": 141,
+        "technical_cheap_gates_passed": true,
+        "failure_count": 1,
+        "exit_note": "The failed-gate summary is complete; its git status | head -n 30 diagnostic then triggers SIGPIPE under pipefail on this large diff."
+      },
+      "log_path": "/tmp/mldsa-mode-preflight-final.log",
+      "log_sha256": "3809fea35ebccb57ead43b61f7a6aa14941add0c5969f672acc0a689a6e14704"
+    }
+  ],
+  "runtime_artifacts": [
+    {
+      "profile": "release",
+      "features": "default node features",
+      "path": "target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm",
+      "sha256": "3930cb27c6910a0d36d21759fc9e618301847291604715d112600b7d25dcabcb",
+      "size_bytes": 2978527
+    },
+    {
+      "profile": "production",
+      "features": "try-runtime",
+      "path": "target/production/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm",
+      "sha256": "f14681d75696dbed9c0e61d86a0ea182fc4162dd0b2fc8e6eba6e5570b5931d7",
+      "size_bytes": 2865022
+    }
+  ],
+  "native_extension": {
+    "path": "/tmp/mldsa-native-python/bittensor_core.so",
+    "sha256": "c9e8fd58a499435a9e8ab25e6fce0e9422f07da0090acae64bbece6eb59ddc0e"
+  },
+  "fixture": {
+    "path": "/tmp/mldsa-mode-envelopes.json",
+    "sha256": "f15f83394cd873f1a6539d724f45a9dfb19325812a7a7a9b0bc7166297a30c28",
+    "metadata_versions": [
+      14,
+      15,
+      16
+    ],
+    "metadata_provenance_log_sha256": "a5629f949e74b0c32ac32a062158c6c74959c8cbc6a87b27e82fed650d178cbe"
+  },
+  "client_results": {
+    "valid_sdk_mldsa_envelopes": 32,
+    "authorization_profiles": [
+      4,
+      5
+    ],
+    "polkadotjs_and_papi_call_roundtrips_per_metadata_version": 32,
+    "polkadotjs_complete_mixed_block_extrinsics": 39,
+    "legacy_native_call_roundtrips_per_supported_metadata_version": 32,
+    "native_metadata_versions_supported": [
+      14,
+      15
+    ],
+    "native_metadata_16": "Existing unsupported format in both installed and candidate bindings.",
+    "deployed_call_byte_comparisons_per_metadata_version": 29,
+    "new_authorization_call_decodes_per_metadata_version": 16
+  },
+  "mainnet_replay": {
+    "successful": true,
+    "source_block": 9290353,
+    "post_upgrade_blocks": 10,
+    "all_log_hashes_and_per_block_checks_verified": true,
+    "chain_writes": false
+  },
+  "evidence_files": [
+    {
+      "path": "ml-dsa-mainnet-upgrade-results.json",
+      "sha256": "f66c4b0654bbe4654293b35b50664aab8edb4713b755b7b369da98c325edfcfb"
+    },
+    {
+      "path": "ml-dsa-wire-codec-results.json",
+      "sha256": "6e81c4b79ed878be8357a9c7bd0d7aeb26c85abcc15582ea4d5d4b60145cfa33"
+    },
+    {
+      "path": "ml-dsa-papi-codec-results.json",
+      "sha256": "90ef58d06ce118fc36e3ff29bc6b1cdacda2a9fb7c83be14a03c01f20b3fc051"
+    },
+    {
+      "path": "ml-dsa-native-installed-results.json",
+      "sha256": "b7b086bc5091b81964d3cf103b35cb0b4cd20f9b16edcc106fa45f4820b770f7"
+    },
+    {
+      "path": "ml-dsa-native-current-results.json",
+      "sha256": "aa12ab7bf9ae8580649e3b00bbb8f462b85cecae242c4cefb3befcd36edf56b6"
+    },
+    {
+      "path": "ml-dsa-sdk-codec-results.json",
+      "sha256": "1fce5ac1770623016769a65d062af367a342d1939ef1720775523ceb614f0cb4"
+    },
+    {
+      "path": "ml-dsa-api-compatibility-results.json",
+      "sha256": "c05f2948fc06e3117498115d53de36080bb3e135def80b34dc4f14d8937bbeea"
+    },
+    {
+      "path": "ml-dsa-node-admission-results.json",
+      "sha256": "98c0fa4e0f81a50fe2d5028b8d3549a7d6a016e10e8f5fae2b41688a3ebb28d4"
+    },
+    {
+      "path": "ml-dsa-release-verifier-differential-results.json",
+      "sha256": "71700b3a798aee3a0fe54304af31d85676489b1e43ad4fc4d7e4831a953d16bd"
+    },
+    {
+      "path": "ml-dsa-operation-inventory-results.json",
+      "sha256": "9e90f367d34604d5a7ddb40ea52c3f175e5fbfcf574ad3a88a770916901ba2be"
+    }
+  ],
+  "implementation_diff": {
+    "command": [
+      "git",
+      "diff",
+      "--binary",
+      "HEAD",
+      "--",
+      "Cargo.toml",
+      "Cargo.lock",
+      "chain-extensions",
+      "eco-tests",
+      "node",
+      "pallets",
+      "primitives",
+      "runtime",
+      "runtime-common",
+      "sdk",
+      "vendor",
+      "precompiles"
+    ],
+    "sha256": "e14c1bc8bc25654ae65b4dc0da67ef56646e4da4abe1accba5297976d1a6df2e",
+    "excludes": "Documentation, validation-only harnesses/results, and website generated catalogs.",
+    "note": "Uncommitted implementation identity; artifact hashes separately identify each built Wasm."
+  },
+  "limitations": [
+    "The aggregate Rust/Python suites are unit and integration tests; ignored or skipped cases were not counted as passed.",
+    "Production ML-DSA activation remains disabled and new weights fail closed.",
+    "Preflight is not green because the configured push actor differs from repository policy.",
+    "This summary is not external cryptographic audit evidence or finalized ML-DSA block/UI validation.",
+    "No full per-call direct/proxy/multisig execution matrix or activated production ML-DSA finalized transaction is established.",
+    "The shared verifier has 12 exact-release native/Wasm differential cases; direct transaction streaming verification still stops at production Weight::MAX admission.",
+    "Current code remains at spec_version 480 and transaction_version 1; no version bump, activation, commit or push was performed."
+  ]
+}

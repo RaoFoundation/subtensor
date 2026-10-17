@@ -15,7 +15,7 @@ from .reads.identity import Commitment
 from .reads.neurons import Neuron
 from .reads.prices import SwapQuote
 from .reads.staking import StakePosition, StakeValuation
-from .reads.subnets import SubnetInfo
+from .reads.subnets import SubnetEmissionWeights, SubnetInfo
 
 class _ReadNamespace:
     def __init__(self, view: Any) -> None: ...
@@ -645,6 +645,17 @@ class Subnets(_ReadNamespace):
 
     async def subnet(self, netuid: int, *, block: Optional[int] = None) -> SubnetInfo:
         """Tempo, burn, and neuron count for one subnet (the three reads run concurrently)."""
+
+    async def subnet_emission_weights(self, netuid: int, *, block: Optional[int] = None) -> Optional[SubnetEmissionWeights]:
+        """The subnet's emission weight vector `[burn, recycle, owner, validator,
+        miner]` with the bounds that apply to it, or None if the subnet does not
+        exist (the root subnet has no vector).
+
+        Pair with the `set_subnet_emission_weights` intent: `min_validator`
+        and `created_via_lease` are the per-subnet inputs the chain uses to
+        accept or reject a change (`min_validator` moves with root stake, alpha
+        issuance and the global TAO weight, so it is a snapshot of this block).
+        """
 
     async def subnet_hyperparameters(self, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
         """All hyperparameters for a subnet, as a flat name -> raw value mapping.

@@ -2849,7 +2849,8 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Enables or disables hashed registration and signing. Root-only.
+        /// Enables or disables registration and signing for all hashed SR/ED and
+        /// fixed/rotating ML-DSA accounts. Ordinary SR/ED signing is unaffected. Root-only.
         /// Defaults off. Disabling pauses existing accounts too; their records,
         /// generations, EVM aliases and restrictions on alternate authority remain.
         #[pallet::call_index(115)]

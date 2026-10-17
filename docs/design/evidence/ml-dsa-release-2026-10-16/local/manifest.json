@@ -1,0 +1,353 @@
+{
+  "baseline": "2d5089da3bcb292cbf557d9b22ff34582e23b3f4",
+  "kind": "Public local validation evidence. Full raw logs include superseded fixture failures; final results identify accepted cases.",
+  "files": [
+    {
+      "file": "README.md",
+      "sha256": "390174b6d8b0eed94f310cae389d4fe1ecbda960ffd76ee232af40ef873a2a5c",
+      "size_bytes": 3039
+    },
+    {
+      "file": "all-localnets-shutdown.json",
+      "sha256": "dfe25a2652a8fb191df8c2f10ee67ec9d483f13b4d1ba6a10558086686913cbf",
+      "size_bytes": 920
+    },
+    {
+      "file": "api-compatibility.json",
+      "sha256": "91af01e5dcd02b460e7ac410aedaac3d166cdc6dbde70de1411156ec03bb4088",
+      "size_bytes": 895
+    },
+    {
+      "file": "chain-artifacts.json",
+      "sha256": "2e5115bab0fad148aa899f37d4f484c9e22bd3c3843fd70c1a4f7670cc2755f2",
+      "size_bytes": 4138
+    },
+    {
+      "file": "five-chain-health.json",
+      "sha256": "365d7da3cd83be1f3287772118132bc42ccb15a45c9cfdca78709ceeedf614b5",
+      "size_bytes": 2008
+    },
+    {
+      "file": "live-admission-results.json",
+      "sha256": "0437dad02a1ea4a4c2b01926802f0c6611eb699d9f62a04ea3b17480180e8637",
+      "size_bytes": 2059
+    },
+    {
+      "file": "live-codecs-results.json",
+      "sha256": "f03bf6094dff1d513521f2fd3aa68c4a75b58fb3fce3f32d76faa6ef6f441935",
+      "size_bytes": 1846
+    },
+    {
+      "file": "live-native-current-results.json",
+      "sha256": "8b2e6b9a091f1356390a89b599972dc403be3d3017627d74c40f31afdf0eda13",
+      "size_bytes": 736
+    },
+    {
+      "file": "live-native-installed-results.json",
+      "sha256": "214dbf66afb42e8fcba948be578eec4b45205e7e4fe4239172b92b3f1732d2a2",
+      "size_bytes": 743
+    },
+    {
+      "file": "live-operations-final.log.gz",
+      "sha256": "f2f7615231af6fdde08c57cc545dc149b4163710f107d33ee77426e2716cf13b",
+      "size_bytes": 664
+    },
+    {
+      "file": "live-operations-parallel.log.gz",
+      "sha256": "0eab4ae923e6bd625206a4f4d21798becf53112c3033d1540a469725f8504c8c",
+      "size_bytes": 1198
+    },
+    {
+      "file": "live-pending-independent-review.json",
+      "sha256": "e24f19a544e666d5882fb991d14a66c973e2b5378ee5ed460f799ec7e78de942",
+      "size_bytes": 1935
+    },
+    {
+      "file": "live-pending-isolation-results.json",
+      "sha256": "86ffa0e20c7fb3c5ed27928007b08cdaebbc635770751105db96c3bcc452f213",
+      "size_bytes": 3346
+    },
+    {
+      "file": "live-pending-results.json",
+      "sha256": "91b4bfd6b14bd1d1820b9851ac58837974f477bc695a724506b0d152951fbff2",
+      "size_bytes": 3215
+    },
+    {
+      "file": "live-release-final.log.gz",
+      "sha256": "840ba5ef497ddb0367ccaeacc9968ed89601cc39d081d09753f9c74ed72172a9",
+      "size_bytes": 613
+    },
+    {
+      "file": "live-release.log.gz",
+      "sha256": "171102185eb098018e5440d146c1c4109cce6896fa3f9ef4dde86d818f5be967",
+      "size_bytes": 948
+    },
+    {
+      "file": "operation-receipts/business-families-7.json",
+      "sha256": "0a8cea8a9717dce754d0806d24742d389ff5c43725fe8642d119fe05f1b3f615",
+      "size_bytes": 8007
+    },
+    {
+      "file": "operation-receipts/business-families-8.json",
+      "sha256": "bfa0caee7319a0000a877ef360132a51a840373b6dd36bf8d381360e12976f61",
+      "size_bytes": 8001
+    },
+    {
+      "file": "operation-receipts/contracts-families-7.json",
+      "sha256": "315b5eb333c4f8f261e508f47d103169f9a2db3e302087716b144def6206b292",
+      "size_bytes": 1008
+    },
+    {
+      "file": "operation-receipts/contracts-families-8.json",
+      "sha256": "f2d7982b747793c5ccbb7d8d66ca42c63f05a60d7e8b76fcdb3bfbce01b849cc",
+      "size_bytes": 1007
+    },
+    {
+      "file": "operation-receipts/crowdloan-families-7.json",
+      "sha256": "e9970a904833c327d505318ae26856744a2d4fc3ff51af699ff67ae02827044c",
+      "size_bytes": 2642
+    },
+    {
+      "file": "operation-receipts/crowdloan-families-8.json",
+      "sha256": "6fc9c6923307affcde2540a81efe2e0e014cf1c0b617a25972a856007463e155",
+      "size_bytes": 2642
+    },
+    {
+      "file": "operation-receipts/utility-preimage-7.json",
+      "sha256": "9f8e424909d41a7a132848a734cfa616f00bbfc4c39a4da009d86bd4494764c7",
+      "size_bytes": 2095
+    },
+    {
+      "file": "operation-receipts/utility-preimage-8.json",
+      "sha256": "85929d41f930e3445edc7905936e8992f593eff94ee02bedd7678ba8ce53f0e4",
+      "size_bytes": 2095
+    },
+    {
+      "file": "operations-localnet-shutdown.json",
+      "sha256": "d47cda1604f0658534ad36ceb35b4e2857776c87fe8ab96fa6106421ca5382e2",
+      "size_bytes": 1629
+    },
+    {
+      "file": "parallel-chain-health.json",
+      "sha256": "d08e8a0596f102de194f7b232ab8caa49d08b7c797b1be0dcbe6e16e0156b4e5",
+      "size_bytes": 3976
+    },
+    {
+      "file": "preflight-final-rerun.log.gz",
+      "sha256": "0cfe84e21989009cae9b0d2f931ba3c85b0cc140033e55fa4ba32176f365ca3a",
+      "size_bytes": 60117
+    },
+    {
+      "file": "preflight-ignored.log.gz",
+      "sha256": "b6547c532a90e4f3ccfaa4c89cc3d4a5df299ea99b932cf986514c8e8a0fb563",
+      "size_bytes": 1005
+    },
+    {
+      "file": "preflight-results.json",
+      "sha256": "508f86880b8ca2619d9d8b213745970a64db27d7b043f0017d977b32ca170a44",
+      "size_bytes": 2783
+    },
+    {
+      "file": "preflight-summary.log.gz",
+      "sha256": "a24447e542d401ff72015f22a5ac7738385cd6a50219e7ecfba328f1fb33fa42",
+      "size_bytes": 554
+    },
+    {
+      "file": "production-activation.json",
+      "sha256": "976900483f1f73c17836e3c5cf0f0bb3dcf34fad4b1342a669b479610084820f",
+      "size_bytes": 404
+    },
+    {
+      "file": "production-artifacts.json",
+      "sha256": "46596f4eef5aee4442b340a8a284bd15c02c5a7a21aab592d59a5d927b9f494a",
+      "size_bytes": 428
+    },
+    {
+      "file": "production-gates.json",
+      "sha256": "a7d8f2dda723f53a2d963641ec7f7a24a13b09ad5b83e9b3ab32708d0f251309",
+      "size_bytes": 2245
+    },
+    {
+      "file": "production-verifier-results.json",
+      "sha256": "ffab7e5a28bd12b60bd053ba258db4b98c19ed251fee201b6ba75b0815bdc64c",
+      "size_bytes": 14556
+    },
+    {
+      "file": "production-verifier.log.gz",
+      "sha256": "ec76ffd4b2ab513aa6778356a75da5cc1947770bef20feb9c87bf16ca99ac960",
+      "size_bytes": 315
+    },
+    {
+      "file": "release-localnet-shutdown.json",
+      "sha256": "eb2b7867206cd42035a84fdd882a08c92e4056873a602be7a6721f2e87ba17c5",
+      "size_bytes": 1534
+    },
+    {
+      "file": "release-receipts/activation-resume.json",
+      "sha256": "4c851c79f1bbdf592947e725892cd5d2257765a18af574a8b422594cd49d8bc4",
+      "size_bytes": 2694
+    },
+    {
+      "file": "release-receipts/atomic-failure-recovery-4.json",
+      "sha256": "33c8a5046cd87fbc0b8df3664d9981cb2c71903085f9616e2023f3de3107de4c",
+      "size_bytes": 592
+    },
+    {
+      "file": "release-receipts/atomic-failure-recovery-6.json",
+      "sha256": "ba323b9e2b4b3920c393dbd6df501a0315948657e60c839c0ebfc287eb5c8cc4",
+      "size_bytes": 593
+    },
+    {
+      "file": "release-receipts/atomic-failure-recovery-7.json",
+      "sha256": "010cfd2c1bc660b70c9a06ddc0684784ce9eb698c59dca35c1fda4e50d9424b3",
+      "size_bytes": 846
+    },
+    {
+      "file": "release-receipts/atomic-failure-recovery-8.json",
+      "sha256": "fd32eed59f80cd0d72069b8d6653a67678f5cd33b650a1c84c2f027778a24a97",
+      "size_bytes": 846
+    },
+    {
+      "file": "release-receipts/late-registration-4.json",
+      "sha256": "e00c4ed9008b846eb013d9b2906f0fc1c81ef8378aee05343831b27833327b10",
+      "size_bytes": 608
+    },
+    {
+      "file": "release-receipts/late-registration-6.json",
+      "sha256": "7fe8345975096e22030b4f786a709102e90312a7d012d115a09d0db9b4ec6de0",
+      "size_bytes": 609
+    },
+    {
+      "file": "release-receipts/late-registration-7.json",
+      "sha256": "ecdabe58bc4ba8cca9877202c5eabe287ee9bf3381eb438e5a94500768fddcd9",
+      "size_bytes": 608
+    },
+    {
+      "file": "release-receipts/late-registration-8.json",
+      "sha256": "4155e21803bf84311213074fd996226838cd993e08ace4f74317626c8526feb6",
+      "size_bytes": 608
+    },
+    {
+      "file": "release-receipts/proof-binding-7.json",
+      "sha256": "4fa1f283a3dbb306d1c8eb97d2fceb063f3c5aee03500d70a3454c06bae4a959",
+      "size_bytes": 962
+    },
+    {
+      "file": "release-receipts/proof-binding-8.json",
+      "sha256": "31db42b51298b4e15de22eaf7d4075187a1b0099d17fdb146a8bfaa160e1fe0e",
+      "size_bytes": 962
+    },
+    {
+      "file": "release-receipts/shield-nonce-boundary-4.json",
+      "sha256": "13edba8b271c64d0fb1616315880b00dc795e55d57967a10b0e238febfe6729f",
+      "size_bytes": 414
+    },
+    {
+      "file": "release-receipts/shield-nonce-boundary-6.json",
+      "sha256": "a1e934a8dcadf0bac5f5094d60e36675bf1bfe12c5dad7a931747cc9d645545f",
+      "size_bytes": 414
+    },
+    {
+      "file": "release-receipts/shield-nonce-boundary-7.json",
+      "sha256": "c218d0d85764b53afb594b719f710ce7dc1a82dce212944f830a4a6dc464f42d",
+      "size_bytes": 414
+    },
+    {
+      "file": "release-receipts/shield-nonce-boundary-8.json",
+      "sha256": "673af050740ddac5607a32c279efec9f830e2c325b59ba18e1151611ee2f2bc6",
+      "size_bytes": 414
+    },
+    {
+      "file": "release-receipts/strict-proof-rejections.json",
+      "sha256": "6d100abaec4cb5681674408898cbddb38cdbd581ffae1df930f1ef1a62c3256c",
+      "size_bytes": 464
+    },
+    {
+      "file": "release-receipts/sudo-authority-7.json",
+      "sha256": "f690c0d0c6f3dd41813f9aec7beb52427c016d9edaab91212579601d38b16fb9",
+      "size_bytes": 588
+    },
+    {
+      "file": "release-receipts/sudo-authority-8.json",
+      "sha256": "213fda9ee1909864768a89469a7a50d75d7da76ef09f92f5898f278973712203",
+      "size_bytes": 588
+    },
+    {
+      "file": "root-finalized-receipt-verification.json",
+      "sha256": "5b7363ff819a4ea7ea02676bbb959a4558ce6145373f9014b155945a3ed789de",
+      "size_bytes": 197551
+    },
+    {
+      "file": "root-live-results.json",
+      "sha256": "6d1b81563e8730947a58680024ad51a712bf13da550058d0908853240119178b",
+      "size_bytes": 4677
+    },
+    {
+      "file": "sdk-unit-final.log.gz",
+      "sha256": "a95f864854fba28741b524f5cb33d9bf625ddd8b7fc562161a304f5ba95dfd80",
+      "size_bytes": 216
+    },
+    {
+      "file": "test-runtime-install.json",
+      "sha256": "35b2e3ec6511fdb738b32fb7cde643d45914168ae8c9e7b5e273e39ebb91cab2",
+      "size_bytes": 325
+    },
+    {
+      "file": "test-weight-overlay.json",
+      "sha256": "8edf63474cec905b1cb8e7bb071684b23a19c4a0e872bd324a4e90f208b55d60",
+      "size_bytes": 1498
+    },
+    {
+      "file": "verify-root-receipts.py",
+      "sha256": "3efafa19b741ace3603ae70f0bb3d24512c939fe8d07979dd5f7552a4296be5b",
+      "size_bytes": 3606
+    }
+  ],
+  "compressed_logs": [
+    {
+      "file": "live-operations-final.log.gz",
+      "uncompressed_sha256": "77c74a1033f6ec1efbfd36c36d61e5b2d5540162b088c7583a99f644c6008e4a",
+      "uncompressed_size_bytes": 3025
+    },
+    {
+      "file": "live-operations-parallel.log.gz",
+      "uncompressed_sha256": "4c967a1acdf9c0863dfb44ca7b3d38ccff9818879e71ffe3ccac2ff71010699b",
+      "uncompressed_size_bytes": 4506
+    },
+    {
+      "file": "live-release-final.log.gz",
+      "uncompressed_sha256": "272891534984c11d67f041aa6ff766525096c7a01bca4427bda567ff28d1684c",
+      "uncompressed_size_bytes": 1813
+    },
+    {
+      "file": "live-release.log.gz",
+      "uncompressed_sha256": "c2ab7a34c1753ed37e402e47e24a9205dafbea62347d03d70903521f78543ebb",
+      "uncompressed_size_bytes": 3577
+    },
+    {
+      "file": "preflight-final-rerun.log.gz",
+      "uncompressed_sha256": "1f5af138e7980180bd2b771ba014737b0f1ede3b32194b35fa263af70e8e25d1",
+      "uncompressed_size_bytes": 385290
+    },
+    {
+      "file": "preflight-ignored.log.gz",
+      "uncompressed_sha256": "09002102e1c0fcd42754852455e11cecec6795f6ba3d552d41b7214af923d467",
+      "uncompressed_size_bytes": 4932
+    },
+    {
+      "file": "preflight-summary.log.gz",
+      "uncompressed_sha256": "b47306a416f716c3b4ebdf8cba44ad9fa08185ea3d6e1f8213c2d8a932b99141",
+      "uncompressed_size_bytes": 2064
+    },
+    {
+      "file": "production-verifier.log.gz",
+      "uncompressed_sha256": "309503324fa76a28a488e3e34a273bf2b16dd982939cbd5d7b42f675a2332a99",
+      "uncompressed_size_bytes": 1375
+    },
+    {
+      "file": "sdk-unit-final.log.gz",
+      "uncompressed_sha256": "c25c4ea449610d23b0a7dac4aa33722be1573521cb015e3b393e4fe987f4f3a3",
+      "uncompressed_size_bytes": 3564
+    }
+  ]
+}

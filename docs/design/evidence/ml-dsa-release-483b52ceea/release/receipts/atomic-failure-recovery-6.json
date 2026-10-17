@@ -1,0 +1,22 @@
+[
+  {
+    "success": false,
+    "message": "Other",
+    "block_hash": "0xe4bf96b26c78d1dd7b8427767738667d7747019fc190a5523eb648c41a8e0fde",
+    "extrinsic_id": "67-0006",
+    "error": {
+      "message": "Other",
+      "name": "Other",
+      "code": "unknown",
+      "remediation": "inspect the message for details",
+      "description": "An unspecified dispatch error occurred."
+    }
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x62c54f1bf67146b653ad6fc7983559a900671f4ac5b3c89cb2300b2958d4cc94",
+    "extrinsic_id": "70-0006",
+    "fee_tao": 0.000288335
+  }
+]

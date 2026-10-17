@@ -1,0 +1,47 @@
+{
+  "wasm_sha256": "124e4c6b6c7512ddc9f793f3d4e83eab4d6b1d7bc83b6f27d2bc7b51df8ae267",
+  "flags_before_rejection_tests": [
+    true,
+    true
+  ],
+  "fresh_default_flags_verified_before_activation": [
+    false,
+    false
+  ],
+  "local_activation_finalized_head": "0x25ec3effb4f3a6473cddf63198cfc035521b65783cdab3c4ef9bed05ea254b8c",
+  "cases": [
+    {
+      "crypto_type": 7,
+      "rejected": {
+        "success": false,
+        "message": "Including this extrinsic would exceed the current block's weight/length limits. Retry in a later block, or reduce the call's size/weight.",
+        "error": {
+          "message": "Including this extrinsic would exceed the current block's weight/length limits. Retry in a later block, or reduce the call's size/weight.",
+          "name": "ExhaustsResources",
+          "code": "limit_exceeded",
+          "remediation": "a chain-side capacity limit was hit; reduce the size or count of the request",
+          "description": "Including this extrinsic would exceed the current block's weight/length limits. Retry in a later block, or reduce the call's size/weight.",
+          "docs_url": "https://www.bittensor.com/docs/errors/limit-exceeded"
+        }
+      },
+      "registered": false
+    },
+    {
+      "crypto_type": 8,
+      "rejected": {
+        "success": false,
+        "message": "Including this extrinsic would exceed the current block's weight/length limits. Retry in a later block, or reduce the call's size/weight.",
+        "error": {
+          "message": "Including this extrinsic would exceed the current block's weight/length limits. Retry in a later block, or reduce the call's size/weight.",
+          "name": "ExhaustsResources",
+          "code": "limit_exceeded",
+          "remediation": "a chain-side capacity limit was hit; reduce the size or count of the request",
+          "description": "Including this extrinsic would exceed the current block's weight/length limits. Retry in a later block, or reduce the call's size/weight.",
+          "docs_url": "https://www.bittensor.com/docs/errors/limit-exceeded"
+        }
+      },
+      "registered": false
+    }
+  ],
+  "purpose": "Verify unchanged production artifact fails closed even when local storage flags are enabled."
+}

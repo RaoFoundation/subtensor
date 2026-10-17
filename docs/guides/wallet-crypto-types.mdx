@@ -1,6 +1,6 @@
 ---
 title: Wallet crypto types
-description: Create, recover, sign, and transact with standard or hashed Sr25519 and Ed25519 accounts.
+description: Create, recover, sign, and transact with fixed or rotating Sr25519, Ed25519, and ML-DSA-65 accounts.
 ---
 
 Choose the signing scheme independently from the account mode:
@@ -8,11 +8,13 @@ Choose the signing scheme independently from the account mode:
 ```bash
 btcli wallet create --crypto-type sr
 btcli wallet create --crypto-type ed
+btcli wallet create --crypto-type ms
 btcli wallet create --crypto-type sr --type hashed
 btcli wallet create --crypto-type ed --type hashed
+btcli wallet create --crypto-type ms --type hashed
 ```
 
-`--crypto-type` chooses Sr25519 (`sr`) or Ed25519 (`ed`). `--type` chooses
+`--crypto-type` chooses Sr25519 (`sr`), Ed25519 (`ed`), or post-quantum ML-DSA-65 (`ms`). `--type` chooses
 `standard` (the default, with a fixed signing key) or `hashed` (a permanent
 account whose signing key rotates on inclusion). Both choices apply to the
 coldkey and hotkey; `--hotkey-crypto-type` and `--hotkey-type` override them
@@ -22,50 +24,125 @@ independently. Ordinary commands detect both choices from the keyfile.
 | --- | --- | --- |
 | `sr` / `sr25519` | Existing Sr25519 account | Rotating Sr25519 account |
 | `ed` / `ed25519` | Existing Ed25519 account | Rotating Ed25519 account |
+| `ms` / `ml-dsa` | Fixed-key ML-DSA-65 account | Rotating ML-DSA-65 account |
 
 `--crypto-type hashed` is an alias for rotating Sr25519;
 `--crypto-type hashed-ed25519` selects rotating Ed25519. `--type hashed` alone
-uses the default Sr25519 scheme. ML-DSA (`ms`) is not supported.
+uses the default Sr25519 scheme. For existing experimental ML-DSA wallets,
+`mldsa65`, `mldsa`, `ml-dsa-65`, and numeric `7` preserve rotating mode when
+`--type` is omitted. Prefer `ms` with an explicit `--type hashed` for new rotating
+wallets. The mode is part of the permanent account identity and cannot be changed
+in place. A fixed-key ML-DSA wallet stays fixed; its inclusion counter still
+advances to reject replayed authorizations.
 
 Record both the scheme and account mode with each mnemonic. The same mnemonic
 with a different scheme or mode derives a different account. The default is
-12 words. To recover the same account, use the original scheme and mode:
+12 words for Sr25519 and Ed25519, and 24 words for ML-DSA. ML-DSA recovery
+requires the original 24-word mnemonic or 32-byte master seed. To recover the same account, use the original scheme and mode:
 
 ```bash
 btcli wallet regen-coldkey --crypto-type sr --type hashed
 btcli wallet regen-hotkey --crypto-type ed --type standard
+btcli wallet regen-coldkey --crypto-type ms --type hashed
 ```
 
 Install matching Python SDK and native `bittensor-core` builds. SDK constructors
-accept `account_type="standard"` or `account_type="hashed"`; browser constructors
-accept the mode as their final argument. Unknown signing schemes fail before
+accept `account_type="standard"` or `account_type="hashed"`. Use the matching
+native extension for ML-DSA; existing browser wallets need explicit ML-DSA signer support. Unknown signing schemes fail before
 creating or restoring a keyfile.
 
 ## Registration and authorization
 
-Hashed accounts require registration before use. Their `bth1_` receiving
-addresses carry a public registration descriptor without revealing the active
+Rotating Sr25519/Ed25519 and both ML-DSA modes require registration before use.
+Their `bth1_` (classical) or `tao_` (ML-DSA) receiving addresses carry a public registration descriptor without revealing the active
 signing public key. A wallet has the same address on every network; registration,
-balances, and generations are independent on each chain. Creating, listing, and
-restoring wallets requires no network connection.
+balances, and generations are independent on each chain. Creating and restoring
+wallets requires no network connection.
+
+`btcli wallet show` and `btcli wallet list` always show the complete **receiving
+address** first for these wallets. Share this address for payments, including
+after registration: its descriptor lets the sender check registration and
+prepare it when needed. The **Account ID (SS58)** identifies the same account in
+Polkadot.js and other explorers, but does not contain the registration descriptor.
+Ordinary standard Sr25519 and Ed25519 wallets continue to use SS58.
+
+The commands check registration at a finalized block on the selected `--network`.
+Registration status is specific to that network; it does not imply registration
+on another chain or that signing is currently enabled. This check never changes
+which address is primary.
+
+If the RPC is unavailable, the commands still show local public addresses and
+report registration as unknown. Use `--offline` to skip the check entirely.
+Creation and recovery also show both forms with registration not checked.
+The receiving address also supports watch-only recovery. JSON output exposes `ss58`,
+`receiving_address`, `primary_address`, and `registration` (with `coldkey_` or
+`hotkey_` prefixes where applicable); the existing `address` field continues to
+carry the complete receiving address. For these wallet types, `primary_address`
+always equals `receiving_address`, including after finalized registration.
 
 Transfers to a receiving address can sponsor registration. Wait for finalized
 registration before sharing a plain SS58 address or assigning account roles.
 The receiving address and canonical SS58 address identify the same account.
 Multisig and EVM payments require finalized recipient registration first.
 
+When a transfer needs to register its recipient, the CLI asks a separate
+default-No question naming the network, recipient, paying account, and exact
+deposit. This deposit is **permanently reserved from the sender**, in addition
+to the payment and transaction fees. The amount comes from that chain's
+runtime, not from a fixed CLI price. Declining submits nothing. An already
+registered recipient requires no new deposit or sponsorship prompt.
+
+`--yes` does not authorize this extra deposit. For non-interactive commands,
+explicitly set `--max-registration-deposit` to the maximum TAO you accept:
+
+```bash
+btcli wallet transfer --wallet sender --dest <receiving-address> --amount 1 \
+  --yes --max-registration-deposit 1.144
+```
+
+The command refuses a deposit above that limit. `--dry-run` shows the reserve
+without requesting consent or submitting. JSON and other non-interactive
+sessions require the explicit limit when registration is needed.
+
+The SDK also requires consent for registration it adds automatically. After
+reviewing the quote from `await client.preflight(intent, sender)`, provide a
+native TAO `Balance` limit to `client.execute` or `client.submit_shielded`:
+
+```python
+await client.execute(
+    intent,
+    sender,
+    max_registration_deposit=bt.Balance.from_tao("1.144"),
+)
+```
+
+Alternatively, `on_registration_sponsorship` receives a quote with
+`recipient_account`, `payer_account`, and `deposit`; it must explicitly return
+`True` to approve. The SDK never opens an interactive prompt itself. If both a
+limit and callback are supplied, both must approve. Consent is checked against
+the composed transaction before signing, including for Shield submissions.
+An explicitly constructed raw registration call remains an explicit operation.
+
 Hashed accounts require hashed proxy delegates and, when used as hotkeys, hashed
 coldkey owners. Hashed Sr25519 and Ed25519 can control each other. Registration
 rejects an existing unprotected owner, and coldkey swaps preserve that policy.
-Standard accounts retain their existing rules.
+Both ML-DSA modes require post-quantum authority for delegates and owners;
+fixed ML-DSA receives the same protections as rotating ML-DSA. A protected
+multisig must require at least one protected post-quantum member in every
+possible quorum. Ordinary fixed Sr25519 and Ed25519 accounts retain their rules.
 
-Root controls registration and signing through
+Root controls registration and signing for all hashed Sr25519/Ed25519 and fixed
+or rotating ML-DSA accounts through
 `AdminUtils.sudo_set_hashed_accounts_enabled(enabled)`. The current value is in
-`AdminUtils.HashedAccountsEnabled`; its default is false. Disabling pauses both
-new registration and existing hashed signing, preserving all account records,
-generations, and EVM aliases. Standard wallets are unaffected. Authorization
-weights must be benchmarked on reference hardware before enabling the feature;
-unmeasured weights fail closed.
+`AdminUtils.HashedAccountsEnabled`; its default is false. Disabling pauses new
+registration and existing signing for these accounts, preserving all records,
+generations, and EVM aliases. Ordinary fixed Sr25519/Ed25519 wallets are unaffected.
+The chain must also support the wallet's account profile and have usable
+reference-measured authorization weights. Fixed ML-DSA requires metadata
+advertising profile 5 in `MldsaAccountProfiles`.
+Wallet creation is local; transaction use requires a compatible, activated chain.
+See the [ML-DSA specification](/docs/design/ml-dsa-accounts-spec) for protocol
+and activation requirements.
 
 For fee-free PoW admission, register both hashed keys through a sponsor and wait
 for finalization. `btcli subnets register --pow` then submits the PoW operation
@@ -74,7 +151,7 @@ without a registration batch. The sponsor pays the separate setup reserve.
 ## Transactions and client compatibility
 
 The SDK reads the permanent account's generation and nonce before signing.
-A hashed transaction uses the standard signed-v4 layout and a standard Sr25519
+A classical hashed transaction uses the standard signed-v4 layout and a standard Sr25519
 or Ed25519 signature. The operation remains the top-level call, such as
 `Balances.transfer_keep_alive` or `SubtensorModule.burned_register`; there is no
 account wrapper call.
@@ -99,6 +176,13 @@ bytes until they recognize the hashed signer format. Recipient addresses remain 
 Creating hashed transactions still requires a wallet that understands key
 derivation, registration and the signed address format.
 
+Both ML-DSA modes use the same signed-v4 envelope, with a 5,367-byte Raw proof
+and a fixed nonzero carrier in the unchanged Ed25519 signature field. That
+carrier is framing only; the runtime verifies the actual ML-DSA proof over the
+complete transaction payload. Existing block decoders keep their original
+signature type. Fixed ML-DSA consumes an authorization counter without changing
+its public key; rotating ML-DSA changes both counter and key commitment.
+
 Hashing and rotation do not make classical signatures quantum-resistant: a
 transaction reveals its current public key even if it is dropped before inclusion.
 
@@ -110,11 +194,17 @@ uses the descriptor in a receiving address. With plain SS58, supply the trusted
 signing scheme and account mode, for example `--crypto-type sr --type hashed`.
 The verifier never guesses the scheme from the signature.
 
-Hashed message signatures use the retired generation-zero identity key and a
+Classical hashed message signatures use the retired generation-zero identity key and a
 separate signing domain. First include a transaction retiring generation zero;
 the CLI checks finalized state before revealing that retired key. SDK callers
 pass the finalized generation as `hashed_generation` to `wallets.sign_message`,
 or select it with `key.at_generation(generation)`.
 
-HTTP servers must pass `expected_crypto_type` to `http_auth.verify` from trusted
+Both ML-DSA modes sign messages through an owner-approved, finalized message
+capability with a separate purpose key and epoch. The CLI resolves that capability
+before signing or verification; it never exposes the transaction key for an
+arbitrary message. HTTP applications use the ML-DSA capability protocol and must
+resolve its owner, audience, epoch, expiry and commitment from trusted state.
+
+For classical HTTP signatures, servers must pass `expected_crypto_type` to `http_auth.verify` from trusted
 configuration or registry state. The request's crypto header is not trusted.

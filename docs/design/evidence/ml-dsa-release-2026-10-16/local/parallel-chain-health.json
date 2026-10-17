@@ -1,0 +1,98 @@
+[
+  {
+    "port": 19944,
+    "health": {
+      "peers": 2,
+      "isSyncing": false,
+      "shouldHavePeers": false
+    },
+    "head": {
+      "parentHash": "0x3dfd1f111caec096bafc682ece7b1f729ae91c18dc8c81f1eba6a2ff66ab2121",
+      "number": "0x50",
+      "stateRoot": "0xf14935ec9535279233f169f2209751297263cc5e5e5e4c0e1609cdb3bbfefd31",
+      "extrinsicsRoot": "0x1bde5b18ed8cb632551c86e310c488ffd10d5045dc97f0f9939cf4bbf0d25f17",
+      "digest": {
+        "logs": [
+          "0x06617572612047e0e60800000000",
+          "0x0466726f6e880171c48ae42d0a9d1d62f513319d7bb43cb26d073cd8b33f2c20a6648c65de99f700",
+          "0x05617572610101b0857bb17192f208fc208c3ae40902126a46082e954f35c4ae0bbdf6c31bd8357e93b1f43d74803fa84f13a6ba3de93dbe21051b8c73c47b9f4e5b5c09c7538a"
+        ]
+      }
+    },
+    "finalized": "0x2f809ef830b75d8138a6ac1f37daa2e08d5f4b0981733a1d69783758a4838a86",
+    "genesis": "0xcf4d757e5181d80e8b61dabddc05eb57a3df3885334701a0703ce4378298c15f",
+    "minimum_period": 6000
+  },
+  {
+    "port": 20044,
+    "health": {
+      "peers": 2,
+      "isSyncing": false,
+      "shouldHavePeers": false
+    },
+    "head": {
+      "parentHash": "0x819df62440c78d73d5c4d15f7323b03de5cbf274c2ada32b18d38d613d3f218e",
+      "number": "0x4",
+      "stateRoot": "0xf8bd2b4845252bcfde1c94e753e9535b5e3e7ea8f6fd7a40d8b1cb8751cd987f",
+      "extrinsicsRoot": "0x82f42d0e0b47e66a7cfc4a18a14f377fac6b84ca58d81f79093f630eb7a93d85",
+      "digest": {
+        "logs": [
+          "0x06617572612047e0e60800000000",
+          "0x0466726f6e8801242b3094ee541f571994c2e8b0c0eabe0cf212f78f60e2b7b4591c01cfa1908b00",
+          "0x05617572610101702a52bc4177a53523ea728284e397cc88f1c72c09466d9267f76fae096fcc7202cf9dcdfe99fec3d946aa702e7e1e93451b6fe56b6cfa99e0b95c583f026684"
+        ]
+      }
+    },
+    "finalized": "0xf657ba25ef74e5e3ba765006034aff10b55eb536b8cf0bc5ff4b136d1e7338c7",
+    "genesis": "0x0c5be242041eaa73415498b3681f05e7d11733758d4740d70cd554f0ba5ddee0",
+    "minimum_period": 6000
+  },
+  {
+    "port": 20144,
+    "health": {
+      "peers": 2,
+      "isSyncing": false,
+      "shouldHavePeers": false
+    },
+    "head": {
+      "parentHash": "0xcc7e2cffce4006a0ec45a657db067c37b72941cf337c34c60c36811fe3fbf5db",
+      "number": "0x3",
+      "stateRoot": "0x3f0a04cdf27bd8af752f47283859bb61bb33df25c8400181472d532e1ad43ade",
+      "extrinsicsRoot": "0x655a91fe8bdd857fbc12de1295ce13a095cb65adc00821f6e4d9919cad4b74e6",
+      "digest": {
+        "logs": [
+          "0x06617572612047e0e60800000000",
+          "0x0466726f6e880122fc46b0b2a9809eb6aa626714ea8868cc99d48f5d62aff59739210052e2143d00",
+          "0x05617572610101bad1558609e438cc3906fc2cd46580e22adf0d177e2e686f59830bd35f477e7a91340fc51992e76f276530958a0ee48492855a4f65218d089abf54c6b535748d"
+        ]
+      }
+    },
+    "finalized": "0x6ed9dfa7a1afeb959b1279107555aa226b83764a9df78f1a48b21622274e84ae",
+    "genesis": "0xa05bf3b82cf3f9797b36010ec5e652d4bb296f09b57d352f5ef778405e39d27e",
+    "minimum_period": 6000
+  },
+  {
+    "port": 20244,
+    "health": {
+      "peers": 2,
+      "isSyncing": false,
+      "shouldHavePeers": false
+    },
+    "head": {
+      "parentHash": "0x81d19fb6a6622adfba8c4568bb05f57abece6c2b2a8072865666be1032db70d3",
+      "number": "0x2",
+      "stateRoot": "0x8b107a93347fd3ee10f5540065cc71ecab2a72140e65d024771e0cc37237fd01",
+      "extrinsicsRoot": "0xd7c5e98595c34fa9ede27f725e47a60d9b57fabe8e93f2a8bc8b8cd95f967e1f",
+      "digest": {
+        "logs": [
+          "0x06617572612047e0e60800000000",
+          "0x0466726f6e8801ec7ab2978900e196c1ce24d6383a56bad57ef960042c2b4b5c8571c403a5f6a900",
+          "0x05617572610101da0451f42454b8e34e3742d4f9a26b711c44fd42f68afc0fc342afff646bca3c64aa500d9c75a8ec974eda50bcb0075a78c868073a5c3b14ce713b5fba5fb58d"
+        ]
+      }
+    },
+    "finalized": "0x6365693095056ba7a80cb34bfe43a16a48fc617989ed81379a416c49309bced9",
+    "genesis": "0x6365693095056ba7a80cb34bfe43a16a48fc617989ed81379a416c49309bced9",
+    "minimum_period": 6000
+  }
+]

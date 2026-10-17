@@ -1,0 +1,68 @@
+{
+  "candidate": "437053f80d5ebebce950602b168901bfe6591483",
+  "cases": [
+    {
+      "crypto_type": 7,
+      "evidence_sha256": "ac369bfe467a66ad541bd5ffc1020cfbe4776b3c9deefb3c7667a11fb6f0b443",
+      "netuid": 5,
+      "terminal_extrinsic_id": "140-0006",
+      "terminal_block_hash": "0x75fa09238d48e8edbf2945eeabddf48ee7d3fec4fd9b30c9722b7c4b8f1f957f",
+      "weights": [
+        [
+          1,
+          65535
+        ]
+      ],
+      "authorities": {
+        "validator": {
+          "address": "5GFcVj6PXJ8j2DESunL1dDMAfoVrjDodRmfsAKk1ghHLQKrf",
+          "initial_nonce": 1,
+          "nonce": 3,
+          "generation": 2
+        },
+        "delegate": {
+          "address": "5CUt1TtQ1UgFY4syS4eq23pvgsXQCn4kmmGVnKXnLg5FR8vZ",
+          "initial_nonce": 1,
+          "nonce": 4,
+          "generation": 3
+        }
+      },
+      "proxy_removed": true,
+      "verified": true
+    },
+    {
+      "crypto_type": 8,
+      "evidence_sha256": "79dff67353741088fb4a5e0f911a9a442596286fe3cce3b6674a088ee5f31318",
+      "netuid": 4,
+      "terminal_extrinsic_id": "137-0007",
+      "terminal_block_hash": "0x7d6e947e6daab728e054287943cbe36f8a7f0d7ef37da1600f838d63d70bcff1",
+      "weights": [
+        [
+          1,
+          65535
+        ]
+      ],
+      "authorities": {
+        "validator": {
+          "address": "5FPobqP8CWfpMXZ6Qkd2wEnThFR9v2Rpr945LqbS2q1Gb5Rr",
+          "initial_nonce": 1,
+          "nonce": 3,
+          "generation": 2
+        },
+        "delegate": {
+          "address": "5DPEoVNj27vKPVuEbscVtDUVmF69UQD67YyatEMXjcVGcDZP",
+          "initial_nonce": 1,
+          "nonce": 4,
+          "generation": 3
+        }
+      },
+      "proxy_removed": true,
+      "verified": true
+    }
+  ],
+  "finalized_snapshot": {
+    "height": 150,
+    "hash": "0xd6b8e13e7333e817f69da8f46b580e4871e0b758812bd64ef631948b1bfe11b8"
+  },
+  "all_verified": true
+}

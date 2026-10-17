@@ -22,6 +22,7 @@ from rich.constrain import Constrain
 from rich.markup import escape
 from rich.padding import Padding
 from rich.prompt import Confirm
+from rich.segment import Segments
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
@@ -832,6 +833,100 @@ class Output:
             self._out.print()
             self._sub_diag("help", hint, console=self._out)
 
+    def _wallet_address_rows(self, record: dict[str, Any]) -> list[tuple[str, str]]:
+        """Keep the shareable descriptor first and explain the explorer identity."""
+        status = record.get("registration", "not_checked")
+        network = record.get("registration_network") or self.network or "selected network"
+        ss58 = ("Account ID (SS58)", str(record.get("ss58") or "unavailable"))
+        receiving = ("Receiving address", str(record["receiving_address"]))
+        descriptions = {
+            "registered": f"Registered on {network} (finalized).",
+            "not_checked": f"Registration not checked on {network}",
+            "unregistered": f"Not registered on {network}",
+            "unavailable": f"Registration check unavailable on {network}",
+            "mismatch": (
+                f"Registration on {network} does not match this wallet; "
+                "do not use or publicly share either address."
+            ),
+        }
+        status_note = descriptions.get(status, f"Registration unconfirmed on {network}")
+        if status == "unregistered":
+            status_note += "; finalize registration before publicly sharing either address."
+        elif status not in ("registered", "mismatch"):
+            status_note += (
+                "; confirm finalized registration before publicly sharing either address."
+            )
+        if status != "mismatch":
+            status_note += (
+                " Use the receiving address for transactions; "
+                "explorers display the same account as SS58."
+            )
+        return [
+            receiving,
+            ss58,
+            ("Address info", status_note),
+        ]
+
+    def wallet_detail(
+        self,
+        title: Optional[str],
+        fields: dict[str, Any],
+        json_fields: Optional[dict[str, Any]] = None,
+        *,
+        docs: Optional[list[str]] = None,
+    ) -> None:
+        """Show both wallet address forms without duplicating machine aliases."""
+        if self.json_mode:
+            self.detail(title, fields, json_fields, docs=docs)
+            return
+        prefixes = [
+            prefix
+            for prefix in ("", "coldkey_", "hotkey_")
+            if fields.get(prefix + "receiving_address")
+        ]
+        suffixes = (
+            "ss58",
+            "address",
+            "receiving_address",
+            "primary_address",
+            "registration",
+            "registration_network",
+            "registration_block_hash",
+        )
+        groups = {prefix + suffix: prefix for prefix in prefixes for suffix in suffixes}
+        type_suffixes = ("crypto_type", "account_type", "signing_scheme")
+        type_groups = {
+            prefix + suffix: prefix
+            for prefix in ("", "coldkey_", "hotkey_")
+            if all(fields.get(prefix + suffix) for suffix in type_suffixes)
+            for suffix in type_suffixes
+        }
+        shown: set[str] = set()
+        shown_types: set[str] = set()
+        display: dict[str, Any] = {}
+        for key, value in fields.items():
+            if key in type_groups:
+                prefix = type_groups[key]
+                if prefix not in shown_types:
+                    shown_types.add(prefix)
+                    role = prefix.rstrip("_")
+                    display[f"{role} Type" if role else "Type"] = (
+                        f"{fields[prefix + 'signing_scheme']}, {fields[prefix + 'account_type']}"
+                    )
+                continue
+            if key not in groups:
+                display[key] = value
+                continue
+            prefix = groups[key]
+            if prefix in shown:
+                continue
+            shown.add(prefix)
+            record = {suffix: fields.get(prefix + suffix) for suffix in suffixes}
+            role = prefix.rstrip("_")
+            for label, address_value in self._wallet_address_rows(record):
+                display[f"{role} {label}" if role else label] = address_value
+        self.detail(title, display, docs=docs)
+
     def _print_fields(self, fields: dict[str, Any], indent: int = 2) -> None:
         """Aligned key/value block: dim keys, values colored by semantic role.
 
@@ -864,7 +959,10 @@ class Output:
             line.append("  ")
             if isinstance(value, list):
                 value = ", ".join(str(item) for item in value)
-            if label.endswith("netuid") and str(value).isdigit():
+            if label.lower().endswith("receiving address"):
+                # Descriptors are copy targets, not explorer account IDs.
+                line.append(str(value), style=STYLE_ADDRESS)
+            elif label.endswith("netuid") and str(value).isdigit():
                 line.append_text(self.subnet_text(value))
             else:
                 line.append_text(
@@ -1784,15 +1882,32 @@ class Output:
         count: int | None = None,
         crypto_type: str | None = None,
         kind: str | None = None,
+        error: str | None = None,
+        note: str | None = None,
+        address_record: dict[str, Any] | None = None,
     ) -> Text:
-        node = Text()
+        node = Text(overflow="ignore", no_wrap=True)
         node.append(name, style=name_style)
         if crypto_type:
             node.append(f"  ({crypto_type})", style=STYLE_CRYPTO)
         if count:
             suffix = "hotkey" if count == 1 else "hotkeys"
             node.append(f"  ({count} {suffix})", style="dim")
-        if ss58 and ss58 != name:
+        if error:
+            node.append("\n")
+            node.append(error, style=f"dim {PASTEL_RED}")
+        elif note:
+            node.append("\n")
+            node.append(note, style="dim")
+        elif address_record and address_record.get("receiving_address"):
+            for label, value in self._wallet_address_rows(address_record):
+                node.append("\n")
+                node.append(f"{label}: ", style=STYLE_KEY)
+                url = (
+                    self.account_url(value, kind) if label == "Account ID (SS58)" and kind else None
+                )
+                node.append(value, style=f"link {url}" if url else STYLE_ADDRESS)
+        elif ss58 and ss58 != name:
             node.append("\n")
             url = self.account_url(ss58, kind) if kind else None
             node.append(ss58, style=f"dim link {url}" if url else "dim")
@@ -1800,6 +1915,23 @@ class Output:
             node.append("\n")
             node.append("—", style=f"dim {PASTEL_RED}")
         return node
+
+    def _print_wallet_tree(self, root: Tree) -> None:
+        """Preserve copyable addresses even when the terminal is narrower."""
+        width = self._out.width
+        pending = [(root, 0)]
+        while pending:
+            tree, depth = pending.pop()
+            label = tree.label
+            text = label.plain if isinstance(label, Text) else Text.from_markup(str(label)).plain
+            width = max(
+                width, max((cell_len(line) for line in text.splitlines()), default=0) + depth * 4
+            )
+            pending.extend((child, depth + 1) for child in tree.children)
+        # Console.print clamps its width argument to the terminal width. Render
+        # the tree at its full width first so Tree cannot crop copy targets.
+        segments = self._out.render(root, self._out.options.update(width=width))
+        self._out.print(Segments(segments), soft_wrap=True)
 
     @staticmethod
     def _named_label_text(text: str, *, name_style: str = STYLE_NAME) -> Text:
@@ -1875,6 +2007,9 @@ class Output:
                         else ck.get("crypto_type")
                     ),
                     kind="coldkey",
+                    error=ck.get("error"),
+                    note=ck.get("note"),
+                    address_record=ck,
                 )
             )
             if not hotkeys:
@@ -1892,10 +2027,13 @@ class Output:
                             else hk.get("crypto_type")
                         ),
                         kind="hotkey",
+                        error=hk.get("error"),
+                        note=hk.get("note"),
+                        address_record=hk,
                     )
                 )
 
-        self._out.print(root)
+        self._print_wallet_tree(root)
 
         total_coldkeys = len(records)
         total_hotkeys = sum(len(ck.get("hotkeys", [])) for ck in records)

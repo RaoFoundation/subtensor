@@ -9,12 +9,18 @@
 extern crate alloc;
 
 pub use pallet::*;
-pub use subtensor_hashed::{Descriptor, Proof, Scheme};
+pub use subtensor_hashed::{Descriptor, Proof, RegistrationDescriptor, Scheme};
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+mod mldsa;
+#[cfg(test)]
+mod mldsa_tests;
 #[cfg(test)]
 mod tests;
 pub mod weights;
+pub use mldsa::*;
+pub mod capabilities;
+pub use capabilities::*;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::{
@@ -38,9 +44,79 @@ pub trait OnRegister {
         descriptor: &Descriptor,
     ) -> DispatchResult;
 
+    /// Validate registration context, preexisting authorities, and prepare the
+    /// permanent EVM alias. A runtime must implement this before enabling ML-DSA.
+    fn on_register_mldsa(
+        _: &AccountId32,
+        _: &AccountId32,
+        _: &subtensor_hashed::mldsa::Descriptor,
+    ) -> DispatchResult {
+        Err(sp_runtime::DispatchError::Other(
+            "MlDsaRegistrationUnsupported",
+        ))
+    }
+
+    /// Validate the actual derived dispatch/creation context and every existing
+    /// control path. Sponsors cannot erase existing privileges to upgrade them.
+    fn on_register_derived(
+        _: &AccountId32,
+        _: &AccountId32,
+        _: &DerivedDescriptor,
+    ) -> DispatchResult {
+        Err(sp_runtime::DispatchError::Other(
+            "DerivedRegistrationUnsupported",
+        ))
+    }
+
+    /// Verify explicit deposit consent by the authenticated outer signer. The
+    /// derived owner must independently authorize registration through its own
+    /// dispatch origin; sponsorship never establishes account authority.
+    fn on_sponsored_deposit(
+        _: &AccountId32,
+        _: &AccountId32,
+        _: &DerivedDescriptor,
+    ) -> DispatchResult {
+        Err(sp_runtime::DispatchError::Other(
+            "DerivedSponsorshipUnsupported",
+        ))
+    }
+
     #[cfg(feature = "runtime-benchmarks")]
     fn setup_benchmark(_: &AccountId32, _: &AccountId32, _: &Descriptor) -> DispatchResult {
         Ok(())
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn setup_benchmark_mldsa(
+        _: &AccountId32,
+        _: &AccountId32,
+        _: &subtensor_hashed::mldsa::Descriptor,
+    ) -> DispatchResult {
+        Err(sp_runtime::DispatchError::Other(
+            "MlDsaBenchmarkUnsupported",
+        ))
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn setup_benchmark_derived(
+        _: &AccountId32,
+        _: &AccountId32,
+        _: &DerivedDescriptor,
+    ) -> DispatchResult {
+        Err(sp_runtime::DispatchError::Other(
+            "DerivedBenchmarkUnsupported",
+        ))
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn setup_benchmark_sponsored(
+        _: &AccountId32,
+        _: &AccountId32,
+        _: &DerivedDescriptor,
+    ) -> DispatchResult {
+        Err(sp_runtime::DispatchError::Other(
+            "DerivedSponsorshipBenchmarkUnsupported",
+        ))
     }
 }
 
@@ -83,7 +159,12 @@ pub mod pallet {
         type Currency: ReservableCurrency<AccountId32>;
         #[pallet::constant]
         type RegistrationDeposit: Get<BalanceOf<Self>>;
-        /// Current registration and authorization switch, read from runtime storage.
+        #[pallet::constant]
+        type MlDsaRegistrationDeposit: Get<BalanceOf<Self>>;
+        #[pallet::constant]
+        type DerivedRegistrationDeposit: Get<BalanceOf<Self>>;
+        /// Master registration and authorization switch for all hashed and ML-DSA accounts.
+        /// Permanent identity and authority protections survive disabling it.
         type Enabled: Get<bool>;
         type OnRegister: OnRegister;
         type WeightInfo: WeightInfo;
@@ -101,6 +182,39 @@ pub mod pallet {
     #[pallet::storage]
     pub type EvmAliases<T: Config> = StorageMap<_, Blake2_128Concat, [u8; 20], AccountId32>;
 
+    /// Separate storage preserves every v1 record's encoded representation.
+    #[pallet::storage]
+    #[pallet::getter(fn mldsa_accounts)]
+    pub type MlDsaAccounts<T: Config> =
+        StorageMap<_, Blake2_128Concat, AccountId32, MlDsaAccountRecord>;
+
+    /// Immutable protection, including after a pure proxy is killed.
+    #[pallet::storage]
+    #[pallet::getter(fn derived_authorities)]
+    pub type DerivedAuthorities<T: Config> =
+        StorageMap<_, Blake2_128Concat, AccountId32, DerivedAuthorityRecord>;
+
+    #[pallet::storage]
+    pub type CapabilityEpochs<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        AccountId32,
+        Twox64Concat,
+        CapabilityRole,
+        u64,
+        ValueQuery,
+    >;
+
+    #[pallet::storage]
+    pub type ActiveCapabilities<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        AccountId32,
+        Twox64Concat,
+        CapabilityRole,
+        CapabilityRecord,
+    >;
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -113,6 +227,48 @@ pub mod pallet {
             account: AccountId32,
             generation: u64,
         },
+        RegisteredMlDsa {
+            account: AccountId32,
+            sponsor: AccountId32,
+            deposit: BalanceOf<T>,
+        },
+        RotatedMlDsa {
+            account: AccountId32,
+            generation: u64,
+        },
+        DerivedProtected {
+            account: AccountId32,
+            sponsor: AccountId32,
+            deposit: BalanceOf<T>,
+        },
+        CapabilityInstalled {
+            owner: AccountId32,
+            role: CapabilityRole,
+            epoch: u64,
+        },
+        CapabilityRevoked {
+            owner: AccountId32,
+            role: CapabilityRole,
+            epoch: u64,
+        },
+        /// A fixed-key ML-DSA authorization consumed its replay counter.
+        #[codec(index = 8)]
+        AuthorizedFixed {
+            account: AccountId32,
+            generation: u64,
+        },
+    }
+
+    #[pallet::extra_constants]
+    impl<T: Config> Pallet<T> {
+        /// Supported ML-DSA account profiles: rotating and fixed-key.
+        #[pallet::constant_name(MldsaAccountProfiles)]
+        pub fn mldsa_account_profiles() -> [u8; 2] {
+            [
+                subtensor_hashed::mldsa::ALGORITHM,
+                subtensor_hashed::mldsa::FIXED_ALGORITHM,
+            ]
+        }
     }
 
     #[pallet::error]
@@ -129,7 +285,7 @@ pub mod pallet {
         WrongGeneration,
         /// The revealed public key does not match the active key commitment.
         WrongCommitment,
-        /// The next commitment must be nonzero and different from the active key.
+        /// The next commitment must obey the immutable account rotation policy.
         InvalidNextCommitment,
         /// The key generation counter cannot advance any further.
         GenerationExhausted,
@@ -137,18 +293,138 @@ pub mod pallet {
         InvalidSignature,
         /// Another account already owns the derived EVM alias.
         AliasCollision,
+        /// A different permanent authentication kind already owns this identity.
+        AuthenticationKindConflict,
+        /// A derived descriptor is invalid or its dependencies are not protected.
+        InvalidDerivedAuthority,
+        /// The derived authority graph exceeds a deterministic runtime bound.
+        DerivedAuthorityTooComplex,
+        CapabilityInvalid,
+        CapabilityEpochMismatch,
+        CapabilityExpired,
+        CapabilityScopeViolation,
+        CapabilityMissing,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Bind a derived account to its hidden initial key. Anyone may sponsor
-        /// the permanent storage deposit; the sponsor gains no authority.
+        #[pallet::call_index(7)]
+        #[pallet::weight(T::WeightInfo::install_capability())]
+        #[transactional]
+        pub fn install_capability(
+            origin: OriginFor<T>,
+            expected_epoch: u64,
+            key_commitment: [u8; 64],
+            expires_at: u64,
+            scope: CapabilityScope,
+        ) -> DispatchResult {
+            let owner = ensure_signed(origin)?;
+            Self::do_install_capability(&owner, expected_epoch, key_commitment, expires_at, scope)
+        }
+
+        #[pallet::call_index(8)]
+        #[pallet::weight(T::WeightInfo::revoke_capability())]
+        #[transactional]
+        pub fn revoke_capability(origin: OriginFor<T>, role: CapabilityRole) -> DispatchResult {
+            let owner = ensure_signed(origin)?;
+            Self::do_revoke_capability(&owner, role)
+        }
+
+        /// Bind an account to its hidden initial key for the selected scheme.
+        /// Anyone may sponsor the permanent deposit without gaining authority.
         /// Idempotent registration never changes an existing authorization.
         #[pallet::call_index(0)]
-        #[pallet::weight(T::WeightInfo::register())]
+        #[pallet::weight(match descriptor {
+            RegistrationDescriptor::Classical(_) => T::WeightInfo::register(),
+            RegistrationDescriptor::MlDsa65(_) => T::WeightInfo::register_mldsa65(),
+        })]
         #[transactional]
-        pub fn register(origin: OriginFor<T>, descriptor: Descriptor) -> DispatchResult {
+        pub fn register(
+            origin: OriginFor<T>,
+            descriptor: RegistrationDescriptor,
+        ) -> DispatchResult {
             let sponsor = ensure_signed(origin)?;
+            match descriptor {
+                RegistrationDescriptor::Classical(descriptor) => {
+                    Self::do_register_classical(&sponsor, descriptor)
+                }
+                RegistrationDescriptor::MlDsa65(descriptor) => {
+                    Self::do_register_mldsa(&sponsor, descriptor)
+                }
+            }
+        }
+
+        /// Check a recipient's registration without reserving funds or creating
+        /// an account. An atomic payment must fail if a reorg removed its setup.
+        #[pallet::call_index(1)]
+        #[pallet::weight(match descriptor {
+            RegistrationDescriptor::Classical(_) => T::WeightInfo::check_registered(),
+            RegistrationDescriptor::MlDsa65(_) => T::WeightInfo::check_registered_mldsa65(),
+        })]
+        pub fn check_registered(
+            origin: OriginFor<T>,
+            descriptor: RegistrationDescriptor,
+        ) -> DispatchResult {
+            ensure_signed(origin)?;
+            match descriptor {
+                RegistrationDescriptor::Classical(descriptor) => {
+                    Self::do_check_registered_classical(descriptor)
+                }
+                RegistrationDescriptor::MlDsa65(descriptor) => {
+                    Self::do_check_registered_mldsa65(descriptor)
+                }
+            }
+        }
+
+        #[pallet::call_index(4)]
+        #[pallet::weight(T::WeightInfo::register_derived())]
+        #[transactional]
+        pub fn register_derived(
+            origin: OriginFor<T>,
+            descriptor: DerivedDescriptor,
+        ) -> DispatchResult {
+            let sponsor = ensure_signed(origin)?;
+            Self::register_derived_with_sponsor(&sponsor, descriptor)
+        }
+
+        /// Register through the derived account's own authority while an
+        /// explicitly consenting outer signer pays the permanent deposit.
+        #[pallet::call_index(9)]
+        #[pallet::weight(T::WeightInfo::register_derived_sponsored())]
+        #[transactional]
+        pub fn register_derived_sponsored(
+            origin: OriginFor<T>,
+            descriptor: DerivedDescriptor,
+            deposit_payer: AccountId32,
+        ) -> DispatchResult {
+            let owner = ensure_signed(origin)?;
+            ensure!(
+                owner == descriptor.account_id(),
+                Error::<T>::InvalidDerivedAuthority
+            );
+            Self::register_derived_with_authorization(&owner, &deposit_payer, descriptor)
+        }
+
+        #[pallet::call_index(5)]
+        #[pallet::weight(T::WeightInfo::check_derived())]
+        pub fn check_derived(
+            origin: OriginFor<T>,
+            descriptor: DerivedDescriptor,
+        ) -> DispatchResult {
+            ensure_signed(origin)?;
+            let account = descriptor.account_id();
+            ensure!(T::Enabled::get(), Error::<T>::Disabled);
+            let record = DerivedAuthorities::<T>::get(account).ok_or(Error::<T>::NotRegistered)?;
+            ensure!(
+                record.descriptor == descriptor,
+                Error::<T>::DescriptorMismatch
+            );
+            Ok(())
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        fn do_register_classical(sponsor: &AccountId32, descriptor: Descriptor) -> DispatchResult {
             ensure!(T::Enabled::get(), Error::<T>::Disabled);
             ensure!(descriptor.is_supported(), Error::<T>::UnsupportedDescriptor);
             let account = AccountId32::new(subtensor_hashed::account_id(&descriptor));
@@ -159,14 +435,19 @@ pub mod pallet {
                 );
                 return Ok(());
             }
+            ensure!(
+                !MlDsaAccounts::<T>::contains_key(&account)
+                    && !DerivedAuthorities::<T>::contains_key(&account),
+                Error::<T>::AuthenticationKindConflict
+            );
             let alias = Self::evm_alias(&account);
             ensure!(
                 EvmAliases::<T>::get(alias).is_none_or(|existing| existing == account),
                 Error::<T>::AliasCollision
             );
-            T::OnRegister::on_register(&account, &sponsor, &descriptor)?;
+            T::OnRegister::on_register(&account, sponsor, &descriptor)?;
             let deposit = T::RegistrationDeposit::get();
-            T::Currency::reserve(&sponsor, deposit)?;
+            T::Currency::reserve(sponsor, deposit)?;
             frame_system::Pallet::<T>::inc_providers(&account);
             // Keep the EVM-visible account nonce nonzero (EOA, never CREATE
             // destination); key generation remains independent of that nonce.
@@ -184,18 +465,13 @@ pub mod pallet {
             EvmAliases::<T>::insert(alias, &account);
             Self::deposit_event(Event::Registered {
                 account,
-                sponsor,
+                sponsor: sponsor.clone(),
                 deposit,
             });
             Ok(())
         }
 
-        /// Check a recipient's registration without reserving funds or creating
-        /// an account. An atomic payment must fail if a reorg removed its setup.
-        #[pallet::call_index(1)]
-        #[pallet::weight(T::WeightInfo::check_registered())]
-        pub fn check_registered(origin: OriginFor<T>, descriptor: Descriptor) -> DispatchResult {
-            ensure_signed(origin)?;
+        fn do_check_registered_classical(descriptor: Descriptor) -> DispatchResult {
             ensure!(T::Enabled::get(), Error::<T>::Disabled);
             ensure!(descriptor.is_supported(), Error::<T>::UnsupportedDescriptor);
             let account = AccountId32::new(subtensor_hashed::account_id(&descriptor));
@@ -206,9 +482,21 @@ pub mod pallet {
             );
             Ok(())
         }
-    }
 
-    impl<T: Config> Pallet<T> {
+        fn do_check_registered_mldsa65(
+            descriptor: subtensor_hashed::mldsa::Descriptor,
+        ) -> DispatchResult {
+            ensure!(T::Enabled::get(), Error::<T>::Disabled);
+            ensure!(descriptor.is_supported(), Error::<T>::UnsupportedDescriptor);
+            let account = AccountId32::new(subtensor_hashed::mldsa::account_id(&descriptor));
+            let record = MlDsaAccounts::<T>::get(account).ok_or(Error::<T>::NotRegistered)?;
+            ensure!(
+                record.descriptor == descriptor,
+                Error::<T>::DescriptorMismatch
+            );
+            Ok(())
+        }
+
         pub fn evm_alias(account: &AccountId32) -> [u8; 20] {
             let bytes: &[u8; 32] = account.as_ref();
             let mut alias = [0; 20];

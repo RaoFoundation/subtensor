@@ -19,7 +19,7 @@ from bittensor._transport.extrinsics import NonceCache, create_hashed_extrinsic,
 from bittensor._transport.interface import SubstrateConnection
 from bittensor.cli.main import app
 from bittensor.executor import Executor, estimate_shielded_carrier_fee
-from bittensor.hashed import descriptor_value
+from bittensor.hashed import descriptor_value, registration_descriptor_value
 from bittensor.intents import AnnounceColdkeySwap, Transfer
 from bittensor.signing import WalletSigner
 from bittensor.sp_core import CRYPTO_HASHED, CRYPTO_SR25519, Keypair
@@ -48,8 +48,8 @@ class _Codec:
     enabled = True
 
     def constant(self, pallet, name):
-        assert (pallet, name) == ("HashedAccounts", "Enabled")
-        return self.enabled
+        assert (pallet, name) == ("HashedAccounts", "RegistrationDeposit")
+        return 200_000_000
 
     @staticmethod
     def call_data(call):
@@ -74,6 +74,8 @@ class _LifecycleCodec(_Codec):
     """Storage framing is JSON in this harness; it does not claim SCALE coverage."""
 
     def storage_entry(self, pallet, item):
+        if (pallet, item) == ("AdminUtils", "HashedAccountsEnabled"):
+            return StorageEntry(pallet, item, pallet, item, [], [], "Default", b"false")
         assert (pallet, item) in (("HashedAccounts", "Accounts"), ("System", "Account"))
         return StorageEntry(pallet, item, pallet, item, ["AccountId"], [], "Optional", b"null")
 
@@ -131,7 +133,11 @@ class _LifecycleRpc:
             return self.state["nonce"] + int(self.pending is not None)
         if method == "state_getStorageAt":
             encoded_key, block_hash = params
-            pallet, item, address = json.loads(bytes.fromhex(encoded_key.removeprefix("0x")))
+            key = json.loads(bytes.fromhex(encoded_key.removeprefix("0x")))
+            if key == ["AdminUtils", "HashedAccountsEnabled"]:
+                assert block_hash is not None
+                return "0x" + b"true".hex()
+            pallet, item, address = key
             assert block_hash is not None
             self.storage_reads.append((pallet, item, address, block_hash))
             if address != self.address:
@@ -225,8 +231,10 @@ def _connection(key, *, generation=7, nonce=13):
     conn._normalize_era = AsyncMock(return_value=("00", GENESIS))
     record = _record(key, generation)
 
-    async def query(pallet, item, params, *, block_hash):
+    async def query(pallet, item, params=None, *, block_hash):
         assert block_hash == "0xhead"
+        if (pallet, item) == ("AdminUtils", "HashedAccountsEnabled"):
+            return codec.enabled
         assert params == [key.ss58_address]
         return record if pallet == "HashedAccounts" else {"nonce": nonce}
 
@@ -422,7 +430,11 @@ def test_cli_type_creates_wallet_and_public_descriptors(
     assert wallet.coldkeypub.crypto_type == CRYPTO_HASHED
     assert wallet.hotkeypub.crypto_type == expected_hotkey
     assert "bth1_" in result.output
-    assert wallet.coldkeypub.ss58_address not in result.output
+    assert wallet.coldkeypub.ss58_address in result.output
+    assert result.output.index("bth1_") < result.output.index(wallet.coldkeypub.ss58_address)
+    assert "Account ID (SS58)" in result.output
+    assert "Use the receiving address for transactions" in result.output
+    assert "explorers display the same account as SS58" in result.output
 
 
 @pytest.mark.parametrize("role", ["coldkey", "hotkey"])
@@ -537,7 +549,7 @@ def setup_wallets(tmp_path):
         suppress=True,
     )
     substrate = FakeSubstrate()
-    substrate.seed_constant("HashedAccounts", "Enabled", True)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], True)
     substrate.seed_constant("HashedAccounts", "RegistrationDeposit", 200_000_000)
     return sponsor, recipient, substrate
 
@@ -553,7 +565,7 @@ async def test_local_funding_and_migration_register_atomically_without_unlocking
     assert plan.call.module == "Utility" and plan.call.function == "batch_all"
     setup, operation = plan.call.params["calls"]
     assert (setup.module, setup.function) == ("HashedAccounts", "register")
-    assert setup.params["descriptor"] == descriptor_value(
+    assert setup.params["descriptor"] == registration_descriptor_value(
         bytes(recipient.coldkeypub.hashed_descriptor)
     )
     assert operation.function == ("announce_coldkey_swap" if swap else "transfer_keep_alive")
@@ -615,7 +627,12 @@ async def test_executor_reserves_next_generation_only_for_shield_inner(monkeypat
     )
     assert result.success
     substrate.sign_extrinsic.assert_awaited_once_with(
-        b"call", key, nonce=1, period=8, hashed_generation_offset=1
+        b"call",
+        key,
+        nonce=1,
+        period=8,
+        hashed_generation_offset=1,
+        hashed_signing_snapshot=substrate.submissions[0][2]["hashed_signing_snapshot"],
     )
     assert substrate.submissions[0][2]["nonce"] == 0
 
@@ -623,10 +640,13 @@ async def test_executor_reserves_next_generation_only_for_shield_inner(monkeypat
 async def test_shield_fee_estimate_uses_complete_hashed_authorization():
     substrate = FakeSubstrate()
     key = _key()
-    substrate.seed_constant("HashedAccounts", "Enabled", True)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], True)
+    substrate.seed_constant("HashedAccounts", "RegistrationDeposit", 200_000_000)
     substrate.seed("HashedAccounts", "Accounts", [key.ss58_address], _record(key, 7))
     substrate.estimate_fee = AsyncMock(return_value=substrate.fee)
-    await estimate_shielded_carrier_fee(substrate, key.ss58_address)
+    await estimate_shielded_carrier_fee(
+        substrate, key.ss58_address, ("System", "remark", {"remark": b"test"})
+    )
     signer = substrate.estimate_fee.call_args.args[1]
     assert signer.crypto_type == CRYPTO_HASHED
     assert signer.ss58_address == key.ss58_address
@@ -634,8 +654,7 @@ async def test_shield_fee_estimate_uses_complete_hashed_authorization():
 
 async def test_signing_reads_live_switch_at_the_authority_block():
     key = _key()
-    conn, codec, _ = _connection(key)
-    codec.enabled = None
+    conn, _, _ = _connection(key)
     query_authority = conn.query
     enabled = False
 

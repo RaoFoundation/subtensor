@@ -491,6 +491,10 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "PartialFillNotSupportedForProvider": _C.INVALID_ARGUMENT,
     "LinkedOutputNotPrunable": _C.INVALID_ARGUMENT,
     "OrderSignerFrozen": _C.NOT_AUTHORIZED,
+    "OrderNonceUsed": _C.ALREADY_EXISTS,
+    "OrderNotApproved": _C.NOT_AUTHORIZED,
+    "OrderBatchTooLarge": _C.LIMIT_EXCEEDED,
+    "InvalidAuthorizationMode": _C.INVALID_ARGUMENT,
     # ── HashedAccounts ──────────────────────────────────────────────────
     "Disabled": _C.DISABLED,
     "UnsupportedDescriptor": _C.INVALID_ARGUMENT,
@@ -501,6 +505,14 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidNextCommitment": _C.INVALID_ARGUMENT,
     "GenerationExhausted": _C.LIMIT_EXCEEDED,
     "AliasCollision": _C.ALREADY_EXISTS,
+    "AuthenticationKindConflict": _C.POLICY_VIOLATION,
+    "InvalidDerivedAuthority": _C.INVALID_ARGUMENT,
+    "DerivedAuthorityTooComplex": _C.LIMIT_EXCEEDED,
+    "CapabilityMissing": _C.NOT_AUTHORIZED,
+    "CapabilityInvalid": _C.INVALID_ARGUMENT,
+    "CapabilityExpired": _C.EXPIRED,
+    "CapabilityEpochMismatch": _C.NOT_AUTHORIZED,
+    "CapabilityScopeViolation": _C.POLICY_VIOLATION,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

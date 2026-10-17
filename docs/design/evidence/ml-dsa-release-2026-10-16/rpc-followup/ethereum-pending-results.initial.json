@@ -1,0 +1,197 @@
+{
+  "test": "sequential Ethereum pending overlay and finalized value/nonce accounting",
+  "started_at_utc": "2026-10-16T22:49:51.202932+00:00",
+  "endpoint": "ws://127.0.0.1:20545",
+  "requested_count": 32,
+  "status": "failed",
+  "limitations": "Disposable ordinary ECDSA transfers with MS master flag off; not production throughput or weights evidence.",
+  "script_sha256": "6fd1ba04b084e82da62d030eeccea1eafec95a2bf46aad0751782634ac7cf6ea",
+  "genesis_hash": "0x2886d2bd6fa98140218546c91a45648c0b3d00ed450681c83397c14647745595",
+  "chain_type": "Local",
+  "minimum_period_ms": 6000,
+  "hashed_accounts_enabled": false,
+  "runtime": {
+    "specName": "node-subtensor",
+    "implName": "node-subtensor",
+    "authoringVersion": 1,
+    "specVersion": 480,
+    "implVersion": 1,
+    "apis": [
+      [
+        "0xdf6acb689907609b",
+        5
+      ],
+      [
+        "0x37e397fc7c91f5e4",
+        2
+      ],
+      [
+        "0x40fe3ad401f8959a",
+        6
+      ],
+      [
+        "0xfbc577b9d747efd6",
+        1
+      ],
+      [
+        "0xd2bc9897eed08f15",
+        3
+      ],
+      [
+        "0xf78b278be53f454c",
+        2
+      ],
+      [
+        "0xdd718d5cc53262d4",
+        1
+      ],
+      [
+        "0xab3c0572291feb8b",
+        1
+      ],
+      [
+        "0xed99c5acb25eedf5",
+        3
+      ],
+      [
+        "0xbc9d89904f5b923f",
+        1
+      ],
+      [
+        "0x37c8bb1350a9a2a8",
+        4
+      ],
+      [
+        "0xf3ff14d5ab527059",
+        3
+      ],
+      [
+        "0x582211f65bb14b89",
+        6
+      ],
+      [
+        "0xe65b00e46cedd0aa",
+        2
+      ],
+      [
+        "0x68b66ba122c93fa7",
+        2
+      ],
+      [
+        "0x42e62be4a39e5b60",
+        1
+      ],
+      [
+        "0x806df4ccaa9ed485",
+        1
+      ],
+      [
+        "0x8375104b299b74c5",
+        3
+      ],
+      [
+        "0x5d1fbfbe852f2807",
+        1
+      ],
+      [
+        "0xc6886e2f8e598b0a",
+        1
+      ],
+      [
+        "0x43580abff6baab45",
+        5
+      ],
+      [
+        "0xc0de4984d112f3b4",
+        1
+      ],
+      [
+        "0xcbca25e39f142387",
+        2
+      ],
+      [
+        "0xa8b093e6508d9e9c",
+        1
+      ],
+      [
+        "0x1c4585bd5c707202",
+        1
+      ]
+    ],
+    "transactionVersion": 1,
+    "systemVersion": 1,
+    "stateVersion": 1
+  },
+  "runtime_code_sha256": "8a928b07796c445d864ae021562629cf9524e2a30d940e8b490234c33e769377",
+  "sender": "0x05eFF032ED2bb17DBA03D0B6B9ac91C7D43EE6A3",
+  "recipient": "0x60CC07B1c67d66F988e9C5270F3aD692e66c3164",
+  "sender_mirror": "5CMDCXTbsJQ5kPSoMzJ9rM15hLKRpL7B5CdAceR8hMRWUGJQ",
+  "recipient_mirror": "5HkXBoNEprPkQ9dgGo9SZ2cV761z8Dn3oFHozQ682DgKu2Jf",
+  "value_per_transaction_rao": 1000000,
+  "existential_deposit_rao": 500,
+  "wei_per_rao": 1000000000,
+  "chain_id": 42,
+  "gas_price_wei": 10000000000,
+  "gas_limit": 100000,
+  "funding_rao": 100000000000,
+  "funding": {
+    "block_hash": "0x3093cd8734b9289b78c67ca405715ef986913234c1a7280007c9bbafcd609136",
+    "extrinsic_id": "10-0006",
+    "success": true
+  },
+  "funding_finalized_block": 10,
+  "initial_sender_native": {
+    "nonce": 0,
+    "free_rao": 100000000000
+  },
+  "submitted_hashes": [
+    "0x57d9f049f063ad3131a190e6c67437c63beec8ce12c1b182c5afe23ffaa8cc72",
+    "0xbe45459edcea64058303b95604fffdfd00df59ef4bae9daff36763e07353ffbe",
+    "0x3334edb1ebb6704f976290ac18e23a2e7fbd491c25c4a24ac753b999b9451fe6",
+    "0xa4d11f560313991951e67829ad9a54f16a89ed88f4f9b8bef607cd87c2fd6d0c",
+    "0x497f19a4d257cf19f2a97bb481ef0dfd795e3bbb9910bcd2d138222a1a91ba4e",
+    "0xbbf8aef71db401cedd581347849d48c4073e4d5f4f6af762a68cf8e15aedc564",
+    "0xb51b9252c4ea0082d0170d66ad5202bb957d281e6c6eff7f86e21729088184f2",
+    "0x014ac23a3255367b9f0e5c9ccf41d74f22de73ae7c9d3fbb4449946cf38c7647",
+    "0xd0bb8805b93c67d0ec3535b02f9e7dcbfe5bf17d2805c08cbcd0964897c32f4c",
+    "0x55ffbe6cd1b9caafd444ae69557fbc620d5b1af7fe6a8aa3af330c40bf6373de",
+    "0x99f561d28249d4b9b28e0f2d840cd6a02e711895d922e987f099ba7cef2d6b9d",
+    "0xa8efb42a402acde6d34ff462b7e7332a1d0d3ce180e186f5e5bc46b9d2c1b485",
+    "0xd9ed3cec7f4dbf2dd55316c4d4a87dd4b14883c6c093171013dd59e240216678",
+    "0x1561cdaf5a4591da04a18226a4321ea006ca7b116ccfc2f4ccb7468e215ae5eb",
+    "0xbfd4391b3f13f4123cf166f9394a3c9cc741f23efa09b94a198c0301726a2064",
+    "0x6c3f58132bf4721aa5970bead5828f526bccbd12ddb98a92936f40d8c121fcd1",
+    "0x1ce5658fe3fbc56dc8db814119526475cd9412e9c0a462d64348f1e6fcf2ce6b",
+    "0xa81140be8e74f2601beffddd9ed5c0be07c6e65db666635d5a778c1d064f91d2",
+    "0xb4e28454d6b4e169deda4a8985361a8ba61e99ee4e9ff258cabf29faf215be71",
+    "0xe5d8038034deb935fff3233fec976d62f51976386fd87f5f7442bde31110d279",
+    "0xf1d8988a9b612be586b4709c4faaba520e715be487dc96b737d84f5cda2eeddc",
+    "0x9a6bcf39b28dbd45199e5402aa13cbbd61ab7614e9ed1b80bd9f684d6f0e8ac5",
+    "0x4cce7f4390fa44cf4341af7c4b0d92fc0d4a3ac5f611b09c10d80ef31639146a",
+    "0x329c50916c92638d7acee1110d042d23e1d2daf725950113b8ff43e3aa8d746b",
+    "0xf4c44c46fb116f0d05228de5bd62f6a1bf395512b5a85a30b0dea1b888a1232d",
+    "0x3f7246f0a3bf8a8ae2c917766e6ed2f4c28c50348b8d4634fc5ab06828d340ae",
+    "0x064cb68386a8a4e39a2445d6d3c17ea0377cb27df6af7a76e731646cba42ae71",
+    "0x56b0374bfa6c582058e438f038a047a83e9cca8928a2eea41a6d2eeb58c1b547",
+    "0x7624c42f951a03854a516723fca52de61dc942f9d23fed8da69580defc8739e2",
+    "0x537947f26a92a598f89031701e5e10b80de441387be1ec02fe1aafa2b3972e88",
+    "0x274ee40b172157a79d1386d7681f89ccdd0e88e0a39444456113f980666c7743",
+    "0x2fd40602ca4d413675b04a1c09b0bb35d69cf6158909db179e768cefb1654fcc"
+  ],
+  "submission_seconds": 0.00984245608560741,
+  "submission_head": 13,
+  "pending": {
+    "head_before": 13,
+    "head_after": 13,
+    "pool_entries": 32,
+    "latest_sender_nonce": 0,
+    "latest_recipient_balance_wei": "0",
+    "sender_nonce": 32,
+    "recipient_balance_wei": "31999500000000000",
+    "expected_sender_nonce": 32,
+    "expected_recipient_balance_wei": "31999500000000000",
+    "observed_seconds_after_block": 6.8490757080726326
+  },
+  "error": "AssertionError: ({'nonce': 32, 'free_rao': 99963740000}, 99959480000)",
+  "finished_at_utc": "2026-10-16T22:51:15.113850+00:00"
+}

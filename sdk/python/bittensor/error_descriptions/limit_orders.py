@@ -132,4 +132,22 @@ DESCRIPTIONS: dict[str, str] = {
         "The order owner is temporarily prohibited from moving funds, so the order cannot be "
         "executed. Retry once the owner's freeze has lifted."
     ),
+    "OrderNonceUsed": (
+        "This owner already bound the nonce to different order bytes. Keep the original "
+        "order or allocate a new nonce; cancellation does not make a nonce reusable."
+    ),
+    "OrderNotApproved": (
+        "The account-approved order has no matching on-chain owner approval. Execute "
+        "authorize_order through the owner's authority with the exact nonce and order."
+    ),
+    "OrderBatchTooLarge": (
+        "The batch contains more than eight account-approved or ML-DSA-authorized orders. "
+        "Split execution into supported batches, retaining each signed order's original "
+        "bytes and nonce. Classical orders retain the pallet's original total batch limit."
+    ),
+    "InvalidAuthorizationMode": (
+        "The order terms and authorization scheme do not match. Classical signatures require "
+        "original V1 or V2 terms; account approval and ML-DSA proofs require Authorized terms "
+        "containing the owner-local nonce. Prepare and authorize the complete order again."
+    ),
 }

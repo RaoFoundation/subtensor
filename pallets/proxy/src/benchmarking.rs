@@ -309,6 +309,23 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn create_protected_pure() -> Result<(), BenchmarkError> {
+        let caller: T::AccountId = whitelisted_caller();
+        let caller = T::AccountPolicy::setup_protected_benchmark(&caller)?;
+        T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value());
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(caller.clone()),
+            T::ProxyType::default(),
+            BlockNumberFor::<T>::zero(),
+            0,
+        );
+        let pure = Pallet::<T>::pure_account(&caller, &T::ProxyType::default(), 0, None)?;
+        assert!(Proxies::<T>::contains_key(pure));
+        Ok(())
+    }
+
+    #[benchmark]
     fn create_pure(p: Linear<1, { T::MaxProxies::get() - 1 }>) -> Result<(), BenchmarkError> {
         add_proxies::<T>(p, None)?;
         let caller: T::AccountId = whitelisted_caller();

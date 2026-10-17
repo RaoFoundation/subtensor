@@ -18,4 +18,15 @@ ignore = [
     # is not compiled. Revisit if executor features or the SDK fork change.
     # https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-jqpg-j7w6-42pr
     "RUSTSEC-2026-0316",
+    # Component-model resource tables are not compiled into our core-Wasm
+    # executor. check-audit-feature-exclusions.py fails if component-model is
+    # enabled in any workspace build, including all features and targets.
+    # https://rustsec.org/advisories/RUSTSEC-2026-0363.html
+    "RUSTSEC-2026-0363",
+    # The old ruzstd versions belong to optional smoldot light-client paths
+    # retained in Cargo.lock. Neither is in the active workspace build graph.
+    # The same guard fails if any affected ruzstd version becomes reachable;
+    # it must then be upgraded, not silently covered by this exclusion.
+    # https://rustsec.org/advisories/RUSTSEC-2026-0344.html
+    "RUSTSEC-2026-0344",
 ]

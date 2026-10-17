@@ -1,0 +1,45 @@
+{
+  "head": "{\n  \"head\": \"437053f80d5ebebce950602b168901bfe6591483\",\n  \"status\": \"\",\n  \"prior_overlay_source_differences\": [\n    \"docs/design/evidence/ml-dsa-release-2026-10-16/crypto/differential-harness/main.rs\",\n    \"docs/design/evidence/ml-dsa-release-2026-10-16/crypto/differential-harness/manifest.toml\",\n    \"docs/design/evidence/ml-dsa-release-2026-10-16/crypto/followup/primitive_bridge.rs\",\n    \"docs/design/evidence/ml-dsa-release-2026-10-16/crypto/pending-helper/pending_helper_tests.rs\",\n    \"node/src/execution_admission.rs\",\n    \"pallets/hashed-accounts/src/weights.rs\",\n    \"pallets/limit-orders/src/weights.rs\",\n    \"pallets/proxy/src/weights.rs\",\n    \"pallets/shield/src/weights.rs\",\n    \"pallets/subtensor/src/subnets/registration.rs\",\n    \"pallets/utility/src/weights.rs\",\n    \"runtime/src/hashed_native_evm_tests.rs\",\n    \"runtime/src/hashed_tests.rs\",\n    \"runtime/src/mldsa_dispatch_matrix_tests.rs\",\n    \"sdk/bittensor-core/src/keys/mldsa.rs\",\n    \"sdk/bittensor-core/src/keys/receiving.rs\",\n    \"vendor/frontier/client/rpc/src/eth/execute.rs\",\n    \"vendor/frontier/client/rpc/src/eth/pending.rs\",\n    \"vendor/frontier/client/rpc/src/eth/state.rs\",\n    \"vendor/frontier/client/rpc/src/execution_admission.rs\"\n  ]\n}",
+  "genesis": "0x80eaa2a9dc7a279de064ba459b4b18f67d2ce6a57fcd950b3e5e4a3a86914720",
+  "wasm_sha256": "8a928b07796c445d864ae021562629cf9524e2a30d940e8b490234c33e769377",
+  "minimum_period": 6000,
+  "activation": {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xe9ef106d8d269fc286c9bdbfb4cc97af64a8db3a6978568aa7a0d0a02873e0c8",
+    "extrinsic_id": "4-0006",
+    "fee_tao": 0.0
+  },
+  "production_gate_cases": [
+    {
+      "crypto_type": 7,
+      "rejection": {
+        "success": false,
+        "message": "Including this extrinsic would exceed the current block's weight/length limits. Retry in a later block, or reduce the call's size/weight.",
+        "error": {
+          "message": "Including this extrinsic would exceed the current block's weight/length limits. Retry in a later block, or reduce the call's size/weight.",
+          "name": "ExhaustsResources",
+          "code": "limit_exceeded",
+          "remediation": "a chain-side capacity limit was hit; reduce the size or count of the request",
+          "description": "Including this extrinsic would exceed the current block's weight/length limits. Retry in a later block, or reduce the call's size/weight.",
+          "docs_url": "https://www.bittensor.com/docs/errors/limit-exceeded"
+        }
+      }
+    },
+    {
+      "crypto_type": 8,
+      "rejection": {
+        "success": false,
+        "message": "Including this extrinsic would exceed the current block's weight/length limits. Retry in a later block, or reduce the call's size/weight.",
+        "error": {
+          "message": "Including this extrinsic would exceed the current block's weight/length limits. Retry in a later block, or reduce the call's size/weight.",
+          "name": "ExhaustsResources",
+          "code": "limit_exceeded",
+          "remediation": "a chain-side capacity limit was hit; reduce the size or count of the request",
+          "description": "Including this extrinsic would exceed the current block's weight/length limits. Retry in a later block, or reduce the call's size/weight.",
+          "docs_url": "https://www.bittensor.com/docs/errors/limit-exceeded"
+        }
+      }
+    }
+  ]
+}

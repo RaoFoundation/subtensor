@@ -1,0 +1,129 @@
+{
+  "url": "https://csrc.nist.gov/files/pubs/fips/204/final/docs/fips-204-potential-updates.xlsx",
+  "source_sha256": "5bc93ce63bc647e6d1d456cb2d3a171426c15aca4a7a0e0edd40d08b7a34c793",
+  "source_bytes": 23071,
+  "document_update": "2026-07-31",
+  "downloaded": "2026-10-16",
+  "rows": [
+    [
+      "Potential Updates (Errata)",
+      "Last updated 7/31/2026"
+    ],
+    [
+      "Document:",
+      "NIST FIPS 204"
+    ],
+    [
+      "Publication Date:",
+      "August 2024"
+    ],
+    [
+      "Released:",
+      "45517"
+    ],
+    [
+      "PDF:",
+      "https://doi.org/10.6028/NIST.FIPS.204"
+    ],
+    [
+      "Publication Details:",
+      "https://csrc.nist.gov/pubs/fips/204/final"
+    ],
+    [
+      "The following errors have been identified in the document. "
+    ],
+    [
+      "These errors were overlooked during the NIST review process. For example, they may include corrections for spelling or typographical errors. "
+    ],
+    [
+      "Potential corrections attempt to remove ambiguity and improve interpretation of the document. "
+    ],
+    [
+      "Potential corrections DO NOT introduce new technical requirements. "
+    ],
+    [
+      "Potential corrections ARE NOT official changes, but may be corrected in a future errata update of the publication. "
+    ],
+    [
+      "If there are a significant number of corrections, then NIST will determine whether to issue an errata update or a full revision of the publication."
+    ],
+    [
+      "Date Identified",
+      "Location \n(Page, Section, etc.)",
+      "Issue Description",
+      "Potential Correction"
+    ],
+    [
+      "45555",
+      "Sec. 2.5 and Sec. 7.5",
+      "As written in the explanation of NTT, the polynomial w gets evaluated twice when it should be only once.  Concretely, In equations (2.1) and (7.1) the NTT is explicitly written as NTT(w)_j=w(\\zeta_j) and the following line says \"where \\zeta_j=w(\\zeta^{2BitRev_8(i)+1} ) mod q\".\nThis would mean that each coordinate of the NTT requires evaluating the polynomial w twice, first at \\zeta^{2BitRev_8(i)+1} and then again at \\zeta_j.  In other words computing w ( w (\\zeta^{2BitRev_8(i)+1} )).",
+      "The polynomial w should only be evaluated once.  One should replace \u201cwhere \\zeta_j=w(\\zeta^{2BitRev_8(i)+1} ) mod q.\u201d with \u201cwhere \\zeta_j=\\zeta^{2BitRev_8(i)+1}  mod q.\u201d  This change should occur both in section 2.5 and 7.5, immediately following equations (2.1) and (7.1)."
+    ],
+    [
+      "45582",
+      "Sec. 6.2 and Sec. 6.3",
+      "On page 23, Section 6.2, is this sentence: \u201cBefore the message M is signed, it is concatenated with the public key hash tr and hashed down to a 64-byte message representative \u00b5 using H.\u201d The M should be M\u2019. The same change should also be made to the first sentence in Section 6.3: \u201cThe algorithm ML-DSA.Verify_internal (Algorithm 8) takes a public key pk encoded as a byte string, a message M encoded as a bit string, and a signature \u03c3 encoded as a byte string as input.\u201d",
+      "In both sentences indicated, the variable M should be changed to M'."
+    ],
+    [
+      "45993",
+      "Various",
+      "Several intra-document links are broken: Algorithms 4, 5, 9, 10, 11, 12, 13, 14, 49 and footnotes 1, 5, 6, and 13",
+      "The links will be corrected."
+    ],
+    [
+      "45993",
+      "Sec. 2",
+      "AES is defined, but never used in the document.  Also in the definition of the infinity norm, the w in \"w[i]\" is not bolded. In section 2.4.2, the vectors v[0], v[1], \u2026 are not bolded.",
+      "AES will be removed from the list of Acronyms.  The suggested vectors will be bolded."
+    ],
+    [
+      "45993",
+      "Sec. 3",
+      "In footnote 2, the vector 'b' is not bolded. Also, in Sec. 3.3, \\tilde{c} is defined to be w1 || mu, when it should be mu || w1 (as in Algorithm 7)",
+      "The vector b will be bolded.  The correct version of \\tilde{c} will be used, i.e. mu || w1"
+    ],
+    [
+      "45993",
+      "Sec. 5",
+      "Algorithms 1, 2, and 4 use \"NULL\" to denote a random number generation failure.  While reasonably clear, NULL is not defined and it should probably be \\bot, as is used elsewhere in the document to denote failures",
+      "NULL will be changed to \\bot"
+    ],
+    [
+      "45993",
+      "Sec. 6",
+      "In a few places, polynomial vectors are called polynomials.  Specifically: \"the uncompressed\n  public-key polynomial t\" (two occurrences), and \"a hint polynomial h\" (one occurrence).  In addition, in Algorithm 6 the pseudocode mentions PowerTwoRound which should instead be Power2Round.  In Algorithm 8 line 7, the outermost parentheses on H are unnecessary.",
+      "The text will be changed to 'polynomial vectors' in the appropriate places.  The pseudocode will be corrrected to use Power2Round."
+    ],
+    [
+      "45993",
+      "Sec. 7",
+      "Above Algorithm 28 the text says that the algorithm w1Encode is used in ML-DSA.Sign.  It is actually used in ML-DSA.Sign_internal and in ML-DSA.Verify_intenal",
+      "The text will be corrected to refer to the internal signing and verifying algorithms."
+    ],
+    [
+      "45993",
+      "App. A",
+      "The version of Montgomery reduction described here differs from the one used in the Dilithium reference implementation in a few ways: (a) it incorrectly gives the upper bound of the input range as inclusive when it should be exclusive, (b) it does not clarify that t should use the \"signed\" representative mod 2^32 and be sign-extended, and (c) it misleadingly states that the output is less than 2q in absolute value, when in fact it's less than q in absolute value.",
+      "Appendix A will be rewritten to match what is in the reference implementation, fixing the points raised in the Issue Description."
+    ],
+    [
+      "46076",
+      "Sec. 5.3",
+      "Rather than return \\bot in step 2 of Algorithm 3, it is more appropriate to return \"false\"",
+      "Step 2 will be updated to return \"false\" instead of \\bot"
+    ],
+    [
+      "46080",
+      "Sec. 7.4",
+      "Algorithm 40 UseHint says that it outputs a value  0 <= r1 <= (q-1) /2\u03b32.  This is technically correct, but the real upper bound is 1 smaller:  0 <= r1 <= (q-1) / 2\u03b32 - 1.  \nNote that the value is passed to w1Encode during internal verification, which relies on the real upper bound and correctly documents it.",
+      "The bound in Algorithm 40 will be corrected to 0 <= r1 <= (q-1) / 2\u03b32 - 1"
+    ],
+    [
+      "46234",
+      "Sec. 4 and App. C",
+      "The numbers given for Repetitions in Table 1 are not quite accurate. This is a result of the overall failure rate for signing being affected by line 28 of Algorithm 7, which had not been taken into account prior.  The new numbers are 4.36, 5.14, and 3.91 (instead of 4.25, 5.1, and 3.85).  As a result, the minimum allowable limit pf loop iterations for internal signing in Table 3 is computed to be 821 (instead of 814).  ",
+      "The Repetitions row of Table 1 will be updated to use the numbers 4.36, 5.14, and 3.91.  The minimum allowable limit (of loop iterations) for internal signing given in Table 3 will be updated to 821. "
+    ]
+  ]
+}

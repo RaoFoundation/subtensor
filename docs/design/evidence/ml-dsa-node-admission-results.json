@@ -1,0 +1,16 @@
+{
+  "test": "live raw runtime execution admission and read-only availability",
+  "scriptSha256": "96a9a6a0c7bd7ec463a4e10d84eef74966297b52d544c3ad1a2e4e02e08e7259",
+  "specVersion": 480,
+  "transactionVersion": 1,
+  "wasmSha256": "3930cb27c6910a0d36d21759fc9e618301847291604715d112600b7d25dcabcb",
+  "wasmMatchesOnchainCode": true,
+  "rejectedUnknownExports": 64,
+  "capacityErrors": 48,
+  "probeSeconds": 0.016,
+  "readOnlyCoreVersionAfterSaturation": "PASS",
+  "limitations": [
+    "ML-DSA remains disabled with uncalibrated weights",
+    "This checks the raw-RPC admission route, not production throughput or a finalized ML-DSA transaction"
+  ]
+}

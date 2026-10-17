@@ -1,0 +1,51 @@
+{
+  "head": "2d5089da3bcb292cbf557d9b22ff34582e23b3f4",
+  "test_only_runtime_overlay": true,
+  "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b",
+  "node_sha256": "9ae119aac9c57072a90ce2724bc4e06031505ef0bd925dbc59d2ec05ce566f41",
+  "chainspec_sha256": "9b33a2633dfabcd9fa2ad180ac3942d016f7c8ee04fdb70de85f18be81dd8569",
+  "genesis_change": {
+    "alice_system_account_key": "0x26aa394eea5630e07c48ae0c9558cef7b99d880ec681799c0cf30e8886371da9de1e86a9a8c739864cf3cc5ec2bea59fd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d",
+    "nonce": 1,
+    "other_account_fields_preserved": true
+  },
+  "protocol_id": "ms-release-parity-20261016",
+  "fork_id": "ms-release-parity-20261016",
+  "rpc_ports": [
+    20044,
+    20045,
+    20046
+  ],
+  "p2p_ports": [
+    31034,
+    31035,
+    31036
+  ],
+  "normal_block_seconds": 12,
+  "archive": true,
+  "tests": {
+    "sdk/python/tests/e2e/test_wallet_parity.py": "fc255669dc20b7493c15427a76c08ee6b7816b91b5103788d4d3a4c3ec105b48",
+    "sdk/python/tests/e2e/test_wallet_types.py": "34f4cc6d83e5e843745b99c222afeb9f55714a3f27fa02a43d7e343b89bb1f53"
+  },
+  "source_note": "All six CLI modes restarted under xdist6 with per-chain interprocess Alice lock held through finalization. Distinct test wallet/config directories. Exact subnet ID from receipt. Public transaction receipts only. Normal12-second archive runtime unchanged.",
+  "native_sha256": "fdc0c3dbcb29d75a73956b6c6ff26b497ab7ca273f65d1640daa28f3aa7e7849",
+  "node_pids": [
+    3845756,
+    3845757,
+    3845758
+  ],
+  "launcher_session": 51904,
+  "serial_parity_pytest_session": 94031,
+  "serial_parity_status": "Cancelled cleanly before completion for concurrency restart; not counted as a passing case.",
+  "parallel_parity_pytest_session": 37207,
+  "alice_lock": "/tmp/ms-release-validation/parity-alice.lock",
+  "prior_tests_snapshot": {
+    "sdk/python/tests/e2e/test_wallet_parity.py": "3aa9dd0c87f5397ccd08ee61fc18db04c6ecfbf6290eef43d3908d36bf5ee32d",
+    "sdk/python/tests/e2e/test_wallet_types.py": "19ce7f4a887f3d9c2ac345ab1890079f8ccc86323120cff86621a81849c16872",
+    "sdk/python/tests/e2e/test_mldsa_localnet.py": "e28d60878b61150ad5d4e534618cc984d8cdaf89914b28ddf574b97a1b7a638e"
+  },
+  "accepted_parallel_pytest_session": 11847,
+  "accepted_result": "6 passed in 1834.82s (0:30:34)",
+  "parallel_parity_pytest_session_status": "Attempt1 failed in receipt collector; superseded by all-six accepted attempt2.",
+  "shutdown_verified": true
+}

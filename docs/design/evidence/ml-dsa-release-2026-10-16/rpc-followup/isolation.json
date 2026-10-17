@@ -1,0 +1,6 @@
+{
+  "genesis_patch": "Alice System.Account nonce=7; unique protocolId/forkId",
+  "spec_sha256": "671e0e54138961d1eb5e8a22c36865b33f84303a11e340bbe0a6c6830be5fa3b",
+  "timing": "normal 12 seconds",
+  "pruning": "archive"
+}

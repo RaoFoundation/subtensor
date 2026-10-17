@@ -10,6 +10,7 @@ import typer
 from typer.testing import CliRunner
 
 from bittensor import config
+from bittensor.cli import wallet_addresses
 from bittensor.cli.call_names import resolve_builder_params, resolve_intent_args
 from bittensor.cli.context import AppContext
 from bittensor.cli.main import app
@@ -17,7 +18,8 @@ from bittensor.cli.output import Output
 from bittensor.cli.stake_picker import _dest_choices
 from bittensor.client import Client
 from bittensor.executor import Executor
-from bittensor.hashed import descriptor_value
+from bittensor.hashed import descriptor_value, registration_descriptor_value
+from bittensor.keyfiles import Keyfile
 from bittensor.receiving import parse_recipient, receiving_address
 from bittensor.settings import FINNEY_GENESIS_HASH
 from bittensor.sp_core import CRYPTO_HASHED, CRYPTO_SR25519, Keypair
@@ -32,6 +34,8 @@ runner = CliRunner()
 
 @pytest.fixture
 def wallet_path(tmp_path, monkeypatch):
+    # Transport/status behavior has its own tests; these CLI flows stay offline.
+    monkeypatch.setattr(wallet_addresses, "check_registration", lambda *_args, **_kwargs: None)
     for variable, filename in (
         ("BTCLI_CONFIG", "config.json"),
         ("BTCLI_ADDRESSES_PATH", "addresses.json"),
@@ -72,7 +76,11 @@ def test_create_contact_transfer_preserves_complete_receiving_address(wallet_pat
     wallet = Wallet("recipient", path=str(wallet_path))
     assert recipient.account == wallet.coldkeypub.ss58_address
     assert recipient.descriptor == bytes(wallet.coldkeypub.hashed_descriptor)
-    assert "coldkey_ss58" not in details and "hashed_descriptor" not in details
+    assert details["coldkey_ss58"] == recipient.account
+    assert details["coldkey_receiving_address"] == address
+    assert details["coldkey_primary_address"] == address
+    assert details["coldkey_registration"] == "not_checked"
+    assert "hashed_descriptor" not in details
     assert parse_recipient(details["hotkey_address"]).account == wallet.hotkeypub.ss58_address
 
     saved = _invoke("addr", "add", "friend", address)
@@ -90,13 +98,13 @@ def test_create_contact_transfer_preserves_complete_receiving_address(wallet_pat
     sponsor = Wallet("sponsor", path=str(wallet_path))
     sponsor.regenerate_coldkey(seed=bytes([8]) * 32, use_password=False, suppress=True)
     substrate = FakeSubstrate()
-    substrate.seed_constant("HashedAccounts", "Enabled", True)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], True)
     substrate.seed_constant("HashedAccounts", "RegistrationDeposit", 200_000_000)
     substrate.block_hash = _finney_hash
     plan = asyncio.run(Executor(substrate).plan(submitted[0], sponsor))
     assert (plan.call.module, plan.call.function) == ("Utility", "batch_all")
     registration, transfer = plan.call.params["calls"]
-    assert registration.params["descriptor"] == descriptor_value(recipient.descriptor)
+    assert registration.params["descriptor"] == registration_descriptor_value(recipient.descriptor)
     assert transfer.params["dest"] == recipient.account
 
 
@@ -130,6 +138,134 @@ def test_local_picker_and_wallet_list_share_complete_public_addresses(wallet_pat
     assert details["coldkey_address"] in listed.output
     assert details["hotkey_address"] in listed.output
     assert details["coldkey_mnemonic"] not in listed.output
+
+
+@pytest.mark.parametrize("code", [4, 6, 7, 8])
+@pytest.mark.parametrize("role", ["coldkey", "hotkey"])
+@pytest.mark.parametrize("failure", ["descriptor", "missing", "encrypted", "non_object"])
+def test_wallet_list_isolates_unreadable_public_keys(wallet_path, monkeypatch, code, role, failure):
+    wallet = Wallet("recipient", path=str(wallet_path))
+    wallet.regenerate_coldkey(
+        seed=bytes([21]) * 32, crypto_type=code, use_password=False, suppress=True
+    )
+    wallet.regenerate_hotkey(seed=bytes([22]) * 32, crypto_type=code, suppress=True)
+    other = Wallet("healthy", path=str(wallet_path))
+    other.regenerate_coldkey(seed=bytes([23]) * 32, use_password=False, suppress=True)
+    bad_key = getattr(wallet, role + "pub")
+    public_path = (
+        wallet_path
+        / "recipient"
+        / ("coldkeypub.txt" if role == "coldkey" else "hotkeys/defaultpub.txt")
+    )
+    if failure == "descriptor":
+        data = json.loads(public_path.read_text())
+        data["mldsaDescriptor" if code in (7, 8) else "hashedDescriptor"] = "0x00"
+        public_path.write_text(json.dumps(data))
+    elif failure == "missing":
+        public_path.unlink()
+    elif failure == "encrypted":
+        public_path.write_bytes(b"$NACL\xffinvalid encrypted public keyfile")
+    else:
+        public_path.write_text("[]")
+    before = {p: p.read_bytes() for p in wallet_path.rglob("*") if p.is_file()}
+    monkeypatch.setattr(AppContext, "run", lambda *_: pytest.fail("unexpected network access"))
+    monkeypatch.setattr(Keyfile, "get_keypair", lambda *_: pytest.fail("must not unlock keys"))
+
+    listed = _invoke("wallet", "list")
+    assert listed.exit_code == 0, listed.output
+    records = {row["coldkey"]: row for row in json.loads(listed.output)["coldkeys"]}
+    affected = records["recipient"]
+    healthy = affected["hotkeys"][0] if role == "coldkey" else affected
+    affected = affected if role == "coldkey" else affected["hotkeys"][0]
+    assert affected["ss58"] is None
+    if role == "coldkey" and failure == "encrypted":
+        assert affected["encrypted"] is True
+        assert "encrypted key" in affected["note"]
+        assert "error" not in affected
+    else:
+        assert "public key unavailable" in affected["error"]
+    assert healthy["receiving_address"].startswith(("bth1_", "tao_")) and "error" not in healthy
+    assert healthy["ss58"] == parse_recipient(healthy["receiving_address"]).account
+    assert records["healthy"]["ss58"] == other.coldkeypub.ss58_address
+    assert "error" not in records["healthy"]
+    for invalid_address in (bad_key.ss58_address, receiving_address(bad_key)):
+        assert invalid_address not in listed.output
+
+    human = runner.invoke(app, ["wallet", "list"])
+    assert human.exit_code == 0, human.output
+    assert (affected.get("error") or affected["note"]) in human.output
+    assert "healthy" in human.output
+    assert bad_key.ss58_address not in human.output
+    assert before == {p: p.read_bytes() for p in wallet_path.rglob("*") if p.is_file()}
+
+
+@pytest.mark.parametrize("role", ["coldkey", "hotkey"])
+def test_wallet_list_retains_legacy_ms_entry_without_exposing_invalid_address(wallet_path, role):
+    wallet = Wallet("recipient", path=str(wallet_path))
+    wallet.regenerate_coldkey(
+        seed=bytes([24]) * 32, crypto_type=7, use_password=False, suppress=True
+    )
+    wallet.regenerate_hotkey(seed=bytes([25]) * 32, crypto_type=7, suppress=True)
+    public_path = (
+        wallet_path
+        / "recipient"
+        / ("coldkeypub.txt" if role == "coldkey" else "hotkeys/defaultpub.txt")
+    )
+    data = json.loads(public_path.read_text())
+    data.pop("walletVersion")
+    data.pop("mldsaDescriptor")
+    data["hashedDescriptor"] = "0x0202" + "01" * 32
+    public_path.write_text(json.dumps(data))
+    listed = _invoke("wallet", "list")
+    assert listed.exit_code == 0, listed.output
+    record = json.loads(listed.output)["coldkeys"][0]
+    record = record if role == "coldkey" else record["hotkeys"][0]
+    assert record["ss58"] is None
+    assert "public key unavailable" in record["error"]
+    assert data["ss58Address"] not in listed.output
+    assert json.loads(public_path.read_text()) == data
+
+
+@pytest.mark.parametrize("code", [0, 1, 4, 6, 7, 8])
+@pytest.mark.parametrize("has_public_file", [False, True])
+def test_wallet_list_does_not_treat_encrypted_hotkeys_as_broken(
+    wallet_path, monkeypatch, code, has_public_file
+):
+    wallet = Wallet("recipient", path=str(wallet_path))
+    wallet.regenerate_coldkey(seed=bytes([26]) * 32, use_password=False, suppress=True)
+    wallet.regenerate_hotkey(
+        seed=bytes([27]) * 32,
+        crypto_type=code,
+        hotkey_password="test-only-password",
+        suppress=True,
+    )
+    expected_address = receiving_address(wallet.hotkeypub)
+    if not has_public_file:
+        (wallet_path / "recipient" / "hotkeys/defaultpub.txt").unlink()
+    before = {p: p.read_bytes() for p in wallet_path.rglob("*") if p.is_file()}
+    monkeypatch.setattr(Keyfile, "get_keypair", lambda *_: pytest.fail("must not unlock keys"))
+    monkeypatch.setattr(AppContext, "run", lambda *_: pytest.fail("unexpected network access"))
+
+    listed = _invoke("wallet", "list")
+    assert listed.exit_code == 0, listed.output
+    hotkey = json.loads(listed.output)["coldkeys"][0]["hotkeys"][0]
+    assert "error" not in hotkey
+    if has_public_file:
+        assert hotkey["ss58"] == parse_recipient(expected_address).account
+        if code in (4, 6, 7, 8):
+            assert hotkey["receiving_address"] == expected_address
+    else:
+        assert hotkey["ss58"] is None
+        assert hotkey["encrypted"] is True
+        assert hotkey["crypto_type"] == "unknown"
+        assert hotkey["signing_scheme"] is None
+        assert hotkey["account_type"] is None
+        assert "encrypted key" in hotkey["note"]
+        human = runner.invoke(app, ["wallet", "list"])
+        assert human.exit_code == 0, human.output
+        assert hotkey["note"] in human.output
+        assert "invalid" not in human.output
+    assert before == {p: p.read_bytes() for p in wallet_path.rglob("*") if p.is_file()}
 
 
 def test_coldkey_swap_preserves_contact_receiving_address(wallet_path, monkeypatch):
@@ -178,7 +314,7 @@ def test_contact_keeps_descriptor_for_registration_on_selected_chain(wallet_path
     sponsor.regenerate_coldkey(seed=bytes([8]) * 32, use_password=False, suppress=True)
     substrate = FakeSubstrate()
     substrate.block_hash = _finney_hash
-    substrate.seed_constant("HashedAccounts", "Enabled", True)
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], True)
     substrate.seed_constant("HashedAccounts", "RegistrationDeposit", 200_000_000)
     plan = asyncio.run(Executor(substrate).plan(submitted[0], sponsor))
     guard, transfer = plan.call.params["calls"]
@@ -187,7 +323,9 @@ def test_contact_keeps_descriptor_for_registration_on_selected_chain(wallet_path
     assert not substrate.submissions
 
 
-@pytest.mark.parametrize("malformed", ["bth1_bad", "bth2_bad", "bth1_", "bth1_!"])
+@pytest.mark.parametrize(
+    "malformed", ["bth1_bad", "bth2_bad", "tao_bad", "TAO_bad", " tao_bad", "bth1_", "bth1_!"]
+)
 def test_malformed_receiving_addresses_never_become_wallet_names(
     wallet_path, monkeypatch, malformed
 ):
@@ -199,6 +337,31 @@ def test_malformed_receiving_addresses_never_become_wallet_names(
     )
     with pytest.raises(ValueError):
         _context(wallet_path).resolve_address_ref("dest_ss58", malformed)
+
+
+@pytest.mark.parametrize("mode", ["standard", "hashed"])
+@pytest.mark.parametrize("legacy_prefix", [False, True])
+def test_ms_address_prefixes_support_contacts_public_recovery_and_transfers(
+    wallet_path, monkeypatch, mode, legacy_prefix
+):
+    created = _invoke("wallet", "create", "--crypto-type", "ms", "--type", mode, "--no-password")
+    assert created.exit_code == 0, created.output
+    address = json.loads(created.output)["coldkey_address"]
+    assert address.startswith("tao_")
+    supplied = address.replace("tao_", "bth2_", 1) if legacy_prefix else address
+    saved = _invoke("addr", "add", "friend", supplied)
+    assert saved.exit_code == 0, saved.output
+    assert config.get_address("friend") == supplied
+    resolved = _context(wallet_path).resolve_address_ref("dest_ss58", "friend")
+    assert resolved.account == Wallet("recipient", path=str(wallet_path)).coldkeypub.ss58_address
+    restored = _invoke("wallet", "regen-coldkeypub", "--wallet", "watch", "--address", supplied)
+    assert restored.exit_code == 0, restored.output
+    assert receiving_address(Wallet("watch", path=str(wallet_path)).coldkeypub) == address
+    submitted = []
+    monkeypatch.setattr(AppContext, "submit", lambda self, intent: submitted.append(intent))
+    sent = _invoke("wallet", "transfer", "--dest", "friend", "--amount", "1")
+    assert sent.exit_code == 0, sent.output
+    assert submitted[0].dest_ss58 == supplied
 
 
 def test_show_and_local_resolution_use_only_public_metadata(wallet_path, monkeypatch):
@@ -218,7 +381,11 @@ def test_show_and_local_resolution_use_only_public_metadata(wallet_path, monkeyp
     assert display["hotkey_address"] == details["hotkey_address"]
     assert details["coldkey_mnemonic"] not in shown.output
     assert details["hotkey_mnemonic"] not in shown.output
-    assert "coldkey_ss58" not in display
+    assert (
+        display["coldkey_ss58"]
+        == Wallet("recipient", path=str(wallet_path)).coldkeypub.ss58_address
+    )
+    assert display["coldkey_receiving_address"] == details["coldkey_address"]
     context = _context(wallet_path)
     assert (
         context.resolve_address_ref("dest_ss58", "recipient").address == details["coldkey_address"]
@@ -226,6 +393,97 @@ def test_show_and_local_resolution_use_only_public_metadata(wallet_path, monkeyp
     assert (
         context.resolve_address_ref("hotkey_ss58", "recipient/default").address
         == details["hotkey_address"]
+    )
+
+
+@pytest.mark.parametrize("code", [0, 1, 4, 6, 7, 8])
+def test_show_legacy_hotkey_without_companion_uses_only_public_fields(
+    wallet_path, monkeypatch, code
+):
+    wallet = Wallet("recipient", path=str(wallet_path))
+    wallet.regenerate_hotkey(seed=bytes([41]) * 32, crypto_type=code, suppress=True)
+    expected = wallet.hotkeypub.ss58_address
+    (wallet_path / "recipient/hotkeys/defaultpub.txt").unlink()
+    path = wallet_path / "recipient/hotkeys/default"
+    data = json.loads(path.read_text())
+    # Invalid secret fields prove no signing key is recovered for display.
+    data.update(secretPhrase="not a mnemonic", secretSeed="invalid", privateKey="invalid")
+    path.write_text(json.dumps(data))
+    before = path.read_bytes()
+    monkeypatch.setattr(Keyfile, "get_keypair", lambda *_: pytest.fail("must not unlock keys"))
+    shown = _invoke("wallet", "show", "--offline")
+    assert shown.exit_code == 0, shown.output
+    display = json.loads(shown.output)
+    assert display["hotkey_ss58"] == expected
+    assert "not a mnemonic" not in shown.output
+    assert before == path.read_bytes()
+
+
+def test_show_encrypted_legacy_hotkey_does_not_prompt_or_unlock(wallet_path, monkeypatch):
+    wallet = Wallet("recipient", path=str(wallet_path))
+    wallet.regenerate_coldkey(seed=bytes([42]) * 32, use_password=False, suppress=True)
+    hotkeys = wallet_path / "recipient/hotkeys"
+    hotkeys.mkdir()
+    (hotkeys / "default").write_bytes(b"$NACL\xfftest encrypted hotkey")
+    monkeypatch.setattr(Keyfile, "get_keypair", lambda *_: pytest.fail("must not unlock keys"))
+    shown = _invoke("wallet", "show", "--offline")
+    assert shown.exit_code == 0, shown.output
+    assert "encrypted key; public address unavailable" in json.loads(shown.output)["hotkey"]
+
+
+@pytest.mark.parametrize("code", [4, 6, 7, 8])
+@pytest.mark.parametrize("command", ["show", "list"])
+def test_cli_shows_finalized_coldkey_and_unregistered_hotkey(
+    wallet_path, monkeypatch, code, command
+):
+    wallet = Wallet("recipient", path=str(wallet_path))
+    wallet.regenerate_coldkey(
+        seed=bytes([43]) * 32, crypto_type=code, use_password=False, suppress=True
+    )
+    wallet.regenerate_hotkey(seed=bytes([44]) * 32, crypto_type=code, suppress=True)
+    cold, hot = wallet.coldkeypub, wallet.hotkeypub
+    finalized = "0x" + "ab" * 32
+
+    class Chain:
+        async def get_finalized_block_number(self):
+            return 10
+
+        async def get_block_hash(self, height):
+            assert height == 10
+            return finalized
+
+        async def query(self, module, storage, params, *, block_hash):
+            assert module == "HashedAccounts" and block_hash == finalized
+            if params == [cold.ss58_address]:
+                return {"descriptor": descriptor_value(bytes(cold.hashed_descriptor))}
+            assert params == [hot.ss58_address]
+            return None
+
+    def check(context, records, *, offline=False):
+        assert context.network == "test" and not offline
+        asyncio.run(wallet_addresses.query_registration(Chain(), records))
+
+    monkeypatch.setattr(wallet_addresses, "check_registration", check)
+    shown = _invoke("wallet", command, "--network", "test")
+    assert shown.exit_code == 0, shown.output
+    data = json.loads(shown.output)
+    if command == "show":
+        records = [
+            {k.removeprefix(role + "_"): v for k, v in data.items() if k.startswith(role + "_")}
+            for role in ("coldkey", "hotkey")
+        ]
+    else:
+        records = [data["coldkeys"][0], data["coldkeys"][0]["hotkeys"][0]]
+    registered, unregistered = records
+    assert registered["registration"] == "registered"
+    assert registered["primary_address"] == receiving_address(cold)
+    assert registered["receiving_address"] == receiving_address(cold)
+    assert unregistered["registration"] == "unregistered"
+    assert unregistered["primary_address"] == receiving_address(hot)
+    assert unregistered["ss58"] == hot.ss58_address
+    assert all(
+        record["registration_network"] == "test" and record["registration_block_hash"] == finalized
+        for record in records
     )
 
 
@@ -563,7 +821,7 @@ def test_root_move_matches_identity_and_preserves_receiving_descriptors(
         from tests.harness.samples import dev_wallet
 
         chain = FakeSubstrate()
-        chain.seed_constant("HashedAccounts", "Enabled", True)
+        chain.seed("AdminUtils", "HashedAccountsEnabled", [], True)
         chain.seed_constant("HashedAccounts", "RegistrationDeposit", 200_000_000)
         for public in (key, destination_key):
             chain.seed(
@@ -577,7 +835,8 @@ def test_root_move_matches_identity_and_preserves_receiving_descriptors(
         children = call.params["calls"]
         guards = [child for child in children if child.function == "check_registered"]
         assert any(
-            child.params["descriptor"] == descriptor_value(bytes(destination_key.hashed_descriptor))
+            child.params["descriptor"]
+            == registration_descriptor_value(bytes(destination_key.hashed_descriptor))
             for child in guards
         )
         assert [child.function for child in children[len(guards) :]] == [
@@ -585,7 +844,7 @@ def test_root_move_matches_identity_and_preserves_receiving_descriptors(
             "move_stake",
         ]
         assert children[-1].params["destination_hotkey"] == destination_key.ss58_address
-        chain.seed_constant("HashedAccounts", "Enabled", False)
+        chain.seed("AdminUtils", "HashedAccountsEnabled", [], False)
         with pytest.raises(ValueError, match="hashed receiving addresses are not supported"):
             asyncio.run(_compose_intent_call(chain, intent, dev_wallet()))
 

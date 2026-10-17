@@ -1,0 +1,240 @@
+{
+  "schema_version": 1,
+  "kind": "local-mainnet-try-runtime-validation",
+  "created_at": "2026-10-15T18:57:03.320155+00:00",
+  "script_sha256": "aa2c1f0191771fc056114eac58093fc4ffe750c0ca6af15186e8c40201aa1aba",
+  "source": {
+    "endpoint": "wss://archive.dev.opentensor.ai:443",
+    "genesis_hash": "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03",
+    "finalized_block_hash": "0xc6f4878f6a5ea1c102f4f5db383b076811cfb8815287d5bafef8bb3bbcbe6706",
+    "finalized_block_number": 9290353,
+    "state_root": "0x1b72cb61c0abb19fcca55ec28a5e2e29826fdbd089bf8093aca2dfe89e04a5e9",
+    "source_spec_name": "node-subtensor",
+    "source_spec_version": 479,
+    "queried_at": "2026-10-15T17:54:47.797608+00:00",
+    "acquisition": {
+      "mode": "fresh read-only archive snapshot",
+      "try_runtime_cli_version": "0.10.1",
+      "rpc_clients": 4,
+      "all_top_level_keys": true,
+      "child_tries": true,
+      "snapshot_command_template": [
+        "try-runtime",
+        "create-snapshot",
+        "<snapshot>",
+        "--uri",
+        "wss://archive.dev.opentensor.ai:443",
+        "wss://archive.dev.opentensor.ai:443",
+        "wss://archive.dev.opentensor.ai:443",
+        "wss://archive.dev.opentensor.ai:443",
+        "--at",
+        "0xc6f4878f6a5ea1c102f4f5db383b076811cfb8815287d5bafef8bb3bbcbe6706"
+      ]
+    },
+    "source_metadata": {
+      "sha256": "075ee9614fee27fb83a44bda737f6803bd3f6642d57ab492321aa47dad359080",
+      "transaction_version": 1,
+      "hashed_accounts_present": false,
+      "deployed_calls": {
+        "MevShield": [
+          "announce_next_key",
+          "submit_encrypted",
+          "store_encrypted",
+          "set_max_pending_extrinsics_number",
+          "set_on_initialize_weight",
+          "set_stored_extrinsic_lifetime",
+          "set_max_extrinsic_weight"
+        ],
+        "LimitOrders": [
+          "execute_orders",
+          "execute_batched_orders",
+          "cancel_order",
+          "set_pallet_status",
+          "prune_linked_output"
+        ]
+      }
+    }
+  },
+  "source_json_sha256": "95240885366827382c24d592548dd2183b6559607128b7991f1418cfeef581e1",
+  "snapshot_sha256": "2137098d116fdf4adb14e3b6edf1dd2cb800095f4e39d1a4eab8e14bb7bd99b5",
+  "snapshot_size_bytes": 924988917,
+  "runtime_wasm_sha256": "f14681d75696dbed9c0e61d86a0ea182fc4162dd0b2fc8e6eba6e5570b5931d7",
+  "runtime_wasm_size_bytes": 2865022,
+  "try_runtime_version": "0.10.1",
+  "try_runtime_sha256": "d6fcd586fba4c7245668f4ae2a06ffc94e6da4135fae22cfe24453dd11aee3c3",
+  "try_runtime_release": "https://github.com/paritytech/try-runtime-cli/releases/tag/v0.10.1",
+  "chain_writes": false,
+  "spec_name_check_enabled": true,
+  "spec_version_check_enabled": true,
+  "idempotency_check_enabled": true,
+  "multi_block_migrations": "disabled because runtime MultiBlockMigrator=()",
+  "reference_weight_measurements": false,
+  "runs": [
+    {
+      "name": "on-runtime-upgrade",
+      "command_template": [
+        "<try-runtime>",
+        "--runtime",
+        "<runtime-wasm>",
+        "on-runtime-upgrade",
+        "--checks=all",
+        "--blocktime",
+        "12000",
+        "--no-weight-warnings",
+        "--disable-mbm-checks",
+        "snap",
+        "--path",
+        "<snapshot>"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 36.317,
+      "log_file": "ml-dsa-mainnet-on-runtime-upgrade.log",
+      "log_sha256": "453b6ebae37d9462ba839ac802440dcf45939a15335eb46f7da909774e2745fa",
+      "snapshot_loaded_state_root": "0x1b72cb61c0abb19fcca55ec28a5e2e29826fdbd089bf8093aca2dfe89e04a5e9",
+      "snapshot_state_root_matches_finalized_header": true,
+      "migrations_idempotent": true,
+      "upgrade_checks_all": true,
+      "reported_runtime_versions": [
+        479,
+        480
+      ]
+    },
+    {
+      "name": "fast-forward",
+      "command_template": [
+        "<try-runtime>",
+        "--runtime",
+        "<runtime-wasm>",
+        "fast-forward",
+        "--run-migrations",
+        "--n-blocks",
+        "10",
+        "--blocktime",
+        "12000",
+        "--try-state",
+        "all",
+        "snap",
+        "--path",
+        "<snapshot>"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 212.18,
+      "log_file": "ml-dsa-mainnet-fast-forward.log",
+      "log_sha256": "5bbe480eda26e3c02ca115abba833c229a90105329542460eb560e3e5e30e762",
+      "snapshot_loaded_state_root": "0x1b72cb61c0abb19fcca55ec28a5e2e29826fdbd089bf8093aca2dfe89e04a5e9",
+      "snapshot_state_root_matches_finalized_header": true,
+      "requested_blocks": 10,
+      "observed_executed_blocks": 10,
+      "observed_successful_blocks": 10,
+      "block_sequence_matches_request": true,
+      "blocks": [
+        {
+          "number": 9290354,
+          "state_root_check": true,
+          "signature_check": true,
+          "try_state": "All",
+          "entire_runtime_state_decodes": true,
+          "decoded_state_bytes": 156113819,
+          "successfully_executed": true
+        },
+        {
+          "number": 9290355,
+          "state_root_check": true,
+          "signature_check": true,
+          "try_state": "All",
+          "entire_runtime_state_decodes": true,
+          "decoded_state_bytes": 156113819,
+          "successfully_executed": true
+        },
+        {
+          "number": 9290356,
+          "state_root_check": true,
+          "signature_check": true,
+          "try_state": "All",
+          "entire_runtime_state_decodes": true,
+          "decoded_state_bytes": 156113827,
+          "successfully_executed": true
+        },
+        {
+          "number": 9290357,
+          "state_root_check": true,
+          "signature_check": true,
+          "try_state": "All",
+          "entire_runtime_state_decodes": true,
+          "decoded_state_bytes": 156113827,
+          "successfully_executed": true
+        },
+        {
+          "number": 9290358,
+          "state_root_check": true,
+          "signature_check": true,
+          "try_state": "All",
+          "entire_runtime_state_decodes": true,
+          "decoded_state_bytes": 156113819,
+          "successfully_executed": true
+        },
+        {
+          "number": 9290359,
+          "state_root_check": true,
+          "signature_check": true,
+          "try_state": "All",
+          "entire_runtime_state_decodes": true,
+          "decoded_state_bytes": 156113876,
+          "successfully_executed": true
+        },
+        {
+          "number": 9290360,
+          "state_root_check": true,
+          "signature_check": true,
+          "try_state": "All",
+          "entire_runtime_state_decodes": true,
+          "decoded_state_bytes": 156113876,
+          "successfully_executed": true
+        },
+        {
+          "number": 9290361,
+          "state_root_check": true,
+          "signature_check": true,
+          "try_state": "All",
+          "entire_runtime_state_decodes": true,
+          "decoded_state_bytes": 156113876,
+          "successfully_executed": true
+        },
+        {
+          "number": 9290362,
+          "state_root_check": true,
+          "signature_check": true,
+          "try_state": "All",
+          "entire_runtime_state_decodes": true,
+          "decoded_state_bytes": 156113876,
+          "successfully_executed": true
+        },
+        {
+          "number": 9290363,
+          "state_root_check": true,
+          "signature_check": true,
+          "try_state": "All",
+          "entire_runtime_state_decodes": true,
+          "decoded_state_bytes": 156113792,
+          "successfully_executed": true
+        }
+      ]
+    }
+  ],
+  "successful": true,
+  "snapshot_acquisition_proof": {
+    "log_sha256": "481f89eab1703c1c6d7770e5bfd95cc351c78638c0f9c3ac9c8e4c33db1da60b",
+    "unique_top_level_keys": 3298185,
+    "child_tries": 56,
+    "storage_root": "0x1b72cb61c0abb19fcca55ec28a5e2e29826fdbd089bf8093aca2dfe89e04a5e9",
+    "snapshot_size_bytes": 924988917,
+    "state_root_matches_finalized_header": true
+  },
+  "post_run_verification": {
+    "script_sha256": "2378ce41e62e8e6d657229633d2939de7b6624281c757e82587367f8c3548225",
+    "raw_runner_result_sha256": "16a54359e3de9b58209da2de7ecf7725c58c5e2ad3b09490d1c9852af7a5869a",
+    "verified_at": "2026-10-15T19:01:54.695307+00:00",
+    "all_log_digests_match": true,
+    "exact_block_sequence_and_per_block_checks_passed": true
+  }
+}

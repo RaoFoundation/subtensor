@@ -1,0 +1,34 @@
+{
+  "cases": [
+    {
+      "name": "test_cross_validator_shield_and_external_nonce_advancement[6-Dave]",
+      "seconds": 271.234,
+      "status": "passed"
+    },
+    {
+      "name": "test_cross_validator_shield_and_external_nonce_advancement[1-Bob]",
+      "seconds": 271.235,
+      "status": "passed"
+    },
+    {
+      "name": "test_cross_validator_shield_and_external_nonce_advancement[0-Alice]",
+      "seconds": 271.236,
+      "status": "passed"
+    },
+    {
+      "name": "test_cross_validator_shield_and_external_nonce_advancement[7-Eve]",
+      "seconds": 271.232,
+      "status": "passed"
+    },
+    {
+      "name": "test_cross_validator_shield_and_external_nonce_advancement[4-Charlie]",
+      "seconds": 271.23,
+      "status": "passed"
+    },
+    {
+      "name": "test_cross_validator_shield_and_external_nonce_advancement[8-Ferdie]",
+      "seconds": 271.236,
+      "status": "passed"
+    }
+  ]
+}

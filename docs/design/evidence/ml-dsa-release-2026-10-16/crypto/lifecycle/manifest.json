@@ -1,0 +1,74 @@
+{
+  "chain_spec": "/tmp/ms-release-validation/lifecycle-localnet/specs/local.json",
+  "chain_spec_sha256": "0c0147e99d73577b77baac240d685f9c02c7d5e8af305697186d19d80f208afa",
+  "alice_initial_nonce": 2,
+  "protocolId": "ms-release-lifecycle-20261016",
+  "forkId": "ms-release-lifecycle-20261016",
+  "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b",
+  "binary_sha256": "9ae119aac9c57072a90ce2724bc4e06031505ef0bd925dbc59d2ec05ce566f41",
+  "rpc_ports": [
+    20144,
+    20145,
+    20146
+  ],
+  "p2p_ports": [
+    31134,
+    31135,
+    31136
+  ],
+  "state_pruning": "archive",
+  "blocks_pruning": "archive",
+  "fast_runtime": false,
+  "pid_file": "/tmp/ms-release-validation/lifecycle-localnet/node.pids",
+  "test_runtime_is_development_weight_overlay": true,
+  "production_association_cooldown_preserved": 7200,
+  "lifecycle_association_scope": "Before block7200 assert exact EvmKeyAssociateRateLimitExceeded; positive postcooldown tested separately through runtime Executive.",
+  "test_files_sha256": {
+    "sdk/python/tests/e2e/test_wallet_types.py": "34f4cc6d83e5e843745b99c222afeb9f55714a3f27fa02a43d7e343b89bb1f53",
+    "sdk/python/tests/e2e/test_wallet_shield.py": "a3427326d67d70ef6372ffe194cec09976e84edfa5b57fb22f127f13b325ac49"
+  },
+  "parallel_fixture": {
+    "workers": 6,
+    "alice_lock": "/tmp/ms-release-validation/lifecycle-localnet/alice.lock",
+    "alice_lock_held_through_finalization": true,
+    "subnet_identity": "RegisterSubnet result from matching NetworkAdded event",
+    "root_registration_cap_per_block": 10,
+    "root_target_per_interval": 100,
+    "root_min_burn_rao": 100000000,
+    "root_max_burn_rao": 200000000,
+    "classical_registrations": "standalone; registration context intentionally forbids two registrations in one batch"
+  },
+  "local_fixture_source_sha256": {
+    "lifecycle-localnet.sh": "7e97a9d5361a6c35ccbafc02a1022ec746e390614ac8e4cef3af2f505ba6fde2",
+    "lifecycle-patch-genesis.py": "8ae00b2a15c3da41a98f7cde4d5373c1280a7e265570f103ea6b1bf91b2c00fc",
+    "lifecycle-runner.py": "f196c7233ec91278e16ac0401be0df2258cffa62400dddf9bebf40fc1f4256f1",
+    "activate-lifecycle.py": "db1df1a65a11cf321f42350a2a29deca25cdcc2684177dc317cead58117af9b1"
+  },
+  "executed_suites": {
+    "lifecycle": {
+      "test_file": "sdk/python/tests/e2e/test_wallet_types.py",
+      "workers": 6,
+      "environment": {
+        "E2E_WALLET_ENDPOINT": "ws://127.0.0.1:20144",
+        "E2E_WALLET_ALICE_LOCK": "/tmp/ms-release-validation/lifecycle-localnet/alice.lock",
+        "E2E_EVM_ASSOCIATION_DELAY": "1",
+        "E2E_EVM_ASSOCIATION_EXPECT_RATE_LIMIT": "1"
+      }
+    },
+    "shield": {
+      "test_file": "sdk/python/tests/e2e/test_wallet_shield.py",
+      "workers": 6,
+      "distinct_sponsors": [
+        "Alice",
+        "Bob",
+        "Charlie",
+        "Dave",
+        "Eve",
+        "Ferdie"
+      ],
+      "environment": {
+        "E2E_WALLET_PEERS": "ws://127.0.0.1:20144,ws://127.0.0.1:20145,ws://127.0.0.1:20146"
+      }
+    }
+  }
+}

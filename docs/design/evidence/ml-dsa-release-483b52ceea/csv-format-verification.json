@@ -1,0 +1,14 @@
+[
+  {
+    "file": "docs/design/evidence/ml-dsa-reference-weights-39060946210/fees.csv",
+    "only_change": "CRLF to LF",
+    "sha256_before": "f58558f053e1352c9fdd689e81a979704f3d68565bc8b66cbd9080b93efc49e8",
+    "sha256_after": "04db5713ce3476dbc84e01149ee0fc997942986db3221a9775d15bcd594c1305"
+  },
+  {
+    "file": "docs/design/evidence/ml-dsa-reference-weights-39060946210/activation-fees.csv",
+    "only_change": "CRLF to LF",
+    "sha256_before": "9fa4a41d778778602b8aeb5ecd86560553149a3cca8087e4b7d065f95dcf72f3",
+    "sha256_after": "8080f5708f23ef26256af2e6352f5b838b9963119d2e8cc659ceb050b37f8008"
+  }
+]

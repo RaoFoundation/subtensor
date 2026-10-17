@@ -31,6 +31,7 @@ from .balance import Balance
 from .executor import Executor, estimate_shielded_carrier_fee
 from .intents import Intent, Plan, Policy
 from .intents.base import IntentPreflight
+from .limit_orders import LimitOrders
 from .multisig import Multisig
 from .namespaces import (
     Balances,
@@ -51,6 +52,7 @@ from .namespaces import (
 from .result import BittensorError, ChainError, ExtrinsicResult
 from .settings import (
     DEFAULT_NETWORK,
+    MEV_SHIELD_ERA_PERIOD,
     default_archive_endpoints,
     default_fallback_endpoints,
     explorer_block_url,
@@ -200,6 +202,7 @@ class Client:
         self.staking = Staking(self)
         self.subnets = Subnets(self)
         self.weights = Weights(self)
+        self.limit_orders = LimitOrders(self)
 
     # Reads: generic accessors over generated descriptors ---------------------
 
@@ -461,9 +464,11 @@ class Client:
             proxy_type=proxy_type,
         )
 
-    async def estimate_shielded_carrier_fee(self, fee_payer: str) -> Balance:
-        """Conservatively estimate the TAO fee of a MevShield carrier."""
-        return await estimate_shielded_carrier_fee(self._substrate, fee_payer)
+    async def estimate_shielded_carrier_fee(
+        self, fee_payer: str, call: Any, *, period: int = MEV_SHIELD_ERA_PERIOD
+    ) -> Balance:
+        """Quote a carrier for a composed call (for example, ``plan.call``), without signing."""
+        return await estimate_shielded_carrier_fee(self._substrate, fee_payer, call, period=period)
 
     async def plan(self, intent: Intent, wallet: WalletLike, **kwargs) -> Plan:
         """Preview an intent (fee, effects, warnings, policy) without submitting.
@@ -477,6 +482,10 @@ class Client:
         """Sign and submit an intent through the policy-gated choke point.
 
         Raises :class:`PolicyError` if the intent violates the active policy.
+        Automatic recipient registration also requires an explicit native TAO
+        ``Balance`` cap (``max_registration_deposit``) or an approving
+        ``on_registration_sponsorship(quote)`` callback. The deposit is
+        permanently reserved separately from the payment and transaction fees.
         """
         return await self._executor.execute(intent, wallet, **kwargs)
 
@@ -491,7 +500,7 @@ class Client:
     ) -> ExtrinsicResult:
         """Submit an intent MEV-shielded (encrypted until block-author execution).
 
-        Same ``policy`` / ``proxy_for`` / ``proxy_type`` options as :meth:`execute`;
+        Same policy, origin and registration sponsorship options as :meth:`execute`;
         see ``Executor.submit_shielded``.
         """
         return await self._executor.submit_shielded(intent, wallet, **kwargs)
@@ -527,6 +536,18 @@ class Client:
         submitting side.
         """
         return await self._executor.prepare_call(call, address=address, **kwargs)
+
+    async def prepare_mldsa_call(self, call, *, descriptor: bytes, **kwargs):
+        """Prepare a versioned full-payload request for an ML-DSA-capable signer.
+
+        Export with to_dict(), then sign with sign_prepared_mldsa() using the
+        offline wallet, independently trusted runtime codec, and expected
+        genesis hash. Pass the returned proof to submit_signature(), which
+        rechecks finalized authority and runtime versions under normal policy.
+        Existing hardware/extension apps require explicit support for this format.
+        """
+        composed = call if hasattr(call, "data") else await self._substrate.compose(call)
+        return await self._substrate.prepare_mldsa(composed, descriptor=descriptor, **kwargs)
 
     async def submit_signature(
         self, unsigned: UnsignedExtrinsic, signature: bytes | str, **kwargs

@@ -203,6 +203,51 @@ class Multisig:
     _client: "Client"
     _account: Any  # transport MultiAccountId, carries the derived id
 
+    async def protection_call(self, *, deposit_payer: str):
+        """Build the permanent PQ authority registration/check for this account.
+
+        Approve this call through the multisig quorum before funding. The
+        named deposit payer must be the final executing member and consents
+        through its authenticated outer signature. Existing groups use the
+        same explicit opt-in. This does not alter any pending economic call.
+        """
+        from .hashed import multisig_protection_call
+
+        return await multisig_protection_call(
+            self._client._substrate, self.signatories, self.threshold, deposit_payer=deposit_payer
+        )
+
+    async def protection_status(self) -> dict:
+        """Read finalized eligibility and quorum-approved registration."""
+        from .hashed import multisig_protection_status
+
+        return await multisig_protection_status(
+            self._client._substrate, self.signatories, self.threshold
+        )
+
+    async def funding_call(self, amount_rao: int):
+        """Build funding with an atomic check for every eligible protected group.
+
+        Every unregistered group must first approve its protection_call() via
+        its own quorum and wait for finalization, including new empty accounts.
+        """
+        if isinstance(amount_rao, bool) or not isinstance(amount_rao, int) or amount_rao <= 0:
+            raise ValueError("funding amount must be a positive integer number of rao")
+        status = await self.protection_status()
+        payment = await self._client.compose(
+            generated_calls.Balances.transfer_keep_alive(dest=self.address, value=amount_rao)
+        )
+        if not status["eligible"]:
+            return payment
+        if not status["registered"]:
+            raise ValueError(
+                "this multisig must approve protection_call(deposit_payer=...) "
+                "through its quorum and finalize it before funding"
+            )
+        # Registration is already final; this produces check_derived only.
+        guard = await self.protection_call(deposit_payer=self.address)
+        return await self._client.compose(generated_calls.Utility.batch_all(calls=[guard, payment]))
+
     async def approve(
         self,
         call,

@@ -5,6 +5,7 @@ classification — all against the in-process fake node."""
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 from websockets.datastructures import Headers
@@ -16,6 +17,7 @@ from bittensor import RpcConnectionError
 from bittensor import RpcPolicyError as PublicRpcPolicyError
 from bittensor._substrate import RpcSubstrate
 from bittensor._transport import rpc
+from bittensor._transport.contract import CallBytes
 from bittensor._transport.errors import (
     MaxRetriesExceeded,
     RpcPolicyRejection,
@@ -26,6 +28,17 @@ from bittensor._transport.rpc import RpcSession
 from tests.harness.fake_node import FakeNode
 
 pytestmark = pytest.mark.asyncio
+
+
+async def test_compose_preserves_prepared_call_bytes_without_rebuilding():
+    call = CallBytes(data=b"\x24\x03\x00\xff", spec_version=999)
+    substrate = RpcSubstrate("ws://unused:1")
+    substrate.spec_version = AsyncMock(return_value=999)
+    assert await substrate.compose(call) is call
+    assert (await substrate.compose(call)).call_hash == call.call_hash
+    substrate.spec_version.return_value = 1000
+    with pytest.raises(ValueError, match="runtime changed since call composition"):
+        await substrate.compose(call)
 
 
 def make_session(node: FakeNode, **kwargs) -> RpcSession:

@@ -1,0 +1,7 @@
+{
+  "observed_at_utc": "2026-10-17T20:57:59.685827+00:00",
+  "network": "finney",
+  "finalized_block": "0x012195bf47a181bb1d0625ed3404cd3829a8af1753b836c34bd0d6ea635245ea",
+  "next_fee_multiplier": 1000000000000000000,
+  "scope": "read-only"
+}

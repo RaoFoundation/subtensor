@@ -1,0 +1,12 @@
+{
+  "wasm_sha256": "124e4c6b6c7512ddc9f793f3d4e83eab4d6b1d7bc83b6f27d2bc7b51df8ae267",
+  "genesis": "0xcf4d757e5181d80e8b61dabddc05eb57a3df3885334701a0703ce4378298c15f",
+  "activation": {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x25ec3effb4f3a6473cddf63198cfc035521b65783cdab3c4ef9bed05ea254b8c",
+    "extrinsic_id": "5-0006",
+    "fee_tao": 0.0
+  },
+  "minimum_period": 6000
+}

@@ -1,0 +1,11 @@
+{
+  "runtime_sha256": "4ff98b40b7a38d636bbb1f857103ff3881d6ebb758d030dcb206ec541a10931b",
+  "production_timing": true,
+  "receipt": {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x196bb7daecda5f70e98ae01986b613479f6b1683fe0cd2911cccccfbe76e50f3",
+    "extrinsic_id": "29-0006",
+    "fee_tao": 0.0
+  }
+}

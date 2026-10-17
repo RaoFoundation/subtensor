@@ -1,0 +1,58 @@
+[
+  {
+    "success": false,
+    "message": "An arithmetic error occurred while dispatching the call.",
+    "block_hash": "0x8130bafa12ce7e06d1faa83116424a0edd11ebac6c170ab5474a38cf11f5b40c",
+    "extrinsic_id": "159-0007",
+    "error": {
+      "message": "An arithmetic error occurred while dispatching the call.",
+      "name": "Arithmetic",
+      "code": "internal",
+      "remediation": "a chain-side invariant failed; nothing to fix client-side \u2014 report it if it persists",
+      "description": "An arithmetic error occurred while dispatching the call.",
+      "docs_url": "https://www.bittensor.com/docs/errors/internal"
+    }
+  },
+  {
+    "success": false,
+    "message": "An arithmetic error occurred while dispatching the call.",
+    "block_hash": "0x77598dfbd99123c7d25d4c6a3234ea20fabea1fe145215994401ba64ad1d3f78",
+    "extrinsic_id": "162-0007",
+    "error": {
+      "message": "An arithmetic error occurred while dispatching the call.",
+      "name": "Arithmetic",
+      "code": "internal",
+      "remediation": "a chain-side invariant failed; nothing to fix client-side \u2014 report it if it persists",
+      "description": "An arithmetic error occurred while dispatching the call.",
+      "docs_url": "https://www.bittensor.com/docs/errors/internal"
+    }
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0xe88c232326883e7136b8399a0ce7b16c673570b613c6239e4405ca3d5f15734d",
+    "extrinsic_id": "165-0007",
+    "fee_tao": 0.000302944
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x3597c3cdc39097fa0908ae7e13169e03673086efc8bf1cc72ce736468dfdb368",
+    "extrinsic_id": "168-0006",
+    "fee_tao": 0.000246928
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x7455328b5aba91bf2633692ff95e42b1f427c5e3835216d4f0e7bdc27e9ebea4",
+    "extrinsic_id": "171-0008",
+    "fee_tao": 0.000306764
+  },
+  {
+    "success": true,
+    "message": "Success",
+    "block_hash": "0x22a6b0556c2bb6361b419598bcd5ccbe408bbc9e92fda21680c06a0c2246ca45",
+    "extrinsic_id": "174-0007",
+    "fee_tao": 0.000294164
+  }
+]

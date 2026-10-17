@@ -1,0 +1,45 @@
+{
+  "label": "installed legacy reader without ML-DSA key creation",
+  "fixture_sha256": "f15f83394cd873f1a6539d724f45a9dfb19325812a7a7a9b0bc7166297a30c28",
+  "script_sha256": "58e33601e183267e783ee976790fc5232baed55d2f0060d72a6fee2267e37152",
+  "distribution_version": "0.1.8",
+  "exports_mldsa_crypto_type": false,
+  "creates_mldsa_keys": false,
+  "binding_binaries_sha256": {
+    "bittensor_core.abi3.so": "8a69b7c12eb5af0ed0b2735a656bcab0f7f8538de1605705e1f932f076af110f"
+  },
+  "metadata": {
+    "14": {
+      "supported": true,
+      "extrinsics_decoded": 7,
+      "additional_mode_call_decodes": 32,
+      "additional_profiles": [
+        4,
+        5
+      ],
+      "mixed_block_positions": 7,
+      "mldsa_raw_length": 5367,
+      "carrier": "Ed25519 4d*64",
+      "call": "System.remark",
+      "exact_call_preserved": true
+    },
+    "15": {
+      "supported": true,
+      "extrinsics_decoded": 7,
+      "additional_mode_call_decodes": 32,
+      "additional_profiles": [
+        4,
+        5
+      ],
+      "mixed_block_positions": 7,
+      "mldsa_raw_length": 5367,
+      "carrier": "Ed25519 4d*64",
+      "call": "System.remark",
+      "exact_call_preserved": true
+    },
+    "16": {
+      "supported": false,
+      "error": "unsupported metadata version V16"
+    }
+  }
+}

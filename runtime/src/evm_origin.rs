@@ -114,6 +114,13 @@ pub fn prepare_hashed_alias(account: &AccountId32) -> DispatchResult {
     // This account now holds only the EVM nonce. Keep it alive even if someone
     // funds and subsequently reaps its obsolete native balance address.
     frame_system::Pallet::<crate::Runtime>::inc_sufficients(&backing);
+    // Reserve the alias as an EOA before exposing its protected balance. CREATE
+    // collision checks use this independent EVM nonce, not the owner's native
+    // nonce. Leaving it at zero would allow contract code to acquire the alias's
+    // native authority if a CREATE/CREATE2 destination collided with the alias.
+    if state.nonce.is_zero() {
+        frame_system::Pallet::<crate::Runtime>::inc_account_nonce(&backing);
+    }
     Ok(())
 }
 

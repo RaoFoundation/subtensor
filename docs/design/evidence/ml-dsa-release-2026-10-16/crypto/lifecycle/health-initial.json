@@ -1,0 +1,38 @@
+[
+  {
+    "port": 20144,
+    "health": {
+      "peers": 2,
+      "isSyncing": false,
+      "shouldHavePeers": false
+    },
+    "genesis": "0xa05bf3b82cf3f9797b36010ec5e652d4bb296f09b57d352f5ef778405e39d27e",
+    "best": 1,
+    "finalized": "0xa05bf3b82cf3f9797b36010ec5e652d4bb296f09b57d352f5ef778405e39d27e",
+    "minimum_period": 6000
+  },
+  {
+    "port": 20145,
+    "health": {
+      "peers": 2,
+      "isSyncing": false,
+      "shouldHavePeers": false
+    },
+    "genesis": "0xa05bf3b82cf3f9797b36010ec5e652d4bb296f09b57d352f5ef778405e39d27e",
+    "best": 1,
+    "finalized": "0xa05bf3b82cf3f9797b36010ec5e652d4bb296f09b57d352f5ef778405e39d27e",
+    "minimum_period": 6000
+  },
+  {
+    "port": 20146,
+    "health": {
+      "peers": 2,
+      "isSyncing": false,
+      "shouldHavePeers": false
+    },
+    "genesis": "0xa05bf3b82cf3f9797b36010ec5e652d4bb296f09b57d352f5ef778405e39d27e",
+    "best": 1,
+    "finalized": "0xa05bf3b82cf3f9797b36010ec5e652d4bb296f09b57d352f5ef778405e39d27e",
+    "minimum_period": 6000
+  }
+]
