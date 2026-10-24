@@ -92,10 +92,7 @@ impl<T: Config> Pallet<T> {
         let next = match SubnetFastMovingPrice::<T>::get(netuid) {
             None => spot,
             Some(fast) => {
-                // ln 2 / H: the per-block weight that halves the distance to spot every H blocks.
-                let alpha: U64F64 = U64F64::saturating_from_num(core::f64::consts::LN_2).safe_div(
-                    U64F64::saturating_from_num(crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS.max(1)),
-                );
+                let alpha = Self::fast_moving_price_weight();
                 if spot >= fast {
                     fast.saturating_add(spot.saturating_sub(fast).saturating_mul(alpha))
                 } else {
@@ -104,6 +101,25 @@ impl<T: Config> Pallet<T> {
             }
         };
         SubnetFastMovingPrice::<T>::insert(netuid, next);
+    }
+
+    /// ln 2 / H: the per-block weight that halves the distance to spot every H blocks.
+    fn fast_moving_price_weight() -> U64F64 {
+        U64F64::saturating_from_num(core::f64::consts::LN_2).safe_div(U64F64::saturating_from_num(
+            crate::BASKET_FAST_EMA_HALF_LIFE_BLOCKS.max(1),
+        ))
+    }
+
+    /// Steps [`SubnetGammaPrice`]: down to spot at once, up toward it by
+    /// [`SubnetFastMovingPrice`]'s weight.
+    pub fn update_gamma_price(netuid: NetUid) {
+        let spot: U64F64 = T::SwapInterface::current_alpha_price(netuid.into());
+        let alpha = Self::fast_moving_price_weight();
+        SubnetGammaPrice::<T>::mutate(netuid, |price| {
+            *price = price
+                .saturating_add(spot.saturating_sub(*price).saturating_mul(alpha))
+                .min(spot);
+        });
     }
 
     /// Gets the Median Subnet Alpha Price

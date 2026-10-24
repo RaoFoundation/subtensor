@@ -39,6 +39,14 @@ pub trait WeightInfo {
     // Reference CI replaces these fallback aliases before release.
     fn pow_register() -> Weight { Self::register() }
     fn check_pow_registration() -> Weight { Self::register() }
+    fn feed_tao_usd_price() -> Weight { Self::burn_alpha() }
+    fn mint_gamma() -> Weight { Self::add_stake_burn() }
+    fn mint_gamma_with_stake() -> Weight { Self::add_stake_burn() }
+    fn move_gamma() -> Weight { Self::move_stake() }
+    fn close_gamma_deposit() -> Weight { Self::move_stake() }
+    fn set_gamma_deposit_spender() -> Weight { Self::move_stake() }
+    fn set_gamma_deposit_daily_spend_cap() -> Weight { Self::move_stake() }
+    fn spend_gamma(n: u32, ) -> Weight { Self::move_stake().saturating_mul(n.into()) }
 	fn register() -> Weight;
 	fn set_weights() -> Weight;
 	fn add_stake() -> Weight;

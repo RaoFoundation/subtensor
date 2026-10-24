@@ -10,7 +10,7 @@ use sp_core::U256;
 use sp_runtime::PerU16;
 use sp_std::collections::{btree_map::BTreeMap, vec_deque::VecDeque};
 use substrate_fixed::types::{I96F32, U64F64, U96F32};
-use subtensor_runtime_common::{MechId, NetUidStorageIndex, TaoBalance};
+use subtensor_runtime_common::{GammaBalance, MechId, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 
 #[test]
@@ -783,6 +783,26 @@ fn dissolve_clears_all_per_subnet_storages() {
         // (Optional) subnet -> lease link
         SubnetUidToLeaseId::<Test>::insert(net, 42u32);
 
+        // Gamma
+        SubnetGammaEnabled::<Test>::insert(net, true);
+        SubnetGammaPrice::<Test>::insert(net, U64F64::from_num(1));
+        GammaDeposits::<Test>::insert(
+            net,
+            owner_hot,
+            GammaDeposit {
+                coldkey: owner_cold,
+                spender: owner_cold,
+                balance: GammaBalance::from(1),
+                daily_spend_cap: None,
+                bucket: (GammaBalance::ZERO, 0),
+            },
+        );
+        ColdkeyGammaHotkeys::<Test>::insert(
+            net,
+            owner_cold,
+            BoundedVec::truncate_from(vec![owner_hot]),
+        );
+
         // ------------------------------------------------------------------
         // Dissolve
         // ------------------------------------------------------------------
@@ -954,6 +974,12 @@ fn dissolve_clears_all_per_subnet_storages() {
 
         // Subnet -> lease link
         assert!(!SubnetUidToLeaseId::<Test>::contains_key(net));
+
+        // Gamma
+        assert!(!SubnetGammaEnabled::<Test>::contains_key(net));
+        assert!(!SubnetGammaPrice::<Test>::contains_key(net));
+        assert!(!GammaDeposits::<Test>::contains_key(net, owner_hot));
+        assert!(!ColdkeyGammaHotkeys::<Test>::contains_key(net, owner_cold));
 
         // ------------------------------------------------------------------
         // Final subnet removal confirmation

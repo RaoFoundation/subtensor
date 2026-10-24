@@ -465,5 +465,15 @@ mod errors {
         ColdkeySwapDestinationReservationNotFound,
         /// An ownership change would weaken a protected account's authorization.
         HotkeyOwnerPolicyViolation,
+        /// Minting gamma needs a TAO/USD feed at most `TAO_USD_PRICE_MAX_AGE` blocks old.
+        TaoUsdPriceUnavailable,
+        /// Gamma minting is disabled network-wide or on this subnet.
+        GammaDisabled,
+        /// The coldkey would hold more than `MAX_GAMMA_DEPOSITS` gamma deposits on this subnet.
+        TooManyGammaDeposits,
+        /// The hotkey holds no gamma deposit on this subnet.
+        GammaDepositDoesNotExist,
+        /// A gamma deposit with a balance cannot be closed.
+        GammaDepositNotEmpty,
     }
 }

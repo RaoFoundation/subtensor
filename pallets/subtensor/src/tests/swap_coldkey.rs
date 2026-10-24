@@ -24,7 +24,7 @@ use sp_runtime::traits::{DispatchInfoOf, DispatchTransaction, TransactionExtensi
 use sp_runtime::{DispatchError, traits::TxBaseImplication};
 use substrate_fixed::types::{U64F64, U96F32};
 use subtensor_runtime_common::{
-    AlphaBalance, CustomTransactionError, NetUid, SubnetInfo, TaoBalance, Token,
+    AlphaBalance, CustomTransactionError, GammaBalance, NetUid, SubnetInfo, TaoBalance, Token,
 };
 use subtensor_swap_interface::{SwapEngine, SwapHandler};
 
@@ -352,6 +352,7 @@ fn test_swap_coldkey_bounded_and_priced_per_position() {
                     pending_registrations: 0,
                     dest_locks: 0,
                     registration_queue_scan: 0,
+                    gamma_deposits: 0,
                 }
             )
         );
@@ -2174,6 +2175,120 @@ fn seed_collateral_row(netuid: NetUid, hotkey: U256, coldkey: U256, state: Miner
                 .try_push(hotkey)
                 .expect("test collateral index within bound");
         }
+    });
+}
+
+/// Opens deposits at `hotkeys` for `coldkey` on `netuid`, each with its hotkey as balance.
+fn seed_gamma_deposits(netuid: NetUid, coldkey: U256, hotkeys: core::ops::Range<u64>) {
+    for hotkey in hotkeys {
+        GammaDeposits::<Test>::insert(
+            netuid,
+            U256::from(hotkey),
+            GammaDeposit {
+                coldkey,
+                spender: U256::from(77),
+                balance: GammaBalance::from(hotkey),
+                daily_spend_cap: Some(GammaBalance::from(5u64)),
+                bucket: (GammaBalance::from(3u64), 9),
+            },
+        );
+        ColdkeyGammaHotkeys::<Test>::mutate(netuid, coldkey, |index| {
+            index.try_push(U256::from(hotkey)).unwrap()
+        });
+    }
+}
+
+// A coldkey swap moves the coldkey's gamma deposits with their terms.
+#[test]
+fn test_do_swap_coldkey_migrates_gamma_deposits() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1002), &U256::from(1001));
+        let (old_coldkey, new_coldkey) = (U256::from(1), U256::from(2));
+        seed_gamma_deposits(netuid, old_coldkey, 100..102);
+
+        let work = SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey).unwrap();
+        assert_eq!(work.gamma_deposits, 2);
+        assert!(!ColdkeyGammaHotkeys::<Test>::contains_key(
+            netuid,
+            old_coldkey
+        ));
+        assert_eq!(
+            ColdkeyGammaHotkeys::<Test>::get(netuid, new_coldkey).into_inner(),
+            vec![U256::from(100), U256::from(101)]
+        );
+        for hotkey in [100, 101] {
+            assert_eq!(
+                GammaDeposits::<Test>::get(netuid, U256::from(hotkey)),
+                Some(GammaDeposit {
+                    coldkey: new_coldkey,
+                    spender: U256::from(77),
+                    balance: GammaBalance::from(hotkey),
+                    daily_spend_cap: Some(GammaBalance::from(5u64)),
+                    bucket: (GammaBalance::from(3u64), 9),
+                })
+            );
+        }
+    });
+}
+
+// Gamma deposits merge into the new coldkey's, up to `MAX_GAMMA_DEPOSITS` per subnet.
+#[test]
+fn test_do_swap_coldkey_merges_gamma_deposits() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1002), &U256::from(1001));
+        let (old_coldkey, new_coldkey) = (U256::from(1), U256::from(2));
+        let held = 200..200 + u64::from(MAX_GAMMA_DEPOSITS) - 1;
+        seed_gamma_deposits(netuid, old_coldkey, 100..102);
+        seed_gamma_deposits(netuid, new_coldkey, held.clone());
+        assert_noop!(
+            SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey),
+            Error::<Test>::TooManyGammaDeposits
+        );
+
+        let closed = U256::from(held.end - 1);
+        GammaDeposits::<Test>::remove(netuid, closed);
+        ColdkeyGammaHotkeys::<Test>::mutate(netuid, new_coldkey, |index| {
+            index.retain(|hotkey| *hotkey != closed)
+        });
+        assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey));
+        assert_eq!(
+            ColdkeyGammaHotkeys::<Test>::get(netuid, new_coldkey).into_inner(),
+            (held.start..held.end - 1)
+                .chain(100..102)
+                .map(U256::from)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            GammaDeposits::<Test>::get(netuid, U256::from(100)).map(|deposit| deposit.coldkey),
+            Some(new_coldkey)
+        );
+    });
+}
+
+// More gamma deposits than one swap moves: refused before any write.
+#[test]
+fn test_do_swap_coldkey_refuses_too_many_gamma_deposits() {
+    new_test_ext(1).execute_with(|| {
+        let (heavy, target) = (U256::from(3), U256::from(4));
+        let per_subnet = MAX_GAMMA_DEPOSITS as usize;
+        let subnets = (MAX_COLDKEY_SWAP_GAMMA_DEPOSITS as usize).div_ceil(per_subnet) + 1;
+        for index in 0..subnets {
+            let netuid = NetUid::from(100 + index as u16);
+            NetworksAdded::<Test>::insert(netuid, true);
+            ColdkeyGammaHotkeys::<Test>::insert(
+                netuid,
+                heavy,
+                BoundedVec::truncate_from(
+                    (0..per_subnet as u64)
+                        .map(|hotkey| U256::from(10_000 + hotkey))
+                        .collect(),
+                ),
+            );
+        }
+        assert_noop!(
+            SubtensorModule::do_swap_coldkey(&heavy, &target),
+            Error::<Test>::ColdkeySwapTooHeavy
+        );
     });
 }
 
