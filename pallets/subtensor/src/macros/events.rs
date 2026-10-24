@@ -1013,5 +1013,12 @@ mod events {
             /// Gamma spent.
             amount: GammaBalance,
         },
+        /// A hotkey set its service url on a subnet.
+        ServiceUrlSet {
+            /// Subnet of the url.
+            netuid: NetUid,
+            /// Hotkey that set it.
+            hotkey: T::AccountId,
+        },
     }
 }

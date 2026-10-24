@@ -81,7 +81,7 @@ mod errors {
         SettingWeightsTooFast,
         /// A validator is attempting to set weights from a validator with incorrect weight version.
         IncorrectWeightVersionKey,
-        /// An axon or prometheus serving exceeded the rate limit for a registered neuron.
+        /// An axon, prometheus or service url serving exceeded the rate limit for a registered neuron.
         ServingRateLimitExceeded,
         /// The caller is attempting to set weights with more UIDs than allowed.
         UidsLengthExceedUidsInSubNet, // 32

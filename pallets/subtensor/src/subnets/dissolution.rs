@@ -221,6 +221,8 @@ impl<T: Config> Pallet<T> {
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Prometheus::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            ServiceUrls::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             AlphaDividendsPerSubnet::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             PendingChildKeys::<T>::clear_prefix(netuid, limit, None)

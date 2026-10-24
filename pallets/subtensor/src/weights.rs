@@ -47,6 +47,7 @@ pub trait WeightInfo {
     fn set_gamma_deposit_spender() -> Weight { Self::move_stake() }
     fn set_gamma_deposit_daily_spend_cap() -> Weight { Self::move_stake() }
     fn spend_gamma(n: u32, ) -> Weight { Self::move_stake().saturating_mul(n.into()) }
+    fn set_service_url() -> Weight { Self::serve_axon() }
 	fn register() -> Weight;
 	fn set_weights() -> Weight;
 	fn add_stake() -> Weight;

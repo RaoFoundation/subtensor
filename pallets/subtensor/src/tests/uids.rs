@@ -49,11 +49,23 @@ fn test_trim_to_max_allowed_uids_purges_removed_neuron_commitment() {
             netuid,
             commitment(),
         ));
+        for hotkey in [removed_hotkey, retained_hotkey] {
+            ServiceUrls::<Test>::insert(
+                netuid,
+                hotkey,
+                ServiceUrlInfo {
+                    block: 1,
+                    url: BoundedVec::truncate_from(b"u".to_vec()),
+                },
+            );
+        }
 
         assert_ok!(SubtensorModule::trim_to_max_allowed_uids(netuid, 2));
 
         assert!(Commitments::commitment_of(netuid, removed_hotkey).is_none());
         assert!(Commitments::commitment_of(netuid, retained_hotkey).is_some());
+        assert!(!ServiceUrls::<Test>::contains_key(netuid, removed_hotkey));
+        assert!(ServiceUrls::<Test>::contains_key(netuid, retained_hotkey));
         assert_eq!(
             ConsensusByMechanism::<Test>::get(netuid_index),
             [20, 30].map(PerU16::from_parts).to_vec()
@@ -136,6 +148,14 @@ fn test_replace_neuron() {
             NeuronCertificateOf::default(),
         );
         Prometheus::<Test>::insert(netuid, hotkey_account_id, PrometheusInfoOf::default());
+        ServiceUrls::<Test>::insert(
+            netuid,
+            hotkey_account_id,
+            ServiceUrlInfo {
+                block: 1,
+                url: BoundedVec::truncate_from(b"u".to_vec()),
+            },
+        );
         SubtensorModule::set_associated_evm_address(netuid, neuron_uid, evm_address, 1);
         assert_ok!(Commitments::set_commitment(
             RuntimeOrigin::signed(hotkey_account_id),
@@ -203,6 +223,10 @@ fn test_replace_neuron() {
         assert!(!Prometheus::<Test>::contains_key(
             netuid,
             curr_hotkey.unwrap()
+        ));
+        assert!(!ServiceUrls::<Test>::contains_key(
+            netuid,
+            hotkey_account_id
         ));
 
         // Check bonds are cleared.

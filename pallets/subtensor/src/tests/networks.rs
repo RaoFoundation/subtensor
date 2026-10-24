@@ -783,7 +783,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         // (Optional) subnet -> lease link
         SubnetUidToLeaseId::<Test>::insert(net, 42u32);
 
-        // Gamma
+        // Gamma and service urls
         SubnetGammaEnabled::<Test>::insert(net, true);
         SubnetGammaPrice::<Test>::insert(net, U64F64::from_num(1));
         GammaDeposits::<Test>::insert(
@@ -801,6 +801,14 @@ fn dissolve_clears_all_per_subnet_storages() {
             net,
             owner_cold,
             BoundedVec::truncate_from(vec![owner_hot]),
+        );
+        ServiceUrls::<Test>::insert(
+            net,
+            owner_hot,
+            ServiceUrlInfo {
+                block: 1,
+                url: BoundedVec::truncate_from(b"u".to_vec()),
+            },
         );
 
         // ------------------------------------------------------------------
@@ -975,11 +983,12 @@ fn dissolve_clears_all_per_subnet_storages() {
         // Subnet -> lease link
         assert!(!SubnetUidToLeaseId::<Test>::contains_key(net));
 
-        // Gamma
+        // Gamma and service urls
         assert!(!SubnetGammaEnabled::<Test>::contains_key(net));
         assert!(!SubnetGammaPrice::<Test>::contains_key(net));
         assert!(!GammaDeposits::<Test>::contains_key(net, owner_hot));
         assert!(!ColdkeyGammaHotkeys::<Test>::contains_key(net, owner_cold));
+        assert!(!ServiceUrls::<Test>::contains_key(net, owner_hot));
 
         // ------------------------------------------------------------------
         // Final subnet removal confirmation

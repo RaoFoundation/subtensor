@@ -278,6 +278,9 @@ pub const TAO_USD_PRICE_MAX_AGE: u64 = 50;
 /// Largest rise per block of the accepted TAO/USD price toward the feed: about 2% per hour.
 pub const TAO_USD_PRICE_MAX_STEP: Perbill = Perbill::from_parts(66_000);
 
+/// Longest service url, in bytes.
+pub const MAX_SERVICE_URL_LEN: u32 = 256;
+
 /// Account flag bit that opts into receiving locked alpha transfers.
 pub const ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA: u128 = 1u128 << 0;
 /// Refuse staking-list growth initiated by another coldkey.
@@ -303,7 +306,7 @@ pub mod pallet {
     use crate::weights::WeightInfo;
     use crate::{
         MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, MAX_COLDKEY_COLLATERAL_HOTKEYS, MAX_GAMMA_DEPOSITS,
-        RateLimitKey,
+        MAX_SERVICE_URL_LEN, RateLimitKey,
     };
     use frame_support::Twox64Concat;
     use frame_support::{
@@ -468,6 +471,16 @@ pub mod pallet {
         pub port: u16,
         /// Prometheus ip type, 4 for ipv4 and 6 for ipv6.
         pub ip_type: u8,
+    }
+
+    /// Data structure for a hotkey's service url.
+    #[crate::freeze_struct("726d187131f8348e")]
+    #[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug)]
+    pub struct ServiceUrlInfo {
+        /// Service url serving block.
+        pub block: u64,
+        /// Url of the document describing the hotkey's services.
+        pub url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
     }
 
     ///  Struct for ChainIdentities. (DEPRECATED for V2)
@@ -3179,6 +3192,18 @@ pub mod pallet {
         Blake2_128Concat,
         T::AccountId,
         PrometheusInfoOf,
+        OptionQuery,
+    >;
+
+    /// MAP ( netuid, hotkey ) --> service_url_info
+    #[pallet::storage]
+    pub type ServiceUrls<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        ServiceUrlInfo,
         OptionQuery,
     >;
 

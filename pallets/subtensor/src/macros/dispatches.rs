@@ -3237,5 +3237,18 @@ mod dispatches {
         ) -> DispatchResult {
             Self::do_spend_gamma(origin, netuid, &spends)
         }
+
+        /// Sets the url where the signing hotkey describes its services on the subnet. The
+        /// hotkey must be registered on the subnet, and is limited to one change per serving
+        /// rate limit.
+        #[pallet::call_index(165)]
+        #[pallet::weight((<T as Config>::WeightInfo::set_service_url(), DispatchClass::Normal, Pays::No))]
+        pub fn set_service_url(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
+        ) -> DispatchResult {
+            Self::do_set_service_url(origin, netuid, url)
+        }
     }
 }

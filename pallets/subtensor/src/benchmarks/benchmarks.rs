@@ -3792,6 +3792,32 @@ mod pallet_benchmarks {
         }));
     }
 
+    #[benchmark]
+    fn set_service_url() {
+        let netuid = NetUid::from(1);
+        let hotkey: T::AccountId = whitelisted_caller();
+        Subtensor::<T>::init_new_network(netuid, 1);
+        Subtensor::<T>::append_neuron(netuid, &hotkey, 0);
+        let url: BoundedVec<_, _> =
+            BoundedVec::truncate_from(vec![b'a'; crate::MAX_SERVICE_URL_LEN as usize]);
+        ServiceUrls::<T>::insert(
+            netuid,
+            &hotkey,
+            ServiceUrlInfo {
+                block: 0,
+                url: url.clone(),
+            },
+        );
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(hotkey.clone()), netuid, url.clone());
+
+        assert_eq!(
+            ServiceUrls::<T>::get(netuid, &hotkey).map(|info| info.url),
+            Some(url)
+        );
+    }
+
     impl_benchmark_test_suite!(
         Subtensor,
         crate::tests::mock::new_test_ext(1),
