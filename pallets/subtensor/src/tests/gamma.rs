@@ -245,6 +245,8 @@ fn gamma_price_falls_to_spot_and_rises_at_the_fast_rate() {
         let netuid = gamma_subnet();
         let median = SubtensorModule::get_median_subnet_alpha_price();
         let disabled = add_dynamic_network(&U256::from(10), &U256::from(11));
+        let far = add_dynamic_network(&U256::from(12), &U256::from(13));
+        let unset = add_dynamic_network(&U256::from(14), &U256::from(15));
         let spot = |netuid| <Test as Config>::SwapInterface::current_alpha_price(netuid);
         let price = SubnetGammaPrice::<Test>::get;
         let alpha = U64F64::from_num(core::f64::consts::LN_2)
@@ -253,13 +255,19 @@ fn gamma_price_falls_to_spot_and_rises_at_the_fast_rate() {
         // Registration sets it to the median subnet alpha price.
         assert_eq!(price(disabled), median);
 
-        // Down to spot at once, up from below by the fast moving price's weight, gamma or not.
+        // Down to spot at once, up from below by the fast moving price's weight of the gap, at
+        // most of itself, and from unset to spot, gamma or not.
         SubnetGammaPrice::<Test>::insert(netuid, spot(netuid) * U64F64::from_num(2));
         let half = spot(disabled) / U64F64::from_num(2);
         SubnetGammaPrice::<Test>::insert(disabled, half);
+        let tenth = spot(far) / U64F64::from_num(10);
+        SubnetGammaPrice::<Test>::insert(far, tenth);
+        SubnetGammaPrice::<Test>::remove(unset);
         step_block(1);
         assert_eq!(price(netuid), spot(netuid));
         assert_eq!(price(disabled), half + (spot(disabled) - half) * alpha);
+        assert_eq!(price(far), tenth + tenth * alpha);
+        assert_eq!(price(unset), spot(unset));
     });
 }
 
@@ -930,10 +938,6 @@ fn move_gamma_refusals() {
         );
         assert_noop!(
             move_gamma(COLDKEY, HOTKEY, HOTKEY + 1, 0),
-            Error::<Test>::AmountTooLow
-        );
-        assert_noop!(
-            move_gamma(COLDKEY, HOTKEY, HOTKEY + 1, MIN_GAMMA_AMOUNT - 1),
             Error::<Test>::AmountTooLow
         );
         assert_noop!(

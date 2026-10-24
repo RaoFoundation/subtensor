@@ -2292,6 +2292,35 @@ fn test_do_swap_coldkey_refuses_too_many_gamma_deposits() {
     });
 }
 
+// A swap that would leave the destination with more gamma deposits than one swap moves is
+// refused, so no one can make a coldkey too heavy to swap away.
+#[test]
+fn test_do_swap_coldkey_refuses_a_destination_left_too_heavy_to_swap() {
+    new_test_ext(1).execute_with(|| {
+        let (source, destination) = (U256::from(3), U256::from(4));
+        let per_subnet = u64::from(MAX_GAMMA_DEPOSITS);
+        let first = add_dynamic_network(&U256::from(1002), &U256::from(1001));
+        let second = add_dynamic_network(&U256::from(1004), &U256::from(1003));
+        let third = add_dynamic_network(&U256::from(1006), &U256::from(1005));
+        seed_gamma_deposits(first, source, 100..100 + per_subnet);
+        seed_gamma_deposits(second, source, 200..200 + per_subnet);
+        seed_gamma_deposits(third, destination, 300..301);
+        assert_noop!(
+            SubtensorModule::do_swap_coldkey(&source, &destination),
+            Error::<Test>::ColdkeySwapTooHeavy
+        );
+
+        GammaDeposits::<Test>::remove(third, U256::from(300));
+        ColdkeyGammaHotkeys::<Test>::remove(third, destination);
+        assert_eq!(
+            SubtensorModule::do_swap_coldkey(&source, &destination)
+                .unwrap()
+                .gamma_deposits,
+            MAX_COLDKEY_SWAP_GAMMA_DEPOSITS
+        );
+    });
+}
+
 // Regression: coldkey swap must migrate miner collateral with the stake so the
 // new coldkey cannot withdraw the locked bond.
 #[test]

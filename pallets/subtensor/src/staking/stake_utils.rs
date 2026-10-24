@@ -111,14 +111,18 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Steps [`SubnetGammaPrice`]: down to spot at once, up toward it by
-    /// [`SubnetFastMovingPrice`]'s weight.
+    /// [`SubnetFastMovingPrice`]'s weight of the gap, at most of itself. An unset price starts
+    /// at spot.
     pub fn update_gamma_price(netuid: NetUid) {
         let spot: U64F64 = T::SwapInterface::current_alpha_price(netuid.into());
         let alpha = Self::fast_moving_price_weight();
         SubnetGammaPrice::<T>::mutate(netuid, |price| {
-            *price = price
-                .saturating_add(spot.saturating_sub(*price).saturating_mul(alpha))
-                .min(spot);
+            let rise = spot.saturating_sub(*price).min(*price);
+            *price = if *price == U64F64::from_num(0) {
+                spot
+            } else {
+                price.saturating_add(rise.saturating_mul(alpha)).min(spot)
+            };
         });
     }
 

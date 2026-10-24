@@ -270,13 +270,7 @@ impl<T: Config> Pallet<T> {
                     .into();
                 Some(destination)
             }
-            None => {
-                ensure!(
-                    amount.to_u64() >= crate::MIN_GAMMA_AMOUNT,
-                    Error::<T>::AmountTooLow
-                );
-                None
-            }
+            None => None,
         };
         deposit.balance = deposit.balance.saturating_sub(amount);
         let closes = deposit.balance.is_zero();

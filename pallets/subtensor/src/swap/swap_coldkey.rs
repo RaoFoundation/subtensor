@@ -126,6 +126,9 @@ impl<T: Config> Pallet<T> {
         // Pending-registration discovery: one queue read + total-scan sentinel
         // (not only owned rows — unrelated entries are still visited).
         let pending_reads = u64::from(max.registration_queue_scan).saturating_add(1);
+        // Gamma deposit counts of both coldkeys: the subnet list plus one index length per
+        // subnet, each.
+        let gamma_reads = u64::from(TotalNetworks::<T>::get()).saturating_mul(4);
         T::DbWeight::get()
             .reads(4)
             .saturating_add(Self::hotkey_owner_policy_weight())
@@ -135,7 +138,8 @@ impl<T: Config> Pallet<T> {
                         .saturating_add(position_reads)
                         .saturating_add(lock_reads)
                         .saturating_add(opt_out_reads)
-                        .saturating_add(pending_reads),
+                        .saturating_add(pending_reads)
+                        .saturating_add(gamma_reads),
                 ),
             )
             .saturating_add(reservation)
@@ -614,7 +618,11 @@ impl<T: Config> Pallet<T> {
         if work.dest_locks > crate::MAX_COLDKEY_SWAP_DEST_LOCKS
             || work.hotkeys > crate::MAX_COLDKEY_SWAP_HOTKEYS
             || work.positions > crate::MAX_COLDKEY_SWAP_POSITIONS
-            || work.gamma_deposits > crate::MAX_COLDKEY_SWAP_GAMMA_DEPOSITS
+            // Counting the destination's deposits too keeps every coldkey within one swap.
+            || work
+                .gamma_deposits
+                .saturating_add(Self::coldkey_gamma_deposit_count(new_coldkey))
+                > crate::MAX_COLDKEY_SWAP_GAMMA_DEPOSITS
         {
             // Retain this scan — do not re-walk storage for the failure weight.
             return Err((

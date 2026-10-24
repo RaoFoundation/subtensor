@@ -269,7 +269,7 @@ pub const MAX_COLDKEY_SWAP_GAMMA_DEPOSITS: u32 = 128;
 /// Blocks over which a daily spend cap refills in full: one day.
 pub const GAMMA_REFILL_BLOCKS: u64 = 7200;
 
-/// Smallest gamma a mint credits or a new deposit opens with: 0.1 gamma.
+/// Smallest gamma a mint credits: 0.1 gamma.
 pub const MIN_GAMMA_AMOUNT: u64 = 100_000_000;
 
 /// Oldest TAO/USD feed, in blocks, a mint accepts.
@@ -3942,7 +3942,7 @@ pub mod pallet {
 
     /// MAP ( netuid ) --> gamma_price | The price a subnet's alpha mints gamma at: set to the
     /// median subnet alpha price at registration, each block it falls to the spot price at once
-    /// and rises toward it by [`SubnetFastMovingPrice`]'s weight.
+    /// and rises toward it by [`SubnetFastMovingPrice`]'s weight of the gap, at most of itself.
     #[pallet::storage]
     pub type SubnetGammaPrice<T: Config> = StorageMap<_, Identity, NetUid, U64F64, ValueQuery>;
 
