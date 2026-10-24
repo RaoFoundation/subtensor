@@ -3,9 +3,10 @@
 use frame_support::traits::ExtendedDispatchable;
 use frame_support::{BoundedVec, assert_noop, assert_ok};
 use sp_core::U256;
+use sp_runtime::traits::Dispatchable;
 use sp_std::collections::btree_map::BTreeMap;
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{AlphaBalance, GammaBalance, NetUid, TaoBalance};
+use subtensor_runtime_common::{AlphaBalance, GammaBalance, NetUid, ProxyType, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
 use super::mock::*;
@@ -1331,6 +1332,39 @@ fn named_spender_excludes_the_owner() {
     });
 }
 
+#[test]
+fn gamma_spend_proxy_spends_as_its_real_account() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let (owner, delegate) = (U256::from(OWNER_COLDKEY), U256::from(88));
+        mint(netuid, COLDKEY, HOTKEY, TAO);
+        add_balance_to_coldkey_account(&owner, TAO.into());
+        assert_ok!(pallet_subtensor_proxy::Pallet::<Test>::add_proxy_delegate(
+            &owner,
+            delegate,
+            ProxyType::GammaSpend,
+            0
+        ));
+        let before = deposit(netuid, HOTKEY).balance;
+        assert_ok!(
+            RuntimeCall::Proxy(pallet_subtensor_proxy::Call::proxy {
+                real: owner,
+                force_proxy_type: Some(ProxyType::GammaSpend),
+                call: Box::new(RuntimeCall::SubtensorModule(SubtensorCall::spend_gamma {
+                    netuid,
+                    spends: spends(&[(HOTKEY, GAMMA)]),
+                })),
+            })
+            .dispatch(RuntimeOrigin::signed(delegate))
+        );
+        assert_eq!(
+            deposit(netuid, HOTKEY).balance,
+            before.saturating_sub(GAMMA.into())
+        );
+    });
+}
+
+/// Every deposit follows from the gamma events.
 #[test]
 fn gamma_events_reconstruct_deposits() {
     new_test_ext(1).execute_with(|| {

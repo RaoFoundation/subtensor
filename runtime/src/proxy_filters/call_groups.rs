@@ -508,6 +508,24 @@ call_filter_group!(
     ]
 );
 
+// Spending gamma deposits. Kept apart so a subnet service can be granted this alone via
+// `ProxyType::GammaSpend`.
+call_filter_group!(
+    GammaSpendCalls,
+    [RuntimeCall::SubtensorModule(SubtensorCall::spend_gamma),]
+);
+
+// Crediting gamma to a deposit at any hotkey, which hands its use to that hotkey; granted
+// only to proxies that may transfer.
+call_filter_group!(
+    GammaCreditCalls,
+    [
+        RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma),
+        RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma_with_stake),
+        RuntimeCall::SubtensorModule(SubtensorCall::move_gamma),
+    ]
+);
+
 // A subnet's public identity and token symbol.
 call_filter_group!(
     SubnetIdentityCalls,
@@ -536,7 +554,7 @@ call_filter_group!(
 
 // pallet-subtensor calls that spend or destroy the signer's TAO or alpha
 // without being a transfer or a stake-position change: burning stake in,
-// recycling/burning alpha, and paying a network lock cost.
+// recycling/burning alpha, paying a network lock cost, and managing gamma deposits.
 // Granted to the broad value-capable proxies, never to `NonFungible`.
 call_filter_group!(
     SubtensorValueCalls,
@@ -547,6 +565,9 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::register_network),
         RuntimeCall::SubtensorModule(SubtensorCall::register_network_with_identity),
         RuntimeCall::SubtensorModule(SubtensorCall::register_leased_network),
+        RuntimeCall::SubtensorModule(SubtensorCall::close_gamma_deposit),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_gamma_deposit_spender),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_gamma_deposit_daily_spend_cap),
     ]
 );
 
@@ -571,16 +592,17 @@ call_filter_group!(
     ]
 );
 
-// A neuron's network presence: axon / prometheus endpoints and the EVM key it
-// answers for. Hotkey-signed, no value. These re-point where a subnet reaches
-// (and may pay) the neuron, so they stay out of `Weights` and belong to
-// `Validate` only.
+// A neuron's network presence: axon / prometheus endpoints, its service url
+// and the EVM key it answers for. Hotkey-signed, no value. These re-point where
+// a subnet reaches (and may pay) the neuron, so they stay out of `Weights` and
+// belong to `Validate` only.
 call_filter_group!(
     NeuronServingCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::serve_axon),
         RuntimeCall::SubtensorModule(SubtensorCall::serve_axon_tls),
         RuntimeCall::SubtensorModule(SubtensorCall::serve_prometheus),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_service_url),
         RuntimeCall::SubtensorModule(SubtensorCall::associate_evm_key),
     ]
 );
@@ -610,6 +632,7 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::enable_voting_power_tracking),
         RuntimeCall::SubtensorModule(SubtensorCall::disable_voting_power_tracking),
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_voting_power_ema_alpha),
+        RuntimeCall::SubtensorModule(SubtensorCall::feed_tao_usd_price),
     ]
 );
 
@@ -663,6 +686,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_owner_cut_auto_lock_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_collateral_lock_share),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_collateral_drain_ratio),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_gamma_enabled),
     ]
 );
 
@@ -729,6 +753,8 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_liquidity_cap),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_min_trade_tao),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_claim_dust),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tao_usd_price_oracle),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_gamma_enabled),
     ]
 );
 
@@ -842,6 +868,8 @@ type SubtensorSplitCalls = (
     ChildKeyCalls,
     RootClaimCalls,
     BasketTradingCalls,
+    GammaSpendCalls,
+    GammaCreditCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     LockCalls,
