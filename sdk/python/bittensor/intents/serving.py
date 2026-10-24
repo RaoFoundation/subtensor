@@ -1,4 +1,4 @@
-"""Publishing a neuron's endpoint on-chain (axon, TLS axon, prometheus).
+"""Publishing a neuron's endpoint on-chain (axon, TLS axon, prometheus, service url).
 
 This publishes connection info as chain data only — the SDK does not implement
 the neuron networking layer itself.
@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .._generated import calls
+from ..result import BittensorError
 from .base import Intent
 from .registry import register
 
@@ -21,6 +22,9 @@ PROTOCOL_HELP = (
     "Application protocol tag stored alongside the endpoint; its meaning is subnet-defined."
 )
 VERSION_HELP = "Version number of the serving neuron's software, stored with the endpoint."
+
+# Longest service url the chain stores, in UTF-8 bytes.
+MAX_SERVICE_URL_LEN = 256
 
 
 @register
@@ -152,6 +156,44 @@ class ServePrometheus(Intent):
 
     def summary(self) -> str:
         return f"serve prometheus {self.ip}:{self.port} on netuid {self.netuid}"
+
+
+@register
+@dataclass
+class SetServiceUrl(Intent):
+    """Publish the url where this hotkey describes its services on a subnet.
+
+    The chain stores the url only; the document it points to (the services,
+    their interfaces, and the spender to name on gamma deposits) is the
+    publisher's. Signed by the hotkey, which must be registered on the subnet.
+    An empty url clears it.
+    """
+
+    op = "set_service_url"
+    signer = "hotkey"
+    wraps = (("SubtensorModule", "set_service_url"),)
+
+    netuid: int = field(metadata={"help": "Subnet on which to publish the url."})
+    url: str = field(
+        metadata={"help": "Url of the services document, up to 256 bytes; empty clears it."}
+    )
+
+    def __post_init__(self):
+        if len(self.url.encode()) > MAX_SERVICE_URL_LEN:
+            raise BittensorError(
+                f"set_service_url: the url is {len(self.url.encode())} bytes, "
+                f"at most {MAX_SERVICE_URL_LEN} are allowed"
+            )
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.SubtensorModule.set_service_url(netuid=self.netuid, url=self.url.encode())
+        )
+
+    def summary(self) -> str:
+        if not self.url:
+            return f"clear service url on netuid {self.netuid}"
+        return f"set service url {self.url} on netuid {self.netuid}"
 
 
 @register

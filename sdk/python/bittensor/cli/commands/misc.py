@@ -24,7 +24,7 @@ from ...settings import NETWORKS, resolve_endpoint
 from ..context import AppContext, ctx_of
 from ..globals import with_globals
 from ..output import GLYPH_FAIL, GLYPH_OK, PASTEL_RED, STYLE_SUCCESS
-from . import axon, collateral, crowd, extension, timelock, upgrade, weights
+from . import axon, collateral, crowd, extension, gamma, timelock, upgrade, weights
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -45,6 +45,7 @@ app.add_typer(collateral.app, name="collateral", rich_help_panel=PANEL_OPERATORS
 app.add_typer(timelock.app, name="timelock", rich_help_panel=PANEL_OPERATORS)
 
 app.add_typer(crowd.app, name="crowd", rich_help_panel=PANEL_STAKING)
+app.add_typer(gamma.app, name="gamma", rich_help_panel=PANEL_STAKING)
 
 app.add_typer(extension.app, name="extension", rich_help_panel=PANEL_SIGNING)
 

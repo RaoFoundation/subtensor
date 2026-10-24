@@ -352,6 +352,11 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         minimum=1,
         maximum=10 * FIXED128_ONE,
     ),
+    "gamma_enabled": Hyperparam(
+        "bool",
+        "Whether gamma can be minted on this subnet; the root subnet cannot enable it.",
+        short="gamma minting toggle",
+    ),
     "yuma3_enabled": Hyperparam(
         "bool",
         "Whether the Yuma3 consensus variant is enabled for this subnet.",
@@ -478,6 +483,7 @@ STORAGE_ITEMS: dict[str, st.Item] = {
     # is regenerated against spec >= 435.
     "collateral_lock_share": st.Item("SubtensorModule", "CollateralLockShare", "u16"),
     "collateral_drain_ratio": st.Item("SubtensorModule", "CollateralDrainRatio", "U64F64"),
+    "gamma_enabled": st.SubtensorModule.SubnetGammaEnabled,
     "yuma3_enabled": st.SubtensorModule.Yuma3On,
     "subnet_emission_enabled": st.SubtensorModule.SubnetEmissionEnabled,
     "bonds_reset_enabled": st.SubtensorModule.BondsResetOn,

@@ -41,6 +41,7 @@ PROXY_TYPES = (
     "Validate",
     "Weights",
     "Lock",
+    "GammaSpend",
 )
 
 
