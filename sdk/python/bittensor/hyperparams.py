@@ -246,8 +246,8 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "serving_rate_limit": Hyperparam(
         "blocks",
-        "Minimum blocks between axon serve calls for one neuron.",
-        short="cooldown between axon serve calls",
+        "Minimum blocks between axon serve calls, and between service url updates, for one neuron.",
+        short="cooldown between axon and url updates",
     ),
     "max_validators": Hyperparam(
         "int",

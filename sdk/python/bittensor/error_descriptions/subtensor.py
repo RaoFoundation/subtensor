@@ -66,8 +66,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "AmountTooLow": (
         "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the "
-        "minimum stake threshold after fees and slippage, or a gamma mint, or a move opening a "
-        "gamma deposit, came to less than 0.1 gamma. Compare the amount against the "
+        "minimum stake threshold after fees and slippage, or a gamma mint came to less than "
+        "0.1 gamma. Compare the amount against the "
         "`DefaultMinStake` storage item and the subnet's alpha price before retrying with a "
         "larger amount."
     ),

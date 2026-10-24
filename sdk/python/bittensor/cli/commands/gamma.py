@@ -1,4 +1,4 @@
-"""`btcli misc gamma`: gamma minting, deposits, and spending."""
+"""`btcli deposits`: gamma minting, deposits, and spending."""
 
 from __future__ import annotations
 
@@ -52,6 +52,14 @@ def _money(app_ctx: AppContext, value: str, flag: str, allow_all: bool = False):
         raise typer.Exit(2)
 
 
+def _spender_option():
+    return typer.Option(
+        None,
+        address_cli_name("spender_ss58"),
+        help=f"{MintGamma.field_help('spender_ss58')} {ss58_param_help('spender_ss58')}",
+    )
+
+
 @app.command("show")
 @with_globals
 def show_deposit(
@@ -66,7 +74,11 @@ def show_deposit(
     async def _op(client):
         return await client.read("gamma_deposit", netuid=netuid, hotkey_ss58=hotkey_ss58)
 
-    app_ctx.output.detail(f"gamma deposit on netuid {netuid}", app_ctx.run(_op))
+    deposit = app_ctx.run(_op)
+    if deposit is None:
+        app_ctx.output.error(f"no gamma deposit at {hotkey_ss58} on netuid {netuid}")
+        raise typer.Exit(1)
+    app_ctx.output.detail(f"gamma deposit on netuid {netuid}", deposit)
 
 
 @app.command("list")
@@ -122,12 +134,11 @@ def mint(
     ctx: typer.Context,
     netuid: int = _netuid_option("Subnet whose alpha is bought and burned."),
     hotkey: str = _deposit_hotkey_option(),
-    amount_tao: str = typer.Option(
-        ..., "--amount-tao", "--amount", help=MintGamma.field_help("amount_tao")
-    ),
+    amount_tao: str = typer.Option(..., "--amount-tao", help=MintGamma.field_help("amount_tao")),
     rate_tolerance: float = typer.Option(
         0.05, "--rate-tolerance", help=MintGamma.field_help("rate_tolerance")
     ),
+    spender: Optional[str] = _spender_option(),
 ):
     """Mint gamma with TAO into your deposit at an API-key hotkey."""
     app_ctx: AppContext = ctx_of(ctx)
@@ -137,6 +148,7 @@ def mint(
             hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", hotkey),
             amount_tao=_money(app_ctx, amount_tao, "--amount-tao"),
             rate_tolerance=rate_tolerance,
+            spender_ss58=app_ctx.resolve_address("spender_ss58", spender),
         )
     )
 
@@ -148,7 +160,7 @@ def mint_with_stake(
     netuid: int = _netuid_option("Subnet of the stake burned."),
     hotkey: str = _deposit_hotkey_option(),
     amount_alpha: str = typer.Option(
-        ..., "--amount-alpha", "--amount", help=MintGammaWithStake.field_help("amount_alpha")
+        ..., "--amount-alpha", help=MintGammaWithStake.field_help("amount_alpha")
     ),
     origin_hotkey: Optional[str] = typer.Option(
         None,
@@ -158,6 +170,7 @@ def mint_with_stake(
     rate_tolerance: float = typer.Option(
         0.05, "--rate-tolerance", help=MintGammaWithStake.field_help("rate_tolerance")
     ),
+    spender: Optional[str] = _spender_option(),
 ):
     """Mint gamma by burning your stake into your deposit at an API-key hotkey."""
     app_ctx: AppContext = ctx_of(ctx)
@@ -165,9 +178,10 @@ def mint_with_stake(
         MintGammaWithStake(
             netuid=netuid,
             hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", hotkey),
-            amount_alpha=_money(app_ctx, amount_alpha, "--amount-alpha"),
+            amount_alpha=_money(app_ctx, amount_alpha, "--amount-alpha", allow_all=True),
             origin_hotkey_ss58=app_ctx.resolve_address("hotkey_ss58", origin_hotkey),
             rate_tolerance=rate_tolerance,
+            spender_ss58=app_ctx.resolve_address("spender_ss58", spender),
         )
     )
 
@@ -184,7 +198,7 @@ def move(
         "destination_hotkey_ss58", MoveGamma.field_help("destination_hotkey_ss58")
     ),
     amount_gamma: str = typer.Option(
-        ..., "--amount-gamma", "--amount", help=MoveGamma.field_help("amount_gamma")
+        ..., "--amount-gamma", help=MoveGamma.field_help("amount_gamma")
     ),
 ):
     """Move gamma between two of your deposits on a subnet."""

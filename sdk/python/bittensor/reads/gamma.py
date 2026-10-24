@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Optional
 
 from .._generated import runtime_apis as api
@@ -127,11 +128,30 @@ async def tao_usd_price(view) -> dict:
     category="Gamma",
     param_docs={"netuid": "Subnet whose service urls to list."},
 )
-async def service_urls(view, netuid: int) -> dict[str, str]:
+async def service_urls(view, netuid: int) -> dict[str, dict]:
     """Every service url published on a subnet, by hotkey.
 
     Each points to its hotkey's own document of its services and the spender
-    to name on gamma deposits; the chain does not check what it says.
+    to name on gamma deposits; the chain does not check what it says. `block` is
+    when it was published; `owner` marks the subnet owner's hotkey.
     """
-    rows = await view.query_map(st.SubtensorModule.ServiceUrls, [netuid])
-    return {str(hotkey): utf8_text(info["url"]) for hotkey, info in rows if info["url"]}
+    rows, owner = await asyncio.gather(
+        view.query_map(st.SubtensorModule.ServiceUrls, [netuid]),
+        view.query(st.SubtensorModule.SubnetOwnerHotkey, [netuid]),
+    )
+    return {
+        str(hotkey): {
+            "url": _url_text(info["url"]),
+            "block": int(info["block"]),
+            "owner": str(hotkey) == str(owner),
+        }
+        for hotkey, info in rows
+        if info["url"]
+    }
+
+
+def _url_text(raw: Any) -> str:
+    """A url as text, or as hex when it holds control or format characters a terminal would
+    act on."""
+    text = utf8_text(raw)
+    return text if text.isprintable() else "0x" + text.encode().hex()

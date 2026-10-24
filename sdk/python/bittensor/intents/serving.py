@@ -9,6 +9,7 @@ from __future__ import annotations
 import ipaddress
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 from .._generated import calls
 from ..result import BittensorError
@@ -166,7 +167,7 @@ class SetServiceUrl(Intent):
     The chain stores the url only; the document it points to (the services,
     their interfaces, and the spender to name on gamma deposits) is the
     publisher's. Signed by the hotkey, which must be registered on the subnet.
-    An empty url clears it.
+    An empty url clears it. Updates wait out the subnet's ``serving_rate_limit``.
     """
 
     op = "set_service_url"
@@ -184,6 +185,9 @@ class SetServiceUrl(Intent):
                 f"set_service_url: the url is {len(self.url.encode())} bytes, "
                 f"at most {MAX_SERVICE_URL_LEN} are allowed"
             )
+        parts = urlsplit(self.url)
+        if self.url and not (parts.scheme in ("http", "https") and parts.netloc):
+            raise BittensorError(f"set_service_url: {self.url!r} is not an http(s) url")
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(

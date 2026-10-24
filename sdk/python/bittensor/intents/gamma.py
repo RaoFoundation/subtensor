@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, ClassVar, Optional
 
 from .._generated import calls
-from .._generated.runtime_apis import GammaRuntimeApi
+from .._generated import storage as st
+from .._generated.runtime_apis import GammaRuntimeApi, StakeInfoRuntimeApi
+from ..balance import Balance
 from ..hyperparams import U64_MAX
 from ..result import BittensorError
+from ..settings import GAMMA_UNITS
 from ._money import (
     ALL,
     UNBOUNDED,
@@ -19,9 +24,9 @@ from ._money import (
     gamma_units,
     tao_amount,
 )
-from .base import Intent
+from .base import Intent, IntentPreflight
 from .registry import register
-from .staking import DEFAULT_RATE_TOLERANCE, _check_rate_tolerance, _staked_rao
+from .staking import DEFAULT_RATE_TOLERANCE, _as_call, _check_rate_tolerance, _staked_rao
 
 # Most deposits one `spend_gamma` call spends from (`MAX_GAMMA_SPENDS`).
 MAX_GAMMA_SPENDS = 512
@@ -29,8 +34,8 @@ MAX_GAMMA_SPENDS = 512
 RATE_TOLERANCE_HELP = "Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%)."
 
 
-async def _min_gamma_out(substrate, method: tuple, netuid: int, amount: int, tolerance: float):
-    """The quoted gamma of a mint, less ``tolerance``; raises when gamma cannot be minted."""
+async def _quote(substrate, method: tuple, netuid: int, amount: int) -> tuple[int, int, int]:
+    """A mint's alpha burned, TAO value, and gamma; raises when gamma cannot be minted."""
     quote = await substrate.runtime_call(*method, [netuid, amount])
     if not quote:
         raise BittensorError(
@@ -38,7 +43,69 @@ async def _min_gamma_out(substrate, method: tuple, netuid: int, amount: int, tol
             "minting or its subtoken is disabled, the TAO/USD price is missing or stale, the pool "
             "lacks liquidity, or the amount is below the minimum"
         )
-    return int(int(quote[2]) * (1 - tolerance))
+    return tuple(int(part) for part in quote)
+
+
+def _min_out(gamma: int, tolerance: float) -> int:
+    return int(gamma * (1 - tolerance))
+
+
+async def _deposit(substrate, netuid: int, hotkey_ss58: str) -> Optional[dict]:
+    return await substrate.query(*st.SubtensorModule.GammaDeposits, [netuid, hotkey_ss58])
+
+
+def _own_deposit_blocks(deposit: Optional[dict], signer: str, hotkey_ss58: str) -> list[str]:
+    """What stops the signer acting on the deposit at ``hotkey_ss58`` as its owner."""
+    if deposit is None:
+        return [f"there is no gamma deposit at {hotkey_ss58} on this subnet"]
+    if str(deposit["coldkey"]) != signer:
+        return [f"the gamma deposit at {hotkey_ss58} belongs to another coldkey"]
+    return []
+
+
+def _gamma_text(units: int) -> str:
+    return f"{units / GAMMA_UNITS:,.4f} gamma"
+
+
+async def _with_spender(substrate, intent, mint):
+    """``mint``, then naming ``intent.spender_ss58`` the deposit's spender, when one is given."""
+    if intent.spender_ss58 is None:
+        return mint
+    name = await substrate.compose(
+        calls.SubtensorModule.set_gamma_deposit_spender(
+            hotkey=intent.hotkey_ss58, netuid=intent.netuid, spender=intent.spender_ss58
+        )
+    )
+    return await substrate.compose(calls.Utility.batch_all(calls=[_as_call(mint), _as_call(name)]))
+
+
+async def _mint_preflight(
+    intent, preview: IntentPreflight, substrate, signer: str, quote
+) -> IntentPreflight:
+    """A mint's preview: its quote, the deposit it credits, and the hard stops the chain
+    would refuse it with."""
+    deposit = await _deposit(substrate, intent.netuid, intent.hotkey_ss58)
+    if deposit is not None and str(deposit["coldkey"]) != signer:
+        preview.blocks.append(
+            f"the gamma deposit at {intent.hotkey_ss58} belongs to another coldkey; "
+            "mint to a fresh hotkey"
+        )
+    alpha, value, gamma = await quote
+    if deposit is not None and intent.spender_ss58 is None:
+        spender = str(deposit["spender"])
+    else:
+        spender = intent.spender_ss58 or "the subnet owner (a leased subnet's beneficiary)"
+    preview.facts = [
+        ("gamma", f"~{_gamma_text(gamma)}"),
+        ("minimum", _gamma_text(_min_out(gamma, intent.rate_tolerance))),
+        ("alpha burned", f"~{Balance.from_rao(alpha, intent.netuid)}"),
+        ("value", f"~{Balance.from_rao(value)}"),
+        ("deposit", "new" if deposit is None else f"holds {_gamma_text(int(deposit['balance']))}"),
+        ("spender", spender),
+        *preview.facts,
+    ]
+    preview.facts_title = "Quote"
+    return preview
 
 
 @register
@@ -51,13 +118,18 @@ class MintGamma(Intent):
     when absent. The alpha is valued at the lower of the subnet's gamma price
     and its spot price before the buy.
     A new deposit's spender is the subnet owner, or a leased subnet's
-    beneficiary, until you name another. Fails rather than minting less than
-    the current quote less ``rate_tolerance``.
+    beneficiary, unless ``spender_ss58`` names another in the same batch.
+    Fails rather than minting less than the current quote less
+    ``rate_tolerance``.
     """
 
     op = "mint_gamma"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "mint_gamma"),)
+    wraps = (
+        ("SubtensorModule", "mint_gamma"),
+        ("SubtensorModule", "set_gamma_deposit_spender"),
+        ("Utility", "batch_all"),
+    )
     mev_shield_default = True
 
     netuid: int = field(metadata={"help": "Subnet whose alpha is bought and burned."})
@@ -68,26 +140,39 @@ class MintGamma(Intent):
     rate_tolerance: float = field(
         default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
     )
+    spender_ss58: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "The account that spends the deposit. Omit to keep its spender, the "
+            "subnet owner's for a new deposit."
+        },
+    )
 
     def __post_init__(self):
         self.amount_tao = tao_amount(self.amount_tao)
         _check_rate_tolerance(self.rate_tolerance, can_disable=False)
 
+    def _quote(self, substrate):
+        return _quote(substrate, GammaRuntimeApi.sim_mint_gamma, self.netuid, self.amount_tao.rao)
+
     async def build(self, substrate, wallet: Any):
-        min_out = await _min_gamma_out(
-            substrate,
-            GammaRuntimeApi.sim_mint_gamma,
-            self.netuid,
-            self.amount_tao.rao,
-            self.rate_tolerance,
-        )
-        return await substrate.compose(
+        _, _, gamma = await self._quote(substrate)
+        mint = await substrate.compose(
             calls.SubtensorModule.mint_gamma(
                 hotkey=self.hotkey_ss58,
                 netuid=self.netuid,
                 amount=self.amount_tao.rao,
-                min_amount_out=min_out,
+                min_amount_out=_min_out(gamma, self.rate_tolerance),
             )
+        )
+        return await _with_spender(substrate, self, mint)
+
+    async def preflight(
+        self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
+    ) -> IntentPreflight:
+        preview = await super().preflight(substrate, dispatch_origin, fee_payer, call=call)
+        return await _mint_preflight(
+            self, preview, substrate, dispatch_origin, self._quote(substrate)
         )
 
     def summary(self) -> str:
@@ -105,16 +190,22 @@ class MintGamma(Intent):
 class MintGammaWithStake(Intent):
     """Mint gamma by burning your stake into your deposit at an API-key hotkey.
 
-    Burns up to ``amount_alpha`` of your stake on ``origin_hotkey_ss58`` and
-    credits its value in gamma to the deposit at ``hotkey_ss58``, valued as
-    ``mint_gamma`` values bought alpha. The stake is destroyed, not moved.
-    Fails rather than minting less than the current quote less
+    Burns up to ``amount_alpha`` (``all`` for the whole stake) of your stake
+    on ``origin_hotkey_ss58`` and credits its value in gamma to the deposit at
+    ``hotkey_ss58``, valued as ``mint_gamma`` values bought alpha. The stake is
+    destroyed, not moved. ``spender_ss58`` names the deposit's spender as for
+    ``mint_gamma``. Fails rather than minting less than the current quote less
     ``rate_tolerance``.
     """
 
     op = "mint_gamma_with_stake"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "mint_gamma_with_stake"),)
+    wraps = (
+        ("SubtensorModule", "mint_gamma_with_stake"),
+        ("SubtensorModule", "set_gamma_deposit_spender"),
+        ("Utility", "batch_all"),
+    )
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
 
     netuid: int = field(metadata={"help": "Subnet of the stake burned."})
     hotkey_ss58: str = field(
@@ -128,37 +219,66 @@ class MintGammaWithStake(Intent):
     rate_tolerance: float = field(
         default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
     )
+    spender_ss58: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "The account that spends the deposit. Omit to keep its spender, the "
+            "subnet owner's for a new deposit."
+        },
+    )
 
     def __post_init__(self):
-        self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid)
+        self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid, allow_all=True)
         _check_rate_tolerance(self.rate_tolerance, can_disable=False)
+
+    def _burned(self, staked: int) -> int:
+        """The alpha the chain burns: at most the stake held."""
+        return staked if self.amount_alpha == ALL else min(self.amount_alpha.rao, staked)
+
+    def _quote(self, substrate, alpha: int):
+        return _quote(substrate, GammaRuntimeApi.sim_mint_gamma_with_stake, self.netuid, alpha)
 
     async def build(self, substrate, wallet: Any):
         origin_hotkey = self.hotkey_address(wallet, self.origin_hotkey_ss58)
-        # The chain burns at most the stake held, so quote no more than that.
         staked = await _staked_rao(
             substrate, wallet, origin_hotkey, self.netuid, action="burn into gamma"
         )
-        min_out = await _min_gamma_out(
-            substrate,
-            GammaRuntimeApi.sim_mint_gamma_with_stake,
-            self.netuid,
-            min(self.amount_alpha.rao, staked),
-            self.rate_tolerance,
-        )
-        return await substrate.compose(
+        _, _, gamma = await self._quote(substrate, self._burned(staked))
+        mint = await substrate.compose(
             calls.SubtensorModule.mint_gamma_with_stake(
                 origin_hotkey=origin_hotkey,
                 destination_hotkey=self.hotkey_ss58,
                 netuid=self.netuid,
-                alpha_amount=self.amount_alpha.rao,
-                min_amount_out=min_out,
+                alpha_amount=U64_MAX if self.amount_alpha == ALL else self.amount_alpha.rao,
+                min_amount_out=_min_out(gamma, self.rate_tolerance),
             )
+        )
+        return await _with_spender(substrate, self, mint)
+
+    async def preflight(
+        self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
+    ) -> IntentPreflight:
+        preview = await super().preflight(substrate, dispatch_origin, fee_payer, call=call)
+        if self.origin_hotkey_ss58 is None:
+            return preview  # the stake read needs the hotkey, which build() takes from the wallet
+        info = await substrate.runtime_call(
+            *StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid,
+            [self.origin_hotkey_ss58, dispatch_origin, self.netuid],
+        )
+        staked = 0 if info is None else int(info["stake"])
+        alpha = self._burned(staked)
+        if self.amount_alpha != ALL and alpha < self.amount_alpha.rao:
+            preview.warnings.append(
+                f"only {Balance.from_rao(staked, self.netuid)} is staked; that is burned"
+            )
+        return await _mint_preflight(
+            self, preview, substrate, dispatch_origin, self._quote(substrate, alpha)
         )
 
     def summary(self) -> str:
+        amount = "all" if self.amount_alpha == ALL else self.amount_alpha
         return (
-            f"burn {self.amount_alpha} of stake into gamma on netuid {self.netuid}"
+            f"burn {amount} of stake into gamma on netuid {self.netuid}"
             f" to {self.hotkey_ss58} (fails if the quote falls >{self.rate_tolerance:.2%})"
         )
 
@@ -177,8 +297,7 @@ class MoveGamma(Intent):
     deposit at ``origin_hotkey_ss58`` to the one at
     ``destination_hotkey_ss58``. A destination with no deposit is opened with
     the origin's spender and daily spend cap, and a move that empties the
-    origin closes it. A move that opens a deposit needs at least 0.1 gamma
-    (``MIN_GAMMA_AMOUNT``).
+    origin closes it.
     """
 
     op = "move_gamma"
@@ -203,6 +322,16 @@ class MoveGamma(Intent):
                 amount=U64_MAX if self.amount_gamma == ALL else gamma_units(self.amount_gamma),
             )
         )
+
+    async def blocks(self, substrate, signer_address: str) -> list[str]:
+        origin, destination = await asyncio.gather(
+            _deposit(substrate, self.netuid, self.origin_hotkey_ss58),
+            _deposit(substrate, self.netuid, self.destination_hotkey_ss58),
+        )
+        blocks = _own_deposit_blocks(origin, signer_address, self.origin_hotkey_ss58)
+        if destination is not None:
+            blocks += _own_deposit_blocks(destination, signer_address, self.destination_hotkey_ss58)
+        return blocks
 
     def summary(self) -> str:
         amount = "all" if self.amount_gamma == ALL else self.amount_gamma
@@ -232,6 +361,15 @@ class CloseGammaDeposit(Intent):
             calls.SubtensorModule.close_gamma_deposit(hotkey=self.hotkey_ss58, netuid=self.netuid)
         )
 
+    async def blocks(self, substrate, signer_address: str) -> list[str]:
+        deposit = await _deposit(substrate, self.netuid, self.hotkey_ss58)
+        blocks = _own_deposit_blocks(deposit, signer_address, self.hotkey_ss58)
+        if not blocks and int(deposit["balance"]):
+            blocks.append(
+                f"the deposit holds {_gamma_text(int(deposit['balance']))}; move or spend it first"
+            )
+        return blocks
+
     def summary(self) -> str:
         return f"close the gamma deposit at {self.hotkey_ss58} on netuid {self.netuid}"
 
@@ -258,6 +396,10 @@ class SetGammaDepositSpender(Intent):
                 hotkey=self.hotkey_ss58, netuid=self.netuid, spender=self.spender_ss58
             )
         )
+
+    async def blocks(self, substrate, signer_address: str) -> list[str]:
+        deposit = await _deposit(substrate, self.netuid, self.hotkey_ss58)
+        return _own_deposit_blocks(deposit, signer_address, self.hotkey_ss58)
 
     def summary(self) -> str:
         return (
@@ -300,6 +442,10 @@ class SetGammaDepositDailySpendCap(Intent):
                 else gamma_units(self.daily_spend_cap_gamma),
             )
         )
+
+    async def blocks(self, substrate, signer_address: str) -> list[str]:
+        deposit = await _deposit(substrate, self.netuid, self.hotkey_ss58)
+        return _own_deposit_blocks(deposit, signer_address, self.hotkey_ss58)
 
     def summary(self) -> str:
         cap = (
@@ -356,5 +502,28 @@ class SpendGamma(Intent):
             )
         )
 
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        deposits = await substrate.query_batch(
+            *st.SubtensorModule.GammaDeposits,
+            [[self.netuid, spend["hotkey_ss58"]] for spend in self.spends],
+        )
+        skipped = [
+            spend["hotkey_ss58"]
+            for spend, deposit in zip(self.spends, deposits)
+            if deposit is None or str(deposit["spender"]) != signer_address
+        ]
+        if not skipped:
+            return []
+        if len(skipped) == len(self.spends):
+            return ["nothing would be spent: no entry is a deposit you are the spender of"]
+        return [
+            f"{len(skipped)} of {len(self.spends)} entries would be skipped, having no deposit "
+            f"you are the spender of: {', '.join(skipped)}"
+        ]
+
     def summary(self) -> str:
-        return f"spend gamma from {len(self.spends)} deposits on netuid {self.netuid}"
+        total = sum(Decimal(spend["amount_gamma"]) for spend in self.spends)
+        return (
+            f"spend up to {format(total.normalize(), 'f')} gamma from {len(self.spends)} "
+            f"deposits on netuid {self.netuid}"
+        )

@@ -645,6 +645,8 @@ class AppContext:
                 self.wallet_address(public_view(handle, "hotkey")), f"hotkey {value!r}", value
             )
 
+        if "/" in value:
+            raise ValueError("WALLET/HOTKEY names a hotkey; pass a WALLET name or an address")
         public = wallets.open_wallet(name=value, path=self.wallet_path).coldkeypub
         address = self.wallet_address(public)
         return ResolvedAddress(address, f"wallet {value!r}", value)
