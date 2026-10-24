@@ -3242,7 +3242,7 @@ mod dispatches {
         /// hotkey must be registered on the subnet, and is limited to one change per serving
         /// rate limit.
         #[pallet::call_index(165)]
-        #[pallet::weight((<T as Config>::WeightInfo::set_service_url(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((<T as Config>::WeightInfo::set_service_url(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_service_url(
             origin: OriginFor<T>,
             netuid: NetUid,

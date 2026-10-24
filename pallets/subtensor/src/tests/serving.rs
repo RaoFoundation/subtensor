@@ -1182,7 +1182,7 @@ fn test_set_service_url_sets_the_url() {
             netuid,
             url: url.clone(),
         };
-        assert_eq!(call.get_dispatch_info().pays_fee, Pays::No);
+        assert_eq!(call.get_dispatch_info().pays_fee, Pays::Yes);
         assert_ok!(SubtensorModule::set_service_url(
             RuntimeOrigin::signed(hotkey),
             netuid,
