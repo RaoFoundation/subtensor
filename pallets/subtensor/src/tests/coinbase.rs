@@ -3084,6 +3084,58 @@ fn test_drain_alpha_childkey_parentkey_with_burn() {
 }
 
 #[test]
+fn test_ckburn_does_not_touch_subnet_alpha_out() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 1, 0);
+        let parent = U256::from(1);
+        let child = U256::from(2);
+        let parent_ck = U256::from(3);
+        let child_ck = U256::from(4); // different coldkey so the childkey-burn branch fires
+        register_ok_neuron(netuid, child, child_ck, 0);
+        Owner::<Test>::insert(parent, parent_ck);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &parent,
+            &parent_ck,
+            netuid,
+            AlphaBalance::from(1_000_000_000),
+        );
+        mock_set_children_no_epochs(netuid, &parent, &[(u64::MAX, child)]);
+        ChildkeyTake::<Test>::insert(child, netuid, PerU16::from_parts(u16::MAX / 10));
+        SubtensorModule::set_ck_burn(u64::MAX / 10); // 10% burn - the untested path
+
+        // A real subnet carries outstanding alpha in SubnetAlphaOut. This test stakes
+        // directly, which populates the share pools but not SubnetAlphaOut (minting via
+        // run_coinbase normally does that), so seed SubnetAlphaOut above the burn amount.
+        // Otherwise recycle_subnet_alpha's saturating_sub clamps at 0 and hides the drop.
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000_000_000u64));
+
+        // distribute_emission only moves pre-minted alpha into stakers' share pools;
+        // minting and recycling belong to run_coinbase's emission-weight path, not here.
+        // So SubnetAlphaOut must be unchanged. The misplaced childkey-burn recycle instead
+        // decrements it by burn_take, while the full emission is still distributed - so
+        // SubnetAlphaOut drifts below the outstanding staked alpha every epoch the branch
+        // fires (confirmed here: parent and child together gain the full pending alpha).
+        let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
+        let pending_alpha = AlphaBalance::from(1_000_000_000);
+        SubtensorModule::distribute_emission(
+            netuid,
+            pending_alpha.saturating_div(2.into()).into(),
+            pending_alpha.saturating_div(2.into()).into(),
+            AlphaBalance::ZERO,
+            AlphaBalance::ZERO,
+        );
+        let alpha_out_after = SubnetAlphaOut::<Test>::get(netuid);
+
+        assert_eq!(
+            alpha_out_after, alpha_out_before,
+            "distribute_emission must not change SubnetAlphaOut (it only distributes \
+             pre-minted alpha); the childkey burn recycled alpha that was still distributed"
+        );
+    });
+}
+
+#[test]
 fn test_incentive_is_autostaked_to_owner_destination() {
     new_test_ext(1).execute_with(|| {
         let subnet_owner_ck = U256::from(0);
