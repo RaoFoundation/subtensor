@@ -1033,6 +1033,16 @@ impl<T: Config> Pallet<T> {
             weight.saturating_accrue(T::DbWeight::get().reads_writes(5, 4));
         }
 
+        // 3.10. Swap the service url.
+        // ServiceUrls( netuid, hotkey ) -> service url info -- where the hotkey describes its services.
+        if is_network_member
+            && let Ok(old_service_url) = ServiceUrls::<T>::try_get(netuid, old_hotkey)
+        {
+            ServiceUrls::<T>::remove(netuid, old_hotkey);
+            ServiceUrls::<T>::insert(netuid, new_hotkey, old_service_url);
+            weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
+        }
+
         // 4. Swap ChildKeys.
         // 5. Swap ParentKeys.
         // 6. Swap PendingChildKeys.

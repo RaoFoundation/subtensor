@@ -93,6 +93,12 @@ class EthereumRuntimeRPCApi:
     pending_block = Method('EthereumRuntimeRPCApi', 'pending_block')
     initialize_pending_block = Method('EthereumRuntimeRPCApi', 'initialize_pending_block')
 
+class GammaRuntimeApi:
+    get_gamma_deposit = Method('GammaRuntimeApi', 'get_gamma_deposit')
+    get_gamma_deposits_for_coldkey = Method('GammaRuntimeApi', 'get_gamma_deposits_for_coldkey')
+    sim_mint_gamma = Method('GammaRuntimeApi', 'sim_mint_gamma')
+    sim_mint_gamma_with_stake = Method('GammaRuntimeApi', 'sim_mint_gamma_with_stake')
+
 class GenesisBuilder:
     build_state = Method('GenesisBuilder', 'build_state')
     get_preset = Method('GenesisBuilder', 'get_preset')

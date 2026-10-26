@@ -50,6 +50,28 @@ use sp_rpc::number::NumberOrHex;
 )]
 pub struct AlphaBalance(u64);
 
+#[freeze_struct("ca0d9a28af90a41")]
+#[repr(transparent)]
+#[derive(
+    Deserialize,
+    Serialize,
+    Clone,
+    Copy,
+    Decode,
+    DecodeWithMemTracking,
+    Default,
+    Encode,
+    Eq,
+    Hash,
+    MaxEncodedLen,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    RuntimeDebug,
+    TypeInfo,
+)]
+pub struct GammaBalance(u64);
+
 #[freeze_struct("a99f2483a97121fc")]
 #[repr(transparent)]
 #[derive(
@@ -337,11 +359,20 @@ impl_arithmetic_operators!(AlphaBalance);
 impl_approx!(AlphaBalance);
 impl_currency_reqs!(AlphaBalance);
 
+impl_arithmetic_operators!(GammaBalance);
+impl_approx!(GammaBalance);
+impl_currency_reqs!(GammaBalance);
+
 impl_arithmetic_operators!(TaoBalance);
 impl_approx!(TaoBalance);
 impl_currency_reqs!(TaoBalance);
 
 impl Token for AlphaBalance {
+    const MAX: Self = Self(u64::MAX);
+    const ZERO: Self = Self(0);
+}
+
+impl Token for GammaBalance {
     const MAX: Self = Self(u64::MAX);
     const ZERO: Self = Self(0);
 }

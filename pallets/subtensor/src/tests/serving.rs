@@ -1168,3 +1168,80 @@ fn test_set_subnet_identity_dispatch_info_ok() {
         assert_eq!(dispatch_info.pays_fee, Pays::Yes);
     });
 }
+
+#[test]
+fn test_set_service_url_sets_the_url() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1);
+        let netuid = NetUid::from(1);
+        let url: BoundedVec<u8, _> = BoundedVec::truncate_from(b"https://example.com".to_vec());
+        add_network(netuid, 13, 0);
+        register_ok_neuron(netuid, hotkey, U256::from(66), 0);
+
+        let call = SubtensorCall::set_service_url {
+            netuid,
+            url: url.clone(),
+        };
+        assert_eq!(call.get_dispatch_info().pays_fee, Pays::Yes);
+        assert_ok!(SubtensorModule::set_service_url(
+            RuntimeOrigin::signed(hotkey),
+            netuid,
+            url.clone()
+        ));
+        let block = SubtensorModule::get_current_block_as_u64();
+        assert_eq!(
+            ServiceUrls::<Test>::get(netuid, hotkey),
+            Some(ServiceUrlInfo { block, url })
+        );
+        System::assert_last_event(Event::ServiceUrlSet { netuid, hotkey }.into());
+    });
+}
+
+#[test]
+fn test_set_service_url_rate_limit_exceeded() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1);
+        let netuid = NetUid::from(1);
+        let set = |url: &[u8]| {
+            SubtensorModule::set_service_url(
+                RuntimeOrigin::signed(hotkey),
+                netuid,
+                BoundedVec::truncate_from(url.to_vec()),
+            )
+        };
+        add_network(netuid, 13, 0);
+        register_ok_neuron(netuid, hotkey, U256::from(66), 0);
+        SubtensorModule::set_serving_rate_limit(netuid, 2);
+
+        assert_ok!(set(b"https://a.example.com"));
+        assert_noop!(
+            set(b"https://b.example.com"),
+            Error::<Test>::ServingRateLimitExceeded
+        );
+        run_to_block(System::block_number() + 2);
+        assert_ok!(set(b""));
+        assert_noop!(
+            set(b"https://b.example.com"),
+            Error::<Test>::ServingRateLimitExceeded
+        );
+    });
+}
+
+#[test]
+fn test_set_service_url_requires_a_registered_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1);
+        let netuid = NetUid::from(1);
+        let url = || BoundedVec::truncate_from(b"https://example.com".to_vec());
+
+        assert_noop!(
+            SubtensorModule::set_service_url(RuntimeOrigin::signed(hotkey), netuid, url()),
+            Error::<Test>::SubnetNotExists
+        );
+        add_network(netuid, 13, 0);
+        assert_noop!(
+            SubtensorModule::set_service_url(RuntimeOrigin::signed(hotkey), netuid, url()),
+            Error::<Test>::HotKeyNotRegisteredInNetwork
+        );
+    });
+}

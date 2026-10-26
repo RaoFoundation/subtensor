@@ -156,18 +156,6 @@ intent_plan_test!(intent_set_mechanism_count, "set_mechanism_count");
 intent_plan_test!(intent_set_perpetual_lock, "set_perpetual_lock");
 intent_plan_test!(intent_set_subnet_identity, "set_subnet_identity");
 
-/// Root Reborn retires `set_root_claim_type`. Keep the named slots so the
-/// base-branch e2e matrix builder's fixed test count stays satisfied; the
-/// SDK helper remains for older runtimes / offline policy checks only.
-/// (`intent_claim_root_with_hotkey` and the timelocked commitment E2E use the
-/// former stub/redundant slots to keep the trusted manifest at 112 tests.)
-#[test]
-fn intent_set_root_claim_type() {
-    assert!(IntentCall::set_root_claim_type("KeepSubnets", None).is_err());
-    assert!(IntentCall::set_root_claim_type("Swap", None).is_ok());
-    assert!(IntentCall::set_root_claim_type("Keep", None).is_ok());
-    assert!(IntentCall::set_root_claim_type("KeepSubnets", Some(vec![1])).is_ok());
-}
 intent_plan_test!(intent_set_take, "set_take");
 intent_plan_test!(intent_set_weights, "set_weights");
 intent_plan_test!(intent_stake_burn, "stake_burn");
@@ -1155,6 +1143,249 @@ fn test_proxy_flow() {
                 .error
                 .as_ref()
                 .is_some_and(|error| error.semantic_code == "not_proxy")
+    );
+}
+
+#[test]
+fn test_gamma_lifecycle() {
+    const TAO_USD_PRICE: u64 = 400_000_000_000;
+    const GAMMA: u128 = 1_000_000_000;
+    let ctx = TestContext::new();
+    let alice = ctx.alice.coldkey.ss58_address();
+    let charlie = Wallet::from_uris("//Charlie", "//Charlie//hot").expect("Charlie wallet");
+    let bob = ctx.bob.coldkey.ss58_address();
+    let execute = |intent: &IntentCall, wallet: &Wallet| {
+        let result = ctx
+            .executor()
+            .execute(intent, wallet)
+            .expect("call submits");
+        assert_success(&result);
+        result
+    };
+    let sudo = |function: &str, params: Value| {
+        let inner = ctx
+            .client
+            .compose_call("AdminUtils", function, &params)
+            .expect("admin call composes");
+        let call = IntentCall::new(
+            "raw_sudo",
+            SignerRole::Coldkey,
+            "Sudo",
+            "sudo",
+            record([("call", bytes(inner))]),
+        )
+        .raw();
+        execute(&call, &ctx.alice);
+    };
+    let gamma = |function: &str, params: Value| {
+        IntentCall::new(
+            function,
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            function,
+            params,
+        )
+    };
+    let feed = || {
+        let price = record([("price", u64v(TAO_USD_PRICE))]);
+        execute(&gamma("feed_tao_usd_price", price), &ctx.alice);
+    };
+    let read = |method: &str, params: &[Value]| {
+        ctx.client
+            .runtime_call("GammaRuntimeApi", method, params, None)
+            .unwrap_or_else(|error| panic!("{method}: {error}"))
+    };
+    let spend = |netuid: u16, hotkey: &str, amount: u128| {
+        let spends = list([Value::Tuple(vec![s(hotkey), u128v(amount)])]);
+        let call = gamma(
+            "spend_gamma",
+            record([("netuid", u(netuid)), ("spends", spends)]),
+        );
+        let result = ctx
+            .executor()
+            .execute_with(&call, &charlie, None, Some(&bob), None, true)
+            .expect("proxied spend submits");
+        assert_success(&result);
+        value_u128(
+            event_attributes(&result, "SubtensorModule", "GammaSpent").expect("GammaSpent"),
+            "amount",
+        )
+    };
+    let balance = |netuid: u16, hotkey: &str| {
+        let info = read("get_gamma_deposit", &[u(netuid), s(hotkey)]);
+        value_u128(field(&info, "deposit").expect("deposit"), "balance")
+    };
+
+    sudo(
+        "sudo_set_admin_freeze_window",
+        record([("window", u16v(0))]),
+    );
+    sudo(
+        "sudo_set_tao_usd_price_oracle",
+        record([("oracle", s(alice.clone()))]),
+    );
+    feed();
+    sudo("sudo_set_gamma_enabled", record([("enabled", boolv(true))]));
+
+    // The owner enables its subnet.
+    let netuid = ctx.owned_subnet();
+    let enable = IntentCall::new(
+        "set_hyperparameter",
+        SignerRole::Coldkey,
+        "AdminUtils",
+        "sudo_set_subnet_gamma_enabled",
+        record([("netuid", u(netuid)), ("enabled", boolv(true))]),
+    );
+    execute(&enable, &ctx.alice);
+
+    // Mint with TAO against the quote; the pool can move by a block's emission.
+    let api_key = random_wallet().hotkey.ss58_address();
+    let amount = amount_tao(10);
+    let quote = read("sim_mint_gamma", &[u(netuid), u128v(amount)]);
+    let quoted = as_u128(&tuple(&quote)[2]).expect("quoted gamma");
+    let mint = gamma(
+        "mint_gamma",
+        record([
+            ("hotkey", s(api_key.clone())),
+            ("netuid", u(netuid)),
+            ("amount", u128v(amount)),
+            ("min_amount_out", u128v(quoted / 100 * 99)),
+        ]),
+    );
+    let result = execute(&mint, &ctx.alice);
+    let minted = event_attributes(&result, "SubtensorModule", "GammaMinted").expect("GammaMinted");
+    let minted_gamma = value_u128(minted, "gamma");
+    assert_eq!(value_u128(minted, "tao"), amount);
+    assert!(minted_gamma.abs_diff(quoted) <= quoted / 100);
+    assert_eq!(balance(netuid, &api_key), minted_gamma);
+
+    let terms = |function: &str, name: &str, value: Value, hotkey: &str| {
+        let params = record([("hotkey", s(hotkey)), ("netuid", u(netuid)), (name, value)]);
+        execute(&gamma(function, params), &ctx.alice);
+    };
+    terms(
+        "set_gamma_deposit_daily_spend_cap",
+        "daily_spend_cap",
+        u128v(GAMMA),
+        &api_key,
+    );
+    terms(
+        "set_gamma_deposit_spender",
+        "spender",
+        s(bob.clone()),
+        &api_key,
+    );
+
+    let add_proxy = IntentCall::new(
+        "add_proxy",
+        SignerRole::Coldkey,
+        "Proxy",
+        "add_proxy",
+        record([
+            ("delegate", s(charlie.coldkey.ss58_address())),
+            ("proxy_type", proxy_type("GammaSpend")),
+            ("delay", u32v(0)),
+        ]),
+    );
+    execute(&add_proxy, &ctx.bob);
+    assert_eq!(spend(netuid, &api_key, 2 * GAMMA), GAMMA);
+    assert_eq!(balance(netuid, &api_key), minted_gamma - GAMMA);
+
+    let moved_key = random_wallet().hotkey.ss58_address();
+    let moving = gamma(
+        "move_gamma",
+        record([
+            ("origin_hotkey", s(api_key.clone())),
+            ("destination_hotkey", s(moved_key.clone())),
+            ("netuid", u(netuid)),
+            ("amount", u128v(u128::from(u64::MAX))),
+        ]),
+    );
+    let result = execute(&moving, &ctx.alice);
+    assert!(event_attributes(&result, "SubtensorModule", "GammaDepositClosed").is_some());
+    assert!(matches!(
+        read("get_gamma_deposit", &[u(netuid), s(api_key.clone())]),
+        Value::Null
+    ));
+    let moved = read("get_gamma_deposit", &[u(netuid), s(moved_key.clone())]);
+    let terms_moved = field(&moved, "deposit").expect("deposit");
+    assert_eq!(value_str(terms_moved, "spender"), bob);
+    assert_eq!(value_u128(terms_moved, "daily_spend_cap"), GAMMA);
+    assert_eq!(value_u128(terms_moved, "balance"), minted_gamma - GAMMA);
+
+    terms(
+        "set_gamma_deposit_daily_spend_cap",
+        "daily_spend_cap",
+        Value::Null,
+        &moved_key,
+    );
+    assert_eq!(
+        spend(netuid, &moved_key, u128::from(u64::MAX)),
+        minted_gamma - GAMMA
+    );
+    assert_eq!(balance(netuid, &moved_key), 0);
+    let close = gamma(
+        "close_gamma_deposit",
+        record([("hotkey", s(moved_key.clone())), ("netuid", u(netuid))]),
+    );
+    let result = execute(&close, &ctx.alice);
+    assert!(event_attributes(&result, "SubtensorModule", "GammaDepositClosed").is_some());
+
+    let alice_hot = ctx.alice.hotkey.ss58_address();
+    execute(
+        &add_stake(alice_hot.clone(), netuid, amount_tao(10)),
+        &ctx.alice,
+    );
+    feed();
+    let staked_key = random_wallet().hotkey.ss58_address();
+    let alpha = amount_tao(1);
+    assert!(!matches!(
+        read("sim_mint_gamma_with_stake", &[u(netuid), u128v(alpha)]),
+        Value::Null
+    ));
+    let mint = gamma(
+        "mint_gamma_with_stake",
+        record([
+            ("origin_hotkey", s(alice_hot)),
+            ("destination_hotkey", s(staked_key.clone())),
+            ("netuid", u(netuid)),
+            ("alpha_amount", u128v(alpha)),
+            ("min_amount_out", u128v(0)),
+        ]),
+    );
+    let result = execute(&mint, &ctx.alice);
+    let minted = event_attributes(&result, "SubtensorModule", "GammaMinted").expect("GammaMinted");
+    assert_eq!(value_u128(minted, "tao"), 0);
+    assert_eq!(value_u128(minted, "alpha"), alpha);
+    assert!(event_attributes(&result, "SubtensorModule", "AlphaBurned").is_some());
+
+    let deposits = read("get_gamma_deposits_for_coldkey", &[s(alice.clone())]);
+    assert!(value_contains_str(&deposits, &staked_key));
+    assert!(!value_contains_str(&deposits, &moved_key));
+
+    // The owner's hotkey publishes where its services are described.
+    let url = "https://example.com/services.json";
+    let publish = IntentCall::new(
+        "set_service_url",
+        SignerRole::Hotkey,
+        "SubtensorModule",
+        "set_service_url",
+        record([("netuid", u(netuid)), ("url", bytes(url))]),
+    );
+    let result = execute(&publish, &ctx.alice);
+    assert!(event_attributes(&result, "SubtensorModule", "ServiceUrlSet").is_some());
+    let published = ctx
+        .client
+        .query(
+            "SubtensorModule",
+            "ServiceUrls",
+            &[u(netuid), s(ctx.alice.hotkey.ss58_address())],
+            None,
+        )
+        .expect("service url read");
+    assert_eq!(
+        field(&published, "url").and_then(text_bytes).as_deref(),
+        Some(url)
     );
 }
 

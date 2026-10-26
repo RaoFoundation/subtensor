@@ -26,7 +26,7 @@ read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | root (chain sudo) | AdminUtils | [`AdminUtils.sudo_set_subnet_emission_enabled`](/code/pallets/admin-utils/src/lib.rs#L2548-L2568), `Sudo.sudo` |
+| `coldkey` | root (chain sudo) | AdminUtils | [`AdminUtils.sudo_set_subnet_emission_enabled`](/code/pallets/admin-utils/src/lib.rs#L2565-L2585), `Sudo.sudo` |
 
 ## Verify
 
@@ -87,7 +87,7 @@ result = sub.execute_tool("set_subnet_emission_enabled", {...}, wallet)
 
 ## On-chain implementation
 
-`AdminUtils.sudo_set_subnet_emission_enabled` — [`pallets/admin-utils/src/lib.rs#L2550`](/code/pallets/admin-utils/src/lib.rs#L2548-L2568):
+`AdminUtils.sudo_set_subnet_emission_enabled` — [`pallets/admin-utils/src/lib.rs#L2567`](/code/pallets/admin-utils/src/lib.rs#L2565-L2585):
 
 ```rust
 #[pallet::call_index(94)]

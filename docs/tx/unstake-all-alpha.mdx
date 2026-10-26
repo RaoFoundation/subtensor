@@ -16,7 +16,7 @@ incur slippage.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all_alpha`](/code/pallets/subtensor/src/macros/dispatches.rs#L1303-L1322) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all_alpha`](/code/pallets/subtensor/src/macros/dispatches.rs#L1304-L1323) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("unstake_all_alpha", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.unstake_all_alpha` — [`pallets/subtensor/src/macros/dispatches.rs#L1305`](/code/pallets/subtensor/src/macros/dispatches.rs#L1303-L1322):
+`SubtensorModule.unstake_all_alpha` — [`pallets/subtensor/src/macros/dispatches.rs#L1306`](/code/pallets/subtensor/src/macros/dispatches.rs#L1304-L1323):
 
 ```rust
 #[pallet::call_index(84)]
@@ -90,6 +90,6 @@ pub fn unstake_all_alpha(
 }
 ```
 
-Delegates to [`do_unstake_all_alpha_tracked`](/code/pallets/subtensor/src/staking/remove_stake.rs#L338), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1584), [`unstake_all_alpha_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L302).
+Delegates to [`do_unstake_all_alpha_tracked`](/code/pallets/subtensor/src/staking/remove_stake.rs#L338), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1697), [`unstake_all_alpha_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L302).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -2,7 +2,7 @@
 
 use super::mock::*;
 use crate::rpc_info::subnet_info::{HyperparamEntry, HyperparamValue, SubnetHyperparamsV3};
-use crate::{BurnHalfLife, BurnIncreaseMult};
+use crate::{BurnHalfLife, BurnIncreaseMult, SubnetGammaEnabled};
 use codec::{Compact, Decode, Encode};
 use sp_runtime::PerU16;
 use std::collections::BTreeSet;
@@ -52,6 +52,7 @@ const EXPECTED_V3_NAMES: &[&[u8]] = &[
     b"collateral_lock_share",
     b"collateral_drain_ratio",
     b"epoch_consensus",
+    b"gamma_enabled",
 ];
 
 fn find<'a>(params: &'a [HyperparamEntry], name: &[u8]) -> &'a HyperparamValue {
@@ -134,6 +135,7 @@ fn test_get_subnet_hyperparams_v3_values_reflect_storage() {
         SubtensorModule::set_owner_cut_auto_lock_enabled(netuid, true);
         SubtensorModule::set_min_childkey_take(PerU16::from_parts(31));
         SubtensorModule::set_min_childkey_take_for_subnet(netuid, PerU16::from_parts(32));
+        SubnetGammaEnabled::<Test>::insert(netuid, true);
 
         let result = SubtensorModule::get_subnet_hyperparams_v3(netuid).unwrap();
         let p = &result;
@@ -173,6 +175,7 @@ fn test_get_subnet_hyperparams_v3_values_reflect_storage() {
             find(p, b"owner_cut_auto_lock_enabled"),
             &HyperparamValue::Bool(true)
         );
+        assert_eq!(find(p, b"gamma_enabled"), &HyperparamValue::Bool(true));
 
         // U16 variants
         assert_eq!(find(p, b"kappa"), &HyperparamValue::U16(Compact(12)));

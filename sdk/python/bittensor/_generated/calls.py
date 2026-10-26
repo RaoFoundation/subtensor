@@ -29,6 +29,7 @@ EpochConsensus = Any
 EquivocationProof = Any
 FixedI128 = Any
 FixedU128 = Any
+GammaBalance = Any
 H160 = Any
 H256 = Any
 MechId = Any
@@ -276,6 +277,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'clear_coldkey_swap_announcement', {})
 
     @staticmethod
+    def close_gamma_deposit(hotkey: 'AccountId32', netuid: 'NetUid') -> Call:
+        "Closes the signer's empty gamma deposit at `hotkey`, releasing the hotkey."
+        return Call('SubtensorModule', 'close_gamma_deposit', {'hotkey': hotkey, 'netuid': netuid})
+
+    @staticmethod
     def commit_crv3_mechanism_weights(netuid: 'NetUid', mecid: 'MechId', commit: 'BoundedVec', reveal_round: 'u64') -> Call:
         'Used to commit encrypted commit-reveal v3 weight values to later be revealed for mechanisms.  # Arguments * `origin`: The committing hotkey.  * `netuid`: The u16 network identifier.  * `mecid`: The u8 mechanism identifier.  * `commit`: The encrypted compressed commit. The steps for this are: 1. Instantiate [`WeightsTlockPayload`] 2. Serialize it using the `parity_scale_codec::Encode` trait 3. Encrypt it following the steps (here)[https://github.com/ideal-lab5/tle/blob/f8e6019f0fb02c380ebfa6b30efb61786dede07b/timelock/src/tlock.rs#L283-L336] to produce a [`TLECiphertext<TinyBLS381>`] type. 4. Serialize and compress using the `ark-serialize` `CanonicalSerialize` trait.  * `reveal_round`: The drand reveal round which will be avaliable during epoch `n+1` from the current epoch.  # Errors * `CommitRevealV3Disabled`: Attempting to commit when the commit-reveal mechanism is disabled.  * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.'
         return Call('SubtensorModule', 'commit_crv3_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'commit': commit, 'reveal_round': reveal_round})
@@ -326,6 +332,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'enable_voting_power_tracking', {'netuid': netuid})
 
     @staticmethod
+    def feed_tao_usd_price(price: 'u64') -> Call:
+        'Feeds the TAO/USD price, in gamma units per TAO. Signed by the oracle.'
+        return Call('SubtensorModule', 'feed_tao_usd_price', {'price': price})
+
+    @staticmethod
     def increase_take(hotkey: 'AccountId32', take: 'PerU16') -> Call:
         "Allows delegates to increase its take value. This call is rate-limited.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The hotkey we are delegating (must be owned by the coldkey).  * `take`: The new stake proportion that this hotkey takes from delegations. The new value can be between 0 and 11_796 parts and should be strictly greater than the previous value. T is the new value (rational number), the the parameter is calculated as [65535 * T]. For example, 1% would be [0.01 * 65535] = [655.35] = 655  # Events * `TakeIncreased`: On successfully setting a increased take for this hotkey.  # Errors * `NotRegistered`: The hotkey we are delegating is not registered on the network.  * `NonAssociatedColdKey`: The hotkey we are delegating is not owned by the calling coldkey.  * `DelegateTakeTooHigh`: The delegate is setting a take which is not greater than the previous."
         return Call('SubtensorModule', 'increase_take', {'hotkey': hotkey, 'take': take})
@@ -334,6 +345,21 @@ class SubtensorModule:
     def lock_stake(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'AlphaBalance') -> Call:
         "Locks stake on a subnet to a specific hotkey, building conviction over time.  If no lock exists for (coldkey, subnet), a new one is created. If a lock exists, the destination hotkey must match the existing lock's hotkey. Top-up adds to the locked amount after rolling the lock state forward.  # Arguments * `origin`: Must be signed by the coldkey. * `hotkey`: The hotkey to lock stake to. * `netuid`: The subnet on which to lock. * `amount`: The alpha amount to lock."
         return Call('SubtensorModule', 'lock_stake', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount})
+
+    @staticmethod
+    def mint_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'TaoBalance', min_amount_out: 'GammaBalance') -> Call:
+        "Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the signer's deposit at `hotkey`. Fails below `min_amount_out` gamma."
+        return Call('SubtensorModule', 'mint_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount, 'min_amount_out': min_amount_out})
+
+    @staticmethod
+    def mint_gamma_with_stake(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', alpha_amount: 'AlphaBalance', min_amount_out: 'GammaBalance') -> Call:
+        "Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha` does, and credits its gamma to the signer's deposit at `destination_hotkey`. Fails below `min_amount_out` gamma."
+        return Call('SubtensorModule', 'mint_gamma_with_stake', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'alpha_amount': alpha_amount, 'min_amount_out': min_amount_out})
+
+    @staticmethod
+    def move_gamma(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
+        "Moves up to `amount` gamma from the signer's deposit at `origin_hotkey` to `destination_hotkey`. A move that empties the origin closes it."
+        return Call('SubtensorModule', 'move_gamma', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'amount': amount})
 
     @staticmethod
     def move_lock(destination_hotkey: 'AccountId32', netuid: 'NetUid') -> Call:
@@ -481,6 +507,16 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_coldkey_auto_stake_hotkey', {'netuid': netuid, 'hotkey': hotkey})
 
     @staticmethod
+    def set_gamma_deposit_daily_spend_cap(hotkey: 'AccountId32', netuid: 'NetUid', daily_spend_cap: 'Any') -> Call:
+        "Sets the daily spend cap of the signer's gamma deposit at `hotkey`; `None` removes it."
+        return Call('SubtensorModule', 'set_gamma_deposit_daily_spend_cap', {'hotkey': hotkey, 'netuid': netuid, 'daily_spend_cap': daily_spend_cap})
+
+    @staticmethod
+    def set_gamma_deposit_spender(hotkey: 'AccountId32', netuid: 'NetUid', spender: 'AccountId32') -> Call:
+        "Sets the spender of the signer's gamma deposit at `hotkey`."
+        return Call('SubtensorModule', 'set_gamma_deposit_spender', {'hotkey': hotkey, 'netuid': netuid, 'spender': spender})
+
+    @staticmethod
     def set_identity(name: 'Any', url: 'Any', github_repo: 'Any', image: 'Any', discord: 'Any', description: 'Any', additional: 'Any') -> Call:
         'Set prometheus information for the neuron. # Arguments * `origin`: The signature of the calling hotkey.  * `netuid`: The u16 network identifier.  * `version`: The bittensor version identifier.  * `ip`: The prometheus ip information as a u128 encoded integer.  * `port`: The prometheus port information as a u16 encoded integer.  * `ip_type`: The ip type v4 or v6.'
         return Call('SubtensorModule', 'set_identity', {'name': name, 'url': url, 'github_repo': github_repo, 'image': image, 'discord': discord, 'description': description, 'additional': additional})
@@ -516,6 +552,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_reject_staking_hotkey_growth', {'enabled': enabled})
 
     @staticmethod
+    def set_service_url(netuid: 'NetUid', url: 'BoundedVec') -> Call:
+        'Sets the url where the signing hotkey describes its services on the subnet. The hotkey must be registered on the subnet, and is limited to one change per serving rate limit.'
+        return Call('SubtensorModule', 'set_service_url', {'netuid': netuid, 'url': url})
+
+    @staticmethod
     def set_subnet_identity(netuid: 'NetUid', subnet_name: 'Any', github_repo: 'Any', subnet_contact: 'Any', subnet_url: 'Any', discord: 'Any', description: 'Any', logo_url: 'Any', additional: 'Any') -> Call:
         'Set the identity information for a subnet. # Arguments * `origin`: The signature of the calling coldkey, which must be the owner of the subnet.  * `netuid`: The unique network identifier of the subnet.  * `subnet_name`: The name of the subnet.  * `github_repo`: The GitHub repository associated with the subnet identity.  * `subnet_contact`: The contact information for the subnet.'
         return Call('SubtensorModule', 'set_subnet_identity', {'netuid': netuid, 'subnet_name': subnet_name, 'github_repo': github_repo, 'subnet_contact': subnet_contact, 'subnet_url': subnet_url, 'discord': discord, 'description': description, 'logo_url': logo_url, 'additional': additional})
@@ -529,6 +570,11 @@ class SubtensorModule:
     def set_weights(netuid: 'NetUid', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
         'Sets the caller weights for the incentive mechanism. The call can be made from the hotkey account so is potentially insecure, however, the damage of changing weights is minimal if caught early. This function includes all the checks that the passed weights meet the requirements. Stored weights are u16s max-upscaled by the pallet, so the largest non-zero supplied weight is stored as `u16::MAX`. The weights determine how inflation propagates outward from this peer.  # Note Input weights are relative. They do not need to sum to a particular value before submission.  # Arguments * `origin`: The caller, a hotkey who wishes to set their weights.  * `netuid`: The network uid we are setting these weights on.  * `dests`: The edge endpoint for the weight, i.e. j for w_ij.  * `weights`: Relative u16-encoded weights, max-upscaled by the pallet before storage.  * `version_key`: The network version key to check if the validator is up to date.  # Events * `WeightsSet`: On successfully setting the weights on chain.  # Errors * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.  * `NotRegistered`: Attempting to set weights from a non registered account.  * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.  * `DuplicateUids`: Attempting to set weights with duplicate uids.  * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.  * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.  * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.  * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.'
         return Call('SubtensorModule', 'set_weights', {'netuid': netuid, 'dests': dests, 'weights': weights, 'version_key': version_key})
+
+    @staticmethod
+    def spend_gamma(netuid: 'NetUid', spends: 'BoundedVec') -> Call:
+        "Spends, in order, up to each entry's amount from the gamma deposit at its hotkey, within the deposit's balance and daily spend cap. Entries whose hotkey has no deposit, or whose deposit names another spender, are skipped."
+        return Call('SubtensorModule', 'spend_gamma', {'netuid': netuid, 'spends': spends})
 
     @staticmethod
     def stake_into_basket(hotkey: 'AccountId32', amount_staked: 'TaoBalance') -> Call:
@@ -1098,6 +1144,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_evm_chain_id', {'chain_id': chain_id})
 
     @staticmethod
+    def sudo_set_gamma_enabled(enabled: 'bool') -> Call:
+        'Enables or disables gamma minting network-wide; a subnet also needs its own flag. Root-only.'
+        return Call('AdminUtils', 'sudo_set_gamma_enabled', {'enabled': enabled})
+
+    @staticmethod
     def sudo_set_immunity_period(netuid: 'NetUid', immunity_period: 'u16') -> Call:
         'The extrinsic sets the immunity period for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the immunity period.'
         return Call('AdminUtils', 'sudo_set_immunity_period', {'netuid': netuid, 'immunity_period': immunity_period})
@@ -1303,6 +1354,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_subnet_emission_weights', {'netuid': netuid, 'uids': uids, 'values': values})
 
     @staticmethod
+    def sudo_set_subnet_gamma_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
+        'Enables or disables gamma minting on a subnet. Callable by the subnet owner or root; the root subnet is refused.'
+        return Call('AdminUtils', 'sudo_set_subnet_gamma_enabled', {'netuid': netuid, 'enabled': enabled})
+
+    @staticmethod
     def sudo_set_subnet_limit(max_subnets: 'u16') -> Call:
         'The extrinsic sets the subnet limit for the network. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the subnet limit.'
         return Call('AdminUtils', 'sudo_set_subnet_limit', {'max_subnets': max_subnets})
@@ -1336,6 +1392,11 @@ class AdminUtils:
     def sudo_set_tao_flow_smoothing_factor(smoothing_factor: 'u64') -> Call:
         'Sets TAO flow smoothing factor (alpha)'
         return Call('AdminUtils', 'sudo_set_tao_flow_smoothing_factor', {'smoothing_factor': smoothing_factor})
+
+    @staticmethod
+    def sudo_set_tao_usd_price_oracle(oracle: 'Any') -> Call:
+        'Sets the account that feeds the TAO/USD price; `None` removes it. The stored price is cleared, so the next feed is accepted as it is. Root-only.'
+        return Call('AdminUtils', 'sudo_set_tao_usd_price_oracle', {'oracle': oracle})
 
     @staticmethod
     def sudo_set_target_registrations_per_interval(netuid: 'NetUid', target_registrations_per_interval: 'u16') -> Call:

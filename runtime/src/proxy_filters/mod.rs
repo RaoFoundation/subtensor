@@ -67,9 +67,10 @@ type ValidateAllowed = (WeightCalls, NeuronServingCalls, CommitmentCalls);
 /// Contracts, and Crowdloan calls that can move value indirectly, Multisig
 /// wrappers (they re-dispatch on a fresh origin that drops this filter),
 /// `MevShield::store_encrypted` (decrypt-and-dispatch drops the filter),
-/// owner-key rotation, and basket trading (which needs the explicit
-/// `BasketTrading` grant). Sudo is excluded because a sudo-key principal
-/// would otherwise hand the delegate root, including forced transfers.
+/// owner-key rotation, crediting gamma to a hotkey, and basket trading and
+/// gamma spending (which need the explicit `BasketTrading` and `GammaSpend`
+/// grants). Sudo is excluded because a sudo-key principal would otherwise hand
+/// the delegate root, including forced transfers.
 /// `SudoCalls` is inventory-only: no restricted proxy grants it.
 type NonTransferAllowed = (
     InfraCommonCalls,
@@ -112,8 +113,9 @@ type NonFungibleAllowed = (
 /// `NonCritical`: day-to-day operations including value movement, but no sudo,
 /// network dissolution, root/burned registration, coldkey swaps, Crowdloan
 /// wrappers (they re-dispatch a caller-supplied call as the real coldkey),
-/// Multisig wrappers, `store_encrypted`, owner-key rotation, or basket
-/// trading (which needs the explicit `BasketTrading` grant).
+/// Multisig wrappers, `store_encrypted`, owner-key rotation, basket trading or
+/// gamma spending (which need the explicit `BasketTrading` and `GammaSpend`
+/// grants).
 type NonCriticalAllowed = (
     InfraCommonCalls,
     EvmCalls,
@@ -133,6 +135,7 @@ type NonCriticalAllowed = (
     SubtensorValueCalls,
     WeightCalls,
     NeuronServingCalls,
+    GammaCreditCalls,
     SubtensorCommonCalls,
 );
 
@@ -154,6 +157,7 @@ pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> b
         ProxyType::BasketTrading => BasketTradingCalls::contains(call),
         ProxyType::Validate => ValidateAllowed::contains(call),
         ProxyType::Weights => WeightsAllowed::contains(call),
+        ProxyType::GammaSpend => GammaSpendCalls::contains(call),
         ProxyType::SudoUncheckedSetCode => SudoSetCodeCalls::contains(call),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -226,6 +230,7 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         ProxyType::BasketTrading => FilterMode::Allow(BasketTradingCalls::call_infos()),
         ProxyType::Validate => FilterMode::Allow(ValidateAllowed::call_infos()),
         ProxyType::Weights => FilterMode::Allow(WeightsAllowed::call_infos()),
+        ProxyType::GammaSpend => FilterMode::Allow(GammaSpendCalls::call_infos()),
         ProxyType::SudoUncheckedSetCode => FilterMode::Allow(SudoSetCodeCalls::call_infos()),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -351,7 +356,8 @@ mod tests {
             | &(&group_calls::<StakeTransferCalls>() | &group_calls::<ColdkeySwapCalls>());
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SudoCalls, MultisigCalls)>();
-        let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied =
+            &denied | &group_calls::<(BasketTradingCalls, GammaSpendCalls, GammaCreditCalls)>();
         let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
@@ -370,7 +376,8 @@ mod tests {
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SubtensorValueCalls, SudoCalls)>();
         let denied = &denied | &group_calls::<MultisigCalls>();
-        let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied =
+            &denied | &group_calls::<(BasketTradingCalls, GammaSpendCalls, GammaCreditCalls)>();
         let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
@@ -563,7 +570,7 @@ mod tests {
             | &(&group_calls::<RootRegistrationCalls>() | &group_calls::<CriticalNetworkCalls>()))
             | &group_calls::<ColdkeySwapCalls>();
         let denied = &denied | &group_calls::<(CrowdloanCalls, MultisigCalls)>();
-        let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<(BasketTradingCalls, GammaSpendCalls)>();
         let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
@@ -881,6 +888,10 @@ mod tests {
             ])
         );
         assert_eq!(
+            allowed_calls(ProxyType::GammaSpend),
+            expected(&["SubtensorModule::spend_gamma"])
+        );
+        assert_eq!(
             allowed_calls(ProxyType::SudoUncheckedSetCode),
             expected(&["Sudo::sudo_unchecked_weight"])
         );
@@ -920,6 +931,7 @@ mod tests {
                 "SubtensorModule::serve_axon_tls",
                 "SubtensorModule::serve_prometheus",
                 "SubtensorModule::set_mechanism_weights",
+                "SubtensorModule::set_service_url",
                 "SubtensorModule::set_weights",
             ])
         );
@@ -1447,6 +1459,21 @@ mod tests {
         assert_eq!(
             supersets,
             [ProxyType::Any, ProxyType::BasketTrading]
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+        );
+    }
+
+    // Only `Any` covers the gamma spending grant.
+    #[test]
+    fn gamma_spend_supersets() {
+        let supersets = all_proxy_types()
+            .into_iter()
+            .filter(|proxy_type| proxy_type.is_superset(&ProxyType::GammaSpend))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            supersets,
+            [ProxyType::Any, ProxyType::GammaSpend]
                 .into_iter()
                 .collect::<BTreeSet<_>>()
         );

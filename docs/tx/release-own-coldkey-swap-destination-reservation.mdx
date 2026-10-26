@@ -14,7 +14,7 @@ announcement may still exist; reservations also expire after
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.release_own_coldkey_swap_destination_reservation`](/code/pallets/subtensor/src/macros/dispatches.rs#L2796-L2806) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.release_own_coldkey_swap_destination_reservation`](/code/pallets/subtensor/src/macros/dispatches.rs#L2797-L2807) |
 
 ## Parameters
 
@@ -59,7 +59,7 @@ result = sub.execute_tool("release_own_coldkey_swap_destination_reservation", {.
 
 ## On-chain implementation
 
-`SubtensorModule.release_own_coldkey_swap_destination_reservation` — [`pallets/subtensor/src/macros/dispatches.rs#L2800`](/code/pallets/subtensor/src/macros/dispatches.rs#L2796-L2806):
+`SubtensorModule.release_own_coldkey_swap_destination_reservation` — [`pallets/subtensor/src/macros/dispatches.rs#L2801`](/code/pallets/subtensor/src/macros/dispatches.rs#L2797-L2807):
 
 ```rust
 #[pallet::call_index(154)]
@@ -75,6 +75,6 @@ pub fn release_own_coldkey_swap_destination_reservation(
 }
 ```
 
-Delegates to [`do_release_own_coldkey_swap_destination_reservation`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L237).
+Delegates to [`do_release_own_coldkey_swap_destination_reservation`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L250).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

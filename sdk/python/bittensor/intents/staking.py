@@ -96,12 +96,16 @@ RATE_TOLERANCE_HELP = (
 )
 
 
-def _check_rate_tolerance(tolerance: float) -> None:
+def _check_rate_tolerance(tolerance: float, *, can_disable: bool = True) -> None:
     if not 0 <= tolerance < 1:
         raise BittensorError(
-            f"rate_tolerance must be a fraction in [0, 1), got {tolerance!r} "
-            "(0.05 = 5%). To trade with no price bound, disable slippage protection "
-            "(slippage_protection=False / --no-slippage-protection) instead."
+            f"rate_tolerance must be a fraction in [0, 1), got {tolerance!r} (0.05 = 5%)."
+            + (
+                " To trade with no price bound, disable slippage protection "
+                "(slippage_protection=False / --no-slippage-protection) instead."
+                if can_disable
+                else ""
+            )
         )
 
 

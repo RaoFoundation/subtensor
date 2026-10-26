@@ -78,6 +78,56 @@ pub(super) fn add_balance_to_coldkey_account<T: Config>(coldkey: &T::AccountId, 
     let _ = Subtensor::<T>::spend_tao(coldkey, credit, tao).unwrap();
 }
 
+/// A subnet that can mint gamma this block: a pool, its subtoken and gamma enabled, the gamma
+/// price at spot, and a fresh TAO/USD feed of 400 dollars per TAO.
+pub(super) fn setup_gamma_subnet<T: Config>(netuid: NetUid) {
+    Subtensor::<T>::init_new_network(netuid, 1);
+    SubtokenEnabled::<T>::insert(netuid, true);
+    seed_swap_reserves::<T>(netuid);
+    GammaEnabled::<T>::put(true);
+    SubnetGammaEnabled::<T>::insert(netuid, true);
+    SubnetGammaPrice::<T>::insert(netuid, T::SwapInterface::current_alpha_price(netuid));
+    let now = Subtensor::<T>::get_current_block_as_u64();
+    TaoUsdPrice::<T>::put(TaoUsdPriceState {
+        accepted: 400_000_000_000,
+        feed: 400_000_000_000,
+        fed_at: now,
+    });
+}
+
+/// Opens `count` gamma deposits of `coldkey` on `netuid`, each holding `balance` under
+/// `daily_spend_cap` with a full bucket, and returns their hotkeys.
+pub(super) fn seed_gamma_deposits<T: Config>(
+    netuid: NetUid,
+    coldkey: &T::AccountId,
+    seed: u32,
+    count: u32,
+    balance: u64,
+    daily_spend_cap: Option<GammaBalance>,
+) -> Vec<T::AccountId> {
+    let now = Subtensor::<T>::get_current_block_as_u64();
+    (0..count)
+        .map(|index| {
+            let hotkey: T::AccountId = account("gamma_hot", seed, index);
+            GammaDeposits::<T>::insert(
+                netuid,
+                &hotkey,
+                GammaDeposit {
+                    coldkey: coldkey.clone(),
+                    spender: Subtensor::<T>::gamma_default_spender(netuid),
+                    balance: balance.into(),
+                    daily_spend_cap,
+                    bucket: (daily_spend_cap.unwrap_or_default(), now),
+                },
+            );
+            ColdkeyGammaHotkeys::<T>::mutate(netuid, coldkey, |hotkeys| {
+                hotkeys.try_push(hotkey.clone()).unwrap()
+            });
+            hotkey
+        })
+        .collect()
+}
+
 /// Seed a standing collateral row and keep the coldkey index in sync.
 pub(super) fn seed_miner_collateral_position<T: Config>(
     netuid: NetUid,

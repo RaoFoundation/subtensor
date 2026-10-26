@@ -130,6 +130,7 @@ INTENT_SAMPLES: dict[str, dict] = {
         "certificate": "0x" + "ab" * 32,
     },
     "serve_prometheus": {"netuid": 1, "ip": "203.0.113.5", "port": 9090},
+    "set_service_url": {"netuid": 1, "url": "https://example.com/services.json"},
     "reset_axon": {"netuid": 1},
     "set_weights": {"netuid": 1, "uids": [0], "weights": [1.0]},
     "commit_weights": {"netuid": 1, "uids": [0], "weights": [1.0]},
@@ -190,6 +191,22 @@ INTENT_SAMPLES: dict[str, dict] = {
     },
     "add_collateral": {"netuid": 1, "amount_alpha": 1.0},
     "set_min_collateral": {"netuid": 1, "min_alpha": 1.0},
+    "mint_gamma": {"netuid": 1, "hotkey_ss58": BOB_HOT, "amount_tao": 1.0},
+    "mint_gamma_with_stake": {"netuid": 1, "hotkey_ss58": BOB_HOT, "amount_alpha": 1.0},
+    "move_gamma": {
+        "netuid": 1,
+        "origin_hotkey_ss58": ALICE_HOT,
+        "destination_hotkey_ss58": BOB_HOT,
+        "amount_gamma": "all",
+    },
+    "close_gamma_deposit": {"netuid": 1, "hotkey_ss58": BOB_HOT},
+    "set_gamma_deposit_spender": {"netuid": 1, "hotkey_ss58": BOB_HOT, "spender_ss58": BOB},
+    "set_gamma_deposit_daily_spend_cap": {
+        "netuid": 1,
+        "hotkey_ss58": BOB_HOT,
+        "daily_spend_cap_gamma": 10,
+    },
+    "spend_gamma": {"netuid": 1, "spends": [{"hotkey_ss58": BOB_HOT, "amount_gamma": 0.5}]},
     "create_crowdloan": {
         "deposit_tao": 100,
         "min_contribution_tao": 1,
@@ -262,6 +279,12 @@ READ_SAMPLES: dict[str, dict] = {
     "collateral_policy": {"netuid": 1},
     "miner_collateral": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
     "subnet_collateral": {"netuid": 1},
+    "gamma_deposit": {"netuid": 1, "hotkey_ss58": BOB_HOT},
+    "gamma_deposits": {"coldkey_ss58": ALICE},
+    "quote_mint_gamma": {"netuid": 1, "amount_tao": 1.0},
+    "quote_mint_gamma_with_stake": {"netuid": 1, "amount_alpha": 1.0},
+    "tao_usd_price": {},
+    "service_urls": {"netuid": 1},
     "coldkey_swap_announcement": {"coldkey_ss58": ALICE},
     "commit_reveal_enabled": {"netuid": 1},
     "commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
@@ -346,3 +369,17 @@ READ_SAMPLES: dict[str, dict] = {
     "weights": {"netuid": 1},
     "weights_rate_limit": {"netuid": 1},
 }
+
+
+def seed_gamma(substrate, owner: str) -> None:
+    """Empty gamma deposits at the samples' hotkeys, owned and spent by ``owner``, a stake
+    to burn, and mint quotes."""
+    for hotkey in (ALICE_HOT, BOB_HOT):
+        deposit = {"coldkey": owner, "spender": owner, "balance": 0, "bucket": (0, 0)}
+        substrate.seed("SubtensorModule", "GammaDeposits", [1, hotkey], deposit)
+    quote = (10**9, 10**9, 400 * 10**9)
+    substrate.seed_runtime("GammaRuntimeApi", "sim_mint_gamma", quote)
+    substrate.seed_runtime("GammaRuntimeApi", "sim_mint_gamma_with_stake", quote)
+    substrate.seed_runtime(
+        "StakeInfoRuntimeApi", "get_stake_info_for_hotkey_coldkey_netuid", {"stake": 10**9}
+    )

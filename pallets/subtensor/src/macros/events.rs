@@ -934,5 +934,91 @@ mod events {
             /// `u64::MAX` parts.
             weights: Vec<u64>,
         },
+        /// The oracle fed the TAO/USD price.
+        TaoUsdPriceFed {
+            /// Gamma units per TAO.
+            price: u64,
+        },
+        /// Gamma was minted for burned alpha.
+        GammaMinted {
+            /// Subnet of the alpha and the gamma.
+            netuid: NetUid,
+            /// Coldkey that burned the alpha and owns the deposit.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit credited.
+            hotkey: T::AccountId,
+            /// The deposit's spender.
+            spender: T::AccountId,
+            /// TAO taken from the coldkey's balance; zero when minting with stake.
+            tao: TaoBalance,
+            /// Alpha burned.
+            alpha: AlphaBalance,
+            /// TAO value of the alpha burned.
+            value: TaoBalance,
+            /// Gamma credited.
+            gamma: GammaBalance,
+        },
+        /// Gamma moved between two of a coldkey's deposits.
+        GammaMoved {
+            /// Subnet of the deposits.
+            netuid: NetUid,
+            /// Coldkey owning both deposits.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit debited.
+            origin_hotkey: T::AccountId,
+            /// Hotkey of the deposit credited.
+            destination_hotkey: T::AccountId,
+            /// Gamma moved.
+            amount: GammaBalance,
+        },
+        /// A gamma deposit was closed, releasing its hotkey.
+        GammaDepositClosed {
+            /// Subnet of the deposit.
+            netuid: NetUid,
+            /// Coldkey that owned the deposit.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit.
+            hotkey: T::AccountId,
+        },
+        /// A gamma deposit's spender was set.
+        GammaDepositSpenderSet {
+            /// Subnet of the deposit.
+            netuid: NetUid,
+            /// Coldkey owning the deposit.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit.
+            hotkey: T::AccountId,
+            /// The new spender.
+            spender: T::AccountId,
+        },
+        /// A gamma deposit's daily spend cap was set.
+        GammaDepositDailySpendCapSet {
+            /// Subnet of the deposit.
+            netuid: NetUid,
+            /// Coldkey owning the deposit.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit.
+            hotkey: T::AccountId,
+            /// The new cap; `None` is no cap.
+            daily_spend_cap: Option<GammaBalance>,
+        },
+        /// Gamma was spent from a deposit and burned.
+        GammaSpent {
+            /// Subnet of the deposit.
+            netuid: NetUid,
+            /// Coldkey owning the deposit.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit.
+            hotkey: T::AccountId,
+            /// Gamma spent.
+            amount: GammaBalance,
+        },
+        /// A hotkey set its service url on a subnet.
+        ServiceUrlSet {
+            /// Subnet of the url.
+            netuid: NetUid,
+            /// Hotkey that set it.
+            hotkey: T::AccountId,
+        },
     }
 }

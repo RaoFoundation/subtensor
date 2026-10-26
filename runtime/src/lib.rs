@@ -239,7 +239,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 484,
+    spec_version: 485,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -2685,6 +2685,21 @@ impl_runtime_apis! {
         }
         fn get_root_basket_claim_previews(coldkey: AccountId32) -> Vec<pallet_subtensor::rpc_info::basket_info::BasketClaimPreview<AccountId32>> {
             SubtensorModule::get_root_basket_claim_previews(&coldkey)
+        }
+    }
+
+    impl subtensor_custom_rpc_runtime_api::GammaRuntimeApi<Block> for Runtime {
+        fn get_gamma_deposit(netuid: NetUid, hotkey: AccountId32) -> Option<pallet_subtensor::rpc_info::gamma_info::GammaDepositInfo<AccountId32>> {
+            SubtensorModule::get_gamma_deposit(netuid, hotkey)
+        }
+        fn get_gamma_deposits_for_coldkey(coldkey: AccountId32) -> Vec<pallet_subtensor::rpc_info::gamma_info::GammaDepositInfo<AccountId32>> {
+            SubtensorModule::get_gamma_deposits_for_coldkey(&coldkey)
+        }
+        fn sim_mint_gamma(netuid: NetUid, amount: TaoBalance) -> Option<(AlphaBalance, TaoBalance, GammaBalance)> {
+            SubtensorModule::sim_mint_gamma(netuid, amount)
+        }
+        fn sim_mint_gamma_with_stake(netuid: NetUid, alpha_amount: AlphaBalance) -> Option<(AlphaBalance, TaoBalance, GammaBalance)> {
+            SubtensorModule::sim_mint_gamma_with_stake(netuid, alpha_amount)
         }
     }
 

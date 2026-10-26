@@ -30,6 +30,7 @@ from typing import Any, Callable, Iterable, Literal, Optional
 import typer
 
 from ..intents.proxy import ProxyTypeChoice
+from ..result import BittensorError
 from ..settings import guide_docs_url
 from .logs import setup_logging
 from .multisig_helpers import SIGNATORY_BACKENDS
@@ -503,7 +504,12 @@ def _with_tier(tier: Tier) -> Callable[[Callable], Callable]:
         def wrapper(*args, **kwargs):
             ctx = kwargs.get("ctx") or (args[0] if args else None)
             apply(ctx, kwargs, skip=owned)
-            return fn(*args, **kwargs)
+            try:
+                return fn(*args, **kwargs)
+            except (BittensorError, ValueError) as error:
+                # An intent refusing its fields, reported as `btcli tx` reports it.
+                ctx.obj.output.error(str(error))
+                raise typer.Exit(2)
 
         wrapper.__signature__ = original.replace(
             parameters=list(original.parameters.values()) + added

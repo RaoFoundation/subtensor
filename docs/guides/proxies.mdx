@@ -49,8 +49,8 @@ Prefer the narrowest type that covers the job:
 * **Any** — everything, including transfers. Avoid: leaking an `Any` proxy is
   exactly as bad as leaking the coldkey.
 * **NonTransfer** — everything *except* balance transfers, stake transfers,
-  and coldkey swaps. Notably it can manage the account's other proxies, which
-  makes it the natural "manager" proxy.
+  coldkey swaps, and gamma mints, moves and spends. Notably it can manage the
+  account's other proxies, which makes it the natural "manager" proxy.
 * **Transfer** — balance transfers and stake transfers (`transfer_stake` /
   `transfer_stake_and_hotkey`) only.
   **SmallTransfer** is the same but caps each transfer below 0.5 TAO
@@ -73,8 +73,8 @@ Prefer the narrowest type that covers the job:
 * **Validate** — run a validator *hotkey* from an operations key:
   every weights call (`set_weights`, `commit_weights`, `reveal_weights`,
   their mechanism, timelocked, CRv3 and batch variants), `serve_axon`,
-  `serve_axon_tls`, `serve_prometheus`, `associate_evm_key`, and
-  `Commitments.set_commitment`. No stake, transfer, registration, key swap,
+  `serve_axon_tls`, `serve_prometheus`, `set_service_url`, `associate_evm_key`,
+  and `Commitments.set_commitment`. No stake, transfer, registration, key swap,
   child-key, or take call, and no `Utility` / `Proxy` / `Multisig` wrapper.
   The real is the hotkey, so the hotkey signs `add_proxy`. A leaked
   `Validate` key can set bad weights and re-point the axon or EVM key; it
@@ -83,6 +83,8 @@ Prefer the narrowest type that covers the job:
   for a third-party weight setter (auditor model) that must not be able to
   change where the subnet reaches or pays the neuron.
   See [validator operators](#validator-operators-specifically) for setup.
+* **GammaSpend** — `spend_gamma` only: spend the gamma deposits that name the
+  real account as spender. See [Gamma](/docs/guides/gamma#spending).
 * **Owner** — subnet-owner admin calls; **NonCritical** — everything except
   registrations, coldkey swaps, and subnet dissolution;
   **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls.

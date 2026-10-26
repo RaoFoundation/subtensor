@@ -23,6 +23,7 @@ import typer
 
 from ..intents import REGISTRY
 from ..intents.base import Intent, is_money
+from ..result import BittensorError
 from ..settings import tx_docs_url
 from . import globals as g
 from .call_names import resolve_intent_args
@@ -328,7 +329,12 @@ def _make_command(intent_cls: type[Intent]):
         # this pass reaches names inside JSON-shaped fields too (signatory
         # lists, a multisig inner --call, batch children).
         args = resolve_intent_args(app_ctx, args)
-        app_ctx.submit(intent_cls.from_args(args))
+        try:
+            intent = intent_cls.from_args(args)
+        except (BittensorError, ValueError) as error:
+            app_ctx.output.error(str(error))
+            raise typer.Exit(2)
+        app_ctx.submit(intent)
 
     # Synthesize the signature Typer introspects: ctx first, then one keyword
     # option per intent field, typed and defaulted from the dataclass.

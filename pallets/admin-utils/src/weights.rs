@@ -98,7 +98,16 @@ pub trait WeightInfo {
 	fn sudo_set_owner_hparam_rate_limit() -> Weight;
 	fn sudo_set_owner_immune_neuron_limit() -> Weight;
 	fn sudo_trim_to_max_allowed_uids() -> Weight;
-    // Dedicated reference benchmark replaces this pre-release fallback before promotion.
+    // Dedicated reference benchmarks replace these pre-release fallbacks before promotion.
+    fn sudo_set_tao_usd_price_oracle() -> Weight {
+        Self::sudo_set_basket_trading_enabled()
+    }
+    fn sudo_set_subnet_gamma_enabled() -> Weight {
+        Self::sudo_set_yuma3_enabled()
+    }
+    fn sudo_set_gamma_enabled() -> Weight {
+        Self::sudo_set_basket_trading_enabled()
+    }
     fn sudo_trim_null_uids_batch() -> Weight {
         Self::sudo_trim_to_max_allowed_uids()
     }

@@ -29,6 +29,7 @@ from tests.harness.samples import (
     EMISSION_WEIGHTS_INFO,
     INTENT_SAMPLES,
     dev_wallet,
+    seed_gamma,
 )
 
 
@@ -112,6 +113,8 @@ async def test_composes_and_plans_offline(
             [wallet.coldkey.ss58_address],
             {"data": {"free": 10**9}},
         )
+    if "gamma" in op:
+        seed_gamma(substrate, wallet.coldkey.ss58_address)
     plan = await client.plan(build(op, INTENT_SAMPLES[op]), wallet)
     assert plan.op == op
     assert plan.summary

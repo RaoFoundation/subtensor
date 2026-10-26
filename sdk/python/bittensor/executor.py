@@ -35,7 +35,7 @@ from .result import (
     PolicyError,
     chain_error_from_dispatch,
 )
-from .settings import DEFAULT_ERA_PERIOD, MEV_SHIELD_ERA_PERIOD
+from .settings import DEFAULT_ERA_PERIOD, GAMMA_UNITS, MEV_SHIELD_ERA_PERIOD
 from .signing import (
     WalletLike,
     as_wallet,
@@ -593,6 +593,19 @@ def _pure_created_data(result: ExtrinsicResult) -> dict[str, Any]:
     return data
 
 
+def _gamma_spent_data(result: ExtrinsicResult) -> dict[str, Any]:
+    """What a spend spent, by deposit hotkey: it skips entries and stops at caps silently."""
+    spent: dict[str, float] = {}
+    for entry in result.events:
+        module_id, event_id, attributes, _ = _event_parts(entry)
+        if (module_id, event_id) == ("SubtensorModule", "GammaSpent") and isinstance(
+            attributes, dict
+        ):
+            hotkey = str(attributes["hotkey"])
+            spent[hotkey] = spent.get(hotkey, 0) + int(attributes["amount"]) / GAMMA_UNITS
+    return {"spent": spent}
+
+
 class Executor:
     def __init__(self, substrate: Substrate, policy: Optional[Policy] = None):
         self.substrate = substrate
@@ -852,6 +865,8 @@ class Executor:
             semantic_intent = _coerce_addresses(intent.semantic_intent())
             if semantic_intent.op == "create_pure_proxy":
                 data.update(_pure_created_data(result))
+            if semantic_intent.op == "spend_gamma":
+                data.update(_gamma_spent_data(result))
             data.update(plan.extras)
             if data != result.data:
                 result = replace(result, data=data)

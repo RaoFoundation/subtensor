@@ -37,7 +37,7 @@ weight.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1397-L1425), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L3019-L3049) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1398-L1426), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L3020-L3050) |
 
 ## Parameters
 
@@ -99,7 +99,7 @@ result = sub.execute_tool("transfer_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.transfer_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1404`](/code/pallets/subtensor/src/macros/dispatches.rs#L1397-L1425):
+`SubtensorModule.transfer_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1405`](/code/pallets/subtensor/src/macros/dispatches.rs#L1398-L1426):
 
 ```rust
 #[pallet::call_index(86)]
@@ -133,9 +133,9 @@ pub fn transfer_stake(
 }
 ```
 
-Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1572), [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L202), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1512).
+Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1685), [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L202), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1625).
 
-`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L3026`](/code/pallets/subtensor/src/macros/dispatches.rs#L3019-L3049):
+`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L3027`](/code/pallets/subtensor/src/macros/dispatches.rs#L3020-L3050):
 
 ```rust
 #[pallet::call_index(143)]
@@ -171,6 +171,6 @@ pub fn transfer_stake_and_hotkey(
 }
 ```
 
-Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1572), [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L277), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1512).
+Delegates to [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1685), [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L277), [`staking_hotkeys_walk_actual`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1625).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

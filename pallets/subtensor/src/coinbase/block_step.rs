@@ -52,12 +52,15 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         }
     }
     pub fn update_moving_prices() {
-        let subnets_to_emit_to: Vec<NetUid> =
-            Self::get_subnets_to_emit_to(&Self::get_all_subnet_netuids());
+        let netuids = Self::get_all_subnet_netuids();
+        let subnets_to_emit_to: Vec<NetUid> = Self::get_subnets_to_emit_to(&netuids);
         // Only update price EMA for subnets that we emit to.
         for netuid_i in subnets_to_emit_to.iter() {
             // Update moving prices after using them above.
             Self::update_moving_price(*netuid_i);
+        }
+        for netuid in netuids.into_iter().filter(|netuid| !netuid.is_root()) {
+            Self::update_gamma_price(netuid);
         }
     }
 

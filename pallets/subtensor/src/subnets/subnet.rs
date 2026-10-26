@@ -476,6 +476,7 @@ impl<T: Config> Pallet<T> {
         // Core pool + ownership
         SubnetTAO::<T>::insert(netuid_to_register, total_pool_tao);
         SubnetAlphaIn::<T>::insert(netuid_to_register, total_pool_alpha);
+        SubnetGammaPrice::<T>::insert(netuid_to_register, median_subnet_alpha_price);
         SubnetOwner::<T>::insert(netuid_to_register, coldkey.clone());
         Self::set_subnet_owner_hotkey(netuid_to_register, hotkey)?;
         SubnetLocked::<T>::insert(netuid_to_register, actual_tao_lock_amount);
@@ -483,7 +484,7 @@ impl<T: Config> Pallet<T> {
         SubnetVolume::<T>::insert(netuid_to_register, 0u128);
         RAORecycledForRegistration::<T>::insert(netuid_to_register, tao_recycled_for_registration);
         weight.saturating_accrue(db_weight.reads(2));
-        weight.saturating_accrue(db_weight.writes(8));
+        weight.saturating_accrue(db_weight.writes(9));
 
         if tao_recycled_for_registration > TaoBalance::ZERO
             && let Some(subnet_account_id) = Self::get_subnet_account_id(netuid_to_register)

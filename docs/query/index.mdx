@@ -53,6 +53,17 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`epoch-status`](/docs/query/epoch-status) | Where a subnet is in its epoch cycle, in one block-pinned read. |
 | [`next-epoch-start-block`](/docs/query/next-epoch-start-block) | Block at which the subnet's next epoch is expected to fire, or None if tempo is 0. |
 
+## Gamma
+
+| Query | Summary |
+| --- | --- |
+| [`gamma-deposit`](/docs/query/gamma-deposit) | The gamma deposit at a hotkey on a subnet, or None. |
+| [`gamma-deposits`](/docs/query/gamma-deposits) | Every gamma deposit of a coldkey, on every subnet. |
+| [`quote-mint-gamma`](/docs/query/quote-mint-gamma) | The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now. |
+| [`quote-mint-gamma-with-stake`](/docs/query/quote-mint-gamma-with-stake) | The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now. |
+| [`service-urls`](/docs/query/service-urls) | Every service url published on a subnet, by hotkey. |
+| [`tao-usd-price`](/docs/query/tao-usd-price) | The TAO/USD price oracle, its last feed, and the accepted price at that feed. |
+
 ## Hyperparameters
 
 | Query | Summary |

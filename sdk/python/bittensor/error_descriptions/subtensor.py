@@ -61,7 +61,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "AmountTooLow": (
         "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the "
-        "minimum stake threshold after fees and slippage. Compare the amount against the "
+        "minimum stake threshold after fees and slippage, or a gamma mint came to less than "
+        "0.1 gamma. Compare the amount against the "
         "`DefaultMinStake` storage item and the subnet's alpha price before retrying with a "
         "larger amount."
     ),
@@ -372,10 +373,10 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "HotKeyNotRegisteredInNetwork": (
         "The hotkey is not registered on the relevant subnet, raised by "
-        "`serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring "
-        "registration on any subnet. Verify registration with `btcli wallet registrations` "
-        "(or `btcli query uid --netuid <n>` / `btcli query netuids-for-hotkey`) and register "
-        "via `btcli subnets register` first."
+        "`serve_axon`/`serve_prometheus`/`set_service_url` for the serving netuid or by "
+        "identity calls requiring registration on any subnet. Verify registration with "
+        "`btcli wallet registrations` (or `btcli query uid --netuid <n>` / `btcli query "
+        "netuids-for-hotkey`) and register via `btcli subnets register` first."
     ),
     "HotKeyNotRegisteredInSubNet": (
         "The hotkey holds no UID on the given netuid, so weight setting, commits, or UID "
@@ -624,7 +625,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "NonAssociatedColdKey": (
         "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, "
-        "serve, children or take changes). Check the `Owner` storage entry for the hotkey, e.g. "
+        "serve, children or take changes), or the gamma deposit at the hotkey belongs to "
+        "another coldkey. Check the `Owner` storage entry for the hotkey, e.g. "
         "via `btcli wallet registrations`, and sign with the coldkey that registered it."
     ),
     "NotEnoughAlphaOutToRecycle": (
@@ -752,9 +754,10 @@ DESCRIPTIONS: dict[str, str] = {
         "arguments; at least the subnet or one of the keys must differ."
     ),
     "ServingRateLimitExceeded": (
-        "`serve_axon` or `serve_prometheus` was called again before enough blocks passed since "
-        "the neuron's last serving update. Check the axon's last update block in `Axons` "
-        "against the `ServingRateLimit` (serving_rate_limit hyperparameter) and wait."
+        "`serve_axon`, `serve_prometheus` or `set_service_url` was called again before enough "
+        "blocks passed since that record's last update. Check its block in `Axons`, "
+        "`Prometheus` or `ServiceUrls` against the `ServingRateLimit` (serving_rate_limit "
+        "hyperparameter) and wait."
     ),
     "SettingWeightsTooFast": (
         "The neuron set weights again before `WeightsSetRateLimit` blocks elapsed since its "
@@ -763,7 +766,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "SlippageTooHigh": (
         "A stake, unstake, or move would move the price past the slippage-protection limit "
-        "(default 5% tolerance). Retry, raise `--rate-tolerance`, or disable protection with "
+        "(default 5% tolerance), or a gamma mint would credit less than its minimum. Retry, "
+        "raise `--rate-tolerance`, or, for stake, disable protection with "
         "`--no-slippage-protection`; check the current price with `btcli subnets price`."
     ),
     "StakeTooLowForRoot": (
@@ -1010,8 +1014,32 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "ColdkeySwapTooHeavy": (
         "The coldkey stakes through more hotkeys, or holds more stake positions, than one "
-        "coldkey swap can move. Unstake from or move stake off unused hotkeys and subnets "
-        "to consolidate, then retry the swap."
+        "coldkey swap can move, or holds more than 128 gamma deposits. Unstake from or move "
+        "stake off unused hotkeys and subnets, or move gamma into fewer deposits, to "
+        "consolidate, then retry the swap."
+    ),
+    "TaoUsdPriceUnavailable": (
+        "Gamma cannot be minted because the TAO/USD price is unusable: there is no feed, or "
+        "the last feed is more than 50 blocks old. Check `tao_usd_price` and retry once the "
+        "oracle has fed."
+    ),
+    "GammaDisabled": (
+        "Gamma minting is switched off network-wide (`GammaEnabled`) or on this subnet (the "
+        "`gamma_enabled` hyperparameter). Root enables it network-wide; the subnet owner or "
+        "root enables the subnet."
+    ),
+    "TooManyGammaDeposits": (
+        "The coldkey would hold more than 64 gamma deposits on this subnet, by opening one or "
+        "by a coldkey swap into it. Move gamma into an existing deposit, or close an empty one "
+        "with `close_gamma_deposit`, then retry."
+    ),
+    "GammaDepositDoesNotExist": (
+        "The hotkey holds no gamma deposit on this subnet. List the coldkey's deposits with "
+        "the `gamma_deposits` read."
+    ),
+    "GammaDepositNotEmpty": (
+        "Only an empty gamma deposit can be closed. Moving its whole balance with `move_gamma` "
+        "closes it; once its spender has spent it to zero, close it."
     ),
     "ColdkeySwapDestinationReserved": (
         "This account is reserved as the destination of an in-flight coldkey-swap "

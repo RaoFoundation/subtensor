@@ -354,8 +354,20 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "relax the price/slippage limit or wait for a better price so max_amount is non-zero"
     ),
     "AmountTooLow": (
-        "raise the amount above the chain minimum stake (after fees/slippage); "
-        "check with `btcli stake list` / subnet price"
+        "raise the amount above the chain minimum stake (after fees/slippage), or to "
+        "mint at least 0.1 gamma; check with `btcli stake list` / subnet price"
+    ),
+    "NonAssociatedColdKey": (
+        "sign with the coldkey that owns the hotkey (`btcli wallet registrations`); a "
+        "gamma deposit at a hotkey another coldkey holds stays theirs, so mint to a fresh hotkey"
+    ),
+    "TaoUsdPriceUnavailable": (
+        "the TAO/USD price is missing or over 50 blocks old; check `btcli deposits price` "
+        "and retry once the oracle feeds"
+    ),
+    "GammaDepositNotEmpty": (
+        "move the balance out with `btcli deposits move --amount-gamma all`, which closes "
+        "the deposit, or close it once its spender has spent it"
     ),
     "StakeAmountTooLow": (
         "raise the stake amount above the minimum, or stake more to the hotkey if "

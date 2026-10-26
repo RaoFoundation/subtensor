@@ -13,7 +13,7 @@ actions remain subject to the overall 256-entry cap.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_reject_staking_hotkey_growth`](/code/pallets/subtensor/src/macros/dispatches.rs#L2967-L2985) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_reject_staking_hotkey_growth`](/code/pallets/subtensor/src/macros/dispatches.rs#L2968-L2986) |
 
 ## Parameters
 
@@ -62,7 +62,7 @@ result = sub.execute_tool("set_reject_staking_hotkey_growth", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_reject_staking_hotkey_growth` — [`pallets/subtensor/src/macros/dispatches.rs#L2969`](/code/pallets/subtensor/src/macros/dispatches.rs#L2967-L2985):
+`SubtensorModule.set_reject_staking_hotkey_growth` — [`pallets/subtensor/src/macros/dispatches.rs#L2970`](/code/pallets/subtensor/src/macros/dispatches.rs#L2968-L2986):
 
 ```rust
 #[pallet::call_index(153)]

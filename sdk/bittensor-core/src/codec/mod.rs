@@ -23,6 +23,7 @@ mod corpus_tests {
     use crate::codec::value::Value;
     use crate::runtime::type_string::TypeSpec;
     use crate::runtime::Runtime;
+    use scale_info::{form::PortableForm, TypeDef};
 
     fn json_u64(v: &serde_json::Value) -> u64 {
         match v {
@@ -523,5 +524,82 @@ mod corpus_tests {
         assert_eq!(json["call_module"], "Balances");
         assert_eq!(json["call_function"], "transfer_keep_alive");
         assert_eq!(json["call_args"][0]["value"], g["ss58"][1]["address"]);
+    }
+
+    /// A `BoundedVec` whose element type matches.
+    fn bounded_vec_of(rt: &Runtime, elem: impl Fn(&scale_info::Type<PortableForm>) -> bool) -> u32 {
+        rt.types
+            .types
+            .iter()
+            .find(|t| {
+                let TypeDef::Composite(c) = &t.ty.type_def else {
+                    return false;
+                };
+                if t.ty.path.segments.last().map(String::as_str) != Some("BoundedVec") {
+                    return false;
+                };
+                let [only] = c.fields.as_slice() else {
+                    return false;
+                };
+                let Ok(TypeDef::Sequence(s)) = rt.resolve(only.ty.id).map(|t| &t.type_def) else {
+                    return false;
+                };
+                only.name.is_none() && rt.resolve(s.type_param.id).is_ok_and(&elem)
+            })
+            .map(|t| t.id)
+            .expect("metadata has a matching BoundedVec")
+    }
+
+    /// One nesting level of a single-field sequence newtype is legacy
+    /// double-wrapping only when the payload reads as such; a flat one-entry
+    /// list of tuples stays flat.
+    #[test]
+    fn newtype_sequences_unwrap_only_double_wrapped_payloads() {
+        let g = golden();
+        let rt = runtime();
+        let addr = |i: usize| Value::str(g["ss58"][i]["address"].as_str().unwrap());
+        let enc = |id: u32, v: &Value| rt.encode_spec(&TypeSpec::Id(id), v);
+        let pair = |a: i128, b: i128| Value::List(vec![Value::Int(a), Value::Int(b)]);
+        let list = |items: Vec<Value>| Value::List(items);
+
+        let pairs = bounded_vec_of(&rt, |t| match &t.type_def {
+            TypeDef::Tuple(tup) => {
+                tup.fields.len() == 2
+                    && tup.fields.iter().all(|f| {
+                        rt.resolve(f.id)
+                            .is_ok_and(|p| matches!(p.type_def, TypeDef::Primitive(_)))
+                    })
+            }
+            _ => false,
+        });
+        let one = enc(pairs, &list(vec![pair(1, 5)])).unwrap();
+        assert_eq!(one[0], 1 << 2, "flat one-entry list encodes one pair");
+        let two = enc(pairs, &list(vec![pair(1, 5), pair(1, 7)])).unwrap();
+        assert_eq!(two[0], 2 << 2);
+        assert_eq!(
+            enc(pairs, &list(vec![list(vec![pair(1, 5)])])).unwrap(),
+            one
+        );
+        assert_eq!(
+            enc(pairs, &list(vec![list(vec![pair(1, 5), pair(1, 7)])])).unwrap(),
+            two
+        );
+
+        let accounts = bounded_vec_of(&rt, |t| {
+            t.path.segments.last().map(String::as_str) == Some("AccountId32")
+        });
+        let flat = enc(accounts, &list(vec![addr(0), addr(1)])).unwrap();
+        assert_eq!(
+            enc(accounts, &list(vec![list(vec![addr(0), addr(1)])])).unwrap(),
+            flat
+        );
+
+        let data = bounded_vec_of(&rt, |t| {
+            t.path.segments.last().map(String::as_str) == Some("Data")
+                && matches!(t.type_def, TypeDef::Variant(_))
+        });
+        let raw = Value::record(vec![("Raw5".into(), Value::str("0x0102030405"))]);
+        let flat = enc(data, &list(vec![raw.clone()])).unwrap();
+        assert_eq!(enc(data, &list(vec![list(vec![raw])])).unwrap(), flat);
     }
 }

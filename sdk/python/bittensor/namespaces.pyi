@@ -227,6 +227,47 @@ class Epochs(_ReadNamespace):
         whose tempo changed or whose owner triggered an epoch.
         """
 
+class Gamma(_ReadNamespace):
+    """Gamma deposits, mint quotes, the TAO/USD price, and service urls."""
+
+    async def gamma_deposit(self, netuid: int, hotkey_ss58: str, *, block: Optional[int] = None) -> Optional[dict]:
+        """The gamma deposit at a hotkey on a subnet, or None.
+
+        `spendable_gamma` is the balance within what its daily spend cap allows now.
+        """
+
+    async def gamma_deposits(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """Every gamma deposit of a coldkey, on every subnet."""
+
+    async def quote_mint_gamma(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> Optional[dict]:
+        """The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.
+
+        None when gamma cannot be minted: the subnet does not exist, minting or its
+        subtoken is disabled, the TAO/USD price is missing or stale, the pool lacks liquidity,
+        or the amount is below the minimum.
+        """
+
+    async def quote_mint_gamma_with_stake(self, netuid: int, amount_alpha: float, *, block: Optional[int] = None) -> Optional[dict]:
+        """The alpha burned, its TAO value, and the gamma `mint_gamma_with_stake` would mint now.
+
+        None when gamma cannot be minted, as for `quote_mint_gamma`.
+        """
+
+    async def service_urls(self, netuid: int, *, block: Optional[int] = None) -> dict[str, str]:
+        """Every service url published on a subnet, by hotkey.
+
+        Each points to its hotkey's own document of its services and the spender
+        to name on gamma deposits; the chain does not check what it says.
+        """
+
+    async def tao_usd_price(self, *, block: Optional[int] = None) -> dict:
+        """The TAO/USD price oracle, its last feed, and the accepted price at that feed.
+
+        The accepted price falls to the feed at once and rises toward it by at most
+        0.0066% (66 ppm) of itself per block. Minting needs a feed at most 50
+        blocks old.
+        """
+
 class Hyperparameters(_ReadNamespace):
     """Per-subnet hyperparameter scalars (difficulty, immunity period, ...)."""
 

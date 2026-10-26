@@ -30,6 +30,15 @@ from .crowdloan import (
 )
 from .emission_weights import SetSubnetEmissionWeights
 from .evm import EvmWithdraw, FundEvmKey
+from .gamma import (
+    CloseGammaDeposit,
+    MintGamma,
+    MintGammaWithStake,
+    MoveGamma,
+    SetGammaDepositDailySpendCap,
+    SetGammaDepositSpender,
+    SpendGamma,
+)
 from .governance import (
     SetMechanismCount,
     StakeBurn,
@@ -69,7 +78,7 @@ from .registration import (
 )
 from .registry import REGISTRY, build, list_tools, register
 from .root import SetRootClaimThreshold, SetSubnetEmissionEnabled
-from .serving import ResetAxon, ServeAxon, ServeAxonTls, ServePrometheus
+from .serving import ResetAxon, ServeAxon, ServeAxonTls, ServePrometheus, SetServiceUrl
 from .staking import (
     AddStake,
     AddStakeLimit,
@@ -108,6 +117,7 @@ __all__ = [
     "ClaimRoot",
     "ClaimRootWithHotkey",
     "ClearColdkeySwapAnnouncement",
+    "CloseGammaDeposit",
     "CommitWeights",
     "ContributeCrowdloan",
     "CreateCrowdloan",
@@ -123,9 +133,12 @@ __all__ = [
     "Intent",
     "KillPureProxy",
     "LockStake",
+    "MintGamma",
+    "MintGammaWithStake",
     # Money vocabulary: what money fields accept (Money), the drain sentinel
     # (ALL), and the spend contract for policy checks (Spend / UNBOUNDED).
     "Money",
+    "MoveGamma",
     "MoveLock",
     "MoveStake",
     "MoveSwapStake",
@@ -153,6 +166,8 @@ __all__ = [
     "SetChildkeyTake",
     "SetChildren",
     "SetCrowdloanMaxContribution",
+    "SetGammaDepositDailySpendCap",
+    "SetGammaDepositSpender",
     "SetHyperparameter",
     "SetIdentity",
     "SetMechanismCount",
@@ -161,12 +176,14 @@ __all__ = [
     "SetRejectLockedAlpha",
     "SetRejectStakingHotkeyGrowth",
     "SetRootClaimThreshold",
+    "SetServiceUrl",
     "SetSubnetEmissionEnabled",
     "SetSubnetEmissionWeights",
     "SetSubnetIdentity",
     "SetTake",
     "SetWeights",
     "Spend",
+    "SpendGamma",
     "StakeBurn",
     "StakeIntoBasket",
     "StartCall",

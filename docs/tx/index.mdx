@@ -81,11 +81,15 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`claim-root`](/docs/tx/claim-root) | coldkey | signed account (pallet role may apply) | Redeem accrued root dividends across every validator for the coldkey. |
 | [`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) | coldkey | signed account (pallet role may apply) | Redeem accrued root dividends (basket shares) for one validator. |
 | [`clear-coldkey-swap-announcement`](/docs/tx/clear-coldkey-swap-announcement) | coldkey | signed account (pallet role may apply) | Cancel a pending coldkey swap announcement (after the reannouncement delay). |
+| [`close-gamma-deposit`](/docs/tx/close-gamma-deposit) | coldkey | signed account (pallet role may apply) | Close your empty gamma deposit, releasing its hotkey. |
 | [`commit-weights`](/docs/tx/commit-weights) | hotkey | signed account (pallet role may apply) | Timelock-encrypt and commit weights, forcing the commit-reveal path. |
 | [`decrease-take`](/docs/tx/decrease-take) | coldkey | signed account (pallet role may apply) | Decrease the delegate take of a hotkey. |
 | [`dispute-coldkey-swap`](/docs/tx/dispute-coldkey-swap) | coldkey | signed account (pallet role may apply) | Freeze this coldkey entirely until root resolves the dispute. |
 | [`increase-take`](/docs/tx/increase-take) | coldkey | signed account (pallet role may apply) | Increase the delegate take of a hotkey. |
 | [`lock-stake`](/docs/tx/lock-stake) | coldkey | signed account (pallet role may apply) | Lock alpha stake on a subnet, building conviction toward a hotkey. |
+| [`mint-gamma`](/docs/tx/mint-gamma) | coldkey | signed account (pallet role may apply) | Mint gamma with TAO into your deposit at an API-key hotkey. |
+| [`mint-gamma-with-stake`](/docs/tx/mint-gamma-with-stake) | coldkey | signed account (pallet role may apply) | Mint gamma by burning your stake into your deposit at an API-key hotkey. |
+| [`move-gamma`](/docs/tx/move-gamma) | coldkey | signed account (pallet role may apply) | Move gamma between two of your deposits on a subnet. |
 | [`move-lock`](/docs/tx/move-lock) | coldkey | signed account (pallet role may apply) | Move an existing lock from one hotkey to another on a subnet. |
 | [`move-stake`](/docs/tx/move-stake) | coldkey | signed account (pallet role may apply) | Move alpha between hotkeys and/or subnets. |
 | [`move-swap-stake`](/docs/tx/move-swap-stake) | coldkey | signed account (pallet role may apply) | Move stake to a new hotkey and swap it to a new subnet in one transaction. |
@@ -104,15 +108,19 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`set-auto-stake`](/docs/tx/set-auto-stake) | coldkey | signed account (pallet role may apply) | Auto-stake future mining rewards on a subnet to a chosen hotkey. |
 | [`set-childkey-take`](/docs/tx/set-childkey-take) | coldkey | signed account (pallet role may apply) | Set the childkey take for a hotkey on a subnet. |
 | [`set-children`](/docs/tx/set-children) | coldkey | signed account (pallet role may apply) | Assign child hotkeys with stake-weight proportions on a subnet. |
+| [`set-gamma-deposit-daily-spend-cap`](/docs/tx/set-gamma-deposit-daily-spend-cap) | coldkey | signed account (pallet role may apply) | Set the daily spend cap of your gamma deposit. |
+| [`set-gamma-deposit-spender`](/docs/tx/set-gamma-deposit-spender) | coldkey | signed account (pallet role may apply) | Set who may spend your gamma deposit. |
 | [`set-identity`](/docs/tx/set-identity) | coldkey | signed account (pallet role may apply) | Publish an on-chain identity (name, links, description) for the coldkey. |
 | [`set-min-collateral`](/docs/tx/set-min-collateral) | coldkey | signed account (pallet role may apply) | Set the self-maintaining collateral floor for your hotkey on a subnet. |
 | [`set-perpetual-lock`](/docs/tx/set-perpetual-lock) | coldkey | signed account (pallet role may apply) | Enable or disable perpetual lock mode for a coldkey on a subnet. |
 | [`set-reject-locked-alpha`](/docs/tx/set-reject-locked-alpha) | coldkey | signed account (pallet role may apply) | Opt the signing coldkey in or out of receiving locked alpha. |
 | [`set-reject-staking-hotkey-growth`](/docs/tx/set-reject-staking-hotkey-growth) | coldkey | signed account (pallet role may apply) | Refuse new staking hotkeys introduced by other accounts. |
 | [`set-root-claim-threshold`](/docs/tx/set-root-claim-threshold) | coldkey | root (chain sudo) | Set the minimum TAO payout for a root dividend claim (root only). |
+| [`set-service-url`](/docs/tx/set-service-url) | hotkey | signed account (pallet role may apply) | Publish the url where this hotkey describes its services on a subnet. |
 | [`set-subnet-identity`](/docs/tx/set-subnet-identity) | coldkey | subnet owner | Publish identity metadata for a subnet (signer must be the subnet owner). |
 | [`set-take`](/docs/tx/set-take) | coldkey | signed account (pallet role may apply) | Set the delegate take to an absolute value. |
 | [`set-weights`](/docs/tx/set-weights) | hotkey | signed account (pallet role may apply) | Set validator weights, auto-selecting plaintext or commit-reveal. |
+| [`spend-gamma`](/docs/tx/spend-gamma) | coldkey | signed account (pallet role may apply) | Spend gamma from the deposits you are the spender of. |
 | [`stake-burn`](/docs/tx/stake-burn) | coldkey | signed account (pallet role may apply) | Buy back / burn stake via the stake-burn extrinsic. |
 | [`stake-into-basket`](/docs/tx/stake-into-basket) | coldkey | signed account (pallet role may apply) | Buy shares in a root-registered validator's basket with free TAO. |
 | [`start-call`](/docs/tx/start-call) | coldkey | subnet owner | Activate a subnet (subtoken trading, epochs) as its owner. |

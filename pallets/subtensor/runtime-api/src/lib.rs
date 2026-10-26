@@ -10,6 +10,7 @@ use pallet_subtensor::rpc_info::{
     },
     delegate_info::DelegateInfo,
     dynamic_info::DynamicInfo,
+    gamma_info::GammaDepositInfo,
     metagraph::{Metagraph, SelectiveMetagraph},
     neuron_info::{NeuronInfo, NeuronInfoLite},
     show_subnet::SubnetState,
@@ -23,7 +24,7 @@ use pallet_subtensor::staking::lock::LockState;
 use sp_runtime::AccountId32;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{
-    AlphaBalance, MechId, NetUid, ProxyFilterInfo, ProxyTypeInfo, TaoBalance,
+    AlphaBalance, GammaBalance, MechId, NetUid, ProxyFilterInfo, ProxyTypeInfo, TaoBalance,
 };
 
 // Here we declare the runtime API. It is implemented it the `impl` block in
@@ -163,5 +164,16 @@ sp_api::decl_runtime_apis! {
         /// The same for every validator a coldkey-wide `claim_root` would touch.
         #[api_version(5)]
         fn get_root_basket_claim_previews(coldkey: AccountId32) -> Vec<BasketClaimPreview<AccountId32>>;
+    }
+
+    pub trait GammaRuntimeApi {
+        /// The deposit at a hotkey on a subnet, and what its daily spend cap allows now.
+        fn get_gamma_deposit(netuid: NetUid, hotkey: AccountId32) -> Option<GammaDepositInfo<AccountId32>>;
+        /// Every deposit of a coldkey, on every subnet.
+        fn get_gamma_deposits_for_coldkey(coldkey: AccountId32) -> Vec<GammaDepositInfo<AccountId32>>;
+        /// The alpha burned, TAO value and gamma `mint_gamma` would mint now.
+        fn sim_mint_gamma(netuid: NetUid, amount: TaoBalance) -> Option<(AlphaBalance, TaoBalance, GammaBalance)>;
+        /// The alpha burned, TAO value and gamma `mint_gamma_with_stake` would mint now.
+        fn sim_mint_gamma_with_stake(netuid: NetUid, alpha_amount: AlphaBalance) -> Option<(AlphaBalance, TaoBalance, GammaBalance)>;
     }
 }

@@ -71,6 +71,11 @@ DEFAULT_RUNTIME: dict[tuple[str, str], Any] = {
     ("SwapRuntimeApi", "current_alpha_price"): 10**9,  # 1 TAO per alpha
     ("SubnetRegistrationRuntimeApi", "get_network_registration_cost"): 10**9,
     ("BetaBasketRuntimeApi", "get_validator_basket"): [],
+    # 1 TAO buys 1 alpha worth 1 TAO, minting 400 gamma.
+    ("GammaRuntimeApi", "sim_mint_gamma"): (10**9, 10**9, 400 * 10**9),
+    ("GammaRuntimeApi", "sim_mint_gamma_with_stake"): (10**9, 10**9, 400 * 10**9),
+    # 1 alpha staked, for the mint_gamma_with_stake sample.
+    ("StakeInfoRuntimeApi", "get_stake_info_for_hotkey_coldkey_netuid"): {"stake": 10**9},
 }
 
 GENESIS_HASH = "0x" + "00" * 32

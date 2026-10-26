@@ -244,6 +244,11 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "AddStakeBurnRateLimitExceeded": _C.RATE_LIMITED,
     "ColdkeyCollateralIncomplete": _C.INTERNAL,
     "ColdkeyCollateralPositionsFull": _C.LIMIT_EXCEEDED,
+    "TaoUsdPriceUnavailable": _C.DISABLED,
+    "GammaDisabled": _C.DISABLED,
+    "TooManyGammaDeposits": _C.LIMIT_EXCEEDED,
+    "GammaDepositDoesNotExist": _C.NOT_FOUND,
+    "GammaDepositNotEmpty": _C.INVALID_ARGUMENT,
     # Pending announcement blocks nearly all signed calls until the swap is
     # executed or the announcement is cleared (guards/check_coldkey_swap.rs).
     # Bucketed as disabled (feature/path blocked), not already_exists.

@@ -81,7 +81,7 @@ mod errors {
         SettingWeightsTooFast,
         /// A validator is attempting to set weights from a validator with incorrect weight version.
         IncorrectWeightVersionKey,
-        /// An axon or prometheus serving exceeded the rate limit for a registered neuron.
+        /// An axon, prometheus or service url serving exceeded the rate limit for a registered neuron.
         ServingRateLimitExceeded,
         /// The caller is attempting to set weights with more UIDs than allowed.
         UidsLengthExceedUidsInSubNet, // 32
@@ -463,5 +463,15 @@ mod errors {
         ColdkeySwapDestinationReserved,
         /// No live coldkey-swap destination reservation exists for this account.
         ColdkeySwapDestinationReservationNotFound,
+        /// Minting gamma needs a TAO/USD feed at most `TAO_USD_PRICE_MAX_AGE` blocks old.
+        TaoUsdPriceUnavailable,
+        /// Gamma minting is disabled network-wide or on this subnet.
+        GammaDisabled,
+        /// The coldkey would hold more than `MAX_GAMMA_DEPOSITS` gamma deposits on this subnet.
+        TooManyGammaDeposits,
+        /// The hotkey holds no gamma deposit on this subnet.
+        GammaDepositDoesNotExist,
+        /// A gamma deposit with a balance cannot be closed.
+        GammaDepositNotEmpty,
     }
 }

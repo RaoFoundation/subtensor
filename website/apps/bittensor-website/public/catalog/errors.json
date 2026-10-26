@@ -365,7 +365,7 @@
     },
     "AmountTooLow": {
       "code": "limit_exceeded",
-      "description": "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the minimum stake threshold after fees and slippage. Compare the amount against the `DefaultMinStake` storage item and the subnet's alpha price before retrying with a larger amount.",
+      "description": "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the minimum stake threshold after fees and slippage, or a gamma mint came to less than 0.1 gamma. Compare the amount against the `DefaultMinStake` storage item and the subnet's alpha price before retrying with a larger amount.",
       "docs_url": "/docs/errors/chain/AmountTooLow",
       "markdown_url": "/llms.mdx/docs/errors/chain/AmountTooLow/content.md",
       "pallets": [
@@ -771,8 +771,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 202,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L202",
+          "line": 219,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L219",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1310,7 +1310,7 @@
     },
     "ColdkeySwapTooHeavy": {
       "code": "limit_exceeded",
-      "description": "The coldkey stakes through more hotkeys, or holds more stake positions, than one coldkey swap can move. Unstake from or move stake off unused hotkeys and subnets to consolidate, then retry the swap.",
+      "description": "The coldkey stakes through more hotkeys, or holds more stake positions, than one coldkey swap can move, or holds more than 128 gamma deposits. Unstake from or move stake off unused hotkeys and subnets, or move gamma into fewer deposits, to consolidate, then retry the swap.",
       "docs_url": "/docs/errors/chain/ColdkeySwapTooHeavy",
       "markdown_url": "/llms.mdx/docs/errors/chain/ColdkeySwapTooHeavy/content.md",
       "pallets": [
@@ -1338,8 +1338,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 226,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L226",
+          "line": 243,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L243",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1356,8 +1356,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 224,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L224",
+          "line": 241,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L241",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1707,8 +1707,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 222,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L222",
+          "line": 239,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L239",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -2188,6 +2188,60 @@
         }
       ]
     },
+    "GammaDepositDoesNotExist": {
+      "code": "not_found",
+      "description": "The hotkey holds no gamma deposit on this subnet. List the coldkey's deposits with the `gamma_deposits` read.",
+      "docs_url": "/docs/errors/chain/GammaDepositDoesNotExist",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositDoesNotExist/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 473,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L473",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "GammaDepositNotEmpty": {
+      "code": "invalid_argument",
+      "description": "Only an empty gamma deposit can be closed. Moving its whole balance with `move_gamma` closes it; once its spender has spent it to zero, close it.",
+      "docs_url": "/docs/errors/chain/GammaDepositNotEmpty",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositNotEmpty/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 475,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L475",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "GammaDisabled": {
+      "code": "disabled",
+      "description": "Gamma minting is switched off network-wide (`GammaEnabled`) or on this subnet (the `gamma_enabled` hyperparameter). Root enables it network-wide; the subnet owner or root enables the subnet.",
+      "docs_url": "/docs/errors/chain/GammaDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaDisabled/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 469,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L469",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "GasLimitTooHigh": {
       "code": "invalid_argument",
       "description": "The transaction's `gas_limit` exceeds the block gas limit configured for the EVM. Compare the `gas_limit` argument against the chain's block gas limit and lower it.",
@@ -2227,8 +2281,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 228,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L228",
+          "line": 245,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L245",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2289,7 +2343,7 @@
     },
     "HotKeyNotRegisteredInNetwork": {
       "code": "not_registered",
-      "description": "The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli wallet registrations` (or `btcli query uid --netuid <n>` / `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first.",
+      "description": "The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus`/`set_service_url` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli wallet registrations` (or `btcli query uid --netuid <n>` / `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first.",
       "docs_url": "/docs/errors/chain/HotKeyNotRegisteredInNetwork",
       "markdown_url": "/llms.mdx/docs/errors/chain/HotKeyNotRegisteredInNetwork/content.md",
       "pallets": [
@@ -3073,8 +3127,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 216,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L216",
+          "line": 233,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L233",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3433,8 +3487,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 200,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L200",
+          "line": 217,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L217",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3451,8 +3505,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 214,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L214",
+          "line": 231,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L231",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3469,8 +3523,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 212,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L212",
+          "line": 229,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L229",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3541,8 +3595,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 198,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L198",
+          "line": 215,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L215",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3639,8 +3693,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 208,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L208",
+          "line": 225,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L225",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3657,8 +3711,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 210,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L210",
+          "line": 227,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L227",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3774,8 +3828,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 204,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L204",
+          "line": 221,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L221",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4061,7 +4115,7 @@
     },
     "NonAssociatedColdKey": {
       "code": "not_authorized",
-      "description": "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, serve, children or take changes). Check the `Owner` storage entry for the hotkey, e.g. via `btcli wallet registrations`, and sign with the coldkey that registered it.",
+      "description": "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, serve, children or take changes), or the gamma deposit at the hotkey belongs to another coldkey. Check the `Owner` storage entry for the hotkey, e.g. via `btcli wallet registrations`, and sign with the coldkey that registered it.",
       "docs_url": "/docs/errors/chain/NonAssociatedColdKey",
       "markdown_url": "/llms.mdx/docs/errors/chain/NonAssociatedColdKey/content.md",
       "pallets": [
@@ -4334,8 +4388,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 218,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L218",
+          "line": 235,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L235",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4612,8 +4666,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 220,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L220",
+          "line": 237,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L237",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5187,7 +5241,7 @@
     },
     "ServingRateLimitExceeded": {
       "code": "rate_limited",
-      "description": "`serve_axon` or `serve_prometheus` was called again before enough blocks passed since the neuron's last serving update. Check the axon's last update block in `Axons` against the `ServingRateLimit` (serving_rate_limit hyperparameter) and wait.",
+      "description": "`serve_axon`, `serve_prometheus` or `set_service_url` was called again before enough blocks passed since that record's last update. Check its block in `Axons`, `Prometheus` or `ServiceUrls` against the `ServingRateLimit` (serving_rate_limit hyperparameter) and wait.",
       "docs_url": "/docs/errors/chain/ServingRateLimitExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/ServingRateLimitExceeded/content.md",
       "pallets": [
@@ -5232,7 +5286,7 @@
     },
     "SlippageTooHigh": {
       "code": "insufficient_liquidity",
-      "description": "A stake, unstake, or move would move the price past the slippage-protection limit (default 5% tolerance). Retry, raise `--rate-tolerance`, or disable protection with `--no-slippage-protection`; check the current price with `btcli subnets price`.",
+      "description": "A stake, unstake, or move would move the price past the slippage-protection limit (default 5% tolerance), or a gamma mint would credit less than its minimum. Retry, raise `--rate-tolerance`, or, for stake, disable protection with `--no-slippage-protection`; check the current price with `btcli subnets price`.",
       "docs_url": "/docs/errors/chain/SlippageTooHigh",
       "markdown_url": "/llms.mdx/docs/errors/chain/SlippageTooHigh/content.md",
       "pallets": [
@@ -5440,8 +5494,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 196,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L196",
+          "line": 213,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L213",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5576,6 +5630,24 @@
           "path": "pallets/subtensor/src/macros/errors.rs",
           "line": 247,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L247",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "TaoUsdPriceUnavailable": {
+      "code": "disabled",
+      "description": "Gamma cannot be minted because the TAO/USD price is unusable: there is no feed, or the last feed is more than 50 blocks old. Check `tao_usd_price` and retry once the oracle has fed.",
+      "docs_url": "/docs/errors/chain/TaoUsdPriceUnavailable",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TaoUsdPriceUnavailable/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 467,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L467",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5750,6 +5822,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/TooManyFreezes/content.md",
       "pallets": [
         "Balances"
+      ]
+    },
+    "TooManyGammaDeposits": {
+      "code": "limit_exceeded",
+      "description": "The coldkey would hold more than 64 gamma deposits on this subnet, by opening one or by a coldkey swap into it. Move gamma into an existing deposit, or close an empty one with `close_gamma_deposit`, then retry.",
+      "docs_url": "/docs/errors/chain/TooManyGammaDeposits",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyGammaDeposits/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 471,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L471",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
       ]
     },
     "TooManyHolds": {
@@ -6296,8 +6386,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 206,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L206",
+          "line": 223,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L223",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]

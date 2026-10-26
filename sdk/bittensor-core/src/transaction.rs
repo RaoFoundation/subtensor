@@ -1271,4 +1271,12 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn set_root_claim_type_requires_subnets_exactly_for_keep_subnets() {
+        assert!(IntentCall::set_root_claim_type("KeepSubnets", None).is_err());
+        assert!(IntentCall::set_root_claim_type("Swap", None).is_ok());
+        assert!(IntentCall::set_root_claim_type("Keep", None).is_ok());
+        assert!(IntentCall::set_root_claim_type("KeepSubnets", Some(vec![1])).is_ok());
+    }
 }

@@ -21,7 +21,7 @@ payout: the claim pays 100% of the basket.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1263-L1278), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2190-L2219), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1264-L1279), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2191-L2220), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("unstake_all", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1265`](/code/pallets/subtensor/src/macros/dispatches.rs#L1263-L1278):
+`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1266`](/code/pallets/subtensor/src/macros/dispatches.rs#L1264-L1279):
 
 ```rust
 #[pallet::call_index(83)]
@@ -92,9 +92,9 @@ pub fn unstake_all(
 }
 ```
 
-Delegates to [`do_unstake_all_tracked`](/code/pallets/subtensor/src/staking/remove_stake.rs#L142), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1584), [`unstake_all_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L283).
+Delegates to [`do_unstake_all_tracked`](/code/pallets/subtensor/src/staking/remove_stake.rs#L142), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1697), [`unstake_all_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L283).
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2194`](/code/pallets/subtensor/src/macros/dispatches.rs#L2190-L2219):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2195`](/code/pallets/subtensor/src/macros/dispatches.rs#L2191-L2220):
 
 ```rust
 #[pallet::call_index(148)]

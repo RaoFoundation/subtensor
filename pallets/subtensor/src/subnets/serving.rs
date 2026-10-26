@@ -158,6 +158,21 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// The implementation for the extrinsic set_service_url.
+    pub fn do_set_service_url(
+        origin: OriginFor<T>,
+        netuid: NetUid,
+        url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
+    ) -> DispatchResult {
+        let hotkey = ensure_signed(origin)?;
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        Self::validate_set_service_url(&hotkey, netuid)?;
+        let block = Self::get_current_block_as_u64();
+        ServiceUrls::<T>::insert(netuid, &hotkey, ServiceUrlInfo { block, url });
+        Self::deposit_event(Event::ServiceUrlSet { netuid, hotkey });
+        Ok(())
+    }
+
     /********************************
      --==[[  Helper functions   ]]==--
     *********************************/
@@ -352,5 +367,23 @@ impl<T: Config> Pallet<T> {
         );
 
         Ok(prev_prometheus)
+    }
+
+    /// Requires the hotkey registered on the subnet and its last url set at least the
+    /// serving rate limit ago.
+    pub fn validate_set_service_url(hotkey: &T::AccountId, netuid: NetUid) -> Result<(), Error<T>> {
+        ensure!(
+            Self::is_hotkey_registered_on_network(netuid, hotkey),
+            Error::<T>::HotKeyNotRegisteredInNetwork
+        );
+        let last_serve = ServiceUrls::<T>::get(netuid, hotkey).map_or(0, |info| info.block);
+        let rate_limit = Self::get_serving_rate_limit(netuid);
+        ensure!(
+            rate_limit == 0
+                || last_serve == 0
+                || Self::get_current_block_as_u64().saturating_sub(last_serve) >= rate_limit,
+            Error::<T>::ServingRateLimitExceeded
+        );
+        Ok(())
     }
 }

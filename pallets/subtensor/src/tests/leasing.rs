@@ -1786,7 +1786,7 @@ fn test_distribute_lease_network_dividends_accumulates_if_insufficient_liquidity
     });
 }
 
-fn setup_crowdloan(
+pub(crate) fn setup_crowdloan(
     id: u32,
     deposit: u64,
     cap: u64,
@@ -1827,7 +1827,7 @@ fn setup_crowdloan(
     pallet_crowdloan::CurrentCrowdloanId::<Test>::set(Some(0));
 }
 
-fn setup_leased_network(
+pub(crate) fn setup_leased_network(
     beneficiary: U256,
     emissions_share: Percent,
     end_block: Option<u64>,

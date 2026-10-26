@@ -564,6 +564,8 @@ class AppContext:
             handle = wallets.open_wallet(wallet_name or self.wallet_name, hotkey, self.wallet_path)
             return ResolvedAddress(handle.hotkey.ss58_address, f"hotkey {value!r}", value)
 
+        if "/" in value:
+            raise ValueError("WALLET/HOTKEY names a hotkey; pass a WALLET name or an address")
         address = wallets.open_wallet(name=value, path=self.wallet_path).coldkeypub.ss58_address
         return ResolvedAddress(address, f"wallet {value!r}", value)
 

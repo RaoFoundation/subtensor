@@ -25,7 +25,7 @@ an unauthorized one with `dispute_coldkey_swap`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.announce_coldkey_swap_v2`](/code/pallets/subtensor/src/macros/dispatches.rs#L2456-L2505) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.announce_coldkey_swap_v2`](/code/pallets/subtensor/src/macros/dispatches.rs#L2457-L2506) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("announce_coldkey_swap", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.announce_coldkey_swap_v2` — [`pallets/subtensor/src/macros/dispatches.rs#L2461`](/code/pallets/subtensor/src/macros/dispatches.rs#L2456-L2505):
+`SubtensorModule.announce_coldkey_swap_v2` — [`pallets/subtensor/src/macros/dispatches.rs#L2462`](/code/pallets/subtensor/src/macros/dispatches.rs#L2457-L2506):
 
 ```rust
 #[pallet::call_index(155)]
@@ -129,6 +129,6 @@ pub fn announce_coldkey_swap_v2(
 }
 ```
 
-Delegates to [`ensure_coldkey_swap_destination`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L556), [`ensure_coldkey_swap_destination_reservable`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L201), [`coldkey_rejects_unsolicited_policy_import`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L436).
+Delegates to [`ensure_coldkey_swap_destination`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L569), [`ensure_coldkey_swap_destination_reservable`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L214), [`coldkey_rejects_unsolicited_policy_import`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L449).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

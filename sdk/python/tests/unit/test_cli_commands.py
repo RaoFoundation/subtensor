@@ -29,7 +29,7 @@ from bittensor.client import Client
 from bittensor.intents import REGISTRY as INTENT_REGISTRY
 from bittensor.reads import REGISTRY as READ_REGISTRY
 from tests.harness.fake_substrate import FakeSubstrate
-from tests.harness.samples import EMISSION_WEIGHTS_INFO, INTENT_SAMPLES, READ_SAMPLES
+from tests.harness.samples import EMISSION_WEIGHTS_INFO, INTENT_SAMPLES, READ_SAMPLES, seed_gamma
 from tests.unit.test_reads_table import seeded_substrate
 
 runner = CliRunner()
@@ -136,9 +136,12 @@ def _seed_tx_preview(substrate: FakeSubstrate) -> None:
 
 
 @pytest.fixture()
-def fake(isolated_cli, monkeypatch) -> FakeSubstrate:
+def fake(isolated_cli, monkeypatch, wallet_dir) -> FakeSubstrate:
     substrate = FakeSubstrate()
     _seed_tx_preview(substrate)
+    seed_gamma(
+        substrate, wallets.open_wallet(_WALLET_NAME, path=wallet_dir).coldkeypub.ss58_address
+    )
 
     def make_client(network, **kwargs):
         return Client(network, substrate=substrate)

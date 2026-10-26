@@ -40,6 +40,7 @@ PROXY_TYPES = (
     "BasketTrading",
     "Validate",
     "Weights",
+    "GammaSpend",
 )
 
 

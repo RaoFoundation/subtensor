@@ -225,6 +225,7 @@ pub enum Hyperparameter {
     Difficulty = 38,
     /// `set_subnet_emission_weights`; limited to once a week per subnet rather than by tempo.
     EmissionWeights = 39,
+    SubnetGammaEnabled = 40,
 }
 
 impl<T: Config> Pallet<T> {

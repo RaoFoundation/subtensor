@@ -25,6 +25,8 @@ pub struct ColdkeySwapWork {
     pub dest_locks: u32,
     /// Total `NetworkRegistrationQueue` entries visited (not only owned rows).
     pub registration_queue_scan: u32,
+    /// Gamma deposits moved from the source.
+    pub gamma_deposits: u32,
 }
 
 /// How an authenticated coldkey-swap announcement decides whether the source's
@@ -70,6 +72,12 @@ impl<T: Config> Pallet<T> {
             u64::from(work.pending_registrations),
             u64::from(work.pending_registrations).saturating_add(1),
         ))
+        // Per gamma deposit moved: its rewrite plus its share of both coldkeys' indexes.
+        .saturating_add(
+            T::DbWeight::get()
+                .reads_writes(2, 3)
+                .saturating_mul(u64::from(work.gamma_deposits)),
+        )
     }
 
     /// The largest swap one call admits, used as the pre-dispatch envelope.
@@ -80,6 +88,7 @@ impl<T: Config> Pallet<T> {
             pending_registrations: crate::MAX_COLDKEY_SWAP_PENDING_REGISTRATIONS,
             dest_locks: crate::MAX_COLDKEY_SWAP_DEST_LOCKS,
             registration_queue_scan: crate::MAX_COLDKEY_SWAP_REGISTRATION_QUEUE_SCAN,
+            gamma_deposits: crate::MAX_COLDKEY_SWAP_GAMMA_DEPOSITS,
         }
     }
 
@@ -116,6 +125,9 @@ impl<T: Config> Pallet<T> {
         // Pending-registration discovery: one queue read + total-scan sentinel
         // (not only owned rows — unrelated entries are still visited).
         let pending_reads = u64::from(max.registration_queue_scan).saturating_add(1);
+        // Gamma deposit counts of both coldkeys: the subnet list plus one index length per
+        // subnet, each.
+        let gamma_reads = u64::from(TotalNetworks::<T>::get()).saturating_mul(4);
         T::DbWeight::get()
             .reads(4)
             .saturating_add(
@@ -124,7 +136,8 @@ impl<T: Config> Pallet<T> {
                         .saturating_add(position_reads)
                         .saturating_add(lock_reads)
                         .saturating_add(opt_out_reads)
-                        .saturating_add(pending_reads),
+                        .saturating_add(pending_reads)
+                        .saturating_add(gamma_reads),
                 ),
             )
             .saturating_add(reservation)
@@ -596,9 +609,15 @@ impl<T: Config> Pallet<T> {
         // source association and would not early-return).
         let mut work = Self::coldkey_swap_work(old_coldkey, new_coldkey);
         work.dest_locks = dest_locks;
+        work.gamma_deposits = Self::coldkey_gamma_deposit_count(old_coldkey);
         if work.dest_locks > crate::MAX_COLDKEY_SWAP_DEST_LOCKS
             || work.hotkeys > crate::MAX_COLDKEY_SWAP_HOTKEYS
             || work.positions > crate::MAX_COLDKEY_SWAP_POSITIONS
+            // Counting the destination's deposits too keeps every coldkey within one swap.
+            || work
+                .gamma_deposits
+                .saturating_add(Self::coldkey_gamma_deposit_count(new_coldkey))
+                > crate::MAX_COLDKEY_SWAP_GAMMA_DEPOSITS
         {
             // Retain this scan — do not re-walk storage for the failure weight.
             return Err((
@@ -801,7 +820,8 @@ impl<T: Config> Pallet<T> {
                 }
 
                 // Move stake by the coldkey's actual positions (not every subnet × every
-                // hotkey), then the per-subnet ownership, auto-stake and collateral state.
+                // hotkey), then the per-subnet ownership, auto-stake, collateral and gamma
+                // state.
                 Self::transfer_coldkey_positions(old_coldkey, new_coldkey)?;
                 for netuid in Self::get_all_subnet_netuids() {
                     Self::transfer_subnet_ownership(netuid, old_coldkey, new_coldkey);
@@ -813,6 +833,7 @@ impl<T: Config> Pallet<T> {
                     );
                     // Stake has moved; migrate the bond so unstake guards stay attached.
                     Self::transfer_coldkey_miner_collateral(netuid, old_coldkey, new_coldkey)?;
+                    Self::transfer_coldkey_gamma_deposits(netuid, old_coldkey, new_coldkey)?;
                     Self::transfer_last_hotkey_swap_on_netuid(netuid, old_coldkey, new_coldkey);
                 }
                 Self::transfer_pending_network_registrations(old_coldkey, new_coldkey)?;

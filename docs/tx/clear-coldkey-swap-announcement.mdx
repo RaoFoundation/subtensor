@@ -17,7 +17,7 @@ right call instead.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.clear_coldkey_swap_announcement`](/code/pallets/subtensor/src/macros/dispatches.rs#L2765-L2788) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.clear_coldkey_swap_announcement`](/code/pallets/subtensor/src/macros/dispatches.rs#L2766-L2789) |
 
 ## Parameters
 
@@ -62,7 +62,7 @@ result = sub.execute_tool("clear_coldkey_swap_announcement", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.clear_coldkey_swap_announcement` — [`pallets/subtensor/src/macros/dispatches.rs#L2771`](/code/pallets/subtensor/src/macros/dispatches.rs#L2765-L2788):
+`SubtensorModule.clear_coldkey_swap_announcement` — [`pallets/subtensor/src/macros/dispatches.rs#L2772`](/code/pallets/subtensor/src/macros/dispatches.rs#L2766-L2789):
 
 ```rust
 #[pallet::call_index(133)]
@@ -91,6 +91,6 @@ pub fn clear_coldkey_swap_announcement(origin: OriginFor<T>) -> DispatchResult {
 }
 ```
 
-Delegates to [`release_coldkey_swap_destination_reservation`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L227).
+Delegates to [`release_coldkey_swap_destination_reservation`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L240).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -1318,5 +1318,34 @@ mod benchmarks {
         );
     }
 
+    #[benchmark]
+    fn sudo_set_tao_usd_price_oracle() {
+        let oracle: T::AccountId = account("oracle", 0, 1);
+        pallet_subtensor::TaoUsdPriceOracle::<T>::put(oracle.clone());
+        pallet_subtensor::TaoUsdPrice::<T>::put(pallet_subtensor::TaoUsdPriceState {
+            accepted: 1,
+            feed: 1,
+            fed_at: 0,
+        });
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, Some(oracle));
+    }
+
+    #[benchmark]
+    fn sudo_set_subnet_gamma_enabled() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, true);
+    }
+
+    #[benchmark]
+    fn sudo_set_gamma_enabled() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, true);
+    }
+
     impl_benchmark_test_suite!(AdminUtils, mock::new_test_ext(), mock::Test);
 }

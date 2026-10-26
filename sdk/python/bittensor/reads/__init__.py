@@ -19,6 +19,7 @@ from . import (  # noqa: F401  (imported for registration side effects)
     collateral,
     delegation,
     epochs,
+    gamma,
     hyperparameters,
     identity,
     leasing,

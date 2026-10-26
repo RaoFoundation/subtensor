@@ -41,6 +41,7 @@ from .commands import (
     crowd,
     evm,
     extension,
+    gamma,
     lock,
     misc,
     multisig,
@@ -94,10 +95,11 @@ PANEL_ACCOUNTS = "Accounts"
 PANEL_CHAIN = "Raw chain access & agents"
 PANEL_ADDITIONAL = "Additional"
 
-# Primary commands, most-used first: everyday wallet and staking operations,
-# then subnet inspection, conviction locking, and hyperparameters.
+# Primary commands, most-used first: everyday wallet, staking, and gamma deposit
+# operations, then subnet inspection, conviction locking, and hyperparameters.
 app.add_typer(wallet.app, name="wallet")
 app.add_typer(stake.app, name="stake")
+app.add_typer(gamma.app, name="deposits")
 app.add_typer(root.app, name="root")
 app.add_typer(subnets.app, name="subnets")
 app.add_typer(lock.app, name="conviction")
