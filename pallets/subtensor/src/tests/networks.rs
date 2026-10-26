@@ -4077,6 +4077,85 @@ fn set_new_network_state_stores_identity_and_emits_events() {
 }
 
 #[test]
+fn dissolve_network_clears_identity_immediately() {
+    new_test_ext(1).execute_with(|| {
+        let cold = U256::from(11_001);
+        let hot = U256::from(11_002);
+        let netuid = add_dynamic_network(&hot, &cold);
+
+        let identity = SubnetIdentityOfV3 {
+            subnet_name: b"old brand".to_vec(),
+            github_repo: b"https://github.com/old/repo".to_vec(),
+            subnet_contact: b"old@example.com".to_vec(),
+            subnet_url: b"https://old.example.com".to_vec(),
+            discord: b"old-discord".to_vec(),
+            description: b"old description".to_vec(),
+            logo_url: b"https://old.example.com/logo.png".to_vec(),
+            additional: b"".to_vec(),
+        };
+        SubnetIdentitiesV3::<Test>::insert(netuid, identity);
+        assert!(SubnetIdentitiesV3::<Test>::contains_key(netuid));
+
+        System::reset_events();
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+
+        // Cleared before deferred cleanup runs.
+        assert!(!SubnetIdentitiesV3::<Test>::contains_key(netuid));
+        assert!(System::events().iter().any(|e| matches!(
+            &e.event,
+            RuntimeEvent::SubtensorModule(Event::SubnetIdentityRemoved(n)) if *n == netuid
+        )));
+
+        // Deferred remove is idempotent.
+        let mut meter =
+            frame_support::weights::WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(SubtensorModule::remove_network_parameters(netuid, &mut meter));
+        assert!(!SubnetIdentitiesV3::<Test>::contains_key(netuid));
+    });
+}
+
+#[test]
+fn set_new_network_state_none_clears_stale_identity() {
+    new_test_ext(1).execute_with(|| {
+        let cold = U256::from(11_101);
+        let hot = U256::from(11_102);
+        let lock_amount = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(2.into()).into());
+
+        let netuid = SubtensorModule::get_next_netuid();
+        let stale = SubnetIdentityOfV3 {
+            subnet_name: b"stale brand".to_vec(),
+            github_repo: b"https://github.com/stale/repo".to_vec(),
+            subnet_contact: b"stale@example.com".to_vec(),
+            subnet_url: b"https://stale.example.com".to_vec(),
+            discord: b"stale-discord".to_vec(),
+            description: b"stale description".to_vec(),
+            logo_url: b"https://stale.example.com/logo.png".to_vec(),
+            additional: b"".to_vec(),
+        };
+        SubnetIdentitiesV3::<Test>::insert(netuid, stale);
+        assert!(SubnetIdentitiesV3::<Test>::contains_key(netuid));
+
+        System::reset_events();
+        assert_ok!(SubtensorModule::set_new_network_state(
+            &cold,
+            &hot,
+            1,
+            None,
+            lock_amount,
+            SubtensorModule::get_median_subnet_alpha_price(),
+            None,
+        ));
+
+        assert!(!SubnetIdentitiesV3::<Test>::contains_key(netuid));
+        assert!(System::events().iter().any(|e| matches!(
+            &e.event,
+            RuntimeEvent::SubtensorModule(Event::SubnetIdentityRemoved(n)) if *n == netuid
+        )));
+    });
+}
+
+#[test]
 fn set_new_network_state_uses_provided_median_price_for_pool_alpha() {
     new_test_ext(1).execute_with(|| {
         let cold = U256::from(10_201);

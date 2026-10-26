@@ -192,6 +192,14 @@ impl<T: Config> Pallet<T> {
         TotalNetworks::<T>::mutate(|n: &mut u16| *n = n.saturating_sub(1));
         TotalStake::<T>::mutate(|total| *total = total.saturating_sub(SubnetTAO::<T>::get(netuid)));
 
+        // Drop on-chain identity immediately so explorers stop serving the old
+        // brand while PendingDissolution is still reportable. Deferred
+        // `remove_network_parameters` also clears this map (idempotent).
+        if SubnetIdentitiesV3::<T>::contains_key(netuid) {
+            SubnetIdentitiesV3::<T>::remove(netuid);
+            Self::deposit_event(Event::SubnetIdentityRemoved(netuid));
+        }
+
         dissolved_networks.push(netuid);
         DissolveCleanupQueue::<T>::set(dissolved_networks);
 

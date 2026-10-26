@@ -502,11 +502,22 @@ impl<T: Config> Pallet<T> {
             weight.saturating_accrue(db_weight.writes(1));
         }
 
-        // --- 8. Add the identity if it exists
-        if let Some(identity_value) = identity {
-            SubnetIdentitiesV3::<T>::insert(netuid_to_register, identity_value);
-            Self::deposit_event(Event::SubnetIdentitySet(netuid_to_register));
-            weight.saturating_accrue(db_weight.writes(1));
+        // --- 8. Identity is authoritative for this registration: Some sets,
+        // None clears any leftover from a recycled netuid (never leave the
+        // previous owner's brand on the slot).
+        match identity {
+            Some(identity_value) => {
+                SubnetIdentitiesV3::<T>::insert(netuid_to_register, identity_value);
+                Self::deposit_event(Event::SubnetIdentitySet(netuid_to_register));
+                weight.saturating_accrue(db_weight.writes(1));
+            }
+            None => {
+                if SubnetIdentitiesV3::<T>::contains_key(netuid_to_register) {
+                    SubnetIdentitiesV3::<T>::remove(netuid_to_register);
+                    Self::deposit_event(Event::SubnetIdentityRemoved(netuid_to_register));
+                    weight.saturating_accrue(db_weight.writes(1));
+                }
+            }
         }
 
         // --- 9. Schedule root validators as parents of the subnet owner hotkey.
