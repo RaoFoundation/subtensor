@@ -54,7 +54,8 @@ pub use subnets::emission_weights::{
     EMISSION_WEIGHT_ONE, EMISSION_WEIGHT_SLOTS, EMISSION_WEIGHTS_VIEW_READS, EmissionIndex,
     EmissionWeights, EmissionWeightsVec, EmissionWeightsView, MAX_OWNER_EMISSION,
     MAX_VALIDATOR_EMISSION, MIN_MINER_EMISSION, emission_fraction, emission_share_to_parts,
-    normalize_tao_weight, root_emission_share,
+    normalize_tao_weight, root_alpha_yield_factor, root_emission_share,
+    root_floor_alpha_for_validator_pile, root_pay_with_labor_floor,
 };
 
 #[cfg(test)]
@@ -2567,9 +2568,26 @@ pub mod pallet {
         StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
 
     /// MAP ( netuid ) --> pending_root_alpha_emission
+    ///
+    /// Legacy pre-carve pot. Block accumulate no longer fills this; epoch drain
+    /// still clears leftovers and folds them into the unified validator pile.
     #[pallet::storage]
     pub type PendingRootAlphaDivs<T> =
         StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
+
+    /// Default labor yield factor: `a = 1` (full classic floor) until an epoch
+    /// records a measured root∩alpha yield ratio.
+    #[pallet::type_value]
+    pub fn DefaultRootAlphaYieldFactor<T: Config>() -> u16 {
+        u16::MAX
+    }
+
+    /// MAP ( netuid ) --> last epoch root alpha-dividend yield factor `a` as
+    /// parts of `u16::MAX` (`u16::MAX` = 1.0). Used by emission show / RPC as
+    /// the labor multiplier on the classic baseline floor.
+    #[pallet::storage]
+    pub type LastRootAlphaYieldFactor<T> =
+        StorageMap<_, Identity, NetUid, u16, ValueQuery, DefaultRootAlphaYieldFactor<T>>;
 
     /// MAP ( netuid ) --> pending_owner_cut
     #[pallet::storage]
