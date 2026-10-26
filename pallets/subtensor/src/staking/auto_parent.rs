@@ -30,7 +30,7 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        Self::persist_pending_chidren_ok(netuid, parent_hotkey, &vec![(u64::MAX, owner_hotkey)]);
+        Self::persist_pending_chidren_ok(netuid, parent_hotkey, &[(u64::MAX, owner_hotkey)]);
     }
 
     /// True when this parent still has the protocol auto-parent edge
@@ -60,7 +60,7 @@ impl<T: Config> Pallet<T> {
             if !Self::is_protocol_auto_parent_edge(root_validator_hotkey, netuid) {
                 continue;
             }
-            Self::persist_pending_chidren_ok(netuid, root_validator_hotkey, &Vec::new());
+            Self::persist_pending_chidren_ok(netuid, root_validator_hotkey, &[]);
         }
     }
 
@@ -84,12 +84,12 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
             if parent_hotkey == *new_owner {
-                Self::persist_pending_chidren_ok(netuid, &parent_hotkey, &Vec::new());
+                Self::persist_pending_chidren_ok(netuid, &parent_hotkey, &[]);
             } else {
                 Self::persist_pending_chidren_ok(
                     netuid,
                     &parent_hotkey,
-                    &vec![(u64::MAX, new_owner.clone())],
+                    &[(u64::MAX, new_owner.clone())],
                 );
             }
         }

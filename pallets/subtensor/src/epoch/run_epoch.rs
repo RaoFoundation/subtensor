@@ -236,7 +236,7 @@ impl<T: Config> Pallet<T> {
         // Inactive mask.
         let inactive: Vec<bool> = last_update
             .iter()
-            .map(|updated| updated.saturating_add(activity_cutoff) < current_block)
+            .map(|updated| Self::is_last_update_inactive(*updated, activity_cutoff, current_block))
             .collect();
         log::trace!("Inactive: {:?}", inactive.clone());
 
@@ -725,7 +725,7 @@ impl<T: Config> Pallet<T> {
         // Inactive mask.
         let inactive: Vec<bool> = last_update
             .iter()
-            .map(|updated| updated.saturating_add(activity_cutoff) < current_block)
+            .map(|updated| Self::is_last_update_inactive(*updated, activity_cutoff, current_block))
             .collect();
         log::debug!("Inactive: {:?}", inactive.clone());
 
