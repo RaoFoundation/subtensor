@@ -347,6 +347,13 @@ fn every_metadata_call_has_explicit_envelope_and_dispatch_coverage() {
                 // rather than allowing a whole pallet to escape parity checks.
                 let expected: Option<(sp_runtime::DispatchResult, sp_runtime::DispatchResult)> =
                     match name.as_str() {
+                        "SubtensorModule.announce_coldkey_swap_v2" => Some((
+                            Ok(()),
+                            Err(
+                                pallet_subtensor::Error::<Runtime>::HotkeyOwnerPolicyViolation
+                                    .into(),
+                            ),
+                        )),
                         "Utility.as_derivative" => Some((
                             Ok(()),
                             Err(sp_runtime::DispatchError::Other(

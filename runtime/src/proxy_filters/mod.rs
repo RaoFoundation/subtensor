@@ -138,8 +138,13 @@ type NonCriticalAllowed = (
     SubtensorCommonCalls,
 );
 
+fn supports_recipient_guards(proxy_type: &ProxyType) -> bool {
+    // Hotkey-operation grants cannot move funds and deliberately exclude wrappers.
+    !proxy_type.is_deprecated() && !matches!(proxy_type, ProxyType::Validate | ProxyType::Weights)
+}
+
 pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> bool {
-    if !proxy_type.is_deprecated() && RecipientGuardCalls::contains(call) {
+    if supports_recipient_guards(proxy_type) && RecipientGuardCalls::contains(call) {
         return true;
     }
     match proxy_type {
@@ -237,7 +242,7 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         | ProxyType::Governance
         | ProxyType::RootWeights => FilterMode::Allow(Vec::new()),
     };
-    if !proxy_type.is_deprecated()
+    if supports_recipient_guards(&proxy_type)
         && let FilterMode::Allow(ref mut calls) = mode
     {
         for call in RecipientGuardCalls::call_infos() {
@@ -330,6 +335,10 @@ mod tests {
             FilterMode::AllowAll => all_runtime_calls(),
             FilterMode::Allow(infos) => infos.iter().map(call_name).collect(),
         }
+    }
+
+    fn expected_calls(calls: &[&str]) -> BTreeSet<String> {
+        calls.iter().copied().map(str::to_string).collect()
     }
 
     fn expected(calls: &[&str]) -> BTreeSet<String> {
@@ -1001,7 +1010,7 @@ mod tests {
         );
         assert_eq!(
             allowed_calls(ProxyType::Weights),
-            expected(&[
+            expected_calls(&[
                 "SubtensorModule::batch_commit_weights",
                 "SubtensorModule::batch_reveal_weights",
                 "SubtensorModule::batch_set_weights",
@@ -1018,7 +1027,7 @@ mod tests {
         );
         assert_eq!(
             allowed_calls(ProxyType::Validate),
-            expected(&[
+            expected_calls(&[
                 "Commitments::set_commitment",
                 "SubtensorModule::associate_evm_key",
                 "SubtensorModule::batch_commit_weights",
