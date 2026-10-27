@@ -4,9 +4,7 @@
 //! reveal blocks for timelock-encrypted commits.  See `constants.rs` for
 //! chain-verified bounds.
 
-use crate::timelock::constants::{
-    max_simulation_blocks, COMMIT_INCLUSION_BLOCK_OFFSET, MAX_TEMPO_U64,
-};
+use crate::timelock::constants::{COMMIT_INCLUSION_BLOCK_OFFSET, MAX_TEMPO_U64};
 
 /// Snapshot of on-chain epoch schedule state at a given block.
 ///
@@ -41,43 +39,37 @@ impl std::fmt::Display for EpochScheduleError {
 
 impl std::error::Error for EpochScheduleError {}
 
-/// Port of `run_coinbase.rs:1043-1057`.
+/// Whether the pallet's epoch predicate is true for the supplied stored state.
 pub fn should_run_epoch(state: &EpochScheduleState, block: u64) -> bool {
-    let tempo = state.tempo;
-    if tempo == 0 {
+    if state.tempo == 0 {
         return false;
     }
-    let pending = state.pending_epoch_at;
-    if pending > 0 && block >= pending {
+    if state.pending_epoch_at > 0 && block >= state.pending_epoch_at {
         return true;
     }
-    if state.blocks_since_last_step > MAX_TEMPO_U64 {
+    if state.blocks_since_last_step > u64::from(state.tempo) {
         return true;
     }
-    let blocks_since = block.saturating_sub(state.last_epoch_block);
-    blocks_since >= tempo as u64
+    block.saturating_sub(state.last_epoch_block) >= u64::from(state.tempo)
 }
 
-/// Port of `weights.rs:1275-1282` — the epoch index used by
-/// `reveal_crv3_commits` (runs **before** `run_coinbase` in `block_step`).
+/// The look-ahead epoch seen by reveal processing before `run_coinbase`.
 pub fn current_epoch_pre_run_coinbase(state: &EpochScheduleState, block: u64) -> u64 {
-    let base = state.subnet_epoch_index;
     if should_run_epoch(state, block) {
-        base.saturating_add(1)
+        state.subnet_epoch_index.saturating_add(1)
     } else {
-        base
+        state.subnet_epoch_index
     }
 }
 
-/// Simulate the effect of `run_coinbase` on the epoch state for one block.
-///
-/// Port of `run_coinbase.rs:337-403` (subset).
-/// Does **not** model `MaxEpochsPerBlock` deferral.
+/// Advance one block, applying the pallet's bounded counter and a successful epoch.
 pub fn simulate_run_coinbase(state: &EpochScheduleState, block: u64) -> EpochScheduleState {
     let mut next = state.clone();
-    next.blocks_since_last_step = next.blocks_since_last_step.saturating_add(1);
+    next.blocks_since_last_step = next
+        .blocks_since_last_step
+        .saturating_add(1)
+        .min(u64::from(next.tempo).saturating_add(1));
     next.current_block = block;
-
     if should_run_epoch(&next, block) {
         next.last_epoch_block = block;
         next.pending_epoch_at = 0;
@@ -87,24 +79,20 @@ pub fn simulate_run_coinbase(state: &EpochScheduleState, block: u64) -> EpochSch
     next
 }
 
-/// Apply `simulate_run_coinbase` for each block in `start..=end`.
-/// If `start > end`, returns a clone of `from`.
+/// Advance every block in `start..=end`; an empty range returns the original state.
 pub fn advance_blocks(from: &EpochScheduleState, start: u64, end: u64) -> EpochScheduleState {
     let mut state = from.clone();
-    if start > end {
-        return state;
-    }
-    for b in start..=end {
-        state = simulate_run_coinbase(&state, b);
+    for block in start..=end {
+        state = simulate_run_coinbase(&state, block);
     }
     state
 }
 
-/// Predict the first block at which the chain will reveal a commit
-/// submitted against `head_state`.
+/// Predict the first block of the commit's actual reveal epoch.
 ///
-/// The algorithm accounts for `COMMIT_INCLUSION_BLOCK_OFFSET` and the
-/// two-phase `block_step` pipeline (reveal runs before `run_coinbase`).
+/// Commit extrinsics run after `run_coinbase`, while automatic reveal processing
+/// runs before it. Counter-threshold fires can occur only after the coinbase
+/// increment, so compute the commit epoch from the simulated post-coinbase state.
 pub fn predict_first_reveal_block(
     head_state: &EpochScheduleState,
     reveal_period_epochs: u64,
@@ -112,35 +100,37 @@ pub fn predict_first_reveal_block(
     if head_state.tempo == 0 {
         return Err(EpochScheduleError::TempoIsZero);
     }
-
-    let head_block = head_state.current_block;
-    let extrinsic_block = head_block + COMMIT_INCLUSION_BLOCK_OFFSET;
-
-    // Advance state from head to just before the extrinsic block
-    let post_before_extrinsic = if extrinsic_block == head_block + 1 {
-        head_state.clone()
-    } else {
-        advance_blocks(head_state, head_block + 1, extrinsic_block - 1)
-    };
-
-    // Commit epoch: extrinsic runs after run_coinbase at extrinsic_block
-    let commit_epoch = current_epoch_pre_run_coinbase(&post_before_extrinsic, extrinsic_block);
-
-    let target_epoch = commit_epoch + reveal_period_epochs;
-
-    let max_sim = max_simulation_blocks(reveal_period_epochs);
-
-    let mut post_prev = post_before_extrinsic;
-    for r in extrinsic_block..=extrinsic_block.saturating_add(max_sim) {
-        if current_epoch_pre_run_coinbase(&post_prev, r) == target_epoch {
-            return Ok(r);
+    let first_block = head_state
+        .current_block
+        .checked_add(1)
+        .ok_or(EpochScheduleError::BoundExceeded)?;
+    let extrinsic_block = head_state
+        .current_block
+        .checked_add(COMMIT_INCLUSION_BLOCK_OFFSET)
+        .ok_or(EpochScheduleError::BoundExceeded)?;
+    let before_extrinsic =
+        advance_blocks(head_state, first_block, extrinsic_block.saturating_sub(1));
+    let after_extrinsic = simulate_run_coinbase(&before_extrinsic, extrinsic_block);
+    let commit_epoch = current_epoch_pre_run_coinbase(&after_extrinsic, extrinsic_block);
+    let target_epoch = commit_epoch
+        .checked_add(reveal_period_epochs)
+        .ok_or(EpochScheduleError::BoundExceeded)?;
+    let budget = reveal_period_epochs
+        .checked_mul(MAX_TEMPO_U64)
+        .and_then(|blocks| blocks.checked_add(MAX_TEMPO_U64))
+        .ok_or(EpochScheduleError::BoundExceeded)?;
+    let end = extrinsic_block
+        .checked_add(budget)
+        .ok_or(EpochScheduleError::BoundExceeded)?;
+    let mut previous = before_extrinsic;
+    for block in extrinsic_block..=end {
+        if current_epoch_pre_run_coinbase(&previous, block) == target_epoch {
+            return Ok(block);
         }
-        post_prev = simulate_run_coinbase(&post_prev, r);
+        previous = simulate_run_coinbase(&previous, block);
     }
-
     Err(EpochScheduleError::BoundExceeded)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
