@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Optional
 
 from .._generated import calls
-from ._money import ALL, Money, alpha_amount
+from ._money import ALL, Money, alpha_amount, normalized_balance
 from .base import Intent
 from .registry import register
 from .staking import _lockable_rao
@@ -57,7 +57,7 @@ class LockStake(Intent):
         if self.amount_alpha == ALL:
             rao = await _lockable_rao(substrate, self.coldkey_address(wallet), self.netuid)
         else:
-            rao = self.amount_alpha.rao
+            rao = normalized_balance(self.amount_alpha).rao
         return await substrate.compose(
             calls.SubtensorModule.lock_stake(hotkey=hotkey, netuid=self.netuid, amount=rao)
         )

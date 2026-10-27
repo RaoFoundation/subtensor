@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 from .._generated import calls
-from ._money import ALL, UNBOUNDED, Money, Spend, tao_amount
+from ._money import ALL, UNBOUNDED, Money, Spend, normalized_balance, tao_amount
 from .base import Intent
 from .registry import register
 
@@ -54,7 +54,7 @@ class Transfer(Intent):
             return await substrate.compose(
                 calls.Balances.transfer_all(dest=self.dest_ss58, keep_alive=self.keep_alive)
             )
-        value = self.amount_tao.rao
+        value = normalized_balance(self.amount_tao).rao
         call = (
             calls.Balances.transfer_keep_alive(dest=self.dest_ss58, value=value)
             if self.keep_alive
@@ -75,7 +75,7 @@ class Transfer(Intent):
         if self.amount_tao == ALL:
             # Unbounded: a max_spend policy should block draining the whole account.
             return UNBOUNDED
-        return self.amount_tao
+        return normalized_balance(self.amount_tao)
 
 
 @register

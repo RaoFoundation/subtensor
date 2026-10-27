@@ -8,6 +8,7 @@ import os
 import secrets
 import time
 from concurrent.futures import ThreadPoolExecutor
+from typing import Sequence
 
 import bittensor_core
 from eth_utils import keccak
@@ -59,7 +60,7 @@ def _mine_chunk(prefix: bytes, difficulty: int, start: int, attempts: int):
     return None
 
 
-def _create_gpu_miner(backend: str, device_ids: tuple[int, ...] | None):
+def _create_gpu_miner(backend: str, device_ids: Sequence[int] | None):
     if backend == "cpu":
         return None
     discover = getattr(bittensor_core, "pow_gpu_devices", None)
@@ -91,7 +92,7 @@ async def mine_registration(
     workers: int = 4,
     max_seconds: float = 300,
     backend: str = "auto",
-    device_ids: tuple[int, ...] | None = None,
+    device_ids: Sequence[int] | None = None,
 ):
     """Return a PowRegister intent, refreshing stale challenges automatically.
 

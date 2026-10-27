@@ -482,7 +482,7 @@ def _field_items(entry: Any) -> list[tuple[str, Any]]:
     if isinstance(entry, str) and entry:
         return [(entry, None)]
     if isinstance(entry, dict):
-        return list(entry.items())
+        return [(key, value) for key, value in entry.items() if isinstance(key, str)]
     return []
 
 

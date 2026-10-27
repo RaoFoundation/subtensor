@@ -115,22 +115,6 @@ ignore = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
-[tool.ty.rules]
-# Ratchet plan: these categories have pre-existing findings (mostly the Money
-# fields' __post_init__ narrowing and typer/click internals). They surface as
-# warnings in CI output but don't fail the gate; flip each to "error" as its
-# findings are burned down. Everything not listed here is already clean and
-# enforced at error level.
-invalid-argument-type = "warn"
-unresolved-attribute = "warn"
-invalid-assignment = "warn"
-invalid-return-type = "warn"
-unsupported-operator = "warn"
-not-iterable = "warn"
-unknown-argument = "warn"
-invalid-type-form = "warn"
-invalid-attribute-access = "warn"
-
 [tool.coverage.run]
 source = ["bittensor"]
 branch = true
@@ -141,3 +125,7 @@ show_missing = true
 # Baseline after the Tier-1 buildout is 44%; ratchet this up as the
 # remaining layers (CLI command bodies, sync facade, wallets) get covered.
 fail_under = 42
+
+[tool.ty.environment]
+# Use the in-repo PyO3 stubs even when testing with a previously published wheel.
+extra-paths = ["../bittensor-core-py"]

@@ -156,6 +156,7 @@ def root_swap(
 
     def _origin_amount(holdings: list[dict]) -> Optional[Balance]:
         if intent.amount != ALL:
+            assert isinstance(intent.amount, Balance)
             return intent.amount
         for row in holdings:
             if int(row["netuid"]) == int(origin_netuid):

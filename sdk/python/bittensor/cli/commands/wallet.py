@@ -425,14 +425,14 @@ def new_hotkey(
 @with_globals
 def regen_coldkey(
     ctx: typer.Context,
-    mnemonic: str = typer.Option(
+    mnemonic: Optional[str] = typer.Option(
         None,
         "--mnemonic",
         help="Coldkey mnemonic. Prompted for securely if omitted; avoid passing on "
         "the command line (it leaks to shell history and the process list).",
     ),
-    seed: str = typer.Option(None, "--seed", help=_SEED_HELP),
-    private_key: str = typer.Option(None, "--private-key", help=_PRIVATE_KEY_HELP),
+    seed: Optional[str] = typer.Option(None, "--seed", help=_SEED_HELP),
+    private_key: Optional[str] = typer.Option(None, "--private-key", help=_PRIVATE_KEY_HELP),
     json_path: str | None = typer.Option(
         None,
         "--json-path",
@@ -508,13 +508,13 @@ def regen_coldkey(
 @with_globals
 def regen_hotkey(
     ctx: typer.Context,
-    mnemonic: str = typer.Option(
+    mnemonic: Optional[str] = typer.Option(
         None,
         "--mnemonic",
         help="Hotkey mnemonic. Prompted for securely if omitted.",
     ),
-    seed: str = typer.Option(None, "--seed", help=_SEED_HELP),
-    private_key: str = typer.Option(None, "--private-key", help=_PRIVATE_KEY_HELP),
+    seed: Optional[str] = typer.Option(None, "--seed", help=_SEED_HELP),
+    private_key: Optional[str] = typer.Option(None, "--private-key", help=_PRIVATE_KEY_HELP),
     overwrite: bool = typer.Option(False, "--overwrite", help=_OVERWRITE_HELP),
     crypto_type: str = typer.Option("sr25519", "--crypto-type", help=_CRYPTO_TYPE_HELP),
 ):
@@ -834,6 +834,7 @@ def unlock_wallet(ctx: typer.Context):
                 password = None
                 continue
             _report_unlock_error(app_ctx, error)
+    assert keypair is not None
     app_ctx.output.detail(
         "unlocked",
         {
@@ -1180,7 +1181,10 @@ def wallet_overview(
             client, targets, netuid=netuid
         )
         unnamed = [
-            s["hotkey"] for row in rows for s in row["stakes"] if s["hotkey"] not in known_names
+            str(s["hotkey"])
+            for row in rows
+            for s in row["stakes"]
+            if s["hotkey"] not in known_names
         ]
         for locks_by_netuid, _ in lock_ctx.values():
             for lock in locks_by_netuid.values():
@@ -1299,7 +1303,7 @@ def wallet_registrations(
             label = hotkey["name"] or "—"
             slots = hotkey["registrations"] or [{"netuid": "—", "uid": "—"}]
             for slot in slots:
-                cells = [label, slot["netuid"], slot["uid"], hotkey["hotkey"]]
+                cells: list[object] = [label, slot["netuid"], slot["uid"], hotkey["hotkey"]]
                 if all_wallets:
                     cells.insert(0, row["wallet"])
                 table_rows.append(cells)
@@ -1492,9 +1496,9 @@ def wallet_inspect(
     async def _fetch(client):
         data, valuation = await wallet_inspect_data(client, app_ctx.wallet_name, owner)
         hotkeys = (
-            [s["hotkey"] for s in data["stakes"]]
-            + [d["delegate_hotkey"] for d in data["delegations"]]
-            + [b["hotkey"] for b in data["baskets"]]
+            [str(s["hotkey"]) for s in data["stakes"]]
+            + [str(d["delegate_hotkey"]) for d in data["delegations"]]
+            + [str(b["hotkey"]) for b in data["baskets"]]
         )
         unnamed = [hk for hk in hotkeys if hk not in known_names]
         return data, valuation, await chain_identity_names(client, unnamed)
@@ -1632,11 +1636,12 @@ def set_identity(
     ]
     fill_missing(app_ctx, specs, fields)
     # Non-interactive sessions keep the current (or empty) value for omitted flags.
-    for field, value in fields.items():
-        if value is None:
-            fields[field] = current_value(field)
+    resolved_fields = {
+        field: value if value is not None else current_value(field)
+        for field, value in fields.items()
+    }
 
-    app_ctx.submit(SetIdentity(**fields))
+    app_ctx.submit(SetIdentity(**resolved_fields))
 
 
 @app.command("get-identity", rich_help_panel=PANEL_IDENTITY)

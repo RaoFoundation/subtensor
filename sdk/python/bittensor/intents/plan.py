@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 from ..balance import Balance
 from ..settings import tx_docs_url
-from ._money import UNBOUNDED, Money, Spend, tao_amount
+from ._money import UNBOUNDED, Money, Spend, normalized_balance, tao_amount
 from .base import Intent
 
 
@@ -59,7 +59,7 @@ class Policy:
                     f"max_fee_tao {self.max_fee_tao} is configured but the fee "
                     "could not be estimated"
                 )
-            elif fee > self.max_fee_tao:
+            elif fee > normalized_balance(self.max_fee_tao):
                 violations.append(f"fee {fee} exceeds max_fee_tao {self.max_fee_tao}")
         if self.max_spend_tao is not None:
             spend = intent.spend()
@@ -68,7 +68,9 @@ class Policy:
                     f"{intent.op} spends an amount that cannot be bounded before "
                     f"execution; max_spend_tao {self.max_spend_tao} blocks it"
                 )
-            elif spend is not None and spend > self.max_spend_tao:
+            elif spend is not None and normalized_balance(spend) > normalized_balance(
+                self.max_spend_tao
+            ):
                 violations.append(f"spend {spend} exceeds max_spend_tao {self.max_spend_tao}")
         if self.allowed_netuids is not None:
             allowed = set(self.allowed_netuids)

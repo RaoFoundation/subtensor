@@ -110,10 +110,14 @@ def _variant_call(value: Any) -> Optional[tuple[str, str, dict]]:
     if not (isinstance(value, dict) and len(value) == 1):
         return None
     module, inner = next(iter(value.items()))
-    if not (isinstance(inner, dict) and len(inner) == 1):
+    if not (isinstance(module, str) and isinstance(inner, dict) and len(inner) == 1):
         return None
     function, args = next(iter(inner.items()))
-    if not isinstance(args, dict) or _builder(f"{module}.{function}") is None:
+    if (
+        not isinstance(function, str)
+        or not isinstance(args, dict)
+        or _builder(f"{module}.{function}") is None
+    ):
         return None
     return module, function, args
 
@@ -129,7 +133,10 @@ def _resolve_nested_call(app_ctx, value: dict, hint: str) -> dict:
         resolved = dict(value)
         resolved[params_key] = resolve_builder_params(app_ctx, target, inner or {}, param_hint=hint)
         return resolved
-    module, function, args = _variant_call(value)
+    variant = _variant_call(value)
+    if variant is None:
+        return value
+    module, function, args = variant
     return {
         module: {
             function: resolve_builder_params(app_ctx, f"{module}.{function}", args, param_hint=hint)

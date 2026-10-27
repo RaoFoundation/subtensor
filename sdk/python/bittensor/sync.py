@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import threading
 import weakref
 from datetime import datetime
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional, Sequence
 
 from ._substrate import Substrate
 from .client import BlockHeader, Client
@@ -70,7 +71,24 @@ class _Loop:
 
     def _run(self) -> None:
         asyncio.set_event_loop(self._loop)
-        self._loop.run_forever()
+        try:
+            self._loop.run_forever()
+        finally:
+            # stop() only exits run_forever; it does not release the selector
+            # or its wakeup sockets. Clean up on the owning thread, including
+            # when the GC finalizer requested shutdown from that same thread.
+            self._shutdown = True
+            try:
+                pending = asyncio.all_tasks(self._loop)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    self._loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                self._loop.run_until_complete(self._loop.shutdown_asyncgens())
+                self._loop.run_until_complete(self._loop.shutdown_default_executor())
+            finally:
+                self._loop.close()
+                asyncio.set_event_loop(None)
 
     @property
     def is_shutdown(self) -> bool:
@@ -91,6 +109,8 @@ class _Loop:
         return asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout)
 
     def shutdown(self) -> None:
+        if self._shutdown:
+            return
         self._shutdown = True
         self._loop.call_soon_threadsafe(self._loop.stop)
         if not self.owns_current_thread:
@@ -111,7 +131,7 @@ class _SyncNamespace:
 
     def __getattr__(self, name: str):
         attr = getattr(self._target, name)
-        if not asyncio.iscoroutinefunction(attr):
+        if not inspect.iscoroutinefunction(attr):
             return attr
 
         def wrapper(*args, **kwargs):
@@ -413,7 +433,7 @@ class SyncClient:
         workers: int = 4,
         max_seconds: float = 300,
         backend: str = "auto",
-        device_ids: tuple[int, ...] | None = None,
+        device_ids: Sequence[int] | None = None,
     ):
         """Mine a fresh public challenge for fee-free subnet registration."""
         return self._call(

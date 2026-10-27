@@ -486,6 +486,12 @@ def apply(
         obj.extension_bridge_url = v
 
 
+def set_command_metadata(command: Callable, **attributes: object) -> None:
+    """Attach the runtime signature and CLI markers read by Typer and prompts."""
+    for name, value in attributes.items():
+        setattr(command, name, value)
+
+
 def _with_tier(tier: Tier) -> Callable[[Callable], Callable]:
     """Decorator factory: add the tier's global options to a hand-written command.
 
@@ -502,11 +508,14 @@ def _with_tier(tier: Tier) -> Callable[[Callable], Callable]:
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
             ctx = kwargs.get("ctx") or (args[0] if args else None)
+            if ctx is None:
+                raise TypeError("CLI commands require a Context")
             apply(ctx, kwargs, skip=owned)
             return fn(*args, **kwargs)
 
-        wrapper.__signature__ = original.replace(
-            parameters=list(original.parameters.values()) + added
+        set_command_metadata(
+            wrapper,
+            __signature__=original.replace(parameters=list(original.parameters.values()) + added),
         )
         annotations = dict(getattr(fn, "__annotations__", {}))
         for name, ann, _ in specs:
@@ -515,7 +524,7 @@ def _with_tier(tier: Tier) -> Callable[[Callable], Callable]:
         wrapper.__annotations__ = annotations
         # The tier marks which commands touch the local wallet (tx/unlock), so
         # the generic prompt round (prompt.py) can confirm the wallet *first*.
-        wrapper.__btcli_tier__ = tier
+        set_command_metadata(wrapper, __btcli_tier__=tier)
         return wrapper
 
     return decorate
@@ -528,7 +537,7 @@ def evm_key_signed(fn: Callable) -> Callable:
     own missing params; these commands don't sign with the wallet, so that
     confirmation would only mislead.
     """
-    fn.__btcli_wallet_signs__ = False
+    set_command_metadata(fn, __btcli_wallet_signs__=False)
     return fn
 
 

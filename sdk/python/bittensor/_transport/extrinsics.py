@@ -368,9 +368,15 @@ def watch_status_block(
         if fatal in normalized:
             raise SubstrateRequestException(f"Extrinsic {fatal}: {status}")
     if "finalized" in normalized and wait_for_finalization:
-        return normalized["finalized"], True
+        block_hash = normalized["finalized"]
+        if not isinstance(block_hash, str) or not block_hash:
+            raise SubstrateRequestException("Finalized status requires a block hash")
+        return block_hash, True
     if "inblock" in normalized and wait_for_inclusion and not wait_for_finalization:
-        return normalized["inblock"], False
+        block_hash = normalized["inblock"]
+        if not isinstance(block_hash, str) or not block_hash:
+            raise SubstrateRequestException("InBlock status requires a block hash")
+        return block_hash, False
     return None
 
 

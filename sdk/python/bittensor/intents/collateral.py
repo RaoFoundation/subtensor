@@ -12,7 +12,7 @@ from .._generated.calls import Call
 from .._generated.runtime_apis import StakeInfoRuntimeApi
 from ..result import BittensorError
 from ..signing import public_view
-from ._money import ALL, UNBOUNDED, Money, Spend, alpha_amount
+from ._money import ALL, UNBOUNDED, Money, Spend, alpha_amount, normalized_balance
 from .base import Intent
 from .registry import register
 from .staking import (
@@ -105,7 +105,7 @@ class AddCollateral(Intent):
         if self.amount_alpha == ALL:
             rao = await _free_collateral_rao(substrate, wallet, hotkey, self.netuid)
         else:
-            rao = self.amount_alpha.rao
+            rao = normalized_balance(self.amount_alpha).rao
         price = await _alpha_price_rao(substrate, self.netuid)
         return await substrate.compose(
             calls.SubtensorModule.add_collateral(
@@ -168,7 +168,11 @@ class SetMinCollateral(Intent):
             Call(
                 "SubtensorModule",
                 "set_min_collateral",
-                {"netuid": self.netuid, "hotkey": hotkey, "min_locked": self.min_alpha.rao},
+                {
+                    "netuid": self.netuid,
+                    "hotkey": hotkey,
+                    "min_locked": normalized_balance(self.min_alpha).rao,
+                },
             )
         )
 
