@@ -935,6 +935,10 @@ pub mod pallet {
         SubnetTooNew,
         /// Third-party stake onto the lending custody hotkey is rejected (§14).
         CustodyHotkey,
+        /// Derived position escrow is still assigned (e.g. after a coldkey swap
+        /// that kept the old custody account). Refuse a fresh open so two loans
+        /// cannot share one escrow (§14).
+        EscrowInUse,
     }
 
     #[pallet::hooks]
@@ -1981,6 +1985,12 @@ pub mod pallet {
                 position
             } else {
                 let escrow = Self::position_account(&owner, netuid);
+                // After a coldkey swap the old owner's derived escrow remains the
+                // migrated loan's custody. Refuse a fresh open that would reuse it.
+                ensure!(
+                    !EscrowOwner::<T>::contains_key(netuid, &escrow),
+                    Error::<T>::EscrowInUse
+                );
                 // One-year fixed term from open (§15). Increases keep this value.
                 let term: BlockNumberFor<T> = T::BlocksPerYear::get().saturated_into();
                 Position {

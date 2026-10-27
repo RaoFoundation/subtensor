@@ -81,6 +81,11 @@ DESCRIPTIONS: dict[str, str] = {
         "plus G_ema age, then capacity ramp)."
     ),
     "CustodyHotkey": ("Third-party stake onto the lending custody hotkey is rejected."),
+    "EscrowInUse": (
+        "This coldkey's derived lending escrow is still assigned to another open loan "
+        "(usually after a coldkey swap that kept the original custody account). Close or "
+        "wait for that loan to settle before opening a new position on this subnet."
+    ),
     "ConflictingSizing": (
         "Provide exactly one of collateral or borrow amount for a raise, not both and not neither."
     ),

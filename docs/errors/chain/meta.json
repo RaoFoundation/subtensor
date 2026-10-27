@@ -131,6 +131,7 @@
     "EmissionWeightsNotSettableOnRoot",
     "Entered",
     "EpochTriggerAlreadyPending",
+    "EscrowInUse",
     "EvmKeyAssociateRateLimitExceeded",
     "EvmKeyAssociationLimitExceeded",
     "ExistentialDeposit",

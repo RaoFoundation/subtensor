@@ -1685,6 +1685,55 @@ fn coldkey_swap_interest_debits_stored_custody() {
 }
 
 #[test]
+fn open_after_coldkey_swap_rejects_escrow_in_use() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let new_owner = account(11);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        mint_tao(&new_owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            hotkey.clone(),
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let custody = Positions::<Test>::get(&owner, netuid()).unwrap().custody;
+        assert_ok!(Lending::on_coldkey_swap(&owner, &new_owner));
+        // Migrated loan still owns the original derived escrow.
+        assert_eq!(
+            EscrowOwner::<Test>::get(netuid(), &custody),
+            Some(new_owner.clone())
+        );
+        assert_eq!(Lending::position_account(&owner, netuid()), custody);
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                10_000_000_000_000,
+                hotkey,
+                1,
+                1,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::EscrowInUse
+        );
+        // Migrated position and its escrow untouched.
+        let migrated = Positions::<Test>::get(&new_owner, netuid()).unwrap();
+        assert_eq!(migrated.custody, custody);
+        assert!(tao(&custody) > 0);
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+    });
+}
+
+#[test]
 fn coldkey_swap_rejects_destination_with_existing_loan() {
     new_test_ext().execute_with(|| {
         let owner = account(1);

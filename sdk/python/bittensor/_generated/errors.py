@@ -461,4 +461,5 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (33, 26): ErrorInfo('Lending', 'HotkeyMismatch', ''),
     (33, 27): ErrorInfo('Lending', 'SubnetTooNew', 'Subnet has not cleared the new-subnet gate (§2.3).'),
     (33, 28): ErrorInfo('Lending', 'CustodyHotkey', 'Third-party stake onto the lending custody hotkey is rejected (§14).'),
+    (33, 29): ErrorInfo('Lending', 'EscrowInUse', 'Derived position escrow is still assigned (e.g. after a coldkey swap that kept the old custody account). Refuse a fresh open so two loans cannot share one escrow (§14).'),
 }

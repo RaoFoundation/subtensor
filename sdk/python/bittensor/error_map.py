@@ -511,6 +511,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "DeadlinePassed": _C.EXPIRED,
     "SubnetTooNew": _C.INVALID_ARGUMENT,
     "CustodyHotkey": _C.INVALID_ARGUMENT,
+    "EscrowInUse": _C.ALREADY_EXISTS,
     "ConflictingSizing": _C.INVALID_ARGUMENT,
     "InvalidLiftParams": _C.INVALID_ARGUMENT,
     "PositionSideMismatch": _C.INVALID_ARGUMENT,
