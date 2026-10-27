@@ -15,22 +15,27 @@ TAO flowing into its pool.
 ## How it works
 
 Storage is
-[`SubnetEmissionEnabled`](/code/pallets/subtensor/src/lib.rs#L1394) in
+[`SubnetEmissionEnabled`](/code/pallets/subtensor/src/lib.rs#L1874) in
 `pallets/subtensor/src/lib.rs`. New
-subnets register with it **false**
-([`do_register_network`](/code/pallets/subtensor/src/subnets/subnet.rs#L142-L268)
-in `pallets/subtensor/src/subnets/subnet.rs`), so a freshly created subnet earns
-no TAO emission share until root turns it on. Each coinbase run
+subnets register with it **true**
+([`set_new_network_state`](/code/pallets/subtensor/src/subnets/subnet.rs)
+in `pallets/subtensor/src/subnets/subnet.rs`), so a freshly created subnet is
+already eligible for a TAO emission share once the owner calls
+[`start-call`](/docs/tx/start-call). Root can still flip the flag off (or
+back on) later. Each coinbase run
 [skips the pool-side terms for disabled subnets](/code/pallets/subtensor/src/coinbase/subnet_emissions.rs#L48-L70)
 and clears any stale per-block TAO-side
-emission storage.
+emission storage. Existing subnets that root already disabled are not
+changed by the registration default — only new registrations start enabled.
 
 This is not the same flag as [`subnet_is_active`](/docs/hyperparameters/subnet-is-active).
 That one is the owner's one-shot [`start-call`](/docs/tx/start-call): it opens
 staking, alpha trading, and epochs. This one is root's emission valve. The two
 are independent — a subnet can be fully active, with trading and epochs
-running, while its TAO emission share stays off. Bringing a new subnet fully
-online takes both: the owner starts it, and root enables its emission.
+running, while its TAO emission share stays off if root disables this flag.
+Bringing a new subnet online takes the owner's `start_call` (after the
+activation delay); a root emission-enable call is no longer required for
+fresh registrations.
 
 ## Reading and setting
 

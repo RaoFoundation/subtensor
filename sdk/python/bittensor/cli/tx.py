@@ -380,7 +380,9 @@ def _make_command(intent_cls: type[Intent]):
             )
             # "(required)" not "[required]": rich help parses square brackets as markup.
             help_text = f"{help_text} (required)" if help_text else "(required)"
-        default = None if required or wallet_defaulted else f.default
+        # Factory-backed fields have no concrete default. Leave them out of args
+        # when omitted so the intent constructor runs the factory per invocation.
+        default = None if f.default is MISSING or wallet_defaulted else f.default
         # Bool options get a negated twin (--flag/--no-flag) so default-True
         # fields (e.g. keep_alive) can be turned off.
         flag_name = (

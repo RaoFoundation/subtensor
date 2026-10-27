@@ -568,7 +568,9 @@ async def test_local_funding_and_migration_register_atomically_without_unlocking
     assert setup.params["descriptor"] == registration_descriptor_value(
         bytes(recipient.coldkeypub.hashed_descriptor)
     )
-    assert operation.function == ("announce_coldkey_swap" if swap else "transfer_keep_alive")
+    assert operation.function == ("announce_coldkey_swap_v2" if swap else "transfer_keep_alive")
+    if swap:
+        assert operation.params == {"new_coldkey": address}
     assert plan.extras["hashed_registration_deposit_rao"] == 200_000_000
     assert any("reserve" in effect for effect in plan.effects)
     assert substrate.submissions == []

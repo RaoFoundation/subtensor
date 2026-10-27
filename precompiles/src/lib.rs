@@ -788,6 +788,7 @@ mod address_and_selector_tests {
             "setSubnetIdentity(uint16,string,string,string,string,string,string,string,string)",
             "updateSubnetSymbol(uint16,string)",
             "triggerEpoch(uint16)",
+            "setLiquidAlphaConsensusMode(uint16,uint8)",
             "setBondsPenalty(uint16,uint16)",
             "setMaxAllowedUids(uint16,uint16)",
             "setMaxBurnV2(uint16,uint64)",
@@ -857,6 +858,7 @@ mod address_and_selector_tests {
             "tryAssociateHotkey(bytes32)",
             "associateEvmKey(uint16,address,uint64,bytes)",
             "announceColdkeySwap(bytes32)",
+            "announceColdkeySwapV2(bytes32)",
             "executeAnnouncedColdkeySwap(bytes32)",
             "disputeColdkeySwap()",
             "clearColdkeySwapAnnouncement()",
@@ -908,6 +910,7 @@ mod address_and_selector_tests {
 
         for signature in [
             "getRegisteredSubnetCounter(uint16)",
+            "getLiquidAlphaConsensusMode(uint16)",
             "getSubnetDissolutionStatus(uint16)",
             "getSubnetMetadata(uint16)",
             "getSubnetCapacityConfig(uint16)",
@@ -1035,3 +1038,6 @@ mod address_and_selector_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod dispatch_security;

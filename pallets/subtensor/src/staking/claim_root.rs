@@ -1161,7 +1161,7 @@ impl<T: Config> Pallet<T> {
         Self::root_claim_declared_weight_for(Self::root_claim_declared_work())
     }
 
-    /// Single-hotkey declared weight: the 129-unit envelope plus the same flush allowance.
+    /// Single-hotkey declared weight: the 130-unit envelope plus the same flush allowance.
     pub(crate) fn root_claim_hotkey_declared_weight() -> Weight {
         Self::root_claim_declared_weight_for(Self::root_claim_hotkey_declared_work())
     }
@@ -1410,26 +1410,36 @@ impl<T: Config> Pallet<T> {
 
     /// Moves a staker's claimed watermark on `hotkey` to a new coldkey (used by coldkey swaps;
     /// hotkey swaps migrate all watermarks via `transfer_basket_for_new_hotkey`).
+    ///
+    /// Returns `ArithmeticError::Overflow` when the summed watermark does not fit in
+    /// `i128`. Callers run inside a transactional coldkey swap so the take is rolled
+    /// back with the rest of the swap.
     pub fn transfer_basket_claimed_for_new_coldkey(
         hotkey: &T::AccountId,
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
-    ) {
+    ) -> DispatchResult {
         // Sum the two already-claimed watermarks. When BOTH the source and the destination
         // hold a legitimate watermark — e.g. a coldkey swap onto a hotkey the new coldkey has
         // already staked to — the merged "already claimed" total is old + new. Taking the max
         // would drop one side, under-count what has already been claimed, and cause a future
         // over-payment / double-claim (see GHSA-2026-010 for the hotkey-swap analog, which is
         // prevented upstream by the root-swap cleanliness gate in `do_swap_hotkey`).
+        //
+        // Fail closed on i128 overflow rather than saturating: a saturated watermark
+        // under-counts already-claimed value and re-opens a double-claim window.
         let old_claimed: i128 = BasketClaimed::<T>::take(hotkey, old_coldkey);
         if old_claimed != 0 {
-            BasketClaimed::<T>::mutate(hotkey, new_coldkey, |claimed| {
-                *claimed = claimed.saturating_add(old_claimed);
-            });
+            let dest_claimed: i128 = BasketClaimed::<T>::get(hotkey, new_coldkey);
+            let sum = dest_claimed
+                .checked_add(old_claimed)
+                .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+            BasketClaimed::<T>::insert(hotkey, new_coldkey, sum);
         }
         if HotkeySwapBasketCredits::<T>::take(old_coldkey, hotkey).is_some() {
             HotkeySwapBasketCredits::<T>::insert(new_coldkey, hotkey, ());
         }
+        Ok(())
     }
 
     /// Migrates a validator's entire fund to a new hotkey: shares, rate, per-coldkey watermarks,

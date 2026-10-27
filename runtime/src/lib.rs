@@ -279,7 +279,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 482,
+    spec_version: 486,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -691,6 +691,12 @@ impl ProxyInterface<AccountId> for Proxier {
             ProxyType::SubnetLeaseBeneficiary,
             0,
         )
+    }
+
+    fn has_delegator_proxies(delegator: &AccountId) -> bool {
+        !pallet_proxy::Proxies::<Runtime>::get(delegator)
+            .0
+            .is_empty()
     }
 }
 
@@ -1675,6 +1681,16 @@ fn limit_order_signers_are_blocked_during_recovery_or_dispute() {
         assert!(!LimitOrderSignerFilter::contains(&signer));
         pallet_subtensor::ColdkeySwapDisputes::<Runtime>::remove(&signer);
         assert!(LimitOrderSignerFilter::contains(&signer));
+        frame_support::assert_ok!(SubtensorModule::reset_coldkey_swap_keep_locked(
+            RuntimeOrigin::root(),
+            signer.clone()
+        ));
+        assert!(!LimitOrderSignerFilter::contains(&signer));
+        frame_support::assert_ok!(SubtensorModule::reset_coldkey_swap(
+            RuntimeOrigin::root(),
+            signer.clone()
+        ));
+        assert!(LimitOrderSignerFilter::contains(&signer));
     });
 }
 
@@ -1942,6 +1958,11 @@ type Migrations = (
     pallet_subtensor::migrations::migrate_remove_subnet_tao_weight::remove_subnet_tao_weight::Migration<
         Runtime,
     >,
+    // Spec 484: backfill the reporting-only lifecycle map from the active subnet set and
+    // dissolution queue before the first post-upgrade idle block can advance cleanup.
+    // try-runtime compares the complete result with a pre-upgrade snapshot and checks the
+    // one-shot marker.
+    pallet_subtensor::migrations::migrate_subnet_state::subnet_state::Migration<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.
@@ -2939,7 +2960,7 @@ impl_runtime_apis! {
         }
 
         fn current_alpha_price_all() -> Vec<SubnetPrice> {
-            pallet_subtensor::Pallet::<Runtime>::get_all_subnet_netuids()
+            pallet_subtensor::Pallet::<Runtime>::get_all_reportable_subnet_netuids()
                 .into_iter()
                 .map(|netuid| {
                     SubnetPrice {

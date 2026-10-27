@@ -68,6 +68,7 @@ from .reads import (
     StakePosition,
     StakeValuation,
     SubnetInfo,
+    SubnetLifecycleState,
     SwapQuote,
 )
 from .registration_sponsorship import (
@@ -143,6 +144,7 @@ __all__ = [
     "MetagraphNeuron",
     "NeuronCommitment",
     "SubnetInfo",
+    "SubnetLifecycleState",
     "Balance",
     "RegistrationSponsorship",
     "RegistrationSponsorshipRequired",

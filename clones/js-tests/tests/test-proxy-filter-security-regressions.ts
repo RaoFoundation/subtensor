@@ -12,7 +12,7 @@ const FUND_SOURCE_URI = process.env.PROXY_FILTER_FUND_SOURCE_URI ?? "//Alice";
 const FUND_AMOUNT = BigInt(process.env.PROXY_FILTER_FUND_AMOUNT ?? "5000000000000");
 const ZERO_HASH = `0x${"00".repeat(32)}`;
 
-const PROXY_TYPES = ["NonFungible", "SwapHotkey", "NonTransfer", "Owner"];
+const PROXY_TYPES = ["NonFungible", "SwapHotkey", "NonTransfer", "Owner", "Validate", "Weights"];
 
 const keyring = new Keyring({ type: "sr25519" });
 const fundSource = keyring.addFromUri(FUND_SOURCE_URI);
@@ -76,6 +76,47 @@ async function main() {
       api.tx.adminUtils.sudoSetSnOwnerHotkey(0, replacementHotkey.address)
     );
 
+    const setWeights = api.tx.subtensorModule.setMechanismWeights(0, 0, [], [], 0);
+    const serveAxon = api.tx.subtensorModule.serveAxon(0, 1, 2130706433, 8091, 4, 0, 0, 0);
+    const setCommitment = api.tx.commitments.setCommitment(0, { fields: [] });
+    const validateCalls = [
+      ["set weights", setWeights],
+      ["serve axon", serveAxon],
+      [
+        "serve axon TLS",
+        api.tx.subtensorModule.serveAxonTls(0, 1, 2130706433, 8092, 4, 0, 0, 0, "0x"),
+      ],
+      ["serve prometheus", api.tx.subtensorModule.servePrometheus(0, 1, 2130706433, 9091, 4)],
+      [
+        "associate EVM key",
+        api.tx.subtensorModule.associateEvmKey(
+          0,
+          `0x${"11".repeat(20)}`,
+          1,
+          `0x${"22".repeat(65)}`
+        ),
+      ],
+      ["set commitment", setCommitment],
+    ];
+    for (const [name, call] of validateCalls) {
+      await expectProxyTypeAllowed(`Validate allows ${name}`, "Validate", call);
+    }
+    await expectProxyTypeDenied(
+      "Validate denies transfer",
+      "Validate",
+      balancesTransfer(dummyHotkey.address, 1n)
+    );
+
+    // Weights is the weights-only subset of Validate.
+    await expectProxyTypeAllowed("Weights allows set weights", "Weights", setWeights);
+    for (const [name, call] of [
+      ["serve axon", serveAxon],
+      ["set commitment", setCommitment],
+      ["transfer", balancesTransfer(dummyHotkey.address, 1n)],
+    ]) {
+      await expectProxyTypeDenied(`Weights denies ${name}`, "Weights", call);
+    }
+
     console.log("proxy filter security regressions: ok");
   } finally {
     await api?.disconnect();
@@ -101,6 +142,12 @@ async function assertMetadataAvailable() {
     // sudo_set_sn_owner_hotkey (call 67); the Owner-proxy denial property
     // is the same.
     ["AdminUtils.sudoSetSnOwnerHotkey", api.tx.adminUtils?.sudoSetSnOwnerHotkey],
+    ["SubtensorModule.setMechanismWeights", api.tx.subtensorModule?.setMechanismWeights],
+    ["SubtensorModule.serveAxon", api.tx.subtensorModule?.serveAxon],
+    ["SubtensorModule.serveAxonTls", api.tx.subtensorModule?.serveAxonTls],
+    ["SubtensorModule.servePrometheus", api.tx.subtensorModule?.servePrometheus],
+    ["SubtensorModule.associateEvmKey", api.tx.subtensorModule?.associateEvmKey],
+    ["Commitments.setCommitment", api.tx.commitments?.setCommitment],
   ].filter(([, value]) => !value);
 
   assert.equal(
@@ -154,8 +201,23 @@ async function addProxyRelationships() {
   }
 }
 
+// Fee-free proxied calls (weights, serving, commitments) are validated in the
+// transaction pool: a proxy type that does not admit the call is rejected with
+// InvalidRealAccount (custom error 22) before inclusion; an admitted call may
+// still be rejected by its own checks (e.g. no stake on the real account).
+const INVALID_REAL_ACCOUNT = 22;
+
 async function expectProxyTypeDenied(label, proxyType, call) {
   const result = await proxyCall(proxyType, call, label);
+  if (result.poolError !== undefined) {
+    assert.equal(
+      result.poolError,
+      INVALID_REAL_ACCOUNT,
+      `${label}: expected pool rejection InvalidRealAccount (22), got custom error ${result.poolError}`
+    );
+    console.log(`${label}: denied by proxy type at validation`);
+    return;
+  }
   assert.equal(
     result.error,
     "system.CallFiltered",
@@ -166,16 +228,24 @@ async function expectProxyTypeDenied(label, proxyType, call) {
 
 async function expectProxyTypeAllowed(label, proxyType, call) {
   const result = await proxyCall(proxyType, call, label);
+  if (result.poolError !== undefined) {
+    assert.notEqual(result.poolError, INVALID_REAL_ACCOUNT, `${label}: proxy type unexpectedly rejected at validation`);
+    console.log(`${label}: passed proxy type check; call rejected by its own validation (custom error ${result.poolError})`);
+    return;
+  }
   assert.notEqual(result.error, "system.CallFiltered", `${label}: unexpectedly denied by proxy filter`);
   console.log(`${label}: passed proxy filter with inner result ${result.error ?? "Ok"}`);
 }
 
 async function proxyCall(proxyType, call, label) {
-  const result = await submitAndWait(
-    delegate,
-    api.tx.proxy.proxy(real.address, proxyType, call),
-    `proxy ${label}`
-  );
+  let result;
+  try {
+    result = await submitAndWait(delegate, api.tx.proxy.proxy(real.address, proxyType, call), `proxy ${label}`);
+  } catch (error) {
+    const match = /Invalid Transaction: Custom error: (\d+)/.exec(String(error?.message ?? error));
+    if (!match) throw error;
+    return { poolError: Number(match[1]) };
+  }
   const event = assertEvent(result.events, "proxy", "ProxyExecuted");
   const dispatchResult = event.event.data.result ?? event.event.data[0];
   if (dispatchResult.isOk) {

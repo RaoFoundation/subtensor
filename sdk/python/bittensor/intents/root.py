@@ -26,13 +26,15 @@ class SetSubnetEmissionEnabled(Intent):
 
     Flips the ``SubnetEmissionEnabled`` storage flag for each listed subnet —
     the ROOT-ONLY switch that gates whether a subnet earns its share of TAO
-    emission on the pool side. Distinct from the owner's one-shot
-    ``start_call`` (``subnet_is_active``): a subnet can be active — epochs
-    running, alpha trading — yet earn no TAO emission share until root flips
-    this flag on. Disabling only zeros the pool-side ``alpha_in`` /
-    ``tao_in`` / ``excess_tao`` chain-buy paths; it does not remove the
-    subnet from emission share calculation and does not touch ``alpha_out``,
-    the owner cut, root proportion, or pending server/validator emission.
+    emission on the pool side. New registrations start with this flag on;
+    root uses this call mainly to disable (or re-enable) specific subnets.
+    Distinct from the owner's one-shot ``start_call`` (``subnet_is_active``):
+    a subnet can be active — epochs running, alpha trading — yet earn no TAO
+    emission share while this flag is off. Disabling only zeros the pool-side
+    ``alpha_in`` / ``tao_in`` / ``excess_tao`` chain-buy paths; it does not
+    remove the subnet from emission share calculation and does not touch
+    ``alpha_out``, the owner cut, root proportion, or pending server/validator
+    emission.
 
     Requires the chain sudo key: ``Executor`` wraps the built call in
     ``Sudo.sudo`` because ``origin`` is ``root``, and when root is a multisig

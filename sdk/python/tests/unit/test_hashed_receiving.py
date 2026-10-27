@@ -481,7 +481,11 @@ async def test_coldkey_swap_uses_finalized_registration_without_a_batch(
     intent = intent_type(address)
     plan = await Executor(chain).plan(intent, wallet)
     assert plan.call.module == "SubtensorModule"
-    assert plan.call.function == intent.op
+    assert plan.call.function == (
+        "announce_coldkey_swap_v2"
+        if intent_type is AnnounceColdkeySwap
+        else "swap_coldkey_announced"
+    )
     assert plan.call == await intent_type(key.ss58_address).build(chain, wallet)
     assert plan.extras["hashed_registration_finalized_at"] == finalized_hash
     assert "hashed_registration_guards" not in plan.extras
@@ -553,11 +557,12 @@ async def test_hashed_coldkey_swap_cannot_be_rewrapped_in_a_batch(setup, intent_
 
 
 async def test_first_coldkey_announcement_keeps_atomic_registration_setup(setup):
-    chain, wallet, _, address = setup
+    chain, wallet, key, address = setup
     plan = await Executor(chain).plan(AnnounceColdkeySwap(address), wallet)
     guard, announcement = plan.call.params["calls"]
     assert guard.function == "register"
-    assert announcement.function == "announce_coldkey_swap"
+    assert announcement.function == "announce_coldkey_swap_v2"
+    assert announcement.params == {"new_coldkey": key.ss58_address}
 
 
 async def test_classical_coldkey_swap_does_not_require_hashed_registration(setup):

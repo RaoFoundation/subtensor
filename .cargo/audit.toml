@@ -29,4 +29,24 @@ ignore = [
     # it must then be upgraded, not silently covered by this exclusion.
     # https://rustsec.org/advisories/RUSTSEC-2026-0344.html
     "RUSTSEC-2026-0344",
+    # RUSTSEC-2026-0379/0380 (added 2026-10-20): Cranelift aarch64 br_table
+    # misjump and bit-packing overflow in wasmtime 8.0.1. Same sc-executor
+    # pin as above; fixes need much newer wasmtime majors. Accepted as a
+    # known SDK-pin exception (identical class to the other wasmtime
+    # entries); revisit on the next polkadot-sdk bump.
+    "RUSTSEC-2026-0379",
+    "RUSTSEC-2026-0380",
+    # RUSTSEC-2026-0381/0382/0383 (added 2026-10-20): leaked emSign
+    # intermediate CA keys (CVE-2026-111943).
+    # 0381 webpki-roots 0.25.4: only libp2p-websocket uses it, for /wss peer
+    #   dials. The default network backend is litep2p, and libp2p peers are
+    #   authenticated by Noise, not TLS. No 0.25 patch; needs an SDK bump.
+    "RUSTSEC-2026-0381",
+    # 0382 rustls-webpki: the compiled 0.103 line is bumped to the patched
+    #   0.103.16. The remaining 0.101.7 is lockfile-only (libp2p -> libp2p-quic
+    #   -> libp2p-tls); QUIC is not enabled, so nothing builds it.
+    "RUSTSEC-2026-0382",
+    # 0383 webpki-root-certs: only a wasm32 / FreeBSD-dev dependency of
+    #   rustls-platform-verifier; not part of the node build.
+    "RUSTSEC-2026-0383",
 ]

@@ -154,6 +154,7 @@ INTENT_SAMPLES: dict[str, dict] = {
     "announce_coldkey_swap": {"new_coldkey_ss58": BOB},
     "swap_coldkey_announced": {"new_coldkey_ss58": BOB},
     "clear_coldkey_swap_announcement": {},
+    "release_own_coldkey_swap_destination_reservation": {},
     "dispute_coldkey_swap": {},
     "set_hyperparameter": {"netuid": 1, "name": "immunity_period", "value": 42},
     "set_subnet_emission_weights": {
@@ -320,6 +321,8 @@ READ_SAMPLES: dict[str, dict] = {
     "stake_value_for_coldkeys": {"coldkey_ss58s": [ALICE, BOB]},
     "staking_hotkeys": {"coldkey_ss58": ALICE},
     "subnet": {"netuid": 1},
+    "subnet_state": {"netuid": 1},
+    "subnet_states": {},
     "subnet_convictions": {"netuid": 1},
     "subnet_emission_enabled": {"netuid": 1},
     "subnet_emission_weights": {"netuid": 1},

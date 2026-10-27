@@ -127,7 +127,7 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         self.dispatch_with_info::<R>(call, RawOrigin::Signed(coldkey), info)
     }
 
-    /// Checks `info` against remaining gas, reserves it, dispatches `call`, then charges the
+    /// Checks `info` against the remaining gas, reserves it, dispatches `call`, then charges the
     /// weight the dispatch reports (capped at `info`) and refunds the rest.
     fn dispatch_with_info<R>(
         &mut self,
@@ -141,15 +141,17 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
             Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>,
         <R as frame_system::Config>::RuntimeOrigin: From<RawOrigin<R::AccountId>>,
     {
-        if self.gas_limit().is_some() {
-            let gas = self.remaining_gas();
-            let valid_weight =
-                <R as pallet_evm::Config>::GasWeightMapping::gas_to_weight(gas, false).ref_time();
-            if info.total_weight().ref_time() > valid_weight {
-                return Err(PrecompileFailure::Error {
-                    exit_status: ExitError::OutOfGas,
-                });
-            }
+        let remaining_gas = self.remaining_gas();
+        let valid_weight =
+            <R as pallet_evm::Config>::GasWeightMapping::gas_to_weight(remaining_gas, false)
+                .ref_time();
+        if info.total_weight().ref_time() > valid_weight {
+            // Input handling may already have spent part of this frame's gas. Exhaust
+            // only its remaining budget, never the parent transaction's gasometer.
+            self.record_cost(remaining_gas)?;
+            return Err(PrecompileFailure::Error {
+                exit_status: ExitError::OutOfGas,
+            });
         }
 
         self.record_external_cost(

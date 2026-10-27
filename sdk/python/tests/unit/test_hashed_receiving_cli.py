@@ -681,8 +681,9 @@ def test_cli_multisig_add_and_show_with_named_protected_member(
 
 @pytest.mark.parametrize("code", [4, 6])
 @pytest.mark.parametrize("independent", [False, True])
+@pytest.mark.parametrize("proxy_form", [None, "ss58", "receiving"])
 def test_cli_evm_associate_uses_protected_account_identity(
-    wallet_path, monkeypatch, code, independent
+    wallet_path, monkeypatch, code, independent, proxy_form
 ):
     from types import SimpleNamespace
 
@@ -697,6 +698,14 @@ def test_cli_evm_associate_uses_protected_account_identity(
         monkeypatch.setattr(
             AppContext, "resolve_address", lambda *_: descriptor_receiving_address(wallet.hotkeypub)
         )
+    proof_hotkey = wallet.hotkey.ss58_address
+    if proxy_form is not None:
+        real = Keypair.create_from_seed(bytes([24]) * 32, code)
+        proof_hotkey = real.ss58_address
+        proxy_address = (
+            real.ss58_address if proxy_form == "ss58" else descriptor_receiving_address(real)
+        )
+        monkeypatch.setattr(AppContext, "resolve_dispatch_proxy", lambda *_: proxy_address)
     account = Account.from_key(bytes([23]) * 32)
     monkeypatch.setattr(
         association, "_key_info", lambda *_: SimpleNamespace(address=account.address)
@@ -711,10 +720,7 @@ def test_cli_evm_associate_uses_protected_account_identity(
     result = _invoke("evm", "associate", "--netuid", "1")
     assert result.exit_code == 0, result.output
     intent = submitted[0]
-    assert (
-        intent.signature
-        == association_proof(account, wallet.hotkey.ss58_address, intent.block_number)[0]
-    )
+    assert intent.signature == association_proof(account, proof_hotkey, intent.block_number)[0]
 
 
 def test_cli_evm_associate_rejects_malformed_address_before_unlock(wallet_path, monkeypatch):

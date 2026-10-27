@@ -134,6 +134,11 @@ Before signing, the SDK preflights the checks the chain would reject on — a
 rate-limited or unregistered submission fails fast with the same error the
 chain would return, and the rate-limit error says how many blocks to wait.
 
+To keep the validator hotkey off the machine that sets weights, grant an
+operations key a `Validate` or `Weights` proxy from the hotkey and submit
+with `--proxy-for <validator hotkey>` — see
+[validator operators](/docs/guides/proxies#validator-operators-specifically).
+
 Chain-side rules to know:
 
 - Submissions are rate-limited per UID by [`WeightsSetRateLimit`](/code/pallets/subtensor/src/lib.rs#L2097) (default 100

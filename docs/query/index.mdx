@@ -13,7 +13,7 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | --- | --- |
 | [`balance`](/docs/query/balance) | Free TAO balance of a coldkey address. |
 | [`balances`](/docs/query/balances) | Free TAO balance for several coldkey addresses in one batched request. |
-| [`coldkey-swap-announcement`](/docs/query/coldkey-swap-announcement) | A coldkey's pending swap announcement (execute block, new-key hash, disputed), or None. |
+| [`coldkey-swap-announcement`](/docs/query/coldkey-swap-announcement) | A coldkey's swap state (execute block, new-key hash, dispute, recovery lock), or None. |
 | [`existential-deposit`](/docs/query/existential-deposit) | Minimum balance an account must keep to stay alive. |
 | [`multisig`](/docs/query/multisig) | A pending multisig operation (opening timepoint, approvals, depositor), or None. |
 | [`proxies`](/docs/query/proxies) | Proxy delegations of an account: who may sign on its behalf, and the reserved deposit. |
@@ -62,7 +62,7 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`max-weight-limit`](/docs/query/max-weight-limit) | Normalized-fraction cap on any single weight: after the chain normalizes the submitted vector, no weight may exceed max_weight_limit/65535 of the total. Not a raw u16 ceiling per weight. |
 | [`min-allowed-weights`](/docs/query/min-allowed-weights) | Minimum number of weights a validator must set on a subnet. A pure self-weight (a single entry pointing at the caller's own uid) bypasses the minimum, and the subnet owner bypasses validator-permit rules. |
 | [`reveal-period`](/docs/query/reveal-period) | Commit-reveal reveal window, in epochs, for a subnet. |
-| [`subnet-emission-enabled`](/docs/query/subnet-emission-enabled) | Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). When 0, the subnet earns no TAO emission share even while subnet_is_active is true; only root can flip it (see the set_subnet_emission_enabled intent). |
+| [`subnet-emission-enabled`](/docs/query/subnet-emission-enabled) | Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). New registrations start enabled. When 0, the subnet earns no TAO emission share even while subnet_is_active is true; only root can flip it (see the set_subnet_emission_enabled intent). |
 | [`weights-rate-limit`](/docs/query/weights-rate-limit) | Blocks a hotkey must wait between weight sets on a subnet. |
 
 ## Identity & commitments
@@ -168,6 +168,8 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`subnet-names`](/docs/query/subnet-names) | Registered name of every subnet that published an identity, keyed by netuid. |
 | [`subnet-registration-cost`](/docs/query/subnet-registration-cost) | Current cost to register a new subnet. |
 | [`subnet-start-schedule`](/docs/query/subnet-start-schedule) | When a registered subnet can call `start_call`. |
+| [`subnet-state`](/docs/query/subnet-state) | Reporting lifecycle for one subnet, or None after cleanup/nonexistence. |
+| [`subnet-states`](/docs/query/subnet-states) | Reporting lifecycle for every active or dissolving subnet. |
 | [`subnet-tao-flows`](/docs/query/subnet-tao-flows) | Per-subnet EMA of net TAO flow, in rao per block. |
 | [`subnets`](/docs/query/subnets) | Info for every subnet, fetched in four batched map queries rather than |
 | [`token-symbols`](/docs/query/token-symbols) | Chain-registered token symbol of every subnet, keyed by netuid. |

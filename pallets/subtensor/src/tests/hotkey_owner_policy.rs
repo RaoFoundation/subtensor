@@ -77,6 +77,26 @@ fn coldkey_swap_refuses_downgrade_before_moving_any_ownership() {
             &protected_hot
         ));
         assert_noop!(
+            SubtensorModule::announce_coldkey_swap_v2(
+                RuntimeOrigin::signed(protected_cold),
+                classical,
+            ),
+            Error::<Test>::HotkeyOwnerPolicyViolation
+        );
+        for policy_import_mode in [
+            crate::swap::swap_coldkey::ColdkeySwapPolicyImportMode::CurrentDestination,
+            crate::swap::swap_coldkey::ColdkeySwapPolicyImportMode::Reject,
+            crate::swap::swap_coldkey::ColdkeySwapPolicyImportMode::IgnoreDestinationBalance,
+        ] {
+            let (_, error) = SubtensorModule::do_swap_coldkey_tracked_with_policy_snapshot(
+                &protected_cold,
+                &classical,
+                policy_import_mode,
+            )
+            .unwrap_err();
+            assert_eq!(error, Error::<Test>::HotkeyOwnerPolicyViolation.into());
+        }
+        assert_noop!(
             SubtensorModule::do_swap_coldkey(&protected_cold, &classical),
             Error::<Test>::HotkeyOwnerPolicyViolation
         );

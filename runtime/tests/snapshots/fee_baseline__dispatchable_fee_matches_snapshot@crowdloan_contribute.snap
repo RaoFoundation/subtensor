@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: crowdloan_contribute
+expression: fee
+---
+190044

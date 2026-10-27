@@ -80,6 +80,8 @@
     "ColdkeySwapAnnounced",
     "ColdkeySwapAnnouncementNotFound",
     "ColdkeySwapClearTooEarly",
+    "ColdkeySwapDestinationReservationNotFound",
+    "ColdkeySwapDestinationReserved",
     "ColdkeySwapDisputed",
     "ColdkeySwapReannouncedTooEarly",
     "ColdkeySwapTooEarly",

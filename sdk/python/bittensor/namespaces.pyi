@@ -15,7 +15,7 @@ from .reads.identity import Commitment
 from .reads.neurons import Neuron
 from .reads.prices import SwapQuote
 from .reads.staking import StakePosition, StakeValuation
-from .reads.subnets import SubnetEmissionWeights, SubnetInfo
+from .reads.subnets import SubnetEmissionWeights, SubnetInfo, SubnetLifecycleState
 
 class _ReadNamespace:
     def __init__(self, view: Any) -> None: ...
@@ -39,10 +39,13 @@ class Balances(_ReadNamespace):
         """Free TAO balance for several coldkey addresses in one batched request."""
 
     async def coldkey_swap_announcement(self, coldkey_ss58: str, *, block: Optional[int] = None) -> Optional[dict]:
-        """A coldkey's pending swap announcement (execute block, new-key hash, disputed), or None.
+        """A coldkey's swap state (execute block, new-key hash, dispute, recovery lock), or None.
 
         This is the `swap-check` status: `ColdkeySwapAnnouncements` stores the block
         at which the swap becomes executable and the BlakeTwo256 hash committed to.
+        `recovery_locked` is true after root `reset_coldkey_swap_keep_locked` (stored
+        dispute block 0): the coldkey can only make swap calls until a successful swap or
+        a full reset, even when no announcement is pending.
         """
 
     async def multisig(self, account_ss58: str, call_hash: str, *, block: Optional[int] = None) -> Optional[dict]:
@@ -246,7 +249,7 @@ class Hyperparameters(_ReadNamespace):
         """Commit-reveal reveal window, in epochs, for a subnet."""
 
     async def subnet_emission_enabled(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
-        """Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). When 0, the subnet earns no TAO emission share even while subnet_is_active is true; only root can flip it (see the set_subnet_emission_enabled intent)."""
+        """Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). New registrations start enabled. When 0, the subnet earns no TAO emission share even while subnet_is_active is true; only root can flip it (see the set_subnet_emission_enabled intent)."""
 
     async def weights_rate_limit(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
         """Blocks a hotkey must wait between weight sets on a subnet."""
@@ -599,6 +602,12 @@ class Staking(_ReadNamespace):
 class Subnets(_ReadNamespace):
     """Aggregating/decoding subnet reads, plus every "Subnets" read."""
 
+    async def state(self, netuid: int, block: Optional[int] = None) -> Optional[SubnetLifecycleState]:
+        """Reporting lifecycle for one subnet, including deferred dissolution."""
+
+    async def states(self, block: Optional[int] = None) -> dict[int, SubnetLifecycleState]:
+        """Reporting lifecycle for every active or dissolving subnet."""
+
     async def burn(self, netuid: int, block: Optional[int] = None) -> Balance:
         """Current burn (recycle) cost to register on a subnet."""
 
@@ -685,6 +694,12 @@ class Subnets(_ReadNamespace):
         All values are block numbers: the subnet can start once the current block
         reaches `earliest_start_block` (registration block plus the chain's delay).
         """
+
+    async def subnet_state(self, netuid: int, *, block: Optional[int] = None) -> Optional[SubnetLifecycleState]:
+        """Reporting lifecycle for one subnet, or None after cleanup/nonexistence."""
+
+    async def subnet_states(self, *, block: Optional[int] = None) -> dict[int, SubnetLifecycleState]:
+        """Reporting lifecycle for every active or dissolving subnet."""
 
     async def subnet_tao_flows(self, *, block: Optional[int] = None) -> dict[int, float]:
         """Per-subnet EMA of net TAO flow, in rao per block.

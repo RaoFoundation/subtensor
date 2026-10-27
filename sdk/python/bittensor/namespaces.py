@@ -35,7 +35,7 @@ from .reads import subnets as _subnets
 from .reads.base import REGISTRY, ReadSpec
 from .reads.neurons import Neuron
 from .reads.staking import StakePosition
-from .reads.subnets import SubnetInfo
+from .reads.subnets import SubnetInfo, SubnetLifecycleState
 
 
 async def _scoped(view, block: Optional[int]):
@@ -149,6 +149,16 @@ class Subnets(_ReadNamespace):
     """
 
     _category = "Subnets"
+
+    async def state(
+        self, netuid: int, block: Optional[int] = None
+    ) -> Optional[SubnetLifecycleState]:
+        """Reporting lifecycle for one subnet, including deferred dissolution."""
+        return await _subnets.subnet_state(await _scoped(self._view, block), netuid)
+
+    async def states(self, block: Optional[int] = None) -> dict[int, SubnetLifecycleState]:
+        """Reporting lifecycle for every active or dissolving subnet."""
+        return await _subnets.subnet_states(await _scoped(self._view, block))
 
     async def burn(self, netuid: int, block: Optional[int] = None) -> Balance:
         """Current burn (recycle) cost to register on a subnet."""

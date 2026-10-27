@@ -118,6 +118,87 @@ fn test_coldkey_lineage_reverse_swap_does_not_cycle() {
 }
 
 #[test]
+// Merging an empty attacker source into an already-used victim must not
+// overwrite ColdkeyRoot / successor edges — otherwise same_coldkey_lineage
+// would become true without the victim's authorization.
+fn test_merge_into_used_destination_preserves_destination_lineage() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+
+        let attacker = U256::from(1);
+        let victim = U256::from(2);
+        let victim_hot = U256::from(3);
+        let stake_amount = DefaultMinStake::<Test>::get().to_u64() * 10;
+
+        // Victim already in use (owns a staking hotkey) and accepts locked alpha
+        // so an empty attacker source can merge.
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &victim,
+            &victim_hot
+        ));
+        add_balance_to_coldkey_account(&victim, stake_amount.into());
+        SubtensorModule::stake_into_subnet(
+            &victim_hot,
+            &victim,
+            netuid,
+            stake_amount.into(),
+            <Test as crate::Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+        SubtensorModule::set_accept_locked_alpha(&victim, true);
+        assert!(SubtensorModule::coldkey_already_in_use(&victim));
+
+        // Empty attacker: funded only enough to exist; no staking associations.
+        add_balance_to_coldkey_account(&attacker, ExistentialDeposit::get());
+        assert!(!SubtensorModule::coldkey_already_in_use(&attacker));
+
+        let victim_root_before = SubtensorModule::coldkey_root(&victim);
+        assert_eq!(victim_root_before, victim);
+        assert!(ColdkeyRoot::<Test>::get(victim).is_none());
+        assert!(ColdkeySuccessor::<Test>::get(attacker).is_none());
+
+        assert_ok!(SubtensorModule::do_swap_coldkey(&attacker, &victim));
+
+        // Destination identity unchanged; no shared lineage asserted.
+        assert!(ColdkeyRoot::<Test>::get(victim).is_none());
+        assert_eq!(SubtensorModule::coldkey_root(&victim), victim_root_before);
+        assert!(ColdkeySuccessor::<Test>::get(attacker).is_none());
+        assert!(!SubtensorModule::same_coldkey_lineage(&attacker, &victim));
+        assert_eq!(SubtensorModule::coldkey_lineage_tip(&victim), victim);
+    });
+}
+
+/// A previously rotated destination with an established ColdkeyRoot but no
+/// remaining staking associations must still keep its lineage (Auditor
+/// fid:9411d39b).
+#[test]
+fn test_merge_preserves_lineage_on_rotated_destination_without_staking() {
+    new_test_ext(1).execute_with(|| {
+        let attacker = U256::from(1);
+        let victim = U256::from(2);
+        let prior_root = U256::from(3);
+
+        // Victim looks "fresh" to staking association checks, but already has
+        // a recorded swap lineage from a prior rotation.
+        ColdkeyRoot::<Test>::insert(victim, prior_root);
+        ColdkeySuccessor::<Test>::insert(prior_root, victim);
+        assert!(!SubtensorModule::coldkey_already_in_use(&victim));
+        assert_eq!(SubtensorModule::coldkey_root(&victim), prior_root);
+
+        add_balance_to_coldkey_account(&attacker, ExistentialDeposit::get());
+        assert_ok!(SubtensorModule::do_swap_coldkey(&attacker, &victim));
+
+        assert_eq!(ColdkeyRoot::<Test>::get(victim), Some(prior_root));
+        assert_eq!(SubtensorModule::coldkey_root(&victim), prior_root);
+        assert!(ColdkeySuccessor::<Test>::get(attacker).is_none());
+        assert!(!SubtensorModule::same_coldkey_lineage(&attacker, &victim));
+    });
+}
+
+#[test]
 fn test_coldkey_lineage_rolls_back_with_failed_swap() {
     new_test_ext(1).execute_with(|| {
         let subnet_owner_coldkey = U256::from(1001);

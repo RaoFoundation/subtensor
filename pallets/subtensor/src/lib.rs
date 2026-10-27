@@ -108,12 +108,11 @@ pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 /// (`Linear<1, N>`). Weight calculation cannot inspect the signer, so this path
 /// reserves the full envelope and refunds unused weight after dispatch.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
-/// Single-hotkey quote: one validator plus the current maximum 128 subnet slots.
-/// Raise this in the same runtime upgrade that raises the subnet limit. The
-/// single-hotkey gate and declared weight must use this bound, not
-/// [`MAX_ROOT_CLAIM_WORK`], so a 130-row basket cannot be admitted under a
-/// 129-unit declaration.
-pub const MAX_ROOT_CLAIM_HOTKEY_WORK: u32 = 129;
+/// Single-hotkey quote: one validator, the current maximum 128 non-root subnet slots,
+/// and the root/TAO slot. Raise this in the same runtime upgrade that raises the subnet
+/// limit. The single-hotkey gate and declared weight must use this bound, not
+/// [`MAX_ROOT_CLAIM_WORK`], so a full 129-row basket has a 130-unit declaration.
+pub const MAX_ROOT_CLAIM_HOTKEY_WORK: u32 = 130;
 /// Longest `StakingHotkeys` list a third party may leave behind on a coldkey through
 /// stake transfers. Half the root-claim admission budget, so a coldkey with up to as many
 /// hotkeys of its own still passes the coldkey-wide `claim_root` gate.
@@ -129,15 +128,29 @@ pub const MAX_STAKING_HOTKEYS: u32 = MAX_ROOT_CLAIM_WORK;
 /// (legacy and current share rows, pool value, both denominator maps, epoch) taken twice
 /// (validation and the debit path).
 pub const STAKING_HOTKEYS_WALK_READS_PER_ENTRY: u64 = 14;
-/// Most `StakingHotkeys` entries a coldkey swap moves in one call. Sized from the production
-/// distribution: the 99.9th percentile list is under 100 entries and four coldkeys exceed
-/// this value; they consolidate before swapping.
+/// Most hotkeys (source ∪ destination staking lists plus claim-only basket credits) a
+/// coldkey swap admits in one call. Sized from the production distribution: the 99.9th
+/// percentile list is under 100 entries and four coldkeys exceed this value; they
+/// consolidate before swapping. Merges into an already-used destination count both sides.
 pub const MAX_COLDKEY_SWAP_HOTKEYS: u32 = MAX_STAKING_HOTKEYS;
 /// Most stake positions `(hotkey, netuid)` a coldkey swap moves in one call. Each position is
 /// one `transfer_stake` worth of work; the declared weight reserves this many (about three
 /// quarters of the normal block budget) and refunds the rest post-dispatch. Four production
 /// coldkeys exceed it today.
 pub const MAX_COLDKEY_SWAP_POSITIONS: u32 = 1024;
+/// Most destination `Lock` rows a coldkey swap may scan/purge. Sized so the
+/// declared swap envelope still fits the normal-class `max_extrinsic` after
+/// charging the full per-row admission + re-check + purge + aggregate path
+/// (independent of source positions). See `coldkey_swap_weight`.
+pub const MAX_COLDKEY_SWAP_DEST_LOCKS: u32 = 128;
+/// Most pending network-registration queue rows one coldkey swap rewrites.
+/// Escrow is updated only via those queue `lock_id`s (no global escrow scan).
+pub const MAX_COLDKEY_SWAP_PENDING_REGISTRATIONS: u32 = 32;
+/// Most `NetworkRegistrationQueue` entries a coldkey swap may scan or rewrite.
+/// The queue is a single unbounded `Vec`; visiting beyond this fails closed so
+/// work cannot grow with unrelated accounts' registrations outside the weight
+/// envelope.
+pub const MAX_COLDKEY_SWAP_REGISTRATION_QUEUE_SCAN: u32 = 256;
 /// Most subnet legs one `unstake_all` / `unstake_all_alpha` call will validate or
 /// unstake. Each successful leg is one `remove_stake` plus a [`MAX_STAKING_HOTKEYS`]
 /// walk (~9.3e10 ref-time at RocksDbWeight). The normal-class `max_extrinsic` is
@@ -352,6 +365,38 @@ pub mod pallet {
         pub placeholder1: u8,
         ///  Axon proto placeholder 2.
         pub placeholder2: u8,
+    }
+
+    /// User-visible lifecycle state of a subnet.
+    ///
+    /// This state is deliberately separate from [`NetworksAdded`]. The latter remains the
+    /// authority for whether runtime operations may target a subnet, while this state keeps a
+    /// dissolved subnet visible to reporting APIs until its deferred cleanup has settled stake.
+    #[derive(
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        TypeInfo,
+        MaxEncodedLen,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Debug,
+    )]
+    pub enum SubnetLifecycleState {
+        /// The subnet exists but its start call has not completed.
+        #[codec(index = 0)]
+        Registered,
+        /// The subnet's start call has completed.
+        #[codec(index = 1)]
+        Started,
+        /// The subnet has left the active set and is waiting for cleanup.
+        #[codec(index = 2)]
+        PendingDissolution,
+        /// The subnet is currently being cleaned up by `on_idle`.
+        #[codec(index = 3)]
+        Dissolving,
     }
 
     /// Struct for NeuronCertificate.
@@ -1965,8 +2010,26 @@ pub mod pallet {
     pub type ColdkeySwapAnnouncements<T: Config> =
         StorageMap<_, Twox64Concat, T::AccountId, (BlockNumberFor<T>, T::Hash), OptionQuery>;
 
+    /// Destination account reserved by an in-flight coldkey-swap announcement.
+    ///
+    /// Announce takes the destination in cleartext so it can be validated before
+    /// the fee; without a reservation a third party could register that address
+    /// as their hotkey during the delay and force `NewColdKeyIsHotkey` at execute,
+    /// repeatedly delaying recovery while the source stays announcement-restricted.
+    #[pallet::storage]
+    pub type ColdkeySwapDestinationReservations<T: Config> =
+        StorageMap<_, Twox64Concat, T::AccountId, T::AccountId, OptionQuery>;
+
+    /// Reverse index of [`ColdkeySwapDestinationReservations`]: announcer → reserved
+    /// destination, so reannounce / clear / execute can free the prior reservation
+    /// without scanning.
+    #[pallet::storage]
+    pub type ColdkeySwapReservedDestination<T: Config> =
+        StorageMap<_, Twox64Concat, T::AccountId, T::AccountId, OptionQuery>;
+
     /// A map of the coldkey swap disputes from a coldkey to the
-    /// block number the coldkey swap was disputed.
+    /// block number the coldkey swap was disputed. Zero means root cleared the
+    /// dispute but retained the recovery lock; a successful swap or full root reset releases it.
     #[pallet::storage]
     pub type ColdkeySwapDisputes<T: Config> =
         StorageMap<_, Twox64Concat, T::AccountId, BlockNumberFor<T>, OptionQuery>;
@@ -2459,6 +2522,14 @@ pub mod pallet {
     #[pallet::storage]
     pub type NetworksAdded<T: Config> =
         StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultNeworksAdded<T>>;
+
+    /// MAP (netuid) --> user-visible subnet lifecycle state.
+    ///
+    /// Absence means that the netuid is neither an existing subnet nor one whose deferred
+    /// dissolution cleanup is still in progress.
+    #[pallet::storage]
+    pub type SubnetState<T: Config> =
+        StorageMap<_, Identity, NetUid, SubnetLifecycleState, OptionQuery>;
 
     /// DMAP ( hotkey, netuid ) --> bool
     #[pallet::storage]
@@ -3794,6 +3865,14 @@ pub mod pallet {
     pub type PendingChildKeyCooldown<T: Config> =
         StorageValue<_, u64, ValueQuery, DefaultPendingChildKeyCooldown<T>>;
 
+    /// V2 announcement-time decision for ignoring unsolicited destination balance
+    /// when deciding whether to import the source auto-stake policy. The privilege
+    /// is honored only while the matching destination reservation remains live.
+    /// Legacy hash-only announcements have no entry.
+    #[pallet::storage]
+    pub type ColdkeySwapV2PolicySnapshots<T: Config> =
+        StorageMap<_, Twox64Concat, T::AccountId, bool, OptionQuery>;
+
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {
         /// Stakes record in genesis.
@@ -4045,6 +4124,8 @@ pub trait ProxyInterface<AccountId> {
     fn add_lease_beneficiary_proxy(beneficiary: &AccountId, lease: &AccountId) -> DispatchResult;
     fn remove_lease_beneficiary_proxy(beneficiary: &AccountId, lease: &AccountId)
     -> DispatchResult;
+    /// Whether `delegator` already holds any proxy grants (including reserved deposit).
+    fn has_delegator_proxies(delegator: &AccountId) -> bool;
 }
 
 impl<T> ProxyInterface<T> for () {
@@ -4054,6 +4135,10 @@ impl<T> ProxyInterface<T> for () {
 
     fn remove_lease_beneficiary_proxy(_: &T, _: &T) -> DispatchResult {
         Ok(())
+    }
+
+    fn has_delegator_proxies(_: &T) -> bool {
+        false
     }
 }
 

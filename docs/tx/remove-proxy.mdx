@@ -8,7 +8,9 @@ description: "Revoke one proxy delegation."
 The (delegate, proxy_type, delay) triple must match the original
 `add_proxy` exactly — a mismatch fails with NotFound rather than removing
 a different delegation. The proxy deposit reserved at add time is returned
-to the signer. Check current delegations with `btcli query proxies`.
+to the signer. `Validate` and `Weights` grants are revoked by the
+hotkey that granted them. Check current delegations with
+`btcli query proxies`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |

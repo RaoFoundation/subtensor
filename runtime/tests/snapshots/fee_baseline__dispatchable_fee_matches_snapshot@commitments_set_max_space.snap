@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: commitments_set_max_space
+expression: fee
+---
+67803

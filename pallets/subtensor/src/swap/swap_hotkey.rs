@@ -229,6 +229,11 @@ impl<T: Config> Pallet<T> {
             weight.saturating_accrue(T::DbWeight::get().reads(1));
         }
 
+        // 4.1 Refuse claiming a coldkey-swap-reserved destination as the new hotkey
+        // (covers both all-subnet `set_hotkey_owner` and single-subnet Owner writes).
+        weight.saturating_accrue(T::DbWeight::get().reads(2));
+        Self::ensure_account_not_reserved_as_coldkey_swap_destination(new_hotkey)?;
+
         // 5. Ensure the new hotkey is different from the old one
         ensure!(old_hotkey != new_hotkey, Error::<T>::NewHotKeyIsSameWithOld);
 
@@ -778,7 +783,9 @@ impl<T: Config> Pallet<T> {
         // 7. Swap owner.
         // Owner( hotkey ) -> coldkey -- the coldkey that owns the hotkey.
         // Owner::<T>::remove(old_hotkey);
-        Owner::<T>::insert(new_hotkey, coldkey.clone());
+        // Route through set_hotkey_owner so reserved coldkey-swap destinations
+        // stay protected (check_swap_hotkey already refused; defense in depth).
+        Self::set_hotkey_owner(coldkey, new_hotkey)?;
         weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
 
         // 8. Swap OwnedHotkeys.

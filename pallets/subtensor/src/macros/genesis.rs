@@ -37,6 +37,7 @@ mod genesis {
 
             // Set the root network as added.
             NetworksAdded::<T>::insert(NetUid::ROOT, true);
+            SubnetState::<T>::insert(NetUid::ROOT, SubnetLifecycleState::Started);
 
             // Increment the number of total networks.
             TotalNetworks::<T>::mutate(|n| *n = n.saturating_add(1));
@@ -81,6 +82,7 @@ mod genesis {
             SubnetAlphaIn::<T>::insert(netuid, AlphaBalance::from(10_000_000_000_u64));
             SubnetTAO::<T>::insert(netuid, TaoBalance::from(10_000_000_000_u64));
             NetworksAdded::<T>::insert(netuid, true);
+            SubnetState::<T>::insert(netuid, SubnetLifecycleState::Registered);
             TotalNetworks::<T>::mutate(|n| *n = n.saturating_add(1));
             SubnetworkN::<T>::insert(netuid, 0);
             MaxAllowedUids::<T>::insert(netuid, 256u16);

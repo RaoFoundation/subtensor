@@ -9,8 +9,8 @@ use crate::{
     MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK, NetworksAdded, NumStakingColdkeys,
     PendingBasketDeposits, RegistrationsThisInterval, RootAlphaDividendsPerSubnet,
     RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn,
-    SubnetAlphaOut, SubnetMovingPrice, SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO,
-    SubnetworkN, Tempo, TotalStake, Uids,
+    SubnetAlphaOut, SubnetLimit, SubnetMovingPrice, SubnetOwnerHotkey, SubnetProtocolFlow,
+    SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -254,16 +254,47 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
             "declared weight {declared_weight:?} exceeds max extrinsic {max_extrinsic:?}"
         );
 
-        // The single-hotkey declaration reserves 128 subnet slots plus root, not
-        // the coldkey-wide 256-unit envelope.
-        let single_work = MAX_ROOT_CLAIM_HOTKEY_WORK;
-        assert_eq!(single_work, 129);
+        // The single-hotkey declaration reserves one validator unit, 128 non-root subnet
+        // slots, and the root slot, not the coldkey-wide 256-unit envelope.
         let single_call =
             RuntimeCall::SubtensorModule(crate::Call::claim_root_with_hotkey { hotkey });
         let single_declared = single_call.get_dispatch_info().call_weight;
         let single_envelope = SubtensorModule::root_claim_hotkey_declared_weight();
         assert!(single_declared.all_gte(single_envelope));
         assert!(single_declared.all_lt(declared_weight));
+    });
+}
+
+#[test]
+fn test_claim_root_hotkey_work_covers_subnet_limit_plus_root_and_hotkey() {
+    const AGENT_GUARD_DO_NOT_DELETE_OR_WEAKEN: &str = r#"{"schema":"subtensor.agent-guard/v1","policy":"do-not-delete-or-weaken","invariant":"MAX_ROOT_CLAIM_HOTKEY_WORK>=SubnetLimit+2","reason":"a full fund has one row per non-root subnet plus root, and admission also charges one hotkey"}"#;
+
+    new_test_ext(1).execute_with(|| {
+        let subnet_limit = SubnetLimit::<Test>::get();
+        let required_work = u32::from(subnet_limit).saturating_add(2);
+        assert!(
+            MAX_ROOT_CLAIM_HOTKEY_WORK >= required_work,
+            "{AGENT_GUARD_DO_NOT_DELETE_OR_WEAKEN}: hotkey work limit {} is below required {required_work}",
+            MAX_ROOT_CLAIM_HOTKEY_WORK,
+        );
+
+        let hotkey = U256::from(1002);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        for raw_netuid in 1..=subnet_limit {
+            AlphaV2::<Test>::insert(
+                (hotkey, escrow, NetUid::from(raw_netuid)),
+                share_pool::SafeFloat::from(1_u64),
+            );
+        }
+        AlphaV2::<Test>::insert(
+            (hotkey, escrow, NetUid::ROOT),
+            share_pool::SafeFloat::from(1_u64),
+        );
+
+        assert!(
+            SubtensorModule::root_claim_hotkey_fits_declared_budget(&hotkey),
+            "{AGENT_GUARD_DO_NOT_DELETE_OR_WEAKEN}: a full SubnetLimit-plus-root basket must be admitted",
+        );
     });
 }
 
@@ -402,9 +433,9 @@ fn test_claim_root_ignores_network_count_and_bounds_actual_basket_rows() {
         );
         assert!(!SubtensorModule::root_claim_fits_declared_budget(&[hotkey]));
 
-        // The single-hotkey gate must use the 129-unit cap, not the 256-unit
-        // coldkey-wide envelope. A 130-row basket (1 hotkey + 129 rows) would
-        // otherwise be admitted under a 129-unit declaration.
+        // The single-hotkey gate must use the 130-unit cap, not the 256-unit
+        // coldkey-wide envelope. A 131-unit claim (1 hotkey + 130 rows) would
+        // otherwise be admitted under a 130-unit declaration.
         let single = U256::from(1003);
         for raw_netuid in 1..MAX_ROOT_CLAIM_HOTKEY_WORK as u16 {
             AlphaV2::<Test>::insert(

@@ -226,8 +226,13 @@ class SubtensorModule:
 
     @staticmethod
     def announce_coldkey_swap(new_coldkey_hash: 'H256') -> Call:
-        'Announces a coldkey swap using BlakeTwo256 hash of the new coldkey.  This is required before the coldkey swap can be performed after the delay period.  It can be reannounced after a delay of `ColdkeySwapReannouncementDelay` following the first valid execution block of the original announcement.  The dispatch origin of this call must be the original coldkey that made the announcement.  * `new_coldkey_hash`: The hash of the new coldkey using BlakeTwo256.  The `ColdkeySwapAnnounced` event is emitted on successful announcement.'
+        'Announces a coldkey swap using the BlakeTwo256 hash of the new coldkey.  Legacy commitment path: keeps the destination secret until `swap_coldkey_announced` reveals it. Does **not** validate or reserve the destination (that requires cleartext — use [`Self::announce_coldkey_swap_v2`]). Prefer V2 for merges into already-used destinations and for pre-fee admission checks.  It can be reannounced after a delay of `ColdkeySwapReannouncementDelay` following the first valid execution block of the original announcement.  The dispatch origin of this call must be the original coldkey that made the announcement.  * `new_coldkey_hash`: BlakeTwo256 hash of the destination coldkey.  The `ColdkeySwapAnnounced` event is emitted on successful announcement.'
         return Call('SubtensorModule', 'announce_coldkey_swap', {'new_coldkey_hash': new_coldkey_hash})
+
+    @staticmethod
+    def announce_coldkey_swap_v2(new_coldkey: 'AccountId32') -> Call:
+        'Announces a coldkey swap with the cleartext destination account.  Validates the destination (and combined swap work) before charging the announcement fee, then exclusively reserves that account for the delay so a third party cannot register it as a hotkey. The on-chain announcement stores a BlakeTwo256 commitment to the destination and its policy-import eligibility at announcement time. Every call creates or renews that reservation, so every call pays the key-swap cost, including reannouncements.  Prefer this over [`Self::announce_coldkey_swap`] when merging into an already-used coldkey or when pre-fee refusal of bad destinations matters.  * `new_coldkey`: Destination coldkey (validated before any fee).'
+        return Call('SubtensorModule', 'announce_coldkey_swap_v2', {'new_coldkey': new_coldkey})
 
     @staticmethod
     def associate_evm_key(netuid: 'NetUid', evm_key: 'H160', block_number: 'u64', signature: 'Any') -> Call:
@@ -385,6 +390,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'register_network_with_identity', {'hotkey': hotkey, 'identity': identity})
 
     @staticmethod
+    def release_own_coldkey_swap_destination_reservation() -> Call:
+        "Destination-authorized release of a coldkey-swap destination reservation.  V2 announce takes the destination in cleartext and exclusively reserves it. The reserved account can free that hold so a third party cannot squat someone else's coldkey indefinitely. Reservations also expire after `when + ColdkeySwapReannouncementDelay`."
+        return Call('SubtensorModule', 'release_own_coldkey_swap_destination_reservation', {})
+
+    @staticmethod
     def remove_stake(hotkey: 'AccountId32', netuid: 'NetUid', amount_unstaked: 'AlphaBalance') -> Call:
         "Remove stake from the staking account. The call must be made from the coldkey account attached to the neuron metadata. Only this key has permission to make staking and unstaking requests.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The associated hotkey account.  * `netuid`: Subnetwork UID.  * `amount_unstaked`: The amount of stake to be added to the hotkey staking account.  # Events * `StakeRemoved`: On the successfully removing stake from the hotkey account.  # Errors * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.  * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.  * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdwraw this amount."
         return Call('SubtensorModule', 'remove_stake', {'hotkey': hotkey, 'netuid': netuid, 'amount_unstaked': amount_unstaked})
@@ -403,6 +413,11 @@ class SubtensorModule:
     def reset_coldkey_swap(coldkey: 'AccountId32') -> Call:
         'Reset a coldkey swap by clearing the announcement and dispute status.  The dispatch origin of this call must be root.  * `coldkey`: The coldkey to reset the swap for.'
         return Call('SubtensorModule', 'reset_coldkey_swap', {'coldkey': coldkey})
+
+    @staticmethod
+    def reset_coldkey_swap_keep_locked(coldkey: 'AccountId32') -> Call:
+        'Reset a coldkey swap while retaining its recovery lock.  Clears the announcement and active dispute. The coldkey may announce again, dispute, execute the new swap, or submit an encrypted transaction, but cannot clear the announcement to unlock itself or make unrelated calls. Uses the existing dispute entry with block zero.  The dispatch origin of this call must be root.  * `coldkey`: The coldkey to reset the swap for while keeping it locked.'
+        return Call('SubtensorModule', 'reset_coldkey_swap_keep_locked', {'coldkey': coldkey})
 
     @staticmethod
     def reveal_mechanism_weights(netuid: 'NetUid', mecid: 'MechId', uids: 'Any', values: 'Any', salt: 'Any', version_key: 'u64') -> Call:
@@ -571,7 +586,7 @@ class SubtensorModule:
 
     @staticmethod
     def swap_coldkey_announced(new_coldkey: 'AccountId32') -> Call:
-        'Performs a coldkey swap if an announcement has been made.  The dispatch origin of this call must be the original coldkey that made the announcement.  * `new_coldkey`: The new coldkey to swap to. The BlakeTwo256 hash of the new coldkey must be the same as the announced coldkey hash.  The `ColdkeySwapped` event is emitted on successful swap.'
+        'Performs a coldkey swap if an announcement has been made.  The dispatch origin of this call must be the original coldkey that made the announcement.  * `new_coldkey`: The new coldkey to swap to. It must match the legacy destination hash or the V2 destination-and-policy commitment.  The `ColdkeySwapped` event is emitted on successful swap.'
         return Call('SubtensorModule', 'swap_coldkey_announced', {'new_coldkey': new_coldkey})
 
     @staticmethod

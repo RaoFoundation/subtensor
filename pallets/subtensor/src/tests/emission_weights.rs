@@ -30,6 +30,101 @@ const OWNER: u16 = EmissionIndex::Owner as u16;
 const VALIDATOR: u16 = EmissionIndex::Validator as u16;
 const MINER: u16 = EmissionIndex::Miner as u16;
 
+/// Funded budgets remain authoritative through Yuma scoring and actual stake credits.
+#[test]
+fn test_yuma_credits_funded_miner_budget() {
+    let cases = [
+        (
+            "SN35/36",
+            133_199_999_640u64,
+            108_000_000_000u64,
+            118_800_000_000u64,
+        ),
+        ("SN41", 180_000_000_000, 144_000_000_000, 36_000_000_000),
+        ("SN70", 122_399_999_640, 118_800_000_000, 118_800_000_000),
+        ("SN122", 230_399_999_640, 64_800_000_000, 64_800_000_000),
+        ("equal-control", 180_000_000_000, 180_000_000_000, 0),
+        (
+            "validator-heavy",
+            118_800_000_000,
+            180_000_000_000,
+            61_200_000_000,
+        ),
+        ("one-unit", 1, 1, 1),
+        ("zero-miner", 0, 1_000_000, 0),
+        ("zero", 0, 0, 0),
+    ];
+    for yuma3 in [false, true] {
+        for has_weights in [false, true] {
+            for (label, miner_budget, validator_budget, owner_budget) in cases {
+                new_test_ext(1).execute_with(|| {
+                    let owner_hot = U256::from(100);
+                    let owner_cold = U256::from(101);
+                    let validator_hot = U256::from(200);
+                    let validator_cold = U256::from(201);
+                    let miner_hot = U256::from(300);
+                    let miner_cold = U256::from(301);
+                    let netuid = add_dynamic_network_disable_commit_reveal(&owner_hot, &owner_cold);
+                    remove_owner_registration_stake(netuid);
+                    SubtensorModule::set_burn(netuid, TaoBalance::ZERO);
+                    register_ok_neuron(netuid, validator_hot, validator_cold, 0);
+                    register_ok_neuron(netuid, miner_hot, miner_cold, 0);
+                    SubtensorModule::set_yuma3_enabled(netuid, yuma3);
+                    SubtensorModule::set_tao_weight(0);
+                    SubtensorModule::set_max_allowed_validators(netuid, 1);
+                    SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                        &validator_hot, &validator_cold, netuid, 1_000_000_000_000u64.into(),
+                    );
+                    let validator_uid = Uids::<Test>::get(netuid, validator_hot).unwrap();
+                    let miner_uid = Uids::<Test>::get(netuid, miner_hot).unwrap();
+                    SubtensorModule::set_validator_permit_for_uid(netuid, validator_uid, true);
+                    let index = subtensor_runtime_common::NetUidStorageIndex::from(netuid);
+                    if has_weights {
+                        Weights::<Test>::insert(index, validator_uid, vec![(miner_uid, u16::MAX)]);
+                        SubtensorModule::set_last_update_for_uid(index, validator_uid, 99);
+                    }
+                    LastMechansimStepBlock::<Test>::insert(netuid, 50);
+                    System::set_block_number(100);
+                    System::reset_events();
+                    let stake = |hot, cold| SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &hot, &cold, netuid,
+                    ).to_u64();
+                    let miner_before = stake(miner_hot, miner_cold);
+                    let validator_before = stake(validator_hot, validator_cold);
+                    let owner_before = stake(owner_hot, owner_cold);
+                    SubtensorModule::distribute_emission(
+                        netuid, miner_budget.into(), validator_budget.into(),
+                        AlphaBalance::ZERO, owner_budget.into(),
+                    );
+                    let miner_credit = stake(miner_hot, miner_cold) - miner_before;
+                    let validator_credit = stake(validator_hot, validator_cold) - validator_before;
+                    let owner_credit = stake(owner_hot, owner_cold) - owner_before;
+                    let event_total: u64 = System::events().iter().filter_map(|record| {
+                        if let RuntimeEvent::SubtensorModule(Event::IncentiveAlphaEmittedToMiners { emissions, .. }) = &record.event {
+                            Some(emissions.iter().map(|amount| amount.to_u64()).sum::<u64>())
+                        } else { None }
+                    }).sum();
+                    let expected_miner = if has_weights { miner_budget } else { 0 };
+                    let expected_validator = if has_weights {
+                        validator_budget
+                    } else {
+                        validator_budget + miner_budget
+                    };
+                    assert_eq!(miner_credit, expected_miner,
+                        "{label}, yuma3={yuma3}, weights={has_weights}");
+                    assert_eq!(event_total, miner_credit);
+                    assert!(validator_credit.abs_diff(expected_validator) <= 2,
+                        "{label}, yuma3={yuma3}, weights={has_weights}: validator {validator_credit} vs {expected_validator}");
+                    assert_eq!(owner_credit, owner_budget);
+                    assert!((miner_credit + validator_credit + owner_credit)
+                        .abs_diff(miner_budget + validator_budget + owner_budget) <= 2);
+                    assert_total_alpha_staked_invariant(netuid);
+                });
+            }
+        }
+    }
+}
+
 /// `pct` percent of emission in u64 parts.
 fn pct(p: u64) -> u64 {
     emission_fraction(p, 100)

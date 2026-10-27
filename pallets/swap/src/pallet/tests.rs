@@ -36,6 +36,17 @@ fn get_max_price() -> U64F64 {
 mod dispatchables {
     use super::*;
 
+    /// Commits prior state so the overlay contains only writes performed by `f`.
+    /// Same-value writes remain visible, unlike comparisons based on the storage root.
+    fn written_keys(ext: &mut sp_io::TestExternalities, f: impl FnOnce()) -> Vec<Vec<u8>> {
+        ext.commit_all().unwrap();
+        ext.execute_with(f);
+        ext.overlayed_changes()
+            .changes()
+            .map(|(key, _)| key.clone())
+            .collect()
+    }
+
     #[test]
     fn test_set_fee_rate() {
         new_test_ext().execute_with(|| {
@@ -278,6 +289,127 @@ mod dispatchables {
             assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
             assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
         });
+    }
+
+    #[test]
+    fn test_adjust_protocol_liquidity_skips_unchanged_storage_writes() {
+        let netuid = NetUid::from(1);
+        let balancer_key = SwapBalancer::<Test>::hashed_key_for(netuid);
+        let tao_key = BalancerTaoReservoir::<Test>::hashed_key_for(netuid);
+        let alpha_key = BalancerAlphaReservoir::<Test>::hashed_key_for(netuid);
+        let mut ext = new_test_ext();
+
+        ext.execute_with(|| {
+            TaoReserve::set_mock_reserve(netuid, TaoBalance::from(1_000_000_u64));
+            AlphaReserve::set_mock_reserve(netuid, AlphaBalance::from(1_000_000_u64));
+            SwapBalancer::<Test>::insert(netuid, Balancer::default());
+        });
+
+        // A zero injection leaves an existing balancer unchanged and both reservoirs absent.
+        let written = written_keys(&mut ext, || {
+            assert_eq!(
+                Swap::adjust_protocol_liquidity(netuid, TaoBalance::ZERO, AlphaBalance::ZERO),
+                (TaoBalance::ZERO, AlphaBalance::ZERO)
+            );
+        });
+        assert!(!written.contains(&balancer_key));
+        assert!(!written.contains(&tao_key));
+        assert!(!written.contains(&alpha_key));
+
+        // A deferred TAO balance that remains deferred is not written back either.
+        ext.execute_with(|| {
+            TaoReserve::set_mock_reserve(netuid, TaoBalance::from(1_000_u64));
+            AlphaReserve::set_mock_reserve(netuid, AlphaBalance::from(1_000_u64));
+            BalancerTaoReservoir::<Test>::insert(netuid, TaoBalance::from(200_000_u64));
+        });
+        let written = written_keys(&mut ext, || {
+            assert_eq!(
+                Swap::adjust_protocol_liquidity(netuid, TaoBalance::ZERO, AlphaBalance::ZERO),
+                (TaoBalance::ZERO, AlphaBalance::ZERO)
+            );
+        });
+        assert!(!written.contains(&balancer_key));
+        assert!(!written.contains(&tao_key));
+        assert!(!written.contains(&alpha_key));
+    }
+
+    #[test]
+    fn test_adjust_protocol_liquidity_writes_only_changed_storage() {
+        let netuid = NetUid::from(1);
+        let balancer_key = SwapBalancer::<Test>::hashed_key_for(netuid);
+        let tao_key = BalancerTaoReservoir::<Test>::hashed_key_for(netuid);
+        let alpha_key = BalancerAlphaReservoir::<Test>::hashed_key_for(netuid);
+        let mut ext = new_test_ext();
+
+        ext.execute_with(|| {
+            TaoReserve::set_mock_reserve(netuid, TaoBalance::from(1_000_000_u64));
+            AlphaReserve::set_mock_reserve(netuid, AlphaBalance::from(1_000_000_u64));
+            SwapBalancer::<Test>::insert(netuid, Balancer::default());
+        });
+
+        // A one-sided injection updates the balancer but does not touch absent reservoirs.
+        let written = written_keys(&mut ext, || {
+            assert_eq!(
+                Swap::adjust_protocol_liquidity(
+                    netuid,
+                    TaoBalance::from(100_u64),
+                    AlphaBalance::ZERO
+                ),
+                (TaoBalance::from(100_u64), AlphaBalance::ZERO)
+            );
+        });
+        assert!(written.contains(&balancer_key));
+        assert!(!written.contains(&tao_key));
+        assert!(!written.contains(&alpha_key));
+
+        // Existing reservoirs are removed when they become price-active.
+        ext.execute_with(|| {
+            TaoReserve::set_mock_reserve(netuid, TaoBalance::from(1_000_100_u64));
+            BalancerTaoReservoir::<Test>::insert(netuid, TaoBalance::from(100_u64));
+            BalancerAlphaReservoir::<Test>::insert(netuid, AlphaBalance::from(100_u64));
+        });
+        let written = written_keys(&mut ext, || {
+            let (active_tao, active_alpha) =
+                Swap::adjust_protocol_liquidity(netuid, TaoBalance::ZERO, AlphaBalance::ZERO);
+            assert_eq!(active_tao, TaoBalance::from(100_u64));
+            assert_eq!(active_alpha, AlphaBalance::from(100_u64));
+        });
+        assert!(written.contains(&tao_key));
+        assert!(written.contains(&alpha_key));
+
+        // Explicit zero rows are still removed, preserving the old storage representation.
+        ext.execute_with(|| {
+            TaoReserve::set_mock_reserve(netuid, TaoBalance::from(1_000_200_u64));
+            AlphaReserve::set_mock_reserve(netuid, AlphaBalance::from(1_000_100_u64));
+            BalancerTaoReservoir::<Test>::insert(netuid, TaoBalance::ZERO);
+            BalancerAlphaReservoir::<Test>::insert(netuid, AlphaBalance::ZERO);
+        });
+        let written = written_keys(&mut ext, || {
+            Swap::adjust_protocol_liquidity(netuid, TaoBalance::ZERO, AlphaBalance::ZERO);
+            assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
+            assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
+        });
+        assert!(written.contains(&tao_key));
+        assert!(written.contains(&alpha_key));
+    }
+
+    #[test]
+    fn test_adjust_protocol_liquidity_materializes_absent_default_balancer() {
+        let netuid = NetUid::from(1);
+        let balancer_key = SwapBalancer::<Test>::hashed_key_for(netuid);
+        let mut ext = new_test_ext();
+
+        ext.execute_with(|| {
+            TaoReserve::set_mock_reserve(netuid, TaoBalance::from(1_000_000_u64));
+            AlphaReserve::set_mock_reserve(netuid, AlphaBalance::from(1_000_000_u64));
+            SwapBalancer::<Test>::remove(netuid);
+        });
+
+        let written = written_keys(&mut ext, || {
+            Swap::adjust_protocol_liquidity(netuid, TaoBalance::ZERO, AlphaBalance::ZERO);
+            assert!(SwapBalancer::<Test>::contains_key(netuid));
+        });
+        assert!(written.contains(&balancer_key));
     }
 
     /// This test case verifies that small gradual injections (like emissions in every block)

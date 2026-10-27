@@ -108,6 +108,7 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`pow-register`](/docs/tx/pow-register) | coldkey | signed account (pallet role may apply) | Register using an owner-enabled proof instead of TAO. |
 | [`register-leased-network`](/docs/tx/register-leased-network) | coldkey | signed account (pallet role may apply) | Register a new crowdloan-funded leased subnet. |
 | [`register-subnet`](/docs/tx/register-subnet) | coldkey | signed account (pallet role may apply) | Create a new subnet owned by the signing coldkey. |
+| [`release-own-coldkey-swap-destination-reservation`](/docs/tx/release-own-coldkey-swap-destination-reservation) | coldkey | signed account (pallet role may apply) | Free a coldkey-swap destination reservation that names this account. |
 | [`remove-stake`](/docs/tx/remove-stake) | coldkey | signed account (pallet role may apply) | Unstake alpha from a hotkey back to the coldkey. |
 | [`remove-stake-limit`](/docs/tx/remove-stake-limit) | coldkey | signed account (pallet role may apply) | Unstake alpha with a limit price (slippage protection). |
 | [`reset-axon`](/docs/tx/reset-axon) | hotkey | signed account (pallet role may apply) | Reset (stop serving) this hotkey's axon endpoint on a subnet. |

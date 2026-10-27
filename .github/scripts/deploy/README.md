@@ -111,6 +111,7 @@ docker run --rm --user root --platform=linux/amd64 \
   -e PACKAGE=node-subtensor-runtime \
   -e BUILD_OPTS="--features=metadata-hash" \
   -e PROFILE=production \
+  -e CONST_RANDOM_SEED=subtensor-runtime \
   -v "$(pwd)":/build \
   paritytech/srtool:<rustc-tag> \
   /srtool/build --app
