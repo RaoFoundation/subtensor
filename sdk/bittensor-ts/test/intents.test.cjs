@@ -69,6 +69,7 @@ function reader(overrides = {}) {
 }
 
 const transfer = { op: 'transfer', dest_ss58: 'dest', amount_tao: '1.25' }
+const order = { V1: { signer:'coldkey',hotkey:'hotkey',fee_recipient:'other',netuid:1,order_type:'LimitBuy',amount:1n,limit_price:1n,expiry:1000n,fee_rate:0,relayer:null,max_slippage:null,chain_id:1n,partial_fills_enabled:false } }
 function sample(tool) {
   const args = {}
   for (const name of tool.input_schema.required ?? []) {
@@ -90,6 +91,8 @@ function sample(tool) {
   if ('timepoint' in args) args.timepoint = { height: 1, index: 0 }
   if ('take' in args) args.take = '0.1'
   switch (tool.name) {
+    case 'authorize_order': case 'cancel_order': args.order = order; args.nonce = 1; break
+    case 'execute_orders': case 'execute_batched_orders': args.orders = [{order:{Authorized:{nonce:1n,terms:order}},signature:'AccountApproved',partial_fill:null}]; args.should_fail = true; break
     case 'create_crowdloan': args.target_ss58 = 'target'; break
     case 'execute_proxy_announced': args.real_ss58 = 'real'; args.inner_op = 'transfer'; args.inner_args = { dest_ss58: 'dest', amount_tao: '1' }; break
     case 'batch': args.intents = [transfer]; break

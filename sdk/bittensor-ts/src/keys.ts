@@ -17,6 +17,7 @@ export const DEFAULT_SS58_FORMAT = nativeCall(() => native.defaultSs58Format())
 export type SubstrateKeyType = RustSubstrateKeyType
 export type KeypairKind = RustKeypairKind
 export interface KeypairMetadata extends RustKeypairMetadata {}
+export type KeypairMetadataInput = Omit<KeypairMetadata, 'type'> & { type?: string }
 export interface KeypairSignOptions extends RustKeypairSignOptions {}
 
 export interface GeneratedKeypair {
@@ -109,18 +110,33 @@ function sanitizeMetadata(metadata: KeypairMetadata): KeypairMetadata {
 }
 
 export function cryptoTypeForKeyType(type: SubstrateKeyType): number {
-  return type === 'ed25519' ? CRYPTO_ED25519 : CRYPTO_SR25519
+  return walletCryptoType(type)
 }
 
 export function keyTypeForCryptoType(cryptoType: number): SubstrateKeyType {
-  if (cryptoType === CRYPTO_ED25519) return 'ed25519'
-  if (cryptoType === CRYPTO_SR25519) return 'sr25519'
-  throw new RangeError(`unsupported crypto type ${cryptoType}`)
+  return walletType(cryptoType)
 }
 
 export class Keypair
   implements PolkadotCompatibleKeypair, RustKeypairPublic<Buffer, ByteLike, string | ByteLike> {
   private handle!: NativeKeypairHandle
+  dummyAuthorization(): Buffer { return nativeCall(() => this.handle.dummyAuthorization()) }
+  static fromDescriptor(descriptor: ByteLike, ss58Format = DEFAULT_SS58_FORMAT): Keypair {
+    return Keypair.wrap(nativeCall(() => native.keypairFromDescriptor(toBuffer(descriptor), ss58Format)))
+  }
+  get accountType(): 'standard' | 'hashed' { return this.handle.accountType as 'standard' | 'hashed' }
+  get signingScheme(): string { return this.handle.signingScheme }
+  publicOnly(): Keypair { return Keypair.wrap(nativeCall(() => this.handle.publicOnly())) }
+  atGeneration(generation: bigint | number): Keypair { return Keypair.wrap(nativeCall(() => this.handle.atGeneration(u64(generation)))) }
+  authorizationGeneration(): bigint { return nativeCall(() => this.handle.authorizationGeneration()) }
+  authorizationDescriptor(): Buffer { return nativeCall(() => this.handle.authorizationDescriptor()) }
+  authorizationPublicKey(): Buffer { return nativeCall(() => this.handle.authorizationPublicKey()) }
+  authorizationCommitment(generation: bigint | number): Buffer { return nativeCall(() => this.handle.authorizationCommitment(u64(generation))) }
+  authorizationCurrentCommitment(): Buffer { return nativeCall(() => this.handle.authorizationCurrentCommitment()) }
+  authorizationNextCommitment(): Buffer { return nativeCall(() => this.handle.authorizationNextCommitment()) }
+  receivingAddress(): string { return isProtectedCrypto(this.cryptoType) ? nativeCall(() => this.handle.receivingAddress()) : this.ss58Address }
+  signAuthorization(payload: ByteLike): Buffer { return nativeCall(() => this.handle.signAuthorization(toBuffer(payload))) }
+  pqProfile(): number { return nativeCall(() => this.handle.pqProfile()) }
 
   constructor(
     ss58Address?: string | null,
@@ -388,8 +404,8 @@ export class Keypair
     return keyTypeForCryptoType(this.cryptoType)
   }
 
-  get scheme(): 'Ed25519' | 'Sr25519' {
-    return this.cryptoType === CRYPTO_ED25519 ? 'Ed25519' : 'Sr25519'
+  get scheme(): SigningScheme {
+    return walletScheme(this.cryptoType)
   }
 
   get ss58Format(): number {
@@ -441,7 +457,7 @@ export class Keypair
     )
   }
 
-  derive(suri: string, meta: KeypairMetadata = {}): Keypair {
+  derive(suri: string, meta: KeypairMetadataInput = {}): Keypair {
     const derived = Keypair.wrap(
       nativeCall(() => this.handle.derive(suri)),
       { type: keyTypeForCryptoType(this.cryptoType) },
@@ -450,10 +466,13 @@ export class Keypair
     return derived
   }
 
-  setMeta(meta: KeypairMetadata): void {
+  setMeta(meta: KeypairMetadataInput): void {
+    if (meta.type !== undefined && meta.type !== this.type) {
+      throw new Error('Key metadata type must match the key signing type')
+    }
     metadataStore.set(
       this,
-      sanitizeMetadata({ ...(metadataStore.get(this) ?? {}), ...meta }),
+      sanitizeMetadata({ ...(metadataStore.get(this) ?? {}), ...meta } as KeypairMetadata),
     )
   }
 
@@ -568,6 +587,27 @@ export function nativeKeypairHandle(keypair: Keypair): NativeKeypairHandle {
   return keypair.nativeHandle()
 }
 
+/** Classical keys accepted by Polkadot.js and Moonwall signer APIs. */
+export interface ClassicalKeypair extends Keypair {
+  readonly type: 'sr25519' | 'ed25519'
+  readonly meta: KeypairMetadata & { type?: 'sr25519' | 'ed25519' }
+  derive(suri: string, meta?: KeypairMetadataInput): ClassicalKeypair
+}
+
+/** Reject protected keys before passing a signer to a classical-only library. */
+export function asPolkadotKeypair(pair: Keypair): ClassicalKeypair {
+  if (pair.type !== 'sr25519' && pair.type !== 'ed25519') {
+    throw new Error('Polkadot keyring compatibility requires an sr25519 or ed25519 key')
+  }
+  return pair as ClassicalKeypair
+}
+
+export function createKeyringPairFromUri(
+  uri: string,
+  type?: 'sr25519' | 'ed25519',
+  meta?: KeypairMetadata,
+): ClassicalKeypair
+export function createKeyringPairFromUri(uri: string, type: SubstrateKeyType, meta?: KeypairMetadata): Keypair
 export function createKeyringPairFromUri(
   uri: string,
   type: SubstrateKeyType = 'sr25519',
@@ -580,6 +620,13 @@ export function createKeyringPairFromUri(
 
 export function createKeyringPairFromMnemonic(
   mnemonic: string,
+  type?: 'sr25519' | 'ed25519',
+  password?: string | null,
+  meta?: KeypairMetadata,
+): ClassicalKeypair
+export function createKeyringPairFromMnemonic(mnemonic: string, type: SubstrateKeyType, password?: string | null, meta?: KeypairMetadata): Keypair
+export function createKeyringPairFromMnemonic(
+  mnemonic: string,
   type: SubstrateKeyType = 'sr25519',
   password?: string | null,
   meta: KeypairMetadata = {},
@@ -589,6 +636,8 @@ export function createKeyringPairFromMnemonic(
   return pair
 }
 
+export function generateKeyringPair(type?: 'sr25519' | 'ed25519', nWords?: number, meta?: KeypairMetadata): ClassicalKeypair
+export function generateKeyringPair(type: SubstrateKeyType, nWords?: number, meta?: KeypairMetadata): Keypair
 export function generateKeyringPair(
   type: SubstrateKeyType = 'sr25519',
   nWords = 12,
@@ -793,3 +842,10 @@ export const dangerousKeyfiles = Object.freeze({
   legacyGetPasswordFromEnvironment,
   legacy_get_password_from_environment,
 })
+import { walletType, walletCryptoType, walletScheme, isProtectedCrypto, u64, type SigningScheme } from './wallet-types'
+export * from './wallet-types'
+export function decodeReceivingAddress(address: string): Buffer { return nativeCall(() => native.decodeReceivingAddress(address)) }
+export function encodeReceivingAddress(descriptor: ByteLike): string { return nativeCall(() => native.encodeReceivingAddress(toBuffer(descriptor))) }
+export function verifyAuthorization(proof: ByteLike, payload: ByteLike, descriptor: ByteLike, generation: bigint | number, commitment: ByteLike): boolean {
+  return nativeCall(() => native.verifyAuthorization(toBuffer(proof), toBuffer(payload), toBuffer(descriptor), u64(generation), toBuffer(commitment)))
+}

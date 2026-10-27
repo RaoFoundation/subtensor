@@ -123,6 +123,10 @@ impl Runtime {
 
 #[wasm_bindgen]
 impl Runtime {
+    #[wasm_bindgen(js_name = supportsMldsaProfile)]
+    pub fn supports_mldsa_profile(&self, profile: u8) -> bool {
+        self.inner.supports_mldsa_profile(profile)
+    }
     /// Parse a raw `MetadataVersioned` blob (magic `meta` + version byte +
     /// V14/V15 payload).
     #[wasm_bindgen(constructor)]
@@ -779,7 +783,11 @@ pub fn era_birth_js(period: &JsValue, current: &JsValue) -> Result<f64, JsValue>
 ///
 /// Takes raw 32-byte public keys; returns `[accountId, sortedPublicKeys]`.
 #[wasm_bindgen(js_name = multisigAccountId)]
-pub fn multisig_account_id_js(signatories: &Array, threshold: u16) -> Result<Array, JsValue> {
+pub fn multisig_account_id_js(
+    signatories: &Array,
+    threshold: u16,
+    safe: Option<bool>,
+) -> Result<Array, JsValue> {
     let mut keys = Vec::with_capacity(signatories.length() as usize);
     for (i, raw) in signatories.iter().enumerate() {
         let bytes: Uint8Array = raw.dyn_into().map_err(|_| {
@@ -796,7 +804,12 @@ pub fn multisig_account_id_js(signatories: &Array, threshold: u16) -> Result<Arr
         })?;
         keys.push(key);
     }
-    let (account, sorted) = multisig_account_id(&keys, threshold).map_err(to_js_err)?;
+    let (account, sorted) = if safe.unwrap_or(false) {
+        bittensor_core::codec::extrinsic::safe_multisig_account_id(&keys, threshold)
+    } else {
+        multisig_account_id(&keys, threshold)
+    }
+    .map_err(to_js_err)?;
     let sorted_js = Array::new();
     for key in &sorted {
         sorted_js.push(&Uint8Array::from(key.as_slice()).into());

@@ -1,4 +1,11 @@
 import { serializeUnsignedTransaction, restoreUnsignedTransaction, type UnsignedTransactionState, type UnsignedRuntime, type SerializedUnsignedTransaction } from './unsigned-transaction'
+import { ProtectedWalletClient } from './protected-transactions'
+import type { ProtectedKeypair } from './protected-accounts'
+import { verifyAuthorization, decodeReceivingAddress, Keypair } from './browser'
+import { parseRecipient } from './receiving'
+import { isProtectedCrypto } from './wallet-types'
+import { resolveEvmRecipient } from './evm-alias'
+import { authorizeRegistrationSponsorship, type RegistrationSponsorshipOptions } from './registration-sponsorship'
 import { chainErrorFromDispatch, type ChainErrorInfo } from './chain-errors'
 import { followShieldedResult } from './shielded-receipt'
 import { prepareMultisigApproval, type MultisigApprovalRequest } from './multisig-workflow'
@@ -48,7 +55,7 @@ export interface SubmitOptions {
   allowRawCall?: boolean; policy?: IntentPolicy; waitForInclusion?: boolean; waitForFinalization?: boolean
   timeoutMs?: number; signal?: AbortSignal; mevShield?: boolean; expectedCallHash?: string
 }
-export interface WorkflowOptions extends SubmitOptions { proxyFor?: string; proxyType?: string | null; context?: IntentContext }
+export interface WorkflowOptions extends SubmitOptions, RegistrationSponsorshipOptions { proxyFor?: string; proxyType?: string | null; context?: IntentContext }
 export interface ExtrinsicResult {
   status: 'submitted' | 'inBlock' | 'finalized' | 'failed' | 'unknown'; success?: boolean; message: string
   extrinsicHash: string; blockHash?: string; blockNumber?: number; extrinsicIndex?: number; finalized?: boolean
@@ -62,6 +69,7 @@ type Call = IntentDescriptor | Uint8Array
 
 /** Browser chain I/O backed by the same Rust SCALE and crypto implementation as Node. */
 export class Client {
+  async resolveEvmRecipient(address: string) { return resolveEvmRecipient(await this.intentReader(await this.finalizedHead()),address) }
   readonly balances: AccountsReadNamespace = bindReadNamespace({}, 'Accounts & keys', block => this.at(block)) as AccountsReadNamespace
   readonly subnets: SubnetsReadNamespace = bindReadNamespace({}, 'Subnets', block => this.at(block)) as SubnetsReadNamespace
   readonly staking: StakingReadNamespace = bindReadNamespace({}, 'Staking', block => this.at(block)) as StakingReadNamespace
@@ -423,6 +431,20 @@ export class Client {
     if (!Number.isSafeInteger(nonce) || nonce < 0) throw new ChainError('invalid account nonce')
     return Math.max(nonce, this.nonceFloors.get(hex(publicKeyFromSs58(address))) ?? 0)
   }
+  protectedWallet(keypair: ProtectedKeypair): ProtectedWalletClient {
+    return new ProtectedWalletClient({
+      decodeAddress: publicKeyFromSs58, hash: blake2_256,
+      query: (p, s, args, block) => this.query(p, s, args, block),
+      finalizedHead: () => this.finalizedHead(), blockHash: n => this.blockHash(n),
+      blockNumber: block => this.blockNumber(block), runtimeAt: block => this.runtimeAt(block),
+      accountNextIndex: async address => Number(await this.rpc('system_accountNextIndex', [address])),
+      rpc: (method, params) => this.rpc(method, params),
+      eraBirth, seal: sealMevShieldTransaction, verify: verifyAuthorization,
+      intentReader: block => this.intentReader(block),
+      submitBytes: (bytes, _address, options) => this.broadcastExtrinsic(bytes, options),
+      followShielded: (carrier, hash, period, options) => this.resolveShieldedInner(carrier, hash, period, options),
+    }, keypair, this)
+  }
   private reserveNonceRange(address: string, nonce: number, count: number): number {
     if (!Number.isSafeInteger(count) || count < 1 || !Number.isSafeInteger(nonce) || nonce < 0 || !Number.isSafeInteger(nonce + count)) throw new RangeError('invalid nonce reservation')
     const key = hex(publicKeyFromSs58(address)), start = Math.max(nonce, this.nonceFloors.get(key) ?? 0)
@@ -453,6 +475,11 @@ export class Client {
   async intentReader(block?: BlockRef): Promise<IntentReader> {
     const snapshot = await this.at(block), crypto = { blake2_256, publicKeyFromSs58, ss58FromPublic, verify: verifySignature }
     const reader: IntentReader = {
+      descriptorAddress: descriptor => Keypair.fromDescriptor(descriptor).ss58Address,
+      composeCall: call => this.compose(call, snapshot.hash),
+      parseRecipient: (address, descriptor) => parseRecipient(address, decodeReceivingAddress, Keypair.fromDescriptor, publicKeyFromSs58, descriptor),
+      supportsPqProfile: async profile => (await this.runtimeAt(snapshot.hash)).supportsMldsaProfile(profile),
+      finalizedHead: () => this.finalizedHead(),
       queryMap: (p, f, a = [], limit) => this.queryMap(p, f, a as ScaleValue[], snapshot.hash, { maxResults: limit }),
       countStorageKeys: async (pallet, item, params, limit) => {
         if (!Number.isSafeInteger(limit) || limit <= 0) throw new RangeError('storage key limit must be positive')
@@ -463,10 +490,10 @@ export class Client {
         if (!Array.isArray(keys)) throw new ChainError('storage key admission count unavailable')
         return keys.length
       },
-      query: (p, f, a = []) => snapshot.query([p, f], a as ScaleValue[]), runtimeCall: (p, f, a = []) => snapshot.runtime([p, f], a as ScaleValue[]), constant: (p, f) => snapshot.constant([p, f]),
+      query: (p, f, a = [], at) => this.query(p, f, a as ScaleValue[], at ?? snapshot.hash), runtimeCall: (p, f, a = []) => snapshot.runtime([p, f], a as ScaleValue[]), constant: (p, f) => snapshot.constant([p, f]),
       blockNumber: async () => snapshot.block, blockHash: n => n == null ? Promise.resolve(snapshot.hash) : this.blockHash(n), blockTime: () => snapshot.blockTime(),
       decodeAddress: publicKeyFromSs58, encodeAddress: ss58FromPublic,
-      multisigAccount: (signers, threshold) => { const { accountId } = multisigAccountId(signers.map(publicKeyFromSs58), threshold); return { address: ss58FromPublic(accountId), publicKey: accountId } },
+      multisigAccount: (signers, threshold, safe) => { const { accountId } = multisigAccountId(signers.map(publicKeyFromSs58), threshold, safe); return { address: ss58FromPublic(accountId), publicKey: accountId } },
       hashCall: async call => blake2_256(await this.compose(call, snapshot.hash)), estimateFee: async (call, signer) => (await this.estimateFee(call, signer, {}, snapshot.hash)).rao, estimateWeight: (call, signer) => this.estimateWeight(call, signer, snapshot.hash),
       evmMirror: createEvmAddressUtilities(crypto).h160ToSs58,
       encryptWeightsV2: async o => { const [commit, revealRound] = generateCommitV2(o.uids, o.values, BigInt(o.versionKey), { ...o.state, lastEpochBlock: BigInt(o.state.lastEpochBlock), pendingEpochAt: BigInt(o.state.pendingEpochAt), subnetEpochIndex: BigInt(o.state.subnetEpochIndex), blocksSinceLastStep: BigInt(o.state.blocksSinceLastStep), currentBlock: BigInt(o.state.currentBlock) }, BigInt(o.subnetRevealPeriodEpochs), o.blockTime, o.hotkey); return { commit, revealRound: BigInt(revealRound) } },
@@ -474,7 +501,7 @@ export class Client {
     reader.resolveFeePayer = async (call, address) => (await resolveTransactionFeePayer(reader, call, address)).address
     return reader
   }
-  multisig(signatories: readonly string[], threshold: number): BrowserMultisig { return new BrowserMultisig(this, signatories, threshold) }
+  multisig(signatories: readonly string[], threshold: number, accountMode: 'legacy' | 'safe' = 'legacy'): BrowserMultisig { return new BrowserMultisig(this, signatories, threshold, accountMode) }
   private async submitPreparedCall(call: Call, signer: BrowserSigner, options: SubmitOptions, at?: string): Promise<ExtrinsicResult> {
     const blockHash = at ?? await this.blockHash()
     const address = signer.ss58Address ?? signer.address!
@@ -547,6 +574,10 @@ export class Client {
       const key = accountKey(spend.address), previous = spendByAccount.get(key)?.amountRao ?? 0n
       spendByAccount.set(key, { address: spend.address, amountRao: previous + spend.amountRao })
     }
+    for (const quote of (prepared.extras.registrationSponsorships ?? []) as Array<{payer:string;depositRao:bigint}>) {
+      const key = accountKey(quote.payer), previous = spendByAccount.get(key)?.amountRao ?? 0n
+      spendByAccount.set(key,{address:quote.payer,amountRao:previous + quote.depositRao})
+    }
     const ownerKey = accountKey(owner), signerKey = accountKey(prepared.feePayer), ownerIsSigner = ownerKey === signerKey
     const ownerSpend = spendByAccount.get(ownerKey)?.amountRao ?? 0n, signerSpend = spendByAccount.get(signerKey)?.amountRao ?? 0n
     const free = BigInt((await snapshot.query(['System', 'Account'], [owner]))?.data?.free ?? 0)
@@ -566,11 +597,13 @@ export class Client {
   submitShielded(intent: Intent, signer: BrowserSigner, options: WorkflowOptions = {}) { return this.execute(intent, signer, { ...options, mevShield: true }) }
   executeTool(spec: Record<string, unknown>, signer: BrowserSigner, options: WorkflowOptions = {}) { return this.execute(intentFromJSON(spec), signer, options) }
   async execute(intent: Intent, signer: BrowserSigner, options: WorkflowOptions = {}): Promise<ExtrinsicResult> {
+    if (signer instanceof Keypair && isProtectedCrypto(signer.cryptoType)) return this.protectedWallet(signer).execute(intent, { ...options, tip: BigInt(options.tip ?? 0), tipAssetId: options.tipAssetId == null ? null : BigInt(options.tipAssetId) })
     signer = pinSigner(signer)
     return this.serial(signer, async () => {
       const address = signer.ss58Address ?? signer.address!, context = options.context ?? { coldkey: address, ...(intentSignerRole(intent) === 'hotkey' ? { hotkey: address, hotkeyPublicKey: publicKeyFromSs58(address) } : {}) }
       const { prepared, call, violations, blockHash, nonce, signingOptions } = await this.planForSigner(intent, context, options.policy, options, signer)
       if (violations.length) throw new ChainError(`transaction rejected: ${violations.join('; ')}`)
+      await authorizeRegistrationSponsorship(prepared,options)
       if (hex(publicKeyFromSs58(prepared.feePayer)) !== hex(publicKeyFromSs58(address))) throw new ChainError('signer differs from intent fee payer')
       const shield = options.mevShield ?? prepared.mevShieldDefault
       if (prepared.mevShieldRequired && !shield) throw new ChainError('this intent requires MEV shielding')
@@ -585,18 +618,19 @@ export class Client {
 export class BrowserMultisig {
   readonly address: string
   readonly signatories: readonly string[]
-  constructor(readonly client: Client, signatories: readonly string[], readonly threshold: number) {
+  constructor(readonly client: Client, signatories: readonly string[], readonly threshold: number, readonly accountMode: 'legacy' | 'safe' = 'legacy') {
+    if (!['legacy','safe'].includes(accountMode)) throw new RangeError('invalid account mode')
     const ids = signatories.map(publicKeyFromSs58), distinct = new Set(ids.map(hex))
     if (distinct.size !== ids.length) throw new RangeError('duplicate multisig signatory')
     if (!Number.isInteger(threshold) || threshold < 1 || threshold > ids.length || threshold > 65535) throw new RangeError('invalid multisig threshold')
     this.signatories = Object.freeze(signatories.slice().sort((a, b) => hex(publicKeyFromSs58(a)).localeCompare(hex(publicKeyFromSs58(b)))))
-    this.address = ss58FromPublic(multisigAccountId(ids, threshold).accountId)
+    this.address = ss58FromPublic(multisigAccountId(ids, threshold, accountMode === 'safe').accountId)
   }
   async prepare(call: IntentDescriptor, signerAddress: string, expectedCallHash?: string) {
-    return this.client.prepareMultisig({ call, signatories: this.signatories, threshold: this.threshold, signerAddress, expectedCallHash })
+    return this.client.prepareMultisig({ accountMode: this.accountMode, call, signatories: this.signatories, threshold: this.threshold, signerAddress, expectedCallHash })
   }
   async approve(call: Intent | IntentDescriptor, signer: BrowserSigner, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    signer = pinSigner(signer)
+    if (!(signer instanceof Keypair && isProtectedCrypto(signer.cryptoType))) signer = pinSigner(signer)
     const address = signer.ss58Address ?? signer.address
     if (!address) throw new TypeError('signer must expose an address')
     const identity = hex(publicKeyFromSs58(address))
@@ -605,8 +639,9 @@ export class BrowserMultisig {
       const reader = await this.client.intentReader()
       const hotkey = intentSignerRole(call) === 'hotkey'
       const inner = await call.prepare(reader, { coldkey: this.address, feePayer: address, ...(hotkey ? { hotkey: this.address, hotkeyPublicKey: publicKeyFromSs58(this.address) } : {}) })
-      const approval = await prepareMultisigApproval(reader, { call: inner.call, signatories: this.signatories, threshold: this.threshold, signerAddress: address, expectedCallHash: options.expectedCallHash })
+      const approval = await prepareMultisigApproval(reader, { accountMode: this.accountMode, call: inner.call, signatories: this.signatories, threshold: this.threshold, signerAddress: address, expectedCallHash: options.expectedCallHash })
       const wrapped = new Intent(this.threshold === 1 ? 'multisig_threshold_1' : 'multisig_execute', {
+        account_mode: this.accountMode,
         other_signatories: this.signatories.filter(member => hex(publicKeyFromSs58(member)) !== identity), call: call.toJSON(),
         ...(this.threshold === 1 ? {} : { threshold: this.threshold, timepoint: approval.timepoint }),
       })

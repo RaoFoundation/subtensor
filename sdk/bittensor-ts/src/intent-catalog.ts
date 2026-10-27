@@ -92,7 +92,7 @@ export const INTENT_CATALOG = [
         },
         "proxy_type": {
           "type": "string",
-          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
         },
         "delay": {
           "type": "integer",
@@ -283,6 +283,10 @@ export const INTENT_CATALOG = [
         "new_coldkey_ss58": {
           "type": "string",
           "description": "Coldkey that will take over everything this coldkey owns once the swap executes; validated and reserved before the announcement fee is charged."
+        },
+        "hashed_descriptor": {
+          "type": "string",
+          "description": "Public descriptor hex for a remote hashed destination's registration."
         }
       },
       "required": [
@@ -293,7 +297,9 @@ export const INTENT_CATALOG = [
     "mev_shield_default": false,
     "mev_shield_required": false,
     "all_amount_fields": [],
-    "defaults": {},
+    "defaults": {
+      "hashed_descriptor": null
+    },
     "money_fields": []
   },
   {
@@ -378,6 +384,50 @@ export const INTENT_CATALOG = [
     "money_fields": []
   },
   {
+    "name": "authorize_order",
+    "summary": "Authorize every economic term of a order through the account's origin.",
+    "description": "Authorize every economic term of a order through the account's origin.\n\nSupports direct post-quantum owners, proxies, derivatives, and multisigs. This\ngrants relayers the complete specified trade; funds move only on execution.\nCancel with the same nonce and complete order to revoke its unfilled part.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "LimitOrders",
+        "authorize_order"
+      ]
+    ],
+    "docs_url": "https://www.bittensor.com/docs/tx/authorize-order",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "nonce": {
+          "type": "integer",
+          "description": "Permanent owner-local u64 order nonce."
+        },
+        "order": {
+          "type": "object",
+          "description": "Complete V1 or V2 VersionedOrder, including every economic term."
+        },
+        "order_data": {
+          "type": "string",
+          "description": "Optional pinned canonical VersionedOrder SCALE bytes as hex."
+        }
+      },
+      "required": [
+        "nonce",
+        "order"
+      ],
+      "additionalProperties": false
+    },
+    "mev_shield_default": false,
+    "mev_shield_required": false,
+    "all_amount_fields": [],
+    "defaults": {
+      "order_data": ""
+    },
+    "money_fields": []
+  },
+  {
     "name": "batch",
     "summary": "Execute several intents atomically in one extrinsic (all-or-nothing).",
     "description": "Execute several intents atomically in one extrinsic (all-or-nothing).\n\nWraps the child calls in `Utility.batch_all`: they run in order and if\nany one fails the whole extrinsic reverts, so there is never a\npartially-applied result. Use it for multi-step operations that must land\ntogether (e.g. move funds then act on them) instead of submitting the\nsteps separately and risking a half-done state. All children must share\none signer — an extrinsic has a single signature — and batches cannot\ncontain other batches. Spend limits and policy checks aggregate across\nevery child, and the transaction plan lists each child's effects.",
@@ -446,6 +496,50 @@ export const INTENT_CATALOG = [
     "all_amount_fields": [],
     "defaults": {
       "hotkey_ss58": null
+    },
+    "money_fields": []
+  },
+  {
+    "name": "cancel_order",
+    "summary": "Cancel a order and any unfilled remainder using its complete terms.",
+    "description": "Cancel a order and any unfilled remainder using its complete terms.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "LimitOrders",
+        "cancel_order"
+      ]
+    ],
+    "docs_url": "https://www.bittensor.com/docs/tx/cancel-order",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "nonce": {
+          "type": "integer",
+          "description": "Permanent owner-local u64 order nonce."
+        },
+        "order": {
+          "type": "object",
+          "description": "Complete V1 or V2 VersionedOrder, including every economic term."
+        },
+        "order_data": {
+          "type": "string",
+          "description": "Optional pinned canonical VersionedOrder SCALE bytes as hex."
+        }
+      },
+      "required": [
+        "nonce",
+        "order"
+      ],
+      "additionalProperties": false
+    },
+    "mev_shield_default": false,
+    "mev_shield_required": false,
+    "all_amount_fields": [],
+    "defaults": {
+      "order_data": ""
     },
     "money_fields": []
   },
@@ -774,6 +868,14 @@ export const INTENT_CATALOG = [
       [
         "Proxy",
         "create_pure"
+      ],
+      [
+        "Proxy",
+        "create_protected_pure"
+      ],
+      [
+        "Proxy",
+        "create_safe_pure"
       ]
     ],
     "docs_url": "https://www.bittensor.com/docs/tx/create-pure-proxy",
@@ -782,7 +884,7 @@ export const INTENT_CATALOG = [
       "properties": {
         "proxy_type": {
           "type": "string",
-          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
         },
         "delay": {
           "type": "integer",
@@ -791,6 +893,10 @@ export const INTENT_CATALOG = [
         "index": {
           "type": "integer",
           "description": "Disambiguator so one signer can create several pure proxies in one block; also part of the derived address. Keep 0 unless batching."
+        },
+        "account_mode": {
+          "type": "string",
+          "description": "Account derivation: legacy or safe; MS wallets default to safe."
         }
       },
       "required": [],
@@ -802,7 +908,8 @@ export const INTENT_CATALOG = [
     "defaults": {
       "proxy_type": "Staking",
       "delay": 0,
-      "index": 0
+      "index": 0,
+      "account_mode": null
     },
     "money_fields": []
   },
@@ -961,6 +1068,89 @@ export const INTENT_CATALOG = [
     ]
   },
   {
+    "name": "execute_batched_orders",
+    "summary": "Relay a bounded order batch through the atomic subnet netting engine.",
+    "description": "Relay a bounded order batch through the atomic subnet netting engine.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "LimitOrders",
+        "execute_batched_orders"
+      ]
+    ],
+    "docs_url": "https://www.bittensor.com/docs/tx/execute-batched-orders",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "orders": {
+          "type": "array",
+          "description": "Complete SignedOrder objects."
+        },
+        "should_fail": {
+          "type": "boolean",
+          "description": "Revert the batch if any order fails."
+        },
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet shared by all orders in the atomic netted batch."
+        }
+      },
+      "required": [
+        "orders"
+      ],
+      "additionalProperties": false
+    },
+    "mev_shield_default": false,
+    "mev_shield_required": false,
+    "all_amount_fields": [],
+    "defaults": {
+      "should_fail": true,
+      "netuid": 1
+    },
+    "money_fields": []
+  },
+  {
+    "name": "execute_orders",
+    "summary": "Relay classical orders and up to eight account-approved orders.",
+    "description": "Relay classical orders and up to eight account-approved orders.\n\nEach signed order includes complete terms, its signature, and an optional\npartial fill. Authorized terms also bind an owner-local nonce. With\nshould_fail true, any failed order reverts the whole batch.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "LimitOrders",
+        "execute_orders"
+      ]
+    ],
+    "docs_url": "https://www.bittensor.com/docs/tx/execute-orders",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "orders": {
+          "type": "array",
+          "description": "Complete SignedOrder objects."
+        },
+        "should_fail": {
+          "type": "boolean",
+          "description": "Revert the batch if any order fails."
+        }
+      },
+      "required": [
+        "orders"
+      ],
+      "additionalProperties": false
+    },
+    "mev_shield_default": false,
+    "mev_shield_required": false,
+    "all_amount_fields": [],
+    "defaults": {
+      "should_fail": true
+    },
+    "money_fields": []
+  },
+  {
     "name": "execute_proxy_announced",
     "summary": "Execute a proxy call that was announced and has passed its delay.",
     "description": "Execute a proxy call that was announced and has passed its delay.\n\nThe delayed-proxy flow: a delegate added with `delay` > 0 first announces\nthe call's hash, waits out the delay (during which the real account can\nveto), then anyone may dispatch the announced call with this intent. The\ninner call is given as an intent op name plus its arguments and must hash\nto exactly what was announced. Fails if the delay has not elapsed or no\nmatching announcement exists.",
@@ -1050,7 +1240,7 @@ export const INTENT_CATALOG = [
   {
     "name": "fund_evm_key",
     "summary": "Fund an EVM (h160) address with TAO from the signing coldkey.",
-    "description": "Fund an EVM (h160) address with TAO from the signing coldkey.\n\nAn EVM account's native balance lives at its ss58 *mirror* address\n(`blake2_256(\"evm:\" ++ h160)`). This intent computes the mirror and\ntransfers TAO to it; the funds then appear as the EVM account's balance\nin MetaMask or any Ethereum tool (displayed with 18 decimals there:\n1 TAO = 1e18). Like any transfer this is irreversible — and only the\nholder of the EVM private key can move the funds afterwards, so\ndouble-check the address.",
+    "description": "Fund an EVM (h160) address with TAO from the signing coldkey.\n\nAn ordinary EVM account's native balance lives at its legacy ss58 mirror.\nRegistered hashed aliases instead share their full native account's balance.\nOn supported runtimes the transaction resolves the active mapping during\nexecution, so an alias change cannot redirect funds to an obsolete mirror;\nthe funds then appear as the EVM account's balance\nin MetaMask or any Ethereum tool (displayed with 18 decimals there:\n1 TAO = 1e18). Like any transfer this is irreversible, so double-check\nthe address. Protected aliases require their native hashed authorization.\nOn older runtimes, when hashed aliases are enabled, native funding of unprotected aliases is\nrefused: their mapping cannot be guarded against a concurrent registration.\nSend to those H160 addresses from an EVM wallet instead.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1058,6 +1248,10 @@ export const INTENT_CATALOG = [
       [
         "Balances",
         "transfer_keep_alive"
+      ],
+      [
+        "EVM",
+        "deposit"
       ]
     ],
     "docs_url": "https://www.bittensor.com/docs/tx/fund-evm-key",
@@ -1158,6 +1352,10 @@ export const INTENT_CATALOG = [
       [
         "Proxy",
         "kill_pure"
+      ],
+      [
+        "Proxy",
+        "kill_safe_pure"
       ]
     ],
     "docs_url": "https://www.bittensor.com/docs/tx/kill-pure-proxy",
@@ -1183,6 +1381,10 @@ export const INTENT_CATALOG = [
         "ext_index": {
           "type": "integer",
           "description": "Extrinsic index of the creating call within that block."
+        },
+        "account_mode": {
+          "type": "string",
+          "description": "Derivation mode used when the pure proxy was created."
         }
       },
       "required": [
@@ -1197,7 +1399,8 @@ export const INTENT_CATALOG = [
       "proxy_type": "Staking",
       "index": 0,
       "height": 0,
-      "ext_index": 0
+      "ext_index": 0,
+      "account_mode": "legacy"
     },
     "money_fields": []
   },
@@ -1511,7 +1714,15 @@ export const INTENT_CATALOG = [
       ],
       [
         "Multisig",
+        "as_multi_safe"
+      ],
+      [
+        "Multisig",
         "approve_as_multi"
+      ],
+      [
+        "Multisig",
+        "approve_as_multi_safe"
       ]
     ],
     "docs_url": "https://www.bittensor.com/docs/tx/multisig-approve",
@@ -1530,6 +1741,10 @@ export const INTENT_CATALOG = [
           "type": "object",
           "description": "The inner call to dispatch from the multisig account, as a JSON object {\"op\": <intent name>, ...args}. All approvals must describe the identical call — it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet."
         },
+        "account_mode": {
+          "type": "string",
+          "description": "Account derivation mode: legacy or safe; must match every approval."
+        },
         "timepoint": {
           "type": "object",
           "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Omit on the first approval; required on every later one (read it with the multisig query)."
@@ -1546,6 +1761,7 @@ export const INTENT_CATALOG = [
     "mev_shield_required": false,
     "all_amount_fields": [],
     "defaults": {
+      "account_mode": "legacy",
       "timepoint": null
     },
     "money_fields": []
@@ -1561,6 +1777,10 @@ export const INTENT_CATALOG = [
       [
         "Multisig",
         "cancel_as_multi"
+      ],
+      [
+        "Multisig",
+        "cancel_as_multi_safe"
       ]
     ],
     "docs_url": "https://www.bittensor.com/docs/tx/multisig-cancel",
@@ -1579,6 +1799,10 @@ export const INTENT_CATALOG = [
           "type": "object",
           "description": "The inner call to dispatch from the multisig account, as a JSON object {\"op\": <intent name>, ...args}. All approvals must describe the identical call — it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet."
         },
+        "account_mode": {
+          "type": "string",
+          "description": "Account derivation mode: legacy or safe; must match every approval."
+        },
         "timepoint": {
           "type": "object",
           "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Required — it identifies which pending operation to cancel."
@@ -1595,7 +1819,9 @@ export const INTENT_CATALOG = [
     "mev_shield_default": false,
     "mev_shield_required": false,
     "all_amount_fields": [],
-    "defaults": {},
+    "defaults": {
+      "account_mode": "legacy"
+    },
     "money_fields": []
   },
   {
@@ -1609,6 +1835,10 @@ export const INTENT_CATALOG = [
       [
         "Multisig",
         "as_multi"
+      ],
+      [
+        "Multisig",
+        "as_multi_safe"
       ]
     ],
     "docs_url": "https://www.bittensor.com/docs/tx/multisig-execute",
@@ -1627,6 +1857,10 @@ export const INTENT_CATALOG = [
           "type": "object",
           "description": "The inner call to dispatch from the multisig account, as a JSON object {\"op\": <intent name>, ...args}. All approvals must describe the identical call — it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet."
         },
+        "account_mode": {
+          "type": "string",
+          "description": "Account derivation mode: legacy or safe; must match every approval."
+        },
         "timepoint": {
           "type": "object",
           "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Omit on the first approval; required on every later one (read it with the multisig query)."
@@ -1643,6 +1877,7 @@ export const INTENT_CATALOG = [
     "mev_shield_required": false,
     "all_amount_fields": [],
     "defaults": {
+      "account_mode": "legacy",
       "timepoint": null
     },
     "money_fields": []
@@ -1658,6 +1893,10 @@ export const INTENT_CATALOG = [
       [
         "Multisig",
         "as_multi_threshold_1"
+      ],
+      [
+        "Multisig",
+        "as_multi_threshold_1_safe"
       ]
     ],
     "docs_url": "https://www.bittensor.com/docs/tx/multisig-threshold-1",
@@ -1671,6 +1910,10 @@ export const INTENT_CATALOG = [
         "call": {
           "type": "object",
           "description": "The inner call to dispatch from the multisig account, as a JSON object {\"op\": <intent name>, ...args}. All approvals must describe the identical call — it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet."
+        },
+        "account_mode": {
+          "type": "string",
+          "description": "Account derivation mode: legacy or safe; must match every approval."
         }
       },
       "required": [
@@ -1682,7 +1925,9 @@ export const INTENT_CATALOG = [
     "mev_shield_default": false,
     "mev_shield_required": false,
     "all_amount_fields": [],
-    "defaults": {},
+    "defaults": {
+      "account_mode": "legacy"
+    },
     "money_fields": []
   },
   {
@@ -3927,6 +4172,10 @@ export const INTENT_CATALOG = [
         "keep_alive": {
           "type": "boolean",
           "description": "Refuse to drop the sender below the existential deposit. Disable it only when you intend to empty the account, which lets the chain reap it."
+        },
+        "hashed_descriptor": {
+          "type": "string",
+          "description": "Public descriptor hex for initial registration of a remote hashed wallet."
         }
       },
       "required": [
@@ -3941,7 +4190,8 @@ export const INTENT_CATALOG = [
       "amount_tao"
     ],
     "defaults": {
-      "keep_alive": true
+      "keep_alive": true,
+      "hashed_descriptor": null
     },
     "money_fields": [
       "amount_tao"
@@ -3971,6 +4221,10 @@ export const INTENT_CATALOG = [
         "keep_alive": {
           "type": "boolean",
           "description": "Refuse to drop the sender below the existential deposit. Disable it only when you intend to empty the account, which lets the chain reap it."
+        },
+        "hashed_descriptor": {
+          "type": "string",
+          "description": "Public descriptor hex for initial registration of a remote hashed wallet."
         }
       },
       "required": [
@@ -3982,7 +4236,8 @@ export const INTENT_CATALOG = [
     "mev_shield_required": false,
     "all_amount_fields": [],
     "defaults": {
-      "keep_alive": true
+      "keep_alive": true,
+      "hashed_descriptor": null
     },
     "money_fields": []
   },

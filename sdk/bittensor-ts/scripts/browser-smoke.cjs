@@ -101,6 +101,27 @@ try {
   assert(sdk.verifySignature(message, signature, keypair.ss58Address), 'browser verifySignature works')
   assert(sdk.ss58FromPublic(keypair.publicKey, 42) === keypair.ss58Address, 'SS58 roundtrip works')
 
+  for (const [name, cryptoType] of Object.entries(sdk.WALLET_TYPES)) {
+    const wallet = sdk.Keypair.fromSeed(new Uint8Array(32).fill(17), cryptoType)
+    assert(wallet.type === name, 'wallet type ' + name)
+    assert(wallet.publicOnly().ss58Address === wallet.ss58Address, 'public view ' + name)
+    if (!sdk.isProtectedCrypto(cryptoType)) continue
+    const generation = sdk.isRotatingCrypto(cryptoType) ? 3n : 0n
+    const active = wallet.atGeneration(generation), descriptor = wallet.authorizationDescriptor()
+    assert(sdk.Keypair.fromDescriptor(descriptor).ss58Address === wallet.ss58Address, 'descriptor recovery ' + name)
+    const payload = new Uint8Array(400).fill(9), proof = active.signAuthorization(payload)
+    assert(sdk.verifyAuthorization(proof,payload,descriptor,generation,active.authorizationCurrentCommitment()), 'authorization ' + name)
+    assert(proof.length === wallet.dummyAuthorization().length, 'fee proof size ' + name)
+    payload[0] ^= 1
+    assert(!sdk.verifyAuthorization(proof,payload,descriptor,generation,active.authorizationCurrentCommitment()), 'tamper rejection ' + name)
+    if (sdk.isPqCrypto(cryptoType)) {
+      let rejected = false
+      try { wallet.sign(payload) } catch { rejected = true }
+      assert(rejected, 'PQ arbitrary message signing is unavailable ' + name)
+      assert(wallet.signPqCapabilityFor === undefined, 'removed delegated signing ' + name)
+    }
+  }
+
   const metadata = hexToBytes(metadataHex)
   const runtime = new sdk.Runtime(metadata, 419, 1, 42)
   assert(runtime.specVersion === 419, 'runtime spec version')
@@ -144,7 +165,7 @@ try {
 
   assert(typeof globalThis.Buffer === 'undefined', 'no Node Buffer polyfill is present')
   assert(sdk.listReads().length === 105, 'complete read catalog available')
-  assert(sdk.listIntentTools().length === 86, 'complete intent catalog available')
+  assert(sdk.listIntentTools().length === 90, 'complete intent catalog available')
   assert(typeof sdk.resolveTransactionFeePayer === 'function' && typeof sdk.serializeUnsignedTransaction === 'function', 'portable fee-payer and unsigned helpers are public browser exports')
   assert(sdk.blake2_256(new Uint8Array()).length === 32, 'WASM hash available')
   const client = new sdk.Client('local')
@@ -693,6 +714,7 @@ async function main() {
     await runBrowserPage(chromePath, new URL('/custom.html', served.url).href, 'custom')
     await runBrowserPage(chromePath, new URL('/default.html', served.url).href, 'default')
     await runBrowserPage(chromePath, new URL('/package.html', served.url).href, 'package')
+    console.log('Chromium smoke passed: custom, default and package loaders; all wallet profiles')
   } finally {
     server?.close()
     await removeTmp()

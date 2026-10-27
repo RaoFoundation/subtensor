@@ -257,10 +257,10 @@ test('Node and snapshot namespaces expose snake and camel methods at the origina
 test('generated catalogs expose every metadata category and exact call parameter names', () => {
   const descriptors = require('../dist/descriptors')
   const count = catalog => Object.values(catalog).reduce((sum, value) => sum + Object.keys(value).length, 0)
-  assert.equal(count(descriptors.storage), 411)
-  assert.equal(count(descriptors.constants), 136)
+  assert.equal(count(descriptors.storage), 418)
+  assert.equal(count(descriptors.constants), 142)
   assert.equal(count(descriptors.runtimeApi), 125)
-  assert.equal(count(descriptors.calls), 316)
+  assert.equal(count(descriptors.calls), 334)
   assert.deepEqual(descriptors.calls.SubtensorModule.announce_coldkey_swap('0x1234'), ['SubtensorModule', 'announce_coldkey_swap', { new_coldkey_hash: '0x1234' }])
 })
 

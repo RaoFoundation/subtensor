@@ -41,7 +41,7 @@ export function* iterCallLeaves(call: unknown): Generator<readonly [string, stri
     const module = String(row.call_module), fn = String(row.call_function)
     const arg = (name: string) => row.params?.[name] ?? row.call_args?.find((a: any) => a.name === name)?.value
     if (module === 'Utility' && ['batch', 'batch_all', 'force_batch'].includes(fn)) { pending.push(...[...(arg('calls') ?? [])].reverse().map(value => ({ value }))); continue }
-    if ((module === 'Proxy' && fn === 'proxy') || (module === 'Multisig' && ['as_multi', 'as_multi_threshold_1'].includes(fn))) { const inner = arg('call'); if (inner != null) pending.push({ value: inner }); continue }
+    if ((module === 'Proxy' && ['proxy','proxy_announced'].includes(fn)) || (module === 'Multisig' && ['as_multi', 'as_multi_threshold_1','as_multi_safe','as_multi_threshold_1_safe'].includes(fn)) || (module === 'Utility' && ['as_derivative','as_safe_derivative','as_protected_derivative'].includes(fn))) { const inner = arg('call'); if (inner != null) pending.push({ value: inner }); continue }
     yield [module, fn]
   }
 }

@@ -1,6 +1,6 @@
 import { describeSuite, expect } from "@moonwall/cli";
 import { createHash, createPublicKey, verify } from "node:crypto";
-import { CRYPTO_ED25519, Keypair, blake2_256, bytesToHex, hexToBytes } from "@bittensor/sdk";
+import { CRYPTO_ED25519, Keypair, asPolkadotKeypair, blake2_256, bytesToHex, hexToBytes } from "@bittensor/sdk";
 import {
     type Order,
     type OrderV2,
@@ -361,7 +361,7 @@ describeSuite({
             id: "T06",
             title: "buildReadableSignedOrder emits the device shape for the executable vector",
             test: () => {
-                const signer = Keypair.fromSeed(hexToBytes(SOFTWARE_VECTOR.seedHex), CRYPTO_ED25519);
+                const signer = asPolkadotKeypair(Keypair.fromSeed(hexToBytes(SOFTWARE_VECTOR.seedHex), CRYPTO_ED25519));
                 expect(signer.address).toBe(SOFTWARE_ADDRESS);
 
                 // `api` is unused by the readable builder (the payload is rendered from

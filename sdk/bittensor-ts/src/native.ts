@@ -13,6 +13,20 @@ import type {
 } from './rust-bindings'
 
 export interface NativeKeypairHandle {
+  dummyAuthorization(): Buffer
+  readonly accountType: string
+  readonly signingScheme: string
+  publicOnly(): NativeKeypairHandle
+  atGeneration(generation: bigint): NativeKeypairHandle
+  authorizationGeneration(): bigint
+  authorizationDescriptor(): Buffer
+  authorizationPublicKey(): Buffer
+  authorizationCommitment(generation: bigint): Buffer
+  authorizationCurrentCommitment(): Buffer
+  authorizationNextCommitment(): Buffer
+  receivingAddress(): string
+  signAuthorization(payload: Buffer): Buffer
+  pqProfile(): number
   readonly cryptoType: number
   readonly kind: RustKeypairKind
   readonly publicKey: Buffer
@@ -116,6 +130,7 @@ export interface NativeCursorConstructor {
 }
 
 export interface NativeRuntimeHandle {
+  supportsMldsaProfile(profile: number): boolean
   readonly specVersion: number
   readonly transactionVersion: number
   readonly ss58Format: number
@@ -659,6 +674,10 @@ export interface NativeBinding {
   coreValueTuple(items: unknown[]): unknown
   coreValueDict(entries: Array<{ key: unknown; value: unknown }>): unknown
 
+  keypairFromDescriptor(descriptor: Buffer, ss58Format: number): NativeKeypairHandle
+  decodeReceivingAddress(address: string): Buffer
+  encodeReceivingAddress(descriptor: Buffer): string
+  verifyAuthorization(proof: Buffer, payload: Buffer, descriptor: Buffer, generation: bigint, commitment: Buffer): boolean
   keypairNew(
     ss58Address: string | null | undefined,
     publicKey: Buffer | null | undefined,
@@ -732,6 +751,7 @@ export interface NativeBinding {
   multisigAccountId(
     signatories: Buffer[],
     threshold: number,
+    safe?: boolean,
   ): { accountId: Buffer; sortedSignatories: Buffer[] }
   multisigSs58(accountId: Buffer, ss58Format: number): string
   encodeCompact(value: bigint): Buffer

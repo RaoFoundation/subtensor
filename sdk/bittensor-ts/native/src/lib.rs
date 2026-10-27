@@ -8,6 +8,7 @@ mod keys;
 mod ledger;
 mod mlkem;
 mod pow;
+mod protected_keys;
 mod runtime;
 mod timelock;
 mod transaction;

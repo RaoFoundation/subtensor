@@ -3,7 +3,10 @@ import { nativeRustClient, type Client, type SignerLike, type ChainSigner, type 
 import { Intent, intentFromJSON, intentSignerRole, checkIntentPolicy, encodeIntentCall, type IntentContext, type IntentDescriptor, type IntentPolicy, type IntentReader, type PreparedIntent } from './intents'
 import { IntentCall, Policy, rawCall, type NativeChainClient } from './transaction'
 import { Wallet, type WalletPasswordOptions } from './wallet'
-import { Keypair, publicKeyFromSs58, ss58FromPublic } from './keys'
+import { Keypair, publicKeyFromSs58, ss58FromPublic, decodeReceivingAddress } from './keys'
+import { parseRecipient } from './receiving'
+import { isProtectedCrypto } from './wallet-types'
+import { authorizeRegistrationSponsorship, type RegistrationSponsorshipOptions } from './registration-sponsorship'
 import { blake2_256, hexToBytes, sealMevShieldTransaction } from './crypto'
 import { Runtime, multisigAccountId, storagePrefixFor } from './runtime'
 import { fromWire } from './wire'
@@ -17,7 +20,7 @@ import { runSignerQueue, signerQueueOptions, bindSignerIdentity, type BoundSigne
 import type { ScaleValue } from './types'
 
 export type WorkflowSigner = SignerLike | Wallet
-export interface WorkflowOptions extends Omit<SubmitOptions, 'policy' | 'allowRawCall' | 'rawSignerRole'>, WalletPasswordOptions {
+export interface WorkflowOptions extends Omit<SubmitOptions, 'policy' | 'allowRawCall' | 'rawSignerRole'>, WalletPasswordOptions, RegistrationSponsorshipOptions {
   policy?: IntentPolicy
   /** Defaults to the semantic operation's MEV setting; mandatory shielding cannot be disabled. */
   mevShield?: boolean
@@ -51,9 +54,9 @@ export class WorkflowClient {
 
   submitShielded(value: Intent | Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowResult> { return this.execute(value, signer, { ...options, mevShield: true }) }
 
-  async multisig(signatories: readonly string[], threshold: number): Promise<NodeMultisig> {
+  async multisig(signatories: readonly string[], threshold: number, accountMode: 'legacy' | 'safe' = 'legacy'): Promise<NodeMultisig> {
     const runtime = await this.client.runtimeAt()
-    return new NodeMultisig(this.client, signatories, threshold, runtime.ss58Format)
+    return new NodeMultisig(this.client, signatories, threshold, runtime.ss58Format, accountMode)
   }
 
   async plan(value: Intent | Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowPlan> {
@@ -63,6 +66,12 @@ export class WorkflowClient {
     const blockHash = await this.client.blockHash()
     const runtime = await this.client.runtimeAt(blockHash)
     const identity = await publicIdentity(this.client, intent, signer, options)
+    if (isProtectedCrypto(identity.cryptoType)) {
+      const key = signer instanceof Wallet ? intentSignerRole(intent) === 'hotkey' ? await signer.hotkeypub : await signer.coldkeypub : signer
+      if (!(key instanceof Keypair)) throw new TypeError('protected preview requires a public Keypair descriptor')
+      const plan = await this.client.protectedWallet(key).plan(intent,{...options,metadataHash:options.metadataHash == null ? undefined : Buffer.from(options.metadataHash as Uint8Array),tip:taoTransactionAmountRao(options.tip ?? 0n),tipAssetId:options.tipAssetId == null ? null : assetIdValue(options.tipAssetId),hotkey:identity.hotkey,hotkeyPublicKey:identity.hotkeyPublicKey})
+      return Object.freeze({intent:plan.intent,call:IntentCall.fromDescriptor(native,plan.call as unknown as ScaleValue),signerAddress:identity.address,feePayer:plan.feePayer,fee:Balance.fromRao(plan.feeRao),carrierFee:Balance.fromRao(plan.carrierFeeRao),shielded:plan.shielded,blockHash:plan.blockHash,violations:Object.freeze(plan.violations),ok:plan.ok})
+    }
     const origin = options.proxyFor ?? identity.address
     const context: IntentContext = { coldkey: origin, hotkey: identity.hotkey, hotkeyPublicKey: identity.hotkeyPublicKey, feePayer: identity.address }
     if (options.proxyFor && intentSignerRole(intent) === 'hotkey') { context.hotkey = options.proxyFor; context.hotkeyPublicKey = publicKeyFromSs58(options.proxyFor) }
@@ -108,6 +117,10 @@ export class WorkflowClient {
       const key = accountKey(address), old = required.get(key)
       required.set(key, { address, amount: (old?.amount ?? 0n) + amount })
     }
+    for (const quote of (prepared.extras.registrationSponsorships ?? []) as Array<{payer:string;depositRao:bigint}>) {
+      const key = accountKey(quote.payer), old = required.get(key)
+      required.set(key,{address:quote.payer,amount:(old?.amount ?? 0n) + quote.depositRao})
+    }
     for (const { address, amount } of required.values()) {
       const free = accountFree(await this.client.query('System', 'Account', [address], blockHash))
       if (free < amount) violations.push(`account ${address} needs ${amount} rao for fees and bounded outgoing spend, has ${free}`)
@@ -125,6 +138,11 @@ export class WorkflowClient {
   async execute(value: Intent | Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowResult> {
     const intent = value instanceof Intent ? value : intentFromJSON(value)
     const identity = await publicIdentity(this.client, intent, signer, options)
+    if (isProtectedCrypto(identity.cryptoType)) {
+      const key = signer instanceof Wallet ? await signer.signer(intentSignerRole(intent),options) : signer
+      if (!(key instanceof Keypair)) throw new TypeError('protected signing requires a Keypair; external wallets can submit their encoded transaction')
+      return this.client.protectedWallet(key).execute(intent, { ...options, metadataHash: options.metadataHash == null ? undefined : Buffer.from(options.metadataHash as Uint8Array), tip: taoTransactionAmountRao(options.tip ?? 0n), tipAssetId: options.tipAssetId == null ? null : assetIdValue(options.tipAssetId), hotkey: identity.hotkey, hotkeyPublicKey: identity.hotkeyPublicKey })
+    }
     const planningSigner = signer instanceof Wallet ? signer : bindSignerIdentity(signer, identity)
     return runSignerQueue(this.client, identity.address, async permit => {
       if (options.signal?.aborted) throw options.signal.reason ?? new Error('workflow aborted')
@@ -144,6 +162,7 @@ export class WorkflowClient {
         if (!publicKeyFromSs58(plan.signerAddress).equals(identity.publicKey)) throw new Error('signer account changed after preflight')
         if (!plan.ok) throw new Error(`intent preflight refused: ${plan.violations.join('; ')}`)
       }
+      await authorizeRegistrationSponsorship(plan.intent,options)
       const resolvedSigner = bindSignerIdentity(planningSigner instanceof Wallet ? await planningSigner.signer(plan.intent.signerRole, options) : planningSigner, identity)
       const submission = signerQueueOptions(submitOptions({ ...executionOptions, period: plan.shielded ? 8 : options.period === undefined ? 128 : options.period }), permit)
       if (!plan.shielded) {
@@ -197,12 +216,13 @@ export interface MultisigSubmitOptions extends WorkflowOptions { allowRawCall?: 
 export class NodeMultisig {
   readonly address: string
   readonly signatories: readonly string[]
-  constructor(readonly client: Client, signatories: readonly string[], readonly threshold: number, ss58Format = 42) {
+  constructor(readonly client: Client, signatories: readonly string[], readonly threshold: number, ss58Format = 42, readonly accountMode: 'legacy' | 'safe' = 'legacy') {
+    if (!['legacy','safe'].includes(accountMode)) throw new RangeError('invalid account mode')
     const ids = signatories.map(publicKeyFromSs58), unique = new Set(ids.map(id => id.toString('hex')))
     if (unique.size !== ids.length) throw new RangeError('duplicate multisig signatory')
     if (!Number.isInteger(threshold) || threshold < 1 || threshold > ids.length || threshold > 65535) throw new RangeError('invalid multisig threshold')
     this.signatories = Object.freeze(signatories.slice().sort((a, b) => Buffer.compare(publicKeyFromSs58(a), publicKeyFromSs58(b))))
-    this.address = ss58FromPublic(multisigAccountId(ids, threshold).accountId, ss58Format)
+    this.address = ss58FromPublic(multisigAccountId(ids, threshold, accountMode === 'safe').accountId, ss58Format)
   }
 
   async approve(call: Intent | IntentDescriptor, signer: WorkflowSigner, options: MultisigSubmitOptions = {}): Promise<WorkflowResult> {
@@ -214,8 +234,9 @@ export class NodeMultisig {
     if (call instanceof Intent) {
       const hotkey = intentSignerRole(call) === 'hotkey'
       const inner = await call.prepare(reader, { coldkey: this.address, feePayer: identity.address, ...(hotkey ? { hotkey: this.address, hotkeyPublicKey: publicKeyFromSs58(this.address) } : {}) })
-      const approval = await prepareMultisigApproval(reader, { call: inner.call, signatories: this.signatories, threshold: this.threshold, signerAddress: identity.address, expectedCallHash: options.expectedCallHash })
+      const approval = await prepareMultisigApproval(reader, { accountMode: this.accountMode, call: inner.call, signatories: this.signatories, threshold: this.threshold, signerAddress: identity.address, expectedCallHash: options.expectedCallHash })
       const wrapped = new Intent(this.threshold === 1 ? 'multisig_threshold_1' : 'multisig_execute', {
+        account_mode: this.accountMode,
         other_signatories: this.signatories.filter(member => !publicKeyFromSs58(member).equals(identity.publicKey)), call: call.toJSON(),
         ...(this.threshold === 1 ? {} : { threshold: this.threshold, timepoint: approval.timepoint }),
       })
@@ -230,7 +251,7 @@ export class NodeMultisig {
     const identity = await publicIdentity(this.client, 'coldkey', signer, options)
     if (!identity.publicKey.equals(Buffer.from(expectedIdentity.publicKey))) throw new Error('signer account changed after preflight')
     const reader = await createNodeIntentReader(this.client, native)
-    const approval = await prepareMultisigApproval(reader, { call, signatories: this.signatories, threshold: this.threshold, signerAddress: identity.address, expectedCallHash: options.expectedCallHash })
+    const approval = await prepareMultisigApproval(reader, { accountMode: this.accountMode, call, signatories: this.signatories, threshold: this.threshold, signerAddress: identity.address, expectedCallHash: options.expectedCallHash })
     let trusted: IntentCall
     try { trusted = IntentCall.fromDescriptor(native, approval.call as unknown as ScaleValue) } catch (error) {
       if (!options.allowRawCall) throw error
@@ -298,7 +319,12 @@ export async function createNodeIntentReader(client: Client, native: NativeChain
   const runtime = await client.runtimeAt(blockHash)
   const compose = (call: IntentDescriptor) => encodeIntentCall(call, async (pallet, fn, params) => client.composeCall(pallet, fn, params as ScaleValue, blockHash))
   return {
-    query: (pallet, item, params = []) => client.query(pallet, item, params as ScaleValue[], blockHash),
+    descriptorAddress: descriptor => Keypair.fromDescriptor(descriptor).ss58Address,
+    composeCall: compose,
+    parseRecipient: (address, descriptor) => parseRecipient(address, decodeReceivingAddress, Keypair.fromDescriptor, publicKeyFromSs58, descriptor),
+    supportsPqProfile: profile => runtime.supportsMldsaProfile(profile),
+    finalizedHead: () => client.finalizedHead(),
+    query: (pallet, item, params = [], at) => client.query(pallet, item, params as ScaleValue[], at ?? blockHash),
     queryMap: (pallet, item, params = [], limit) => client.queryMap(pallet, item, params as ScaleValue[], blockHash, { maxResults: limit }),
     countStorageKeys: async (pallet, item, params, limit) => {
       let prefix: Buffer
@@ -317,8 +343,8 @@ export async function createNodeIntentReader(client: Client, native: NativeChain
     blockTime: () => client.blockTime(blockHash),
     decodeAddress: publicKeyFromSs58,
     encodeAddress: publicKey => ss58FromPublic(publicKey, runtime.ss58Format),
-    multisigAccount: (signatories, threshold) => {
-      const account = multisigAccountId(signatories.map(publicKeyFromSs58), threshold)
+    multisigAccount: (signatories, threshold, safe) => {
+      const account = multisigAccountId(signatories.map(publicKeyFromSs58), threshold, safe)
       return { address: ss58FromPublic(account.accountId, runtime.ss58Format), publicKey: account.accountId }
     },
     hashCall: async call => blake2_256(await compose(call)),

@@ -19,7 +19,7 @@ export interface AddCollateralInput {
 export interface AddProxyInput {
   /** Key that will be allowed to sign for this account. */
   delegate_ss58: string
-  /** Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers. */
+  /** Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers. */
   proxy_type?: string
   /** Announcement delay in blocks: the delegate must announce each call and wait this long before executing it, giving you time to veto. 0 executes immediately. */
   delay?: number | bigint | `${bigint}`
@@ -54,6 +54,8 @@ export interface AddStakeLimitInput {
 export interface AnnounceColdkeySwapInput {
   /** Coldkey that will take over everything this coldkey owns once the swap executes; validated and reserved before the announcement fee is charged. */
   new_coldkey_ss58: string
+  /** Public descriptor hex for a remote hashed destination's registration. */
+  hashed_descriptor?: string | null
 }
 /** Associate an EVM key with a hotkey on a subnet. */
 export interface AssociateEvmKeyInput {
@@ -71,6 +73,15 @@ export interface AssociateHotkeyInput {
   /** Hotkey to record as owned by the signing coldkey. */
   hotkey_ss58?: string | null
 }
+/** Authorize every economic term of a order through the account's origin. */
+export interface AuthorizeOrderInput {
+  /** Permanent owner-local u64 order nonce. */
+  nonce: number | bigint | `${bigint}`
+  /** Complete V1 or V2 VersionedOrder, including every economic term. */
+  order: Readonly<Record<string, unknown>>
+  /** Optional pinned canonical VersionedOrder SCALE bytes as hex. */
+  order_data?: string
+}
 /** Execute several intents atomically in one extrinsic (all-or-nothing). */
 export interface BatchInput {
   /** The calls to execute, in order, as a JSON list of objects {"op": <intent name>, ...args}. At least one; all must share a signer; batches cannot nest. */
@@ -82,6 +93,15 @@ export interface BurnedRegisterInput {
   netuid: number | bigint | `${bigint}`
   /** Hotkey that receives the UID; defaults to the wallet's hotkey. */
   hotkey_ss58?: string | null
+}
+/** Cancel a order and any unfilled remainder using its complete terms. */
+export interface CancelOrderInput {
+  /** Permanent owner-local u64 order nonce. */
+  nonce: number | bigint | `${bigint}`
+  /** Complete V1 or V2 VersionedOrder, including every economic term. */
+  order: Readonly<Record<string, unknown>>
+  /** Optional pinned canonical VersionedOrder SCALE bytes as hex. */
+  order_data?: string
 }
 /** Redeem accrued root dividends across every validator for the coldkey. */
 export interface ClaimRootInput {
@@ -137,12 +157,14 @@ export interface CreateCrowdloanInput {
 }
 /** Create a pure proxy: a fresh keyless account controlled via delegation. */
 export interface CreatePureProxyInput {
-  /** Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers. */
+  /** Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers. */
   proxy_type?: string
   /** Announcement delay in blocks: the delegate must announce each call and wait this long before executing it, giving you time to veto. 0 executes immediately. */
   delay?: number | bigint | `${bigint}`
   /** Disambiguator so one signer can create several pure proxies in one block; also part of the derived address. Keep 0 unless batching. */
   index?: number | bigint | `${bigint}`
+  /** Account derivation: legacy or safe; MS wallets default to safe. */
+  account_mode?: string | null
 }
 /** Decrease the delegate take of a hotkey. */
 export interface DecreaseTakeInput {
@@ -163,6 +185,22 @@ export interface DissolveCrowdloanInput {
 export interface EvmWithdrawInput {
   /** How much TAO to pull from the mirror, or ``all``. */
   amount_tao: IntentAmountInput
+}
+/** Relay a bounded order batch through the atomic subnet netting engine. */
+export interface ExecuteBatchedOrdersInput {
+  /** Complete SignedOrder objects. */
+  orders: readonly (unknown)[]
+  /** Revert the batch if any order fails. */
+  should_fail?: boolean
+  /** Subnet shared by all orders in the atomic netted batch. */
+  netuid?: number | bigint | `${bigint}`
+}
+/** Relay classical orders and up to eight account-approved orders. */
+export interface ExecuteOrdersInput {
+  /** Complete SignedOrder objects. */
+  orders: readonly (unknown)[]
+  /** Revert the batch if any order fails. */
+  should_fail?: boolean
 }
 /** Execute a proxy call that was announced and has passed its delay. */
 export interface ExecuteProxyAnnouncedInput {
@@ -208,6 +246,8 @@ export interface KillPureProxyInput {
   height?: number | bigint | `${bigint}`
   /** Extrinsic index of the creating call within that block. */
   ext_index?: number | bigint | `${bigint}`
+  /** Derivation mode used when the pure proxy was created. */
+  account_mode?: string
 }
 /** Lock alpha stake on a subnet, building conviction toward a hotkey. */
 export interface LockStakeInput {
@@ -269,6 +309,8 @@ export interface MultisigApproveInput {
   other_signatories: readonly string[]
   /** The inner call to dispatch from the multisig account, as a JSON object {"op": <intent name>, ...args}. All approvals must describe the identical call — it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet. */
   call: IntentJSON | Intent
+  /** Account derivation mode: legacy or safe; must match every approval. */
+  account_mode?: string
   /** Block height and extrinsic index of the approval that opened the operation, as a JSON object {"height": ..., "index": ...}. Omit on the first approval; required on every later one (read it with the multisig query). */
   timepoint?: IntentTimepointInput | null
 }
@@ -280,6 +322,8 @@ export interface MultisigCancelInput {
   other_signatories: readonly string[]
   /** The inner call to dispatch from the multisig account, as a JSON object {"op": <intent name>, ...args}. All approvals must describe the identical call — it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet. */
   call: IntentJSON | Intent
+  /** Account derivation mode: legacy or safe; must match every approval. */
+  account_mode?: string
   /** Block height and extrinsic index of the approval that opened the operation, as a JSON object {"height": ..., "index": ...}. Required — it identifies which pending operation to cancel. */
   timepoint: IntentTimepointInput
 }
@@ -291,6 +335,8 @@ export interface MultisigExecuteInput {
   other_signatories: readonly string[]
   /** The inner call to dispatch from the multisig account, as a JSON object {"op": <intent name>, ...args}. All approvals must describe the identical call — it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet. */
   call: IntentJSON | Intent
+  /** Account derivation mode: legacy or safe; must match every approval. */
+  account_mode?: string
   /** Block height and extrinsic index of the approval that opened the operation, as a JSON object {"height": ..., "index": ...}. Omit on the first approval; required on every later one (read it with the multisig query). */
   timepoint?: IntentTimepointInput | null
 }
@@ -300,6 +346,8 @@ export interface MultisigThreshold1Input {
   other_signatories: readonly string[]
   /** The inner call to dispatch from the multisig account, as a JSON object {"op": <intent name>, ...args}. All approvals must describe the identical call — it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet. */
   call: IntentJSON | Intent
+  /** Account derivation mode: legacy or safe; must match every approval. */
+  account_mode?: string
 }
 /** Register using an owner-enabled proof instead of TAO. */
 export interface PowRegisterInput {
@@ -694,6 +742,8 @@ export interface TransferInput {
   amount_tao: IntentAmountInput
   /** Refuse to drop the sender below the existential deposit. Disable it only when you intend to empty the account, which lets the chain reap it. */
   keep_alive?: boolean
+  /** Public descriptor hex for initial registration of a remote hashed wallet. */
+  hashed_descriptor?: string | null
 }
 /** Transfer the entire transferable balance to a destination address. */
 export interface TransferAllInput {
@@ -701,6 +751,8 @@ export interface TransferAllInput {
   dest_ss58: string
   /** Refuse to drop the sender below the existential deposit. Disable it only when you intend to empty the account, which lets the chain reap it. */
   keep_alive?: boolean
+  /** Public descriptor hex for initial registration of a remote hashed wallet. */
+  hashed_descriptor?: string | null
 }
 /** Transfer stake ownership to another coldkey. */
 export interface TransferStakeInput {
@@ -784,8 +836,10 @@ export interface IntentInputMap {
   announce_coldkey_swap: AnnounceColdkeySwapInput
   associate_evm_key: AssociateEvmKeyInput
   associate_hotkey: AssociateHotkeyInput
+  authorize_order: AuthorizeOrderInput
   batch: BatchInput
   burned_register: BurnedRegisterInput
+  cancel_order: CancelOrderInput
   claim_root: ClaimRootInput
   claim_root_with_hotkey: ClaimRootWithHotkeyInput
   clear_coldkey_swap_announcement: ClearColdkeySwapAnnouncementInput
@@ -797,6 +851,8 @@ export interface IntentInputMap {
   dispute_coldkey_swap: DisputeColdkeySwapInput
   dissolve_crowdloan: DissolveCrowdloanInput
   evm_withdraw: EvmWithdrawInput
+  execute_batched_orders: ExecuteBatchedOrdersInput
+  execute_orders: ExecuteOrdersInput
   execute_proxy_announced: ExecuteProxyAnnouncedInput
   finalize_crowdloan: FinalizeCrowdloanInput
   fund_evm_key: FundEvmKeyInput
@@ -871,8 +927,10 @@ export interface AddStakeLimitJSON extends AddStakeLimitInput { op: 'add_stake_l
 export interface AnnounceColdkeySwapJSON extends AnnounceColdkeySwapInput { op: 'announce_coldkey_swap' }
 export interface AssociateEvmKeyJSON extends AssociateEvmKeyInput { op: 'associate_evm_key' }
 export interface AssociateHotkeyJSON extends AssociateHotkeyInput { op: 'associate_hotkey' }
+export interface AuthorizeOrderJSON extends AuthorizeOrderInput { op: 'authorize_order' }
 export interface BatchJSON extends BatchInput { op: 'batch' }
 export interface BurnedRegisterJSON extends BurnedRegisterInput { op: 'burned_register' }
+export interface CancelOrderJSON extends CancelOrderInput { op: 'cancel_order' }
 export interface ClaimRootJSON extends ClaimRootInput { op: 'claim_root' }
 export interface ClaimRootWithHotkeyJSON extends ClaimRootWithHotkeyInput { op: 'claim_root_with_hotkey' }
 export interface ClearColdkeySwapAnnouncementJSON extends ClearColdkeySwapAnnouncementInput { op: 'clear_coldkey_swap_announcement' }
@@ -884,6 +942,8 @@ export interface DecreaseTakeJSON extends DecreaseTakeInput { op: 'decrease_take
 export interface DisputeColdkeySwapJSON extends DisputeColdkeySwapInput { op: 'dispute_coldkey_swap' }
 export interface DissolveCrowdloanJSON extends DissolveCrowdloanInput { op: 'dissolve_crowdloan' }
 export interface EvmWithdrawJSON extends EvmWithdrawInput { op: 'evm_withdraw' }
+export interface ExecuteBatchedOrdersJSON extends ExecuteBatchedOrdersInput { op: 'execute_batched_orders' }
+export interface ExecuteOrdersJSON extends ExecuteOrdersInput { op: 'execute_orders' }
 export interface ExecuteProxyAnnouncedJSON extends ExecuteProxyAnnouncedInput { op: 'execute_proxy_announced' }
 export interface FinalizeCrowdloanJSON extends FinalizeCrowdloanInput { op: 'finalize_crowdloan' }
 export interface FundEvmKeyJSON extends FundEvmKeyInput { op: 'fund_evm_key' }
@@ -950,6 +1010,6 @@ export interface UpdateCrowdloanEndJSON extends UpdateCrowdloanEndInput { op: 'u
 export interface UpdateCrowdloanMinContributionJSON extends UpdateCrowdloanMinContributionInput { op: 'update_crowdloan_min_contribution' }
 export interface UpdateSymbolJSON extends UpdateSymbolInput { op: 'update_symbol' }
 export interface WithdrawCrowdloanJSON extends WithdrawCrowdloanInput { op: 'withdraw_crowdloan' }
-export type IntentJSON = AddCollateralJSON | AddProxyJSON | AddStakeJSON | AddStakeLimitJSON | AnnounceColdkeySwapJSON | AssociateEvmKeyJSON | AssociateHotkeyJSON | BatchJSON | BurnedRegisterJSON | ClaimRootJSON | ClaimRootWithHotkeyJSON | ClearColdkeySwapAnnouncementJSON | CommitWeightsJSON | ContributeCrowdloanJSON | CreateCrowdloanJSON | CreatePureProxyJSON | DecreaseTakeJSON | DisputeColdkeySwapJSON | DissolveCrowdloanJSON | EvmWithdrawJSON | ExecuteProxyAnnouncedJSON | FinalizeCrowdloanJSON | FundEvmKeyJSON | IncreaseTakeJSON | KillPureProxyJSON | LockStakeJSON | MoveLockJSON | MoveStakeJSON | MoveSwapStakeJSON | MultisigApproveJSON | MultisigCancelJSON | MultisigExecuteJSON | MultisigThreshold1JSON | PowRegisterJSON | RefundCrowdloanJSON | RegisterLeasedNetworkJSON | RegisterSubnetJSON | ReleaseOwnColdkeySwapDestinationReservationJSON | RemoveProxiesJSON | RemoveProxyJSON | RemoveStakeJSON | RemoveStakeLimitJSON | ResetAxonJSON | RevealWeightsJSON | RootRegisterJSON | ServeAxonJSON | ServeAxonTlsJSON | ServePrometheusJSON | SetAutoStakeJSON | SetChildkeyTakeJSON | SetChildrenJSON | SetCrowdloanMaxContributionJSON | SetHyperparameterJSON | SetIdentityJSON | SetMechanismCountJSON | SetMinCollateralJSON | SetPerpetualLockJSON | SetRejectLockedAlphaJSON | SetRejectStakingHotkeyGrowthJSON | SetRootClaimThresholdJSON | SetSubnetEmissionEnabledJSON | SetSubnetEmissionWeightsJSON | SetSubnetIdentityJSON | SetTakeJSON | SetWeightsJSON | StakeBurnJSON | StakeIntoBasketJSON | StartCallJSON | SwapBasketJSON | SwapBasketManyJSON | SwapColdkeyAnnouncedJSON | SwapHotkeyJSON | SwapStakeJSON | TerminateLeaseJSON | TransferJSON | TransferAllJSON | TransferStakeJSON | TrimNullSubnetBatchJSON | TrimSubnetJSON | UnstakeAllJSON | UnstakeAllAlphaJSON | UpdateCrowdloanCapJSON | UpdateCrowdloanEndJSON | UpdateCrowdloanMinContributionJSON | UpdateSymbolJSON | WithdrawCrowdloanJSON
+export type IntentJSON = AddCollateralJSON | AddProxyJSON | AddStakeJSON | AddStakeLimitJSON | AnnounceColdkeySwapJSON | AssociateEvmKeyJSON | AssociateHotkeyJSON | AuthorizeOrderJSON | BatchJSON | BurnedRegisterJSON | CancelOrderJSON | ClaimRootJSON | ClaimRootWithHotkeyJSON | ClearColdkeySwapAnnouncementJSON | CommitWeightsJSON | ContributeCrowdloanJSON | CreateCrowdloanJSON | CreatePureProxyJSON | DecreaseTakeJSON | DisputeColdkeySwapJSON | DissolveCrowdloanJSON | EvmWithdrawJSON | ExecuteBatchedOrdersJSON | ExecuteOrdersJSON | ExecuteProxyAnnouncedJSON | FinalizeCrowdloanJSON | FundEvmKeyJSON | IncreaseTakeJSON | KillPureProxyJSON | LockStakeJSON | MoveLockJSON | MoveStakeJSON | MoveSwapStakeJSON | MultisigApproveJSON | MultisigCancelJSON | MultisigExecuteJSON | MultisigThreshold1JSON | PowRegisterJSON | RefundCrowdloanJSON | RegisterLeasedNetworkJSON | RegisterSubnetJSON | ReleaseOwnColdkeySwapDestinationReservationJSON | RemoveProxiesJSON | RemoveProxyJSON | RemoveStakeJSON | RemoveStakeLimitJSON | ResetAxonJSON | RevealWeightsJSON | RootRegisterJSON | ServeAxonJSON | ServeAxonTlsJSON | ServePrometheusJSON | SetAutoStakeJSON | SetChildkeyTakeJSON | SetChildrenJSON | SetCrowdloanMaxContributionJSON | SetHyperparameterJSON | SetIdentityJSON | SetMechanismCountJSON | SetMinCollateralJSON | SetPerpetualLockJSON | SetRejectLockedAlphaJSON | SetRejectStakingHotkeyGrowthJSON | SetRootClaimThresholdJSON | SetSubnetEmissionEnabledJSON | SetSubnetEmissionWeightsJSON | SetSubnetIdentityJSON | SetTakeJSON | SetWeightsJSON | StakeBurnJSON | StakeIntoBasketJSON | StartCallJSON | SwapBasketJSON | SwapBasketManyJSON | SwapColdkeyAnnouncedJSON | SwapHotkeyJSON | SwapStakeJSON | TerminateLeaseJSON | TransferJSON | TransferAllJSON | TransferStakeJSON | TrimNullSubnetBatchJSON | TrimSubnetJSON | UnstakeAllJSON | UnstakeAllAlphaJSON | UpdateCrowdloanCapJSON | UpdateCrowdloanEndJSON | UpdateCrowdloanMinContributionJSON | UpdateSymbolJSON | WithdrawCrowdloanJSON
 export type IntentArguments<N extends keyof IntentInputMap> = keyof IntentInputMap[N] extends never ? [args?: Record<string, never>] : {} extends IntentInputMap[N] ? [args?: IntentInputMap[N]] : [args: IntentInputMap[N]]
 export type IntentBuilders = { readonly [N in keyof IntentInputMap]: (...args: IntentArguments<N>) => Intent }

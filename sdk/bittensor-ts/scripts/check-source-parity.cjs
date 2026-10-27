@@ -31,6 +31,16 @@ const sources = [
   'pallets/subtensor/src/lib.rs',
   'pallets/subtensor/src/staking/claim_root.rs',
   'pallets/subtensor/src/weights.rs',
+  'primitives/hashed/src/lib.rs',
+  'primitives/hashed/src/mldsa.rs',
+  'primitives/hashed/src/falcon.rs',
+  'pallets/hashed-accounts/src/lib.rs',
+  'pallets/hashed-accounts/src/mldsa.rs',
+  'pallets/limit-orders/src/lib.rs',
+  'pallets/limit-orders/src/authorization.rs',
+  'pallets/limit-orders/src/v2.rs',
+  'pallets/proxy/src/lib.rs',
+  'pallets/multisig/src/lib.rs',
 ].sort()
 const generated = [
   'descriptors.ts', 'read-catalog.ts', 'read-namespaces.ts', 'intent-catalog.ts',

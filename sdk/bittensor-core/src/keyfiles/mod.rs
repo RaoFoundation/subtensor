@@ -1396,6 +1396,92 @@ mod tests {
     }
 
     #[test]
+    fn protected_private_seeds_obey_public_export_and_keyfile_guards() {
+        use crate::keys::{
+            CRYPTO_FALCON1024, CRYPTO_FALCON1024_HASHED, CRYPTO_FALCON512, CRYPTO_FALCON512_HASHED,
+            CRYPTO_HASHED_ED25519, CRYPTO_MLDSA65, CRYPTO_MLDSA65_FIXED,
+        };
+        let mnemonic = Keypair::generate_mnemonic(24).unwrap();
+        for code in [
+            CRYPTO_HASHED,
+            CRYPTO_HASHED_ED25519,
+            CRYPTO_MLDSA65,
+            CRYPTO_MLDSA65_FIXED,
+            CRYPTO_FALCON512,
+            CRYPTO_FALCON512_HASHED,
+            CRYPTO_FALCON1024,
+            CRYPTO_FALCON1024_HASHED,
+        ] {
+            let private = Keypair::from_mnemonic(&mnemonic, code, None).unwrap();
+            assert!(private.has_private_key(), "private key type {code}");
+            assert!(keypair_to_keyfile_data(&private, None).is_err());
+            let public = private.public_only().unwrap();
+            assert!(!public.has_private_key());
+            assert!(public.private_key_bytes().is_none());
+            let data = keypair_to_keyfile_data(&public, None).unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&data).unwrap();
+            for field in ["privateKey", "secretSeed", "secretPhrase"] {
+                assert!(json.get(field).is_none(), "public export contains {field}");
+            }
+            let restored = deserialize_keypair_from_keyfile_data(&data).unwrap();
+            assert!(!restored.has_private_key());
+            assert_eq!(
+                restored.authorization_descriptor().unwrap(),
+                private.authorization_descriptor().unwrap()
+            );
+            assert!(restored.sign_authorization(b"watch-only").is_err());
+            let backup = serialized_keypair_to_keyfile_data(&private).unwrap();
+            assert!(deserialize_keypair_from_keyfile_data(&backup)
+                .unwrap()
+                .has_private_key());
+
+            let dir = temp_test_dir(&format!("protected-private-{code}"));
+            let private_path = dir.join("private");
+            let public_path = dir.join("public");
+            assert!(save_keypair_to_keyfile(&private, &private_path, None, false, false).is_err());
+            assert!(save_keypair_pair_to_keyfiles(
+                &private,
+                &private_path,
+                None,
+                &public,
+                &public_path,
+                false,
+                false
+            )
+            .is_err());
+            // Even explicit private plaintext opt-in cannot allow a private public member.
+            assert!(save_keypair_pair_to_keyfiles(
+                &private,
+                &private_path,
+                None,
+                &private,
+                &public_path,
+                false,
+                true
+            )
+            .is_err());
+            assert!(!private_path.exists() && !public_path.exists());
+            save_keypair_pair_to_keyfiles(
+                &private,
+                &private_path,
+                None,
+                &public,
+                &public_path,
+                false,
+                true,
+            )
+            .unwrap();
+            assert!(read_keypair_from_keyfile(&private_path, None)
+                .unwrap()
+                .has_private_key());
+            assert!(!read_keypair_from_keyfile(&public_path, None)
+                .unwrap()
+                .has_private_key());
+            fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
     fn hashed_private_and_public_keyfiles_preserve_recovery_descriptor() {
         let original = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_HASHED, None)
             .unwrap()

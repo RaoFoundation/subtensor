@@ -187,9 +187,17 @@ impl IntentCall {
             "AdminUtils.sudo_set_subnet_emission_enabled" => &["netuid", "enabled"],
             "AdminUtils.sudo_set_subnet_emission_weights" => &["netuid", "uids", "values"],
             "Proxy.add_proxy" | "Proxy.remove_proxy" => &["delegate", "proxy_type", "delay"],
-            "Proxy.create_pure" => &["proxy_type", "delay", "index"],
-            "Proxy.kill_pure" => &["spawner", "proxy_type", "index", "height", "ext_index"],
-            "EVM.withdraw" => &["address", "value"],
+            "Proxy.create_pure" | "Proxy.create_safe_pure" | "Proxy.create_protected_pure" => {
+                &["proxy_type", "delay", "index"]
+            }
+            "Proxy.kill_pure" | "Proxy.kill_safe_pure" => {
+                &["spawner", "proxy_type", "index", "height", "ext_index"]
+            }
+            "HashedAccounts.register" | "HashedAccounts.check_registered" => &["descriptor"],
+            "LimitOrders.authorize_order" | "LimitOrders.cancel_order" => &["order"],
+            "LimitOrders.execute_orders" => &["orders", "should_fail"],
+            "LimitOrders.execute_batched_orders" => &["netuid", "orders"],
+            "EVM.withdraw" | "EVM.deposit" => &["address", "value"],
             "AdminUtils.sudo_set_evm_chain_id" => &["chain_id"],
             "EVM.disable_whitelist" => &["disabled"],
             "Crowdloan.contribute" => &["crowdloan_id", "amount"],
@@ -213,6 +221,15 @@ impl IntentCall {
         if function == "root_register" {
             scope.push(0);
         }
+        if pallet == "LimitOrders" {
+            if let Some(order) = optional_field(&params, "order")? {
+                scope.push(order_netuid(order)?);
+            } else {
+                for row in as_list(field(&params, "orders")?)? {
+                    scope.push(order_netuid(field(row, "order")?)?);
+                }
+            }
+        }
         if function == "claim_root" {
             for value in as_list(field(&params, "subnets")?)? {
                 as_netuid(value)?;
@@ -235,6 +252,10 @@ impl IntentCall {
             }
         }
         let spend = match operation {
+            "EVM.deposit" => match field(&params, "value")? {
+                Value::Null => Spend::Unbounded,
+                value => Spend::Bounded(number(value)?),
+            },
             "Balances.transfer_keep_alive" | "Balances.transfer_allow_death" => {
                 Spend::Bounded(number(field(&params, "value")?)?)
             }
@@ -247,6 +268,8 @@ impl IntentCall {
                 Spend::Bounded(number(field(&params, "amount")?)?)
             }
             "Balances.transfer_all"
+            | "LimitOrders.authorize_order"
+            | "HashedAccounts.register"
             | "SubtensorModule.burned_register"
             | "SubtensorModule.register_network"
             | "SubtensorModule.register_leased_network"
@@ -330,22 +353,29 @@ fn descriptor_inner(
         "Sudo.sudo" => &["call"],
         "Proxy.proxy" => &["real", "force_proxy_type", "call"],
         "Proxy.proxy_announced" => &["delegate", "real", "force_proxy_type", "call"],
-        "Multisig.as_multi_threshold_1" => &["other_signatories", "call"],
-        "Multisig.as_multi" => &[
+        "Utility.as_derivative"
+        | "Utility.as_safe_derivative"
+        | "Utility.as_protected_derivative" => &["index", "call"],
+        "Multisig.as_multi_threshold_1" | "Multisig.as_multi_threshold_1_safe" => {
+            &["other_signatories", "call"]
+        }
+        "Multisig.as_multi" | "Multisig.as_multi_safe" => &[
             "threshold",
             "other_signatories",
             "maybe_timepoint",
             "call",
             "max_weight",
         ],
-        "Multisig.approve_as_multi" => &[
+        "Multisig.approve_as_multi" | "Multisig.approve_as_multi_safe" => &[
             "threshold",
             "other_signatories",
             "maybe_timepoint",
             "call_hash",
             "max_weight",
         ],
-        "Multisig.cancel_as_multi" => &["threshold", "other_signatories", "timepoint", "call_hash"],
+        "Multisig.cancel_as_multi" | "Multisig.cancel_as_multi_safe" => {
+            &["threshold", "other_signatories", "timepoint", "call_hash"]
+        }
         "Crowdloan.create" => &[
             "deposit",
             "min_contribution",
@@ -375,7 +405,10 @@ fn descriptor_inner(
     }
     let hash_only = matches!(
         operation.as_str(),
-        "Multisig.approve_as_multi" | "Multisig.cancel_as_multi"
+        "Multisig.approve_as_multi"
+            | "Multisig.cancel_as_multi"
+            | "Multisig.approve_as_multi_safe"
+            | "Multisig.cancel_as_multi_safe"
     );
     let inner_descriptor = if hash_only {
         field(descriptor, "semanticCall")?
@@ -407,7 +440,10 @@ fn descriptor_inner(
         );
         security.global = true;
     }
-    if operation == "Multisig.cancel_as_multi" {
+    if matches!(
+        operation.as_str(),
+        "Multisig.cancel_as_multi" | "Multisig.cancel_as_multi_safe"
+    ) {
         security = SecuritySemantics::trusted(Spend::None, [], false).global();
     }
     let signer = if pallet == "Proxy" {
@@ -418,6 +454,18 @@ fn descriptor_inner(
     Ok(IntentCall::from_parts(
         operation, signer, pallet, function, params, security,
     ))
+}
+
+fn order_netuid(order: &Value) -> Result<u16, CoreError> {
+    let order = if let Some(authorized) = optional_field(order, "Authorized")? {
+        field(authorized, "terms")?
+    } else {
+        order
+    };
+    let terms = optional_field(order, "V1")?
+        .or(optional_field(order, "V2")?)
+        .ok_or_else(|| invalid("expected V1 or V2 order terms"))?;
+    as_netuid(field(terms, "netuid")?)
 }
 
 fn root_descriptor(value: &Value) -> Result<bool, CoreError> {

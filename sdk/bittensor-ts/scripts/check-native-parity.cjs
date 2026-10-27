@@ -491,6 +491,29 @@ function qualifiedSurface(prefix, surface) {
 }
 
 const coreCoverageAliases = new Map([
+  ['codec/extrinsic.rs#supports_mldsa_accounts', ['supportsMldsaProfile']],
+  ['codec/extrinsic.rs#safe_multisig_account_id', ['multisigAccountId']],
+  ['keys/falcon.rs#pq_public_key', ['authorizationPublicKey']],
+  ['keys/hashed.rs#verify_hashed_authorization', ['verifyAuthorization']],
+  ['keys/hashed.rs#hashed_generation', ['authorizationGeneration']],
+  ['keys/hashed.rs#hashed_public_key', ['authorizationPublicKey']],
+  ['keys/hashed.rs#hashed_signing_public_key', ['authorizationPublicKey']],
+  ['keys/hashed.rs#hashed_commitment', ['authorizationCommitment']],
+  ['keys/hashed.rs#hashed_next_commitment', ['authorizationNextCommitment']],
+  ['keys/mldsa.rs#verify_mldsa_authorization', ['verifyAuthorization']],
+  ['keys/mldsa.rs#from_mldsa_descriptor', ['keypairFromDescriptor','fromDescriptor']],
+  ['keys/mldsa.rs#mldsa_descriptor', ['authorizationDescriptor']],
+  ['keys/mldsa.rs#mldsa_profile', ['pqProfile']],
+  ['keys/mldsa.rs#mldsa_generation', ['authorizationGeneration']],
+  ['keys/mldsa.rs#mldsa_public_key', ['authorizationPublicKey']],
+  ['keys/mldsa.rs#mldsa_commitment', ['authorizationCommitment']],
+  ['keys/mldsa.rs#mldsa_current_commitment', ['authorizationCurrentCommitment']],
+  ['keys/mldsa.rs#mldsa_next_commitment', ['authorizationNextCommitment']],
+  ['keys/mldsa.rs#sign_mldsa', ['signAuthorization']],
+  ['keys/receiving.rs#encode_hashed_receiving_address', ['encodeReceivingAddress']],
+  ['keys/receiving.rs#decode_hashed_receiving_address', ['decodeReceivingAddress']],
+  ['keys/receiving.rs#encode_mldsa_receiving_address', ['encodeReceivingAddress']],
+  ['keys/receiving.rs#decode_mldsa_receiving_address', ['decodeReceivingAddress']],
   ['pow/mod.rs#seal', ['powSeal']],
   ['pow/mod.rs#mine_cpu', ['powMineCpu']],
   ['pow/opencl.rs#gpu_devices', ['powGpuDevices']],
@@ -553,6 +576,7 @@ const coreCoverageAliases = new Map([
 ])
 
 const coreCoverageIntentionalCoreOnly = new Map([
+  ['keys/mldsa.rs#sign_mldsa_with_randomness', 'JS signAuthorization uses Rust system randomness; caller-supplied deterministic randomness is reserved for core offline-device and golden-vector tests'],
   ['keys/mod.rs#has_private_key', 'private-key presence is represented by Keypair.kind, not exported as a raw core method'],
   ['keys/mod.rs#private_key_bytes', 'secret key bytes must not be exportable to JavaScript'],
   ['keys/mod.rs#mnemonic', 'retained recovery phrases are used by Rust keyfile serialization and must not be exported to JavaScript'],
@@ -567,6 +591,8 @@ const coreCoverageIntentionalCoreOnly = new Map([
 
 function compareCoreCoverage(nativeExpected, wasmExpected, browserWrapperExpected) {
   const bindingNames = new Set([
+    // Crypto identifier helpers are pure portable TypeScript, shared by both entries.
+    ...flattenSurface(exportedSurface(parse(path.join(root, 'src', 'wallet-types.ts'), 'restore wallet-types.ts'))),
     ...flattenSurface(nativeExpected),
     ...flattenSurface(wasmExpected),
     ...flattenSurface(browserWrapperExpected),
@@ -756,6 +782,22 @@ async function semanticParityFailures() {
     'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
   const nativeKeypair = nativeSdk.Keypair.fromMnemonic(mnemonic)
   const browserKeypair = browserSdk.Keypair.fromMnemonic(mnemonic)
+
+  for (const [name, cryptoType] of Object.entries(nativeSdk.WALLET_TYPES)) {
+    check('wallet ' + name, () => {
+      const seed = new Uint8Array(32).fill(23)
+      const nativeKey = nativeSdk.Keypair.fromSeed(seed,cryptoType), browserKey = browserSdk.Keypair.fromSeed(seed,cryptoType)
+      assertSameBytes(name + ' account',nativeKey.publicKey,browserKey.publicKey)
+      if (!nativeSdk.isProtectedCrypto(cryptoType)) return
+      const generation = nativeSdk.isRotatingCrypto(cryptoType) ? 4n : 0n
+      const left = nativeKey.atGeneration(generation), right = browserKey.atGeneration(generation), payload = new Uint8Array(400).fill(7)
+      assertSameBytes(name + ' descriptor',left.authorizationDescriptor(),right.authorizationDescriptor())
+      assertSameBytes(name + ' commitment',left.authorizationCurrentCommitment(),right.authorizationCurrentCommitment())
+      assertSameBytes(name + ' dummy fee proof',left.dummyAuthorization(),right.dummyAuthorization())
+      if (!browserSdk.verifyAuthorization(left.signAuthorization(payload),payload,right.authorizationDescriptor(),generation,right.authorizationCurrentCommitment())) throw new Error('browser rejected native proof')
+      if (!nativeSdk.verifyAuthorization(right.signAuthorization(payload),payload,left.authorizationDescriptor(),generation,left.authorizationCurrentCommitment())) throw new Error('native rejected browser proof')
+    })
+  }
 
   check('SS58', () => {
     assertSameBytes('public key', nativeKeypair.publicKey, browserKeypair.publicKey)
@@ -989,6 +1031,7 @@ const wasmClassInterfaces = {
 
 const browserWrapperExpected = allowlistedSurface(
   [
+    'decodeReceivingAddress', 'encodeReceivingAddress', 'verifyAuthorization',
     'CRYPTO_ED25519',
     'CRYPTO_SR25519',
     'DEFAULT_SS58_FORMAT',
@@ -1023,6 +1066,7 @@ const browserWrapperExpected = allowlistedSurface(
   {
     Runtime: {
       instance: [
+        'supportsMldsaProfile',
         'composeCall',
         'constant',
         'decode',
@@ -1059,6 +1103,7 @@ const browserWrapperExpected = allowlistedSurface(
     },
     Keypair: {
       statics: [
+        'fromDescriptor',
         'createFromMnemonic',
         'createFromPrivateKey',
         'createFromSeed',
@@ -1070,6 +1115,7 @@ const browserWrapperExpected = allowlistedSurface(
         'generateMnemonic',
       ],
       instance: [
+        'accountType', 'signingScheme', 'atGeneration', 'authorizationCommitment', 'authorizationCurrentCommitment', 'authorizationDescriptor', 'authorizationGeneration', 'authorizationNextCommitment', 'authorizationPublicKey', 'dummyAuthorization', 'pqProfile', 'publicOnly', 'receivingAddress', 'signAuthorization',
         'address',
         'addressRaw',
         'cryptoType',

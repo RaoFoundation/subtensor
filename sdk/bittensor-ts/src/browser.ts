@@ -52,6 +52,9 @@ export type BrowserRuntimeApiMap = RustRuntimeApiMap
 export type BrowserMetadataIr = RustMetadataIr
 
 export interface BrowserWasmModule {
+  decodeReceivingAddress(address: string): Uint8Array
+  encodeReceivingAddress(descriptor: Uint8Array): string
+  verifyAuthorization(proof: Uint8Array, payload: Uint8Array, descriptor: Uint8Array, generation: bigint, commitment: Uint8Array): boolean
   storagePrefixFor(pallet: string, item: string): Uint8Array
   blake2_256(data: Uint8Array): Uint8Array
   decodeOptionalOpaqueMetadata(data: Uint8Array): Uint8Array | undefined
@@ -121,10 +124,28 @@ export interface BrowserWasmModule {
   ): Uint8Array
   mlkemKdfId(): Uint8Array
   eraBirth(period: BrowserIntegerLike, current: BrowserIntegerLike): number
-  multisigAccountId(signatories: Uint8Array[], threshold: number): [Uint8Array, Uint8Array[]]
+  multisigAccountId(signatories: Uint8Array[], threshold: number, safe?: boolean): [Uint8Array, Uint8Array[]]
 }
 
 export interface BrowserWasmKeypair {
+  hashedDescriptor(): Uint8Array
+  hashedCurrentCommitment(): Uint8Array
+  hashedReceivingAddress(): string
+  signHashed(payload: Uint8Array): Uint8Array
+  dummyAuthorization(): Uint8Array
+  readonly accountType: string
+  readonly signingScheme: string
+  publicOnly(): BrowserWasmKeypair
+  atGeneration(generation: bigint): BrowserWasmKeypair
+  authorizationGeneration(): bigint
+  authorizationDescriptor(): Uint8Array
+  authorizationPublicKey(): Uint8Array
+  authorizationCommitment(generation: bigint): Uint8Array
+  authorizationCurrentCommitment(): Uint8Array
+  authorizationNextCommitment(): Uint8Array
+  receivingAddress(): string
+  signAuthorization(payload: Uint8Array): Uint8Array
+  pqProfile(): number
   readonly cryptoType: number
   readonly kind: KeypairKind
   readonly publicKey: Uint8Array
@@ -136,6 +157,7 @@ export interface BrowserWasmKeypair {
 }
 
 export interface BrowserWasmKeypairConstructor {
+  fromHashedDescriptor(descriptor: Uint8Array, ss58Format?: number): BrowserWasmKeypair
   new (
     ss58Address?: string | null,
     publicKey?: Uint8Array | null,
@@ -154,6 +176,7 @@ export interface BrowserWasmKeypairConstructor {
 }
 
 export interface BrowserWasmRuntime {
+  supportsMldsaProfile(profile: number): boolean
   signerPayload(address: string, callData: Uint8Array, era: ScaleValue, nonce: BrowserIntegerLike, tip: BrowserIntegerLike, tipAssetId: BrowserIntegerLike | null, genesisHash: Uint8Array, eraBlockHash: Uint8Array, metadataHash?: Uint8Array): Record<string, unknown>
   readonly specVersion: number
   readonly transactionVersion: number
@@ -326,9 +349,7 @@ function toInteger(value: BrowserIntegerLike, name = 'value'): number {
 }
 
 function keyTypeForCryptoType(cryptoType: number): SubstrateKeyType {
-  if (cryptoType === CRYPTO_ED25519) return 'ed25519'
-  if (cryptoType === CRYPTO_SR25519) return 'sr25519'
-  throw new RangeError(`unsupported crypto type ${cryptoType}`)
+  return walletType(cryptoType)
 }
 
 function copyStorageEntry(entry: BrowserStorageEntry): BrowserStorageEntry {
@@ -382,6 +403,8 @@ export class Runtime
       ss58Format,
     )
   }
+
+  supportsMldsaProfile(profile: number): boolean { return this.handle.supportsMldsaProfile(profile) }
 
   get specVersion(): number {
     return this.handle.specVersion
@@ -610,6 +633,23 @@ export class Runtime
 export class Keypair
   implements RustKeypairPublic<Uint8Array, BrowserByteLike, BrowserMessage> {
   private handle!: BrowserWasmKeypair
+  dummyAuthorization(): Uint8Array { return this.handle.dummyAuthorization() }
+  static fromDescriptor(descriptor: BrowserByteLike, ss58Format = DEFAULT_SS58_FORMAT): Keypair {
+    return Keypair.wrap(wasmSync().Keypair.fromHashedDescriptor(toBytes(descriptor), ss58Format))
+  }
+  get accountType(): 'standard' | 'hashed' { return this.handle.accountType as 'standard' | 'hashed' }
+  get signingScheme(): string { return this.handle.signingScheme }
+  publicOnly(): Keypair { return Keypair.wrap(this.handle.publicOnly()) }
+  atGeneration(generation: bigint | number): Keypair { return Keypair.wrap(this.handle.atGeneration(u64(generation))) }
+  authorizationGeneration(): bigint { return this.handle.authorizationGeneration() }
+  authorizationDescriptor(): Uint8Array { return this.handle.authorizationDescriptor() }
+  authorizationPublicKey(): Uint8Array { return this.handle.authorizationPublicKey() }
+  authorizationCommitment(generation: bigint | number): Uint8Array { return this.handle.authorizationCommitment(u64(generation)) }
+  authorizationCurrentCommitment(): Uint8Array { return this.handle.authorizationCurrentCommitment() }
+  authorizationNextCommitment(): Uint8Array { return this.handle.authorizationNextCommitment() }
+  receivingAddress(): string { return isProtectedCrypto(this.cryptoType) ? this.handle.receivingAddress() : this.ss58Address }
+  signAuthorization(payload: BrowserByteLike): Uint8Array { return this.handle.signAuthorization(toBytes(payload)) }
+  pqProfile(): number { return this.handle.pqProfile() }
 
   constructor(
     ss58Address?: string | null,
@@ -717,8 +757,8 @@ export class Keypair
     return keyTypeForCryptoType(this.cryptoType)
   }
 
-  get scheme(): 'Ed25519' | 'Sr25519' {
-    return this.cryptoType === CRYPTO_ED25519 ? 'Ed25519' : 'Sr25519'
+  get scheme(): SigningScheme {
+    return walletScheme(this.cryptoType)
   }
 
   get ss58Format(): number {
@@ -855,10 +895,12 @@ export function eraBirth(period: BrowserIntegerLike, current: BrowserIntegerLike
 export function multisigAccountId(
   signatories: BrowserByteLike[],
   threshold: number,
+  safe = false,
 ): BrowserMultisigAccount {
   const [accountId, sortedSignatories] = wasmSync().multisigAccountId(
     signatories.map((value) => toBytes(value, 'signatory')),
     threshold,
+    safe,
   )
   return {
     accountId: copyBytes(accountId),
@@ -1055,3 +1097,17 @@ export * from './shielded-receipt'
 export * from './root-claim'
 export * from './fee-payer'
 export * from './unsigned-transaction'
+import { walletType, walletCryptoType, walletScheme, isProtectedCrypto, u64, type SigningScheme } from './wallet-types'
+export * from './wallet-types'
+export * from './protected-accounts'
+export * from './protected-transactions'
+export * from './limit-orders'
+export * from './receiving'
+export * from './composite-accounts'
+export * from './registration-sponsorship'
+export * from './evm-alias'
+export function decodeReceivingAddress(address: string): Uint8Array { return wasmSync().decodeReceivingAddress(address) }
+export function encodeReceivingAddress(descriptor: BrowserByteLike): string { return wasmSync().encodeReceivingAddress(toBytes(descriptor)) }
+export function verifyAuthorization(proof: BrowserByteLike, payload: BrowserByteLike, descriptor: BrowserByteLike, generation: bigint | number, commitment: BrowserByteLike): boolean {
+  return wasmSync().verifyAuthorization(toBytes(proof), toBytes(payload), toBytes(descriptor), u64(generation), toBytes(commitment))
+}

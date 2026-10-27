@@ -13,6 +13,7 @@ use wasm_bindgen::prelude::*;
 mod digest;
 mod errors;
 mod keys;
+mod protected_keys;
 mod runtime;
 mod timelock;
 mod values;

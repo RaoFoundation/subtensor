@@ -22,7 +22,7 @@ test('HTTP authentication matches Python normative payload and deterministic ed2
   const headers = await auth.sign(ed, request)
   assert.equal(headers['X-Bittensor-Signature'], '0x1a6b631988bf1f7ea093ab9d5acf61f05c316d0b0e428b24b487b75a5f6ee0e1a56a26918fdf871b6cf09437e6588023a4ce423cf622621b2a7feee17612f704')
   assert.equal(headers['X-Bittensor-Crypto'], 'ed25519')
-  const options = { method: request.method, path: request.path, selfHotkeySs58: receiver.ss58Address, nowNs: nonceNs + 1000000n }
+  const options = { expectedCryptoType: 0, method: request.method, path: request.path, selfHotkeySs58: receiver.ss58Address, nowNs: nonceNs + 1000000n }
   assert.equal((await auth.verify(headers, body, options)).hotkeySs58, ed.ss58Address)
   await assert.rejects(auth.verify(headers, body, options), { name: 'ReplayedRequest' })
   await assert.rejects(auth.verify(headers, Buffer.from('different'), { ...options, nonceStore: new InMemoryNonceStore() }), { name: 'BadSignature' })

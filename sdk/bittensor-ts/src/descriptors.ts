@@ -378,6 +378,7 @@ export const storage = Object.freeze({
     MaxSpace: ["Commitments", "MaxSpace"] as const,
   }),
   AdminUtils: Object.freeze({
+    HashedAccountsEnabled: ["AdminUtils", "HashedAccountsEnabled"] as const,
     PrecompileEnable: ["AdminUtils", "PrecompileEnable"] as const,
   }),
   SafeMode: Object.freeze({
@@ -464,9 +465,17 @@ export const storage = Object.freeze({
   }),
   LimitOrders: Object.freeze({
     Orders: ["LimitOrders", "Orders"] as const,
+    ApprovedOrders: ["LimitOrders", "ApprovedOrders"] as const,
+    OrderNonces: ["LimitOrders", "OrderNonces"] as const,
     LimitOrdersEnabled: ["LimitOrders", "LimitOrdersEnabled"] as const,
     LinkedOutputs: ["LimitOrders", "LinkedOutputs"] as const,
     HasMigrationRun: ["LimitOrders", "HasMigrationRun"] as const,
+  }),
+  HashedAccounts: Object.freeze({
+    Accounts: ["HashedAccounts", "Accounts"] as const,
+    EvmAliases: ["HashedAccounts", "EvmAliases"] as const,
+    MlDsaAccounts: ["HashedAccounts", "MlDsaAccounts"] as const,
+    DerivedAuthorities: ["HashedAccounts", "DerivedAuthorities"] as const,
   }),
 })
 
@@ -603,6 +612,9 @@ export const constants = Object.freeze({
     ExtendDepositAmount: ["SafeMode", "ExtendDepositAmount"] as const,
     ReleaseDelay: ["SafeMode", "ReleaseDelay"] as const,
   }),
+  EVM: Object.freeze({
+    NativeDepositSupported: ["EVM", "NativeDepositSupported"] as const,
+  }),
   Drand: Object.freeze({
     UnsignedPriority: ["Drand", "UnsignedPriority"] as const,
     HttpFetchTimeout: ["Drand", "HttpFetchTimeout"] as const,
@@ -642,6 +654,13 @@ export const constants = Object.freeze({
     PalletId: ["LimitOrders", "PalletId"] as const,
     PalletHotkey: ["LimitOrders", "PalletHotkey"] as const,
     LinkedOutputTtl: ["LimitOrders", "LinkedOutputTtl"] as const,
+  }),
+  HashedAccounts: Object.freeze({
+    RegistrationDeposit: ["HashedAccounts", "RegistrationDeposit"] as const,
+    MlDsaRegistrationDeposit: ["HashedAccounts", "MlDsaRegistrationDeposit"] as const,
+    DerivedRegistrationDeposit: ["HashedAccounts", "DerivedRegistrationDeposit"] as const,
+    MldsaAccountProfiles: ["HashedAccounts", "MldsaAccountProfiles"] as const,
+    FalconAccountProfiles: ["HashedAccounts", "FalconAccountProfiles"] as const,
   }),
 })
 
@@ -951,6 +970,8 @@ export const calls = Object.freeze({
   }),
   Utility: Object.freeze({
     as_derivative(index: number, call: ScaleValue): GeneratedCall { return ["Utility", "as_derivative", { "index": index, "call": call }] },
+    as_protected_derivative(index: number, call: ScaleValue): GeneratedCall { return ["Utility", "as_protected_derivative", { "index": index, "call": call }] },
+    as_safe_derivative(index: number, call: ScaleValue): GeneratedCall { return ["Utility", "as_safe_derivative", { "index": index, "call": call }] },
     batch(calls: ScaleValue): GeneratedCall { return ["Utility", "batch", { "calls": calls }] },
     batch_all(calls: ScaleValue): GeneratedCall { return ["Utility", "batch_all", { "calls": calls }] },
     dispatch_as(as_origin: ScaleValue, call: ScaleValue): GeneratedCall { return ["Utility", "dispatch_as", { "as_origin": as_origin, "call": call }] },
@@ -968,10 +989,15 @@ export const calls = Object.freeze({
   }),
   Multisig: Object.freeze({
     approve_as_multi(threshold: number, other_signatories: ScaleValue, maybe_timepoint: ScaleValue, call_hash: ScaleValue, max_weight: ScaleValue): GeneratedCall { return ["Multisig", "approve_as_multi", { "threshold": threshold, "other_signatories": other_signatories, "maybe_timepoint": maybe_timepoint, "call_hash": call_hash, "max_weight": max_weight }] },
+    approve_as_multi_safe(threshold: number, other_signatories: ScaleValue, maybe_timepoint: ScaleValue, call_hash: ScaleValue, max_weight: ScaleValue): GeneratedCall { return ["Multisig", "approve_as_multi_safe", { "threshold": threshold, "other_signatories": other_signatories, "maybe_timepoint": maybe_timepoint, "call_hash": call_hash, "max_weight": max_weight }] },
     as_multi(threshold: number, other_signatories: ScaleValue, maybe_timepoint: ScaleValue, call: ScaleValue, max_weight: ScaleValue): GeneratedCall { return ["Multisig", "as_multi", { "threshold": threshold, "other_signatories": other_signatories, "maybe_timepoint": maybe_timepoint, "call": call, "max_weight": max_weight }] },
+    as_multi_safe(threshold: number, other_signatories: ScaleValue, maybe_timepoint: ScaleValue, call: ScaleValue, max_weight: ScaleValue): GeneratedCall { return ["Multisig", "as_multi_safe", { "threshold": threshold, "other_signatories": other_signatories, "maybe_timepoint": maybe_timepoint, "call": call, "max_weight": max_weight }] },
     as_multi_threshold_1(other_signatories: ScaleValue, call: ScaleValue): GeneratedCall { return ["Multisig", "as_multi_threshold_1", { "other_signatories": other_signatories, "call": call }] },
+    as_multi_threshold_1_safe(other_signatories: ScaleValue, call: ScaleValue): GeneratedCall { return ["Multisig", "as_multi_threshold_1_safe", { "other_signatories": other_signatories, "call": call }] },
     cancel_as_multi(threshold: number, other_signatories: ScaleValue, timepoint: ScaleValue, call_hash: ScaleValue): GeneratedCall { return ["Multisig", "cancel_as_multi", { "threshold": threshold, "other_signatories": other_signatories, "timepoint": timepoint, "call_hash": call_hash }] },
+    cancel_as_multi_safe(threshold: number, other_signatories: ScaleValue, timepoint: ScaleValue, call_hash: ScaleValue): GeneratedCall { return ["Multisig", "cancel_as_multi_safe", { "threshold": threshold, "other_signatories": other_signatories, "timepoint": timepoint, "call_hash": call_hash }] },
     poke_deposit(threshold: number, other_signatories: ScaleValue, call_hash: ScaleValue): GeneratedCall { return ["Multisig", "poke_deposit", { "threshold": threshold, "other_signatories": other_signatories, "call_hash": call_hash }] },
+    poke_deposit_safe(threshold: number, other_signatories: ScaleValue, call_hash: ScaleValue): GeneratedCall { return ["Multisig", "poke_deposit_safe", { "threshold": threshold, "other_signatories": other_signatories, "call_hash": call_hash }] },
   }),
   Preimage: Object.freeze({
     ensure_updated(hashes: ScaleValue): GeneratedCall { return ["Preimage", "ensure_updated", { "hashes": hashes }] },
@@ -995,8 +1021,11 @@ export const calls = Object.freeze({
   Proxy: Object.freeze({
     add_proxy(delegate: ScaleValue, proxy_type: ScaleValue, delay: number): GeneratedCall { return ["Proxy", "add_proxy", { "delegate": delegate, "proxy_type": proxy_type, "delay": delay }] },
     announce(real: ScaleValue, call_hash: string | Uint8Array): GeneratedCall { return ["Proxy", "announce", { "real": real, "call_hash": call_hash }] },
+    create_protected_pure(proxy_type: ScaleValue, delay: number, index: number): GeneratedCall { return ["Proxy", "create_protected_pure", { "proxy_type": proxy_type, "delay": delay, "index": index }] },
     create_pure(proxy_type: ScaleValue, delay: number, index: number): GeneratedCall { return ["Proxy", "create_pure", { "proxy_type": proxy_type, "delay": delay, "index": index }] },
+    create_safe_pure(proxy_type: ScaleValue, delay: number, index: number): GeneratedCall { return ["Proxy", "create_safe_pure", { "proxy_type": proxy_type, "delay": delay, "index": index }] },
     kill_pure(spawner: ScaleValue, proxy_type: ScaleValue, index: number, height: ScaleValue, ext_index: ScaleValue): GeneratedCall { return ["Proxy", "kill_pure", { "spawner": spawner, "proxy_type": proxy_type, "index": index, "height": height, "ext_index": ext_index }] },
+    kill_safe_pure(spawner: ScaleValue, proxy_type: ScaleValue, index: number, height: ScaleValue, ext_index: ScaleValue): GeneratedCall { return ["Proxy", "kill_safe_pure", { "spawner": spawner, "proxy_type": proxy_type, "index": index, "height": height, "ext_index": ext_index }] },
     poke_deposit(): GeneratedCall { return ["Proxy", "poke_deposit", {  }] },
     proxy(real: ScaleValue, force_proxy_type: ScaleValue, call: ScaleValue): GeneratedCall { return ["Proxy", "proxy", { "real": real, "force_proxy_type": force_proxy_type, "call": call }] },
     proxy_announced(delegate: ScaleValue, real: ScaleValue, force_proxy_type: ScaleValue, call: ScaleValue): GeneratedCall { return ["Proxy", "proxy_announced", { "delegate": delegate, "real": real, "force_proxy_type": force_proxy_type, "call": call }] },
@@ -1048,6 +1077,7 @@ export const calls = Object.freeze({
     sudo_set_emission_gate_exponent(exponent: ScaleValue): GeneratedCall { return ["AdminUtils", "sudo_set_emission_gate_exponent", { "exponent": exponent }] },
     sudo_set_epoch_consensus(netuid: number, mode: ScaleValue): GeneratedCall { return ["AdminUtils", "sudo_set_epoch_consensus", { "netuid": netuid, "mode": mode }] },
     sudo_set_evm_chain_id(chain_id: bigint | number | string): GeneratedCall { return ["AdminUtils", "sudo_set_evm_chain_id", { "chain_id": chain_id }] },
+    sudo_set_hashed_accounts_enabled(enabled: boolean): GeneratedCall { return ["AdminUtils", "sudo_set_hashed_accounts_enabled", { "enabled": enabled }] },
     sudo_set_immunity_period(netuid: number, immunity_period: number): GeneratedCall { return ["AdminUtils", "sudo_set_immunity_period", { "netuid": netuid, "immunity_period": immunity_period }] },
     sudo_set_kappa(netuid: number, kappa: number): GeneratedCall { return ["AdminUtils", "sudo_set_kappa", { "netuid": netuid, "kappa": kappa }] },
     sudo_set_liquid_alpha_consensus_mode(netuid: number, mode: ScaleValue): GeneratedCall { return ["AdminUtils", "sudo_set_liquid_alpha_consensus_mode", { "netuid": netuid, "mode": mode }] },
@@ -1127,6 +1157,7 @@ export const calls = Object.freeze({
     call(source: string | Uint8Array, target: string | Uint8Array, input: ScaleValue, value: bigint | number | string, gas_limit: bigint | number | string, max_fee_per_gas: bigint | number | string, max_priority_fee_per_gas: ScaleValue, nonce: ScaleValue, access_list: ScaleValue, authorization_list: ScaleValue): GeneratedCall { return ["EVM", "call", { "source": source, "target": target, "input": input, "value": value, "gas_limit": gas_limit, "max_fee_per_gas": max_fee_per_gas, "max_priority_fee_per_gas": max_priority_fee_per_gas, "nonce": nonce, "access_list": access_list, "authorization_list": authorization_list }] },
     create(source: string | Uint8Array, init: ScaleValue, value: bigint | number | string, gas_limit: bigint | number | string, max_fee_per_gas: bigint | number | string, max_priority_fee_per_gas: ScaleValue, nonce: ScaleValue, access_list: ScaleValue, authorization_list: ScaleValue): GeneratedCall { return ["EVM", "create", { "source": source, "init": init, "value": value, "gas_limit": gas_limit, "max_fee_per_gas": max_fee_per_gas, "max_priority_fee_per_gas": max_priority_fee_per_gas, "nonce": nonce, "access_list": access_list, "authorization_list": authorization_list }] },
     create2(source: string | Uint8Array, init: ScaleValue, salt: string | Uint8Array, value: bigint | number | string, gas_limit: bigint | number | string, max_fee_per_gas: bigint | number | string, max_priority_fee_per_gas: ScaleValue, nonce: ScaleValue, access_list: ScaleValue, authorization_list: ScaleValue): GeneratedCall { return ["EVM", "create2", { "source": source, "init": init, "salt": salt, "value": value, "gas_limit": gas_limit, "max_fee_per_gas": max_fee_per_gas, "max_priority_fee_per_gas": max_priority_fee_per_gas, "nonce": nonce, "access_list": access_list, "authorization_list": authorization_list }] },
+    deposit(address: string | Uint8Array, value: ScaleValue): GeneratedCall { return ["EVM", "deposit", { "address": address, "value": value }] },
     disable_whitelist(disabled: boolean): GeneratedCall { return ["EVM", "disable_whitelist", { "disabled": disabled }] },
     set_whitelist(new_: ScaleValue): GeneratedCall { return ["EVM", "set_whitelist", { "new": new_ }] },
     withdraw(address: string | Uint8Array, value: bigint | number | string): GeneratedCall { return ["EVM", "withdraw", { "address": address, "value": value }] },
@@ -1182,11 +1213,19 @@ export const calls = Object.freeze({
     submit_encrypted(ciphertext: ScaleValue): GeneratedCall { return ["MevShield", "submit_encrypted", { "ciphertext": ciphertext }] },
   }),
   LimitOrders: Object.freeze({
+    authorize_order(order: ScaleValue): GeneratedCall { return ["LimitOrders", "authorize_order", { "order": order }] },
     cancel_order(order: ScaleValue): GeneratedCall { return ["LimitOrders", "cancel_order", { "order": order }] },
     execute_batched_orders(netuid: number, orders: ScaleValue): GeneratedCall { return ["LimitOrders", "execute_batched_orders", { "netuid": netuid, "orders": orders }] },
     execute_orders(orders: ScaleValue, should_fail: boolean): GeneratedCall { return ["LimitOrders", "execute_orders", { "orders": orders, "should_fail": should_fail }] },
     prune_linked_output(order_id: string | Uint8Array): GeneratedCall { return ["LimitOrders", "prune_linked_output", { "order_id": order_id }] },
     set_pallet_status(enabled: boolean): GeneratedCall { return ["LimitOrders", "set_pallet_status", { "enabled": enabled }] },
+  }),
+  HashedAccounts: Object.freeze({
+    check_derived(descriptor: ScaleValue): GeneratedCall { return ["HashedAccounts", "check_derived", { "descriptor": descriptor }] },
+    check_registered(descriptor: ScaleValue): GeneratedCall { return ["HashedAccounts", "check_registered", { "descriptor": descriptor }] },
+    register(descriptor: ScaleValue): GeneratedCall { return ["HashedAccounts", "register", { "descriptor": descriptor }] },
+    register_derived(descriptor: ScaleValue): GeneratedCall { return ["HashedAccounts", "register_derived", { "descriptor": descriptor }] },
+    register_derived_sponsored(descriptor: ScaleValue, deposit_payer: string | Uint8Array): GeneratedCall { return ["HashedAccounts", "register_derived_sponsored", { "descriptor": descriptor, "deposit_payer": deposit_payer }] },
   }),
 })
 
@@ -2170,6 +2209,22 @@ export const callDescriptors = [
   },
   {
     "pallet": "Utility",
+    "function": "as_protected_derivative",
+    "args": [
+      "index",
+      "call"
+    ]
+  },
+  {
+    "pallet": "Utility",
+    "function": "as_safe_derivative",
+    "args": [
+      "index",
+      "call"
+    ]
+  },
+  {
+    "pallet": "Utility",
     "function": "batch",
     "args": [
       "calls"
@@ -2269,7 +2324,29 @@ export const callDescriptors = [
   },
   {
     "pallet": "Multisig",
+    "function": "approve_as_multi_safe",
+    "args": [
+      "threshold",
+      "other_signatories",
+      "maybe_timepoint",
+      "call_hash",
+      "max_weight"
+    ]
+  },
+  {
+    "pallet": "Multisig",
     "function": "as_multi",
+    "args": [
+      "threshold",
+      "other_signatories",
+      "maybe_timepoint",
+      "call",
+      "max_weight"
+    ]
+  },
+  {
+    "pallet": "Multisig",
+    "function": "as_multi_safe",
     "args": [
       "threshold",
       "other_signatories",
@@ -2288,6 +2365,14 @@ export const callDescriptors = [
   },
   {
     "pallet": "Multisig",
+    "function": "as_multi_threshold_1_safe",
+    "args": [
+      "other_signatories",
+      "call"
+    ]
+  },
+  {
+    "pallet": "Multisig",
     "function": "cancel_as_multi",
     "args": [
       "threshold",
@@ -2298,7 +2383,26 @@ export const callDescriptors = [
   },
   {
     "pallet": "Multisig",
+    "function": "cancel_as_multi_safe",
+    "args": [
+      "threshold",
+      "other_signatories",
+      "timepoint",
+      "call_hash"
+    ]
+  },
+  {
+    "pallet": "Multisig",
     "function": "poke_deposit",
+    "args": [
+      "threshold",
+      "other_signatories",
+      "call_hash"
+    ]
+  },
+  {
+    "pallet": "Multisig",
+    "function": "poke_deposit_safe",
     "args": [
       "threshold",
       "other_signatories",
@@ -2448,6 +2552,15 @@ export const callDescriptors = [
   },
   {
     "pallet": "Proxy",
+    "function": "create_protected_pure",
+    "args": [
+      "proxy_type",
+      "delay",
+      "index"
+    ]
+  },
+  {
+    "pallet": "Proxy",
     "function": "create_pure",
     "args": [
       "proxy_type",
@@ -2457,7 +2570,27 @@ export const callDescriptors = [
   },
   {
     "pallet": "Proxy",
+    "function": "create_safe_pure",
+    "args": [
+      "proxy_type",
+      "delay",
+      "index"
+    ]
+  },
+  {
+    "pallet": "Proxy",
     "function": "kill_pure",
+    "args": [
+      "spawner",
+      "proxy_type",
+      "index",
+      "height",
+      "ext_index"
+    ]
+  },
+  {
+    "pallet": "Proxy",
+    "function": "kill_safe_pure",
     "args": [
       "spawner",
       "proxy_type",
@@ -2825,6 +2958,13 @@ export const callDescriptors = [
     "function": "sudo_set_evm_chain_id",
     "args": [
       "chain_id"
+    ]
+  },
+  {
+    "pallet": "AdminUtils",
+    "function": "sudo_set_hashed_accounts_enabled",
+    "args": [
+      "enabled"
     ]
   },
   {
@@ -3399,6 +3539,14 @@ export const callDescriptors = [
   },
   {
     "pallet": "EVM",
+    "function": "deposit",
+    "args": [
+      "address",
+      "value"
+    ]
+  },
+  {
+    "pallet": "EVM",
     "function": "disable_whitelist",
     "args": [
       "disabled"
@@ -3739,6 +3887,13 @@ export const callDescriptors = [
   },
   {
     "pallet": "LimitOrders",
+    "function": "authorize_order",
+    "args": [
+      "order"
+    ]
+  },
+  {
+    "pallet": "LimitOrders",
     "function": "cancel_order",
     "args": [
       "order"
@@ -3772,6 +3927,42 @@ export const callDescriptors = [
     "function": "set_pallet_status",
     "args": [
       "enabled"
+    ]
+  },
+  {
+    "pallet": "HashedAccounts",
+    "function": "check_derived",
+    "args": [
+      "descriptor"
+    ]
+  },
+  {
+    "pallet": "HashedAccounts",
+    "function": "check_registered",
+    "args": [
+      "descriptor"
+    ]
+  },
+  {
+    "pallet": "HashedAccounts",
+    "function": "register",
+    "args": [
+      "descriptor"
+    ]
+  },
+  {
+    "pallet": "HashedAccounts",
+    "function": "register_derived",
+    "args": [
+      "descriptor"
+    ]
+  },
+  {
+    "pallet": "HashedAccounts",
+    "function": "register_derived_sponsored",
+    "args": [
+      "descriptor",
+      "deposit_payer"
     ]
   }
 ] as const

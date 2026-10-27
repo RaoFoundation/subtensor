@@ -5,7 +5,7 @@ const { ChainError, JsonRpcError } = require('../dist/transport')
 const { mapNativeError, RpcError, PolicyError } = require('../dist/errors')
 
 test('all current module error names have a semantic classification', () => {
-  assert.equal(CHAIN_ERROR_CATALOG.length, 421)
+  assert.equal(CHAIN_ERROR_CATALOG.length, 445)
   for (const item of CHAIN_ERROR_CATALOG) assert.notEqual(classifyError('', item.name), ErrorCode.UNKNOWN, item.name)
   assert.equal(classifyError('insufficient balance', 'UnknownNewFailure'), ErrorCode.UNKNOWN)
   assert.equal(classifyError('', 'NewRateLimitExceeded'), ErrorCode.RATE_LIMITED)

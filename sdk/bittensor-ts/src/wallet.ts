@@ -7,11 +7,13 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 
 import {
   CRYPTO_SR25519, CRYPTO_ED25519, DEFAULT_SS58_FORMAT,
-  Keypair,
+  Keypair, decodeReceivingAddress, publicKeyFromSs58,
   keyfileDataIsEncrypted, legacyGetPasswordFromEnvironment, legacySavePasswordToEnvironment,
   writeKeypairPairKeyfile,
 } from './keys'
 import type { ByteLike } from './types'
+import { toBuffer } from './wire'
+import { WALLET_TYPES } from './wallet-types'
 
 export const DEFAULT_WALLET_PATH = join(homedir(), '.bittensor', 'wallets')
 
@@ -77,6 +79,7 @@ export type WalletKeySource =
   | { encryptedJson: string; passphrase: string }
 
 export interface PublicWalletKeyOptions {
+  descriptor?: ByteLike
   ss58Address?: string
   publicKey?: ByteLike
   cryptoType?: number
@@ -344,6 +347,14 @@ async function keyFromSource(source: string | WalletKeySource, options: Regenera
 }
 
 function publicKeyFromOptions(options: PublicWalletKeyOptions): Keypair {
+  const receiving = options.ss58Address?.startsWith('tao_') || options.ss58Address?.startsWith('bth2_')
+  if (options.descriptor != null || receiving) {
+    const descriptor = options.descriptor == null ? decodeReceivingAddress(options.ss58Address!) : toBuffer(options.descriptor)
+    if (receiving && !descriptor.equals(decodeReceivingAddress(options.ss58Address!))) throw new Error('receiving address and descriptor differ')
+    const key = Keypair.fromDescriptor(descriptor)
+    if (options.cryptoType != null && key.cryptoType !== options.cryptoType || options.publicKey != null && !key.publicKey.equals(toBuffer(options.publicKey)) || options.ss58Address && !receiving && !key.publicKey.equals(publicKeyFromSs58(options.ss58Address))) throw new Error('public wallet identity differs from descriptor')
+    return key
+  }
   if (options.ss58Address == null && options.publicKey == null) throw new TypeError('provide ss58Address or publicKey')
   return new Keypair(options.ss58Address, options.publicKey, options.cryptoType ?? CRYPTO_SR25519)
 }
@@ -365,14 +376,15 @@ export async function resolveWalletPassword(wallet: Wallet, options: WalletPassw
 
 export function parseCryptoType(value: string | number): number {
   const text = String(value).trim().toLowerCase()
-  if (text === 'ed25519' || text === '0') return CRYPTO_ED25519
-  if (text === 'sr25519' || text === '1') return CRYPTO_SR25519
-  throw new RangeError('crypto type must be ed25519 or sr25519')
+  const found = Object.entries(WALLET_TYPES).find(([name,code]) => text === name || text === String(code))
+  if (found) return found[1]
+  throw new RangeError('unsupported wallet crypto type')
 }
 export function formatCryptoType(value?: number | null): string {
-  return value == null || value === CRYPTO_SR25519 ? 'sr25519' : value === CRYPTO_ED25519 ? 'ed25519' : `unknown(${value})`
+  return value == null ? 'sr25519' : Object.entries(WALLET_TYPES).find(([,code]) => code === value)?.[0] ?? `unknown(${value})`
 }
 export function isBittensorAddress(value: string): boolean {
+  if (value.startsWith('tao_') || value.startsWith('bth2_')) { try { decodeReceivingAddress(value); return true } catch { return false } }
   try { const key = new Keypair(value); return new Keypair(null, key.publicKey, key.cryptoType, DEFAULT_SS58_FORMAT).ss58Address === value } catch { return false }
 }
 
@@ -486,5 +498,5 @@ function generateWalletKey(options: GenerateWalletKeyOptions = {}): GeneratedWal
 }
 
 function publicOnly(keypair: Keypair): Keypair {
-  return new Keypair(keypair.ss58Address, keypair.publicKey, keypair.cryptoType, keypair.ss58Format)
+  return keypair.publicOnly()
 }

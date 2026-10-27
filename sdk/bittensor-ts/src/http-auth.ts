@@ -1,4 +1,5 @@
 import { bytesHex, hexBytes, type PortableCrypto, type PortableSigner } from './portable'
+import { signingAuthority, type ProtectedAccountClient, type ProtectedKeypair } from './protected-accounts'
 
 export const HTTP_AUTH_PROTOCOL = 'btauth/1'
 export const HTTP_AUTH_HEADERS = Object.freeze({ version: 'X-Bittensor-Version', hotkey: 'X-Bittensor-Hotkey', receiver: 'X-Bittensor-Receiver', nonce: 'X-Bittensor-Nonce', crypto: 'X-Bittensor-Crypto', signature: 'X-Bittensor-Signature' })
@@ -23,18 +24,28 @@ export class InMemoryNonceStore implements NonceStore {
   }
 }
 export interface AuthRequest { method: string; path: string; body?: Uint8Array; receiverSs58?: string; nonceNs?: bigint }
-export async function buildAuthPayload(options: AuthRequest & { scheme: 'sr25519' | 'ed25519'; nonceNs: bigint; senderSs58: string }): Promise<Uint8Array> {
+export async function buildAuthPayload(options: AuthRequest & { scheme: 'sr25519' | 'ed25519' | 'hashed-sr25519' | 'hashed-ed25519'; nonceNs: bigint; senderSs58: string }): Promise<Uint8Array> {
   const bodyHash = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(options.body ?? []).buffer))
   return new TextEncoder().encode([HTTP_AUTH_PROTOCOL, options.scheme, options.method.toUpperCase(), options.path, bytesHex(bodyHash).slice(2), String(options.nonceNs), options.senderSs58, options.receiverSs58 || '-'].join('\n'))
 }
-function schemeFor(cryptoType: number): 'ed25519' | 'sr25519' { if (cryptoType === 0) return 'ed25519'; if (cryptoType === 1) return 'sr25519'; throw new MalformedAuth('unsupported signature scheme') }
-function cryptoFor(scheme: string): number { if (['ed25519', '0'].includes(scheme.toLowerCase())) return 0; if (['sr25519', '1'].includes(scheme.toLowerCase())) return 1; throw new MalformedAuth('unsupported signature scheme') }
+function schemeFor(cryptoType: number): 'ed25519' | 'sr25519' | 'hashed-sr25519' | 'hashed-ed25519' { if (cryptoType === 0) return 'ed25519'; if (cryptoType === 1) return 'sr25519'; if (cryptoType === 4) return 'hashed-sr25519'; if (cryptoType === 6) return 'hashed-ed25519'; throw new MalformedAuth('unsupported signature scheme') }
+function cryptoFor(scheme: string): number { for (const type of [0,1,4,6]) if ([schemeFor(type),String(type)].includes(scheme.toLowerCase())) return type; throw new MalformedAuth('unsupported signature scheme') }
+const preparedHashedSigners = new WeakSet<object>()
+export async function prepareHttpSigner<T extends ProtectedKeypair & PortableSigner>(client: ProtectedAccountClient, key: T): Promise<T> {
+  if (![4,6].includes(key.cryptoType)) return key
+  const authority = await signingAuthority(client,key)
+  if (authority.generation === 0n) throw new Error('retire generation zero in a finalized transaction before HTTP authentication')
+  const prepared = authority.key as T
+  preparedHashedSigners.add(prepared)
+  return prepared
+}
 export function createHttpAuth(crypto: PortableCrypto) {
   const defaultStore = new InMemoryNonceStore()
   let lastNonce = 0n
   return {
     buildPayload: buildAuthPayload,
     async sign(signer: PortableSigner, options: AuthRequest): Promise<Record<string, string>> {
+      if ([4,6].includes(signer.cryptoType) && !preparedHashedSigners.has(signer)) throw new Error('use prepareHttpSigner with finalized chain authority first')
       const now = BigInt(Date.now()) * 1_000_000n
       const nonceNs = options.nonceNs ?? (now > lastNonce ? now : lastNonce + 1n)
       lastNonce = nonceNs
@@ -44,12 +55,14 @@ export function createHttpAuth(crypto: PortableCrypto) {
       if (!(signature instanceof Uint8Array)) throw new TypeError('signer must return signature bytes')
       return { [HTTP_AUTH_HEADERS.version]: '1', [HTTP_AUTH_HEADERS.hotkey]: signer.ss58Address, [HTTP_AUTH_HEADERS.nonce]: String(nonceNs), [HTTP_AUTH_HEADERS.signature]: bytesHex(signature), ...(scheme === 'sr25519' ? {} : { [HTTP_AUTH_HEADERS.crypto]: scheme }), ...(options.receiverSs58 == null ? {} : { [HTTP_AUTH_HEADERS.receiver]: options.receiverSs58 }) }
     },
-    async verify(headers: Headers | Record<string, string>, body: Uint8Array, options: { method: string; path: string; selfHotkeySs58: string; maxAge?: number; allowedSkew?: number; requireReceiver?: boolean; nonceStore?: NonceStore; nowNs?: bigint }): Promise<AuthCaller> {
+    async verify(headers: Headers | Record<string, string>, body: Uint8Array, options: { method: string; path: string; selfHotkeySs58: string; expectedCryptoType: number; maxAge?: number; allowedSkew?: number; requireReceiver?: boolean; nonceStore?: NonceStore; nowNs?: bigint }): Promise<AuthCaller> {
       const h = new Headers(headers)
       if (h.get(HTTP_AUTH_HEADERS.version) !== '1') throw new MalformedAuth('missing or unsupported authentication version')
       const sender = h.get(HTTP_AUTH_HEADERS.hotkey), nonce = h.get(HTTP_AUTH_HEADERS.nonce), signature = h.get(HTTP_AUTH_HEADERS.signature)
       if (!sender || !nonce || !/^-?\d+$/.test(nonce) || signature == null) throw new MalformedAuth('missing or malformed authentication headers')
       const nonceNs = BigInt(nonce), cryptoType = cryptoFor(h.get(HTTP_AUTH_HEADERS.crypto) ?? 'sr25519')
+      if (![0,1,4,6].includes(options.expectedCryptoType)) throw new TypeError('expectedCryptoType must come from trusted configuration or chain state')
+      if (cryptoType !== options.expectedCryptoType) throw new BadSignature('declared scheme differs from trusted sender scheme')
       let signatureBytes: Uint8Array
       try { signatureBytes = hexBytes(signature) } catch { throw new MalformedAuth('invalid signature encoding') }
       const receiverSs58 = h.get(HTTP_AUTH_HEADERS.receiver) ?? undefined

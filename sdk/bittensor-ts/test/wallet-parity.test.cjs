@@ -6,6 +6,28 @@ const os = require('node:os')
 const path = require('node:path')
 const { Wallet, listWallets, listWalletsDetailed, resolveWalletPassword, parseCryptoType, formatCryptoType, isBittensorAddress } = require('../dist/wallet.js')
 const { Keypair } = require('../dist/keys.js')
+const { WALLET_TYPES, isProtectedCrypto } = require('../dist/wallet-types.js')
+
+test('every release wallet mode persists its public descriptor and exact crypto identity', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(),'bt-wallet-release-'))
+  t.after(() => fs.rm(root,{recursive:true,force:true}))
+  for (const [name,cryptoType] of Object.entries(WALLET_TYPES)) {
+    assert.equal(parseCryptoType(name),cryptoType)
+    assert.equal(formatCryptoType(cryptoType),name)
+    const wallet = new Wallet({name,path:root})
+    await wallet.regenerateColdkey({seed:new Uint8Array(32).fill(6)},{cryptoType,allowPlaintext:true})
+    const restored = new Wallet({name,path:root}), privateKey = await restored.coldkey, publicKey = await restored.coldkeypub
+    assert.equal(privateKey.cryptoType,cryptoType)
+    assert.equal(publicKey.cryptoType,cryptoType)
+    assert.equal(privateKey.ss58Address,publicKey.ss58Address)
+    if (isProtectedCrypto(cryptoType)) {
+      assert.deepEqual(publicKey.authorizationDescriptor(),privateKey.authorizationDescriptor())
+      assert.throws(() => publicKey.signAuthorization(Buffer.from('forbidden')))
+      await restored.regenerateHotkeypub({descriptor:publicKey.authorizationDescriptor()})
+      assert.deepEqual((await restored.hotkeypub).authorizationDescriptor(),publicKey.authorizationDescriptor())
+    }
+  }
+})
 
 test('wallet seed/public recovery creates safe keyfiles and naturally sorted inventory', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'bt-wallet-parity-'))

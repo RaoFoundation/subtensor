@@ -50,6 +50,52 @@ pub const CRYPTO_FALCON512_HASHED: u8 = 10;
 pub const CRYPTO_FALCON1024: u8 = 11;
 pub const CRYPTO_FALCON1024_HASHED: u8 = 12;
 
+/// Shape-correct fee-estimation proof. Contains no signing key or valid signature.
+pub fn dummy_authorization(crypto_type: u8, account: [u8; 32]) -> Result<Vec<u8>, CoreError> {
+    use codec::{Encode, MaxEncodedLen};
+    use subtensor_hashed::{falcon, mldsa};
+    if is_falcon_crypto(crypto_type) {
+        let profile = pq_profile(crypto_type).ok_or_else(|| crypto_err("unknown PQ profile"))?;
+        return Ok(falcon::SignerAddress {
+            account,
+            version: falcon::VERSION,
+            algorithm: profile,
+            generation: 0,
+            public_key: vec![
+                0;
+                falcon::public_key_len(profile)
+                    .ok_or_else(|| crypto_err("unknown Falcon profile"))?
+            ],
+            next_commitment: [1; 64],
+            signature: vec![
+                0;
+                falcon::signature_len(profile)
+                    .ok_or_else(|| crypto_err("unknown Falcon profile"))?
+            ],
+        }
+        .encode());
+    }
+    if is_mldsa_crypto(crypto_type) {
+        return Ok(mldsa::SignerAddress {
+            account,
+            version: mldsa::VERSION,
+            algorithm: pq_profile(crypto_type).ok_or_else(|| crypto_err("unknown PQ profile"))?,
+            generation: 0,
+            public_key: [0; mldsa::PUBLIC_KEY_LEN],
+            next_commitment: [1; 64],
+            signature: [0; mldsa::SIGNATURE_LEN],
+        }
+        .encode());
+    }
+    if is_hashed_crypto(crypto_type) {
+        return Ok(vec![0; subtensor_hashed::Proof::max_encoded_len()]);
+    }
+    if crypto_type == CRYPTO_ED25519 || crypto_type == CRYPTO_SR25519 {
+        return Ok(vec![0; 64]);
+    }
+    Err(crypto_err("unsupported crypto type"))
+}
+
 pub fn is_falcon_crypto(crypto_type: u8) -> bool {
     matches!(
         crypto_type,
@@ -142,6 +188,7 @@ pub fn account_crypto_type(crypto_type: u8, mode: Option<&str>) -> Result<u8, Co
 }
 
 pub const DEFAULT_SS58_FORMAT: u16 = 42;
+
 const MAX_SS58_ACCOUNT_ADDRESS_LEN: usize = 64;
 
 fn crypto_err(msg: impl Into<String>) -> CoreError {
@@ -294,7 +341,12 @@ pub enum KeypairInner {
 
 impl KeypairInner {
     fn has_private_key(&self) -> bool {
-        matches!(self, KeypairInner::Ed25519(_) | KeypairInner::Sr25519(_))
+        match self {
+            KeypairInner::Ed25519(_) | KeypairInner::Sr25519(_) => true,
+            KeypairInner::Hashed(pair) => pair.master_seed().is_some(),
+            KeypairInner::Mldsa(pair) => pair.master_seed().is_some(),
+            KeypairInner::PublicOnly { .. } => false,
+        }
     }
 
     fn private_key_bytes(&self) -> Option<Vec<u8>> {

@@ -198,6 +198,7 @@ export class ScaleCursor {
 }
 
 export class Runtime implements RustRuntimePublic<Buffer, ByteLike, IntegerLike> {
+  supportsMldsaProfile(profile: number): boolean { return nativeCall(() => this.handle.supportsMldsaProfile(profile)) }
   private readonly handle: NativeRuntimeHandle
 
   constructor(
@@ -972,11 +973,13 @@ export const era_birth = eraBirth
 export function multisigAccountId(
   signatories: ByteLike[],
   threshold: number,
+  safe = false,
 ): MultisigAccount<Buffer> {
   return nativeCall(() =>
     native.multisigAccountId(
       signatories.map((value) => toBuffer(value, 'signatory')),
       threshold,
+      safe,
     ),
   )
 }

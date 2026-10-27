@@ -1,6 +1,7 @@
 import type { IntentDescriptor, IntentReader } from './intents'
 
 export interface MultisigApprovalRequest {
+  accountMode?: 'legacy' | 'safe'
   /** A fixed call; every signatory must approve these identical encoded arguments. */
   call: IntentDescriptor
   signatories: readonly string[]
@@ -32,7 +33,10 @@ export async function prepareMultisigApproval(reader: IntentReader, request: Mul
   if (!unique.has(signerId)) throw new RangeError('signer is not a member of this multisig')
   if (threshold > unique.size) throw new RangeError('threshold exceeds signatory count')
   const sorted = [...unique].sort(([a], [b]) => a.localeCompare(b))
-  const account = reader.multisigAccount(sorted.map(([, address]) => address), threshold)
+  const mode = request.accountMode ?? 'legacy'
+  if (mode !== 'legacy' && mode !== 'safe') throw new RangeError('invalid account mode')
+  const suffix = mode === 'safe' ? '_safe' : ''
+  const account = reader.multisigAccount(sorted.map(([, address]) => address), threshold, mode === 'safe')
   const hash = await reader.hashCall(request.call), callHash = hex(hash)
   if (hash.length !== 32) throw new RangeError('multisig call hash must be 32 bytes')
   if (request.expectedCallHash != null && request.expectedCallHash.toLowerCase() !== callHash) throw new Error('multisig call changed from expectedCallHash')
@@ -41,8 +45,8 @@ export async function prepareMultisigApproval(reader: IntentReader, request: Mul
   const timepoint = pending?.when ?? null
   const others = sorted.filter(([id]) => id !== signerId).map(([, address]) => address)
   const call: IntentDescriptor = threshold === 1
-    ? { pallet: 'Multisig', call: 'as_multi_threshold_1', params: { other_signatories: others, call: request.call } }
-    : { pallet: 'Multisig', call: 'as_multi', params: { threshold, other_signatories: others, maybe_timepoint: timepoint, call: request.call, max_weight: await reader.estimateWeight(request.call, request.signerAddress) } }
+    ? { pallet: 'Multisig', call: 'as_multi_threshold_1' + suffix, params: { other_signatories: others, call: request.call } }
+    : { pallet: 'Multisig', call: 'as_multi' + suffix, params: { threshold, other_signatories: others, maybe_timepoint: timepoint, call: request.call, max_weight: await reader.estimateWeight(request.call, request.signerAddress) } }
   const opening = threshold > 1 && pending == null
   const [base, factor, feeRao, accountState] = await Promise.all([
     opening ? reader.constant('Multisig', 'DepositBase') : 0n,

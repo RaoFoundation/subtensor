@@ -1,4 +1,11 @@
 import { serializeUnsignedTransaction, restoreUnsignedTransaction, type SerializedUnsignedTransaction, type UnsignedTransactionState, type UnsignedRuntime } from './unsigned-transaction'
+import { ProtectedWalletClient } from './protected-transactions'
+import type { ProtectedKeypair } from './protected-accounts'
+import { verifyAuthorization } from './keys'
+import { resolveEvmRecipient } from './evm-alias'
+import { sealMevShieldTransaction } from './crypto'
+import { followShieldedResult } from './shielded-receipt'
+import { createNodeIntentReader } from './node-workflows'
 import { classifyChainError, chainErrorFromDispatch, type ChainErrorInfo } from './chain-errors'
 import { nestedDispatchError } from './receipt'
 import { WorkflowClient, type WorkflowOptions, type WorkflowPlan, type WorkflowSigner, type WorkflowResult } from './node-workflows'
@@ -1598,6 +1605,21 @@ export class BrowserChainClient {
 }
 
 export class Client extends BrowserChainClient {
+  async resolveEvmRecipient(address: string) { return resolveEvmRecipient(await createNodeIntentReader(this,await this.requireNativeClient(),await this.finalizedHead()),address) }
+  protectedWallet(keypair: ProtectedKeypair): ProtectedWalletClient {
+    return new ProtectedWalletClient({
+      decodeAddress: publicKeyFromSs58, hash: blake2_256,
+      query: (p, s, args, block) => this.query(p, s, args, block),
+      finalizedHead: () => this.finalizedHead(), blockHash: n => this.blockHash(n),
+      blockNumber: block => this.blockNumber(block), runtimeAt: block => this.runtimeAt(block),
+      accountNextIndex: address => this.peekNextIndex(address),
+      rpc: (method, params) => this.rpc(method, params),
+      eraBirth: (period, current) => Number(eraBirth(period, current)), seal: sealMevShieldTransaction, verify: verifyAuthorization,
+      intentReader: async block => createNodeIntentReader(this, await this.requireNativeClient(), block),
+      submitBytes: (bytes, address, options) => this.submitSigned(bytes, address, { ...options, waitForInclusion: options.waitForInclusion ?? true }),
+      followShielded: (carrier, hash, period, options) => followShieldedResult(carrier, hash, period, this, options),
+    }, keypair, this)
+  }
   /** Checked integer TAO-to-rao conversion, matching Rust Client::tao. */
   static tao(value: bigint | number | string): bigint {
     const amount = toBigInt(value, 'TAO amount')
@@ -1619,7 +1641,7 @@ export class Client extends BrowserChainClient {
   executeTool(spec: Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowResult> { return this.execute(spec, signer, options) }
   submitShielded(intent: Intent | Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowResult> { return this.workflows().submitShielded(intent, signer, options) }
   submitRawShielded(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<WorkflowResult> { return this.workflows().submitRawShielded(call, signer, options) }
-  multisig(signatories: readonly string[], threshold: number) { return this.workflows().multisig(signatories, threshold) }
+  multisig(signatories: readonly string[], threshold: number, accountMode: 'legacy' | 'safe' = 'legacy') { return this.workflows().multisig(signatories, threshold, accountMode) }
   planIntent(intent: Intent | Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowPlan> { return this.workflows().plan(intent, signer, options) }
   execute(intent: Intent | Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowResult> { return this.workflows().execute(intent, signer, options) }
 

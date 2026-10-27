@@ -22,6 +22,61 @@ registration-mining workflow.
 The package is monorepo-internal (`"private": true`). A public npm release still
 requires a cross-platform native binary publishing layout and CI matrix.
 
+## Release wallet and account APIs
+
+Both entry points support `sr25519`, `ed25519`, `hashed-sr25519`,
+`hashed-ed25519`, `mldsa65`, `hashed-mldsa65`, `falcon512`,
+`hashed-falcon512`, `falcon1024`, and `hashed-falcon1024` through
+`WALLET_TYPES` and the corresponding `CRYPTO_*` constants. `accountCryptoType`
+selects standard or hashed account mode independently of the signing scheme.
+Keys expose public descriptors, receiving addresses, public-only views,
+generation derivation, and transaction authorization. Node wallet files preserve
+descriptors when saving public keys. Private keys require encrypted export or an
+explicit plaintext opt-in; `serializePublic()` accepts public-only views.
+
+```ts
+const key = Keypair.fromMnemonic(mnemonic, WALLET_TYPES.falcon512)
+const session = client.protectedWallet(key)
+await client.execute(buildIntent('transfer', {
+  dest_ss58: recipient,
+  amount_tao: '1',
+}), key, { waitForFinalization: true })
+```
+
+Fixed PQ wallets receive at their ordinary SS58 address without registration.
+Rotating wallets need their descriptor registered and finalized before signing;
+another funded account can submit `registrationCall(key)`. Receiving addresses
+retain their descriptor through semantic transfers. Initial registration requires
+an explicit `maxRegistrationDepositRao` allowance or an
+`onRegistrationSponsorship` callback, separate from the payment and fees.
+Existing registrations are guarded atomically; direct coldkey-swap operations
+require finalized registration. Registration uses Shield by default when a key
+is available.
+
+Protected sessions select rotating authority from finalized storage, reject
+pending nonce conflicts, and sign the full runtime payload. Fee previews use
+dummy proofs and work with public-only descriptors. Shielded carrier/inner
+transactions use one authority snapshot and consecutive nonces/generations.
+`session.submit` and `session.signExtrinsic` require `allowRawCall`; detached
+signing additionally requires an explicit nonce. External PQ wallets can submit
+their already encoded transaction with `submitSigned`.
+
+`client.multisig(members, threshold, 'safe')`, safe multisig intents,
+`derivativeCall`, and `multisigProtection` expose the new composite account
+modes. `Lock` is included in proxy types. `session.prepareOrder` pins complete
+order terms and exposes `accountApproved()` for authorization through an on-chain
+`authorize_order` transaction. The four order intents cover authorization,
+cancellation, relay, and netted relay. Protected keys do not sign detached orders
+or arbitrary messages; the release has removed wallet capability delegation and
+PQ HTTP authentication. Classical `httpAuth.verify` requires a trusted
+`expectedCryptoType`; the request header is not an authority source.
+Hashed classical signers use `prepareHttpSigner` after generation zero retires.
+
+`fund_evm_key` uses the runtime's native `EVM.deposit` route when supported.
+`resolveEvmRecipient` resolves finalized protected aliases for display or
+descriptor-guarded native transfers; deterministic legacy mirrors alone are
+insufficient to identify protected deposit routes.
+
 ## Build locally
 
 From the repository root:
@@ -71,6 +126,10 @@ const call = runtime.composeCall('System', 'remark', {
 
 const ciphertext = sealMevShieldTransaction(mlKemPublicKey, call)
 ```
+
+Use `asPolkadotKeypair(keypair)` to pass an existing classical key to a
+Polkadot.js or Moonwall API. It rejects protected wallet types, which require
+the protected transaction APIs above.
 
 Large SCALE integers are returned as `bigint`; byte carriers are returned as
 `Buffer`. A decoded SCALE dictionary with non-string keys is returned as a

@@ -6,8 +6,8 @@ import type {
   ScaleValue,
 } from './types'
 
-export type RustSubstrateKeyType = 'sr25519' | 'ed25519'
-export type RustKeypairKind = 'Ed25519' | 'Sr25519' | 'PublicOnly'
+export type RustSubstrateKeyType = import('./wallet-types').WalletType
+export type RustKeypairKind = import('./wallet-types').SigningScheme | 'Hashed' | 'PublicOnly'
 
 export interface RustKeypairMetadata {
   address?: string
@@ -33,7 +33,7 @@ export interface RustKeypairPublic<
   readonly ss58Address: string
   readonly address: string
   readonly type: RustSubstrateKeyType
-  readonly scheme: 'Ed25519' | 'Sr25519'
+  readonly scheme: import('./wallet-types').SigningScheme
   readonly ss58Format: number
   readonly meta: RustKeypairMetadata
   readonly isLocked: boolean

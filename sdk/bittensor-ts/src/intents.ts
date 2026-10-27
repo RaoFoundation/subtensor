@@ -1,4 +1,6 @@
 import { Balance, RAO_PER_TAO, UnitMismatchError } from './balance'
+import { prepareOrderIntent } from './limit-orders'
+import { prepareRecipients, registrationShieldDefault, type Recipient } from './receiving'
 import { INTENT_CATALOG } from './intent-catalog'
 import * as emission from './emission-weights'
 import { prepareWeights, type EncryptWeightsV2Options } from './intent-weights'
@@ -19,6 +21,7 @@ export interface IntentDescriptor {
   readonly semanticCall?: IntentDescriptor
 }
 export interface IntentContext {
+  accountMode?: 'legacy' | 'safe'
   /** Account that dispatches the semantic call (the proxy real or multisig when wrapped). */
   coldkey: string
   hotkey?: string
@@ -27,6 +30,11 @@ export interface IntentContext {
   feePayer?: string
 }
 export interface IntentReader {
+  descriptorAddress?(descriptor: Uint8Array): string
+  parseRecipient?(address: string, descriptor?: Uint8Array): Recipient
+  supportsPqProfile?(profile: number): boolean | Promise<boolean>
+  finalizedHead?(): Promise<string>
+  composeCall?(call: IntentDescriptor): Promise<Uint8Array>
   query(pallet: string, item: string, params?: unknown[], block?: number | string | null): Promise<unknown>
   queryMap?(pallet: string, item: string, params?: unknown[], limit?: number): Promise<Array<[unknown, unknown]>>
   /** Count physical keys, including retired Alpha rows not present in runtime metadata. */
@@ -43,7 +51,7 @@ export interface IntentReader {
   estimateWeight?(call: IntentDescriptor, signer: string): Promise<{ ref_time: bigint; proof_size: bigint }>
   decodeAddress?(address: string): Uint8Array
   encodeAddress?(publicKey: Uint8Array): string
-  multisigAccount?(signatories: string[], threshold: number): { address: string; publicKey: Uint8Array }
+  multisigAccount?(signatories: string[], threshold: number, safe?: boolean): { address: string; publicKey: Uint8Array }
   hashCall?(call: IntentDescriptor): Promise<Uint8Array>
   evmMirror?(h160: string): string
   encryptWeightsV2?(options: EncryptWeightsV2Options): Promise<{ commit: Uint8Array; revealRound: bigint }>
@@ -104,7 +112,7 @@ const catalog = new Map<string, CatalogEntry>((INTENT_CATALOG as unknown as Cata
 const preparedIntents = new WeakSet<object>()
 const U64_MAX = (1n << 64n) - 1n
 const encoder = new TextEncoder()
-export const PROXY_TYPES = Object.freeze(['Any', 'Owner', 'NonCritical', 'NonTransfer', 'Senate', 'NonFungible', 'Triumvirate', 'Governance', 'Staking', 'Registration', 'Transfer', 'SmallTransfer', 'RootWeights', 'ChildKeys', 'SudoUncheckedSetCode', 'SwapHotkey', 'SubnetLeaseBeneficiary', 'RootClaim', 'BasketTrading', 'Validate', 'Weights'])
+export const PROXY_TYPES = Object.freeze(['Any', 'Owner', 'NonCritical', 'NonTransfer', 'Senate', 'NonFungible', 'Triumvirate', 'Governance', 'Staking', 'Registration', 'Transfer', 'SmallTransfer', 'RootWeights', 'ChildKeys', 'SudoUncheckedSetCode', 'SwapHotkey', 'SubnetLeaseBeneficiary', 'RootClaim', 'BasketTrading', 'Validate', 'Weights', 'Lock'])
 
 /** Machine-readable Python-compatible input schemas, defaults, safety notes and signer roles. */
 export function listIntentTools(): readonly CatalogEntry[] { return INTENT_CATALOG as unknown as readonly CatalogEntry[] }
@@ -209,7 +217,8 @@ export async function encodeIntentCall(call: IntentDescriptor, compose: (pallet:
 
 type MutablePlan = { -readonly [K in keyof PreparedIntent]: PreparedIntent[K] }
 async function prepare(intent: Intent, reader: IntentReader, context: IntentContext): Promise<MutablePlan> {
-  const op = intent.op, a = intent.args as Record<string, any>, tool = catalog.get(op)!
+  const op = intent.op, tool = catalog.get(op)!
+  const receiving = await prepareRecipients(op, intent.args, reader, context.coldkey), a = receiving.args
   const role = (op === 'add_proxy' || op === 'remove_proxy') && ['Validate', 'Weights'].includes(a.proxy_type)
     ? 'hotkey' : op === 'remove_proxies' ? a.from_hotkey ? 'hotkey' : 'coldkey' : tool.signer
   const plan: MutablePlan = {
@@ -232,6 +241,10 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
       break
     }
     case 'fund_evm_key': {
+      if (await reader.constant?.('EVM','NativeDepositSupported') === true) {
+        plan.call = descriptor('EVM','deposit',{address:h160(a.evm_address),value:a.amount_tao === 'all' ? null : rao(a.amount_tao)}); break
+      }
+      if (reader.supportsPqProfile && await reader.query('AdminUtils','HashedAccountsEnabled',[]) === true) throw new Error('legacy EVM mirror funding is unsafe with protected aliases; use native EVM.deposit or a descriptor-guarded transfer')
       const address = h160(a.evm_address), mirror = required(reader.evmMirror, 'evmMirror').call(reader, address)
       plan.call = descriptor('Balances', a.amount_tao === 'all' ? 'transfer_all' : 'transfer_keep_alive', a.amount_tao === 'all' ? { dest: mirror, keep_alive: true } : { dest: mirror, value: rao(a.amount_tao) })
       break
@@ -411,7 +424,20 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
       if (op === 'add_proxy' || op === 'remove_proxy') params = { delegate: a.delegate_ss58, proxy_type: a.proxy_type, delay: a.delay }
       else if (op === 'create_pure_proxy') params = { proxy_type: a.proxy_type, delay: a.delay, index: a.index }
       else params = { spawner: a.spawner_ss58, proxy_type: a.proxy_type, index: a.index, height: a.height, ext_index: a.ext_index }
-      plan.call = descriptor('Proxy', op === 'create_pure_proxy' ? 'create_pure' : op === 'kill_pure_proxy' ? 'kill_pure' : op, params); break
+      const mode = a.account_mode ?? context.accountMode ?? 'legacy'
+      if (!['legacy', 'safe'].includes(mode)) throw new RangeError('account_mode must be legacy or safe')
+      let fn = op === 'create_pure_proxy' ? mode === 'safe' ? 'create_safe_pure' : 'create_pure' : op === 'kill_pure_proxy' ? mode === 'safe' ? 'kill_safe_pure' : 'kill_pure' : op
+      if (fn === 'create_pure' && reader.supportsPqProfile && (await reader.query('HashedAccounts','MlDsaAccounts',[context.coldkey]) || await reader.query('HashedAccounts','DerivedAuthorities',[context.coldkey]))) {
+        fn = 'create_protected_pure'
+        let reserve = 0n
+        for (const [pallet, item] of [['HashedAccounts','DerivedRegistrationDeposit'],['Proxy','ProxyDepositBase'],['Proxy','ProxyDepositFactor']]) {
+          const value = await reader.constant?.(pallet, item)
+          if (value == null) throw new Error('pure proxy registration deposit unavailable')
+          reserve += BigInt(value as any)
+        }
+        plan.requiredFreeByAccount = [{address:context.coldkey,requiredRao:reserve,availableRao:await freeBalance(reader,context.coldkey)}]
+      }
+      plan.call = descriptor('Proxy', fn, params); break
     }
     case 'remove_proxies': plan.call = descriptor('Proxy', op); break
     case 'execute_proxy_announced': {
@@ -455,7 +481,18 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
       const weights = await prepareWeights(op, a, reader, context)
       plan.call = weights.call; plan.extras = weights.extras ?? {}; break
     }
+    case 'authorize_order': case 'cancel_order': case 'execute_orders': case 'execute_batched_orders': {
+      const result = await prepareOrderIntent(op, a, reader, context.coldkey)
+      plan.call = result.call; plan.spendRao = result.spend; plan.netuids = result.netuids
+      break
+    }
     default: { const exhaustive: never = op; throw new RangeError(`unimplemented intent ${exhaustive}`) }
+  }
+  if (receiving.guards.length) plan.call = batchCall([...receiving.guards, plan.call])
+  plan.mevShieldDefault ||= await registrationShieldDefault(reader,plan.call)
+  if (receiving.deposit) {
+    plan.requiredFreeByAccount = [...plan.requiredFreeByAccount, { address: plan.dispatchOrigin, requiredRao: receiving.deposit, availableRao: await freeBalance(reader, plan.dispatchOrigin) }]
+    plan.extras = {...plan.extras,registrationSponsorships:receiving.sponsorships.map(quote => ({...quote,payer:plan.dispatchOrigin}))}
   }
   if (!plan.spendByAccount.length && typeof plan.spendRao === 'bigint' && plan.spendRao > 0n) plan.spendByAccount = [{ address: plan.dispatchOrigin, amountRao: plan.spendRao }]
   if (plan.origin === 'root') plan.call = descriptor('Sudo', 'sudo', { call: plan.call })
@@ -652,7 +689,7 @@ function mergeChild(plan: MutablePlan, child: PreparedIntent): void {
   plan.warnings = [...plan.warnings, ...child.warnings]
   plan.violations = [...plan.violations, ...child.violations]
   plan.effects = [...plan.effects, ...child.effects]
-  plan.extras = { ...plan.extras, [child.op]: child.extras }
+  plan.extras = { ...plan.extras, [child.op]: child.extras, registrationSponsorships:[...((plan.extras.registrationSponsorships as unknown[]) ?? []),...((child.extras.registrationSponsorships as unknown[]) ?? [])] }
   plan.requiredFreeByAccount = [...plan.requiredFreeByAccount, ...child.requiredFreeByAccount]
 }
 
@@ -769,6 +806,9 @@ async function emissionWeights(plan: MutablePlan, reader: IntentReader, context:
 
 async function multisig(plan: MutablePlan, reader: IntentReader, context: IntentContext, a: Record<string, any>): Promise<void> {
   const threshold = plan.op === 'multisig_threshold_1' ? 1 : small(a.threshold, 65535, 'threshold')
+  const mode = a.account_mode ?? context.accountMode ?? 'legacy'
+  if (!['legacy', 'safe'].includes(mode)) throw new RangeError('account_mode must be legacy or safe')
+  const suffix = mode === 'safe' ? '_safe' : ''
   const decode = required(reader.decodeAddress, 'decodeAddress').bind(reader), signerId = hex(decode(context.coldkey))
   if (!Array.isArray(a.other_signatories)) throw new TypeError('other_signatories must be an array')
   const unique = new Map<string, string>()
@@ -779,7 +819,7 @@ async function multisig(plan: MutablePlan, reader: IntentReader, context: Intent
   }
   const others = [...unique].sort(([a], [b]) => a.localeCompare(b)).map(([, address]) => address)
   if (threshold < (plan.op === 'multisig_threshold_1' ? 1 : 2) || threshold > others.length + 1) throw new RangeError('invalid multisig threshold')
-  const account = required(reader.multisigAccount, 'multisigAccount').call(reader, [context.coldkey, ...others], threshold)
+  const account = required(reader.multisigAccount, 'multisigAccount').call(reader, [context.coldkey, ...others], threshold, mode === 'safe')
   const semantic = intentFromJSON(a.call), innerRole = catalog.get(semantic.op)!.signer
   const inner = await semantic.prepare(reader, { coldkey: account.address, hotkey: innerRole === 'hotkey' ? account.address : undefined, hotkeyPublicKey: innerRole === 'hotkey' ? account.publicKey : undefined, feePayer: plan.feePayer })
   mergeChild(plan, inner)
@@ -788,14 +828,14 @@ async function multisig(plan: MutablePlan, reader: IntentReader, context: Intent
   const hash = await required(reader.hashCall, 'hashCall').call(reader, inner.call)
   if (hash.length !== 32) throw new RangeError('call hash must be 32 bytes')
   if (plan.op === 'multisig_threshold_1') {
-    params.call = inner.call; plan.call = descriptor('Multisig', 'as_multi_threshold_1', params)
+    params.call = inner.call; plan.call = descriptor('Multisig', 'as_multi_threshold_1' + suffix, params)
   } else {
     params.threshold = threshold
     const timepoint = a.timepoint == null ? null : { height: small(a.timepoint.height, 0xffffffff, 'timepoint height'), index: small(a.timepoint.index, 0xffffffff, 'timepoint index') }
     if (plan.op === 'multisig_cancel') {
       if (!timepoint) throw new TypeError('cancel requires a timepoint')
       params.timepoint = timepoint; params.call_hash = hash
-      plan.call = { ...descriptor('Multisig', 'cancel_as_multi', params), semanticCall: inner.call }
+      plan.call = { ...descriptor('Multisig', 'cancel_as_multi' + suffix, params), semanticCall: inner.call }
       // Cancellation never dispatches or spends the inner call.
       plan.spendRao = null; plan.spendByAccount = []; plan.requiredFreeByAccount = []; plan.netuids = []; plan.affectsAllSubnets = false; plan.global = true; plan.mevShieldRequired = false; plan.mevShieldDefault = false; plan.violations = []
     } else {
@@ -804,7 +844,7 @@ async function multisig(plan: MutablePlan, reader: IntentReader, context: Intent
       const hashOnly = plan.op === 'multisig_approve' && timepoint != null
       if (hashOnly) params.call_hash = hash
       else params.call = inner.call
-      plan.call = { ...descriptor('Multisig', hashOnly ? 'approve_as_multi' : 'as_multi', params), ...(hashOnly ? { semanticCall: inner.call } : {}) }
+      plan.call = { ...descriptor('Multisig', (hashOnly ? 'approve_as_multi' : 'as_multi') + suffix, params), ...(hashOnly ? { semanticCall: inner.call } : {}) }
       let deposit = 0n
       if (timepoint == null) {
         const constant = required(reader.constant, 'constant').bind(reader)

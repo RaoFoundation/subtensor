@@ -218,6 +218,10 @@ impl NativeKeypair {
         match self.inner.crypto_type() {
             CRYPTO_ED25519 => "Ed25519".to_owned(),
             CRYPTO_SR25519 => "Sr25519".to_owned(),
+            keys::CRYPTO_HASHED | keys::CRYPTO_HASHED_ED25519 => "Hashed".to_owned(),
+            keys::CRYPTO_MLDSA65 | keys::CRYPTO_MLDSA65_FIXED => "MlDsa65".to_owned(),
+            keys::CRYPTO_FALCON512 | keys::CRYPTO_FALCON512_HASHED => "Falcon512".to_owned(),
+            keys::CRYPTO_FALCON1024 | keys::CRYPTO_FALCON1024_HASHED => "Falcon1024".to_owned(),
             _ => "PublicOnly".to_owned(),
         }
     }

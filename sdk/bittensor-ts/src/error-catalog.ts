@@ -57,6 +57,7 @@ export const CHAIN_ERROR_CODES = {
   "HotKeyAccountNotExists": "not_registered",
   "HotKeyNotRegisteredInNetwork": "not_registered",
   "NonAssociatedColdKey": "not_authorized",
+  "HotkeyOwnerPolicyViolation": "not_authorized",
   "NotEnoughStake": "insufficient_balance",
   "NotEnoughStakeToWithdraw": "insufficient_balance",
   "NotEnoughStakeToSetWeights": "insufficient_balance",
@@ -245,6 +246,9 @@ export const CHAIN_ERROR_CODES = {
   "MinimumThreshold": "invalid_argument",
   "AlreadyApproved": "already_exists",
   "NoApprovalsNeeded": "invalid_argument",
+  "SafeDerivationFailed": "invalid_argument",
+  "InvalidSafeAccountId": "invalid_argument",
+  "ThresholdTooHigh": "invalid_argument",
   "TooFewSignatories": "invalid_argument",
   "TooManySignatories": "limit_exceeded",
   "SignatoriesOutOfOrder": "invalid_argument",
@@ -268,6 +272,7 @@ export const CHAIN_ERROR_CODES = {
   "TargetBlockNumberInPast": "invalid_argument",
   "RescheduleNoChange": "invalid_argument",
   "Named": "invalid_argument",
+  "AccountPolicyViolation": "not_authorized",
   "NotProxy": "not_authorized",
   "Unproxyable": "not_authorized",
   "Duplicate": "already_exists",
@@ -426,7 +431,23 @@ export const CHAIN_ERROR_CODES = {
   "PartialFillNotSupportedForLinkedAmount": "invalid_argument",
   "PartialFillNotSupportedForProvider": "invalid_argument",
   "LinkedOutputNotPrunable": "invalid_argument",
-  "OrderSignerFrozen": "not_authorized"
+  "OrderSignerFrozen": "not_authorized",
+  "OrderNonceUsed": "already_exists",
+  "OrderNotApproved": "not_authorized",
+  "OrderBatchTooLarge": "limit_exceeded",
+  "InvalidAuthorizationMode": "invalid_argument",
+  "Disabled": "disabled",
+  "UnsupportedDescriptor": "invalid_argument",
+  "DescriptorMismatch": "invalid_argument",
+  "NotRegistered": "not_registered",
+  "WrongGeneration": "invalid_argument",
+  "WrongCommitment": "not_authorized",
+  "InvalidNextCommitment": "invalid_argument",
+  "GenerationExhausted": "limit_exceeded",
+  "AliasCollision": "already_exists",
+  "AuthenticationKindConflict": "policy_violation",
+  "InvalidDerivedAuthority": "invalid_argument",
+  "DerivedAuthorityTooComplex": "limit_exceeded"
 } as const
 
 export const CUSTOM_TRANSACTION_ERRORS = {
@@ -2111,6 +2132,13 @@ export const CHAIN_ERROR_CATALOG = [
     "docs": "No live coldkey-swap destination reservation exists for this account."
   },
   {
+    "palletIndex": 7,
+    "errorIndex": 190,
+    "pallet": "SubtensorModule",
+    "name": "HotkeyOwnerPolicyViolation",
+    "docs": "An ownership change would weaken a protected account's authorization."
+  },
+  {
     "palletIndex": 11,
     "errorIndex": 0,
     "pallet": "Utility",
@@ -2123,6 +2151,13 @@ export const CHAIN_ERROR_CATALOG = [
     "pallet": "Utility",
     "name": "InvalidDerivedAccount",
     "docs": "Bad input data for derived account ID"
+  },
+  {
+    "palletIndex": 11,
+    "errorIndex": 2,
+    "pallet": "Utility",
+    "name": "SafeDerivationFailed",
+    "docs": "No full-width off-curve account could be derived within the fixed bound."
   },
   {
     "palletIndex": 12,
@@ -2228,6 +2263,27 @@ export const CHAIN_ERROR_CATALOG = [
     "pallet": "Multisig",
     "name": "AlreadyStored",
     "docs": "The data to be stored is already stored."
+  },
+  {
+    "palletIndex": 13,
+    "errorIndex": 14,
+    "pallet": "Multisig",
+    "name": "SafeDerivationFailed",
+    "docs": "All bounded address candidates admit a legacy raw public key."
+  },
+  {
+    "palletIndex": 13,
+    "errorIndex": 15,
+    "pallet": "Multisig",
+    "name": "InvalidSafeAccountId",
+    "docs": "Safe accounts require an exact, untruncated 32-byte account encoding."
+  },
+  {
+    "palletIndex": 13,
+    "errorIndex": 16,
+    "pallet": "Multisig",
+    "name": "ThresholdTooHigh",
+    "docs": "The threshold exceeds the number of signatories."
   },
   {
     "palletIndex": 14,
@@ -2389,6 +2445,20 @@ export const CHAIN_ERROR_CATALOG = [
     "pallet": "Proxy",
     "name": "InvalidDerivedAccountId",
     "docs": "Failed to derive a valid account id from the provided entropy."
+  },
+  {
+    "palletIndex": 16,
+    "errorIndex": 10,
+    "pallet": "Proxy",
+    "name": "AccountPolicyViolation",
+    "docs": "This delegation would weaken the real account's authorization policy."
+  },
+  {
+    "palletIndex": 16,
+    "errorIndex": 11,
+    "pallet": "Proxy",
+    "name": "SafeDerivationFailed",
+    "docs": "No full-width off-curve account could be derived within the fixed bound."
   },
   {
     "palletIndex": 18,
@@ -3530,6 +3600,125 @@ export const CHAIN_ERROR_CATALOG = [
     "pallet": "LimitOrders",
     "name": "OrderSignerFrozen",
     "docs": "The order owner is temporarily prohibited from moving funds."
+  },
+  {
+    "palletIndex": 32,
+    "errorIndex": 28,
+    "pallet": "LimitOrders",
+    "name": "OrderNonceUsed",
+    "docs": "The owner nonce already names a different canonical order."
+  },
+  {
+    "palletIndex": 32,
+    "errorIndex": 29,
+    "pallet": "LimitOrders",
+    "name": "OrderNotApproved",
+    "docs": "This full order has not been approved by its authenticated owner."
+  },
+  {
+    "palletIndex": 32,
+    "errorIndex": 30,
+    "pallet": "LimitOrders",
+    "name": "OrderBatchTooLarge",
+    "docs": "The runtime batch capacity is smaller than the submitted authorized batch."
+  },
+  {
+    "palletIndex": 32,
+    "errorIndex": 31,
+    "pallet": "LimitOrders",
+    "name": "InvalidAuthorizationMode",
+    "docs": "Nonce-bearing terms and proof authorization must use the same mode."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 0,
+    "pallet": "HashedAccounts",
+    "name": "Disabled",
+    "docs": "Hashed account registration or authorization is disabled in this runtime."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 1,
+    "pallet": "HashedAccounts",
+    "name": "UnsupportedDescriptor",
+    "docs": "The descriptor version, scheme, or initial commitment is unsupported."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 2,
+    "pallet": "HashedAccounts",
+    "name": "DescriptorMismatch",
+    "docs": "The derived account is already registered with a different descriptor."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 3,
+    "pallet": "HashedAccounts",
+    "name": "NotRegistered",
+    "docs": "Register the hashed account before submitting its authorization proof."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 4,
+    "pallet": "HashedAccounts",
+    "name": "WrongGeneration",
+    "docs": "The proof does not use the account's currently active key generation."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 5,
+    "pallet": "HashedAccounts",
+    "name": "WrongCommitment",
+    "docs": "The revealed public key does not match the active key commitment."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 6,
+    "pallet": "HashedAccounts",
+    "name": "InvalidNextCommitment",
+    "docs": "The next commitment must obey the immutable account rotation policy."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 7,
+    "pallet": "HashedAccounts",
+    "name": "GenerationExhausted",
+    "docs": "The key generation counter cannot advance any further."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 8,
+    "pallet": "HashedAccounts",
+    "name": "InvalidSignature",
+    "docs": "The signature does not authorize this account and complete transaction."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 9,
+    "pallet": "HashedAccounts",
+    "name": "AliasCollision",
+    "docs": "Another account already owns the derived EVM alias."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 10,
+    "pallet": "HashedAccounts",
+    "name": "AuthenticationKindConflict",
+    "docs": "A different permanent authentication kind already owns this identity."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 11,
+    "pallet": "HashedAccounts",
+    "name": "InvalidDerivedAuthority",
+    "docs": "A derived descriptor is invalid or its dependencies are not protected."
+  },
+  {
+    "palletIndex": 33,
+    "errorIndex": 12,
+    "pallet": "HashedAccounts",
+    "name": "DerivedAuthorityTooComplex",
+    "docs": "The derived authority graph exceeds a deterministic runtime bound."
   }
 ] as const
 

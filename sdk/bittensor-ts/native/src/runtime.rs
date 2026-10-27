@@ -395,6 +395,10 @@ impl NativeRuntime {
 
 #[napi]
 impl NativeRuntime {
+    #[napi]
+    pub fn supports_mldsa_profile(&self, profile: u8) -> bool {
+        self.inner.supports_mldsa_profile(profile)
+    }
     #[napi(factory, js_name = "fromMetadata")]
     pub fn from_metadata(
         metadata_bytes: Buffer,
@@ -1614,6 +1618,7 @@ pub fn era_birth_native(period: BigInt, current: BigInt) -> NapiResult<BigInt> {
 pub fn multisig_account_id_native(
     signatories: Vec<Buffer>,
     threshold: u16,
+    safe: Option<bool>,
 ) -> NapiResult<NativeMultisigAccount> {
     let keys = signatories
         .iter()
@@ -1627,7 +1632,12 @@ pub fn multisig_account_id_native(
             })
         })
         .collect::<NapiResult<Vec<[u8; 32]>>>()?;
-    let (account_id, sorted_signatories) = multisig_account_id(&keys, threshold).napi()?;
+    let (account_id, sorted_signatories) = if safe.unwrap_or(false) {
+        bittensor_core::codec::extrinsic::safe_multisig_account_id(&keys, threshold)
+    } else {
+        multisig_account_id(&keys, threshold)
+    }
+    .napi()?;
     Ok(NativeMultisigAccount {
         account_id: account_id.to_vec().into(),
         sorted_signatories: sorted_signatories
