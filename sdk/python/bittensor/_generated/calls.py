@@ -1767,7 +1767,7 @@ class LimitOrders:
 
     @staticmethod
     def authorize_order(order: 'VersionedOrder') -> Call:
-        "Approve every economic term through the owner's normal origin. The explicit Authorized order includes its replay-protection nonce."
+        "Approve every economic term through the owner's normal origin. The owner must have a live System account and may hold eight live approvals. New nonces must increase. Terminal/expired slots are reclaimed here; account reaping removes all approvals without retaining any balance. The explicit Authorized order includes its replay-protection nonce."
         return Call('LimitOrders', 'authorize_order', {'order': order})
 
     @staticmethod
