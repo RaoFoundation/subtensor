@@ -175,8 +175,20 @@ fn make_benchmark_authorized_orders<T: crate::Config>(
         });
         let id = Pallet::<T>::derive_authorized_order_id(0, &order);
         crate::Orders::<T>::remove(id);
-        crate::OrderNonces::<T>::remove(order.signer(), 0);
-        crate::ApprovedOrders::<T>::insert(id, Pallet::<T>::order_approval_commitment(0, &order));
+        frame_system::Pallet::<T>::inc_providers(order.signer());
+        crate::ApprovedOrders::<T>::remove(order.signer());
+        for nonce in 0..<crate::MaxPendingOrders as Get<u32>>::get() as u64 {
+            Pallet::<T>::approve_order(order.signer(), nonce, &order).unwrap();
+            if nonce != 0 {
+                let extra_id = Pallet::<T>::derive_authorized_order_id(nonce, &order);
+                Pallet::<T>::set_order_status(
+                    order.signer(),
+                    Some(nonce),
+                    extra_id,
+                    crate::OrderStatus::PartiallyFilled(u64::MAX),
+                );
+            }
+        }
         entries.push(crate::AuthorizedOrder {
             nonce: 0,
             order,
@@ -328,14 +340,24 @@ mod benchmarks {
         let signer = order.signer().clone();
         let id = Pallet::<T>::derive_authorized_order_id(0, &order);
         crate::Orders::<T>::remove(id);
-        crate::OrderNonces::<T>::remove(&signer, 0);
-
-        crate::ApprovedOrders::<T>::remove(id);
+        // Full-size record: reclaim one terminal slot and preserve seven live entries.
+        Pallet::<T>::set_order_status(&signer, Some(0), id, crate::OrderStatus::Fulfilled);
+        let nonce = <crate::MaxPendingOrders as Get<u32>>::get() as u64;
 
         #[extrinsic_call]
-        _(RawOrigin::Signed(signer), order.with_nonce(0).unwrap());
+        _(
+            RawOrigin::Signed(signer.clone()),
+            order.with_nonce(nonce).unwrap(),
+        );
 
-        assert!(crate::ApprovedOrders::<T>::contains_key(id));
+        assert!(Pallet::<T>::approved_order(&signer, nonce).is_some());
+        assert_eq!(
+            crate::ApprovedOrders::<T>::get(signer)
+                .unwrap()
+                .orders
+                .len(),
+            <crate::MaxPendingOrders as Get<u32>>::get() as usize
+        );
     }
 
     #[benchmark]
@@ -350,18 +372,18 @@ mod benchmarks {
             .order;
         let signer = order.signer().clone();
         let id = Pallet::<T>::derive_authorized_order_id(0, &order);
-        crate::Orders::<T>::insert(id, crate::OrderStatus::PartiallyFilled(1));
-        crate::OrderNonces::<T>::insert(&signer, 0, id);
-        crate::ApprovedOrders::<T>::insert(id, Pallet::<T>::order_approval_commitment(0, &order));
+        Pallet::<T>::set_order_status(&signer, Some(0), id, crate::OrderStatus::PartiallyFilled(1));
 
         #[extrinsic_call]
-        cancel_order(RawOrigin::Signed(signer), order.with_nonce(0).unwrap());
+        cancel_order(
+            RawOrigin::Signed(signer.clone()),
+            order.with_nonce(0).unwrap(),
+        );
 
         assert_eq!(
-            crate::Orders::<T>::get(id),
+            Pallet::<T>::approved_order(&signer, 0).unwrap().status,
             Some(crate::OrderStatus::Cancelled)
         );
-        assert!(!crate::ApprovedOrders::<T>::contains_key(id));
     }
 
     #[benchmark]
@@ -380,7 +402,13 @@ mod benchmarks {
         combined.extend(make_benchmark_orders::<T>(n.saturating_sub(p), netuid));
         let ids: alloc::vec::Vec<_> = combined
             .iter()
-            .map(|signed| Pallet::<T>::derive_order_id(&signed.order))
+            .map(|signed| {
+                (
+                    signed.order.signer().clone(),
+                    signed.order.view().authorization_nonce,
+                    Pallet::<T>::derive_order_id(&signed.order),
+                )
+            })
             .collect();
         let orders: frame_support::BoundedVec<_, T::MaxOrdersPerBatch> =
             combined.try_into().unwrap();
@@ -390,9 +418,9 @@ mod benchmarks {
         #[extrinsic_call]
         execute_orders(RawOrigin::Signed(caller), orders, true);
 
-        for id in ids {
+        for (owner, nonce, id) in ids {
             assert_eq!(
-                crate::Orders::<T>::get(id),
+                Pallet::<T>::order_status(&owner, nonce, id),
                 Some(crate::OrderStatus::Fulfilled)
             );
         }
@@ -417,7 +445,13 @@ mod benchmarks {
         combined.extend(make_benchmark_orders::<T>(n.saturating_sub(p), netuid));
         let ids: alloc::vec::Vec<_> = combined
             .iter()
-            .map(|signed| Pallet::<T>::derive_order_id(&signed.order))
+            .map(|signed| {
+                (
+                    signed.order.signer().clone(),
+                    signed.order.view().authorization_nonce,
+                    Pallet::<T>::derive_order_id(&signed.order),
+                )
+            })
             .collect();
         let orders: frame_support::BoundedVec<_, T::MaxOrdersPerBatch> =
             combined.try_into().unwrap();
@@ -427,9 +461,9 @@ mod benchmarks {
         #[extrinsic_call]
         execute_batched_orders(RawOrigin::Signed(caller), netuid, orders);
 
-        for id in ids {
+        for (owner, nonce, id) in ids {
             assert_eq!(
-                crate::Orders::<T>::get(id),
+                Pallet::<T>::order_status(&owner, nonce, id),
                 Some(crate::OrderStatus::Fulfilled)
             );
         }

@@ -186,7 +186,16 @@ fn approved_order_uses_owner_authority_and_keeps_legacy_protection() {
         };
         assert_noop!(execute(approved.clone()), Error::<Test>::OrderNotApproved);
         // Even a matching H256 bookkeeping key cannot authorize different terms.
-        ApprovedOrders::<Test>::insert(id, [9u8; 64]);
+        let _ = self::approved(order.clone(), 7);
+        ApprovedOrders::<Test>::mutate(alice(), |state| {
+            state
+                .as_mut()
+                .unwrap()
+                .orders
+                .get_mut(&7)
+                .unwrap()
+                .commitment = [9u8; 64];
+        });
         assert_noop!(execute(approved.clone()), Error::<Test>::OrderNotApproved);
         assert_noop!(
             LimitOrders::authorize_order(
@@ -223,7 +232,10 @@ fn approved_order_uses_owner_authority_and_keeps_legacy_protection() {
         assert_noop!(execute(approved.clone()), Error::<Test>::OrderSignerFrozen);
         FrozenOrderSigner::set(None);
         assert_ok!(execute(approved.clone()));
-        assert_eq!(Orders::<Test>::get(id), Some(OrderStatus::Fulfilled));
+        assert_eq!(
+            LimitOrders::order_status(&alice(), Some(7), id),
+            Some(OrderStatus::Fulfilled)
+        );
         assert_noop!(execute(approved), Error::<Test>::OrderAlreadyProcessed);
     });
 }
@@ -239,11 +251,16 @@ fn failed_swap_preserves_approval_and_nonce_and_batch_is_atomic() {
         assert!(execute(proof.clone()).is_err());
 
         assert!(!Orders::<Test>::contains_key(id));
-        assert_eq!(OrderNonces::<Test>::get(alice(), 4), Some(id));
-        assert!(ApprovedOrders::<Test>::contains_key(id));
+        assert_eq!(
+            LimitOrders::approved_order(&alice(), 4).map(|approval| approval.id),
+            Some(id)
+        );
+        assert!(ApprovedOrders::<Test>::contains_key(alice()));
         MockSwap::set_swap_fail(false);
         let invalid = approved(order(), 5);
-        ApprovedOrders::<Test>::remove(LimitOrders::derive_authorized_order_id(5, &invalid.order));
+        ApprovedOrders::<Test>::mutate(alice(), |state| {
+            state.as_mut().unwrap().orders.remove(&5);
+        });
         assert_noop!(
             LimitOrders::execute_orders(
                 RuntimeOrigin::signed(charlie()),
@@ -267,8 +284,13 @@ fn expiry_relayer_price_and_partial_overfill_rules_are_shared() {
         if let VersionedOrder::V1(order) = &mut expired {
             order.expiry = 1;
         }
-        let expired = approved(expired, 0);
-        assert_noop!(execute(expired), Error::<Test>::OrderExpired);
+        assert_noop!(
+            LimitOrders::authorize_order(
+                RuntimeOrigin::signed(alice()),
+                expired.with_nonce(0).unwrap()
+            ),
+            Error::<Test>::OrderExpired
+        );
         let mut restricted = order();
         if let VersionedOrder::V1(order) = &mut restricted {
             order.relayer = Some(vec![dave()].try_into().unwrap());
@@ -341,7 +363,10 @@ fn netted_outcome(account_approved: bool) -> (Vec<SwapCall>, u64, u64, u64) {
             ));
             for signed in [buys, sells] {
                 let id = LimitOrders::derive_authorized_order_id(signed.nonce, &signed.order);
-                assert_eq!(Orders::<Test>::get(id), Some(OrderStatus::Fulfilled));
+                assert_eq!(
+                    LimitOrders::order_status(signed.order.signer(), Some(signed.nonce), id),
+                    Some(OrderStatus::Fulfilled)
+                );
             }
         } else {
             assert_ok!(LimitOrders::execute_batched_orders(
@@ -535,7 +560,7 @@ fn unified_calls_reject_mismatched_proof_modes_and_bound_work_before_verificatio
             Error::<Test>::OrderBatchTooLarge
         );
         assert_eq!(Orders::<Test>::iter().count(), 0);
-        assert_eq!(OrderNonces::<Test>::iter().count(), 0);
+        assert_eq!(ApprovedOrders::<Test>::iter().count(), 0);
     });
 }
 
@@ -595,13 +620,24 @@ fn original_calls_execute_mixed_classical_and_approved_orders_atomically() {
                     true
                 ));
             }
-            assert!(
-                ids.iter()
-                    .all(|id| Orders::<Test>::get(id) == Some(OrderStatus::Fulfilled))
+            assert_eq!(Orders::<Test>::get(ids[0]), Some(OrderStatus::Fulfilled));
+            assert_eq!(
+                LimitOrders::order_status(&alice(), Some(1), ids[1]),
+                Some(OrderStatus::Fulfilled)
+            );
+            assert_eq!(
+                LimitOrders::order_status(&dave(), Some(2), ids[2]),
+                Some(OrderStatus::Fulfilled)
             );
 
-            assert_eq!(OrderNonces::<Test>::get(alice(), 1), Some(ids[1]));
-            assert_eq!(OrderNonces::<Test>::get(dave(), 2), Some(ids[2]));
+            assert_eq!(
+                LimitOrders::approved_order(&alice(), 1).map(|approval| approval.id),
+                Some(ids[1])
+            );
+            assert_eq!(
+                LimitOrders::approved_order(&dave(), 2).map(|approval| approval.id),
+                Some(ids[2])
+            );
             assert_noop!(
                 LimitOrders::cancel_order(RuntimeOrigin::signed(alice()), approved_terms),
                 Error::<Test>::OrderAlreadyProcessed
@@ -624,7 +660,7 @@ fn original_cancel_clears_approved_remainder_without_changing_legacy_cancellatio
             RuntimeOrigin::signed(alice()),
             authorized.clone()
         ));
-        Orders::<Test>::insert(id, OrderStatus::PartiallyFilled(100));
+        LimitOrders::set_order_status(&alice(), Some(7), id, OrderStatus::PartiallyFilled(100));
         assert_noop!(
             LimitOrders::cancel_order(RuntimeOrigin::signed(bob()), authorized.clone()),
             Error::<Test>::Unauthorized
@@ -633,9 +669,15 @@ fn original_cancel_clears_approved_remainder_without_changing_legacy_cancellatio
             RuntimeOrigin::signed(alice()),
             authorized.clone()
         ));
-        assert_eq!(Orders::<Test>::get(id), Some(OrderStatus::Cancelled));
-        assert!(!ApprovedOrders::<Test>::contains_key(id));
-        assert_eq!(OrderNonces::<Test>::get(alice(), 7), Some(id));
+        assert_eq!(
+            LimitOrders::order_status(&alice(), Some(7), id),
+            Some(OrderStatus::Cancelled)
+        );
+        assert!(ApprovedOrders::<Test>::contains_key(alice()));
+        assert_eq!(
+            LimitOrders::approved_order(&alice(), 7).map(|approval| approval.id),
+            Some(id)
+        );
         assert_noop!(
             LimitOrders::cancel_order(RuntimeOrigin::signed(alice()), authorized),
             Error::<Test>::OrderAlreadyProcessed
@@ -648,4 +690,227 @@ fn original_cancel_clears_approved_remainder_without_changing_legacy_cancellatio
         ));
         assert_eq!(Orders::<Test>::get(legacy_id), Some(OrderStatus::Cancelled));
     });
+}
+
+#[test]
+fn approvals_are_bounded_and_failed_insertion_preserves_existing_authority() {
+    new_test_ext().execute_with(|| {
+        prepare();
+        for nonce in 0..8 {
+            approved(order(), nonce);
+        }
+        for nonce in 8..128 {
+            assert_noop!(
+                LimitOrders::authorize_order(
+                    RuntimeOrigin::signed(alice()),
+                    order().with_nonce(nonce).unwrap()
+                ),
+                Error::<Test>::TooManyApprovedOrders
+            );
+        }
+        let state = ApprovedOrders::<Test>::get(alice()).unwrap();
+        assert_eq!(state.orders.len(), 8);
+        assert_eq!(state.highest_nonce, Some(7));
+        assert!(state.encoded_size() <= AccountOrderApprovals::max_encoded_len());
+        assert_eq!(ApprovedOrders::<Test>::iter().count(), 1);
+        assert_eq!(Orders::<Test>::iter().count(), 0);
+        // Existing approvals remain usable even with a full account record.
+        assert_ok!(execute(AuthorizedOrder {
+            nonce: 0,
+            order: order(),
+            authorization: OrderAuthorization::AccountApproved,
+            partial_fill: None,
+        }));
+        approved(order(), 8);
+        assert!(LimitOrders::approved_order(&alice(), 0).is_none());
+        assert_eq!(
+            ApprovedOrders::<Test>::get(alice()).unwrap().orders.len(),
+            8
+        );
+        assert_noop!(
+            LimitOrders::authorize_order(
+                RuntimeOrigin::signed(alice()),
+                order().with_nonce(0).unwrap()
+            ),
+            Error::<Test>::OrderNonceUsed
+        );
+    });
+}
+
+#[test]
+fn repeated_cancellation_and_execution_leave_no_per_order_tombstones() {
+    for execute_order in [false, true] {
+        new_test_ext().execute_with(|| {
+            prepare();
+            MockSwap::set_tao_balance(alice(), 100_000);
+            let mut first = None;
+            for nonce in 0..128 {
+                let proof = approved(order(), nonce);
+                if nonce == 0 {
+                    first = Some(proof.clone());
+                }
+                if execute_order {
+                    assert_ok!(execute(proof));
+                } else {
+                    assert_ok!(LimitOrders::cancel_order(
+                        RuntimeOrigin::signed(alice()),
+                        proof.order.with_nonce(nonce).unwrap()
+                    ));
+                }
+                assert_eq!(
+                    ApprovedOrders::<Test>::get(alice()).unwrap().orders.len(),
+                    1
+                );
+                assert_eq!(Orders::<Test>::iter().count(), 0);
+            }
+            assert_eq!(ApprovedOrders::<Test>::iter().count(), 1);
+            assert_noop!(execute(first.unwrap()), Error::<Test>::OrderNotApproved);
+            assert_noop!(
+                LimitOrders::authorize_order(
+                    RuntimeOrigin::signed(alice()),
+                    order().with_nonce(0).unwrap()
+                ),
+                Error::<Test>::OrderNonceUsed
+            );
+            // Cancelling arbitrary unused nonces cannot grow state or advance its watermark.
+            let before = ApprovedOrders::<Test>::get(alice());
+            for nonce in 128..256 {
+                assert_ok!(LimitOrders::cancel_order(
+                    RuntimeOrigin::signed(alice()),
+                    order().with_nonce(nonce).unwrap()
+                ));
+            }
+            assert_eq!(ApprovedOrders::<Test>::get(alice()), before);
+            assert_eq!(Orders::<Test>::iter().count(), 0);
+        });
+    }
+}
+
+#[test]
+fn expiry_reclaims_capacity_without_restoring_old_nonces_or_partial_fills() {
+    new_test_ext().execute_with(|| {
+        prepare();
+        MockTime::set(100);
+        let mut terms = order();
+        if let VersionedOrder::V1(order) = &mut terms {
+            order.expiry = 100;
+            order.partial_fills_enabled = true;
+            order.relayer = Some(vec![charlie()].try_into().unwrap());
+        }
+        let mut proof = approved(terms.clone(), 0);
+        proof.partial_fill = Some(100);
+        assert_ok!(execute(proof.clone()));
+        // Identical reapproval cannot reset partial fill accounting.
+        approved(terms.clone(), 0);
+        assert_eq!(
+            LimitOrders::approved_order(&alice(), 0).unwrap().status,
+            Some(OrderStatus::PartiallyFilled(100))
+        );
+        for nonce in 1..8 {
+            approved(terms.clone(), nonce);
+        }
+        MockTime::set(101);
+        approved(order(), 8);
+        assert_eq!(
+            ApprovedOrders::<Test>::get(alice()).unwrap().orders.len(),
+            1
+        );
+        assert_noop!(execute(proof), Error::<Test>::OrderNotApproved);
+        assert_noop!(
+            LimitOrders::authorize_order(
+                RuntimeOrigin::signed(alice()),
+                order().with_nonce(0).unwrap()
+            ),
+            Error::<Test>::OrderNonceUsed
+        );
+        assert_eq!(Orders::<Test>::iter().count(), 0);
+    });
+}
+
+#[test]
+fn reaping_cleans_all_approval_state_and_refunding_does_not_reactivate_orders() {
+    new_test_ext().execute_with(|| {
+        prepare();
+        let proof = approved(order(), 0);
+        for nonce in 1..8 {
+            approved(order(), nonce);
+        }
+        assert_ok!(System::dec_providers(&alice()));
+        assert!(!frame_system::Account::<Test>::contains_key(alice()));
+        assert_eq!(ApprovedOrders::<Test>::iter().count(), 0);
+        assert_eq!(Orders::<Test>::iter().count(), 0);
+        assert_noop!(
+            LimitOrders::authorize_order(
+                RuntimeOrigin::signed(alice()),
+                order().with_nonce(8).unwrap()
+            ),
+            Error::<Test>::OrderAccountMissing
+        );
+        for nonce in 0..128 {
+            assert_ok!(LimitOrders::cancel_order(
+                RuntimeOrigin::signed(alice()),
+                order().with_nonce(nonce).unwrap()
+            ));
+        }
+        assert_eq!(ApprovedOrders::<Test>::iter().count(), 0);
+        assert_eq!(Orders::<Test>::iter().count(), 0);
+        System::inc_providers(&alice());
+        assert_noop!(execute(proof), Error::<Test>::OrderNotApproved);
+        // Only a new authenticated owner approval can restore authority after reaping.
+        let fresh = approved(order(), 0);
+        assert_ok!(execute(fresh));
+    });
+}
+
+#[test]
+fn nonce_watermark_never_wraps_and_cannot_be_reset_by_cancellation() {
+    new_test_ext().execute_with(|| {
+        let proof = approved(order(), u64::MAX);
+        assert_ok!(LimitOrders::cancel_order(
+            RuntimeOrigin::signed(alice()),
+            proof.order.with_nonce(u64::MAX).unwrap()
+        ));
+        assert_noop!(
+            LimitOrders::authorize_order(
+                RuntimeOrigin::signed(alice()),
+                order().with_nonce(0).unwrap()
+            ),
+            Error::<Test>::OrderNonceUsed
+        );
+        assert_noop!(
+            LimitOrders::authorize_order(
+                RuntimeOrigin::signed(alice()),
+                order().with_nonce(u64::MAX).unwrap()
+            ),
+            Error::<Test>::OrderAlreadyProcessed
+        );
+        assert_eq!(
+            ApprovedOrders::<Test>::get(alice()).unwrap().highest_nonce,
+            Some(u64::MAX)
+        );
+    });
+}
+
+#[test]
+fn execution_cannot_recreate_state_after_the_swap_reaps_its_owner() {
+    for netted in [false, true] {
+        new_test_ext().execute_with(|| {
+            prepare();
+            let proof = approved(order(), 0);
+            ReapOnDebit::set(Some(alice()));
+            if netted {
+                assert_ok!(LimitOrders::execute_batched_orders(
+                    RuntimeOrigin::signed(charlie()),
+                    netuid(),
+                    unified_orders(vec![proof.clone()].try_into().unwrap())
+                ));
+            } else {
+                assert_ok!(execute(proof.clone()));
+            }
+            assert!(!ApprovedOrders::<Test>::contains_key(alice()));
+            System::inc_providers(&alice());
+            assert_noop!(execute(proof), Error::<Test>::OrderNotApproved);
+            assert_eq!(Orders::<Test>::iter().count(), 0);
+        });
+    }
 }

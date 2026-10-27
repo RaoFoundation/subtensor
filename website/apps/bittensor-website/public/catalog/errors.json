@@ -465,8 +465,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 518,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L518",
+          "line": 517,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L517",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -1068,8 +1068,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 512,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L512",
+          "line": 511,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L511",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -1930,8 +1930,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 520,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L520",
+          "line": 519,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L519",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2533,8 +2533,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 508,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L508",
+          "line": 507,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L507",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2730,8 +2730,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 551,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L551",
+          "line": 550,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L550",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3228,8 +3228,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 484,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L484",
+          "line": 483,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L483",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         },
         {
@@ -3477,8 +3477,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 502,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L502",
+          "line": 501,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L501",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3495,8 +3495,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 535,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L535",
+          "line": 534,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L534",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3513,8 +3513,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 531,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L531",
+          "line": 530,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L530",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3531,8 +3531,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 533,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L533",
+          "line": 532,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L532",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3549,8 +3549,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 541,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L541",
+          "line": 540,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L540",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3567,8 +3567,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 529,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L529",
+          "line": 528,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L528",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4178,8 +4178,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 527,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L527",
+          "line": 526,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L526",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4663,6 +4663,24 @@
         "System"
       ]
     },
+    "OrderAccountMissing": {
+      "code": "not_found",
+      "description": "The approval owner has no live System account. Fund the owner with the normal existential balance before approving an order; no registration or extra deposit is required.",
+      "docs_url": "/docs/errors/chain/OrderAccountMissing",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderAccountMissing/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 554,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L554",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
     "OrderAlreadyProcessed": {
       "code": "already_exists",
       "description": "The order id already has a terminal status: execution found it fulfilled, or `cancel_order` found any existing status for it. Check the `Orders` storage map under the blake2-256 hash of the SCALE-encoded `VersionedOrder`.",
@@ -4675,8 +4693,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 486,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L486",
+          "line": 485,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L485",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4693,8 +4711,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 549,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L549",
+          "line": 548,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L548",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4711,8 +4729,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 488,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L488",
+          "line": 487,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L487",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4729,8 +4747,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 490,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L490",
+          "line": 489,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L489",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4747,15 +4765,15 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 500,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L500",
+          "line": 499,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L499",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
     },
     "OrderNonceUsed": {
       "code": "already_exists",
-      "description": "This owner already bound the nonce to different order bytes. Keep the original order or allocate a new nonce; cancellation does not make a nonce reusable.",
+      "description": "The nonce was already used or names different order bytes. For a new approval, choose a nonce greater than ApprovedOrders.highest_nonce; cancellation and expiry do not reset that watermark.",
       "docs_url": "/docs/errors/chain/OrderNonceUsed",
       "markdown_url": "/llms.mdx/docs/errors/chain/OrderNonceUsed/content.md",
       "pallets": [
@@ -4765,8 +4783,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 545,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L545",
+          "line": 544,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L544",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4783,8 +4801,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 547,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L547",
+          "line": 546,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L546",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4801,8 +4819,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 543,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L543",
+          "line": 542,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L542",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4917,8 +4935,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 516,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L516",
+          "line": 515,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L515",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4935,8 +4953,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 537,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L537",
+          "line": 536,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L536",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4953,8 +4971,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 539,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L539",
+          "line": 538,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L538",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4971,8 +4989,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 506,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L506",
+          "line": 505,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L505",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5016,8 +5034,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 492,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L492",
+          "line": 491,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L491",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5169,8 +5187,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 504,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L504",
+          "line": 503,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L503",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5187,8 +5205,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 510,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L510",
+          "line": 509,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L509",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5349,8 +5367,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 498,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L498",
+          "line": 497,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L497",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5852,8 +5870,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 496,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L496",
+          "line": 495,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L495",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -6009,6 +6027,24 @@
           "line": 896,
           "url": "/code/pallets/proxy/src/lib.rs#L896",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+        }
+      ]
+    },
+    "TooManyApprovedOrders": {
+      "code": "limit_exceeded",
+      "description": "The owner already has eight live approvals. Cancel or complete an existing order, or wait for its expiry, before approving another.",
+      "docs_url": "/docs/errors/chain/TooManyApprovedOrders",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyApprovedOrders/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 552,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L552",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
     },
@@ -6439,8 +6475,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 494,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L494",
+          "line": 493,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L493",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -6844,8 +6880,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 525,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L525",
+          "line": 524,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L524",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]

@@ -91,9 +91,7 @@ fn batch_price_failure_reverts_real_assets_approvals_and_nonces() {
                     pallet_limit_orders::Error::<Runtime>::PriceConditionNotMet
                 );
                 for owner in &accounts {
-                    assert!(pallet_limit_orders::OrderNonces::<Runtime>::contains_key(
-                        owner, nonce
-                    ));
+                    assert!(LimitOrders::approved_order(owner, nonce).is_some());
                     assert_eq!(
                         Balances::free_balance(owner),
                         TaoBalance::new(10_000_000_000)
@@ -185,7 +183,6 @@ fn all_post_quantum_profiles_approve_and_cancel_orders_without_additional_deposi
                 };
             pallet_limit_orders::LimitOrdersEnabled::<Runtime>::put(true);
             let signed = orders(&owner, &owner, NetUid::from(42u16))[0].clone();
-            let id = LimitOrders::derive_authorized_order_id(signed.nonce, &signed.order);
             let order = signed.order.with_nonce(signed.nonce).unwrap();
             let reserved = Balances::reserved_balance(&owner);
             let initial_nonce = System::account_nonce(&owner);
@@ -197,16 +194,17 @@ fn all_post_quantum_profiles_approve_and_cancel_orders_without_additional_deposi
                 )))
                 .unwrap()
             );
-            assert!(pallet_limit_orders::ApprovedOrders::<Runtime>::contains_key(id));
+            assert!(pallet_limit_orders::ApprovedOrders::<Runtime>::contains_key(&owner));
             assert_ok!(
                 Executive::apply_extrinsic(sign(RuntimeCall::LimitOrders(
                     pallet_limit_orders::Call::cancel_order { order },
                 )))
                 .unwrap()
             );
-            assert!(!pallet_limit_orders::ApprovedOrders::<Runtime>::contains_key(id));
             assert_eq!(
-                pallet_limit_orders::Orders::<Runtime>::get(id),
+                LimitOrders::approved_order(&owner, signed.nonce)
+                    .unwrap()
+                    .status,
                 Some(pallet_limit_orders::OrderStatus::Cancelled)
             );
             assert_eq!(Balances::reserved_balance(&owner), reserved);
@@ -282,7 +280,6 @@ fn restricted_proxy_cannot_create_deferred_order_spending_authority() {
                 ));
                 pallet_limit_orders::LimitOrdersEnabled::<Runtime>::put(true);
                 let signed = orders(&owner, &delegate, netuid)[0].clone();
-                let id = LimitOrders::derive_authorized_order_id(signed.nonce, &signed.order);
                 let approval =
                     RuntimeCall::LimitOrders(pallet_limit_orders::Call::authorize_order {
                         order: signed.order.clone().with_nonce(signed.nonce).unwrap(),
@@ -323,11 +320,8 @@ fn restricted_proxy_cannot_create_deferred_order_spending_authority() {
                         pallet_proxy::LastCallResult::<Runtime>::get(&owner),
                         Some(Err(frame_system::Error::<Runtime>::CallFiltered.into()))
                     );
-                    assert!(!pallet_limit_orders::ApprovedOrders::<Runtime>::contains_key(id));
-                    assert!(!pallet_limit_orders::OrderNonces::<Runtime>::contains_key(
-                        &owner,
-                        signed.nonce
-                    ));
+                    assert!(!pallet_limit_orders::ApprovedOrders::<Runtime>::contains_key(&owner));
+                    assert!(LimitOrders::approved_order(&owner, signed.nonce).is_none());
                     assert_noop!(
                         LimitOrders::execute_orders(
                             RuntimeOrigin::signed(delegate.clone()),
@@ -357,7 +351,7 @@ fn restricted_proxy_cannot_create_deferred_order_spending_authority() {
                     Some(ProxyType::Any),
                     Box::new(approval)
                 ));
-                assert!(pallet_limit_orders::ApprovedOrders::<Runtime>::contains_key(id));
+                assert!(pallet_limit_orders::ApprovedOrders::<Runtime>::contains_key(&owner));
                 assert_ok!(LimitOrders::execute_orders(
                     RuntimeOrigin::signed(delegate.clone()),
                     unified_orders(vec![signed].try_into().unwrap()),
@@ -393,4 +387,43 @@ fn unified_orders(
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
+}
+
+#[test]
+fn balance_reaping_removes_approvals_without_locking_an_existential_balance() {
+    mldsa::with_profiles(|| {
+        System::set_block_number(1);
+        pallet_limit_orders::LimitOrdersEnabled::<Runtime>::put(true);
+        let owner = AccountId::from(pair(231).public());
+        let recipient = AccountId::from(pair(232).public());
+        let funding = TaoBalance::new(1_000_000_000);
+        let _ = Balances::make_free_balance_be(&owner, funding);
+        let signed = orders(&owner, &recipient, NetUid::from(42u16))[0].clone();
+        let reserved = Balances::reserved_balance(&owner);
+        let providers = System::providers(&owner);
+        for nonce in 0..8 {
+            assert_ok!(LimitOrders::authorize_order(
+                RuntimeOrigin::signed(owner.clone()),
+                signed.order.clone().with_nonce(nonce).unwrap()
+            ));
+        }
+        assert_eq!(Balances::reserved_balance(&owner), reserved);
+        assert_eq!(System::providers(&owner), providers);
+        assert_ok!(Balances::transfer_allow_death(
+            RuntimeOrigin::signed(owner.clone()),
+            recipient.clone().into(),
+            funding
+        ));
+        assert!(!frame_system::Account::<Runtime>::contains_key(&owner));
+        assert!(!pallet_limit_orders::ApprovedOrders::<Runtime>::contains_key(&owner));
+        let _ = Balances::make_free_balance_be(&owner, funding);
+        assert_noop!(
+            LimitOrders::execute_orders(
+                RuntimeOrigin::signed(recipient),
+                unified_orders(vec![signed].try_into().unwrap()),
+                true
+            ),
+            pallet_limit_orders::Error::<Runtime>::OrderNotApproved
+        );
+    });
 }

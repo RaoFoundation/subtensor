@@ -11,7 +11,7 @@ should_fail true, any failed order reverts the whole batch.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | LimitOrders | [`LimitOrders.execute_orders`](/code/pallets/limit-orders/src/lib.rs#L611-L638) |
+| `coldkey` | signed account (pallet role may apply) | LimitOrders | [`LimitOrders.execute_orders`](/code/pallets/limit-orders/src/lib.rs#L614-L641) |
 
 ## Parameters
 
@@ -61,7 +61,7 @@ result = sub.execute_tool("execute_orders", {...}, wallet)
 
 ## On-chain implementation
 
-`LimitOrders.execute_orders` — [`pallets/limit-orders/src/lib.rs#L613`](/code/pallets/limit-orders/src/lib.rs#L611-L638):
+`LimitOrders.execute_orders` — [`pallets/limit-orders/src/lib.rs#L616`](/code/pallets/limit-orders/src/lib.rs#L614-L641):
 
 ```rust
 #[pallet::call_index(0)]
@@ -94,6 +94,6 @@ pub fn execute_orders(
 }
 ```
 
-Delegates to [`check_authorized_batch_bound`](/code/pallets/limit-orders/src/authorization.rs#L108), [`derive_order_id`](/code/pallets/limit-orders/src/lib.rs#L836).
+Delegates to [`check_authorized_batch_bound`](/code/pallets/limit-orders/src/authorization.rs#L153), [`derive_order_id`](/code/pallets/limit-orders/src/lib.rs#L835).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

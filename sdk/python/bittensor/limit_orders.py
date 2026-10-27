@@ -195,6 +195,11 @@ class LimitOrders:
         self._client = client
 
     async def prepare(self, order: dict, *, nonce: int) -> PreparedOrder:
+        """Prepare terms with a nonce above the owner's ApprovedOrders.highest_nonce.
+
+        The chain permits eight live approvals per owner. Cancellation or expiry
+        frees a slot for the next approval, but does not reset the nonce watermark.
+        """
         return await prepare_order(self._client._substrate, nonce, order)
 
     async def authorize(self, prepared: PreparedOrder, wallet, **kwargs):

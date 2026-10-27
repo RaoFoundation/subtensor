@@ -499,6 +499,8 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "OrderNonceUsed": _C.ALREADY_EXISTS,
     "OrderNotApproved": _C.NOT_AUTHORIZED,
     "OrderBatchTooLarge": _C.LIMIT_EXCEEDED,
+    "TooManyApprovedOrders": _C.LIMIT_EXCEEDED,
+    "OrderAccountMissing": _C.NOT_FOUND,
     "InvalidAuthorizationMode": _C.INVALID_ARGUMENT,
     # ── HashedAccounts ──────────────────────────────────────────────────
     "Disabled": _C.DISABLED,

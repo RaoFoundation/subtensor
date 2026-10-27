@@ -11,7 +11,7 @@ Cancel with the same nonce and complete order to revoke its unfilled part.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | LimitOrders | [`LimitOrders.authorize_order`](/code/pallets/limit-orders/src/lib.rs#L764-L798) |
+| `coldkey` | signed account (pallet role may apply) | LimitOrders | [`LimitOrders.authorize_order`](/code/pallets/limit-orders/src/lib.rs#L770-L797) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("authorize_order", {...}, wallet)
 
 ## On-chain implementation
 
-`LimitOrders.authorize_order` — [`pallets/limit-orders/src/lib.rs#L767`](/code/pallets/limit-orders/src/lib.rs#L764-L798):
+`LimitOrders.authorize_order` — [`pallets/limit-orders/src/lib.rs#L773`](/code/pallets/limit-orders/src/lib.rs#L770-L797):
 
 ```rust
 #[pallet::call_index(5)]
@@ -87,14 +87,7 @@ pub fn authorize_order(
         T::AuthenticatedOrderSignerFilter::contains(&who),
         Error::<T>::OrderSignerFrozen
     );
-    let id = Self::derive_authorized_order_id(nonce, &terms);
-    Self::check_order_nonce(&who, nonce, id)?;
-    ensure!(
-        !Orders::<T>::contains_key(id),
-        Error::<T>::OrderAlreadyProcessed
-    );
-    OrderNonces::<T>::insert(&who, nonce, id);
-    ApprovedOrders::<T>::insert(id, Self::order_approval_commitment(nonce, &terms));
+    let id = Self::approve_order(&who, nonce, &terms)?;
     Self::deposit_event(Event::OrderApproved {
         order_id: id,
         signer: who,
@@ -104,6 +97,6 @@ pub fn authorize_order(
 }
 ```
 
-Delegates to [`derive_authorized_order_id`](/code/pallets/limit-orders/src/authorization.rs#L183), [`check_order_nonce`](/code/pallets/limit-orders/src/authorization.rs#L211), [`order_approval_commitment`](/code/pallets/limit-orders/src/authorization.rs#L198).
+Delegates to [`approve_order`](/code/pallets/limit-orders/src/authorization.rs#L262).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
