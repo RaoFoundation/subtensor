@@ -15,17 +15,20 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use codec::Decode;
 use reqwest::blocking::Client as HttpClient;
 use serde_json::{json, Value as JsonValue};
 
 use crate::codec::extrinsic::{era_birth, TxParams};
 use crate::codec::value::Value;
+// Preserve the existing host-client exports while portable users import from codec::value.
+pub use crate::codec::value::{
+    as_bool, as_str, as_u128, field, value_bytes, variant, variant_name,
+};
 use crate::error::CoreError;
 use crate::keys::Keypair;
 use crate::mlkem;
 use crate::runtime::type_string::TypeSpec;
-use crate::runtime::{Runtime, RuntimeApiMethodInfo, StorageInfo};
+use crate::runtime::{Runtime, StorageInfo};
 
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_RECEIPT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -474,28 +477,11 @@ impl Client {
         block_hash: Option<&str>,
     ) -> Result<Value, CoreError> {
         let runtime = self.runtime()?;
-        let method_info = runtime_api_method(&runtime, api, method)?.clone();
-        if method_info.inputs.len() != params.len() {
-            return Err(CoreError::Codec(format!(
-                "{api}.{method} expects {} params, got {}",
-                method_info.inputs.len(),
-                params.len()
-            )));
-        }
-        let mut encoded = Vec::new();
-        for (input, value) in method_info.inputs.iter().zip(params.iter()) {
-            runtime.encode_id(input.ty, value, &mut encoded)?;
-        }
-        let mut rpc_params = vec![
-            JsonValue::String(format!("{api}_{method}")),
-            JsonValue::String(hex_prefixed(&encoded)),
-        ];
-        if let Some(hash) = block_hash {
-            rpc_params.push(JsonValue::String(hash.to_string()));
-        }
-        let result = self.rpc_value("state_call", JsonValue::Array(rpc_params))?;
-        let bytes = decode_hex(json_string(&result, "state_call result")?)?;
-        runtime.decode_spec(&TypeSpec::Id(method_info.output), &bytes, true)
+        let info = crate::protocol::runtime_api::runtime_api_method(&runtime, api, method)?;
+        let request =
+            crate::protocol::runtime_api::request(&runtime, api, method, params, block_hash)?;
+        let result = self.rpc_value(request.method, request.params)?;
+        crate::protocol::runtime_api::decode_result(&runtime, info, &result)
     }
 
     pub fn account_next_index(&self, address: &str) -> Result<u64, CoreError> {
@@ -549,30 +535,32 @@ impl Client {
     }
 
     pub fn estimate_fee(&self, call_data: &[u8], signer: &Keypair) -> Result<u128, CoreError> {
+        Ok(u128::from(
+            self.estimate_dispatch_info(call_data, signer)?.partial_fee,
+        ))
+    }
+    fn estimate_dispatch_info(
+        &self,
+        call_data: &[u8],
+        signer: &Keypair,
+    ) -> Result<crate::protocol::fee::FeeEstimate, CoreError> {
+        let runtime = self.runtime()?;
         let nonce = self.account_next_index(&signer.ss58_address())?;
-        let (extrinsic, _) =
-            self.sign_extrinsic(call_data, signer, nonce, Some(DEFAULT_ERA_PERIOD))?;
-        let value = self.rpc_value("payment_queryInfo", json!([hex_prefixed(&extrinsic)]))?;
-        let object = value
-            .as_object()
-            .ok_or_else(|| CoreError::Rpc("payment_queryInfo returned a non-object".into()))?;
-        let fee = object
-            .get("partialFee")
-            .or_else(|| object.get("partial_fee"))
-            .ok_or_else(|| CoreError::Rpc("payment_queryInfo omitted partialFee".into()))?;
-        json_u128(fee)
+        let extrinsic = crate::protocol::fee::probe(
+            &runtime,
+            call_data,
+            signer.public_key_bytes(),
+            signer.crypto_type(),
+            nonce,
+            self.genesis_hash,
+        )?;
+        let request = crate::protocol::fee::request(&extrinsic, None)?;
+        let result = self.rpc_value(request.method, request.params)?;
+        crate::protocol::fee::decode(&runtime, &result)
     }
 
     pub fn estimate_weight(&self, call_data: &[u8], signer: &Keypair) -> Result<Value, CoreError> {
-        let nonce = self.account_next_index(&signer.ss58_address())?;
-        let (extrinsic, _) =
-            self.sign_extrinsic(call_data, signer, nonce, Some(DEFAULT_ERA_PERIOD))?;
-        let value = self.rpc_value("payment_queryInfo", json!([hex_prefixed(&extrinsic)]))?;
-        let weight = value
-            .as_object()
-            .and_then(|object| object.get("weight"))
-            .ok_or_else(|| CoreError::Rpc("payment_queryInfo omitted weight".into()))?;
-        json_to_value(weight)
+        Ok(self.estimate_dispatch_info(call_data, signer)?.weight)
     }
 
     pub fn submit(
@@ -940,25 +928,10 @@ impl Client {
     }
 
     fn find_extrinsic(&self, block_hash: &str, wanted: &str) -> Result<Option<u32>, CoreError> {
-        let block = self.rpc_value("chain_getBlock", json!([block_hash]))?;
-        let extrinsics = block
-            .as_object()
-            .and_then(|object| object.get("block"))
-            .and_then(JsonValue::as_object)
-            .and_then(|inner| inner.get("extrinsics"))
-            .and_then(JsonValue::as_array)
-            .ok_or_else(|| CoreError::Rpc("chain_getBlock omitted extrinsics".into()))?;
-        for (index, extrinsic) in extrinsics.iter().enumerate() {
-            if extrinsic
-                .as_str()
-                .is_some_and(|raw| raw.eq_ignore_ascii_case(wanted))
-            {
-                return u32::try_from(index)
-                    .map(Some)
-                    .map_err(|_| CoreError::Rpc("extrinsic index exceeds u32".into()));
-            }
-        }
-        Ok(None)
+        let request = crate::protocol::extrinsic_lookup::request(block_hash);
+        let block = self.rpc_value(request.method, request.params)?;
+        let wanted = sp_core::hashing::blake2_256(&decode_hex(wanted)?);
+        crate::protocol::extrinsic_lookup::find(&block, wanted)
     }
 
     fn wait_until_finalized(
@@ -998,72 +971,32 @@ impl Client {
         extrinsic_index: u32,
     ) -> Result<TxOutcome, CoreError> {
         let records = self.query("System", "Events", &[], Some(&block_hash))?;
-        let mut events = Vec::new();
-        if let Value::List(items) = records {
-            for item in items {
-                if field(&item, "extrinsic_idx")
-                    .and_then(as_u128)
-                    .is_some_and(|index| index == u128::from(extrinsic_index))
-                {
-                    events.push(item);
-                }
-            }
-        }
         let runtime = self.runtime()?;
-        let mut success = events
-            .iter()
-            .any(|event| event_is(event, "System", "ExtrinsicSuccess"));
-        let mut error = events
-            .iter()
-            .find(|event| event_is(event, "System", "ExtrinsicFailed"))
-            .and_then(event_attributes)
-            .and_then(|attributes| field(attributes, "dispatch_error").or(Some(attributes)))
-            .map(|value| dispatch_error(&runtime, value))
-            .transpose()?;
-
-        if error.is_none() {
-            for (module, event_name) in [
-                ("Proxy", "ProxyExecuted"),
-                ("Sudo", "Sudid"),
-                ("Multisig", "MultisigExecuted"),
-            ] {
-                let Some(attributes) = events
-                    .iter()
-                    .find(|event| event_is(event, module, event_name))
-                    .and_then(event_attributes)
-                else {
-                    continue;
-                };
-                let result = field(attributes, "result").unwrap_or(attributes);
-                if let Some(inner) = variant(result, "Err") {
-                    error = Some(dispatch_error(&runtime, inner)?);
-                    success = false;
-                    break;
-                }
-            }
-        }
-
-        let fee_rao = events
-            .iter()
-            .find(|event| event_is(event, "TransactionPayment", "TransactionFeePaid"))
-            .and_then(event_attributes)
-            .and_then(|attributes| field(attributes, "actual_fee"))
-            .and_then(as_u128);
-        let message = match &error {
-            Some(error) => error.to_string(),
-            None if success => "extrinsic succeeded".into(),
+        let events = crate::protocol::receipt::events_for_extrinsic(&records, extrinsic_index)?;
+        let outcome = crate::protocol::receipt::resolve_outcome(&runtime, &events)?;
+        let message = match &outcome.error {
+            Some(error) => error.result_message()?,
+            None if outcome.success => "extrinsic succeeded".into(),
             None => "extrinsic did not emit System.ExtrinsicSuccess".into(),
         };
+        let fee_rao = events
+            .iter()
+            .any(|event| {
+                event_is(event, "TransactionPayment", "TransactionFeePaid")
+                    || event_is(event, "Treasury", "Deposit")
+                    || event_is(event, "Balances", "Deposit")
+            })
+            .then_some(u128::from(outcome.total_fee_amount));
         Ok(TxOutcome {
-            success,
+            success: outcome.success,
             extrinsic_hash,
             block_hash: Some(block_hash),
             block_number: Some(block_number),
             extrinsic_index: Some(extrinsic_index),
             fee_rao,
-            events,
-            error,
+            error: outcome.error.map(dispatch_error_info),
             message,
+            events,
             data: BTreeMap::new(),
         })
     }
@@ -1235,35 +1168,18 @@ fn fetch_metadata<F>(mut rpc: F) -> Result<Vec<u8>, CoreError>
 where
     F: FnMut(&str, JsonValue) -> Result<JsonValue, CoreError>,
 {
-    let requested_version = hex_prefixed(&15u32.to_le_bytes());
-    match rpc(
-        "state_call",
-        json!(["Metadata_metadata_at_version", requested_version]),
-    ) {
+    let request = crate::protocol::metadata::v15_request(None);
+    match rpc(request.method, request.params) {
         Ok(value) => {
-            let encoded = decode_hex(json_string(&value, "Metadata_metadata_at_version result")?)?;
-            let mut input = encoded.as_slice();
-            let metadata = Option::<Vec<u8>>::decode(&mut input).map_err(|error| {
-                CoreError::Codec(format!(
-                    "cannot decode Metadata_metadata_at_version result: {error}"
-                ))
-            })?;
-            if !input.is_empty() {
-                return Err(CoreError::Codec(format!(
-                    "{} trailing bytes in Metadata_metadata_at_version result",
-                    input.len()
-                )));
-            }
-            if let Some(metadata) = metadata {
+            if let Some(metadata) = crate::protocol::metadata::decode_v15(&value)? {
                 return Ok(metadata);
             }
         }
         Err(CoreError::Rpc(_)) => {}
         Err(error) => return Err(error),
     }
-
-    let value = rpc("state_getMetadata", json!([]))?;
-    decode_hex(json_string(&value, "state_getMetadata result")?)
+    let request = crate::protocol::metadata::legacy_request(None);
+    crate::protocol::metadata::decode_legacy(&rpc(request.method, request.params)?)
 }
 
 fn rpc_request(
@@ -1325,28 +1241,7 @@ fn parse_header_fields(value: &JsonValue) -> Result<(u64, String), CoreError> {
 }
 
 fn storage_info(runtime: &Runtime, pallet: &str, storage: &str) -> Result<StorageInfo, CoreError> {
-    runtime
-        .storage_entry(pallet, storage)
-        .cloned()
-        .ok_or_else(|| CoreError::NotInRuntime(format!("storage {pallet}.{storage}")))
-}
-
-fn runtime_api_method<'a>(
-    runtime: &'a Runtime,
-    api: &str,
-    method: &str,
-) -> Result<&'a RuntimeApiMethodInfo, CoreError> {
-    runtime
-        .apis
-        .iter()
-        .find(|candidate| candidate.name == api)
-        .and_then(|candidate| {
-            candidate
-                .methods
-                .iter()
-                .find(|candidate| candidate.name == method)
-        })
-        .ok_or_else(|| CoreError::NotInRuntime(format!("runtime API {api}.{method}")))
+    crate::protocol::storage::storage_info(runtime, pallet, storage).cloned()
 }
 
 fn decode_storage(
@@ -1354,43 +1249,27 @@ fn decode_storage(
     info: &StorageInfo,
     raw: Option<&str>,
 ) -> Result<Value, CoreError> {
-    let bytes = match raw {
-        Some(raw) => decode_hex(raw)?,
-        None if info.modifier == "Optional" => return Ok(Value::Null),
-        None => info.default_bytes.clone(),
-    };
-    runtime.decode_spec(&TypeSpec::Id(info.value_type), &bytes, true)
+    crate::protocol::storage::decode_storage(runtime, info, raw)
 }
 
-fn dispatch_error(runtime: &Runtime, value: &Value) -> Result<DispatchError, CoreError> {
-    if let Some(module) = variant(value, "Module") {
-        let index = field(module, "index")
-            .and_then(as_u128)
-            .or_else(|| tuple_item(module, 0).and_then(as_u128))
-            .and_then(|value| u8::try_from(value).ok())
-            .ok_or_else(|| CoreError::Codec("module error omitted pallet index".into()))?;
-        let error_index = field(module, "error")
-            .or_else(|| tuple_item(module, 1))
-            .and_then(first_byte)
-            .ok_or_else(|| CoreError::Codec("module error omitted error bytes".into()))?;
-        let pallet = runtime.pallet_at(index).map(|pallet| pallet.name.clone());
-        let (name, docs) = runtime
-            .module_error(index, error_index)
-            .unwrap_or_else(|_| (format!("Error{error_index}"), Vec::new()));
-        return Ok(DispatchError {
-            pallet,
-            semantic_code: semantic_error_code(&name),
-            name,
-            docs,
-        });
+fn dispatch_error_info(error: crate::protocol::dispatch_error::DispatchErrorInfo) -> DispatchError {
+    let docs = match error.docs {
+        Value::List(docs) => docs
+            .into_iter()
+            .filter_map(|doc| match doc {
+                Value::Str(doc) => Some(doc),
+                _ => None,
+            })
+            .collect(),
+        Value::Str(doc) => vec![doc],
+        _ => Vec::new(),
+    };
+    DispatchError {
+        semantic_code: semantic_error_code(&error.name),
+        pallet: error.pallet,
+        name: error.name,
+        docs,
     }
-    let name = variant_name(value).unwrap_or_else(|| "DispatchError".into());
-    Ok(DispatchError {
-        pallet: None,
-        semantic_code: semantic_error_code(&name),
-        name,
-        docs: Vec::new(),
-    })
 }
 
 fn semantic_error_code(name: &str) -> String {
@@ -1436,11 +1315,6 @@ fn event_is(record: &Value, module: &str, name: &str) -> bool {
             .or_else(|| field(record, "event").and_then(|event| field(event, "event_id")))
             .and_then(as_str)
             == Some(name)
-}
-
-fn event_attributes(record: &Value) -> Option<&Value> {
-    field(record, "attributes")
-        .or_else(|| field(record, "event").and_then(|event| field(event, "attributes")))
 }
 
 /// Flatten `get_subnet_hyperparams_v3`'s `[{name, value}, ...]` list into a
@@ -1512,96 +1386,6 @@ fn flatten_hyperparam_value(tagged: Value) -> Value {
     payload.clone()
 }
 
-pub fn field<'a>(value: &'a Value, name: &str) -> Option<&'a Value> {
-    let Value::Dict(entries) = value else {
-        return None;
-    };
-    entries.iter().find_map(|(key, value)| match key {
-        Value::Str(key) if key == name => Some(value),
-        _ => None,
-    })
-}
-
-pub fn variant<'a>(value: &'a Value, name: &str) -> Option<&'a Value> {
-    field(value, name)
-}
-
-pub fn variant_name(value: &Value) -> Option<String> {
-    match value {
-        Value::Str(name) => Some(name.clone()),
-        Value::Dict(entries) if entries.len() == 1 => entries.first().and_then(|(key, _)| {
-            if let Value::Str(name) = key {
-                Some(name.clone())
-            } else {
-                None
-            }
-        }),
-        _ => None,
-    }
-}
-
-pub fn as_str(value: &Value) -> Option<&str> {
-    match value {
-        Value::Str(value) => Some(value),
-        _ => None,
-    }
-}
-
-pub fn as_u128(value: &Value) -> Option<u128> {
-    match value {
-        Value::Int(value) => u128::try_from(*value).ok(),
-        Value::Uint(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub fn as_bool(value: &Value) -> Option<bool> {
-    match value {
-        Value::Bool(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub fn value_bytes(value: &Value) -> Option<Vec<u8>> {
-    match value {
-        Value::Bytes(bytes) => Some(bytes.clone()),
-        Value::Str(value) => {
-            if value.starts_with("0x") {
-                decode_hex(value).ok()
-            } else {
-                Some(value.as_bytes().to_vec())
-            }
-        }
-        Value::List(items) | Value::Tuple(items) => {
-            let direct = items
-                .iter()
-                .map(as_u128)
-                .map(|value| value.and_then(|value| u8::try_from(value).ok()))
-                .collect::<Option<Vec<_>>>();
-            direct.or_else(|| match items.as_slice() {
-                [inner] => value_bytes(inner),
-                _ => None,
-            })
-        }
-        Value::Dict(entries) => match entries.as_slice() {
-            [(_, inner)] => value_bytes(inner),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-fn tuple_item(value: &Value, index: usize) -> Option<&Value> {
-    match value {
-        Value::Tuple(items) | Value::List(items) => items.get(index),
-        _ => None,
-    }
-}
-
-fn first_byte(value: &Value) -> Option<u8> {
-    value_bytes(value).and_then(|bytes| bytes.first().copied())
-}
-
 fn required_u128(value: &Value, name: &str) -> Result<u128, CoreError> {
     field(value, name)
         .and_then(as_u128)
@@ -1641,20 +1425,6 @@ fn json_number_u64(value: &JsonValue) -> Option<u64> {
     }
 }
 
-fn json_number_u128(value: &JsonValue) -> Option<u128> {
-    match value {
-        JsonValue::Number(number) => number.to_string().parse().ok(),
-        _ => None,
-    }
-}
-
-fn json_number_i128(value: &JsonValue) -> Option<i128> {
-    match value {
-        JsonValue::Number(number) => number.to_string().parse().ok(),
-        _ => None,
-    }
-}
-
 fn json_u64(value: &JsonValue) -> Result<u64, CoreError> {
     if let Some(value) = json_number_u64(value) {
         return Ok(value);
@@ -1668,53 +1438,6 @@ fn json_u64(value: &JsonValue) -> Result<u64, CoreError> {
     }
     text.parse::<u64>()
         .map_err(|error| CoreError::Rpc(format!("invalid integer {text}: {error}")))
-}
-
-fn json_u128(value: &JsonValue) -> Result<u128, CoreError> {
-    if let Some(value) = json_number_u128(value) {
-        return Ok(value);
-    }
-    let text = value
-        .as_str()
-        .ok_or_else(|| CoreError::Rpc(format!("expected integer, got {value}")))?;
-    if let Some(hex) = text.strip_prefix("0x") {
-        return u128::from_str_radix(hex, 16)
-            .map_err(|error| CoreError::Rpc(format!("invalid hex integer {text}: {error}")));
-    }
-    text.parse::<u128>()
-        .map_err(|error| CoreError::Rpc(format!("invalid integer {text}: {error}")))
-}
-
-fn json_to_value(value: &JsonValue) -> Result<Value, CoreError> {
-    Ok(match value {
-        JsonValue::Null => Value::Null,
-        JsonValue::Bool(value) => Value::Bool(*value),
-        JsonValue::Number(value) => {
-            let number = JsonValue::Number(value.clone());
-            if let Some(signed) = json_number_i128(&number) {
-                Value::Int(i128::from(signed))
-            } else if let Some(unsigned) = json_number_u128(&number) {
-                Value::Uint(unsigned)
-            } else {
-                return Err(CoreError::Codec(format!(
-                    "non-integral JSON number cannot become SCALE Value: {value}"
-                )));
-            }
-        }
-        JsonValue::String(value) => Value::str(value),
-        JsonValue::Array(items) => Value::List(
-            items
-                .iter()
-                .map(json_to_value)
-                .collect::<Result<Vec<_>, _>>()?,
-        ),
-        JsonValue::Object(entries) => Value::record(
-            entries
-                .iter()
-                .map(|(key, value)| Ok((key.clone(), json_to_value(value)?)))
-                .collect::<Result<Vec<_>, CoreError>>()?,
-        ),
-    })
 }
 
 fn parse_h256(value: &str) -> Result<[u8; 32], CoreError> {
