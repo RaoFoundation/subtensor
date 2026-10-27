@@ -2206,7 +2206,7 @@ fn fixed_term_expiry_settles_at_smoothed_reference_price() {
             }) if o == owner => Some((principal_tao_equiv, rate)),
             _ => None,
         });
-        let (debt, rate) = expired.expect("Expired event");
+        let (debt, rate) = expired.unwrap();
         assert_eq!(rate, settle_rate);
         assert_eq!(debt, expected_debt);
     });
@@ -2289,7 +2289,7 @@ fn fixed_term_expiry_is_bounded_by_weight() {
         let expires_at = Positions::<Test>::iter()
             .next()
             .map(|(_, _, p)| p.expires_at)
-            .expect("position");
+            .unwrap();
         assert_eq!(ExpiryIndex::<Test>::get(expires_at), u32::from(n));
 
         System::set_block_number(expires_at);
