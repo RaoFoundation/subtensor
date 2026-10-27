@@ -33,6 +33,9 @@ type TransferAllowed = (BalanceTransferCalls, StakeTransferCalls);
 /// `Staking`: stake position management.
 type StakingAllowed = StakeManagementCalls;
 
+/// `Lock`: stake conviction-lock management and nothing else.
+type LockAllowed = LockCalls;
+
 /// `Registration`: acquire a slot (POW or by burn).
 type RegistrationAllowed = (PowRegistrationCalls, BurnedRegistrationCalls);
 
@@ -85,6 +88,7 @@ type NonTransferAllowed = (
     RootClaimCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    LockCalls,
     SubtensorValueCalls,
     WeightCalls,
     NeuronServingCalls,
@@ -130,6 +134,7 @@ type NonCriticalAllowed = (
     RootClaimCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    LockCalls,
     SubtensorValueCalls,
     WeightCalls,
     NeuronServingCalls,
@@ -154,6 +159,7 @@ pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> b
         ProxyType::BasketTrading => BasketTradingCalls::contains(call),
         ProxyType::Validate => ValidateAllowed::contains(call),
         ProxyType::Weights => WeightsAllowed::contains(call),
+        ProxyType::Lock => LockAllowed::contains(call),
         ProxyType::SudoUncheckedSetCode => SudoSetCodeCalls::contains(call),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -191,7 +197,8 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                 | ProxyType::SubnetLeaseBeneficiary
                 | ProxyType::RootClaim
                 | ProxyType::Validate
-                | ProxyType::Weights,
+                | ProxyType::Weights
+                | ProxyType::Lock,
             ) => true,
             (ProxyType::Transfer, ProxyType::SmallTransfer) => true,
             (ProxyType::Validate, ProxyType::Weights) => true,
@@ -226,6 +233,7 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         ProxyType::BasketTrading => FilterMode::Allow(BasketTradingCalls::call_infos()),
         ProxyType::Validate => FilterMode::Allow(ValidateAllowed::call_infos()),
         ProxyType::Weights => FilterMode::Allow(WeightsAllowed::call_infos()),
+        ProxyType::Lock => FilterMode::Allow(LockAllowed::call_infos()),
         ProxyType::SudoUncheckedSetCode => FilterMode::Allow(SudoSetCodeCalls::call_infos()),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -368,7 +376,7 @@ mod tests {
                 | &group_calls::<RootRegistrationCalls>())
                 | &(&group_calls::<HotkeySwapCalls>() | &group_calls::<ColdkeySwapCalls>()));
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
-        let denied = &denied | &group_calls::<(SubtensorValueCalls, SudoCalls)>();
+        let denied = &denied | &group_calls::<(LockCalls, SubtensorValueCalls, SudoCalls)>();
         let denied = &denied | &group_calls::<MultisigCalls>();
         let denied = &denied | &group_calls::<BasketTradingCalls>();
         let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
@@ -718,6 +726,7 @@ mod tests {
             ProxyType::RootClaim,
             ProxyType::Validate,
             ProxyType::Weights,
+            ProxyType::Lock,
         ]
         .into_iter()
         .collect::<BTreeSet<_>>();
@@ -844,6 +853,14 @@ mod tests {
             ])
         );
         assert_eq!(
+            allowed_calls(ProxyType::Lock),
+            expected(&[
+                "SubtensorModule::lock_stake",
+                "SubtensorModule::move_lock",
+                "SubtensorModule::set_perpetual_lock",
+            ])
+        );
+        assert_eq!(
             allowed_calls(ProxyType::Registration),
             expected(&[
                 "SubtensorModule::register",
@@ -948,6 +965,7 @@ mod tests {
             ChildKeyCalls,
             RootClaimCalls,
             BasketTradingCalls,
+            LockCalls,
             SubtensorValueCalls,
             OwnerKeyCalls,
         )>();
@@ -1418,6 +1436,7 @@ mod tests {
             ProxyType::RootWeights,
             ProxyType::Validate,
             ProxyType::Weights,
+            ProxyType::Lock,
         ] {
             assert!(
                 !proxy_type_filter(&narrow, &swap_basket),

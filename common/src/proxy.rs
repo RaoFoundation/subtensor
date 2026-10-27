@@ -49,6 +49,9 @@ pub enum ProxyType {
     /// Submit weights only (set / commit / reveal). A strict subset of
     /// `Validate` for third-party weight setters.
     Weights,
+    /// Manage stake conviction locks only: create or top up a lock, move it
+    /// between hotkeys, and toggle perpetual locking.
+    Lock,
 }
 
 impl TryFrom<u8> for ProxyType {
@@ -77,6 +80,7 @@ impl TryFrom<u8> for ProxyType {
             18 => Ok(Self::BasketTrading),
             19 => Ok(Self::Validate),
             20 => Ok(Self::Weights),
+            21 => Ok(Self::Lock),
             _ => Err(()),
         }
     }
@@ -106,6 +110,7 @@ impl From<ProxyType> for u8 {
             ProxyType::BasketTrading => 18,
             ProxyType::Validate => 19,
             ProxyType::Weights => 20,
+            ProxyType::Lock => 21,
         }
     }
 }
@@ -254,7 +259,7 @@ mod tests {
                 "{proxy_type:?} SCALE index"
             );
         }
-        assert_eq!(seen, 21, "ProxyType variant count");
+        assert_eq!(seen, 22, "ProxyType variant count");
     }
 
     #[test]
@@ -262,10 +267,13 @@ mod tests {
         assert_eq!(u8::from(ProxyType::BasketTrading), 18);
         assert_eq!(u8::from(ProxyType::Validate), 19);
         assert_eq!(u8::from(ProxyType::Weights), 20);
+        assert_eq!(u8::from(ProxyType::Lock), 21);
         assert_eq!(ProxyType::try_from(19), Ok(ProxyType::Validate));
         assert_eq!(ProxyType::try_from(20), Ok(ProxyType::Weights));
-        assert_eq!(ProxyType::try_from(21), Err(()));
+        assert_eq!(ProxyType::try_from(21), Ok(ProxyType::Lock));
+        assert_eq!(ProxyType::try_from(22), Err(()));
         assert!(!ProxyType::Validate.is_deprecated());
         assert!(!ProxyType::Weights.is_deprecated());
+        assert!(!ProxyType::Lock.is_deprecated());
     }
 }

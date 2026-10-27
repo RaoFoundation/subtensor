@@ -465,17 +465,25 @@ call_filter_group!(
     [RuntimeCall::SubtensorModule(SubtensorCall::start_call),]
 );
 
-// pallet-subtensor calls that spend, lock or destroy the signer's TAO or alpha
+// Stake conviction-lock lifecycle. Kept separate from general stake management
+// so it can be delegated through the least-privilege `Lock` proxy type.
+call_filter_group!(
+    LockCalls,
+    [
+        RuntimeCall::SubtensorModule(SubtensorCall::lock_stake),
+        RuntimeCall::SubtensorModule(SubtensorCall::move_lock),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_perpetual_lock),
+    ]
+);
+
+// pallet-subtensor calls that spend or destroy the signer's TAO or alpha
 // without being a transfer or a stake-position change: burning stake in,
-// locking alpha, recycling/burning alpha, and paying a network lock cost.
+// recycling/burning alpha, and paying a network lock cost.
 // Granted to the broad value-capable proxies, never to `NonFungible`.
 call_filter_group!(
     SubtensorValueCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::add_stake_burn),
-        RuntimeCall::SubtensorModule(SubtensorCall::lock_stake),
-        RuntimeCall::SubtensorModule(SubtensorCall::move_lock),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_perpetual_lock),
         RuntimeCall::SubtensorModule(SubtensorCall::recycle_alpha),
         RuntimeCall::SubtensorModule(SubtensorCall::burn_alpha),
         RuntimeCall::SubtensorModule(SubtensorCall::register_network),
@@ -771,6 +779,7 @@ type SubtensorSplitCalls = (
     BasketTradingCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    LockCalls,
     SubtensorValueCalls,
     WeightCalls,
     NeuronServingCalls,

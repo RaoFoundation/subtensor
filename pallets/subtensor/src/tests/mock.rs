@@ -665,9 +665,19 @@ impl pallet_proxy::Config for Test {
 }
 
 impl InstanceFilter<RuntimeCall> for subtensor_runtime_common::ProxyType {
-    fn filter(&self, _c: &RuntimeCall) -> bool {
-        // In tests, allow all proxy types to pass through
-        true
+    fn filter(&self, c: &RuntimeCall) -> bool {
+        // Most pallet tests are not proxy-policy tests. Keep their permissive
+        // behavior, but model the production Lock grant exactly so lock
+        // lifecycle tests exercise the pallet-proxy dispatch boundary.
+        match self {
+            subtensor_runtime_common::ProxyType::Lock => matches!(
+                c,
+                RuntimeCall::SubtensorModule(crate::Call::lock_stake { .. })
+                    | RuntimeCall::SubtensorModule(crate::Call::move_lock { .. })
+                    | RuntimeCall::SubtensorModule(crate::Call::set_perpetual_lock { .. })
+            ),
+            _ => true,
+        }
     }
     fn is_superset(&self, o: &Self) -> bool {
         match (self, o) {
