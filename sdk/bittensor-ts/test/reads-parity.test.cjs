@@ -118,6 +118,20 @@ test('hyperparameter flattening preserves u64 fixed bits and signed i32 integer 
   assert.deepEqual(await dispatchRead(v, 'subnet_hyperparameters', { netuid: 2 }), { alpha_sigmoid_steepness: -3n, burn_increase_mult: 2n << 64n })
 })
 
+test('root claim threshold reads the configured root map entry', async () => {
+  const threshold = 9007199254740997n
+  const v = view({ queries: {
+    'SubtensorModule.RootClaimableThreshold': params => {
+      assert.deepEqual(params, [0])
+      return { bits: threshold << 32n }
+    },
+  } })
+  const result = await dispatchRead(v, 'root_claim_threshold')
+  assert.equal(result.rao, threshold)
+  assert.equal(result.netuid, 0)
+  assert.deepEqual(v.calls, [['SubtensorModule.RootClaimableThreshold', [0]]])
+})
+
 test('root basket paging joins canonical pricing and rejects a nonadvancing cursor', async () => {
   const v = view({ queries: { 'SubtensorModule.BasketRate': { bits: 1n << 31n } }, runtime: {
     'BetaBasketRuntimeApi.get_all_validator_baskets': [{ hotkey: 'a', nav_tao: 20n, shares: 10n, deposited_tao: 5n, redeemed_tao: 1n }],

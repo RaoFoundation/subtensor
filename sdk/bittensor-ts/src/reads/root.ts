@@ -69,5 +69,5 @@ export const rootReads = {
     return { enabled: Boolean(row.enabled), frozen: Boolean(row.frozen), refill_blocks: num(refill), refill_per_block_tao: bal(view, refill ? budget / refill : 0n), used_tao: bal(view, max(budget - available, 0n)), budget_tao: bal(view, budget), remaining_tao: bal(view, min(available, budget)) }
   },
   root_basket_total_nav: async (view: ReadView) => bal(view, await view.runtime(basketApi('get_root_basket_total_nav'), [])),
-  root_claim_threshold: async (view: ReadView) => bal(view, fixedBits(await view.query(st('RootClaimableThreshold'))) >> 32n),
+  root_claim_threshold: async (view: ReadView) => bal(view, fixedBits(await view.query(st('RootClaimableThreshold'), [0])) >> 32n),
 }
