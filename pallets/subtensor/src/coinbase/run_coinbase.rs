@@ -1199,11 +1199,6 @@ impl<T: Config> Pallet<T> {
                 parent_emission = parent_emission.saturating_sub(burn_take);
                 parent_emission = parent_emission.saturating_sub(child_take);
                 total_child_take = total_child_take.saturating_add(child_take);
-
-                Self::recycle_subnet_alpha(
-                    netuid,
-                    AlphaBalance::from(burn_take.saturating_to_num::<u64>()),
-                );
             };
             log::debug!("burn_takee: {burn_take:?} for hotkey {hotkey:?}");
             log::debug!("child_take: {child_take:?} for hotkey {hotkey:?}");
