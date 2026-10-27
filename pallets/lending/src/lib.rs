@@ -474,7 +474,7 @@ pub struct LiftBook {
     pub last: u64,
 }
 
-#[freeze_struct("ed4769063aaa7f0b")]
+#[freeze_struct("1fe694a4520b3428")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
 )]
@@ -498,6 +498,8 @@ pub struct Position<AccountId, BlockNumber> {
     pub last_accrued: BlockNumber,
     pub interest_remainder: u64,
     pub due: BlockNumber,
+    /// Fixed one-year term end (§15). Set at open; adds and partial repay keep it.
+    pub expires_at: BlockNumber,
 }
 
 #[freeze_struct("78138cda5aaf128")]
@@ -573,6 +575,15 @@ const EMA_WEIGHT_BITS: u128 = 1_775_790_721_272_497;
 pub const MAX_BUYBACK_STEPS: u32 = 6;
 const BPS_DENOM: u128 = 10_000;
 const BISECTION_STEPS: u32 = 16;
+
+/// Why a position is being settled at a smoothed rate (no AMM liquidation).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SettleKind {
+    /// Subnet dissolution (§13): rate is pot `r`.
+    Dissolution,
+    /// Fixed one-year term end (§15): rate is the lending reference EMA.
+    Expiry,
+}
 
 #[frame_support::pallet]
 #[allow(clippy::expect_used)]
@@ -691,6 +702,34 @@ pub mod pallet {
     /// Resume point inside the current due bucket: (owner, netuid).
     #[pallet::storage]
     pub type DueBucketCursor<T: Config> = StorageValue<_, (T::AccountId, NetUid), OptionQuery>;
+    /// Positions indexed by fixed-term expiry block (§15). Parallel to [`Due`].
+    #[pallet::storage]
+    pub type Expiry<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        BlockNumberFor<T>,
+        Blake2_128Concat,
+        (T::AccountId, NetUid),
+        (),
+        OptionQuery,
+    >;
+    /// Count of positions expiring at each block.
+    #[pallet::storage]
+    pub type ExpiryIndex<T: Config> =
+        StorageMap<_, Twox64Concat, BlockNumberFor<T>, u32, ValueQuery>;
+    #[pallet::storage]
+    pub type ExpiryNext<T: Config> =
+        StorageMap<_, Twox64Concat, BlockNumberFor<T>, BlockNumberFor<T>, OptionQuery>;
+    #[pallet::storage]
+    pub type ExpiryPrev<T: Config> =
+        StorageMap<_, Twox64Concat, BlockNumberFor<T>, BlockNumberFor<T>, OptionQuery>;
+    #[pallet::storage]
+    pub type NextExpiry<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
+    #[pallet::storage]
+    pub type ExpiryTail<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
+    /// Resume point inside the current expiry bucket: (owner, netuid).
+    #[pallet::storage]
+    pub type ExpiryBucketCursor<T: Config> = StorageValue<_, (T::AccountId, NetUid), OptionQuery>;
     #[pallet::storage]
     pub type ConversionCursor<T> = StorageValue<_, NetUid, OptionQuery>;
     #[pallet::storage]
@@ -848,6 +887,16 @@ pub mod pallet {
             valid_after: BlockNumberFor<T>,
             g_ema: u64,
         },
+        /// Fixed-term expiry auto-settled at the smoothed reference price (§15).
+        Expired {
+            owner: T::AccountId,
+            netuid: NetUid,
+            side: Side,
+            principal_tao_equiv: u64,
+            tao_to_pool: u64,
+            tao_refund: u64,
+            rate: U64F64,
+        },
     }
 
     #[pallet::error]
@@ -980,6 +1029,7 @@ pub mod pallet {
         fn on_idle(now: BlockNumberFor<T>, remaining: Weight) -> Weight {
             let mut meter = WeightMeter::with_limit(remaining);
             Self::collect_due(now, &mut meter);
+            Self::collect_expiry(now, &mut meter);
             Self::convert_pending(now, &mut meter);
             meter.consumed()
         }
@@ -1931,6 +1981,8 @@ pub mod pallet {
                 position
             } else {
                 let escrow = Self::position_account(&owner, netuid);
+                // One-year fixed term from open (§15). Increases keep this value.
+                let term: BlockNumberFor<T> = T::BlocksPerYear::get().saturated_into();
                 Position {
                     side,
                     hotkey: hotkey.clone(),
@@ -1945,6 +1997,7 @@ pub mod pallet {
                     last_accrued: now,
                     interest_remainder: 0,
                     due: now.saturating_add(T::InterestPeriod::get()),
+                    expires_at: now.saturating_add(term),
                 }
             };
 
@@ -2037,6 +2090,7 @@ pub mod pallet {
 
             if !increasing {
                 let due = position.due;
+                let expires_at = position.expires_at;
                 LoanHotkeys::<T>::mutate(&hotkey, |count| *count = count.saturating_add(1));
                 OpenByNetuid::<T>::insert(netuid, &owner, ());
                 OpenByHotkey::<T>::insert(&hotkey, (&owner, netuid), ());
@@ -2045,6 +2099,8 @@ pub mod pallet {
                 TotalPositions::<T>::mutate(|n| *n = n.saturating_add(1));
                 Due::<T>::insert(due, (&owner, netuid), ());
                 Self::note_due_inserted(due);
+                Expiry::<T>::insert(expires_at, (&owner, netuid), ());
+                Self::note_expiry_inserted(expires_at);
                 Self::note_active_net(netuid);
             }
             Positions::<T>::insert(&owner, netuid, position);
@@ -3021,6 +3077,9 @@ pub mod pallet {
             if Due::<T>::take(position.due, (owner, netuid)).is_some() {
                 Self::note_due_removed(position.due);
             }
+            if Expiry::<T>::take(position.expires_at, (owner, netuid)).is_some() {
+                Self::note_expiry_removed(position.expires_at);
+            }
             PositionCount::<T>::mutate(netuid, |count| *count = count.saturating_sub(1));
             let remaining = TotalPositions::<T>::mutate(|count| {
                 *count = count.saturating_sub(1);
@@ -3029,6 +3088,8 @@ pub mod pallet {
             if remaining == 0 {
                 NextDue::<T>::kill();
                 DueBucketCursor::<T>::kill();
+                NextExpiry::<T>::kill();
+                ExpiryBucketCursor::<T>::kill();
             }
             LoanHotkeys::<T>::mutate_exists(&position.hotkey, |count| {
                 let remaining = count.unwrap_or_default().saturating_sub(1);
@@ -3131,6 +3192,93 @@ pub mod pallet {
             }
         }
 
+        fn unlink_expiry_bucket(at: BlockNumberFor<T>) {
+            let prev = ExpiryPrev::<T>::take(at);
+            let next = ExpiryNext::<T>::take(at);
+            match (prev, next) {
+                (None, None) => {
+                    if NextExpiry::<T>::get() == Some(at) {
+                        NextExpiry::<T>::kill();
+                    }
+                    if ExpiryTail::<T>::get() == Some(at) {
+                        ExpiryTail::<T>::kill();
+                    }
+                }
+                (None, Some(n)) => {
+                    ExpiryPrev::<T>::remove(n);
+                    if NextExpiry::<T>::get() == Some(at) {
+                        NextExpiry::<T>::put(n);
+                    }
+                }
+                (Some(p), None) => {
+                    ExpiryNext::<T>::remove(p);
+                    if ExpiryTail::<T>::get() == Some(at) {
+                        ExpiryTail::<T>::put(p);
+                    }
+                }
+                (Some(p), Some(n)) => {
+                    ExpiryNext::<T>::insert(p, n);
+                    ExpiryPrev::<T>::insert(n, p);
+                }
+            }
+        }
+
+        fn note_expiry_removed(at: BlockNumberFor<T>) {
+            let remaining = ExpiryIndex::<T>::mutate(at, |count| {
+                *count = count.saturating_sub(1);
+                *count
+            });
+            if remaining == 0 {
+                ExpiryIndex::<T>::remove(at);
+                Self::unlink_expiry_bucket(at);
+            }
+        }
+
+        fn note_expiry_inserted(at: BlockNumberFor<T>) {
+            let was_empty = ExpiryIndex::<T>::get(at) == 0;
+            ExpiryIndex::<T>::mutate(at, |count| *count = count.saturating_add(1));
+            if !was_empty {
+                return;
+            }
+            match (NextExpiry::<T>::get(), ExpiryTail::<T>::get()) {
+                (None, _) => {
+                    NextExpiry::<T>::put(at);
+                    ExpiryTail::<T>::put(at);
+                }
+                (Some(head), _) if at < head => {
+                    ExpiryNext::<T>::insert(at, head);
+                    ExpiryPrev::<T>::insert(head, at);
+                    NextExpiry::<T>::put(at);
+                }
+                (_, Some(tail)) if at > tail => {
+                    ExpiryNext::<T>::insert(tail, at);
+                    ExpiryPrev::<T>::insert(at, tail);
+                    ExpiryTail::<T>::put(at);
+                }
+                (Some(head), _) => {
+                    let mut prev = head;
+                    loop {
+                        match ExpiryNext::<T>::get(prev) {
+                            Some(n) if n < at => prev = n,
+                            Some(n) => {
+                                ExpiryNext::<T>::insert(prev, at);
+                                ExpiryPrev::<T>::insert(at, prev);
+                                ExpiryNext::<T>::insert(at, n);
+                                ExpiryPrev::<T>::insert(n, at);
+                                break;
+                            }
+                            None => {
+                                ExpiryNext::<T>::insert(prev, at);
+                                ExpiryPrev::<T>::insert(at, prev);
+                                ExpiryTail::<T>::put(at);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         fn note_active_net(netuid: NetUid) {
             if !ActiveNets::<T>::contains_key(netuid) {
                 ActiveNets::<T>::insert(netuid, ());
@@ -3155,6 +3303,8 @@ pub mod pallet {
             if TotalPositions::<T>::get() == 0 {
                 NextDue::<T>::kill();
                 DueBucketCursor::<T>::kill();
+                NextExpiry::<T>::kill();
+                ExpiryBucketCursor::<T>::kill();
                 return;
             }
             let Some(mut due) = NextDue::<T>::get() else {
@@ -3239,6 +3389,101 @@ pub mod pallet {
                     due = n;
                 } else {
                     due = n;
+                }
+            }
+        }
+
+        /// Auto-settle positions whose fixed one-year term has ended (§15).
+        /// Uses the smoothed reference price (same math as dissolution settle).
+        /// Dissolution wins if the subnet is already dissolving — skip those.
+        pub(crate) fn collect_expiry(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
+            use frame_support::storage::{TransactionOutcome, with_transaction};
+            if meter
+                .try_consume(T::DbWeight::get().reads_writes(2, 1))
+                .is_err()
+            {
+                return;
+            }
+            if TotalPositions::<T>::get() == 0 {
+                NextExpiry::<T>::kill();
+                ExpiryBucketCursor::<T>::kill();
+                return;
+            }
+            let Some(mut at) = NextExpiry::<T>::get() else {
+                return;
+            };
+            while at <= now {
+                if meter.try_consume(T::DbWeight::get().reads(1)).is_err() {
+                    NextExpiry::<T>::put(at);
+                    return;
+                }
+                let iter = if let Some(cursor) = ExpiryBucketCursor::<T>::get() {
+                    Expiry::<T>::iter_prefix_from(at, Expiry::<T>::hashed_key_for(at, cursor))
+                } else {
+                    Expiry::<T>::iter_prefix(at)
+                };
+                let mut saw_entry = false;
+                let mut last_done: Option<(T::AccountId, NetUid)> = None;
+                for ((owner, netuid), ()) in iter {
+                    saw_entry = true;
+                    if meter.try_consume(T::WeightInfo::settle()).is_err() {
+                        if let Some(done) = last_done {
+                            ExpiryBucketCursor::<T>::put(done);
+                        }
+                        NextExpiry::<T>::put(at);
+                        return;
+                    }
+                    let _ = with_transaction(|| {
+                        let result = (|| {
+                            // Dissolution settle is authoritative if it started first.
+                            if Dissolutions::<T>::contains_key(netuid) {
+                                return Ok(());
+                            }
+                            let position = Positions::<T>::get(&owner, netuid)
+                                .ok_or(Error::<T>::PositionMissing)?;
+                            // Stale queue entry (rekeyed / already closed).
+                            if position.expires_at > now {
+                                return Ok(());
+                            }
+                            let rate = References::<T>::get(netuid)
+                                .map(|r| r.price)
+                                .unwrap_or_else(|| T::Pool::current_alpha_price(netuid));
+                            Self::settle_position_at_rate(
+                                netuid,
+                                &owner,
+                                position,
+                                rate,
+                                now,
+                                SettleKind::Expiry,
+                            )
+                        })();
+                        match result {
+                            Ok(()) => TransactionOutcome::Commit(Ok::<(), DispatchError>(())),
+                            Err(e) => TransactionOutcome::Rollback(Err(e)),
+                        }
+                    });
+                    if Expiry::<T>::contains_key(at, (&owner, netuid)) {
+                        Expiry::<T>::remove(at, (&owner, netuid));
+                        Self::note_expiry_removed(at);
+                    }
+                    last_done = Some((owner, netuid));
+                }
+                ExpiryBucketCursor::<T>::kill();
+                if !saw_entry {
+                    ExpiryIndex::<T>::remove(at);
+                    Self::unlink_expiry_bucket(at);
+                }
+                let Some(n) = NextExpiry::<T>::get() else {
+                    break;
+                };
+                if n == at {
+                    Self::unlink_expiry_bucket(at);
+                    let Some(n) = NextExpiry::<T>::get() else {
+                        break;
+                    };
+                    at = n;
+                } else {
+                    at = n;
                 }
             }
         }
@@ -3515,7 +3760,16 @@ pub mod pallet {
                 let Some(position) = Positions::<T>::get(&owner, netuid) else {
                     continue;
                 };
-                if Self::settle_position(netuid, &owner, position, &dissolution).is_err() {
+                if Self::settle_position_at_rate(
+                    netuid,
+                    &owner,
+                    position,
+                    dissolution.rate,
+                    dissolution.frozen_at,
+                    SettleKind::Dissolution,
+                )
+                .is_err()
+                {
                     return false;
                 }
                 DissolutionCursor::<T>::insert(netuid, owner);
@@ -3545,28 +3799,31 @@ pub mod pallet {
             true
         }
 
-        /// Atomic per-position settlement. Must not leave a half-paid escrow:
-        /// short recovery+refund are withdrawn together via `terminal_split_tao`
-        /// (Expendable transfers would otherwise reap a below-ED refund remainder).
+        /// Atomic per-position settlement at a smoothed rate. Must not leave a
+        /// half-paid escrow: short recovery+refund are withdrawn together via
+        /// `terminal_split_tao` (Expendable transfers would otherwise reap a
+        /// below-ED refund remainder). Used by dissolution (§13) and fixed-term
+        /// expiry (§15); no AMM liquidations.
         #[transactional]
-        fn settle_position(
+        fn settle_position_at_rate(
             netuid: NetUid,
             owner: &T::AccountId,
             mut position: Position<T::AccountId, BlockNumberFor<T>>,
-            dissolution: &Dissolution<BlockNumberFor<T>>,
+            r: U64F64,
+            interest_until: BlockNumberFor<T>,
+            kind: SettleKind,
         ) -> DispatchResult {
-            // Accrue and burn interest through the freeze cutoff before settlement.
-            Self::charge_interest(owner, netuid, &mut position, dissolution.frozen_at, true)?;
+            // Accrue and burn interest through the cutoff before settlement.
+            Self::charge_interest(owner, netuid, &mut position, interest_until, true)?;
             Positions::<T>::insert(owner, netuid, position.clone());
 
-            let r = dissolution.rate;
             let escrow = position.custody.clone();
             let reserve = Self::reserve_account(netuid);
             let custody = Self::custody_hotkey()?;
 
             match position.side {
                 Side::Short => {
-                    // §13: pay min(P*r, E+C) into the pot; borrower gets E+C-P*r
+                    // Pay min(P*r, E+C) into the pot/pool; borrower gets E+C−P·r
                     // (interest already burned from collateral above).
                     let debt = Self::tao_for_alpha(position.principal, r, true)?;
                     let available = Self::add(position.proceeds, position.collateral)?;
@@ -3604,25 +3861,40 @@ pub mod pallet {
                         book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
                     });
                     Self::remove_position(owner, netuid, &position);
-                    Self::deposit_event(Event::DissolutionSettled {
-                        owner: owner.clone(),
-                        netuid,
-                        side: Side::Short,
-                        principal_tao_equiv: debt,
-                        tao_to_pot: to_pot,
-                        tao_refund: refund,
-                    });
-                    Self::deposit_event(Event::Settled {
-                        owner: owner.clone(),
-                        netuid,
-                        side: Side::Short,
-                        principal_tao_equiv: debt,
-                        tao_to_pot: to_pot,
-                        tao_refund: refund,
-                    });
+                    match kind {
+                        SettleKind::Dissolution => {
+                            Self::deposit_event(Event::DissolutionSettled {
+                                owner: owner.clone(),
+                                netuid,
+                                side: Side::Short,
+                                principal_tao_equiv: debt,
+                                tao_to_pot: to_pot,
+                                tao_refund: refund,
+                            });
+                            Self::deposit_event(Event::Settled {
+                                owner: owner.clone(),
+                                netuid,
+                                side: Side::Short,
+                                principal_tao_equiv: debt,
+                                tao_to_pot: to_pot,
+                                tao_refund: refund,
+                            });
+                        }
+                        SettleKind::Expiry => {
+                            Self::deposit_event(Event::Expired {
+                                owner: owner.clone(),
+                                netuid,
+                                side: Side::Short,
+                                principal_tao_equiv: debt,
+                                tao_to_pool: to_pot,
+                                tao_refund: refund,
+                                rate: r,
+                            });
+                        }
+                    }
                 }
                 Side::Long => {
-                    // §13: (A+C)*r; repay P first; remainder to borrower; shortfall reduces pot.
+                    // (A+C)*r; repay P first; remainder to borrower; shortfall reduces pot.
                     let alpha = Self::add(position.escrow_alpha, position.collateral)?;
                     let payout = Self::tao_for_alpha(alpha, r, false)?;
                     let repay = payout.min(position.principal);
@@ -3635,7 +3907,6 @@ pub mod pallet {
                         let _ =
                             T::Pool::destroy_custody_alpha(&escrow, &custody, netuid, alpha.into());
                     }
-                    let _ = shortfall;
                     Lifts::<T>::mutate(netuid, |book| {
                         book.l_l = book.l_l.saturating_sub(position.principal);
                         book.b_l = book.b_l.saturating_sub(position.principal);
@@ -3645,22 +3916,37 @@ pub mod pallet {
                             .saturating_sub(position.collateral);
                     });
                     Self::remove_position(owner, netuid, &position);
-                    Self::deposit_event(Event::DissolutionSettled {
-                        owner: owner.clone(),
-                        netuid,
-                        side: Side::Long,
-                        principal_tao_equiv: position.principal,
-                        tao_to_pot: shortfall,
-                        tao_refund: remainder,
-                    });
-                    Self::deposit_event(Event::Settled {
-                        owner: owner.clone(),
-                        netuid,
-                        side: Side::Long,
-                        principal_tao_equiv: position.principal,
-                        tao_to_pot: shortfall,
-                        tao_refund: remainder,
-                    });
+                    match kind {
+                        SettleKind::Dissolution => {
+                            Self::deposit_event(Event::DissolutionSettled {
+                                owner: owner.clone(),
+                                netuid,
+                                side: Side::Long,
+                                principal_tao_equiv: position.principal,
+                                tao_to_pot: shortfall,
+                                tao_refund: remainder,
+                            });
+                            Self::deposit_event(Event::Settled {
+                                owner: owner.clone(),
+                                netuid,
+                                side: Side::Long,
+                                principal_tao_equiv: position.principal,
+                                tao_to_pot: shortfall,
+                                tao_refund: remainder,
+                            });
+                        }
+                        SettleKind::Expiry => {
+                            Self::deposit_event(Event::Expired {
+                                owner: owner.clone(),
+                                netuid,
+                                side: Side::Long,
+                                principal_tao_equiv: position.principal,
+                                tao_to_pool: shortfall,
+                                tao_refund: remainder,
+                                rate: r,
+                            });
+                        }
+                    }
                 }
             }
             Ok(())
@@ -3946,10 +4232,10 @@ pub mod pallet {
             Ok(())
         }
 
-        /// §14: re-key Positions / OpenByNetuid / EscrowOwner / Due from `old` to
-        /// `new` without moving custody funds (`Position.custody` stays put).
-        /// Rejects when `new` already has a loan on the same netuid — overwriting
-        /// would orphan the destination's custody funds.
+        /// §14: re-key Positions / OpenByNetuid / EscrowOwner / Due / Expiry from
+        /// `old` to `new` without moving custody funds (`Position.custody` stays
+        /// put). Rejects when `new` already has a loan on the same netuid —
+        /// overwriting would orphan the destination's custody funds.
         #[transactional]
         pub fn on_coldkey_swap(old: &T::AccountId, new: &T::AccountId) -> DispatchResult {
             if old == new {
@@ -3970,6 +4256,9 @@ pub mod pallet {
                 EscrowOwner::<T>::insert(netuid, &position.custody, new);
                 if Due::<T>::take(position.due, (old, netuid)).is_some() {
                     Due::<T>::insert(position.due, (new, netuid), ());
+                }
+                if Expiry::<T>::take(position.expires_at, (old, netuid)).is_some() {
+                    Expiry::<T>::insert(position.expires_at, (new, netuid), ());
                 }
             }
             Ok(())

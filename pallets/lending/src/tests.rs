@@ -11,8 +11,9 @@ use codec::{Decode, Encode};
 use frame_support::{
     BoundedVec, assert_err, assert_ok, construct_runtime, derive_impl, parameter_types,
     traits::{ConstU32, ConstU64, Get, Hooks},
-    weights::{Weight, WeightMeter},
+    weights::{Weight, WeightMeter, constants::RocksDbWeight},
 };
+use crate::weights::WeightInfo;
 use sp_runtime::{
     AccountId32, BuildStorage,
     traits::{BlakeTwo256, IdentityLookup},
@@ -2092,4 +2093,215 @@ fn max_active_net_updates_covers_global_subnet_cap() {
     // on_initialize / on_finalize share this cap; it must cover every possible
     // live subnet so EMA aging cannot outrun the reserved weight.
     assert_eq!(MAX_ACTIVE_NET_UPDATES, 4_096);
+}
+
+#[test]
+fn fixed_term_expiry_settles_at_smoothed_reference_price() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            hotkey,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let opened_at = System::block_number();
+        let term = 520u64; // Test Config::BlocksPerYear
+        assert_eq!(position.expires_at, opened_at.saturating_add(term));
+        assert!(Expiry::<Test>::contains_key(
+            position.expires_at,
+            (&owner, netuid())
+        ));
+
+        // Move the smoothed reference away from spot so settlement must use it.
+        let settle_rate = U64F64::from_num(1u64) / U64F64::from_num(4u64); // 0.25 τ/α
+        References::<Test>::mutate(netuid(), |r| {
+            if let Some(r) = r {
+                r.price = settle_rate;
+            }
+        });
+        // Spot stays at ~1; expiry must not use it.
+        assert!(MockPool::price() > settle_rate);
+
+        // Same ceil(P · r) debt the pallet uses for smoothed short settles.
+        let expected_debt = (settle_rate * U64F64::from_num(position.principal))
+            .checked_ceil()
+            .unwrap()
+            .saturating_to_num::<u64>();
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(position.expires_at, Weight::MAX);
+
+        assert!(
+            Positions::<Test>::get(&owner, netuid()).is_none(),
+            "expired position must be auto-settled"
+        );
+        assert!(!Expiry::<Test>::contains_key(
+            position.expires_at,
+            (&owner, netuid())
+        ));
+        let expired = System::events().into_iter().find_map(|e| match e.event {
+            RuntimeEvent::Lending(Event::Expired {
+                owner: o,
+                principal_tao_equiv,
+                rate,
+                ..
+            }) if o == owner => Some((principal_tao_equiv, rate)),
+            _ => None,
+        });
+        let (debt, rate) = expired.expect("Expired event");
+        assert_eq!(rate, settle_rate);
+        assert_eq!(debt, expected_debt);
+    });
+}
+
+#[test]
+fn fixed_term_add_keeps_original_expiry() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 100_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            hotkey.clone(),
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let first = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let expires_at = first.expires_at;
+        // Advance a few blocks, then top up — term must not extend.
+        System::set_block_number(System::block_number().saturating_add(20));
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            hotkey.clone(),
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let after_add = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(after_add.expires_at, expires_at);
+        assert!(after_add.principal > first.principal);
+
+        // Partial repay also leaves expires_at unchanged.
+        let half = after_add.principal / 2;
+        mint_alpha(&owner, &hotkey, netuid(), half);
+        assert_ok!(Lending::repay(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            half,
+            true,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        let after_repay = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(after_repay.expires_at, expires_at);
+    });
+}
+
+#[test]
+fn fixed_term_expiry_is_bounded_by_weight() {
+    new_test_ext().execute_with(|| {
+        // Open several shorts that share one expiry bucket.
+        let n = 4u8;
+        for i in 0..n {
+            let owner = account(10 + i);
+            let hotkey = account(50 + i);
+            mint_tao(&owner, 50_000_000_000_000);
+            assert_ok!(Lending::open(
+                RuntimeOrigin::signed(owner),
+                netuid(),
+                Side::Short,
+                5_000_000_000_000,
+                hotkey,
+                1,
+                1,
+                0,
+                deadline(),
+            ));
+        }
+        let expires_at = Positions::<Test>::iter()
+            .next()
+            .map(|(_, _, p)| p.expires_at)
+            .expect("position");
+        assert_eq!(ExpiryIndex::<Test>::get(expires_at), u32::from(n));
+
+        System::set_block_number(expires_at);
+        // Drive collect_expiry directly so interest Due work cannot eat the budget.
+        let header = RocksDbWeight::get()
+            .reads_writes(2, 1)
+            .saturating_add(RocksDbWeight::get().reads(1));
+        let one = header.saturating_add(<() as WeightInfo>::settle());
+        // Room for exactly one settle; second settle must fail the meter.
+        let budget = one.saturating_add(Weight::from_parts(1, 0));
+        let mut meter = WeightMeter::with_limit(budget);
+        Lending::collect_expiry(expires_at, &mut meter);
+        let remaining_after_partial = Positions::<Test>::iter().count();
+        assert!(
+            remaining_after_partial > 0 && remaining_after_partial < usize::from(n),
+            "bounded weight must settle some but not all expiries: left={remaining_after_partial}"
+        );
+
+        // Finish with full weight.
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(expires_at, &mut meter);
+        assert_eq!(Positions::<Test>::iter().count(), 0);
+        assert_eq!(ExpiryIndex::<Test>::get(expires_at), 0);
+    });
+}
+
+#[test]
+fn dissolution_before_expiry_wins() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            hotkey,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let expires_at = Positions::<Test>::get(&owner, netuid()).unwrap().expires_at;
+        assert!(expires_at > System::block_number());
+
+        assert_ok!(Lending::start_dissolution(netuid()));
+        assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        assert!(Lending::settle_lending(netuid(), &mut meter));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+        // Expiry queue entry cleared by remove_position during dissolution.
+        assert!(!Expiry::<Test>::contains_key(expires_at, (&owner, netuid())));
+
+        // Advancing to the old expiry must not emit Expired (already settled).
+        System::set_block_number(expires_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(expires_at, Weight::MAX);
+        let saw_expired = System::events().into_iter().any(|e| {
+            matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. }))
+        });
+        assert!(!saw_expired);
+    });
 }
