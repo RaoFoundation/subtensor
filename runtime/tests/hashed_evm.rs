@@ -1089,7 +1089,8 @@ mod precompile_mapping_budget {
                     exit_status: ExitError::OutOfGas
                 })
             );
-            assert_eq!(short.inner.gas_used, mapping_gas);
+            // Dispatch rejection exhausts this frame's remaining gas after the mapping charge.
+            assert_eq!(short.inner.gas_used, sufficient_gas - 1);
             assert_eq!(short.charged, mapping_cost);
             assert_eq!(Balances::free_balance(&owner), owner_before);
             assert_eq!(Balances::free_balance(&recipient), recipient_before);
