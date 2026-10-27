@@ -59,7 +59,7 @@ async def test_ms_validator_weights_and_commitments(code):
             "validator": hot.ss58_address,
             "miner": miner.ss58_address,
         },
-        "subnet_tempo": 6,
+        "subnet_tempo": 12,
         "normal_block_timing": True,
         "successful": False,
         "receipts": [],
@@ -183,7 +183,7 @@ async def test_ms_validator_weights_and_commitments(code):
                     netuid=netuid, enabled=False
                 ),
                 bt.calls.AdminUtils.sudo_set_subtoken_enabled(netuid=netuid, subtoken_enabled=True),
-                bt.calls.AdminUtils.sudo_set_tempo(netuid=netuid, tempo=6),
+                bt.calls.AdminUtils.sudo_set_tempo(netuid=netuid, tempo=12),
             ]
         )
         await execute(bt.intents.BurnedRegister(netuid=netuid, hotkey_ss58=miner.ss58_address))
@@ -306,7 +306,7 @@ async def test_ms_validator_weights_and_commitments(code):
         matching = [entry for entry in commits if chain_bytes(entry[0]).hex() == commit_hash[2:]]
         assert len(matching) == 1, commits
         target_epoch = int(matching[0][1]) + 1
-        deadline = time.monotonic() + 180
+        deadline = time.monotonic() + 360
         while (
             int(await client.query(bt.storage.SubtensorModule.SubnetEpochIndex, [netuid]))
             < target_epoch

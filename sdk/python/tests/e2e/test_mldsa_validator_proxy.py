@@ -228,8 +228,8 @@ async def test_restricted_ms_proxy_sets_weights_and_revocation_invalidates_autho
             )
         assert not (await client.query(("Proxy", "Proxies"), [hot.ss58_address]))[0]
         delegate_before = await finalized_state(delegate)
-        _, events = await run.submit(
-            "revoked proxy cannot redirect weights to another non-self miner",
+        # Fee-free wrapper validation rejects missing proxy authority before inclusion.
+        rejected = await client.submit_call(
             bt.calls.Proxy.proxy(
                 real=hot.ss58_address,
                 force_proxy_type="NonTransfer",
@@ -244,12 +244,26 @@ async def test_restricted_ms_proxy_sets_weights_and_revocation_invalidates_autho
                 ),
             ),
             delegate,
-            success=False,
-            error="NotProxy",
+            wait_for_finalization=True,
         )
-        assert events_named(events, "System", "ExtrinsicFailed")
+        assert not rejected.success and rejected.error.name == "InvalidRealAccount", (
+            rejected.to_dict()
+        )
+        assert rejected.block_hash is None and rejected.extrinsic_id is None
+        assert rejected.fee is None and rejected.events == []
         assert await finalized_weights() == [(miner_uid, 65535)]
         assert await finalized_state(hot) == principal_after_revoke
+        assert await finalized_state(delegate) == delegate_before
+        run.report["revoked_proxy_rejection"] = {
+            "result": rejected.to_dict(),
+            "delegate_unchanged": delegate_before,
+            "principal_unchanged": principal_after_revoke,
+        }
+        await run.submit(
+            "delegate resumes signing without phantom nonce or rotation advancement",
+            bt.calls.System.remark(remark=b"after revoked proxy rejection"),
+            delegate,
+        )
         advanced_once(delegate_before, await finalized_state(delegate))
         run.report.update(
             successful=True,
