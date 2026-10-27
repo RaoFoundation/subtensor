@@ -58,6 +58,17 @@ test('lifecycle reads retain dissolving subnets and per-subnet emission state', 
   assert.equal(rows[0].burn.rao, 9007199254740995n)
 })
 
+test('subnet start schedule uses the current delay instead of its initial default', async () => {
+  const v = view({
+    block: 150,
+    queries: { 'SubtensorModule.NetworkRegisteredAt': 100, 'SubtensorModule.StartCallDelay': 80 },
+    constants: { 'SubtensorModule.InitialStartCallDelay': 20 },
+  })
+  assert.deepEqual(await dispatchRead(v, 'subnet_start_schedule', { netuid: 2 }), {
+    netuid: 2, registered_at: 100, start_call_delay: 80, earliest_start_block: 180, current_block: 150,
+  })
+})
+
 test('legacy lifecycle fallback is limited to absent metadata; network errors surface', async () => {
   const v = view({ queries: { 'SubtensorModule.SubnetState': new Error('storage item SubnetState not found'), 'SubtensorModule.NetworksAdded': true, 'SubtensorModule.FirstEmissionBlockNumber': 0 } })
   assert.equal(await dispatchRead(v, 'subnet_state', { netuid: 2 }), 'started')

@@ -89,7 +89,7 @@ export const subnetReads = {
   token_symbols: async (view: ReadView): Promise<Record<number, string>> => Object.fromEntries((await view.queryMap(st('TokenSymbol'))).map(([id, symbol]) => [num(keyOf(id)), String(utf8Text(symbol))])),
   subnet_start_schedule: async (view: ReadView, p: { netuid: number }) => {
     view = await view.at()
-    const [registered, delay] = await Promise.all([view.query(st('NetworkRegisteredAt'), [p.netuid]), view.constant(st('InitialStartCallDelay'))])
+    const [registered, delay] = await Promise.all([view.query(st('NetworkRegisteredAt'), [p.netuid]), view.query(st('StartCallDelay'))])
     return { netuid: p.netuid, registered_at: num(registered), start_call_delay: num(delay), earliest_start_block: num(registered) + num(delay), current_block: blockOf(view) }
   },
   mechanism_count: async (view: ReadView, p: { netuid: number }) => num(await view.query(st('MechanismCountCurrent'), [p.netuid])),
