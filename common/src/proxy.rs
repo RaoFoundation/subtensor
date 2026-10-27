@@ -49,8 +49,11 @@ pub enum ProxyType {
     /// Submit weights only (set / commit / reveal). A strict subset of
     /// `Validate` for third-party weight setters.
     Weights,
-    /// Manage stake conviction locks only: create or top up a lock, move it
-    /// between hotkeys, and toggle perpetual locking.
+    /// Control the complete stake conviction-lock lifecycle. The delegate can
+    /// lock up to the account's subnet stake, target any existing hotkey, move
+    /// the lock, and toggle perpetual locking. Moving between hotkeys owned by
+    /// different coldkeys forfeits accrued conviction. This does not permit
+    /// adding, removing, or transferring stake positions.
     Lock,
 }
 

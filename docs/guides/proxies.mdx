@@ -59,10 +59,17 @@ Prefer the narrowest type that covers the job:
   limit variants, plus [`set_root_claim_type`](/code/pallets/subtensor/src/macros/dispatches.rs#L1937-L1951). Its allowlist does *not*
   include [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L314-L362), so batched staking through a Staking proxy
   fails with `CallFiltered` — use NonTransfer for batched staking.
-* **Lock** — the stake conviction-lock lifecycle only: `lock_stake` (including
-  top-ups), `move_lock`, and `set_perpetual_lock`. It cannot add, remove,
-  transfer, or otherwise manage stake. Clearing perpetual mode resumes normal
-  lock decay; there is no separate manual-unlock call.
+* **Lock** — full authority over the stake conviction-lock lifecycle through
+  `lock_stake` (including top-ups), `move_lock`, and `set_perpetual_lock`. The
+  delegate can lock up to the real account's total alpha on a subnet, reducing
+  the amount available to unstake, and can target any existing hotkey, including
+  one owned by a different coldkey. Moving a lock between hotkeys owned by
+  different coldkeys permanently forfeits its accrued conviction. Perpetual mode
+  prevents lock decay; clearing it resumes the default decay (approximately a
+  90-day half-life), rather than unlocking immediately. There is no separate
+  manual-unlock call. This proxy cannot add, remove, or transfer stake positions.
+  Use a nonzero delay when the real account needs a veto window before lock
+  operations execute.
 * **Registration** — neuron registration ([`burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L832), [`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814),
   [`register_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L2242-L2249)).
 * **ChildKeys** — [`set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093-L1101) and [`set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L935-L945);
