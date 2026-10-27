@@ -121,6 +121,7 @@ function fakeSigningClient(runtime, callData) {
   client.runtimeAt = async () => runtime
   client.callData = async () => Buffer.from(callData)
   client.finalizedHead = async () => finalizedHash
+  client.blockHash = async () => finalizedHash
   client.blockNumber = async () => 64
   client.genesisHash = async () => `0x${'41'.repeat(32)}`
   client.rpc = async (method) => {
@@ -279,14 +280,15 @@ function installFakeWebSocket() {
   }
 }
 
-test('package exposes a WASM browser subset without the Node native addon', () => {
+test('package selects its WASM browser frontend without the Node native addon', () => {
   const root = path.join(__dirname, '..')
   const packageJson = JSON.parse(
     fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
   )
 
-  assert.equal(Object.prototype.hasOwnProperty.call(packageJson, 'browser'), false)
-  assert.equal(Object.prototype.hasOwnProperty.call(packageJson.exports['.'], 'browser'), false)
+  assert.equal(packageJson.browser, 'dist/browser.mjs')
+  assert.equal(packageJson.exports['.'].browser.import, './dist/browser.mjs')
+  assert.equal(packageJson.exports['.'].browser.types, './dist/browser.d.ts')
   assert.equal(packageJson.exports['.'].node.import, './dist/index.mjs')
   assert.equal(packageJson.exports['./browser'].import, './dist/browser.mjs')
   assert.equal(Object.prototype.hasOwnProperty.call(packageJson.exports['./browser'], 'require'), false)
@@ -1057,6 +1059,7 @@ test('Node Client keeps the Rust native backend authoritative', async () => {
   assert.doesNotThrow(() => new core.Client('local', {
     endpoint: 'http://primary',
     fallbackEndpoints: ['http://fallback'],
+    expectedGenesisHash: `0x${'11'.repeat(32)}`,
   }))
   assert.doesNotThrow(() => new core.Client('local', {
     endpoint: 'ws://node-a',
@@ -1100,6 +1103,7 @@ test('Node Client keeps the Rust native backend authoritative', async () => {
   client.rpc = async () => {
     throw new Error('raw RPC should not be used by Node Client query')
   }
+  client.runtimeAt = async () => ({ decodeExtrinsic: () => ({ address: null }), ss58Format: 42 })
 
   assert.equal(await client.query('Example', 'Value'), 42)
   assert.deepEqual(calls, [
@@ -1388,13 +1392,8 @@ test('descriptor schema validation reports metadata drift', () => {
 test('descriptor schema validation accepts metadata-local type ID shifts', () => {
   const runtime = {
     pallet(name) {
-      if (name === 'Balances') return { storage: Object.values(core.storage.Balances).map(([, item]) => ({ name: item })) }
-      if (name === 'SubtensorModule') return { storage: Object.values(core.storage.SubtensorModule).map(([, item]) => ({ name: item })) }
-      if (name === 'System') return { storage: Object.values(core.storage.System).map(([, item]) => ({ name: item })) }
-      if (name === 'Timestamp') return { storage: Object.values(core.storage.Timestamp).map(([, item]) => ({ name: item })) }
-      if (name === 'Multisig') return { storage: Object.values(core.storage.Multisig).map(([, item]) => ({ name: item })) }
-      if (name === 'Proxy') return { storage: Object.values(core.storage.Proxy).map(([, item]) => ({ name: item })) }
-      return null
+      if (!(name in core.storage) && !(name in core.constants)) return null
+      return { storage: Object.values(core.storage[name] ?? {}).map(([, item]) => ({ name: item })) }
     },
     constantInfo() {
       return {}
@@ -1461,6 +1460,15 @@ test('descriptor schema validation accepts metadata-local type ID shifts', () =>
       }[typeId] ?? null
     },
   }
+  // The full metadata catalog extends the hand-picked calls whose shifted type IDs
+  // are exercised above. Supply the other generated argument contracts as well.
+  const originalMetadata = runtime.metadataIr()
+  for (const entry of require('../dist/descriptors').callDescriptors) {
+    let pallet = originalMetadata.pallets.find(p => p.name === entry.pallet)
+    if (!pallet) { pallet = { name: entry.pallet, calls: [] }; originalMetadata.pallets.push(pallet) }
+    if (!pallet.calls.some(c => c.name === entry.function)) pallet.calls.push({ name: entry.function, args: [...entry.args] })
+  }
+  runtime.metadataIr = () => originalMetadata
   const issues = core.validateDescriptorSchema(runtime)
   assert.deepEqual(issues, [])
 })
@@ -2964,11 +2972,15 @@ test('Client reports included extrinsics with missing dispatch outcome as unknow
   const extrinsicHash = `0x${core.blake2_256(Buffer.from([1, 2])).toString('hex')}`
   client.rpc = async (method) => {
     if (method === 'chain_getBlock') {
-      return { block: { header: { number: '0x2a' }, extrinsics: [extrinsic] } }
+      return { block: { header: { number: '0x2a', parentHash: '0x' + '34'.repeat(32) }, extrinsics: [extrinsic] } }
     }
+    if (method === 'state_getStorage') return '0x00'
     throw new Error(`unexpected RPC ${method}`)
   }
-  client.query = async () => []
+  client.runtimeAt = async hash => {
+    assert.equal(hash, '0x' + '34'.repeat(32))
+    return { storageEntry: () => ({ valueType: 0 }), storageKey: () => Buffer.alloc(0), decode: () => [] }
+  }
 
   const result = await client.resolveInclusion(extrinsicHash, `0x${'12'.repeat(32)}`, false)
 

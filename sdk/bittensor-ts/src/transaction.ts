@@ -55,6 +55,13 @@ export interface RawCallOptions {
   signerRole?: SignerRoleLike
 }
 
+export interface ExecutorOptions {
+  policy?: Policy | PolicyOptions | null
+  proxyFor?: string | null
+  proxyType?: string | null
+  waitForFinalization?: boolean
+}
+
 export class Policy {
   readonly native: NativePolicyHandle
   private readonly options: PolicyOptions
@@ -108,6 +115,55 @@ export class IntentCall {
 
   static fromNative(nativeIntent: NativeIntentCallHandle): IntentCall {
     return new IntentCall(nativeIntent)
+  }
+
+  /** Construct a trusted low-level call with spend and scope tracking. Use
+   * buildIntent and Client.execute for application preflight, defaults, and mandatory MEV shielding. */
+  static operation(op: string, params: ScaleValue = {}): IntentCall {
+    return new IntentCall(nativeCall(() => native.intentOperation(op, toWire(params))))
+  }
+
+  /** Resolve a low-level descriptor with trusted spend and scope tracking. Use
+   * buildIntent and Client.execute for application preflight, defaults, and mandatory MEV shielding. */
+  static fromDescriptor(client: NativeChainClient, descriptor: ScaleValue): IntentCall {
+    return new IntentCall(nativeCall(() => native.intentDescriptor(client.native, toWire(descriptor))))
+  }
+
+  static async setTake(client: NativeChainClient, hotkey: string, take: number): Promise<IntentCall> {
+    return new IntentCall(await nativeAsync(() => native.NativeIntentCall.setTake(client.native, hotkey, take)))
+  }
+
+  static async batch(client: NativeChainClient, children: IntentCall[]): Promise<IntentCall> {
+    return new IntentCall(await nativeAsync(() => native.NativeIntentCall.batch(client.native, children.map((child) => child.native))))
+  }
+
+  static moveStakeLimit(
+    originHotkey: string,
+    originNetuid: number,
+    destinationHotkey: string,
+    destinationNetuid: number,
+    amountAlphaRao: bigint | number | string,
+    limitPrice: bigint | number | string,
+    allowPartial: boolean,
+  ): IntentCall {
+    return new IntentCall(nativeCall(() => native.NativeIntentCall.moveStakeLimit(
+      originHotkey, originNetuid, destinationHotkey, destinationNetuid,
+      bigintValue(amountAlphaRao, 'amountAlphaRao'), bigintValue(limitPrice, 'limitPrice'), allowPartial,
+    )))
+  }
+
+  static transferStakeAndHotkey(
+    destinationColdkey: string,
+    originHotkey: string,
+    destinationHotkey: string,
+    originNetuid: number,
+    destinationNetuid: number,
+    amountAlphaRao: bigint | number | string,
+  ): IntentCall {
+    return new IntentCall(nativeCall(() => native.NativeIntentCall.transferStakeAndHotkey(
+      destinationColdkey, originHotkey, destinationHotkey, originNetuid, destinationNetuid,
+      bigintValue(amountAlphaRao, 'amountAlphaRao'),
+    )))
   }
 
   static rawCall(
@@ -339,6 +395,23 @@ export class IntentCall {
     return new IntentCall(nativeCall(() => this.native.forceRaw()))
   }
 
+  /** Add a policy floor; this cannot weaken the constructor's spend classification. */
+  spend(kind: 'none' | 'bounded' | 'unbounded', amountRao?: bigint | number | string): IntentCall {
+    const value = kind === 'none' ? native.NativeSpendKind.None
+      : kind === 'bounded' ? native.NativeSpendKind.Bounded
+        : kind === 'unbounded' ? native.NativeSpendKind.Unbounded : undefined
+    if (value == null) throw new TypeError(`unsupported spend kind ${String(kind)}`)
+    return new IntentCall(nativeCall(() => this.native.spend(value, amountRao == null ? undefined : bigintValue(amountRao, 'amountRao'))))
+  }
+
+  touches(netuids: number[]): IntentCall {
+    return new IntentCall(nativeCall(() => this.native.touches(netuids)))
+  }
+
+  affectsAllSubnets(): IntentCall {
+    return new IntentCall(nativeCall(() => this.native.affectsAllSubnets()))
+  }
+
   asCallTuple(): [string, string, ScaleValue] {
     const [pallet, fn, params] = nativeCall(() => this.native.asCallTuple())
     return [String(pallet), String(fn), fromWire(params)]
@@ -382,6 +455,27 @@ export class NativeChainClient {
 
   runtime(): Runtime {
     return Runtime.fromNativeHandle(nativeCall(() => this.native.runtime()))
+  }
+
+  async currentRuntime(): Promise<Runtime> {
+    return Runtime.fromNativeHandle(await nativeAsync(() => this.native.currentRuntime()))
+  }
+
+  /** Expected block interval in seconds, including fractional fast-block intervals. */
+  async blockTime(): Promise<number> {
+    return Number(await nativeAsync(() => this.native.blockTime())) / 1000
+  }
+
+  decodeCall(data: Buffer): ScaleValue {
+    return fromWire(nativeCall(() => this.native.decodeCall(data)))
+  }
+
+  async estimateWeight(callData: Buffer, signer: Keypair): Promise<ScaleValue> {
+    return fromWire(await nativeAsync(() => this.native.estimateWeight(callData, nativeKeypairHandle(signer))))
+  }
+
+  submitShielded(callData: Buffer, signer: Keypair, waitForFinalization = true): Promise<NativeTxOutcome> {
+    return nativeAsync(() => this.native.submitShielded(callData, nativeKeypairHandle(signer), waitForFinalization))
   }
 
   rpcValue(method: string, params: unknown[] = []): Promise<unknown> {
@@ -456,6 +550,23 @@ export class NativeChainClient {
 
   async accountNextIndex(address: string): Promise<number> {
     return Number(await nativeAsync(() => this.native.accountNextIndex(address)))
+  }
+
+  /**
+   * Reserve consecutive nonces above chain state and outstanding detached plans.
+   * Reservations survive uncertain delivery. Reconcile every detached and
+   * shielded transaction before resetting an abandoned range with invalidateNonce.
+   */
+  async reserveNonces(address: string, count: number): Promise<number> {
+    if (!Number.isSafeInteger(count) || count <= 0) throw new RangeError('nonce count must be a positive safe integer')
+    const first = await nativeAsync(() => this.native.reserveNonces(address, BigInt(count)))
+    if (first < 0n || first + BigInt(count) - 1n > BigInt(Number.MAX_SAFE_INTEGER)) throw new RangeError('reserved nonces exceed JavaScript safe integer range')
+    return Number(first)
+  }
+
+  /** Reset the cached floor from RPC only after reconciling all pending detached and shielded transactions. */
+  invalidateNonce(address: string): Promise<void> {
+    return nativeAsync(() => this.native.invalidateNonce(address))
   }
 
   signExtrinsic(
@@ -667,6 +778,28 @@ export class Executor {
 
   plan(intent: IntentCall, wallet: RustWallet): Promise<NativePlan> {
     return nativeAsync(() => this.native.plan(intent.native, wallet.native))
+  }
+
+  planWithPolicy(intent: IntentCall, wallet: RustWallet, policy: Policy | PolicyOptions): Promise<NativePlan> {
+    return nativeAsync(() => this.native.planWithPolicy(intent.native, wallet.native, Policy.from(policy).native))
+  }
+
+  planWithProxy(intent: IntentCall, wallet: RustWallet, options: ExecutorOptions = {}): Promise<NativePlan> {
+    return nativeAsync(() => this.native.planWithProxy(
+      intent.native, wallet.native, options.policy == null ? undefined : Policy.from(options.policy).native,
+      options.proxyFor, options.proxyType,
+    ))
+  }
+
+  executeWith(intent: IntentCall, wallet: RustWallet, options: ExecutorOptions = {}): Promise<NativeTxOutcome> {
+    return nativeAsync(() => this.native.executeWith(
+      intent.native, wallet.native, options.policy == null ? undefined : Policy.from(options.policy).native,
+      options.proxyFor, options.proxyType, options.waitForFinalization ?? true,
+    ))
+  }
+
+  submitShielded(intent: IntentCall, wallet: RustWallet): Promise<NativeTxOutcome> {
+    return nativeAsync(() => this.native.submitShielded(intent.native, wallet.native))
   }
 
   execute(intent: IntentCall, wallet: RustWallet, waitForFinalization = true): Promise<NativeTxOutcome> {

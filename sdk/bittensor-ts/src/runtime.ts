@@ -71,7 +71,7 @@ function nativeExtrinsicParams(params: SignedExtrinsicParams): NativeExtrinsicPa
   }
 }
 
-function storageEntry(value: import('./native').NativeStorageEntry): StorageEntry {
+function storageEntry(value: import('./native').NativeStorageEntry): StorageEntry<Buffer> {
   const defaultBytes = Buffer.from(value.defaultBytes)
   return {
     ...value,
@@ -635,11 +635,11 @@ export class Runtime implements RustRuntimePublic<Buffer, ByteLike, IntegerLike>
     )
   }
 
-  storageEntry(pallet: string, storageFunction: string): StorageEntry {
+  storageEntry(pallet: string, storageFunction: string): StorageEntry<Buffer> {
     return nativeCall(() => storageEntry(this.handle.storageEntry(pallet, storageFunction)))
   }
 
-  storage_entry(pallet: string, storageFunction: string): StorageEntry {
+  storage_entry(pallet: string, storageFunction: string): StorageEntry<Buffer> {
     return this.storageEntry(pallet, storageFunction)
   }
 
@@ -823,7 +823,7 @@ export class Runtime implements RustRuntimePublic<Buffer, ByteLike, IntegerLike>
     return this.encodeEra(era)
   }
 
-  signaturePayloadParts(params: TransactionParams): PayloadParts {
+  signaturePayloadParts(params: TransactionParams): PayloadParts<Buffer> {
     return nativeCall(() => this.handle.signaturePayloadParts(nativeTxParams(params)))
   }
 
@@ -891,7 +891,7 @@ export class Runtime implements RustRuntimePublic<Buffer, ByteLike, IntegerLike>
     signature: ByteLike,
     signatureVersion: number,
     params: SignedExtrinsicParams,
-  ): SignedExtrinsic {
+  ): SignedExtrinsic<Buffer> {
     return nativeCall(() =>
       this.handle.encodeSignedExtrinsic(
         toBuffer(callData, 'callData'),
@@ -972,7 +972,7 @@ export const era_birth = eraBirth
 export function multisigAccountId(
   signatories: ByteLike[],
   threshold: number,
-): MultisigAccount {
+): MultisigAccount<Buffer> {
   return nativeCall(() =>
     native.multisigAccountId(
       signatories.map((value) => toBuffer(value, 'signatory')),

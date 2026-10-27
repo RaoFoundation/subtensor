@@ -5,6 +5,8 @@ export type BittensorCoreErrorCode =
   | 'CODEC'
   | 'CRYPTO'
   | 'DEVICE'
+  | 'RPC'
+  | 'POLICY'
   | 'UNKNOWN'
 
 export class BittensorCoreError extends Error {
@@ -59,7 +61,23 @@ export class DeviceError extends BittensorCoreError {
   }
 }
 
-const MARKER = /\[BITTENSOR_CORE:(KEYFILE|WRONG_PASSWORD|NOT_IN_RUNTIME|CODEC|CRYPTO|DEVICE)\]\s*/
+export class RpcError extends BittensorCoreError {
+  readonly chainError: ChainErrorInfo
+  constructor(message: string, options?: ErrorOptions) {
+    super('RPC', message, options)
+    this.name = 'RpcError'
+    this.chainError = classifyChainError(message)
+  }
+}
+
+export class PolicyError extends BittensorCoreError {
+  constructor(message: string, options?: ErrorOptions) {
+    super('POLICY', message, options)
+    this.name = 'PolicyError'
+  }
+}
+
+const MARKER = /\[BITTENSOR_CORE:(KEYFILE|WRONG_PASSWORD|NOT_IN_RUNTIME|CODEC|CRYPTO|DEVICE|RPC|POLICY)\]\s*/
 
 export function mapNativeError(error: unknown): Error {
   if (error instanceof BittensorCoreError) return error
@@ -83,6 +101,10 @@ export function mapNativeError(error: unknown): Error {
       return new CryptoError(message, options)
     case 'DEVICE':
       return new DeviceError(message, options)
+    case 'RPC':
+      return new RpcError(message, options)
+    case 'POLICY':
+      return new PolicyError(message, options)
   }
 }
 
@@ -107,3 +129,4 @@ export async function nativeAsync<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 export { BittensorCoreError as CoreError }
+import { classifyChainError, type ChainErrorInfo } from './chain-errors'

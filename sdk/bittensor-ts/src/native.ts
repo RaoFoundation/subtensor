@@ -392,10 +392,17 @@ export interface NativeIntentCallHandle {
   readonly params: unknown
   withSummary(summary: string): NativeIntentCallHandle
   forceRaw(): NativeIntentCallHandle
+  spend(kind: number, amountRao?: bigint | null): NativeIntentCallHandle
+  touches(netuids: number[]): NativeIntentCallHandle
+  affectsAllSubnets(): NativeIntentCallHandle
   asCallTuple(): unknown[]
 }
 
 export interface NativeIntentCallConstructor {
+  moveStakeLimit(originHotkey: string, originNetuid: number, destinationHotkey: string, destinationNetuid: number, amountAlphaRao: bigint, limitPrice: bigint, allowPartial: boolean): NativeIntentCallHandle
+  transferStakeAndHotkey(destinationColdkey: string, originHotkey: string, destinationHotkey: string, originNetuid: number, destinationNetuid: number, amountAlphaRao: bigint): NativeIntentCallHandle
+  setTake(client: NativeClientHandle, hotkey: string, take: number): Promise<NativeIntentCallHandle>
+  batch(client: NativeClientHandle, children: NativeIntentCallHandle[]): Promise<NativeIntentCallHandle>
   rawCall(
     op: string,
     signerRole: number,
@@ -468,6 +475,11 @@ export interface NativeIntentCallConstructor {
 }
 
 export interface NativeClientHandle {
+  currentRuntime(): Promise<NativeRuntimeHandle>
+  blockTime(): Promise<bigint>
+  decodeCall(data: Buffer): unknown
+  estimateWeight(callData: Buffer, signer: NativeKeypairHandle): Promise<unknown>
+  submitShielded(callData: Buffer, signer: NativeKeypairHandle, waitForFinalization?: boolean | null): Promise<NativeTxOutcome>
   readonly endpoint: string
   readonly ss58Format: number
   readonly genesisHash: Buffer
@@ -488,6 +500,8 @@ export interface NativeClientHandle {
   queryMap(pallet: string, storage: string, fixedParams: unknown, blockHash?: string | null): Promise<NativeMapPair[]>
   runtimeCall(api: string, method: string, params: unknown, blockHash?: string | null): Promise<unknown>
   accountNextIndex(address: string): Promise<bigint>
+  reserveNonces(address: string, count: bigint): Promise<bigint>
+  invalidateNonce(address: string): Promise<void>
   signExtrinsic(
     callData: Buffer,
     signer: NativeKeypairHandle,
@@ -557,6 +571,8 @@ export interface NativeWalletConstructor {
 }
 
 export interface NativeExecutorHandle {
+  planWithProxy(intent: NativeIntentCallHandle, wallet: NativeWalletHandle, policy?: NativePolicyHandle | null, proxyFor?: string | null, proxyType?: string | null): Promise<NativePlan>
+  executeWith(intent: NativeIntentCallHandle, wallet: NativeWalletHandle, policy?: NativePolicyHandle | null, proxyFor?: string | null, proxyType?: string | null, waitForFinalization?: boolean | null): Promise<NativeTxOutcome>
   plan(intent: NativeIntentCallHandle, wallet: NativeWalletHandle): Promise<NativePlan>
   planWithPolicy(
     intent: NativeIntentCallHandle,
@@ -576,7 +592,35 @@ export interface NativeExecutorConstructor {
   withPolicy(client: NativeClientHandle, policy: NativePolicyHandle): NativeExecutorHandle
 }
 
+export interface NativePowSolution {
+  nonce: bigint
+  work: Buffer
+}
+
+export interface NativePowGpuDevice {
+  id: number
+  name: string
+  vendor: string
+}
+
+export interface NativePowGpuMinerHandle {
+  devices(): NativePowGpuDevice[]
+  mine(prefix: Buffer, difficulty: bigint, start: bigint, attemptsPerDevice: number): Promise<NativePowSolution | null>
+}
+
+export interface NativePowGpuMinerConstructor {
+  create(deviceIds?: number[] | null): Promise<NativePowGpuMinerHandle>
+}
+
 export interface NativeBinding {
+  intentOperation(op: string, params: unknown): NativeIntentCallHandle
+  intentDescriptor(client: NativeClientHandle, descriptor: unknown): NativeIntentCallHandle
+  NativePowGpuMiner: NativePowGpuMinerConstructor
+  powSeal(prefix: Buffer, nonce: bigint): Buffer
+  powPrefixLength(): number
+  powMaxBatch(): number
+  powMineCpu(prefix: Buffer, difficulty: bigint, start: bigint, attempts: number): Promise<NativePowSolution | null>
+  powGpuDevices(): Promise<NativePowGpuDevice[]>
   NativeKeypair: { readonly prototype: NativeKeypairHandle }
   NativeRuntime: NativeRuntimeConstructor
   NativeCursor: NativeCursorConstructor

@@ -1,5 +1,19 @@
+import { serializeUnsignedTransaction, restoreUnsignedTransaction, type SerializedUnsignedTransaction, type UnsignedTransactionState, type UnsignedRuntime } from './unsigned-transaction'
+import { classifyChainError, chainErrorFromDispatch, type ChainErrorInfo } from './chain-errors'
+import { nestedDispatchError } from './receipt'
+import { WorkflowClient, type WorkflowOptions, type WorkflowPlan, type WorkflowSigner, type WorkflowResult } from './node-workflows'
+import { runSignerQueue, signerQueueOptions, bindSignerIdentity } from './signer-queue'
+import { listIntentTools, type Intent } from './intents'
+import { createNodeUpgradeClient } from './node-upgrade'
+import type { UpgradeClient } from './upgrade'
+import { dispatchRead, listReads, type ReadName, type ReadParams, type ReadResult, type ReadArgs, type ReadView } from './reads'
+import { fetchMetagraph, fetchCommitments } from './metagraph'
+import { bindReadNamespace, type AccountsReadNamespace, type ChainReadNamespace, type SubnetsReadNamespace, type StakingReadNamespace, type EpochsReadNamespace, type HyperparametersReadNamespace, type DelegationReadNamespace, type NeuronsReadNamespace, type LeasingReadNamespace, type CollateralReadNamespace, type LocksReadNamespace, type IdentityReadNamespace, type WeightsReadNamespace, type PricesReadNamespace, type ReadBlock } from './read-namespaces'
+import { storage as generatedStorage, constants as generatedConstants, runtimeApi as generatedRuntimeApi, calls as generatedCalls, callDescriptors } from './descriptors'
+import { DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_MAX_REQUEST_RETRIES, DEFAULT_RETRY_BACKOFF_MS, DEFAULT_MAX_RETRY_BACKOFF_MS, DEFAULT_ENDPOINT_VALIDATION_TTL_MS, DEFAULT_MAX_SUBSCRIPTION_QUEUE, DEFAULT_MAX_WS_MESSAGE_BYTES, IDEMPOTENT_RPC_METHODS, RpcRequestOptions, JsonRpcTransportOptions, RpcRequest, SubscriptionWaiter, SubscriptionState, EndpointAttempt, ActiveConnection, ConnectingAttempt, SubscriptionOptions, WebSocketLike, WebSocketConstructor, WebSocketFactory, EndpointRequest, EndpointValidator, JsonRpcError, ChainError, RequestTimeoutError, RequestAbortedError, EndpointValidationError, JsonRpcTransport, nonNegativeNumber, nonNegativeInteger, hasOwn, parseJsonRpcResponse, readResponseText, jsonRpcResponseResult, jsonRpcSubscriptionNotification, RequestSignal, delay, withRequestSignal, normalizeAbortError, throwIfAborted } from './transport'
+export { JsonRpcTransport, EndpointValidationError, RequestAbortedError, RequestTimeoutError, ChainError, JsonRpcError, EndpointValidator, EndpointRequest, WebSocketFactory, WebSocketConstructor, WebSocketLike, JsonRpcTransportOptions, RpcRequestOptions, DEFAULT_MAX_WS_MESSAGE_BYTES, DEFAULT_MAX_SUBSCRIPTION_QUEUE, DEFAULT_ENDPOINT_VALIDATION_TTL_MS, DEFAULT_MAX_RETRY_BACKOFF_MS, DEFAULT_RETRY_BACKOFF_MS, DEFAULT_MAX_REQUEST_RETRIES, DEFAULT_REQUEST_TIMEOUT_MS } from './transport'
 import { blake2_256, generateExtrinsicProof, hexToBytes, metadataDigest } from './crypto'
-import { CRYPTO_ED25519, CRYPTO_SR25519, Keypair, publicKeyFromSs58 } from './keys'
+import { CRYPTO_ED25519, CRYPTO_SR25519, Keypair, publicKeyFromSs58, ss58FromPublic, verify } from './keys'
 import { LedgerDevice } from './ledger'
 import { Runtime, decodeOptionalOpaqueMetadata, eraBirth, type RuntimeSignerPayload } from './runtime'
 import { IntentCall, NativeChainClient, Policy, createNativeCancellationToken, isIntentCall, rawCall, type NativeCancellationToken, type PolicyOptions, type SignerRoleLike } from './transaction'
@@ -28,50 +42,20 @@ import type {
 } from './types'
 
 export const SS58_FORMAT = 42
-export const DEFAULT_ERA_PERIOD = 64
+export const DEFAULT_ERA_PERIOD = 128
 export const DEFAULT_HEAD_RUNTIME_TTL_MS = 12_000
 export const DEFAULT_HISTORICAL_RUNTIME_CACHE_SIZE = 64
-export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
-export const DEFAULT_MAX_REQUEST_RETRIES = 2
-export const DEFAULT_RETRY_BACKOFF_MS = 250
-export const DEFAULT_MAX_RETRY_BACKOFF_MS = 5_000
-export const DEFAULT_ENDPOINT_VALIDATION_TTL_MS = 60_000
-export const DEFAULT_MAX_SUBSCRIPTION_QUEUE = 1024
-export const DEFAULT_MAX_WS_MESSAGE_BYTES = 16 * 1024 * 1024
 const V15_METADATA_VERSION_HEX = '0x0f000000'
 const V15_METADATA_MISSING_NEEDLE = 'Exported method Metadata_metadata_at_version is not found'
-const IDEMPOTENT_RPC_METHODS = new Set([
-  'chain_getBlock',
-  'chain_getBlockHash',
-  'chain_getFinalizedHead',
-  'chain_getHeader',
-  'chain_subscribeFinalizedHeads',
-  'chain_subscribeNewHeads',
-  'chain_unsubscribeFinalizedHeads',
-  'chain_unsubscribeNewHeads',
-  'state_call',
-  'state_getKeysPaged',
-  'state_getMetadata',
-  'state_getRuntimeVersion',
-  'state_getStorage',
-  'state_queryStorageAt',
-  'state_subscribeRuntimeVersion',
-  'state_subscribeStorage',
-  'state_unsubscribeRuntimeVersion',
-  'state_unsubscribeStorage',
-  'system_accountNextIndex',
-  'system_chain',
-  'system_health',
-  'system_name',
-  'system_properties',
-  'system_version',
-])
 export const NETWORKS = Object.freeze({
   finney: 'wss://entrypoint-finney.opentensor.ai:443',
   test: 'wss://test.finney.opentensor.ai:443',
   archive: 'wss://archive.chain.opentensor.ai:443',
+  devnet: 'wss://dev.chain.opentensor.ai:443',
   local: process.env.BT_CHAIN_ENDPOINT ?? 'ws://127.0.0.1:9944',
 })
+export const FALLBACK_ENDPOINTS: Readonly<Record<string, readonly string[]>> = Object.freeze({ finney: ['wss://lite.chain.opentensor.ai:443', 'wss://lite.sub.latent.to:443'], archive: ['wss://archive.sub.latent.to:443'] })
+export const ARCHIVE_ENDPOINTS: Readonly<Record<string, readonly string[]>> = Object.freeze({ finney: ['wss://archive.chain.opentensor.ai:443', 'wss://archive.sub.latent.to:443'], archive: ['wss://archive.sub.latent.to:443'] })
 export const NETWORK_GENESIS_HASHES = Object.freeze({
   finney: '0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03',
   archive: '0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03',
@@ -89,6 +73,7 @@ export type CallLike =
 export interface ClientOptions {
   endpoint?: string
   fallbackEndpoints?: string[]
+  archiveEndpoints?: string[]
   expectedGenesisHash?: string
   retryForever?: boolean
   autoConnect?: boolean
@@ -105,29 +90,6 @@ export interface ClientOptions {
   maxSubscriptionQueue?: number
   maxMessageBytes?: number
   validateDescriptorSchema?: boolean
-}
-
-export interface RpcRequestOptions {
-  signal?: AbortSignal
-  timeoutMs?: number
-  maxRetries?: number
-  retryForever?: boolean
-  retryBackoffMs?: number
-  maxRetryBackoffMs?: number
-}
-
-export interface JsonRpcTransportOptions {
-  webSocket?: WebSocketConstructor
-  webSocketConstructor?: WebSocketConstructor
-  webSocketFactory?: WebSocketFactory
-  validateEndpoint?: EndpointValidator
-  requestTimeoutMs?: number
-  maxRequestRetries?: number
-  retryBackoffMs?: number
-  maxRetryBackoffMs?: number
-  endpointValidationTtlMs?: number
-  maxSubscriptionQueue?: number
-  maxMessageBytes?: number
 }
 
 export interface SubmitOptions {
@@ -244,6 +206,7 @@ export interface ExtrinsicResult {
   fee?: Balance
   events: unknown[]
   error?: unknown
+  chainError?: ChainErrorInfo
 }
 
 export interface SignedExtrinsicResult extends SignedExtrinsic {
@@ -270,6 +233,7 @@ export interface BlockInfo {
   hash: string
   header: unknown
   extrinsics: string[]
+  decodedExtrinsics?: Array<ScaleValue | null>
   timestamp?: Date
 }
 
@@ -280,47 +244,6 @@ export interface DescriptorSchemaIssue {
   message: string
 }
 
-interface RpcRequest {
-  generation: number
-  resolve(value: unknown): void
-  reject(error: Error): void
-  cleanup(): void
-}
-
-interface SubscriptionWaiter {
-  resolve(value: IteratorResult<unknown>): void
-  reject(error: Error): void
-}
-
-interface SubscriptionState {
-  queue: unknown[]
-  waiters: SubscriptionWaiter[]
-  closed: boolean
-  resubscribe: boolean
-  subscribeMethod: string
-  params: unknown[]
-  unsubscribeMethod: string
-  requestOptions: RpcRequestOptions
-  subscription?: string
-  subscriptionGeneration?: number
-  error?: Error
-  resubscribing?: Promise<void>
-}
-
-interface EndpointAttempt {
-  endpoint: string
-  index: number
-  generation: number
-}
-
-interface ActiveConnection extends EndpointAttempt {
-  socket: WebSocketLike
-}
-
-interface ConnectingAttempt extends EndpointAttempt {
-  promise: Promise<ActiveConnection>
-}
-
 interface ResolvedSigner {
   signer: Keypair | ChainSigner
   ss58Address: string
@@ -328,6 +251,10 @@ interface ResolvedSigner {
   cryptoType: number
   requiresMetadataProof: boolean
 }
+
+export interface PreparedCall extends SignerPayloadContext {}
+const preparedCalls = new WeakMap<PreparedCall, { owner: Client; planned: NativeSigningPlan }>()
+const importedCalls = new WeakMap<PreparedCall, { owner: Client; serialized: SerializedUnsignedTransaction }>()
 
 interface NativeSigningPlan {
   native: NativeChainClient
@@ -361,12 +288,8 @@ export type ChainClient = Client | BrowserChainClient
 
 const nativeClientAccess = new WeakMap<object, () => Promise<NativeChainClient | undefined>>()
 
-function nativeRustClient(client: object): Promise<NativeChainClient | undefined> {
+export function nativeRustClient(client: object): Promise<NativeChainClient | undefined> {
   return nativeClientAccess.get(client)?.() ?? Promise.resolve(undefined)
-}
-
-interface SubscriptionOptions extends RpcRequestOptions {
-  resubscribe?: boolean
 }
 
 interface NormalizedSignature {
@@ -374,661 +297,24 @@ interface NormalizedSignature {
   cryptoType: number
 }
 
-export type WebSocketLike = {
-  readyState: number
-  send(data: string): void
-  close(): void
-  addEventListener(type: string, listener: (event: { data?: unknown }) => void): void
-}
-
-export type WebSocketConstructor = new (url: string) => WebSocketLike
-export type WebSocketFactory = (url: string) => WebSocketLike
-export type EndpointRequest = (method: string, params?: unknown[]) => Promise<unknown>
-export type EndpointValidator = (endpoint: string, request: EndpointRequest) => Promise<void>
-
-export class JsonRpcError extends Error {
-  readonly code?: number
-  readonly data?: unknown
-
-  constructor(message: string, code?: number, data?: unknown) {
-    super(message)
-    this.name = 'JsonRpcError'
-    this.code = code
-    this.data = data
-  }
-}
-
-export class ChainError extends Error {
-  readonly details?: unknown
-
-  constructor(message: string, details?: unknown) {
-    super(message)
-    this.name = 'ChainError'
-    this.details = details
-  }
-}
-
-export class RequestTimeoutError extends ChainError {
-  constructor(message: string) {
-    super(message)
-    this.name = 'RequestTimeoutError'
-  }
-}
-
-export class RequestAbortedError extends ChainError {
-  constructor(message = 'request aborted') {
-    super(message)
-    this.name = 'RequestAbortedError'
-  }
-}
-
-export class EndpointValidationError extends ChainError {
-  constructor(message: string, details?: unknown) {
-    super(message, details)
-    this.name = 'EndpointValidationError'
-  }
-}
-
-export class JsonRpcTransport {
-  private readonly endpoints: string[]
-  private readonly retryForever: boolean
-  private readonly requestTimeoutMs: number
-  private readonly maxRequestRetries: number
-  private readonly retryBackoffMs: number
-  private readonly maxRetryBackoffMs: number
-  private readonly endpointValidationTtlMs: number
-  private readonly maxSubscriptionQueue: number
-  private readonly maxMessageBytes: number
-  private readonly webSocketConstructor?: WebSocketConstructor
-  private readonly webSocketFactory?: WebSocketFactory
-  private readonly validateEndpoint?: EndpointValidator
-  private readonly validatedEndpoints = new Map<string, number>()
-  private endpointIndex = 0
-  private generation = 0
-  private id = 1
-  private socket?: ActiveConnection
-  private connecting?: ConnectingAttempt
-  private pending = new Map<number, RpcRequest>()
-  private subscriptions = new Set<SubscriptionState>()
-  private subscriptionsById = new Map<string, { state: SubscriptionState; generation: number }>()
-  private closed = false
-
-  constructor(
-    endpoint: string,
-    fallbackEndpoints: string[] = [],
-    retryForever = false,
-    options: JsonRpcTransportOptions = {},
-  ) {
-    this.endpoints = [endpoint, ...fallbackEndpoints.filter((item) => item !== endpoint)]
-    this.retryForever = retryForever
-    this.requestTimeoutMs = nonNegativeNumber(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS)
-    this.maxRequestRetries = nonNegativeInteger(options.maxRequestRetries, DEFAULT_MAX_REQUEST_RETRIES)
-    this.retryBackoffMs = nonNegativeNumber(options.retryBackoffMs, DEFAULT_RETRY_BACKOFF_MS)
-    this.maxRetryBackoffMs = nonNegativeNumber(options.maxRetryBackoffMs, DEFAULT_MAX_RETRY_BACKOFF_MS)
-    this.endpointValidationTtlMs = nonNegativeNumber(
-      options.endpointValidationTtlMs,
-      DEFAULT_ENDPOINT_VALIDATION_TTL_MS,
-    )
-    this.maxSubscriptionQueue = nonNegativeInteger(
-      options.maxSubscriptionQueue,
-      DEFAULT_MAX_SUBSCRIPTION_QUEUE,
-    )
-    this.maxMessageBytes = nonNegativeInteger(options.maxMessageBytes, DEFAULT_MAX_WS_MESSAGE_BYTES)
-    this.webSocketConstructor = options.webSocketConstructor ?? options.webSocket
-    this.webSocketFactory = options.webSocketFactory
-    this.validateEndpoint = options.validateEndpoint
-  }
-
-  get endpoint(): string {
-    return this.endpoints[this.endpointIndex]
-  }
-
-  async request(method: string, params: unknown[] = [], options: RpcRequestOptions = {}): Promise<unknown> {
-    if (this.closed) throw new ChainError('transport closed')
-    const requestOptions = {
-      ...options,
-      timeoutMs: options.timeoutMs ?? this.requestTimeoutMs,
-    }
-    throwIfAborted(requestOptions.signal)
-    const retryByDefault = IDEMPOTENT_RPC_METHODS.has(method)
-    const maxRetries = requestOptions.maxRetries ?? (retryByDefault ? this.maxRequestRetries : 0)
-    const retryForever = requestOptions.retryForever ?? (retryByDefault ? this.retryForever : false)
-    const retryBackoffMs = requestOptions.retryBackoffMs ?? this.retryBackoffMs
-    const maxRetryBackoffMs = requestOptions.maxRetryBackoffMs ?? this.maxRetryBackoffMs
-    let attempt = 0
-    const attemptedEndpoints = new Set<string>()
-    for (;;) {
-      const endpointAttempt = this.currentAttempt()
-      attemptedEndpoints.add(endpointAttempt.endpoint)
-      try {
-        await this.ensureEndpointValidated(endpointAttempt, requestOptions)
-        return this.isHttpEndpoint(endpointAttempt.endpoint)
-          ? await this.httpRequest(endpointAttempt, method, params, requestOptions)
-          : await this.wsRequest(endpointAttempt, method, params, requestOptions)
-      } catch (error) {
-        if (error instanceof RequestAbortedError || error instanceof JsonRpcError) throw error
-        if (error instanceof EndpointValidationError) {
-          this.validatedEndpoints.delete(endpointAttempt.endpoint)
-          if (attemptedEndpoints.size >= this.endpoints.length || !this.rotateEndpoint(endpointAttempt)) throw error
-          continue
-        }
-        if (!retryForever && attempt >= maxRetries) throw error
-        attempt += 1
-        this.rotateEndpoint(endpointAttempt)
-        const capped = Math.min(retryBackoffMs * (2 ** Math.max(0, attempt - 1)), maxRetryBackoffMs)
-        await delay(capped, requestOptions.signal)
-      }
-    }
-  }
-
-  private async requestWebSocketOnly(
-    method: string,
-    params: unknown[] = [],
-    options: RpcRequestOptions = {},
-  ): Promise<unknown> {
-    if (this.closed) throw new ChainError('transport closed')
-    const requestOptions = {
-      ...options,
-      timeoutMs: options.timeoutMs ?? this.requestTimeoutMs,
-    }
-    throwIfAborted(requestOptions.signal)
-    const maxRetries = requestOptions.maxRetries ?? this.maxRequestRetries
-    const retryForever = requestOptions.retryForever ?? this.retryForever
-    const retryBackoffMs = requestOptions.retryBackoffMs ?? this.retryBackoffMs
-    const maxRetryBackoffMs = requestOptions.maxRetryBackoffMs ?? this.maxRetryBackoffMs
-    let attempt = 0
-    for (;;) {
-      const endpointAttempt = this.currentWebSocketAttempt()
-      try {
-        await this.ensureEndpointValidated(endpointAttempt, requestOptions)
-        return await this.wsRequest(endpointAttempt, method, params, requestOptions)
-      } catch (error) {
-        if (error instanceof RequestAbortedError || error instanceof JsonRpcError) throw error
-        if (error instanceof EndpointValidationError) this.validatedEndpoints.delete(endpointAttempt.endpoint)
-        if (!retryForever && attempt >= maxRetries) throw error
-        attempt += 1
-        const nextIndex = this.nextWebSocketEndpointIndex(endpointAttempt.index)
-        if (nextIndex == null) throw error
-        this.rotateEndpoint(endpointAttempt, nextIndex)
-        const capped = Math.min(retryBackoffMs * (2 ** Math.max(0, attempt - 1)), maxRetryBackoffMs)
-        await delay(capped, requestOptions.signal)
-      }
-    }
-  }
-
-  private currentAttempt(): EndpointAttempt {
-    return {
-      endpoint: this.endpoint,
-      index: this.endpointIndex,
-      generation: this.generation,
-    }
-  }
-
-  private currentWebSocketAttempt(): EndpointAttempt {
-    const current = this.currentAttempt()
-    if (!this.isHttpEndpoint(current.endpoint)) return current
-    const nextIndex = this.nextWebSocketEndpointIndex(current.index)
-    if (nextIndex == null) {
-      throw new ChainError('subscriptions require a WebSocket endpoint')
-    }
-    this.rotateEndpoint(current, nextIndex)
-    return this.currentAttempt()
-  }
-
-  private nextWebSocketEndpointIndex(afterIndex: number): number | undefined {
-    for (let offset = 1; offset <= this.endpoints.length; offset += 1) {
-      const index = (afterIndex + offset) % this.endpoints.length
-      if (!this.isHttpEndpoint(this.endpoints[index])) return index
-    }
-    return undefined
-  }
-
-  private async ensureEndpointValidated(attempt: EndpointAttempt, options: RpcRequestOptions): Promise<void> {
-    if (this.validateEndpoint == null) return
-    const validUntil = this.validatedEndpoints.get(attempt.endpoint)
-    const now = Date.now()
-    if (validUntil != null && validUntil > now) return
-    await this.validateEndpoint(attempt.endpoint, (method, params = []) =>
-      this.isHttpEndpoint(attempt.endpoint)
-        ? this.httpRequest(attempt, method, params, options)
-        : this.wsRequest(attempt, method, params, options),
-    )
-    if (this.endpointValidationTtlMs > 0) {
-      this.validatedEndpoints.set(attempt.endpoint, Date.now() + this.endpointValidationTtlMs)
-    }
-  }
-
-  async subscribe(
-    subscribeMethod: string,
-    params: unknown[] = [],
-    unsubscribeMethod: string,
-    options: SubscriptionOptions = {},
-  ): Promise<AsyncIterable<unknown> & { unsubscribe(): Promise<void> }> {
-    this.currentWebSocketAttempt()
-    const state: SubscriptionState = {
-      queue: [],
-      waiters: [],
-      closed: false,
-      resubscribe: options.resubscribe ?? true,
-      subscribeMethod,
-      params,
-      unsubscribeMethod,
-      requestOptions: {
-        signal: options.signal,
-        timeoutMs: options.timeoutMs,
-        maxRetries: options.maxRetries,
-        retryForever: options.retryForever,
-        retryBackoffMs: options.retryBackoffMs,
-        maxRetryBackoffMs: options.maxRetryBackoffMs,
-      },
-    }
-    this.subscriptions.add(state)
-    try {
-      await this.activateSubscription(state)
-    } catch (error) {
-      this.subscriptions.delete(state)
-      throw error
-    }
-    const unsubscribe = async () => {
-      if (state.closed) return
-      state.closed = true
-      this.subscriptions.delete(state)
-      if (state.subscription != null) this.subscriptionsById.delete(state.subscription)
-      for (const waiter of state.waiters.splice(0)) waiter.resolve({ done: true, value: undefined })
-      const subscription = state.subscription
-      state.subscription = undefined
-      if (subscription != null) {
-        await this.requestWebSocketOnly(unsubscribeMethod, [subscription]).catch(() => undefined)
-      }
-    }
-    return {
-      unsubscribe,
-      [Symbol.asyncIterator]: () => ({
-        next: () => this.subscriptionNext(state),
-        return: async () => {
-          await unsubscribe()
-          return { done: true, value: undefined }
-        },
-      }),
-    }
-  }
-
-  close(): void {
-    this.closed = true
-    this.generation += 1
-    this.socket?.socket.close()
-    this.socket = undefined
-    this.connecting = undefined
-    this.failPending(new ChainError('transport closed'))
-    for (const state of [...this.subscriptions]) this.closeSubscription(state)
-  }
-
-  private isHttpEndpoint(endpoint: string): boolean {
-    return endpoint.startsWith('http://') || endpoint.startsWith('https://')
-  }
-
-  private async httpRequest(
-    attempt: EndpointAttempt,
-    method: string,
-    params: unknown[],
-    options: RpcRequestOptions,
-  ): Promise<unknown> {
-    const request = withRequestSignal(options)
-    const id = this.id++
-    try {
-      const response = await fetch(attempt.endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
-        signal: request.signal,
-      })
-      if (!response.ok) throw new JsonRpcError(`HTTP ${response.status} from ${attempt.endpoint}`)
-      return jsonRpcResponseResult(await parseJsonRpcResponse(response, this.maxMessageBytes), id)
-    } catch (error) {
-      throw normalizeAbortError(error, request)
-    } finally {
-      request.cleanup()
-    }
-  }
-
-  private async wsRequest(
-    attempt: EndpointAttempt,
-    method: string,
-    params: unknown[],
-    options: RpcRequestOptions,
-  ): Promise<unknown> {
-    const connection = await this.connect(attempt, options)
-    const id = this.id++
-    const promise = new Promise<unknown>((resolve, reject) => {
-      const request = withRequestSignal(options)
-      const cleanup = () => request.cleanup()
-      const fail = (error: Error) => {
-        if (!this.pending.delete(id)) return
-        cleanup()
-        reject(error)
-      }
-      this.pending.set(id, {
-        generation: connection.generation,
-        resolve(value) {
-          cleanup()
-          resolve(value)
-        },
-        reject(error) {
-          cleanup()
-          reject(error)
-        },
-        cleanup,
-      })
-      request.onAbort((error) => fail(error))
-    })
-    try {
-      connection.socket.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }))
-    } catch (error) {
-      const pending = this.pending.get(id)
-      this.pending.delete(id)
-      pending?.cleanup()
-      throw error
-    }
-    return promise
-  }
-
-  private async connect(attempt: EndpointAttempt, options: RpcRequestOptions = {}): Promise<ActiveConnection> {
-    if (this.closed) throw new ChainError('transport closed')
-    if (
-      this.socket?.generation === attempt.generation &&
-      this.socket.endpoint === attempt.endpoint &&
-      this.socket.socket.readyState === 1
-    ) return this.socket
-    if (
-      this.connecting?.generation === attempt.generation &&
-      this.connecting.endpoint === attempt.endpoint
-    ) return this.connecting.promise
-    if (this.generation !== attempt.generation || this.endpoint !== attempt.endpoint) {
-      throw new ChainError(`stale endpoint attempt for ${attempt.endpoint}`)
-    }
-
-    const connecting: ConnectingAttempt = {
-      ...attempt,
-      promise: undefined as unknown as Promise<ActiveConnection>,
-    }
-    this.connecting = connecting
-    connecting.promise = new Promise((resolve, reject) => {
-      const request = withRequestSignal(options)
-      let socket: WebSocketLike
-      try {
-        socket = this.createWebSocket(attempt.endpoint)
-      } catch (error) {
-        request.cleanup()
-        if (this.connecting === connecting) this.connecting = undefined
-        reject(error)
-        return
-      }
-      let settled = false
-      const cleanup = () => request.cleanup()
-      const fail = (error: Error) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        if (this.generation === attempt.generation) {
-          this.socket = undefined
-          if (this.connecting === connecting) this.connecting = undefined
-        }
-        try {
-          socket.close()
-        } catch {
-          // Ignore close errors while unwinding a failed connection.
-        }
-        reject(error)
-      }
-      request.onAbort((error) => fail(error))
-      socket.addEventListener('open', () => {
-        if (settled) return
-        settled = true
-        cleanup()
-        if (this.generation !== attempt.generation || this.endpoint !== attempt.endpoint) {
-          if (this.connecting === connecting) this.connecting = undefined
-          try {
-            socket.close()
-          } catch {
-            // Ignore close errors while discarding a stale connection.
-          }
-          reject(new ChainError(`stale connection opened for ${attempt.endpoint}`))
-          return
-        }
-        const connection = { ...attempt, socket }
-        this.socket = connection
-        if (this.connecting === connecting) this.connecting = undefined
-        resolve(connection)
-      })
-      socket.addEventListener('error', () => fail(new ChainError(`could not connect to ${attempt.endpoint}`)))
-      socket.addEventListener('close', () => {
-        const error = new ChainError(`connection closed: ${attempt.endpoint}`)
-        if (!settled) fail(error)
-        else this.handleSocketClose({ ...attempt, socket }, error)
-      })
-      socket.addEventListener('message', (event) => this.handleMessage({ ...attempt, socket }, event.data))
-    })
-    return connecting.promise
-  }
-
-  private createWebSocket(url: string): WebSocketLike {
-    if (this.webSocketFactory != null) return this.webSocketFactory(url)
-    const WebSocketImpl =
-      this.webSocketConstructor ??
-      (globalThis as unknown as { WebSocket?: WebSocketConstructor }).WebSocket
-    if (WebSocketImpl == null) {
-      throw new ChainError(
-        'WebSocket is not available; pass webSocketFactory or webSocketConstructor, or use an HTTP endpoint',
-      )
-    }
-    return new WebSocketImpl(url)
-  }
-
-  private handleMessage(connection: ActiveConnection, data: unknown): void {
-    if (!this.isCurrentConnection(connection)) return
-    const raw = typeof data === 'string'
-      ? data
-      : Buffer.isBuffer(data) || data instanceof Uint8Array
-        ? Buffer.from(data).toString('utf8')
-        : String(data)
-    if (Buffer.byteLength(raw, 'utf8') > this.maxMessageBytes) {
-      this.handleProtocolError(connection, new ChainError('JSON-RPC message exceeded size limit'))
-      return
-    }
-    let message: unknown
-    try {
-      message = JSON.parse(raw)
-    } catch {
-      this.handleProtocolError(connection, new ChainError('invalid JSON-RPC message'))
-      return
-    }
-    if (typeof message !== 'object' || message == null || Array.isArray(message)) {
-      this.handleProtocolError(connection, new JsonRpcError('invalid JSON-RPC message envelope'))
-      return
-    }
-    const rpcMessage = message as { id?: unknown }
-    if (hasOwn(rpcMessage, 'id')) {
-      if (typeof rpcMessage.id !== 'number') {
-        this.handleProtocolError(connection, new JsonRpcError('invalid JSON-RPC response id'))
-        return
-      }
-      const pending = this.pending.get(rpcMessage.id)
-      if (pending == null || pending.generation !== connection.generation) return
-      this.pending.delete(rpcMessage.id)
-      try {
-        pending.resolve(jsonRpcResponseResult(message, rpcMessage.id))
-      } catch (error) {
-        pending.reject(error instanceof Error ? error : new JsonRpcError(String(error)))
-      }
-      return
-    }
-    let notification: { subscription: string; result: unknown } | undefined
-    try {
-      notification = jsonRpcSubscriptionNotification(message)
-    } catch (error) {
-      this.handleProtocolError(
-        connection,
-        error instanceof Error ? error : new JsonRpcError(String(error)),
-      )
-      return
-    }
-    if (notification == null) return
-    const entry = this.subscriptionsById.get(notification.subscription)
-    if (entry == null || entry.generation !== connection.generation || entry.state.closed) return
-    const state = entry.state
-    const waiter = state.waiters.shift()
-    if (waiter != null) waiter.resolve({ done: false, value: notification.result })
-    else if (state.queue.length >= this.maxSubscriptionQueue) {
-      this.closeSubscription(state, new ChainError('subscription notification queue exceeded limit'))
-    } else {
-      state.queue.push(notification.result)
-    }
-  }
-
-  private subscriptionNext(state: SubscriptionState): Promise<IteratorResult<unknown>> {
-    if (state.queue.length > 0) return Promise.resolve({ done: false, value: state.queue.shift() })
-    if (state.closed) {
-      return state.error == null
-        ? Promise.resolve({ done: true, value: undefined })
-        : Promise.reject(state.error)
-    }
-    return new Promise((resolve, reject) => {
-      state.waiters.push({ resolve, reject })
-    })
-  }
-
-  private failPending(error: Error, generation?: number): void {
-    if (generation == null || this.socket?.generation === generation) this.socket = undefined
-    if (generation == null || this.connecting?.generation === generation) this.connecting = undefined
-    for (const [id, pending] of this.pending) {
-      if (generation != null && pending.generation !== generation) continue
-      this.pending.delete(id)
-      pending.cleanup()
-      pending.reject(error)
-    }
-  }
-
-  private handleSocketClose(connection: ActiveConnection, error: Error): void {
-    if (!this.isCurrentConnection(connection)) return
-    this.validatedEndpoints.delete(connection.endpoint)
-    this.failPending(error, connection.generation)
-    try {
-      connection.socket.close()
-    } catch {
-      // Ignore close errors while tearing down a failed connection.
-    }
-    this.transitionDisconnectedSubscriptions(connection.generation, error)
-  }
-
-  private handleProtocolError(connection: ActiveConnection, error: Error): void {
-    if (!this.isCurrentConnection(connection)) return
-    this.validatedEndpoints.delete(connection.endpoint)
-    this.failPending(error, connection.generation)
-    try {
-      connection.socket.close()
-    } catch {
-      // Ignore close errors while rejecting malformed protocol state.
-    }
-    for (const [subscription, entry] of this.subscriptionsById) {
-      if (entry.generation === connection.generation) this.subscriptionsById.delete(subscription)
-    }
-    for (const state of [...this.subscriptions]) {
-      if (state.subscriptionGeneration === connection.generation) this.closeSubscription(state, error)
-    }
-  }
-
-  private transitionDisconnectedSubscriptions(generation: number, error: Error): void {
-    for (const [subscription, entry] of this.subscriptionsById) {
-      if (entry.generation === generation) this.subscriptionsById.delete(subscription)
-    }
-    if (this.closed) return
-    for (const state of this.subscriptions) {
-      if (state.subscriptionGeneration !== generation) continue
-      state.subscription = undefined
-      state.subscriptionGeneration = undefined
-      if (state.resubscribe) void this.resubscribe(state)
-      else this.closeSubscription(state, error)
-    }
-  }
-
-  private async activateSubscription(state: SubscriptionState): Promise<void> {
-    const subscription = String(
-      await this.requestWebSocketOnly(state.subscribeMethod, state.params, state.requestOptions),
-    )
-    if (state.closed) {
-      await this.requestWebSocketOnly(state.unsubscribeMethod, [subscription]).catch(() => undefined)
-      return
-    }
-    state.subscription = subscription
-    state.subscriptionGeneration = this.generation
-    this.subscriptionsById.set(subscription, { state, generation: this.generation })
-  }
-
-  private resubscribe(state: SubscriptionState): Promise<void> {
-    if (state.closed) return Promise.resolve()
-    state.resubscribing ??= this.activateSubscription(state)
-      .catch((error) => {
-        this.closeSubscription(state, error instanceof Error ? error : new ChainError(String(error)))
-      })
-      .finally(() => {
-        state.resubscribing = undefined
-      })
-    return state.resubscribing
-  }
-
-  private closeSubscription(state: SubscriptionState, error?: Error): void {
-    if (state.closed) return
-    state.closed = true
-    state.error = error
-    this.subscriptions.delete(state)
-    if (state.subscription != null) this.subscriptionsById.delete(state.subscription)
-    state.subscription = undefined
-    state.subscriptionGeneration = undefined
-    for (const waiter of state.waiters.splice(0)) {
-      if (error == null) waiter.resolve({ done: true, value: undefined })
-      else waiter.reject(error)
-    }
-  }
-
-  private rotateEndpoint(attempt: EndpointAttempt = this.currentAttempt(), nextIndex?: number): boolean {
-    if (
-      attempt.generation !== this.generation ||
-      attempt.index !== this.endpointIndex ||
-      attempt.endpoint !== this.endpoint
-    ) return true
-    this.validatedEndpoints.delete(attempt.endpoint)
-    const socket = this.socket
-    const error = new ChainError(`endpoint rotated from ${attempt.endpoint}`)
-    this.failPending(error, attempt.generation)
-    this.generation += 1
-    if (nextIndex != null) this.endpointIndex = nextIndex
-    else if (this.endpoints.length > 1) this.endpointIndex = (this.endpointIndex + 1) % this.endpoints.length
-    this.socket = undefined
-    this.connecting = undefined
-    this.transitionDisconnectedSubscriptions(attempt.generation, error)
-    try {
-      socket?.socket.close()
-    } catch {
-      // Ignore close errors while rotating to another endpoint.
-    }
-    return this.endpointIndex !== attempt.index || this.endpoints.length > 1
-  }
-
-  private isCurrentConnection(connection: ActiveConnection): boolean {
-    return this.socket?.socket === connection.socket &&
-      this.socket.generation === connection.generation &&
-      this.socket.endpoint === connection.endpoint
-  }
-}
-
 export class BrowserChainClient {
   readonly network: string
   readonly endpoint: string
   readonly transport: JsonRpcTransport
-  readonly balances: BalancesNamespace
-  readonly subnets: SubnetsNamespace
-  readonly neurons: NeuronsNamespace
-  readonly staking: StakingNamespace
+  readonly balances: BalancesNamespace & AccountsReadNamespace
+  readonly subnets: SubnetsNamespace & SubnetsReadNamespace
+  readonly chain: ChainReadNamespace
+  readonly epochs: EpochsReadNamespace
+  readonly hyperparameters: HyperparametersReadNamespace
+  readonly delegation: DelegationReadNamespace
+  readonly leasing: LeasingReadNamespace
+  readonly collateral: CollateralReadNamespace
+  readonly locks: LocksReadNamespace
+  readonly identity: IdentityReadNamespace
+  readonly weights: WeightsReadNamespace
+  readonly prices: PricesReadNamespace
+  readonly neurons: NeuronsNamespace & NeuronsReadNamespace
+  readonly staking: StakingNamespace & StakingReadNamespace
   ready?: Promise<this>
 
   private readonly headRuntimeTtlMs: number
@@ -1055,7 +341,7 @@ export class BrowserChainClient {
     this.endpoint = endpoint
     this.expectedGenesisHash = expectedGenesisHash
     this.genesis = expectedGenesisHash
-    this.validateDescriptorsOnLoad = options.validateDescriptorSchema ?? expectedGenesisHash != null
+    this.validateDescriptorsOnLoad = options.validateDescriptorSchema ?? false
     this.transport = new JsonRpcTransport(endpoint, fallbackEndpoints, options.retryForever, {
       webSocket: options.webSocket,
       webSocketConstructor: options.webSocketConstructor,
@@ -1069,10 +355,20 @@ export class BrowserChainClient {
       maxSubscriptionQueue: options.maxSubscriptionQueue,
       maxMessageBytes: options.maxMessageBytes,
     })
-    this.balances = new BalancesNamespace(this)
-    this.subnets = new SubnetsNamespace(this)
-    this.neurons = new NeuronsNamespace(this)
-    this.staking = new StakingNamespace(this)
+    this.balances = bindReadNamespace(new BalancesNamespace(this), 'Accounts & keys', block => scopedReadView(this, block)) as BalancesNamespace & AccountsReadNamespace
+    this.subnets = bindReadNamespace(new SubnetsNamespace(this), 'Subnets', block => scopedReadView(this, block)) as SubnetsNamespace & SubnetsReadNamespace
+    this.neurons = bindReadNamespace(new NeuronsNamespace(this), 'Neurons & registration', block => scopedReadView(this, block)) as NeuronsNamespace & NeuronsReadNamespace
+    this.staking = bindReadNamespace(new StakingNamespace(this), 'Staking', block => scopedReadView(this, block)) as StakingNamespace & StakingReadNamespace
+    this.chain = bindReadNamespace({}, 'Chain', block => scopedReadView(this, block)) as ChainReadNamespace
+    this.epochs = bindReadNamespace({}, 'Epochs & timing', block => scopedReadView(this, block)) as EpochsReadNamespace
+    this.hyperparameters = bindReadNamespace({}, 'Hyperparameters', block => scopedReadView(this, block)) as HyperparametersReadNamespace
+    this.delegation = bindReadNamespace({}, 'Delegation', block => scopedReadView(this, block)) as DelegationReadNamespace
+    this.leasing = bindReadNamespace({}, 'Leases & crowdloans', block => scopedReadView(this, block)) as LeasingReadNamespace
+    this.collateral = bindReadNamespace({}, 'Mining & collateral', block => scopedReadView(this, block)) as CollateralReadNamespace
+    this.locks = bindReadNamespace({}, 'Locks & conviction', block => scopedReadView(this, block)) as LocksReadNamespace
+    this.identity = bindReadNamespace({}, 'Identity & commitments', block => scopedReadView(this, block)) as IdentityReadNamespace
+    this.weights = bindReadNamespace({}, 'Weights & bonds', block => scopedReadView(this, block)) as WeightsReadNamespace
+    this.prices = bindReadNamespace({}, 'Prices & swaps', block => scopedReadView(this, block)) as PricesReadNamespace
     this.headRuntimeTtlMs = nonNegativeNumber(options.headRuntimeTtlMs, DEFAULT_HEAD_RUNTIME_TTL_MS)
     this.historicalRuntimeCacheSize = nonNegativeInteger(
       options.historicalRuntimeCacheSize,
@@ -1104,6 +400,12 @@ export class BrowserChainClient {
   get_current_block(): Promise<number> {
     return this.getCurrentBlock()
   }
+
+  async finalizedBlock(): Promise<number> { return this.blockNumber(await this.finalizedHead()) }
+  finalized_block(): Promise<number> { return this.finalizedBlock() }
+  async specVersion(): Promise<number> { return (await this.runtimeAt()).specVersion }
+  spec_version(): Promise<number> { return this.specVersion() }
+  async subnetHyperparametersRaw(netuid: number, block?: number | string | null): Promise<Record<string, ScaleValue> | null> { return dispatchRead(await scopedReadView(this, block), 'subnet_hyperparameters', { netuid }) }
 
   async blockNumber(blockHash?: string | null): Promise<number> {
     const header = await this.rpc('chain_getHeader', blockHash == null ? [] : [blockHash])
@@ -1525,20 +827,55 @@ export class BrowserChainClient {
     }
   }
 
-  async waitForBlock(block?: number | null, options: { timeoutMs?: number } = {}): Promise<BlockHeader> {
-    const target = block ?? (await this.blockNumber()) + 1
-    const wait = async () => {
-      for await (const header of this.blocks()) {
-        if (header.number >= target) return header
+  private async waitForObservedHeader<T>(predicate: (header: BlockHeader) => Promise<T | undefined>, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<T> {
+    const request = withRequestSignal({ timeoutMs: options.timeoutMs ?? 0, signal: options.signal })
+    let subscription: (AsyncIterable<unknown> & { unsubscribe(): Promise<void> }) | undefined
+    try {
+      subscription = await this.transport.subscribe('chain_subscribeNewHeads', [], 'chain_unsubscribeNewHeads', { signal: request.signal })
+      const aborted = new Promise<never>((_, reject) => request.onAbort(reject))
+      const observe = async () => {
+        for await (const raw of subscription!) {
+          throwIfAborted(request.signal)
+          const result = await predicate(normalizeHeader(raw))
+          if (result !== undefined) return result
+        }
+        throw new ChainError('block subscription ended before the target condition')
       }
-      throw new ChainError('block subscription ended before the target block')
-    }
-    return options.timeoutMs == null ? wait() : withTimeout(wait(), options.timeoutMs)
+      return await Promise.race([observe(), aborted])
+    } catch (error) { throw normalizeAbortError(error, request) }
+    finally { request.cleanup(); await subscription?.unsubscribe() }
   }
 
-  wait_for_block(block?: number | null, options: { timeoutMs?: number } = {}): Promise<BlockHeader> {
-    return this.waitForBlock(block, options)
+  async waitForBlock(block?: number | null, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<BlockHeader> {
+    const target = block ?? (await this.blockNumber()) + 1
+    nonNegativeSafeInteger(target, 'block')
+    return this.waitForObservedHeader(async header => header.number >= target ? header : undefined, options)
   }
+
+  wait_for_block(block?: number | null, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<BlockHeader> { return this.waitForBlock(block, options) }
+
+  async waitForTimestamp(when: Date | string | number, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<BlockHeader> {
+    const value = typeof when === 'string' && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(when) ? when + 'Z' : when
+    const target = typeof value === 'number' ? value * 1000 : value instanceof Date ? value.getTime() : Date.parse(value)
+    if (!Number.isFinite(target)) throw new TypeError('when must be a Date, ISO-8601 string or unix timestamp in seconds')
+    return this.waitForObservedHeader(async header => (await this.timestamp(header.hash ?? header.number)).getTime() >= target ? header : undefined, options)
+  }
+
+  wait_for_timestamp(when: Date | string | number, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<BlockHeader> { return this.waitForTimestamp(when, options) }
+
+  async waitForEpoch(netuid: number, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<{ netuid: number; block: number; previous: number }> {
+    nonNegativeSafeInteger(netuid, 'netuid')
+    const snapshot = await this.at()
+    const tempo = Number(await snapshot.query(storage.SubtensorModule.Tempo, [netuid]) ?? 0)
+    if (tempo === 0) throw new ChainError(`subnet ${netuid} has tempo 0 and never runs epochs`)
+    const previous = Number(await snapshot.query(storage.SubtensorModule.LastEpochBlock, [netuid]) ?? 0)
+    return this.waitForObservedHeader(async header => {
+      const block = Number(await this.query(storage.SubtensorModule.LastEpochBlock, [netuid], header.hash ?? header.number) ?? 0)
+      return block > previous ? { netuid, block, previous } : undefined
+    }, options)
+  }
+
+  wait_for_epoch(netuid: number, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<{ netuid: number; block: number; previous: number }> { return this.waitForEpoch(netuid, options) }
 
   async timestamp(block?: number | string | null): Promise<Date> {
     const ms = await this.query<bigint | number>(storage.Timestamp.Now, [], block)
@@ -1546,17 +883,18 @@ export class BrowserChainClient {
   }
 
   async blockInfo(block?: number | null): Promise<BlockInfo | null> {
-    const raw = await this.rpc('chain_getBlock', block == null ? [] : [await this.blockHash(block)])
-    const value = raw as { block?: { header?: { number?: string; hash?: string }; extrinsics?: string[] } }
+    const hash = block == null ? await this.finalizedHead() : await this.blockHash(block)
+    const raw = await this.rpc('chain_getBlock', [hash])
+    const value = raw as { block?: { header?: { number?: string; parentHash?: string }; extrinsics?: string[] } }
     if (value.block?.header == null) return null
     const number = headerNumber(value.block.header)
-    return {
-      number,
-      hash: await this.blockHash(number),
-      header: value.block.header,
-      extrinsics: value.block.extrinsics ?? [],
-      timestamp: await this.timestamp(number).catch(() => undefined),
-    }
+    const runtime = await this.runtimeAt(number === 0 ? hash : value.block.header.parentHash ?? hash)
+    const extrinsics = value.block.extrinsics ?? []
+    const decodedExtrinsics = extrinsics.map(encoded => {
+      try { return runtime.decodeExtrinsic(hexToBuffer(encoded)) }
+      catch { return null }
+    })
+    return { number, hash, header: value.block.header, extrinsics, decodedExtrinsics, timestamp: await this.timestamp(hash) }
   }
 
   block_info(block?: number | null): Promise<BlockInfo | null> {
@@ -1564,21 +902,37 @@ export class BrowserChainClient {
   }
 
   async at(block?: number | null): Promise<Snapshot> {
-    const number = block ?? await this.blockNumber()
-    return new Snapshot(this, number, await this.blockHash(number))
+    const hash = block == null ? await this.finalizedHead() : await this.blockHash(block)
+    const number = block ?? await this.blockNumber(hash)
+    return new Snapshot(this, number, hash)
   }
 
   balance(rao: BalanceLike, netuid = 0, symbol?: string | null): Balance {
     return Balance.fromRao(rao, netuid, symbol)
   }
 
-  read(name: string, params: Record<string, ScaleValue> = {}): Promise<unknown> {
-    return read(this, name, params)
+  read<Name extends ReadName>(name: Name, ...args: ReadArgs<Name>): Promise<ReadResult<Name>>
+  read(name: string, params?: Record<string, unknown>): Promise<unknown>
+  read(name: string, params: Record<string, unknown> = {}): Promise<unknown> {
+    return dispatchRead(this, name, params)
   }
 
-  reads(): Array<{ name: string; category: string; params: string[] }> {
-    return READS.slice()
+  reads() { return listReads() }
+
+  async blockTime(block?: ReadBlock): Promise<number> {
+    const hash = await this.resolveReadBlockHash(block)
+    const runtime = await this.runtimeAt(hash)
+    const slot = runtime.constant('Aura', 'SlotDuration')
+    if (slot != null) return Number(slot) / 1000
+    if (runtime.runtimeApis().AuraApi?.slot_duration != null) return Number(await this.runtime(['AuraApi', 'slot_duration'], [], hash)) / 1000
+    const minimum = runtime.constant('Timestamp', 'MinimumPeriod')
+    if (minimum != null && Number(minimum) > 0) return Number(minimum) * 2 / 1000
+    throw new ChainError('block duration is unavailable in runtime metadata')
   }
+  block_time(block?: ReadBlock): Promise<number> { return this.blockTime(block) }
+  async isFastBlocks(block?: ReadBlock): Promise<boolean> { return await this.blockTime(block) === 0.25 }
+  is_fast_blocks(block?: ReadBlock): Promise<boolean> { return this.isFastBlocks(block) }
+
 
   async validateDescriptorSchema(block?: number | string | null): Promise<DescriptorSchemaIssue[]> {
     const blockHash = await this.resolveBlockHash(block)
@@ -1702,6 +1056,7 @@ export class BrowserChainClient {
     signerAddress?: string,
     options: SubmitOptions = {},
   ): Promise<ExtrinsicResult> {
+    if (options.policy != null) assertRawBytesAllowed(options)
     void signerAddress
     const bytes = Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
       ? toBuffer(extrinsic, 'extrinsic')
@@ -1743,8 +1098,9 @@ export class BrowserChainClient {
 
   async watchSigned(
     extrinsic: SignedExtrinsicResult | SignedExtrinsic | ByteLike,
-    options: Pick<SubmitOptions, 'waitForFinalization' | 'timeoutMs' | 'signal'> & { signerAddress?: string } = {},
+    options: Pick<SubmitOptions, 'waitForFinalization' | 'timeoutMs' | 'signal' | 'policy' | 'allowRawCall'> & { signerAddress?: string } = {},
   ): Promise<ExtrinsicWatcher> {
+    if (options.policy != null) assertRawBytesAllowed(options)
     void options.signerAddress
     const bytes = Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
       ? toBuffer(extrinsic, 'extrinsic')
@@ -1803,6 +1159,19 @@ export class BrowserChainClient {
     }
     return parseNonce(options.nonce, 'nonce')
   }
+
+  /** Declared dispatch weight, with a dummy signature and no private-key access or nonce reservation. */
+  async estimateWeight(call: CallLike, address: string, block?: number | string | null): Promise<{ ref_time: bigint; proof_size: bigint }> {
+    const hash = typeof block === 'string' ? block : block == null ? await this.finalizedHead() : await this.blockHash(block)
+    const runtime = await this.runtimeAt(hash)
+    const encoded = runtime.encodeSignedExtrinsic(await this.callData(call, hash), publicKeyFromSs58(address), Buffer.alloc(64), CRYPTO_SR25519, { era: '00', nonce: 0, tip: 0n })
+    const info = recordValue(await this.rpc('payment_queryInfo', [hex(encoded.bytes), hash]))
+    const weight = info?.weight
+    if (weight == null) throw new ChainError('payment_queryInfo response is missing declared weight')
+    const fields = recordValue(weight)
+    return fields ? { ref_time: toBigInt((fields.ref_time ?? fields.refTime) as bigint | number | string, 'ref_time'), proof_size: toBigInt((fields.proof_size ?? fields.proofSize ?? 0) as bigint | number | string, 'proof_size') } : { ref_time: toBigInt(weight as bigint | number | string, 'weight'), proof_size: 0n }
+  }
+  estimate_weight(call: CallLike, address: string, block?: number | string | null): Promise<{ ref_time: bigint; proof_size: bigint }> { return this.estimateWeight(call, address, block) }
 
   async estimateFee(
     call: CallLike,
@@ -2037,7 +1406,7 @@ export class BrowserChainClient {
   }
 
   private async signingSnapshot(): Promise<SigningSnapshot> {
-    const blockHash = await this.finalizedHead()
+    const blockHash = await this.blockHash()
     const [blockNumber, runtime, genesisHash] = await Promise.all([
       this.blockNumber(blockHash),
       this.runtimeAt(blockHash),
@@ -2145,12 +1514,13 @@ export class BrowserChainClient {
     if (period == null) {
       return { era: '00', eraBlockHash: snapshot?.genesisHash ?? await this.genesisHash() }
     }
-    const finalized = snapshot?.blockHash ?? await this.finalizedHead()
-    const current = snapshot?.blockNumber ?? await this.blockNumber(finalized)
+    const head = snapshot?.blockHash ?? await this.blockHash()
+    const height = snapshot?.blockNumber ?? await this.blockNumber(head)
+    // CheckMortality reads the parent's stored BlockHash map during validation;
+    // the current head's own hash is not inserted there until the next block.
+    const current = Math.max(0, height - 1)
     const birth = Number(eraBirth(period, current))
-    const eraBlockHash = birth === current && snapshot != null
-      ? snapshot.blockHash
-      : await this.blockHash(birth)
+    const eraBlockHash = await this.blockHash(birth)
     return { era: { period, current }, eraBlockHash }
   }
 
@@ -2192,62 +1562,82 @@ export class BrowserChainClient {
     }
   }
 
-  private async resolveInclusion(extrinsicHash: string, blockHash: string, finalized: boolean): Promise<ExtrinsicResult> {
-    const block = (await this.rpc('chain_getBlock', [blockHash])) as { block: { header: unknown; extrinsics: string[] } }
+  async findExtrinsic(extrinsicHash: string, blockHash: string, finalized = false, options: RpcRequestOptions = {}): Promise<ExtrinsicResult | null> {
+    const result = await this.rpc('chain_getBlock', [blockHash]) as { block?: { extrinsics: string[] } }
+    if (!result?.block?.extrinsics.some(item => hex(blake2_256(hexToBuffer(item))) === extrinsicHash.toLowerCase())) return null
+    return this.resolveInclusion(extrinsicHash.toLowerCase(), blockHash, finalized, options)
+  }
+  private async resolveInclusion(extrinsicHash: string, blockHash: string, finalized: boolean, options: RpcRequestOptions = {}): Promise<ExtrinsicResult> {
+    const block = (await this.rpc('chain_getBlock', [blockHash])) as { block: { header: { parentHash: string; number: string | number }; extrinsics: string[] } }
     const blockNumber = headerNumber(block.block.header)
     const extrinsicIndex = block.block.extrinsics.findIndex((item) => hex(blake2_256(hexToBuffer(item))) === extrinsicHash)
     if (extrinsicIndex < 0) throw new ChainError(`extrinsic ${extrinsicHash} was not found in block ${blockHash}`)
-    const events = ((await this.query<ScaleValue[]>(storage.System.Events, [], blockHash)) ?? []) as unknown[]
+    // Upgrade-block events were emitted by the parent runtime, before the new code took effect.
+    const runtime = await this.runtimeAt(blockNumber > 0 ? block.block.header.parentHash : blockHash)
+    const entry = runtime.storageEntry('System', 'Events')
+    const raw = await this.rpc('state_getStorage', [hex(runtime.storageKey('System', 'Events', [])), blockHash])
+    const events = runtime.decode(entry.valueType, raw == null ? entry.defaultBytes : hexToBuffer(String(raw)), false) as unknown[]
     if (events.some((event) => eventName(event) === 'System.CodeUpdated')) this.invalidateRuntimeCache()
     const triggered = events.filter((event) => eventExtrinsicIndex(event) === extrinsicIndex)
-    const failed = triggered.find((event) => eventName(event) === 'System.ExtrinsicFailed')
+    const nested = nestedDispatchError(triggered)
+    const failed = triggered.find((event) => eventName(event) === 'System.ExtrinsicFailed') ?? (nested == null ? undefined : { attributes: { dispatch_error: nested } })
     const success = triggered.some((event) => eventName(event) === 'System.ExtrinsicSuccess')
     const feeEvent = triggered.find((event) => eventName(event) === 'TransactionPayment.TransactionFeePaid')
-    const failureMessage = failed == null
-      ? undefined
-      : dispatchFailureMessage(await this.runtimeAt(blockHash), failed)
-    if (!success && failed == null) {
-      return {
-        status: 'unknown',
-        success: undefined,
-        message: 'Included, but no dispatch outcome event was found',
-        extrinsicHash,
-        blockHash,
-        blockNumber,
-        extrinsicIndex,
-        extrinsicId: `${blockNumber}-${String(extrinsicIndex).padStart(4, '0')}`,
-        finalized,
-        fee: feeEvent == null ? undefined : feeFromEvent(feeEvent),
-        events: triggered,
-      }
-    }
     const dispatchSuccess = success && failed == null
     return {
-      status: dispatchSuccess ? finalized ? 'finalized' : 'inBlock' : 'failed',
-      success: dispatchSuccess,
-      message: failed == null ? 'Success' : failureMessage ?? 'Extrinsic failed',
-      extrinsicHash,
-      blockHash,
-      blockNumber,
-      extrinsicIndex,
+      status: failed ? 'failed' : dispatchSuccess ? finalized ? 'finalized' : 'inBlock' : 'unknown',
+      success: failed ? false : dispatchSuccess || undefined,
+      message: failed ? dispatchFailureMessage(runtime, failed) : dispatchSuccess ? 'Success' : 'Included, but no dispatch outcome event was found',
+      extrinsicHash, blockHash, blockNumber, extrinsicIndex,
       extrinsicId: `${blockNumber}-${String(extrinsicIndex).padStart(4, '0')}`,
-      finalized,
-      fee: feeEvent == null ? undefined : feeFromEvent(feeEvent),
-      events: triggered,
-      error: failed,
+      finalized, fee: feeEvent == null ? undefined : feeFromEvent(feeEvent), events: triggered, error: failed,
+      chainError: failed ? chainErrorFromDispatch(failed, (pallet, error) => runtime.moduleError(pallet, error)) : undefined,
     }
   }
+
 }
 
 export class Client extends BrowserChainClient {
+  /** Checked integer TAO-to-rao conversion, matching Rust Client::tao. */
+  static tao(value: bigint | number | string): bigint {
+    const amount = toBigInt(value, 'TAO amount')
+    const result = amount * 1_000_000_000n
+    if (amount < 0n || result >= 1n << 128n) throw new RangeError('TAO amount overflows u128')
+    return result
+  }
+  async estimateShieldedCarrierFee(address: string): Promise<Balance> {
+    const call = await this.composeCall('MevShield', 'submit_encrypted', { ciphertext: new Uint8Array(8192) })
+    return this.estimateFee(call, { ss58Address: address, cryptoType: CRYPTO_SR25519 }, { allowRawCall: true })
+  }
+  estimate_shielded_carrier_fee(address: string): Promise<Balance> { return this.estimateShieldedCarrierFee(address) }
+
+  workflows(): WorkflowClient { return new WorkflowClient(this) }
+  upgrades(): UpgradeClient { return createNodeUpgradeClient(this) }
+  tools() { return listIntentTools() }
+  plan(intent: Intent | Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowPlan> { return this.workflows().plan(intent, signer, options) }
+  preflight(intent: Intent | Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowPlan> { return this.plan(intent, signer, options) }
+  executeTool(spec: Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowResult> { return this.execute(spec, signer, options) }
+  submitShielded(intent: Intent | Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowResult> { return this.workflows().submitShielded(intent, signer, options) }
+  submitRawShielded(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<WorkflowResult> { return this.workflows().submitRawShielded(call, signer, options) }
+  multisig(signatories: readonly string[], threshold: number) { return this.workflows().multisig(signatories, threshold) }
+  planIntent(intent: Intent | Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowPlan> { return this.workflows().plan(intent, signer, options) }
+  execute(intent: Intent | Record<string, unknown>, signer: WorkflowSigner, options: WorkflowOptions = {}): Promise<WorkflowResult> { return this.workflows().execute(intent, signer, options) }
+
   private readonly nodeExpectedGenesisHash?: string
   private readonly nodeEndpoints: string[]
+  private readonly nodeArchiveEndpoints: string[]
+  private readonly nodeOptions: ClientOptions
+  private nodeArchiveTransport?: JsonRpcTransport
   private nodeNativeClient?: NativeChainClient
   private nodeNativeClientPromise?: Promise<NativeChainClient>
 
   constructor(network: string = 'finney', options: ClientOptions = {}) {
-    const fallbackEndpoints = options.fallbackEndpoints ?? []
+    const [label] = resolveEndpoint(options.endpoint ?? network)
+    const fallbackEndpoints = options.fallbackEndpoints ?? [...FALLBACK_ENDPOINTS[label] ?? []]
+    if (fallbackEndpoints.length && options.expectedGenesisHash == null && trustedGenesisHash(label) == null) throw new ChainError('fallbackEndpoints require expectedGenesisHash for custom or untrusted networks')
     super(network, { ...options, fallbackEndpoints: [], autoConnect: false })
+    this.nodeOptions = options
+    this.nodeArchiveEndpoints = options.archiveEndpoints ?? [...ARCHIVE_ENDPOINTS[label] ?? []]
     this.nodeEndpoints = [this.endpoint, ...fallbackEndpoints.filter((endpoint) => endpoint !== this.endpoint)]
     this.nodeExpectedGenesisHash = normalizeGenesisHash(
       options.expectedGenesisHash ?? trustedGenesisHash(this.network),
@@ -2266,6 +1656,7 @@ export class Client extends BrowserChainClient {
 
   async close(): Promise<void> {
     this.transport.close()
+    this.nodeArchiveTransport?.close()
   }
 
   private async requireNativeClient(): Promise<NativeChainClient> {
@@ -2325,7 +1716,8 @@ export class Client extends BrowserChainClient {
     const [moduleName, itemName, itemParams, blockRef] =
       normalizeStorageArgs(pallet, storageFunction, paramsOrBlock, block)
     const blockHash = await this.resolveReadBlockHash(blockRef)
-    return await (await this.requireNativeClient()).query(moduleName, itemName, itemParams, blockHash) as T
+    try { return await (await this.requireNativeClient()).query(moduleName, itemName, itemParams, blockHash) as T }
+    catch (error) { if (!this.nodeArchiveEndpoints.length || blockHash == null || !isPrunedState(error)) throw error; return super.query<T>([moduleName, itemName], itemParams, blockHash) }
   }
 
   override async queryBatch<T extends ScaleValue = ScaleValue>(
@@ -2338,7 +1730,8 @@ export class Client extends BrowserChainClient {
       normalizeBatchArgs(pallet, storageFunction, paramSetsOrBlock, block)
     if (sets.length === 0) return []
     const blockHash = await this.resolveReadBlockHash(blockRef)
-    return await (await this.requireNativeClient()).queryBatch(moduleName, itemName, sets, blockHash) as Array<T | undefined>
+    try { return await (await this.requireNativeClient()).queryBatch(moduleName, itemName, sets, blockHash) as Array<T | undefined> }
+    catch (error) { if (!this.nodeArchiveEndpoints.length || blockHash == null || !isPrunedState(error)) throw error; return super.queryBatch<T>([moduleName, itemName], sets, blockHash) }
   }
 
   override invalidateRuntimeCache(): void {
@@ -2355,8 +1748,17 @@ export class Client extends BrowserChainClient {
     return nativeChainInfoToChainInfo(await (await this.requireNativeClient()).chainInfo())
   }
 
-  override rpc(method: string, params: unknown[] = []): Promise<unknown> {
-    return this.requireNativeClient().then((native) => native.rpcValue(method, params))
+  override async rpc(method: string, params: unknown[] = []): Promise<unknown> {
+    try { return await (await this.requireNativeClient()).rpcValue(method, params) }
+    catch (error) {
+      if (!this.nodeArchiveEndpoints.length || !isPrunedState(error) || !/^(?:state_(?:call|getStorage|queryStorageAt|getKeysPaged|getMetadata|getRuntimeVersion)|chain_get(?:Block|Header))$/.test(method)) throw error
+      const expected = await this.genesisHash()
+      this.nodeArchiveTransport ??= new JsonRpcTransport(this.nodeArchiveEndpoints[0], this.nodeArchiveEndpoints.slice(1), this.nodeOptions.retryForever, {
+        ...this.nodeOptions,
+        validateEndpoint: async (endpoint, request) => { if (!sameHex(String(await request('chain_getBlockHash', [0])), expected)) throw new EndpointValidationError(`archive endpoint ${endpoint} belongs to another chain`) },
+      })
+      return this.nodeArchiveTransport.request(method, params)
+    }
   }
 
   override async runtimeCall<T extends ScaleValue = ScaleValue>(
@@ -2367,7 +1769,8 @@ export class Client extends BrowserChainClient {
   ): Promise<T> {
     const [apiName, methodName, callParams, blockRef] = normalizeRuntimeArgs(api, method, paramsOrBlock, block)
     const blockHash = await this.resolveReadBlockHash(blockRef)
-    return await (await this.requireNativeClient()).runtimeCall(apiName, methodName, callParams, blockHash) as T
+    try { return await (await this.requireNativeClient()).runtimeCall(apiName, methodName, callParams, blockHash) as T }
+    catch (error) { if (!this.nodeArchiveEndpoints.length || blockHash == null || !isPrunedState(error)) throw error; return super.runtimeCall<T>([apiName, methodName], callParams, blockHash) }
   }
 
   override async queryMap<K extends ScaleValue = ScaleValue, V extends ScaleValue = ScaleValue>(
@@ -2389,7 +1792,8 @@ export class Client extends BrowserChainClient {
     const [moduleName, itemName, itemParams, blockRef] =
       normalizeStorageArgs(pallet, storageFunction, paramsOrBlock, block)
     const blockHash = await this.resolveReadBlockHash(blockRef)
-    return await (await this.requireNativeClient()).queryMap(moduleName, itemName, itemParams, blockHash) as Array<[K, V]>
+    try { return await (await this.requireNativeClient()).queryMap(moduleName, itemName, itemParams, blockHash) as Array<[K, V]> }
+    catch (error) { if (!this.nodeArchiveEndpoints.length || blockHash == null || !isPrunedState(error)) throw error; return super.queryMap<K, V>([moduleName, itemName], itemParams, blockHash) }
   }
 
   override async stateCall<T = string>(method: string, data: ByteLike | string, block?: number | string | null): Promise<T> {
@@ -2429,24 +1833,98 @@ export class Client extends BrowserChainClient {
     return (await this.requireNativeClient()).composeCall(pallet, fn, params)
   }
 
-  override async signExtrinsic(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<SignedExtrinsicResult> {
-    const native = await this.requireNativeClient()
-    const planned = await this.nativeSigningPlan(call, signer, options, native)
-    const signature = await this.signRustPlan(planned)
-    const signed = await native.assembleExternal(planned.plan, signature.signature, signature.cryptoType)
-    return {
-      bytes: Buffer.from(signed.bytes),
-      hash: hexToBuffer(signed.hash),
-      hex: hex(signed.bytes),
-      signerAddress: planned.resolved.ss58Address,
-      nonce: parseNonce(planned.plan.nonce, 'native signing plan nonce'),
+  /** Prepare the exact Rust signing payload without asking the signer to sign. */
+  async prepareCall(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<PreparedCall> {
+    const resolved = await this.resolveSigner(signer, await this.runtimeAt())
+    const bound = bindSignerIdentity(resolved.signer, { ...resolved, address: resolved.ss58Address })
+    return runSignerQueue(this, resolved.ss58Address, async () => {
+      options.signal?.throwIfAborted()
+      const planned = await this.nativeSigningPlan(call, bound, options, await this.requireNativeClient())
+      options.signal?.throwIfAborted()
+      const context = Object.freeze(nativePlanSignerContext(this, planned.runtime, planned.resolved, planned.plan))
+      preparedCalls.set(context, { owner: this, planned })
+      return context
+    }, options)
+  }
+
+  exportPreparedCall(prepared: PreparedCall): SerializedUnsignedTransaction {
+    const record = preparedCalls.get(prepared) ?? importedCalls.get(prepared)
+    if (!record || record.owner !== this) throw new TypeError('expected a signing plan prepared or imported by this client')
+    return serializeUnsignedTransaction(prepared as unknown as UnsignedTransactionState, { blake2_256, publicKeyFromSs58 }, prepared.runtime.metadataBytes)
+  }
+
+  /** Imported bytes carry no policy approval; raw-call admission is required explicitly. */
+  async importPreparedCall(value: unknown, options: Pick<SubmitOptions, 'allowRawCall' | 'policy'> = {}): Promise<PreparedCall> {
+    assertRawBytesAllowed(options)
+    const runtime = await this.runtimeAt(), genesis = await this.genesisHash()
+    const restored = restoreUnsignedTransaction(value, runtime as unknown as UnsignedRuntime, { blake2_256, publicKeyFromSs58 }, runtime.metadataBytes, genesis)
+    const context: PreparedCall = Object.freeze({
+      ...restored, client: this, runtime, publicKey: Buffer.from(restored.publicKey), callData: Buffer.from(restored.callData), payload: Buffer.from(restored.payload),
+      includedInExtrinsic: Buffer.from(restored.includedInExtrinsic), includedInSignedData: Buffer.from(restored.includedInSignedData),
+      txParams: restored.txParams, metadataHash: restored.txParams.metadataHash == null ? null : Buffer.from(restored.txParams.metadataHash),
+      metadataProof: restored.metadataProof == null ? undefined : Buffer.from(restored.metadataProof), signerPayload: restored.signerPayload as ExtensionSignPayloadRequest,
+    })
+    importedCalls.set(context, { owner: this, serialized: serializeUnsignedTransaction(restored, { blake2_256, publicKeyFromSs58 }, runtime.metadataBytes) })
+    return context
+  }
+
+  /** Submit a detached signature only for a plan prepared by this client. */
+  async submitSignature(prepared: PreparedCall, signature: SignerSignature, options: Pick<SubmitOptions, 'waitForInclusion' | 'waitForFinalization' | 'timeoutMs' | 'signal' | 'policy' | 'allowRawCall'> = {}): Promise<ExtrinsicResult> {
+    if (options.policy != null) assertRawBytesAllowed(options)
+    const record = preparedCalls.get(prepared)
+    if (!record || record.owner !== this) {
+      const imported = importedCalls.get(prepared)
+      if (!imported || imported.owner !== this) throw new TypeError('expected a signing plan prepared by this client')
+      return runSignerQueue(this, imported.serialized.address, async permit => {
+        options.signal?.throwIfAborted()
+        const runtime = await this.runtimeAt()
+        const restored = restoreUnsignedTransaction(imported.serialized, runtime as unknown as UnsignedRuntime, { blake2_256, publicKeyFromSs58 }, runtime.metadataBytes, await this.genesisHash())
+        const normalized = normalizeSignature(signature, restored.cryptoType)
+        if (normalized.cryptoType !== restored.cryptoType || !verify(restored.payload, normalized.signature, restored.address, restored.cryptoType)) throw new ChainError('external signature does not verify against the imported signing context')
+        const signed = runtime.encodeSignedExtrinsic(restored.callData, restored.publicKey, normalized.signature, normalized.cryptoType, { ...restored.txParams, metadataHashEnabled: restored.txParams.metadataHash != null })
+        return this.submitSigned(signed, restored.address, signerQueueOptions(options, permit))
+      }, options)
     }
+    return runSignerQueue(this, record.planned.resolved.ss58Address, async () => {
+      options.signal?.throwIfAborted()
+      const normalized = normalizeSignature(signature, record.planned.resolved.cryptoType)
+      const cancellation = nativeCancellationForSignal(options.signal)
+      const outcome = await abortableNative(record.planned.native.submitExternal(record.planned.plan, normalized.signature, nativeSubmitOptions(options), normalized.cryptoType, cancellation), options.signal, cancellation)
+      return nativeOutcomeToExtrinsicResult(outcome, options.waitForFinalization === true)
+    }, options)
+  }
+
+  override async signExtrinsic(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<SignedExtrinsicResult> {
+    const resolved = await this.resolveSigner(signer, await this.runtimeAt())
+    const bound = bindSignerIdentity(resolved.signer, { ...resolved, address: resolved.ss58Address })
+    return runSignerQueue(this, resolved.ss58Address, async () => {
+      options.signal?.throwIfAborted()
+      const native = await this.requireNativeClient()
+      const planned = await this.nativeSigningPlan(call, bound, options, native)
+      options.signal?.throwIfAborted()
+      const signature = await this.signRustPlan(planned)
+      options.signal?.throwIfAborted()
+      const signed = await native.assembleExternal(planned.plan, signature.signature, signature.cryptoType)
+      return {
+        bytes: Buffer.from(signed.bytes),
+        hash: hexToBuffer(signed.hash),
+        hex: hex(signed.bytes),
+        signerAddress: planned.resolved.ss58Address,
+        nonce: parseNonce(planned.plan.nonce, 'native signing plan nonce'),
+      }
+    }, options)
   }
 
   override async submit(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    const resolved = await this.resolveSigner(signer, await this.runtimeAt())
+    const bound = bindSignerIdentity(resolved.signer, { ...resolved, address: resolved.ss58Address })
+    return runSignerQueue(this, resolved.ss58Address, async () => {
+    options.signal?.throwIfAborted()
     const native = await this.requireNativeClient()
-    const planned = await this.nativeSigningPlan(call, signer, options, native)
+    const planned = await this.nativeSigningPlan(call, bound, options, native)
+    options.signal?.throwIfAborted()
     const signature = await this.signRustPlan(planned)
+    options.signal?.throwIfAborted()
     const cancellation = nativeCancellationForSignal(options.signal)
     const outcome = await abortableNative(
       native.submitExternal(
@@ -2463,13 +1941,14 @@ export class Client extends BrowserChainClient {
       outcome,
       options.waitForFinalization === true,
     )
+    }, options)
   }
 
   override async *blocks(options: { finalized?: boolean } = {}): AsyncIterable<BlockHeader> {
     yield* super.blocks(options)
   }
 
-  override waitForBlock(block?: number | null, options: { timeoutMs?: number } = {}): Promise<BlockHeader> {
+  override waitForBlock(block?: number | null, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<BlockHeader> {
     return super.waitForBlock(block, options)
   }
 
@@ -2482,14 +1961,19 @@ export class Client extends BrowserChainClient {
     signerAddress?: string,
     options: SubmitOptions = {},
   ): Promise<ExtrinsicResult> {
-    void signerAddress
-    const bytes = Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
+    if (options.policy != null) assertRawBytesAllowed(options)
+    const bytes = Buffer.from(Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
       ? toBuffer(extrinsic, 'extrinsic')
-      : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
+      : toBuffer(extrinsic.bytes, 'extrinsic.bytes'))
+    const address = await this.signedExtrinsicAccount(bytes, signerAddress)
+    const broadcast = async () => {
+    options.signal?.throwIfAborted()
+    const native = await this.requireNativeClient()
+    options.signal?.throwIfAborted()
     const extrinsicHash = hex(blake2_256(bytes))
     const cancellation = nativeCancellationForSignal(options.signal)
     const outcome = await abortableNative(
-      (await this.requireNativeClient()).submitEncoded(
+      native.submitEncoded(
         bytes,
         extrinsicHash,
         nativeSubmitOptions(options),
@@ -2502,20 +1986,26 @@ export class Client extends BrowserChainClient {
       outcome,
       options.waitForFinalization === true,
     )
+    }
+    return address == null ? broadcast() : runSignerQueue(this, address, broadcast, options)
   }
 
-  override watchSigned(
+  override async watchSigned(
     extrinsic: SignedExtrinsicResult | SignedExtrinsic | ByteLike,
-    options: Pick<SubmitOptions, 'waitForFinalization' | 'timeoutMs' | 'signal'> & { signerAddress?: string } = {},
+    options: Pick<SubmitOptions, 'waitForFinalization' | 'timeoutMs' | 'signal' | 'policy' | 'allowRawCall'> & { signerAddress?: string } = {},
   ): Promise<ExtrinsicWatcher> {
-    const bytes = Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
+    if (options.policy != null) assertRawBytesAllowed(options)
+    const bytes = Buffer.from(Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
       ? toBuffer(extrinsic, 'extrinsic')
-      : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
+      : toBuffer(extrinsic.bytes, 'extrinsic.bytes'))
+    const address = await this.signedExtrinsicAccount(bytes, options.signerAddress)
     const extrinsicHash = hex(blake2_256(bytes))
     const unsubscribeController = new AbortController()
     const signal = joinedAbortSignal(options.signal, unsubscribeController.signal)
     const cancellation = nativeCancellationForSignal(signal)
-    const result = abortableNative(this.requireNativeClient()
+    const broadcast = () => {
+      signal?.throwIfAborted()
+      return abortableNative(this.requireNativeClient()
       .then((native) => native.submitEncoded(
         bytes,
         extrinsicHash,
@@ -2529,6 +2019,8 @@ export class Client extends BrowserChainClient {
         outcome,
         options.waitForFinalization === true,
       )), signal, cancellation)
+    }
+    const result = address == null ? broadcast() : runSignerQueue(this, address, broadcast, options)
     return Promise.resolve({
       extrinsicHash,
       result,
@@ -2538,13 +2030,27 @@ export class Client extends BrowserChainClient {
     })
   }
 
+  /** Use the encoded signer for queueing; an arbitrary address hint cannot bypass its nonce lock. */
+  private async signedExtrinsicAccount(bytes: Buffer, expectedAddress?: string): Promise<string | undefined> {
+    const runtime = await this.runtimeAt()
+    const decoded = runtime.decodeExtrinsic(bytes) as Record<string, any>
+    if (decoded.address == null) return undefined
+    const raw = decoded.address.Id ?? decoded.address
+    const publicKey = typeof raw === 'string' ? raw.startsWith('0x') ? hexToBuffer(raw) : publicKeyFromSs58(raw) : toBuffer(raw, 'extrinsic signer')
+    if (expectedAddress != null && !publicKeyFromSs58(expectedAddress).equals(publicKey)) throw new ChainError('submitted extrinsic signer differs from signerAddress')
+    return ss58FromPublic(publicKey, runtime.ss58Format)
+  }
+
   override async estimateFee(
     call: CallLike,
     signer: SignerLike,
     options: Pick<SubmitOptions, 'allowRawCall' | 'policy' | 'rawSignerRole'> = {},
   ): Promise<Balance> {
     const native = await this.requireNativeClient()
-    const planned = await this.nativeSigningPlan(call, signer, options as SubmitOptions, native)
+    const resolved = await this.resolveSigner(signer, await this.runtimeAt())
+    // Previewing a fee must not reserve or advance the Rust client's nonce cache.
+    const nonce = await native.accountNextIndex(resolved.ss58Address)
+    const planned = await this.nativeSigningPlan(call, signer, { ...options, nonce }, native)
     const feeRao = planned.plan.feeRao == null
       ? await native.estimateFeeExternal(planned.plan)
       : BigInt(planned.plan.feeRao)
@@ -2557,6 +2063,16 @@ export class Client extends BrowserChainClient {
 
   override async accountNextIndex(address: string, _useCache = false): Promise<number> {
     return this.peekNextIndex(address)
+  }
+
+  /** Reserve a range for detached or multi-envelope signing; reconcile uncertain delivery before recovery. */
+  reserveNonces(address: string, count: number): Promise<number> {
+    return runSignerQueue(this, address, async () => (await this.requireNativeClient()).reserveNonces(address, count))
+  }
+
+  /** Reset the cached nonce from RPC after all detached and shielded transactions have been reconciled. A timeout or abort alone is insufficient. */
+  invalidateNonce(address: string): Promise<void> {
+    return runSignerQueue(this, address, async () => (await this.requireNativeClient()).invalidateNonce(address))
   }
 
   override async validateDescriptorSchema(block?: number | string | null): Promise<DescriptorSchemaIssue[]> {
@@ -2572,6 +2088,7 @@ export class Client extends BrowserChainClient {
     options: SubmitOptions,
     native: NativeChainClient,
   ): Promise<NativeSigningPlan> {
+    options.signal?.throwIfAborted()
     const runtime = await this.runtimeAt()
     const resolved = await this.resolveSigner(signer, runtime)
     const planOptions = nativeExternalSigningOptions(options)
@@ -2627,16 +2144,36 @@ export class Client extends BrowserChainClient {
 }
 
 export class Snapshot {
-  readonly balances: SnapshotBalancesNamespace
-  readonly subnets: SnapshotSubnetsNamespace
-  readonly staking: SnapshotStakingNamespace
-  readonly neurons: SnapshotNeuronsNamespace
+  readonly balances: SnapshotBalancesNamespace & AccountsReadNamespace
+  readonly subnets: SnapshotSubnetsNamespace & SubnetsReadNamespace
+  readonly staking: SnapshotStakingNamespace & StakingReadNamespace
+  readonly chain: ChainReadNamespace
+  readonly epochs: EpochsReadNamespace
+  readonly hyperparameters: HyperparametersReadNamespace
+  readonly delegation: DelegationReadNamespace
+  readonly leasing: LeasingReadNamespace
+  readonly collateral: CollateralReadNamespace
+  readonly locks: LocksReadNamespace
+  readonly identity: IdentityReadNamespace
+  readonly weights: WeightsReadNamespace
+  readonly prices: PricesReadNamespace
+  readonly neurons: SnapshotNeuronsNamespace & NeuronsReadNamespace
 
   constructor(readonly client: ChainClient, readonly block: number, readonly blockHash: string) {
-    this.balances = new SnapshotBalancesNamespace(this)
-    this.subnets = new SnapshotSubnetsNamespace(this)
-    this.staking = new SnapshotStakingNamespace(this)
-    this.neurons = new SnapshotNeuronsNamespace(this)
+    this.chain = bindReadNamespace({}, 'Chain', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as ChainReadNamespace
+    this.epochs = bindReadNamespace({}, 'Epochs & timing', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as EpochsReadNamespace
+    this.hyperparameters = bindReadNamespace({}, 'Hyperparameters', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as HyperparametersReadNamespace
+    this.delegation = bindReadNamespace({}, 'Delegation', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as DelegationReadNamespace
+    this.leasing = bindReadNamespace({}, 'Leases & crowdloans', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as LeasingReadNamespace
+    this.collateral = bindReadNamespace({}, 'Mining & collateral', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as CollateralReadNamespace
+    this.locks = bindReadNamespace({}, 'Locks & conviction', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as LocksReadNamespace
+    this.identity = bindReadNamespace({}, 'Identity & commitments', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as IdentityReadNamespace
+    this.weights = bindReadNamespace({}, 'Weights & bonds', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as WeightsReadNamespace
+    this.prices = bindReadNamespace({}, 'Prices & swaps', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as PricesReadNamespace
+    this.balances = bindReadNamespace(new SnapshotBalancesNamespace(this), 'Accounts & keys', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as SnapshotBalancesNamespace & AccountsReadNamespace
+    this.subnets = bindReadNamespace(new SnapshotSubnetsNamespace(this), 'Subnets', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as SnapshotSubnetsNamespace & SubnetsReadNamespace
+    this.staking = bindReadNamespace(new SnapshotStakingNamespace(this), 'Staking', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as SnapshotStakingNamespace & StakingReadNamespace
+    this.neurons = bindReadNamespace(new SnapshotNeuronsNamespace(this), 'Neurons & registration', block => block == null ? Promise.resolve(this) : scopedReadView(this.client, block)) as SnapshotNeuronsNamespace & NeuronsReadNamespace
   }
 
   query<T extends ScaleValue = ScaleValue>(item: string | Descriptor, nameOrParams?: string | ScaleValue[], params?: ScaleValue[]): Promise<T | undefined> {
@@ -2661,9 +2198,20 @@ export class Snapshot {
     return this.client.constant<T>(item, undefined, this.blockHash)
   }
 
-  read(name: string, params: Record<string, ScaleValue> = {}): Promise<unknown> {
-    return read(this.client, name, params, this.blockHash)
-  }
+  at(block?: number | null): Promise<Snapshot> { return block == null || block === this.block ? Promise.resolve(this) : this.client.at(block) }
+  balance(rao: BalanceLike, netuid = 0, symbol?: string | null): Balance { return this.client.balance(rao, netuid, symbol) }
+  timestamp(): Promise<Date> { return this.client.timestamp(this.blockHash) }
+  blockTime(): Promise<number> { return this.client.blockTime(this.blockHash) }
+  block_time(): Promise<number> { return this.blockTime() }
+  isFastBlocks(): Promise<boolean> { return this.client.isFastBlocks(this.blockHash) }
+  is_fast_blocks(): Promise<boolean> { return this.isFastBlocks() }
+  blockInfo(block?: number | null): Promise<BlockInfo | null> { return this.client.blockInfo(block ?? this.block) }
+  block_info(block?: number | null): Promise<BlockInfo | null> { return this.blockInfo(block) }
+  reads() { return listReads() }
+  read<Name extends ReadName>(name: Name, ...args: ReadArgs<Name>): Promise<ReadResult<Name>>
+  read(name: string, params?: Record<string, unknown>): Promise<unknown>
+  read(name: string, params: Record<string, unknown> = {}): Promise<unknown> { return dispatchRead(this, name, params) }
+
 }
 
 export class BalancesNamespace {
@@ -2707,31 +2255,17 @@ export interface SubnetInfo {
   tempo: number
   burn: Balance
   neuronCount: number
+  neuron_count: number
+  state: import('./reads').SubnetLifecycleState | null
+  pool_emission_enabled: boolean
 }
 
 export class SubnetsNamespace {
   constructor(private readonly client: ChainClient) {}
 
   async subnet(netuid: number, block?: number | string | null): Promise<SubnetInfo> {
-    const blockHash = await this.client.resolveReadBlockHash(block)
-    const native = await nativeRustClient(this.client)
-    if (native != null) {
-      const subnet = (await native.subnets(blockHash)).find((item) => item.netuid === netuid)
-      if (subnet != null) {
-        return {
-          netuid: subnet.netuid,
-          tempo: subnet.tempo,
-          burn: Balance.fromRao(subnet.burnRao),
-          neuronCount: subnet.neuronCount,
-        }
-      }
-    }
-    const [tempo, burn, count] = await Promise.all([
-      this.client.query(storage.SubtensorModule.Tempo, [netuid], blockHash),
-      this.client.query(storage.SubtensorModule.Burn, [netuid], blockHash),
-      this.client.query(storage.SubtensorModule.SubnetworkN, [netuid], blockHash),
-    ])
-    return { netuid, tempo: Number(tempo ?? 0), burn: Balance.fromRao(String(burn ?? 0)), neuronCount: Number(count ?? 0) }
+    const info = await dispatchRead(await scopedReadView(this.client, block), 'subnet', { netuid })
+    return { ...info, neuronCount: info.neuron_count }
   }
 
   info(netuid: number, block?: number | string | null): Promise<SubnetInfo> {
@@ -2739,35 +2273,24 @@ export class SubnetsNamespace {
   }
 
   async all(block?: number | string | null): Promise<SubnetInfo[]> {
-    const blockHash = await this.client.resolveReadBlockHash(block)
-    const native = await nativeRustClient(this.client)
-    if (native != null) {
-      return (await native.subnets(blockHash)).map((subnet) => ({
-        netuid: subnet.netuid,
-        tempo: subnet.tempo,
-        burn: Balance.fromRao(subnet.burnRao),
-        neuronCount: subnet.neuronCount,
-      }))
-    }
-    const [added, tempos, burns, counts] = await Promise.all([
-      this.client.queryMap<number, boolean>(storage.SubtensorModule.NetworksAdded, [], blockHash),
-      this.client.queryMap<number, number>(storage.SubtensorModule.Tempo, [], blockHash),
-      this.client.queryMap<number, bigint>(storage.SubtensorModule.Burn, [], blockHash),
-      this.client.queryMap<number, number>(storage.SubtensorModule.SubnetworkN, [], blockHash),
-    ])
-    const tempoByNetuid = new Map(tempos.map(([key, value]) => [Number(key), Number(value)]))
-    const burnByNetuid = new Map(burns.map(([key, value]) => [Number(key), String(value)]))
-    const countByNetuid = new Map(counts.map(([key, value]) => [Number(key), Number(value)]))
-    return added
-      .filter(([, value]) => value)
-      .map(([netuid]) => Number(netuid))
-      .sort((a, b) => a - b)
-      .map((netuid) => ({
-        netuid,
-        tempo: tempoByNetuid.get(netuid) ?? 0,
-        burn: Balance.fromRao(burnByNetuid.get(netuid) ?? 0),
-        neuronCount: countByNetuid.get(netuid) ?? 0,
-      }))
+    const infos = await dispatchRead(await scopedReadView(this.client, block), 'subnets')
+    return infos.map(info => ({ ...info, neuronCount: info.neuron_count }))
+  }
+
+  async graph(netuid: number, options: { block?: ReadBlock; commitments?: boolean } = {}) {
+    return fetchMetagraph(await scopedReadView(this.client, options.block), netuid, options)
+  }
+
+  async commitments(netuid: number, block?: ReadBlock) {
+    return fetchCommitments(await scopedReadView(this.client, block), netuid)
+  }
+
+  async state(netuid: number, block?: ReadBlock) {
+    return dispatchRead(await scopedReadView(this.client, block), 'subnet_state', { netuid })
+  }
+
+  async states(block?: ReadBlock) {
+    return dispatchRead(await scopedReadView(this.client, block), 'subnet_states')
   }
 
   async exists(netuid: number, block?: number | string | null): Promise<boolean> {
@@ -2857,6 +2380,8 @@ export interface StakePosition {
   netuid: number
   stake: Balance
   isRegistered: boolean
+  is_registered: boolean
+  subnet_state: import('./reads').SubnetLifecycleState | null
   raw: Record<string, ScaleValue>
 }
 
@@ -2878,19 +2403,8 @@ export class StakingNamespace {
   }
 
   async positions(coldkey: string, block?: number | string | null): Promise<StakePosition[]> {
-    const records = await this.client.runtime<Array<Record<string, ScaleValue>>>(
-      runtimeApi.StakeInfoRuntimeApi.get_stake_info_for_coldkey,
-      [coldkey],
-      block,
-    )
-    return (records ?? []).map((record) => ({
-      hotkey: String(record.hotkey),
-      coldkey: String(record.coldkey),
-      netuid: Number(record.netuid ?? 0),
-      stake: Balance.fromRao(String(record.stake ?? 0), Number(record.netuid ?? 0)),
-      isRegistered: Boolean(record.is_registered ?? record.isRegistered ?? false),
-      raw: record,
-    }))
+    const positions = await dispatchRead(await scopedReadView(this.client, block), 'stake_for_coldkey', { coldkey_ss58: coldkey })
+    return positions.map(position => ({ ...position, isRegistered: position.is_registered }))
   }
 
   stake(coldkey: string, hotkey: string, netuid: number, block?: number | string | null): Promise<Balance> {
@@ -2938,6 +2452,11 @@ export class SnapshotBalancesNamespace {
 
 export class SnapshotSubnetsNamespace {
   constructor(private readonly snapshot: Snapshot) {}
+  graph(netuid: number, options: { commitments?: boolean } = {}) { return fetchMetagraph(this.snapshot, netuid, options) }
+  commitments(netuid: number) { return fetchCommitments(this.snapshot, netuid) }
+  state(netuid: number) { return dispatchRead(this.snapshot, 'subnet_state', { netuid }) }
+  states() { return dispatchRead(this.snapshot, 'subnet_states') }
+
   info(netuid: number): Promise<SubnetInfo> { return this.snapshot.client.subnets.info(netuid, this.snapshot.blockHash) }
   all(): Promise<SubnetInfo[]> { return this.snapshot.client.subnets.all(this.snapshot.blockHash) }
   metagraph<T extends ScaleValue = ScaleValue>(netuid: number): Promise<T> { return this.snapshot.client.subnets.metagraph<T>(netuid, this.snapshot.blockHash) }
@@ -2969,90 +2488,13 @@ export function descriptor(pallet: string, item: string): Descriptor {
   return [pallet, item]
 }
 
-export const storage = Object.freeze({
-  Balances: Object.freeze({
-    Account: descriptor('Balances', 'Account'),
-    TotalIssuance: descriptor('Balances', 'TotalIssuance'),
-    Locks: descriptor('Balances', 'Locks'),
-    Holds: descriptor('Balances', 'Holds'),
-  }),
-  Multisig: Object.freeze({ Multisigs: descriptor('Multisig', 'Multisigs') }),
-  Proxy: Object.freeze({ Proxies: descriptor('Proxy', 'Proxies') }),
-  SubtensorModule: Object.freeze({
-    NetworksAdded: descriptor('SubtensorModule', 'NetworksAdded'),
-    Tempo: descriptor('SubtensorModule', 'Tempo'),
-    Burn: descriptor('SubtensorModule', 'Burn'),
-    SubnetworkN: descriptor('SubtensorModule', 'SubnetworkN'),
-    CommitRevealWeightsEnabled: descriptor('SubtensorModule', 'CommitRevealWeightsEnabled'),
-    TokenSymbol: descriptor('SubtensorModule', 'TokenSymbol'),
-    SubnetIdentitiesV3: descriptor('SubtensorModule', 'SubnetIdentitiesV3'),
-    StakingHotkeys: descriptor('SubtensorModule', 'StakingHotkeys'),
-    OwnedHotkeys: descriptor('SubtensorModule', 'OwnedHotkeys'),
-    AutoStakeDestination: descriptor('SubtensorModule', 'AutoStakeDestination'),
-    AutoStakeDestinationColdkeys: descriptor('SubtensorModule', 'AutoStakeDestinationColdkeys'),
-    TotalStake: descriptor('SubtensorModule', 'TotalStake'),
-    StakeThreshold: descriptor('SubtensorModule', 'StakeThreshold'),
-    LastEpochBlock: descriptor('SubtensorModule', 'LastEpochBlock'),
-  }),
-  System: Object.freeze({
-    Account: descriptor('System', 'Account'),
-    Events: descriptor('System', 'Events'),
-  }),
-  Timestamp: Object.freeze({ Now: descriptor('Timestamp', 'Now') }),
-})
-
-export const constants = Object.freeze({
-  Balances: Object.freeze({ ExistentialDeposit: descriptor('Balances', 'ExistentialDeposit') }),
-  SubtensorModule: Object.freeze({
-    InitialMinStake: descriptor('SubtensorModule', 'InitialMinStake'),
-    InitialStartCallDelay: descriptor('SubtensorModule', 'InitialStartCallDelay'),
-    InitialWeightsVersionKey: descriptor('SubtensorModule', 'InitialWeightsVersionKey'),
-  }),
-})
-
-export const runtimeApi = Object.freeze({
-  DelegateInfoRuntimeApi: Object.freeze({
-    get_delegates: descriptor('DelegateInfoRuntimeApi', 'get_delegates'),
-    get_delegate: descriptor('DelegateInfoRuntimeApi', 'get_delegate'),
-    get_delegated: descriptor('DelegateInfoRuntimeApi', 'get_delegated'),
-  }),
-  NeuronInfoRuntimeApi: Object.freeze({
-    get_neurons: descriptor('NeuronInfoRuntimeApi', 'get_neurons'),
-    get_neuron: descriptor('NeuronInfoRuntimeApi', 'get_neuron'),
-    get_neurons_lite: descriptor('NeuronInfoRuntimeApi', 'get_neurons_lite'),
-    get_neuron_lite: descriptor('NeuronInfoRuntimeApi', 'get_neuron_lite'),
-  }),
-  StakeInfoRuntimeApi: Object.freeze({
-    get_stake_info_for_coldkey: descriptor('StakeInfoRuntimeApi', 'get_stake_info_for_coldkey'),
-    get_stake_info_for_coldkeys: descriptor('StakeInfoRuntimeApi', 'get_stake_info_for_coldkeys'),
-    get_stake_info_for_hotkey_coldkey_netuid: descriptor('StakeInfoRuntimeApi', 'get_stake_info_for_hotkey_coldkey_netuid'),
-    get_stake_availability_for_coldkeys: descriptor('StakeInfoRuntimeApi', 'get_stake_availability_for_coldkeys'),
-    get_stake_fee: descriptor('StakeInfoRuntimeApi', 'get_stake_fee'),
-  }),
-  SubnetInfoRuntimeApi: Object.freeze({
-    get_subnet_info: descriptor('SubnetInfoRuntimeApi', 'get_subnet_info'),
-    get_subnets_info: descriptor('SubnetInfoRuntimeApi', 'get_subnets_info'),
-    get_subnet_hyperparams_v3: descriptor('SubnetInfoRuntimeApi', 'get_subnet_hyperparams_v3'),
-    get_all_dynamic_info: descriptor('SubnetInfoRuntimeApi', 'get_all_dynamic_info'),
-    get_all_metagraphs: descriptor('SubnetInfoRuntimeApi', 'get_all_metagraphs'),
-    get_metagraph: descriptor('SubnetInfoRuntimeApi', 'get_metagraph'),
-    get_dynamic_info: descriptor('SubnetInfoRuntimeApi', 'get_dynamic_info'),
-    get_subnet_state: descriptor('SubnetInfoRuntimeApi', 'get_subnet_state'),
-    get_selective_metagraph: descriptor('SubnetInfoRuntimeApi', 'get_selective_metagraph'),
-    get_next_epoch_start_block: descriptor('SubnetInfoRuntimeApi', 'get_next_epoch_start_block'),
-  }),
-  SubnetRegistrationRuntimeApi: Object.freeze({
-    get_network_registration_cost: descriptor('SubnetRegistrationRuntimeApi', 'get_network_registration_cost'),
-  }),
-  TransactionPaymentApi: Object.freeze({
-    query_info: descriptor('TransactionPaymentApi', 'query_info'),
-    query_fee_details: descriptor('TransactionPaymentApi', 'query_fee_details'),
-  }),
-})
-
+export const storage = generatedStorage
+export const constants = generatedConstants
+export const runtimeApi = generatedRuntimeApi
 export const runtimeApis = runtimeApi
 
 export const calls = Object.freeze({
+  ...generatedCalls,
   balances: Object.freeze({
     transferKeepAlive(dest: string, value: TransactionAmount) {
       return call('Balances', 'transfer_keep_alive', { dest, value: taoTransactionAmountRao(value, 'transfer amount') })
@@ -3126,6 +2568,7 @@ export const calls = Object.freeze({
     },
   }),
   Balances: Object.freeze({
+    ...generatedCalls.Balances,
     transfer_keep_alive(dest: string, value: TransactionAmount) {
       return call('Balances', 'transfer_keep_alive', { dest, value: taoTransactionAmountRao(value, 'transfer amount') })
     },
@@ -3134,6 +2577,7 @@ export const calls = Object.freeze({
     },
   }),
   SubtensorModule: Object.freeze({
+    ...generatedCalls.SubtensorModule,
     add_stake(hotkey: string, netuid: number, amountStaked: TransactionAmount) {
       return call('SubtensorModule', 'add_stake', { hotkey, netuid, amount_staked: taoTransactionAmountRao(amountStaked, 'stake amount') })
     },
@@ -3203,7 +2647,7 @@ interface CallDescriptorEntry {
   path: string
   descriptor: Descriptor
   args: readonly string[]
-  argTypes: readonly string[]
+  argTypes?: readonly string[]
 }
 
 const CALL_DESCRIPTOR_ENTRIES: CallDescriptorEntry[] = [
@@ -3226,6 +2670,11 @@ const CALL_DESCRIPTOR_ENTRIES: CallDescriptorEntry[] = [
   { path: 'calls.subtensor.transferStake', descriptor: descriptor('SubtensorModule', 'transfer_stake'), args: ['destination_coldkey', 'hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypes: ['AccountId32', 'AccountId32', 'NetUid', 'NetUid', 'AlphaBalance'] },
   { path: 'calls.subtensor.unstakeAll', descriptor: descriptor('SubtensorModule', 'unstake_all'), args: ['hotkey'], argTypes: ['AccountId32'] },
 ]
+
+for (const entry of callDescriptors) {
+  if (CALL_DESCRIPTOR_ENTRIES.some(existing => existing.descriptor[0] === entry.pallet && existing.descriptor[1] === entry.function)) continue
+  CALL_DESCRIPTOR_ENTRIES.push({ path: `calls.${entry.pallet}.${entry.function}`, descriptor: [entry.pallet, entry.function], args: entry.args })
+}
 
 export function validateDescriptorSchema(runtime: Runtime): DescriptorSchemaIssue[] {
   const issues: DescriptorSchemaIssue[] = []
@@ -3308,6 +2757,7 @@ export function validateDescriptorSchema(runtime: Runtime): DescriptorSchemaIssu
           })
         }
       }
+      if (entry.argTypes == null) continue
       const actualArgTypeIds = callArgumentTypeIds(callInfo)
       if (actualArgTypeIds == null) {
         issues.push({
@@ -3397,44 +2847,9 @@ function isDescriptor(value: unknown): value is Descriptor {
   )
 }
 
-const READS = [
-  { name: 'balance', category: 'Accounts & keys', params: ['coldkey_ss58'] },
-  { name: 'balances', category: 'Accounts & keys', params: ['coldkey_ss58s'] },
-  { name: 'subnet', category: 'Subnets', params: ['netuid'] },
-  { name: 'subnets', category: 'Subnets', params: [] },
-  { name: 'burn', category: 'Subnets', params: ['netuid'] },
-  { name: 'commit_reveal_enabled', category: 'Subnets', params: ['netuid'] },
-  { name: 'subnet_hyperparameters', category: 'Subnets', params: ['netuid'] },
-  { name: 'metagraph', category: 'Subnets', params: ['netuid'] },
-  { name: 'stake', category: 'Staking', params: ['coldkey_ss58', 'hotkey_ss58', 'netuid'] },
-  { name: 'stake_for_coldkey', category: 'Staking', params: ['coldkey_ss58'] },
-]
-
-async function read(client: ChainClient, name: string, params: Record<string, ScaleValue>, block?: number | string | null): Promise<unknown> {
-  switch (name) {
-    case 'balance':
-      return client.balances.get(String(params.coldkey_ss58), block)
-    case 'balances':
-      return client.balances.getMany(Array.isArray(params.coldkey_ss58s) ? params.coldkey_ss58s.map(String) : [], block)
-    case 'subnet':
-      return client.subnets.info(Number(params.netuid), block)
-    case 'subnets':
-      return client.subnets.all(block)
-    case 'burn':
-      return client.subnets.burn(Number(params.netuid), block)
-    case 'commit_reveal_enabled':
-      return client.subnets.commitRevealEnabled(Number(params.netuid), block)
-    case 'subnet_hyperparameters':
-      return client.subnets.hyperparameters(Number(params.netuid), block)
-    case 'metagraph':
-      return client.subnets.metagraph(Number(params.netuid), block)
-    case 'stake':
-      return client.staking.get(String(params.coldkey_ss58), String(params.hotkey_ss58), Number(params.netuid), block)
-    case 'stake_for_coldkey':
-      return client.staking.positions(String(params.coldkey_ss58), block)
-    default:
-      throw new ChainError(`unknown read ${name}`)
-  }
+export async function scopedReadView(client: ChainClient, block?: ReadBlock): Promise<Snapshot> {
+  if (typeof block === 'string') return new Snapshot(client, await client.blockNumber(block), block)
+  return client.at(block)
 }
 
 function decodeStorageValue<T extends ScaleValue>(
@@ -3483,16 +2898,6 @@ function sameRuntimeVersion(
     entry.transactionVersion === version.transactionVersion &&
     entry.ss58Format === ss58Format
   )
-}
-
-function nonNegativeNumber(value: unknown, fallback: number): number {
-  if (value == null) return fallback
-  const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
-}
-
-function nonNegativeInteger(value: unknown, fallback: number): number {
-  return Math.floor(nonNegativeNumber(value, fallback))
 }
 
 function normalizeQueryMapOptions(value: number | QueryMapOptions): Required<Pick<QueryMapOptions, 'pageSize'>> & Omit<QueryMapOptions, 'pageSize'> {
@@ -3641,10 +3046,6 @@ function isMetadataAtVersionUnavailable(error: unknown): boolean {
     (text.includes('Metadata_metadata_at_version') && /not found|unknown function/i.test(text))
 }
 
-function hasOwn(value: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key)
-}
-
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
@@ -3653,129 +3054,6 @@ function signerPublicKey(value: ByteLike | undefined, ss58Address: string): Buff
   return value == null
     ? publicKeyFromSs58(ss58Address)
     : toBuffer(value, 'signer.publicKey')
-}
-
-async function parseJsonRpcResponse(response: Response, maxBytes: number): Promise<unknown> {
-  const responseLike = response as Response & { json?: () => Promise<unknown> }
-  if (response.body != null || typeof response.text === 'function') {
-    const raw = await readResponseText(response, maxBytes)
-    try {
-      return JSON.parse(raw) as unknown
-    } catch {
-      throw new JsonRpcError('invalid JSON-RPC response')
-    }
-  }
-  if (typeof responseLike.json === 'function') return responseLike.json()
-  throw new JsonRpcError('HTTP JSON-RPC response body is not readable')
-}
-
-async function readResponseText(response: Response, maxBytes: number): Promise<string> {
-  const body = response.body
-  if (body == null || typeof body.getReader !== 'function') {
-    const text = await response.text()
-    if (Buffer.byteLength(text, 'utf8') > maxBytes) {
-      throw new JsonRpcError('JSON-RPC response exceeded size limit')
-    }
-    return text
-  }
-
-  const reader = body.getReader()
-  const chunks: Buffer[] = []
-  let total = 0
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      if (value == null) continue
-      const chunk = Buffer.from(value)
-      total += chunk.byteLength
-      if (total > maxBytes) {
-        await reader.cancel().catch(() => undefined)
-        throw new JsonRpcError('JSON-RPC response exceeded size limit')
-      }
-      chunks.push(chunk)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-  return Buffer.concat(chunks, total).toString('utf8')
-}
-
-function jsonRpcResponseResult(payload: unknown, expectedId: number): unknown {
-  if (payload == null || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new JsonRpcError('invalid JSON-RPC response envelope')
-  }
-  const envelope = payload as {
-    jsonrpc?: unknown
-    id?: unknown
-    result?: unknown
-    error?: unknown
-  }
-  if (envelope.jsonrpc !== '2.0') {
-    throw new JsonRpcError('invalid JSON-RPC response version')
-  }
-  if (envelope.id !== expectedId) {
-    throw new JsonRpcError('JSON-RPC response id did not match request id')
-  }
-  const hasResult = hasOwn(envelope, 'result')
-  const hasError = hasOwn(envelope, 'error')
-  if (hasResult === hasError) {
-    throw new JsonRpcError('JSON-RPC response must contain exactly one of result or error')
-  }
-  if (hasError) {
-    const error = envelope.error
-    if (error == null || typeof error !== 'object') {
-      throw new JsonRpcError('invalid JSON-RPC error response')
-    }
-    const rpcError = error as { message?: unknown; code?: unknown; data?: unknown }
-    if (typeof rpcError.message !== 'string' || typeof rpcError.code !== 'number') {
-      throw new JsonRpcError('invalid JSON-RPC error response')
-    }
-    throw new JsonRpcError(
-      rpcError.message,
-      rpcError.code,
-      rpcError.data,
-    )
-  }
-  return envelope.result
-}
-
-function jsonRpcSubscriptionNotification(
-  payload: unknown,
-): { subscription: string; result: unknown } | undefined {
-  if (payload == null || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new JsonRpcError('invalid JSON-RPC notification envelope')
-  }
-  const envelope = payload as {
-    jsonrpc?: unknown
-    id?: unknown
-    method?: unknown
-    result?: unknown
-    error?: unknown
-    params?: unknown
-  }
-  if (envelope.jsonrpc !== '2.0') {
-    throw new JsonRpcError('invalid JSON-RPC notification version')
-  }
-  if (hasOwn(envelope, 'id')) {
-    throw new JsonRpcError('JSON-RPC subscription notification must not contain id')
-  }
-  if (hasOwn(envelope, 'result') || hasOwn(envelope, 'error')) {
-    throw new JsonRpcError('JSON-RPC subscription notification result belongs in params.result')
-  }
-  if (typeof envelope.method !== 'string') return undefined
-  const params = envelope.params
-  if (params == null || typeof params !== 'object' || Array.isArray(params)) return undefined
-  const paramsObject = params as { subscription?: unknown; result?: unknown }
-  if (!hasOwn(paramsObject, 'subscription')) return undefined
-  const subscription = paramsObject.subscription
-  if (subscription == null || (typeof subscription !== 'string' && typeof subscription !== 'number')) {
-    throw new JsonRpcError('invalid JSON-RPC subscription id')
-  }
-  if (!hasOwn(paramsObject, 'result')) {
-    throw new JsonRpcError('JSON-RPC subscription notification is missing result')
-  }
-  return { subscription: String(subscription), result: paramsObject.result }
 }
 
 function nativeExternalSigningOptions(options: SubmitOptions): NativeExternalSigningOptions {
@@ -4113,6 +3391,7 @@ function nativeOutcomeToExtrinsicResult(outcome: NativeTxOutcome, finalized: boo
     fee: outcome.feeRao == null ? undefined : Balance.fromRao(outcome.feeRao),
     events: outcome.events,
     error: outcome.error ?? undefined,
+    chainError: outcome.error != null || outcome.success === false ? classifyChainError(outcome.message, { payload: outcome.error }) : undefined,
   }
 }
 
@@ -4324,87 +3603,6 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-interface RequestSignal {
-  signal?: AbortSignal
-  cleanup(): void
-  onAbort(handler: (error: Error) => void): void
-  error(): Error
-}
-
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  throwIfAborted(signal)
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup()
-      resolve()
-    }, ms)
-    const abort = () => {
-      cleanup()
-      reject(new RequestAbortedError())
-    }
-    const cleanup = () => {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', abort)
-    }
-    signal?.addEventListener('abort', abort, { once: true })
-  })
-}
-
-function withRequestSignal(options: RpcRequestOptions): RequestSignal {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
-  const controller = new AbortController()
-  let timedOut = false
-  let abortError: Error | undefined
-  let cleaned = false
-  const listeners = new Set<(error: Error) => void>()
-  const notify = (error: Error) => {
-    abortError = error
-    for (const listener of [...listeners]) listener(error)
-  }
-  const timeout = timeoutMs === 0
-    ? undefined
-    : setTimeout(() => {
-        timedOut = true
-        controller.abort()
-        notify(new RequestTimeoutError(`request timed out after ${timeoutMs}ms`))
-      }, timeoutMs)
-  const abort = () => {
-    controller.abort()
-    notify(new RequestAbortedError())
-  }
-  if (options.signal?.aborted) abort()
-  else options.signal?.addEventListener('abort', abort, { once: true })
-
-  return {
-    signal: controller.signal,
-    cleanup() {
-      if (cleaned) return
-      cleaned = true
-      if (timeout != null) clearTimeout(timeout)
-      options.signal?.removeEventListener('abort', abort)
-      listeners.clear()
-    },
-    onAbort(handler: (error: Error) => void) {
-      if (abortError != null) handler(abortError)
-      else listeners.add(handler)
-    },
-    error() {
-      return abortError ?? (timedOut
-        ? new RequestTimeoutError(`request timed out after ${timeoutMs}ms`)
-        : new RequestAbortedError())
-    },
-  }
-}
-
-function normalizeAbortError(error: unknown, request: RequestSignal): Error {
-  if (request.signal?.aborted) return request.error()
-  return error instanceof Error ? error : new Error(String(error))
-}
-
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw new RequestAbortedError()
-}
-
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new ChainError(`timed out after ${timeoutMs}ms`)), timeoutMs)
@@ -4420,3 +3618,5 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
     )
   })
 }
+
+function isPrunedState(error: unknown): boolean { return /state.*(?:discarded|pruned)|pruned.*state|unknown block|state unavailable/i.test(String(error)) }

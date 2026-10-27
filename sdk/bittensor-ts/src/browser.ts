@@ -2,6 +2,9 @@ import type {
   ModuleError,
   ScaleValue,
 } from './types'
+import { createHttpAuth } from './http-auth'
+import { createEvmAddressUtilities } from './evm'
+import { createTimelock } from './timelock-workflow'
 import type {
   RustEpochScheduleState,
   RustKeypairKind,
@@ -49,6 +52,9 @@ export type BrowserRuntimeApiMap = RustRuntimeApiMap
 export type BrowserMetadataIr = RustMetadataIr
 
 export interface BrowserWasmModule {
+  storagePrefixFor(pallet: string, item: string): Uint8Array
+  blake2_256(data: Uint8Array): Uint8Array
+  decodeOptionalOpaqueMetadata(data: Uint8Array): Uint8Array | undefined
   default?: () => Promise<unknown> | unknown
   coreVersion(): string
   Keypair: BrowserWasmKeypairConstructor
@@ -148,6 +154,7 @@ export interface BrowserWasmKeypairConstructor {
 }
 
 export interface BrowserWasmRuntime {
+  signerPayload(address: string, callData: Uint8Array, era: ScaleValue, nonce: BrowserIntegerLike, tip: BrowserIntegerLike, tipAssetId: BrowserIntegerLike | null, genesisHash: Uint8Array, eraBlockHash: Uint8Array, metadataHash?: Uint8Array): Record<string, unknown>
   readonly specVersion: number
   readonly transactionVersion: number
   readonly ss58Format: number
@@ -555,6 +562,10 @@ export class Runtime
     )
   }
 
+  signerPayload(address: string, callData: BrowserByteLike, params: BrowserTransactionParams): Record<string, unknown> {
+    return this.handle.signerPayload(address, toBytes(callData), params.era, params.nonce, params.tip ?? 0, params.tipAssetId ?? null, toBytes(params.genesisHash), toBytes(params.eraBlockHash), metadataHashArg(params.metadataHash))
+  }
+
   encodeSignedExtrinsic(
     callData: BrowserByteLike,
     publicKey: BrowserByteLike,
@@ -783,6 +794,60 @@ export function coreVersion(): string {
   return wasmSync().coreVersion()
 }
 
+export function storagePrefixFor(pallet: string, item: string): Uint8Array { return copyBytes(wasmSync().storagePrefixFor(pallet, item)) }
+export function blake2_256(data: BrowserByteLike): Uint8Array { return copyBytes(wasmSync().blake2_256(toBytes(data))) }
+export function decodeOptionalOpaqueMetadata(data: BrowserByteLike): Uint8Array | null {
+  const metadata = wasmSync().decodeOptionalOpaqueMetadata(toBytes(data))
+  return metadata == null ? null : copyBytes(metadata)
+}
+
+export * from './browser-client'
+export * from './balance'
+export * from './reads'
+export * from './read-namespaces'
+export * from './descriptors'
+export * from './intents'
+export * from './metagraph'
+export * from './emission-weights'
+export * from './external-signers'
+export * from './evm'
+export * from './http-auth'
+export * from './pow-registration'
+export * from './intent-weights'
+export * from './fee-filters'
+export * from './preferences'
+export * from './history'
+export * from './pruning'
+export * from './multisig-workflow'
+export * from './upgrade'
+export { Timelocked, TimelockError, TimelockNotReady, createTimelock, parseDuration, formatDuration, currentRound, roundAt } from './timelock-workflow'
+export type { TimelockBackend, TimelockEncryptOptions, TimelockDecryptOptions } from './timelock-workflow'
+const portableCrypto = { blake2_256, publicKeyFromSs58, ss58FromPublic, verify: verifySignature }
+export const httpAuth = createHttpAuth(portableCrypto)
+export const evmAddresses = createEvmAddressUtilities(portableCrypto)
+export const timelock = createTimelock({
+  encryptAtRound: (data, round) => { const [ciphertext, revealRound] = encryptAtRound(data, round); return { ciphertext, revealRound: BigInt(revealRound) } },
+  decrypt: async data => {
+    const round = revealRound(data)
+    let last: unknown
+    for (const endpoint of ['https://api.drand.sh', 'https://api2.drand.sh', 'https://api3.drand.sh']) {
+      try {
+        const response = await fetch(`${endpoint}/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/${round}`, { signal: AbortSignal.timeout(10_000) })
+        if (response.status === 404) return null
+        if (!response.ok) throw new Error(`drand HTTP ${response.status}`)
+        const beacon = await response.json() as { round: number; signature: string }
+        if (beacon.round !== round) throw new Error('drand returned a different round')
+        return decryptWithSignature(data, beacon.signature)
+      } catch (error) { last = error }
+    }
+    throw last
+  },
+})
+export const encryptTimelocked = timelock.encrypt
+export const decryptTimelocked = timelock.decrypt
+export const parseTimelocked = timelock.parse
+export { JsonRpcTransport, JsonRpcError, ChainError, RequestTimeoutError, RequestAbortedError, EndpointValidationError } from './transport'
+
 export function eraBirth(period: BrowserIntegerLike, current: BrowserIntegerLike): number {
   return wasmSync().eraBirth(period, current)
 }
@@ -982,3 +1047,11 @@ function hexToBytes(hex: string): Uint8Array {
   }
   return bytes
 }
+export * from './chain-errors'
+export * from './endpoint-health'
+export * from './basket-index'
+export * from './shielded-receipt'
+
+export * from './root-claim'
+export * from './fee-payer'
+export * from './unsigned-transaction'

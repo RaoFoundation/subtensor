@@ -186,7 +186,6 @@ test('localnet covers signing, fee estimation, runtime payment APIs, and bounded
       sdk.IntentCall.unstakeAll(bob.ss58Address),
       sdk.IntentCall.unstakeAllAlpha(bob.ss58Address),
       sdk.IntentCall.setHyperparameter(0, 'immunity_period', 99),
-      sdk.IntentCall.setRootClaimType('Keep'),
       sdk.calls.balances.transferKeepAlive(bob.ss58Address, sdk.rao(1n)),
       sdk.calls.subtensor.servePrometheus(0, '127.0.0.1', 9090),
     ]) {

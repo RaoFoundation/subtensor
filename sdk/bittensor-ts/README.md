@@ -1,69 +1,40 @@
+---
+title: "Bittensor TypeScript SDK"
+description: "Chain reads, transaction workflows, signing, wallets, and EVM APIs for TypeScript backends and frontends."
+---
+
 # `@bittensor/sdk`
 
-`bittensor-ts` is the monorepo's TypeScript SDK. It lives in its own
-`sdk/bittensor-ts` package. In Node.js it is a deliberately thin Node-API wrapper around the
-sibling `bittensor-core` Rust crate. Browser applications use the explicit
-`@bittensor/sdk/browser` entrypoint backed by `sdk/bittensor-core-wasm`.
+The TypeScript SDK exposes the current Rust client and Python SDK workflows as
+application APIs. Import `@bittensor/sdk` in Node.js or `@bittensor/sdk/browser`
+in a frontend. Both entry points provide the full registered read and semantic
+intent catalogs, snapshots, transaction planning, external signing, and EVM APIs.
 
-Chain-defined work runs in Rust:
+Rust remains authoritative for keys, signatures, SS58, SCALE, metadata proofs,
+timelock encryption, and MEV envelopes. Node uses the native client; the browser
+uses WASM and the portable JSON-RPC transport. Browser code has no native addon,
+Node `Buffer`, filesystem, or HID dependency. Filesystem wallets, encrypted
+Substrate keyfile imports, native Ledger HID, the extension bridge server, and
+CPU/OpenCL mining are Node APIs. Frontends can sign through injected extensions,
+Vault callbacks, or WASM keypairs and supply a worker/service to the portable
+registration-mining workflow.
 
-- sr25519/ed25519 keys, signatures, SS58, and wallet keyfiles;
-- SCALE encoding and decoding, runtime metadata, storage keys, calls, and
-  signed extrinsics;
-- RFC-0078 metadata digests and Ledger proofs;
-- drand timelock encryption and epoch-schedule simulation;
-- ML-KEM/XChaCha20 MEV-shield envelopes; and
-- Ledger HID signing.
-
-The Node TypeScript layer is limited to JavaScript-friendly names and defaults,
-lossless `Buffer`/`bigint`/`Map` boundary conversion, error classes,
-signing-compatibility adapters for the signer objects expected by Polkadot.js,
-Polkadot API, and Moonwall, wallet filesystem management, generated-style
-descriptors, and extension-signer interop. On Node, the default `Client` uses
-the native Rust client as the authoritative backend for connection, runtime
-refresh and caching, storage reads, runtime calls, call composition, nonce
-reads, fee estimation, signing plans, submission, inclusion/finalization
-receipts, dispatch-error interpretation, and high-level transaction semantics.
-The independent TypeScript JSON-RPC transport is exposed separately as
-`BrowserChainClient` for browser/custom-transport use cases where the native
-client cannot run. High-level TypeScript transaction helpers construct Rust
-`IntentCall` values, and arbitrary pallet/function calls are classified as raw
-by Rust policy before signing.
-
-The package exposes both CommonJS and ESM entrypoints. It also exports the
-raw generated Node-API module as `@bittensor/sdk/native`, so every native
-entry point is callable even when an ergonomic wrapper has not yet been
-added.
-
-This package is currently monorepo-internal and intentionally remains marked
-`"private": true`. A public npm release needs a cross-platform native binary
-layout and CI matrix for Linux, macOS, and Windows before that flag is removed.
-
-Browser bundlers should import the explicit `@bittensor/sdk/browser` subpath.
-That entrypoint is a portable browser subset, not a method-for-method mirror of
-the Node API. It does not load `native.cjs`, `.node` binaries, Node `Buffer`,
-or native HID. It returns `Uint8Array` values and exposes browser-safe Rust
-WASM operations: key generation, SS58, signing and verification, SCALE
-encoding and decoding, runtime metadata parsing, storage keys, call and
-extrinsic composition, RFC-0078 metadata proofs, ML-KEM sealing, and timelock
-encryption/decryption when the caller fetches the drand signature. Host-only
-features such as wallet keyfiles, encrypted JSON import, native Ledger HID,
-direct drand fetching, and lower-level Node-native runtime introspection
-helpers remain Node-only.
+The package is monorepo-internal (`"private": true`). A public npm release still
+requires a cross-platform native binary publishing layout and CI matrix.
 
 ## Build locally
 
 From the repository root:
 
 ```sh
-cargo test -p bittensor-ts-native --all-features
+cargo test --manifest-path sdk/bittensor-ts/native/Cargo.toml --all-features
 npm --prefix sdk/bittensor-ts ci
 npm --prefix sdk/bittensor-ts run check
 ```
 
 The native crate is isolated under `sdk/bittensor-ts/native`; it links
-`sdk/bittensor-core` directly and contains binding glue only. No chain
-algorithm is reimplemented in TypeScript.
+`sdk/bittensor-core` directly and contains binding glue only. Protocol cryptography and SCALE encoding stay in Rust. Portable TypeScript
+implements application workflows and preflight calculations matching Python.
 
 Node.js 22 or newer is required for `BrowserChainClient`'s default WSS path
 because that transport uses the unflagged global `WebSocket`. Older Node
@@ -111,6 +82,7 @@ Large SCALE integers are returned as `bigint`; byte carriers are returned as
 import { Balance, Client, Keypair, storage } from '@bittensor/sdk'
 
 const client = await new Client('finney').connect()
+// Use a wallet or external signer in production; //Alice is a development key.
 const alice = Keypair.fromUri('//Alice')
 
 const balance = await client.balances.get(alice.ss58Address)
@@ -156,6 +128,17 @@ submitting with a native `Keypair`. Low-level manual signing APIs such as
 tracking to Rust. On `BrowserChainClient`, `watchSigned()` uses the TypeScript
 WebSocket transport for custom/browser subscription handling.
 
+Automatic submissions share a per-account queue. Shielded submissions reserve
+both the carrier and inner nonce, including when the caller returns before
+inclusion or loses the response. Plans and fee estimates do not reserve nonces.
+After reconciling an abandoned or expired transaction, use
+`await client.invalidateNonce(address)` before retrying with automatic nonces.
+Do not clear a reservation while its carrier or inner transaction may still
+execute. Explicit nonces remain the application's responsibility.
+
+Mortal transactions anchor to the previous block, whose hash is available to
+parent-state runtime validation, while using current runtime metadata.
+
 High-level transaction helpers such as `transfer()`, `staking.addStake()`,
 `setWeights()`, registration, and serving route through Rust trusted
 constructors on `IntentCall`. The same constructors are exported directly for
@@ -200,24 +183,115 @@ APIs (`legacyGetPasswordFromEnvironment()` and
 `legacySavePasswordToEnvironment()`); they use reversible obfuscation, not
 secure password storage.
 
+## Semantic workflows
+
+`listReads()` describes all 105 registered reads. `listIntentTools()` describes
+all 86 semantic operations, their inputs, defaults, signer roles, and safety
+requirements. Calls, storage, constants, and runtime API descriptors are generated
+from the Python metadata catalog; precompile ABIs come from canonical Solidity.
+`buildIntent()` and `intentBuilders` provide operation-specific argument types,
+including nested batch and multisig calls.
+
+```ts
+import { Client, Wallet, buildIntent } from '@bittensor/sdk'
+
+const client = await new Client('finney').connect()
+const wallet = new Wallet({ name: 'builder' })
+const intent = buildIntent('add_stake', {
+  hotkey_ss58: '5F...', netuid: 1, amount_tao: '1.25',
+})
+const policy = { maxSpendRao: 1_250_000_000n, maxFeeRao: 10_000_000n, allowedNetuids: [1] }
+const plan = await client.workflows().plan(intent, wallet, { policy })
+if (!plan.ok) throw new Error(plan.violations.join('; '))
+// Execution rechecks current state before unlocking or requesting a signature.
+const result = await client.execute(intent, wallet, { policy, waitForFinalization: true })
+await client.close()
+```
+
+Semantic intent money fields accept exact decimal TAO/alpha strings or a
+unit-checked `Balance`. Integer protocol fields use `bigint`. The existing
+low-level `IntentCall` constructors continue to accept explicit rao amounts.
+Use semantic workflows when you need state-dependent admission and shielding
+rules; low-level call construction alone does not perform these checks.
+`"all"` remains unbounded for policy checks after resolving a current balance.
+Slippage, claim admission, owner hyperparameters, Null weights, multisig deposits,
+subnet scope, mandatory shielding, and fee payer selection are checked before
+signing. MEV fee limits include the inner transaction, carrier, and both tips.
+
+Additional workflow APIs include:
+
+- Root baskets, allocations, claims, swaps, stake valuation and availability;
+  subnet lifecycle, emissions, collateral, conviction, locks, leases, identities,
+  commitments, and typed metagraphs.
+- Proxy/batch/sudo/multisig composition, detached signatures, extension signing,
+  Vault framing, HTTP request authentication, and Ledger signing in Node.
+- `EvmRpc`, `getPrecompile`, `EvmContract`, `createEvmWorkflows`, and Node
+  `EvmKeystore` for keys, funding, association, staking, contract deployment/calls,
+  and every canonical precompile.
+- Timelock duration/reveal APIs, bounded PoW registration, transfer history,
+  explicit application preferences/address books, runtime upgrade verification,
+  and restartable Null pruning with a persistent submission journal.
+- Basket index pricing, endpoint latency probes, and structured chain error
+  classification for all current module errors and transaction pool rejections.
+
+Failed receipts expose `chainError` with a semantic `code`, exact error name,
+metadata documentation, and remediation text. `classifyChainError()` also accepts
+RPC failures; `chainErrorFromDispatch()` resolves module indices against the
+execution metadata supplied by your application. Unknown historical errors stay
+unknown rather than using an unrelated current index.
+
+`SdkPreferences` accepts a browser, memory, or custom JSON store. Node
+`FileJsonStore` uses Python-compatible public book files. Preferences are applied
+only when your application asks for them; importing the SDK never changes files.
+
 ## Browser example
 
 ```ts
-import { Keypair, initBrowser } from '@bittensor/sdk/browser'
+import { Client, buildIntent, connectExtensionSigner, initBrowser } from '@bittensor/sdk/browser'
 
 await initBrowser()
-
-const alice = Keypair.fromUri('//Alice')
-const message = new TextEncoder().encode('hello')
-const signature = alice.sign(message)
-console.log(alice.verify(message, signature))
+const client = await new Client('finney').connect()
+const signer = await connectExtensionSigner('My app', { address: selectedAddress })
+const snapshot = await client.at()
+const balance = await snapshot.read('balance', { coldkey_ss58: signer.address })
+const intent = buildIntent('transfer', { dest_ss58: recipient, amount_tao: '0.01' })
+const result = await client.execute(intent, signer, {
+  policy: { maxSpendRao: 10_000_000n, maxFeeRao: 10_000_000n },
+  waitForFinalization: true,
+})
+await client.close()
 ```
 
-Extensions or strict-CSP applications can pass their own loader:
+Use the same snapshot for related reads; it pins storage and runtime metadata to
+one block hash. Browser amounts are `bigint` and bytes are `Uint8Array`.
+`blocks()` is an async iterable and supports cancellation. Frontends should keep
+secret material in their chosen wallet/signing backend.
+
+Extensions or strict-CSP applications can provide a WASM loader:
 
 ```ts
 await initBrowser(() => import('./vendor/bittensor_core_wasm.js'))
 ```
+
+## Keeping source parity
+
+`npm run check:source-parity` detects changes anywhere in the upstream Rust core,
+Python SDK/CLI, canonical ABIs, and generated TypeScript catalogs, plus the runtime
+fee and admission rules mirrored by the planners. A source hash
+is a drift alarm; it does not prove behavioral equivalence. Review affected APIs,
+regenerate their catalogs with the scripts in `scripts/`, run the behavior tests,
+and deliberately refresh the reviewed snapshot with `npm run parity:record`.
+`npm run check:catalogs` checks regeneration against the Python development
+environment (set `PYTHON` if it is not at `sdk/python/.venv/bin/python`).
+
+The test suite exercises each semantic operation, read domains, fixed-point
+amounts, signing/authentication vectors, wallet storage, and real Chromium/WASM
+integration. `npm run test:localnet` additionally submits against an explicitly
+configured loopback chain with funded development accounts, working finality,
+and an MEV-capable authority. Set `BT_CHAIN_ENDPOINT` to its WebSocket endpoint;
+the live files run serially because they share development signers. Mock RPC
+tests and browser codec tests do not establish
+that every runtime operation succeeds on a live network.
 
 ## Binding parity and secret derivation
 

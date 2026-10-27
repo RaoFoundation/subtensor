@@ -2,10 +2,12 @@
 
 mod digest;
 mod errors;
+mod intents;
 mod keys;
 #[cfg(feature = "ledger")]
 mod ledger;
 mod mlkem;
+mod pow;
 mod runtime;
 mod timelock;
 mod transaction;

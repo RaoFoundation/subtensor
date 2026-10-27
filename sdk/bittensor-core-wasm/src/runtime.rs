@@ -516,6 +516,66 @@ impl Runtime {
 
     /// Assemble the full signed extrinsic; returns `[bytes, hash]`.
     #[allow(clippy::too_many_arguments)]
+    #[wasm_bindgen(js_name = signerPayload)]
+    pub fn signer_payload(
+        &self,
+        address: &str,
+        call_data: &[u8],
+        era: &JsValue,
+        nonce: &JsValue,
+        tip: &JsValue,
+        tip_asset_id: &JsValue,
+        genesis_hash: &[u8],
+        era_block_hash: &[u8],
+        metadata_hash: Option<Vec<u8>>,
+    ) -> Result<JsValue, JsValue> {
+        let params = self.tx_params(
+            era,
+            nonce,
+            tip,
+            tip_asset_id,
+            genesis_hash,
+            era_block_hash,
+            metadata_hash,
+        )?;
+        let payload = self
+            .inner
+            .signer_payload(address, call_data, &params)
+            .map_err(to_js_err)?;
+        let object = Object::new();
+        for (name, value) in [
+            ("address", payload.address),
+            ("blockHash", payload.block_hash),
+            ("blockNumber", payload.block_number),
+            ("era", payload.era),
+            ("genesisHash", payload.genesis_hash),
+            ("method", payload.method),
+            ("nonce", payload.nonce),
+            ("specVersion", payload.spec_version),
+            ("tip", payload.tip),
+            ("transactionVersion", payload.transaction_version),
+        ] {
+            set(&object, name, &JsValue::from_str(&value))?;
+        }
+        set(&object, "version", &JsValue::from(payload.version))?;
+        set(
+            &object,
+            "signedExtensions",
+            &string_array(payload.signed_extensions).into(),
+        )?;
+        if let Some(value) = payload.asset_id {
+            set(&object, "assetId", &JsValue::from_str(&value))?;
+        }
+        if let Some(value) = payload.metadata_hash {
+            set(&object, "metadataHash", &JsValue::from_str(&value))?;
+        }
+        if let Some(value) = payload.mode {
+            set(&object, "mode", &JsValue::from(value))?;
+        }
+        Ok(object.into())
+    }
+
+    #[allow(clippy::too_many_arguments)]
     #[wasm_bindgen(js_name = encodeSignedExtrinsic)]
     pub fn encode_signed_extrinsic(
         &self,

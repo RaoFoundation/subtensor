@@ -1,4 +1,4 @@
-export type ByteLike = Buffer | Uint8Array
+export type ByteLike = Uint8Array
 export type IntegerLike = number | bigint | string
 
 export type ScaleValue =
@@ -93,7 +93,7 @@ export interface StorageEntryLike {
   default_bytes?: ByteLike
 }
 
-export interface StorageEntry extends StorageEntryLike {
+export interface StorageEntry<Bytes extends Uint8Array = Uint8Array> extends StorageEntryLike {
   pallet: string
   modifier: string
   valueType: string
@@ -106,8 +106,8 @@ export interface StorageEntry extends StorageEntryLike {
   param_type_ids: number[]
   paramHashers: string[]
   param_hashers: string[]
-  defaultBytes: Buffer
-  default_bytes: Buffer
+  defaultBytes: Bytes
+  default_bytes: Bytes
 }
 
 export interface StorageChange {
@@ -283,19 +283,19 @@ export interface SignedExtrinsicParams {
   metadataHashEnabled?: boolean
 }
 
-export interface PayloadParts {
-  includedInExtrinsic: Buffer
-  includedInSignedData: Buffer
+export interface PayloadParts<Bytes extends Uint8Array = Uint8Array> {
+  includedInExtrinsic: Bytes
+  includedInSignedData: Bytes
 }
 
-export interface SignedExtrinsic {
-  bytes: Buffer
-  hash: Buffer
+export interface SignedExtrinsic<Bytes extends Uint8Array = Uint8Array> {
+  bytes: Bytes
+  hash: Bytes
 }
 
-export interface MultisigAccount {
-  accountId: Buffer
-  sortedSignatories: Buffer[]
+export interface MultisigAccount<Bytes extends Uint8Array = Uint8Array> {
+  accountId: Bytes
+  sortedSignatories: Bytes[]
 }
 
 export interface ChainInfo {
@@ -307,7 +307,7 @@ export interface ChainInfo {
 }
 
 export interface CiphertextRound {
-  ciphertext: Buffer
+  ciphertext: Uint8Array
   revealRound: bigint
 }
 
@@ -352,6 +352,6 @@ export interface LedgerVersion {
 }
 
 export interface LedgerAddress {
-  publicKey: Buffer
+  publicKey: Uint8Array
   ss58Address: string
 }

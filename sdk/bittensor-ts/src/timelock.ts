@@ -1,4 +1,5 @@
 import native, { type NativeEpochScheduleState } from './native'
+import { createTimelock } from './timelock-workflow'
 import { nativeAsync, nativeCall } from './errors'
 import { toBigInt, toBuffer } from './wire'
 import type {
@@ -347,7 +348,30 @@ export function decodeTimelockUserData(data: ByteLike): TimelockUserData {
   return nativeCall(() => native.decodeTimelockUserData(toBuffer(data, 'data')))
 }
 
+export function innerCiphertext(data: ByteLike): Buffer {
+  return toBuffer(decodeTimelockUserData(data).encryptedData, 'encryptedData')
+}
+
+export const timelockWorkflow = createTimelock({
+  encryptAtRound,
+  decrypt: (data) => decrypt(data, false),
+})
+export const encryptTimelocked = timelockWorkflow.encrypt
+export const decryptTimelocked = timelockWorkflow.decrypt
+export const parseTimelocked = timelockWorkflow.parse
+export {
+  Timelocked, TimelockError, TimelockNotReady, createTimelock,
+  parseDuration, formatDuration, currentRound, roundAt, revealTime,
+} from './timelock-workflow'
+export type {
+  TimelockBackend, TimelockEncryptOptions, TimelockDecryptOptions, TimelockedInput, DurationLike, WhenLike,
+} from './timelock-workflow'
+
 export const timelock = Object.freeze({
+  encryptTimelocked,
+  decryptTimelocked,
+  parseTimelocked,
+  innerCiphertext,
   encryptAndCompress,
   decryptAndDecompress,
   generateCommitV2,

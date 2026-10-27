@@ -16,6 +16,9 @@ use crate::codec::Value;
 use crate::error::CoreError;
 use crate::keys::{Keypair, CRYPTO_SR25519};
 
+#[path = "transaction/operations.rs"]
+mod operations;
+
 /// Which wallet key signs an intent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SignerRole {
@@ -1220,7 +1223,10 @@ impl<'a> Executor<'a> {
             .client
             .external_signing_plan(&call_data, signer, options)?;
         let active = policy.or(self.policy.as_ref());
-        let violations = active.map_or_else(Vec::new, |policy| policy.check(intent, plan.fee_rao));
+        // Runtime payment_queryInfo excludes the tip even for an encoded signed
+        // extrinsic. Guard the complete amount before releasing a signing plan.
+        let fee_rao = fee_with_tip(plan.fee_rao, plan.params.tip)?;
+        let violations = active.map_or_else(Vec::new, |policy| policy.check(intent, fee_rao));
         if !violations.is_empty() {
             return Err(CoreError::Policy(violations.join("; ")));
         }
@@ -1273,9 +1279,35 @@ impl<'a> Executor<'a> {
     }
 }
 
+fn fee_with_tip(fee: Option<u128>, tip: u128) -> Result<Option<u128>, CoreError> {
+    fee.map(|fee| {
+        fee.checked_add(tip)
+            .ok_or_else(|| CoreError::Policy("fee plus tip exceeds u128".into()))
+    })
+    .transpose()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn external_fee_policy_includes_tips_and_rejects_overflow() -> Result<(), CoreError> {
+        let intent = IntentCall::transfer("target", 1);
+        let policy = Policy {
+            max_fee_rao: Some(100),
+            ..Default::default()
+        };
+        assert!(policy
+            .check(&intent, fee_with_tip(Some(100), 0)?)
+            .is_empty());
+        assert!(!policy
+            .check(&intent, fee_with_tip(Some(100), 1)?)
+            .is_empty());
+        assert!(!policy.check(&intent, fee_with_tip(None, 1)?).is_empty());
+        assert!(fee_with_tip(Some(u128::MAX), 1).is_err());
+        Ok(())
+    }
 
     #[test]
     fn arbitrary_call_fails_closed_for_every_policy_dimension() {

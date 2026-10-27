@@ -20,7 +20,7 @@ use serde_json::Value as JsonValue;
 use crate::errors::{into_napi, invalid_arg, CoreResultExt, NapiResult};
 use crate::keys::NativeKeypair;
 use crate::runtime::{NativeRuntime, NativeSignerPayload, NativeTxParams};
-use crate::values::{from_wire, to_wire};
+use crate::values::{from_wire, json_to_js, to_wire};
 
 #[napi(object)]
 pub struct NativePolicyOptions {
@@ -237,6 +237,16 @@ impl Task for ClientConnectTask {
 
 client_task!(ClientStringTask, String, String, Ok);
 client_task!(ClientBoolTask, bool, bool, Ok);
+client_task!(ClientUnitTask, (), (), Ok);
+client_task!(
+    ClientRuntimeTask,
+    Arc<bittensor_core::runtime::Runtime>,
+    NativeRuntime,
+    |inner| { Ok(NativeRuntime::from_arc(inner)) }
+);
+client_task!(ClientIntentTask, IntentCall, NativeIntentCall, |inner| {
+    Ok(NativeIntentCall { inner })
+});
 client_task!(ClientU64Task, u64, BigInt, |value| Ok(BigInt::from(value)));
 client_task!(ClientHeaderTask, BlockHeader, NativeBlockHeader, |value| {
     Ok(header_to_native(value))
@@ -336,7 +346,7 @@ impl<'task> ScopedTask<'task> for ClientJsonTask {
     }
 
     fn resolve(&mut self, env: &'task Env, output: Self::Output) -> napi::Result<Self::JsValue> {
-        env.to_js_value(&output)
+        json_to_js(env, output)
     }
 }
 
@@ -367,7 +377,7 @@ impl<'task> ScopedTask<'task> for ClientWireValueTask {
     }
 
     fn resolve(&mut self, env: &'task Env, output: Self::Output) -> napi::Result<Self::JsValue> {
-        env.to_js_value(&to_wire(&output)?)
+        json_to_js(env, to_wire(&output)?)
     }
 }
 
@@ -402,7 +412,7 @@ impl<'task> ScopedTask<'task> for ClientWireValuesTask {
             .iter()
             .map(to_wire)
             .collect::<napi::Result<Vec<_>>>()?;
-        env.to_js_value(&wire)
+        json_to_js(env, JsonValue::Array(wire))
     }
 }
 
@@ -442,7 +452,7 @@ impl<'task> ScopedTask<'task> for ClientMapTask {
                 Ok(JsonValue::Object(item))
             })
             .collect::<napi::Result<Vec<_>>>()?;
-        env.to_js_value(&wire)
+        json_to_js(env, JsonValue::Array(wire))
     }
 }
 
@@ -734,6 +744,77 @@ impl NativeIntentCall {
         })
     }
 
+    #[napi(factory, js_name = "moveStakeLimit")]
+    pub fn move_stake_limit(
+        origin_hotkey: String,
+        origin_netuid: u16,
+        destination_hotkey: String,
+        destination_netuid: u16,
+        amount_alpha_rao: BigInt,
+        limit_price: BigInt,
+        allow_partial: bool,
+    ) -> napi::Result<Self> {
+        Ok(Self {
+            inner: IntentCall::move_stake_limit(
+                origin_hotkey,
+                origin_netuid,
+                destination_hotkey,
+                destination_netuid,
+                bigint_u128("amountAlphaRao", &amount_alpha_rao)?,
+                bigint_u128("limitPrice", &limit_price)?,
+                allow_partial,
+            ),
+        })
+    }
+
+    #[napi(factory, js_name = "transferStakeAndHotkey")]
+    pub fn transfer_stake_and_hotkey(
+        destination_coldkey: String,
+        origin_hotkey: String,
+        destination_hotkey: String,
+        origin_netuid: u16,
+        destination_netuid: u16,
+        amount_alpha_rao: BigInt,
+    ) -> napi::Result<Self> {
+        Ok(Self {
+            inner: IntentCall::transfer_stake_and_hotkey(
+                destination_coldkey,
+                origin_hotkey,
+                destination_hotkey,
+                origin_netuid,
+                destination_netuid,
+                bigint_u128("amountAlphaRao", &amount_alpha_rao)?,
+            ),
+        })
+    }
+
+    #[napi(js_name = "setTake")]
+    pub fn set_take(
+        client: &NativeClient,
+        hotkey: String,
+        take: u16,
+    ) -> AsyncTask<ClientIntentTask> {
+        AsyncTask::new(ClientIntentTask::new(
+            Arc::clone(&client.inner),
+            move |client| IntentCall::set_take(client, hotkey, take),
+        ))
+    }
+
+    #[napi]
+    pub fn batch(
+        client: &NativeClient,
+        children: Vec<&NativeIntentCall>,
+    ) -> AsyncTask<ClientIntentTask> {
+        let children = children
+            .into_iter()
+            .map(|child| child.inner.clone())
+            .collect();
+        AsyncTask::new(ClientIntentTask::new(
+            Arc::clone(&client.inner),
+            move |client| IntentCall::batch(client, children),
+        ))
+    }
+
     #[napi(factory, js_name = "transferStake")]
     pub fn transfer_stake(
         destination_coldkey: String,
@@ -825,6 +906,35 @@ impl NativeIntentCall {
     pub fn force_raw(&self) -> Self {
         Self {
             inner: self.inner.clone().raw(),
+        }
+    }
+
+    #[napi]
+    pub fn spend(&self, kind: NativeSpendKind, amount_rao: Option<BigInt>) -> napi::Result<Self> {
+        let spend = match kind {
+            NativeSpendKind::None => Spend::None,
+            NativeSpendKind::Unbounded => Spend::Unbounded,
+            NativeSpendKind::Bounded => Spend::Bounded(bigint_u128(
+                "amountRao",
+                &amount_rao.ok_or_else(|| invalid_arg("bounded spend requires amountRao"))?,
+            )?),
+        };
+        Ok(Self {
+            inner: self.inner.clone().spend(spend),
+        })
+    }
+
+    #[napi]
+    pub fn touches(&self, netuids: Vec<u16>) -> Self {
+        Self {
+            inner: self.inner.clone().touches(netuids),
+        }
+    }
+
+    #[napi(js_name = "affectsAllSubnets")]
+    pub fn affects_all_subnets(&self) -> Self {
+        Self {
+            inner: self.inner.clone().affects_all_subnets(),
         }
     }
 
@@ -1027,6 +1137,53 @@ impl NativeClient {
         self.inner.runtime().napi().map(NativeRuntime::from_arc)
     }
 
+    #[napi(js_name = "currentRuntime")]
+    pub fn current_runtime(&self) -> AsyncTask<ClientRuntimeTask> {
+        AsyncTask::new(ClientRuntimeTask::new(Arc::clone(&self.inner), |client| {
+            client.current_runtime()
+        }))
+    }
+
+    #[napi(js_name = "blockTime")]
+    pub fn block_time(&self) -> AsyncTask<ClientU64Task> {
+        AsyncTask::new(ClientU64Task::new(Arc::clone(&self.inner), |client| {
+            u64::try_from(client.block_time()?.as_millis())
+                .map_err(|_| CoreError::Codec("block time exceeds u64 milliseconds".into()))
+        }))
+    }
+
+    #[napi(js_name = "decodeCall")]
+    pub fn decode_call(&self, data: Buffer) -> NapiResult<JsonValue> {
+        to_wire(&self.inner.decode_call(&data).napi()?)
+    }
+
+    #[napi(js_name = "estimateWeight")]
+    pub fn estimate_weight(
+        &self,
+        call_data: Buffer,
+        signer: &NativeKeypair,
+    ) -> AsyncTask<ClientWireValueTask> {
+        let signer = signer.inner.clone();
+        AsyncTask::new(ClientWireValueTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.estimate_weight(&call_data, &signer),
+        ))
+    }
+
+    #[napi(js_name = "submitShielded")]
+    pub fn submit_shielded(
+        &self,
+        env: Env,
+        call_data: Buffer,
+        signer: &NativeKeypair,
+        wait_for_finalization: Option<bool>,
+    ) -> NapiResult<PromiseRaw<'static, NativeTxOutcome>> {
+        let signer = signer.inner.clone();
+        spawn_tx_outcome(&env, Arc::clone(&self.inner), None, move |client, _| {
+            client.submit_shielded(&call_data, &signer, wait_for_finalization.unwrap_or(true))
+        })
+    }
+
     #[napi(js_name = "rpcValue")]
     pub fn rpc_value(
         &self,
@@ -1142,6 +1299,27 @@ impl NativeClient {
         AsyncTask::new(ClientU64Task::new(Arc::clone(&self.inner), move |client| {
             client.account_next_index(&address)
         }))
+    }
+
+    #[napi(js_name = "reserveNonces")]
+    pub fn reserve_nonces(
+        &self,
+        address: String,
+        count: BigInt,
+    ) -> NapiResult<AsyncTask<ClientU64Task>> {
+        let count = bigint_u64("count", &count)?;
+        Ok(AsyncTask::new(ClientU64Task::new(
+            Arc::clone(&self.inner),
+            move |client| client.reserve_nonces(&address, count),
+        )))
+    }
+
+    #[napi(js_name = "invalidateNonce")]
+    pub fn invalidate_nonce(&self, address: String) -> AsyncTask<ClientUnitTask> {
+        AsyncTask::new(ClientUnitTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.invalidate_nonce(&address),
+        ))
     }
 
     #[napi(js_name = "signExtrinsic")]
@@ -1496,6 +1674,8 @@ pub struct ExecutorPlanTask {
     intent: IntentCall,
     wallet: Wallet,
     check_policy: Option<Policy>,
+    proxy_for: Option<String>,
+    proxy_type: Option<String>,
 }
 
 impl Task for ExecutorPlanTask {
@@ -1504,12 +1684,15 @@ impl Task for ExecutorPlanTask {
 
     fn compute(&mut self) -> napi::Result<Self::Output> {
         let executor = executor_from_parts(&self.client, &self.policy);
-        match &self.check_policy {
-            Some(policy) => executor
-                .plan_with_policy(&self.intent, &self.wallet, policy)
-                .napi(),
-            None => executor.plan(&self.intent, &self.wallet).napi(),
-        }
+        executor
+            .plan_with_proxy(
+                &self.intent,
+                &self.wallet,
+                self.check_policy.as_ref(),
+                self.proxy_for.as_deref(),
+                self.proxy_type.as_deref(),
+            )
+            .napi()
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
@@ -1523,6 +1706,9 @@ pub struct ExecutorExecuteTask {
     intent: IntentCall,
     wallet: Wallet,
     wait_for_finalization: bool,
+    check_policy: Option<Policy>,
+    proxy_for: Option<String>,
+    proxy_type: Option<String>,
 }
 
 impl Task for ExecutorExecuteTask {
@@ -1535,9 +1721,9 @@ impl Task for ExecutorExecuteTask {
             .execute_with(
                 &self.intent,
                 &self.wallet,
-                None,
-                None,
-                None,
+                self.check_policy.as_ref(),
+                self.proxy_for.as_deref(),
+                self.proxy_type.as_deref(),
                 self.wait_for_finalization,
             )
             .napi()
@@ -1601,6 +1787,8 @@ impl NativeExecutor {
             intent: intent.inner.clone(),
             wallet: wallet.inner.clone(),
             check_policy: None,
+            proxy_for: None,
+            proxy_type: None,
         })
     }
 
@@ -1617,6 +1805,8 @@ impl NativeExecutor {
             intent: intent.inner.clone(),
             wallet: wallet.inner.clone(),
             check_policy: Some(policy.inner.clone()),
+            proxy_for: None,
+            proxy_type: None,
         })
     }
 
@@ -1632,6 +1822,51 @@ impl NativeExecutor {
             policy: self.policy.clone(),
             intent: intent.inner.clone(),
             wallet: wallet.inner.clone(),
+            wait_for_finalization: wait_for_finalization.unwrap_or(true),
+            check_policy: None,
+            proxy_for: None,
+            proxy_type: None,
+        })
+    }
+
+    #[napi(js_name = "planWithProxy")]
+    pub fn plan_with_proxy(
+        &self,
+        intent: &NativeIntentCall,
+        wallet: &NativeWallet,
+        policy: Option<&NativePolicy>,
+        proxy_for: Option<String>,
+        proxy_type: Option<String>,
+    ) -> AsyncTask<ExecutorPlanTask> {
+        AsyncTask::new(ExecutorPlanTask {
+            client: Arc::clone(&self.client),
+            policy: self.policy.clone(),
+            intent: intent.inner.clone(),
+            wallet: wallet.inner.clone(),
+            check_policy: policy.map(|policy| policy.inner.clone()),
+            proxy_for,
+            proxy_type,
+        })
+    }
+
+    #[napi(js_name = "executeWith")]
+    pub fn execute_with(
+        &self,
+        intent: &NativeIntentCall,
+        wallet: &NativeWallet,
+        policy: Option<&NativePolicy>,
+        proxy_for: Option<String>,
+        proxy_type: Option<String>,
+        wait_for_finalization: Option<bool>,
+    ) -> AsyncTask<ExecutorExecuteTask> {
+        AsyncTask::new(ExecutorExecuteTask {
+            client: Arc::clone(&self.client),
+            policy: self.policy.clone(),
+            intent: intent.inner.clone(),
+            wallet: wallet.inner.clone(),
+            check_policy: policy.map(|policy| policy.inner.clone()),
+            proxy_for,
+            proxy_type,
             wait_for_finalization: wait_for_finalization.unwrap_or(true),
         })
     }

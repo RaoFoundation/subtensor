@@ -1,14 +1,17 @@
 import {
-  access,
+  access, open, readdir, readFile,
 } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import {
-  CRYPTO_SR25519,
+  CRYPTO_SR25519, CRYPTO_ED25519, DEFAULT_SS58_FORMAT,
   Keypair,
+  keyfileDataIsEncrypted, legacyGetPasswordFromEnvironment, legacySavePasswordToEnvironment,
   writeKeypairPairKeyfile,
 } from './keys'
+import type { ByteLike } from './types'
 
 export const DEFAULT_WALLET_PATH = join(homedir(), '.bittensor', 'wallets')
 
@@ -67,14 +70,64 @@ export interface CreatedWalletKey {
   mnemonic: string
 }
 
+export type WalletKeySource =
+  | { mnemonic: string }
+  | { seed: ByteLike }
+  | { privateKey: string }
+  | { encryptedJson: string; passphrase: string }
+
+export interface PublicWalletKeyOptions {
+  ss58Address?: string
+  publicKey?: ByteLike
+  cryptoType?: number
+  overwrite?: boolean
+}
+
+export interface WalletPasswordOptions {
+  password?: string | null
+  passwordFile?: string
+  /** Optional application-owned keychain or UI callback; the SDK never prompts implicitly. */
+  passwordProvider?: (wallet: Wallet, role: 'coldkey' | 'hotkey') => Promise<string | null>
+}
+
 export class Keyfile {
   readonly path: string
   readonly name: string
 
-  constructor(path: string, name: string) {
+  constructor(path: string, name = basename(path)) {
     this.path = path
     this.name = name
   }
+
+  envVarName(): string { return `BT_PW_${this.path.replaceAll(sep, '_').replaceAll('.', '_').toUpperCase()}` }
+
+  async isReadable(): Promise<boolean> {
+    try { await access(this.path, fsConstants.R_OK); return true } catch { return false }
+  }
+
+  async isWritable(): Promise<boolean> {
+    try { await access(await this.exists() ? this.path : dirname(this.path), fsConstants.W_OK); return true } catch { return false }
+  }
+
+  async isEncrypted(): Promise<boolean> {
+    let handle
+    try {
+      handle = await open(this.path, 'r')
+      const header = Buffer.alloc(16)
+      const { bytesRead } = await handle.read(header, 0, header.length, 0)
+      return keyfileDataIsEncrypted(header.subarray(0, bytesRead))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+      throw error
+    } finally { await handle?.close() }
+  }
+
+  savePasswordToEnv(password: string): string {
+    if (!password) throw new Error('password must not be empty')
+    return legacySavePasswordToEnvironment(this.envVarName(), password)
+  }
+
+  removePasswordFromEnv(): void { delete process.env[this.envVarName()] }
 
   async exists(): Promise<boolean> {
     try {
@@ -86,7 +139,7 @@ export class Keyfile {
   }
 
   getKeypair(password?: string | null): Promise<Keypair> {
-    return Keypair.fromKeyfile(this.path, password ?? undefined)
+    return Keypair.fromKeyfile(this.path, password ?? legacyGetPasswordFromEnvironment(this.envVarName()) ?? undefined)
   }
 
   async setKeypair(keypair: Keypair, options: SaveKeyOptions = {}): Promise<void> {
@@ -237,24 +290,135 @@ export class Wallet {
   }
 
   async regenerateColdkey(
-    mnemonic: string,
+    source: string | WalletKeySource,
     options: RegenerateKeyOptions,
   ): Promise<this> {
-    return this.setColdkey(
-      Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519, options.mnemonicPassword),
-      options,
-    )
+    return this.setColdkey(await keyFromSource(source, options), options)
   }
 
   async regenerateHotkey(
-    mnemonic: string,
+    source: string | WalletKeySource,
     options: RegenerateKeyOptions,
   ): Promise<this> {
-    return this.setHotkey(
-      Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519, options.mnemonicPassword),
-      options,
-    )
+    return this.setHotkey(await keyFromSource(source, options), options)
   }
+
+  async regenerateColdkeypub(options: PublicWalletKeyOptions): Promise<this> {
+    const key = publicKeyFromOptions(options)
+    await this.coldkeypubFile.setKeypair(key, { encrypt: false, overwrite: options.overwrite })
+    this.coldkeypubCache = Promise.resolve(key)
+    return this
+  }
+
+  async regenerateHotkeypub(options: PublicWalletKeyOptions): Promise<this> {
+    const key = publicKeyFromOptions(options)
+    await this.hotkeypubFile.setKeypair(key, { encrypt: false, overwrite: options.overwrite })
+    this.hotkeypubCache = Promise.resolve(key)
+    return this
+  }
+
+  unlockColdkey(password?: string | null): Promise<Keypair> { return password == null ? this.coldkey : this.getColdkey(password) }
+  unlockHotkey(password?: string | null): Promise<Keypair> { return password == null ? this.hotkey : this.getHotkey(password) }
+
+  async signer(role: 'coldkey' | 'hotkey', options: WalletPasswordOptions = {}): Promise<Keypair> {
+    if (role !== 'coldkey' && role !== 'hotkey') throw new TypeError('signer must be coldkey or hotkey')
+    const password = await resolveWalletPassword(this, options, role)
+    return role === 'coldkey' ? this.getColdkey(password) : this.getHotkey(password)
+  }
+
+  /** Drop cached handles so subsequent access must unlock the keyfiles again. */
+  lock(): void {
+    this.coldkeyCache = this.hotkeyCache = undefined
+  }
+}
+
+async function keyFromSource(source: string | WalletKeySource, options: RegenerateKeyOptions): Promise<Keypair> {
+  if (typeof source === 'string') return Keypair.fromMnemonic(source, options.cryptoType ?? CRYPTO_SR25519, options.mnemonicPassword)
+  const present = ['mnemonic', 'seed', 'privateKey', 'encryptedJson'].filter(key => key in source)
+  if (present.length !== 1) throw new TypeError('provide exactly one mnemonic, seed, privateKey, or encryptedJson')
+  if ('mnemonic' in source) return Keypair.fromMnemonic(source.mnemonic, options.cryptoType ?? CRYPTO_SR25519, options.mnemonicPassword)
+  if ('seed' in source) return Keypair.fromSeed(source.seed, options.cryptoType ?? CRYPTO_SR25519)
+  if ('privateKey' in source) return Keypair.fromPrivateKey(source.privateKey, options.cryptoType ?? CRYPTO_SR25519)
+  if (!source.encryptedJson || !source.passphrase) throw new TypeError('encrypted JSON import requires data and passphrase')
+  return Keypair.fromEncryptedJson(source.encryptedJson, source.passphrase)
+}
+
+function publicKeyFromOptions(options: PublicWalletKeyOptions): Keypair {
+  if (options.ss58Address == null && options.publicKey == null) throw new TypeError('provide ss58Address or publicKey')
+  return new Keypair(options.ss58Address, options.publicKey, options.cryptoType ?? CRYPTO_SR25519)
+}
+
+export async function resolveWalletPassword(wallet: Wallet, options: WalletPasswordOptions = {}, role: 'coldkey' | 'hotkey' = 'coldkey'): Promise<string | null> {
+  if (options.password) return options.password
+  if (process.env.BT_WALLET_PASSWORD) return process.env.BT_WALLET_PASSWORD
+  const keyfile = role === 'coldkey' ? wallet.coldkeyFile : wallet.hotkeyFile
+  const saved = legacyGetPasswordFromEnvironment(keyfile.envVarName())
+  if (saved) return saved
+  const file = options.passwordFile ?? process.env.BT_WALLET_PASSWORD_FILE
+  if (file) {
+    const password = (await readFile(file.startsWith('~/') ? join(homedir(), file.slice(2)) : file, 'utf8')).trim()
+    if (!password) throw new Error('wallet password file is empty')
+    return password
+  }
+  return options.passwordProvider ? options.passwordProvider(wallet, role) : null
+}
+
+export function parseCryptoType(value: string | number): number {
+  const text = String(value).trim().toLowerCase()
+  if (text === 'ed25519' || text === '0') return CRYPTO_ED25519
+  if (text === 'sr25519' || text === '1') return CRYPTO_SR25519
+  throw new RangeError('crypto type must be ed25519 or sr25519')
+}
+export function formatCryptoType(value?: number | null): string {
+  return value == null || value === CRYPTO_SR25519 ? 'sr25519' : value === CRYPTO_ED25519 ? 'ed25519' : `unknown(${value})`
+}
+export function isBittensorAddress(value: string): boolean {
+  try { const key = new Keypair(value); return new Keypair(null, key.publicKey, key.cryptoType, DEFAULT_SS58_FORMAT).ss58Address === value } catch { return false }
+}
+
+function naturalCompare(a: string, b: string): number {
+  const left = a.toLowerCase().match(/\d+|\D+/g) ?? [], right = b.toLowerCase().match(/\d+|\D+/g) ?? []
+  for (let i = 0; i < Math.min(left.length, right.length); i++) {
+    const numericA = /^\d+$/.test(left[i]), numericB = /^\d+$/.test(right[i])
+    if (numericA !== numericB) return numericA ? -1 : 1
+    if (numericA) { const x = BigInt(left[i]), y = BigInt(right[i]); if (x !== y) return x < y ? -1 : 1 }
+    else if (left[i] !== right[i]) return left[i] < right[i] ? -1 : 1
+  }
+  return left.length - right.length
+}
+
+export async function listWallets(path = DEFAULT_WALLET_PATH): Promise<Record<string, string[]>> {
+  const result: Record<string, string[]> = Object.create(null)
+  let directories
+  try { directories = await readdir(path, { withFileTypes: true }) } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return result
+    throw error
+  }
+  for (const entry of directories.filter(entry => entry.isDirectory()).sort((a, b) => naturalCompare(a.name, b.name))) {
+    let hotkeys: string[] = []
+    try { hotkeys = (await readdir(join(path, entry.name, 'hotkeys'), { withFileTypes: true }))
+      .filter(key => key.isFile() && !key.name.endsWith('.lock') && !key.name.endsWith('pub.txt'))
+      .map(key => key.name).sort(naturalCompare)
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+    result[entry.name] = hotkeys
+  }
+  return result
+}
+
+export interface WalletKeyInfo { name: string; ss58: string | null; cryptoType: number | null }
+export interface WalletInfo extends WalletKeyInfo { hotkeys: WalletKeyInfo[] }
+export async function listWalletsDetailed(path = DEFAULT_WALLET_PATH): Promise<WalletInfo[]> {
+  const wallets = await listWallets(path)
+  const info = async (file: Keyfile): Promise<{ ss58: string | null; cryptoType: number | null }> => {
+    try { const key = await file.getKeypair(); return { ss58: key.ss58Address, cryptoType: key.cryptoType } } catch { return { ss58: null, cryptoType: null } }
+  }
+  return Promise.all(Object.entries(wallets).map(async ([name, hotkeys]) => {
+    const wallet = new Wallet({ name, path })
+    return { name, ...await info(wallet.coldkeypubFile), hotkeys: await Promise.all(hotkeys.map(async hotkey => {
+      const pair = new Wallet({ name, path, hotkey })
+      return { name: hotkey, ...await info(await pair.hotkeypubFile.exists() ? pair.hotkeypubFile : pair.hotkeyFile) }
+    })) }
+  }))
 }
 
 function validateWalletComponent(value: string, label: string): string {

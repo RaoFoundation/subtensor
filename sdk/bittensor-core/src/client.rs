@@ -29,8 +29,14 @@ use crate::runtime::type_string::TypeSpec;
 use crate::runtime::{Runtime, RuntimeApiMethodInfo, StorageInfo};
 
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
+const ENDPOINT_IDENTITY_TTL: Duration = Duration::from_secs(60);
+#[cfg(test)]
+#[path = "client_endpoint_tests.rs"]
+mod endpoint_identity_tests;
 pub const DEFAULT_RECEIPT_TIMEOUT: Duration = Duration::from_secs(120);
 pub const DEFAULT_ERA_PERIOD: u64 = 64;
+/// The shield pallet accepts only short-lived inner transactions.
+pub const MEV_SHIELD_ERA_PERIOD: u64 = 8;
 const STORAGE_PAGE_SIZE: u64 = 1_000;
 const RAO_PER_TAO: u128 = 1_000_000_000;
 const NONCE_RETRY_LIMIT: usize = 3;
@@ -252,6 +258,7 @@ fn classify_inclusion_finalization(
 pub struct Client {
     endpoints: Vec<String>,
     active_endpoint: RwLock<usize>,
+    validated_endpoints: Mutex<HashMap<usize, Instant>>,
     http: HttpClient,
     next_id: AtomicU64,
     runtime: RwLock<Arc<Runtime>>,
@@ -318,6 +325,7 @@ impl Client {
         Ok(Self {
             endpoints,
             active_endpoint: RwLock::new(active_index),
+            validated_endpoints: Mutex::new(HashMap::from([(active_index, Instant::now())])),
             http,
             next_id: AtomicU64::new(100),
             runtime: RwLock::new(Arc::new(runtime)),
@@ -447,6 +455,12 @@ impl Client {
     pub fn rpc_value(&self, method: &str, params: JsonValue) -> Result<JsonValue, CoreError> {
         let mut last_error = None;
         for (index, endpoint) in self.endpoint_order() {
+            // A fallback must establish the same chain identity before it sees
+            // any application request, especially a signed transaction.
+            if let Err(error) = self.validate_endpoint_genesis(index, &endpoint) {
+                last_error = Some(error);
+                continue;
+            }
             match rpc_request(
                 &self.http,
                 &endpoint,
@@ -459,12 +473,46 @@ impl Client {
                     return Ok(value);
                 }
                 Err(error) if is_transport_rpc_error(&error) => {
+                    self.validated_endpoints
+                        .lock()
+                        .map_err(|_| CoreError::Rpc("endpoint validation lock is poisoned".into()))?
+                        .remove(&index);
                     last_error = Some(error);
                 }
                 Err(error) => return Err(error),
             }
         }
         Err(last_error.unwrap_or_else(|| CoreError::Rpc("all endpoints failed".into())))
+    }
+
+    fn validate_endpoint_genesis(&self, index: usize, endpoint: &str) -> Result<(), CoreError> {
+        if self
+            .validated_endpoints
+            .lock()
+            .map_err(|_| CoreError::Rpc("endpoint validation lock is poisoned".into()))?
+            .get(&index)
+            .is_some_and(|validated| validated.elapsed() < ENDPOINT_IDENTITY_TTL)
+        {
+            return Ok(());
+        }
+        let value = rpc_request(
+            &self.http,
+            endpoint,
+            self.next_id.fetch_add(1, Ordering::Relaxed),
+            "chain_getBlockHash",
+            json!([0]),
+        )?;
+        let genesis = parse_h256(json_string(&value, "endpoint genesis hash")?)?;
+        if genesis != self.genesis_hash {
+            return Err(CoreError::Rpc(format!(
+                "endpoint {endpoint} belongs to another chain"
+            )));
+        }
+        self.validated_endpoints
+            .lock()
+            .map_err(|_| CoreError::Rpc("endpoint validation lock is poisoned".into()))?
+            .insert(index, Instant::now());
+        Ok(())
     }
 
     fn runtime_version(&self) -> Result<RuntimeVersion, CoreError> {
@@ -731,40 +779,64 @@ impl Client {
     }
 
     fn reserve_nonce(&self, address: &str) -> Result<u64, CoreError> {
+        self.reserve_nonces(address, 1)
+    }
+
+    /// Atomically reserve consecutive nonces, including detached plans and the
+    /// carrier/inner pair of a shielded submission. Reservations survive an
+    /// uncertain submission outcome; reconcile the chain and pending pool before
+    /// recovering an unused range with a fresh client.
+    pub fn reserve_nonces(&self, address: &str, count: u64) -> Result<u64, CoreError> {
+        if count == 0 {
+            return Err(CoreError::Policy(
+                "nonce reservation count must be positive".into(),
+            ));
+        }
+        let account = nonce_account_key(address)?;
         let chain_next = self.account_next_index_remote(address)?;
         let mut reservations = self
             .nonce_reservations
             .lock()
             .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
-        let nonce = reservations
-            .get(address)
-            .copied()
-            .unwrap_or(chain_next)
-            .max(chain_next);
-        reservations.insert(address.to_owned(), nonce.saturating_add(1));
-        Ok(nonce)
+        reserve_nonce_range(&mut reservations, account, chain_next, count)
     }
 
     fn commit_nonce(&self, address: &str, nonce: u64) -> Result<(), CoreError> {
+        let account = nonce_account_key(address)?;
         let mut reservations = self
             .nonce_reservations
             .lock()
             .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
         let next = nonce.saturating_add(1);
         reservations
-            .entry(address.to_owned())
+            .entry(account)
             .and_modify(|reserved| *reserved = (*reserved).max(next))
             .or_insert(next);
         Ok(())
     }
 
-    fn invalidate_nonce(&self, address: &str) -> Result<(), CoreError> {
+    /// Reset this account's local reservation floor to the current pending-pool
+    /// nonce. Use only after reconciling every detached or shielded transaction;
+    /// an uncertain timeout or abort alone does not make its nonce reusable.
+    pub fn invalidate_nonce(&self, address: &str) -> Result<(), CoreError> {
+        let account = nonce_account_key(address)?;
         let chain_next = self.account_next_index_remote(address)?;
         let mut reservations = self
             .nonce_reservations
             .lock()
             .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
-        reservations.insert(address.to_owned(), chain_next);
+        reservations.insert(account, chain_next);
+        Ok(())
+    }
+
+    fn release_nonce(&self, address: &str, nonce: u64) -> Result<(), CoreError> {
+        let account = nonce_account_key(address)?;
+        let chain_next = self.account_next_index_remote(address)?;
+        let mut reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        release_nonce_reservation(&mut reservations, account, chain_next, nonce);
         Ok(())
     }
 
@@ -816,15 +888,9 @@ impl Client {
         let current = self.block_number()?;
         let (era, era_block_hash) = match options.period {
             Some(period) if period > 0 => {
-                let birth = era_birth(period, current);
+                let (era, birth) = stored_mortal_era(period, current);
                 let hash = parse_h256(&self.block_hash(Some(birth))?)?;
-                (
-                    Value::record(vec![
-                        ("period".into(), Value::Uint(u128::from(period))),
-                        ("current".into(), Value::Uint(u128::from(current))),
-                    ]),
-                    hash,
-                )
+                (era, hash)
             }
             _ => (Value::str("00"), self.genesis_hash),
         };
@@ -1020,7 +1086,7 @@ impl Client {
     ) -> Result<TxOutcome, CoreError> {
         if let Err(error) = check_cancelled_before_submission(cancelled) {
             if plan.reserved_nonce {
-                self.invalidate_nonce(&plan.signer_address)?;
+                self.release_nonce(&plan.signer_address, plan.params.nonce)?;
             }
             return Err(error);
         }
@@ -1030,14 +1096,14 @@ impl Client {
         {
             Ok(outcome) => outcome,
             Err(error) if plan.reserved_nonce && is_cancelled_before_submission_error(&error) => {
-                self.invalidate_nonce(&plan.signer_address)?;
+                self.release_nonce(&plan.signer_address, plan.params.nonce)?;
                 return Err(error);
             }
             Err(error) => return Err(error),
         };
         if plan.reserved_nonce {
             if is_nonce_pool_rejection(&outcome) {
-                self.invalidate_nonce(&plan.signer_address)?;
+                self.release_nonce(&plan.signer_address, plan.params.nonce)?;
             } else if outcome.block_hash.is_some() {
                 self.commit_nonce(&plan.signer_address, plan.params.nonce)?;
             }
@@ -1057,15 +1123,9 @@ impl Client {
         let current = self.block_number()?;
         let (era, era_block_hash) = match period {
             Some(period) if period > 0 => {
-                let birth = era_birth(period, current);
+                let (era, birth) = stored_mortal_era(period, current);
                 let hash = parse_h256(&self.block_hash(Some(birth))?)?;
-                (
-                    Value::record(vec![
-                        ("period".into(), Value::Uint(u128::from(period))),
-                        ("current".into(), Value::Uint(u128::from(current))),
-                    ]),
-                    hash,
-                )
+                (era, hash)
             }
             _ => (Value::str("00"), self.genesis_hash),
         };
@@ -1169,13 +1229,13 @@ impl Client {
             ) {
                 Ok(outcome) => outcome,
                 Err(error) if !explicit_nonce && is_cancelled_before_submission_error(&error) => {
-                    self.invalidate_nonce(&address)?;
+                    self.release_nonce(&address, nonce)?;
                     return Err(error);
                 }
                 Err(error) => return Err(error),
             };
             if is_nonce_pool_rejection(&outcome) && !explicit_nonce {
-                self.invalidate_nonce(&address)?;
+                self.release_nonce(&address, nonce)?;
                 last = Some(outcome);
                 continue;
             }
@@ -1280,20 +1340,25 @@ impl Client {
         let next_key = self.query("MevShield", "NextKey", &[], None)?;
         let public_key = value_bytes(&next_key)
             .ok_or_else(|| CoreError::Rpc("MevShield.NextKey is unavailable".into()))?;
-        let nonce = self.account_next_index(&signer.ss58_address())?;
-        let (inner, inner_hash) =
-            self.sign_extrinsic(call_data, signer, nonce + 1, Some(DEFAULT_ERA_PERIOD))?;
-        let ciphertext = mlkem::seal(&public_key, &inner, true)?;
+        let nonce = self.reserve_nonces(&signer.ss58_address(), 2)?;
+        let envelope = prepare_shielded_envelope(
+            nonce,
+            |inner_nonce, period| self.sign_extrinsic(call_data, signer, inner_nonce, Some(period)),
+            |inner| mlkem::seal(&public_key, inner, true),
+        )?;
         let outer = self.compose_call(
             "MevShield",
             "submit_encrypted",
-            &Value::record(vec![("ciphertext".into(), Value::Bytes(ciphertext))]),
+            &Value::record(vec![(
+                "ciphertext".into(),
+                Value::Bytes(envelope.ciphertext),
+            )]),
         )?;
         let mut result = self.submit(
             &outer,
             signer,
-            Some(nonce),
-            Some(DEFAULT_ERA_PERIOD),
+            Some(envelope.outer_nonce),
+            Some(envelope.period),
             if wait_for_finalization {
                 TxWait::Finalized
             } else {
@@ -1303,9 +1368,10 @@ impl Client {
         )?;
         if result.success {
             result.data.insert("shielded".into(), Value::Bool(true));
-            result
-                .data
-                .insert("inner_extrinsic_hash".into(), Value::str(inner_hash));
+            result.data.insert(
+                "inner_extrinsic_hash".into(),
+                Value::str(envelope.inner_hash),
+            );
         }
         Ok(result)
     }
@@ -2619,6 +2685,244 @@ fn decode_hex(value: &str) -> Result<Vec<u8>, CoreError> {
 
 fn hex_prefixed(bytes: &[u8]) -> String {
     format!("0x{}", hex::encode(bytes))
+}
+
+fn nonce_account_key(address: &str) -> Result<String, CoreError> {
+    Ok(hex_prefixed(&public_key_from_ss58(address)?))
+}
+
+fn reserve_nonce_range(
+    reservations: &mut HashMap<String, u64>,
+    account: String,
+    chain_next: u64,
+    count: u64,
+) -> Result<u64, CoreError> {
+    if count == 0 {
+        return Err(CoreError::Policy(
+            "nonce reservation count must be positive".into(),
+        ));
+    }
+    let nonce = reservations
+        .get(&account)
+        .copied()
+        .unwrap_or(chain_next)
+        .max(chain_next);
+    let next = nonce
+        .checked_add(count)
+        .ok_or_else(|| CoreError::Policy("nonce reservation overflow".into()))?;
+    reservations.insert(account, next);
+    Ok(nonce)
+}
+
+fn release_nonce_reservation(
+    reservations: &mut HashMap<String, u64>,
+    account: String,
+    chain_next: u64,
+    nonce: u64,
+) {
+    // Only the last reservation can be rolled back. Earlier detached plans or
+    // encrypted inner transactions must never be forgotten by another submit.
+    let reserved = reservations.get(&account).copied().unwrap_or(chain_next);
+    let next = if nonce.checked_add(1) == Some(reserved) {
+        nonce
+    } else {
+        reserved
+    };
+    reservations.insert(account, next.max(chain_next));
+}
+
+#[cfg(test)]
+mod nonce_reservation_tests {
+    use super::{
+        nonce_account_key, release_nonce_reservation, reserve_nonce_range, CoreError, HashMap,
+    };
+    use crate::keys::ss58_from_public;
+
+    #[test]
+    fn shield_pairs_preserve_detached_and_pending_reservations() -> Result<(), CoreError> {
+        let account = nonce_account_key(&ss58_from_public([7; 32], 42))?;
+        let mut reservations = HashMap::new();
+        assert_eq!(
+            reserve_nonce_range(&mut reservations, account.clone(), 10, 1)?,
+            10
+        );
+        assert_eq!(
+            reserve_nonce_range(&mut reservations, account.clone(), 10, 2)?,
+            11
+        );
+        assert_eq!(
+            reserve_nonce_range(&mut reservations, account.clone(), 10, 1)?,
+            13
+        );
+        assert_eq!(reserve_nonce_range(&mut reservations, account, 20, 2)?, 20);
+        Ok(())
+    }
+
+    #[test]
+    fn rejected_ranges_leave_reservations_intact() {
+        let mut reservations = HashMap::new();
+        reservations.insert("account".into(), 9);
+        for (chain_next, count) in [(0, 0), (u64::MAX, 1), (u64::MAX - 1, 2)] {
+            assert!(
+                reserve_nonce_range(&mut reservations, "account".into(), chain_next, count)
+                    .is_err()
+            );
+            assert_eq!(reservations.get("account"), Some(&9));
+        }
+    }
+
+    #[test]
+    fn network_formats_share_account_reservations() -> Result<(), CoreError> {
+        let a = nonce_account_key(&ss58_from_public([7; 32], 42))?;
+        let b = nonce_account_key(&ss58_from_public([7; 32], 0))?;
+        assert_eq!(a, b);
+        let mut reservations = HashMap::new();
+        assert_eq!(reserve_nonce_range(&mut reservations, a, 0, 2)?, 0);
+        assert_eq!(reserve_nonce_range(&mut reservations, b, 0, 1)?, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn cancelled_submit_cannot_release_an_earlier_shield_pair() -> Result<(), CoreError> {
+        let mut reservations = HashMap::new();
+        let account = "account".to_owned();
+        assert_eq!(
+            reserve_nonce_range(&mut reservations, account.clone(), 10, 2)?,
+            10
+        );
+        assert_eq!(
+            reserve_nonce_range(&mut reservations, account.clone(), 10, 1)?,
+            12
+        );
+        release_nonce_reservation(&mut reservations, account.clone(), 10, 12);
+        assert_eq!(
+            reserve_nonce_range(&mut reservations, account.clone(), 10, 1)?,
+            12
+        );
+        assert_eq!(
+            reserve_nonce_range(&mut reservations, account.clone(), 10, 1)?,
+            13
+        );
+        release_nonce_reservation(&mut reservations, account.clone(), 10, 12);
+        assert_eq!(reserve_nonce_range(&mut reservations, account, 10, 1)?, 14);
+        Ok(())
+    }
+}
+
+/// Parent-state runtime APIs check signatures before the next block initializes.
+/// System::BlockHash stores the best head's hash only in that next initialization,
+/// so using the head itself as an era birth makes shield detection fail even when
+/// the carrier can later be included. Anchor to an already stored parent instead.
+fn stored_mortal_era(period: u64, best: u64) -> (Value, u64) {
+    let current = best.saturating_sub(1);
+    (
+        Value::record(vec![
+            ("period".into(), Value::Uint(u128::from(period))),
+            ("current".into(), Value::Uint(u128::from(current))),
+        ]),
+        era_birth(period, current),
+    )
+}
+
+struct ShieldedEnvelope {
+    outer_nonce: u64,
+    period: u64,
+    ciphertext: Vec<u8>,
+    inner_hash: String,
+}
+
+fn prepare_shielded_envelope(
+    nonce: u64,
+    sign_inner: impl FnOnce(u64, u64) -> Result<(Vec<u8>, String), CoreError>,
+    seal: impl FnOnce(&[u8]) -> Result<Vec<u8>, CoreError>,
+) -> Result<ShieldedEnvelope, CoreError> {
+    let inner_nonce = nonce
+        .checked_add(1)
+        .ok_or_else(|| CoreError::Policy("shielded nonce overflow".into()))?;
+    let (inner, inner_hash) = sign_inner(inner_nonce, MEV_SHIELD_ERA_PERIOD)?;
+    let ciphertext = seal(&inner)?;
+    if ciphertext.len() > 8192 {
+        return Err(CoreError::Policy(
+            "shielded ciphertext exceeds 8192 bytes".into(),
+        ));
+    }
+    Ok(ShieldedEnvelope {
+        outer_nonce: nonce,
+        period: MEV_SHIELD_ERA_PERIOD,
+        ciphertext,
+        inner_hash,
+    })
+}
+
+#[cfg(test)]
+mod shielded_envelope_tests {
+    use super::{field, prepare_shielded_envelope, stored_mortal_era, CoreError, Value};
+
+    #[test]
+    fn mortal_era_birth_is_available_in_parent_state_before_block_initialization() {
+        for period in [4, 8, 64, 128, 65536] {
+            for best in [1, 4, 8, 9, 128, 65536, 65537] {
+                let (era, birth) = stored_mortal_era(period, best);
+                assert_eq!(
+                    field(&era, "current"),
+                    Some(&Value::Uint(u128::from(best - 1)))
+                );
+                assert!(
+                    birth < best,
+                    "the parent state's block-hash map excludes the current head"
+                );
+                assert!(
+                    best - birth < period,
+                    "the mortal transaction must remain live"
+                );
+            }
+        }
+        let (genesis, birth) = stored_mortal_era(8, 0);
+        assert_eq!(field(&genesis, "current"), Some(&Value::Uint(0)));
+        assert_eq!(birth, 0);
+    }
+
+    #[test]
+    fn inner_and_carrier_have_runtime_accepted_eras_and_consecutive_nonces() -> Result<(), CoreError>
+    {
+        let envelope = prepare_shielded_envelope(
+            41,
+            |nonce, period| {
+                assert_eq!(nonce, 42);
+                assert_eq!(period, 8);
+                Ok((vec![1, 2, 3], "0xinner".into()))
+            },
+            |bytes| {
+                assert_eq!(bytes, &[1, 2, 3]);
+                Ok(vec![9; 8192])
+            },
+        )?;
+        assert_eq!(envelope.outer_nonce, 41);
+        assert_eq!(envelope.period, 8);
+        assert_eq!(envelope.inner_hash, "0xinner");
+        assert_eq!(envelope.ciphertext.len(), 8192);
+        Ok(())
+    }
+
+    #[test]
+    fn overflowing_nonce_cannot_reach_the_signer() {
+        let result = prepare_shielded_envelope(
+            u64::MAX,
+            |_, _| panic!("must not sign overflowing nonce"),
+            |_| panic!("must not seal"),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn ciphertext_beyond_runtime_bound_cannot_be_submitted() {
+        let result = prepare_shielded_envelope(
+            0,
+            |_, _| Ok((vec![1], "0xinner".into())),
+            |_| Ok(vec![0; 8193]),
+        );
+        assert!(result.is_err());
+    }
 }
 
 #[cfg(test)]

@@ -406,9 +406,6 @@ function rustCorePublicFunctions(directory) {
 
 const coreCoveragePrivateFiles = new Set([
   // Private implementation modules; their public helpers are not crate-public API.
-  // Host-only blocking HTTP SDK; the TS package documents selective native
-  // wrappers separately while browser/async transport remains TypeScript.
-  'client.rs',
   'keys/base58.rs',
   'keys/encrypted_json.rs',
   'signers/hid.rs',
@@ -416,7 +413,90 @@ const coreCoveragePrivateFiles = new Set([
   'timelock/epoch_schedule_vectors.rs',
 ])
 
+// Every public client.rs operation must have an explicit, class-qualified adapter.
+// Multiple Rust overloads share the JS method's options/cancellation argument.
+const coreClientCoverage = new Map(Object.entries({
+  connect: ['native:NativeClient.connect'],
+  connect_many: ['native:NativeClient.connectEndpoints'],
+  endpoint: ['native:NativeClient.endpoint'],
+  read_catalog: ['native:NativeClient.readCatalog'],
+  ss58_format: ['native:NativeClient.ss58Format'],
+  genesis_hash: ['native:NativeClient.genesisHash'],
+  runtime: ['native:NativeClient.runtime'],
+  current_runtime: ['native:NativeClient.currentRuntime'],
+  refresh_runtime: ['native:NativeClient.refreshRuntime'],
+  rpc_value: ['native:NativeClient.rpcValue'],
+  block_hash: ['native:NativeClient.blockHash'],
+  finalized_head: ['native:NativeClient.finalizedHead'],
+  header: ['native:NativeClient.header'],
+  block_number: ['native:NativeClient.blockNumber'],
+  block_time: ['native:NativeClient.blockTime'],
+  blocks: ['node:BrowserChainClient.blocks', 'browser:Client.blocks'],
+  at: ['node:BrowserChainClient.at', 'browser:Client.at'],
+  compose_call: ['native:NativeClient.composeCall'],
+  decode_call: ['native:NativeClient.decodeCall'],
+  decode_scale: ['native:NativeClient.decodeScale'],
+  constant: ['native:NativeClient.constant'],
+  query: ['native:NativeClient.query', 'node:Snapshot.query', 'browser:Snapshot.query'],
+  query_batch: ['native:NativeClient.queryBatch'],
+  query_map: ['native:NativeClient.queryMap', 'node:Snapshot.queryMap', 'browser:Snapshot.queryMap'],
+  runtime_call: ['native:NativeClient.runtimeCall', 'node:Snapshot.runtime', 'browser:Snapshot.runtime'],
+  account_next_index: ['native:NativeClient.accountNextIndex'],
+  reserve_nonces: ['native:NativeClient.reserveNonces'],
+  invalidate_nonce: ['native:NativeClient.invalidateNonce'],
+  chain_info: ['native:NativeClient.chainInfo'],
+  external_signing_plan: ['native:NativeClient.externalSigningPlan'],
+  estimate_fee_external_plan: ['native:NativeClient.estimateFeeExternal'],
+  assemble_external_extrinsic: ['native:NativeClient.assembleExternal'],
+  submit_external: ['native:NativeClient.submitExternal'],
+  submit_external_with_cancel: ['native:NativeClient.submitExternal'],
+  sign_extrinsic: ['native:NativeClient.signExtrinsic'],
+  estimate_fee: ['native:NativeClient.estimateFee'],
+  estimate_weight: ['native:NativeClient.estimateWeight', 'node:BrowserChainClient.estimateWeight'],
+  submit: ['native:NativeClient.submit'],
+  submit_with_cancel: ['native:NativeClient.submit'],
+  submit_encoded: ['native:NativeClient.submitEncoded'],
+  submit_encoded_with_wait: ['native:NativeClient.submitEncoded'],
+  submit_encoded_with_wait_cancelled: ['native:NativeClient.submitEncoded'],
+  submit_shielded: ['native:NativeClient.submitShielded'],
+  balance_rao: ['native:NativeClient.balanceRao', 'node:SnapshotBalancesNamespace.get'],
+  existential_deposit_rao: ['native:NativeClient.existentialDepositRao'],
+  subnets: ['native:NativeClient.subnets'],
+  metagraph: ['native:NativeClient.metagraph'],
+  neurons: ['native:NativeClient.neurons'],
+  subnet_hyperparameters: ['node:BrowserChainClient.subnetHyperparametersRaw'],
+  subnet_hyperparameters_typed: ['native:NativeClient.subnetHyperparameters'],
+  stake_rao: ['native:NativeClient.stakeRao'],
+  quote_stake: ['native:NativeClient.quoteStake'],
+  tao: ['node:Client.tao'],
+}))
+// These are Rust Value pattern-match/accessor conveniences, not network features.
+// The JS wire codec already returns strings, booleans, bigint, Uint8Array and
+// records/tagged records; JS property access and typeof perform these operations.
+const coreClientValueHelpers = new Map([
+  ['field', 'decoded record[name]'],
+  ['variant', 'decoded tagged record[name]'],
+  ['variant_name', 'string discriminant or Object.keys(decoded)[0]'],
+  ['as_str', "typeof value === 'string'"],
+  ['as_u128', "typeof value === 'bigint' with unsigned range checks"],
+  ['as_bool', "typeof value === 'boolean'"],
+  ['value_bytes', 'decoded Uint8Array or hexadecimal bytes'],
+])
+function qualifiedSurface(prefix, surface) {
+  const out = new Set()
+  for (const [name, members] of surface.classes) {
+    for (const member of [...members.instance, ...members.statics]) out.add(`${prefix}:${name}.${member}`)
+  }
+  return out
+}
+
 const coreCoverageAliases = new Map([
+  ['pow/mod.rs#seal', ['powSeal']],
+  ['pow/mod.rs#mine_cpu', ['powMineCpu']],
+  ['pow/opencl.rs#gpu_devices', ['powGpuDevices']],
+  ['pow/opencl.rs#new', ['create']],
+  ['transaction/operations.rs#operation', ['intentOperation']],
+  ['transaction/operations.rs#from_descriptor', ['intentDescriptor']],
   ['codec/batch.rs#decode_map_page', ['decodeMapPairs']],
   ['codec/decode.rs#new', ['fromBytes']],
   ['codec/decode.rs#compact_u128', ['decodeCompactU128']],
@@ -477,24 +557,12 @@ const coreCoverageIntentionalCoreOnly = new Map([
   ['keys/mod.rs#private_key_bytes', 'secret key bytes must not be exportable to JavaScript'],
   ['keys/mod.rs#mnemonic', 'retained recovery phrases are used by Rust keyfile serialization and must not be exported to JavaScript'],
   ['keys/mod.rs#seed_bytes', 'retained recovery seeds are used by Rust keyfile serialization and must not be exported to JavaScript'],
-  ['pow/mod.rs#seal', 'registration challenge sealing belongs to the host-only PoW miner, which has no TS mining API'],
-  ['pow/mod.rs#mine_cpu', 'bounded CPU registration mining requires a TS challenge-refresh workflow that is not exposed yet'],
-  ['pow/opencl.rs#gpu_devices', 'OpenCL device discovery is part of the host-only miner, outside the TS binding surface'],
-  ['pow/opencl.rs#new', 'GpuMiner owns OpenCL resources and has no N-API lifetime wrapper'],
-  ['pow/opencl.rs#devices', 'selected GPU device metadata is tied to the unexposed GpuMiner handle'],
-  ['pow/opencl.rs#mine', 'GPU mining requires the unexposed GpuMiner handle and challenge-refresh workflow'],
   ['runtime/mod.rs#type_ident', 'internal runtime type-name helper; exposed surfaces use typeNameOf/typeSpec'],
   ['transaction.rs#signer', 'Wallet signer selection is internal to the Rust executor wrapper'],
   ['transaction.rs#spend', 'compatibility policy-floor mutator is intentionally not exposed to JS callers'],
   ['transaction.rs#touches', 'compatibility subnet-scope mutator is intentionally not exposed to JS callers'],
   ['transaction.rs#affects_all_subnets', 'scope can only broaden through trusted/raw Rust constructors exposed to JS'],
-  ['transaction.rs#set_take', 'state-dependent constructor remains Rust-native until NativeClient reads are fully lifted'],
-  ['transaction.rs#move_stake_limit', 'cross-subnet price-limit constructor has no TS intent wrapper yet; metadata-driven rawCall remains available'],
-  ['transaction.rs#transfer_stake_and_hotkey', 'cross-hotkey ownership-transfer constructor has no TS intent wrapper yet; metadata-driven rawCall remains available'],
-  ['transaction.rs#batch', 'batching requires live Rust Client encoding and will be exposed with the native-client lift'],
   ['transaction.rs#ok', 'Plan.ok is exposed as the NativePlan.ok data field, not a callable method'],
-  ['transaction.rs#plan_with_proxy', 'proxy execution is an advanced Rust-only executor variant for now'],
-  ['transaction.rs#execute_with', 'proxy/finality executor variant is represented by execute plus policy in JS'],
 ])
 
 function compareCoreCoverage(nativeExpected, wasmExpected, browserWrapperExpected) {
@@ -503,8 +571,20 @@ function compareCoreCoverage(nativeExpected, wasmExpected, browserWrapperExpecte
     ...flattenSurface(wasmExpected),
     ...flattenSurface(browserWrapperExpected),
   ])
+  const qualified = new Set([
+    ...qualifiedSurface('native', nativeExpected),
+    ...qualifiedSurface('node', exportedSurface(parse(path.join(root, 'src', 'client.ts'), 'restore client.ts'), { publicOnly: true })),
+    ...qualifiedSurface('browser', exportedSurface(parse(path.join(root, 'src', 'browser-client.ts'), 'restore browser-client.ts'), { publicOnly: true })),
+  ])
   const failures = []
   for (const item of rustCorePublicFunctions(coreRustRoot)) {
+    if (item.file === 'client.rs') {
+      if (coreClientValueHelpers.has(item.rustName)) continue
+      const targets = coreClientCoverage.get(item.rustName)
+      if (!targets) failures.push(`bittensor-core public function ${item.key} needs an explicit client API mapping`)
+      else for (const target of targets) if (!qualified.has(target)) failures.push(`bittensor-core public function ${item.key} is missing adapter ${target}`)
+      continue
+    }
     if (coreCoveragePrivateFiles.has(item.file)) continue
     if (coreCoverageIntentionalCoreOnly.has(item.key)) continue
     const candidates = coreCoverageAliases.get(item.key) ?? [item.jsName]
@@ -888,6 +968,7 @@ async function semanticParityFailures() {
 }
 
 const nativeClassInterfaces = {
+  NativePowGpuMiner: { instance: 'NativePowGpuMinerHandle', statics: 'NativePowGpuMinerConstructor' },
   NativeKeypair: { instance: 'NativeKeypairHandle' },
   NativeRuntime: { instance: 'NativeRuntimeHandle', statics: 'NativeRuntimeConstructor' },
   NativeCursor: { instance: 'NativeCursorHandle', statics: 'NativeCursorConstructor' },
@@ -911,6 +992,7 @@ const browserWrapperExpected = allowlistedSurface(
     'CRYPTO_ED25519',
     'CRYPTO_SR25519',
     'DEFAULT_SS58_FORMAT',
+    'blake2_256', 'decodeOptionalOpaqueMetadata', 'httpAuth', 'evmAddresses', 'timelock', 'encryptTimelocked', 'decryptTimelocked', 'parseTimelocked',
     'Keypair',
     'Runtime',
     'configureBrowserWasm',
@@ -935,6 +1017,7 @@ const browserWrapperExpected = allowlistedSurface(
     'sealMevShieldTransaction',
     'setDefaultBrowserWasmLoader',
     'ss58FromPublic',
+    'storagePrefixFor',
     'verifySignature',
   ],
   {
@@ -961,6 +1044,7 @@ const browserWrapperExpected = allowlistedSurface(
         'runtimeApis',
         'signaturePayload',
         'signaturePayloadParts',
+        'signerPayload',
         'signedExtensionIdentifiers',
         'specVersion',
         'ss58Format',
@@ -1009,6 +1093,12 @@ const browserWrapperExpected = allowlistedSurface(
 async function main() {
   const nativeExpected = rustBindingSurface(nativeRustRoot, 'napi')
   const wasmExpected = rustBindingSurface(wasmRustRoot, 'wasm_bindgen')
+  if (process.argv.includes('--core-only')) {
+    const failures = compareCoreCoverage(nativeExpected, wasmExpected, browserWrapperExpected)
+    if (failures.length) throw new Error(failures.join('\n'))
+    console.log('Core API source coverage OK, including every client.rs public operation')
+    return
+  }
   const nativeGenerated = exportedSurface(
     parse(nativeGeneratedPath, 'run npm run build:native first'),
   )

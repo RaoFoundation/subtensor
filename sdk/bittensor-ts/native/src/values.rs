@@ -10,6 +10,8 @@
 use std::collections::HashSet;
 
 use bittensor_core::codec::value::{u256_decimal, Value};
+use napi::bindgen_prelude::{BigInt, JsObjectValue, Object, ToNapiValue, Unknown};
+use napi::{Env, Property};
 use serde_json::{json, Map, Number, Value as JsonValue};
 
 use crate::errors::{invalid_arg, NapiResult};
@@ -21,6 +23,76 @@ const TAG_DICT: &str = "dict";
 const MAX_SAFE_INTEGER: i128 = 9_007_199_254_740_991;
 const MIN_SAFE_INTEGER: i128 = -MAX_SAFE_INTEGER;
 const MAX_WIRE_DEPTH: usize = 256;
+
+/// Convert JSON directly rather than using serde's arbitrary-precision number
+/// serialization marker, which N-API's generic serde serializer treats as an object.
+pub fn json_to_js<'env>(env: &'env Env, value: JsonValue) -> NapiResult<Unknown<'env>> {
+    json_to_js_at(env, value, 0)
+}
+
+fn json_to_js_at<'env>(
+    env: &'env Env,
+    value: JsonValue,
+    depth: usize,
+) -> NapiResult<Unknown<'env>> {
+    if depth > MAX_WIRE_DEPTH {
+        return Err(invalid_arg("JSON exceeds maximum nesting depth"));
+    }
+    match value {
+        JsonValue::Number(number) => {
+            let text = number.to_string();
+            if text.contains(['.', 'e', 'E']) {
+                return number
+                    .as_f64()
+                    .filter(|v| v.is_finite())
+                    .ok_or_else(|| invalid_arg("non-finite JSON number"))?
+                    .into_unknown(env);
+            }
+            let integer = text.parse::<i128>().ok();
+            if let Some(integer) =
+                integer.filter(|v| (MIN_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(v))
+            {
+                return (integer as i64).into_unknown(env);
+            }
+            let negative = text.starts_with('-');
+            let digits = text.strip_prefix('-').unwrap_or(&text);
+            let mut words = vec![0u64];
+            for digit in digits.bytes() {
+                let mut carry = u128::from(digit - b'0');
+                for word in &mut words {
+                    let next = u128::from(*word) * 10 + carry;
+                    *word = next as u64;
+                    carry = next >> 64;
+                }
+                if carry != 0 {
+                    words.push(carry as u64);
+                }
+            }
+            BigInt {
+                sign_bit: negative,
+                words,
+            }
+            .into_unknown(env)
+        }
+        JsonValue::Array(items) => items
+            .into_iter()
+            .map(|item| json_to_js_at(env, item, depth + 1))
+            .collect::<NapiResult<Vec<_>>>()?
+            .into_unknown(env),
+        JsonValue::Object(items) => {
+            let mut object = Object::new(env)?;
+            for (name, item) in items {
+                let value = json_to_js_at(env, item, depth + 1)?;
+                // Define an own property even for __proto__, matching JSON.parse.
+                object.define_properties(&[Property::new()
+                    .with_name(env, name)?
+                    .with_value(&value)])?;
+            }
+            object.into_unknown(env)
+        }
+        value => value.into_unknown(env),
+    }
+}
 
 pub fn from_wire(value: JsonValue) -> NapiResult<Value> {
     from_wire_at(value, 0)
