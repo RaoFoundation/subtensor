@@ -10,11 +10,12 @@ DESCRIPTIONS: dict[str, str] = {
         "or closing."
     ),
     "ReferenceUnavailable": (
-        "The subnet has no valid lending price reference. Wait for a valid reference before "
-        "borrowing."
+        "The subnet has no lending price reference. Submit warm_reference for the netuid, then "
+        "wait until valid_after before borrowing."
     ),
     "ReferenceWarmingUp": (
-        "The dedicated lending EMA is still warming up. Retry after its valid_after block."
+        "The dedicated lending EMA is still warming up after warm_reference. Retry after its "
+        "valid_after block."
     ),
     "PositionExists": (
         "This coldkey's existing subnet loan has a different side or hotkey. Use its saved side "
@@ -76,7 +77,8 @@ DESCRIPTIONS: dict[str, str] = {
         "The extrinsic's valid_until block has passed. Resubmit with a later deadline."
     ),
     "SubnetTooNew": (
-        "The subnet has not cleared the new-subnet gate (start call, minimum age, warm refs)."
+        "The subnet has not cleared the new-subnet gate (start call, minimum age, warm_reference "
+        "plus G_ema age, then capacity ramp)."
     ),
     "CustodyHotkey": ("Third-party stake onto the lending custody hotkey is rejected."),
     "ConflictingSizing": (

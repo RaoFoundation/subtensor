@@ -9,8 +9,8 @@
 use super::*;
 use codec::{Decode, Encode};
 use frame_support::{
-    assert_ok, construct_runtime, derive_impl, parameter_types,
-    traits::{ConstU32, ConstU64, Hooks},
+    assert_err, assert_ok, construct_runtime, derive_impl, parameter_types,
+    traits::{ConstU32, ConstU64, Get, Hooks},
     weights::{Weight, WeightMeter},
 };
 use sp_runtime::{
@@ -1804,5 +1804,186 @@ fn hotkey_swap_rewrites_open_by_hotkey_index() {
         );
         assert_eq!(LoanHotkeys::<Test>::get(&hotkey), 0);
         assert_eq!(LoanHotkeys::<Test>::get(&new_hotkey), 1);
+    });
+}
+
+/// Pool + subtoken fixture with **no** direct `References` / `G_ema` inserts.
+/// Mirrors a real chain that has registered a subnet and enabled the subtoken
+/// but has never called `warm_reference`.
+fn cold_lending_ext() -> sp_io::TestExternalities {
+    let mut ext: sp_io::TestExternalities = frame_system::GenesisConfig::<Test>::default()
+        .build_storage()
+        .unwrap()
+        .into();
+    ext.execute_with(|| {
+        System::set_block_number(10);
+        assert_ok!(Lending::initialize_custody());
+        Enabled::<Test>::put(true);
+        // Production §2.3 gate / ramp (not the bypass used by `new_test_ext`).
+        LiftParamsStore::<Test>::put(LiftParams::default());
+        set_registered_at(0);
+        set_subtoken_enabled(true);
+        set_pool(1_000_000_000_000_000, 1_000_000_000_000_000);
+        set_alpha_out(0);
+        set_moving_price(U64F64::from_num(1_000_000u64));
+        assert!(
+            References::<Test>::get(netuid()).is_none(),
+            "cold fixture must not pre-seed References"
+        );
+        assert_eq!(Lifts::<Test>::get(netuid()).g_ema, 0);
+        assert!(!ActiveNets::<Test>::contains_key(netuid()));
+    });
+    ext
+}
+
+#[test]
+fn open_before_warm_reference_fails_without_stuck_state() {
+    cold_lending_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        let params = LiftParams::default();
+        // Past min age so the only missing piece is the reference / G_ema seed.
+        System::set_block_number(params.new_subnet_min_age.saturating_add(10));
+
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                10_000_000_000_000,
+                hotkey,
+                1,
+                1,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SubnetTooNew
+        );
+
+        // Transactional open must not leave a half-seeded book.
+        assert!(References::<Test>::get(netuid()).is_none());
+        assert_eq!(Lifts::<Test>::get(netuid()).g_ema, 0);
+        assert!(!ActiveNets::<Test>::contains_key(netuid()));
+        assert_eq!(ActiveNetCount::<Test>::get(), 0);
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+    });
+}
+
+#[test]
+fn warm_reference_then_open_after_warmup_succeeds() {
+    cold_lending_ext().execute_with(|| {
+        let owner = account(1);
+        let warmer = account(9);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        let params = LiftParams::default();
+        let warmup: u64 = <<Test as Config>::ReferenceWarmup as Get<_>>::get();
+
+        // Past min age + full Cap ramp so a normal open is not SideCapacity-bound.
+        // Seeding G_ema here also satisfies `book.last - registered >= settle_ema_blocks`
+        // because that age exceeds the settle window.
+        let ready = params
+            .new_subnet_min_age
+            .saturating_add(params.new_subnet_ramp)
+            .saturating_add(10);
+        System::set_block_number(ready);
+
+        assert_ok!(Lending::warm_reference(
+            RuntimeOrigin::signed(warmer),
+            netuid()
+        ));
+        let reference = References::<Test>::get(netuid()).unwrap();
+        assert_eq!(reference.valid_after, ready.saturating_add(warmup));
+        let book = Lifts::<Test>::get(netuid());
+        assert!(book.g_ema > 0);
+        assert_eq!(book.last, ready);
+        assert!(ActiveNets::<Test>::contains_key(netuid()));
+
+        // Still inside reference warmup — open must fail cleanly while keeping the seed.
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                10_000_000_000_000,
+                hotkey.clone(),
+                1,
+                1,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SubnetTooNew
+        );
+        assert!(References::<Test>::get(netuid()).is_some());
+        assert!(Lifts::<Test>::get(netuid()).g_ema > 0);
+
+        // Idempotent re-warm does not reset valid_after.
+        assert_ok!(Lending::warm_reference(
+            RuntimeOrigin::signed(account(8)),
+            netuid()
+        ));
+        assert_eq!(
+            References::<Test>::get(netuid()).unwrap().valid_after,
+            reference.valid_after
+        );
+
+        System::set_block_number(reference.valid_after);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            hotkey,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(position.side, Side::Short);
+        assert!(position.principal > 0);
+    });
+}
+
+#[test]
+fn warm_reference_ages_g_ema_via_on_finalize_before_min_age() {
+    cold_lending_ext().execute_with(|| {
+        let warmer = account(9);
+        let params = LiftParams::default();
+        // Warm early so ActiveNets / on_finalize can age G_ema during the min-age wait.
+        System::set_block_number(100);
+        assert_ok!(Lending::warm_reference(
+            RuntimeOrigin::signed(warmer),
+            netuid()
+        ));
+        assert_eq!(Lifts::<Test>::get(netuid()).last, 100);
+
+        // Jump one EMA window; a single finalize advances `book.last` (as live
+        // blocks would have done each step). Gate uses last − registered, not
+        // a separate aging counter.
+        let target = params.settle_ema_blocks.saturating_add(100);
+        System::set_block_number(target);
+        <Lending as Hooks<_>>::on_finalize(target);
+        let book = Lifts::<Test>::get(netuid());
+        assert!(book.g_ema > 0);
+        assert!(book.last.saturating_sub(0) >= params.settle_ema_blocks);
+
+        // Still below min age — opens remain gated.
+        assert!(System::block_number() < params.new_subnet_min_age);
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(account(1)),
+                netuid(),
+                Side::Short,
+                10_000_000_000_000,
+                account(2),
+                1,
+                1,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SubnetTooNew
+        );
     });
 }

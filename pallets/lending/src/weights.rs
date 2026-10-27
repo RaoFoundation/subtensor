@@ -20,6 +20,7 @@ pub trait WeightInfo {
     fn set_enabled() -> Weight;
     fn set_lift_params() -> Weight;
     fn set_min_price_impact() -> Weight;
+    fn warm_reference() -> Weight;
     fn collect() -> Weight;
     fn update_reference() -> Weight;
     fn settle() -> Weight;
@@ -70,6 +71,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
         Weight::from_parts(15_000_000, 1_500)
             .saturating_add(T::DbWeight::get().reads(1_u64))
             .saturating_add(T::DbWeight::get().writes(1_u64))
+    }
+    /// Permissionless reference + G_ema seed (idempotent).
+    fn warm_reference() -> Weight {
+        Weight::from_parts(40_000_000, 4_000)
+            .saturating_add(T::DbWeight::get().reads(8_u64))
+            .saturating_add(T::DbWeight::get().writes(5_u64))
     }
     /// Per-position interest collection (metered in on_idle).
     fn collect() -> Weight {
@@ -129,6 +136,11 @@ impl WeightInfo for () {
         Weight::from_parts(15_000_000, 1_500)
             .saturating_add(RocksDbWeight::get().reads(1_u64))
             .saturating_add(RocksDbWeight::get().writes(1_u64))
+    }
+    fn warm_reference() -> Weight {
+        Weight::from_parts(40_000_000, 4_000)
+            .saturating_add(RocksDbWeight::get().reads(8_u64))
+            .saturating_add(RocksDbWeight::get().writes(5_u64))
     }
     fn collect() -> Weight {
         Weight::from_parts(80_000_000, 8_000)

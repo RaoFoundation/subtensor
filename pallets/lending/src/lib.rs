@@ -810,6 +810,12 @@ pub mod pallet {
             recipient: T::AccountId,
             tao: u64,
         },
+        /// Permissionless seed of the lending reference and G_ema for a subnet.
+        ReferenceWarmed {
+            netuid: NetUid,
+            valid_after: BlockNumberFor<T>,
+            g_ema: u64,
+        },
     }
 
     #[pallet::error]
@@ -1102,6 +1108,23 @@ pub mod pallet {
                 valid_until,
             )
         }
+
+        /// Permissionless seed of the lending reference price and `G_ema` book.
+        ///
+        /// Opens are `#[transactional]` and call `ensure_new_subnet_gate` before
+        /// any reference init. Seeding inside an open that then returns
+        /// `ReferenceWarmingUp` / `SubnetTooNew` would roll back. Call this
+        /// once after subtoken enable; wait for `valid_after` (and the
+        /// new-subnet min age / `G_ema` age gate) before opening.
+        ///
+        /// Idempotent: re-calling after the reference exists returns `Ok` and
+        /// only fills a missing `G_ema` seed / `ActiveNets` entry.
+        #[pallet::call_index(7)]
+        #[pallet::weight(T::WeightInfo::warm_reference())]
+        pub fn warm_reference(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
+            ensure_signed(origin)?;
+            Self::do_warm_reference(netuid)
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -1254,34 +1277,64 @@ pub mod pallet {
             Ok(reference)
         }
 
-        /// Ensure a reference exists (warm up from spot on first activity).
+        /// Require a warm reference previously committed by [`Self::do_warm_reference`].
+        ///
+        /// Does **not** insert: open/raise paths are transactional, so a
+        /// seed-then-`Err(ReferenceWarmingUp)` pattern would roll the insert
+        /// back and leave the subnet permanently unable to create a reference.
         fn ensure_or_init_reference(
             netuid: NetUid,
         ) -> Result<LendingReference<BlockNumberFor<T>>, DispatchError> {
-            if let Some(reference) = References::<T>::get(netuid) {
-                let now = frame_system::Pallet::<T>::block_number();
-                ensure!(now >= reference.valid_after, Error::<T>::ReferenceWarmingUp);
-                return Ok(reference);
-            }
+            Self::ensure_reference_warm(netuid)
+        }
+
+        /// Commit a lending reference and seed `G_ema` for `netuid`.
+        ///
+        /// Returns `Ok` on first seed and on later idempotent calls. Enrolls
+        /// the subnet in `ActiveNets` so `on_finalize` ages the reference EMA
+        /// and `G_ema` without scanning every live subnet.
+        pub fn do_warm_reference(netuid: NetUid) -> DispatchResult {
+            Self::ensure_lending_live(netuid)?;
+            ensure!(T::Pool::subtoken_enabled(netuid), Error::<T>::SubnetTooNew);
             Self::initialize_custody()?;
             let now = frame_system::Pallet::<T>::block_number();
             let spot = T::Pool::current_alpha_price(netuid);
             ensure!(spot.to_bits() > 0, Error::<T>::ReferenceUnavailable);
-            let reference = LendingReference {
-                price: spot,
-                last_updated: now,
-                valid_after: now.saturating_add(T::ReferenceWarmup::get()),
+
+            let (valid_after, created) = if let Some(reference) = References::<T>::get(netuid) {
+                (reference.valid_after, false)
+            } else {
+                let valid_after = now.saturating_add(T::ReferenceWarmup::get());
+                References::<T>::insert(
+                    netuid,
+                    LendingReference {
+                        price: spot,
+                        last_updated: now,
+                        valid_after,
+                    },
+                );
+                (valid_after, true)
             };
-            References::<T>::insert(netuid, reference.clone());
-            Self::note_active_net(netuid);
-            // First open waits for warmup unless we seed g_ema immediately.
-            Lifts::<T>::mutate(netuid, |book| {
+
+            let g_ema = Lifts::<T>::mutate(netuid, |book| {
                 if book.g_ema == 0 {
-                    book.g_ema = Self::g_spot(netuid, book);
+                    book.g_ema = Self::g_spot(netuid, book).max(1);
                     book.last = now.saturated_into();
                 }
+                book.g_ema
             });
-            Err(Error::<T>::ReferenceWarmingUp.into())
+            Self::note_active_net(netuid);
+            // Ensure settlement TAO EMA has a basis once the book is active.
+            let _ = Self::ensure_tao_ema(netuid);
+
+            if created {
+                Self::deposit_event(Event::ReferenceWarmed {
+                    netuid,
+                    valid_after,
+                    g_ema,
+                });
+            }
+            Ok(())
         }
 
         fn g_spot(netuid: NetUid, book: &LiftBook) -> u64 {
@@ -1729,18 +1782,8 @@ pub mod pallet {
                 Error::<T>::SubnetUnavailable
             );
             ensure!(collateral > 0, Error::<T>::AmountTooSmall);
-            let reference = match Self::ensure_or_init_reference(netuid) {
-                Ok(r) => r,
-                Err(e) => {
-                    // Warmup path: if reference was just created, surface warming up.
-                    return Err(e);
-                }
-            };
-            // After first init, reference is warm only after warmup — but for testing
-            // and subsequent opens we need warm. Re-read:
-            let reference = Self::ensure_reference_warm(netuid).unwrap_or(reference);
-            // If still warming, fail:
-            ensure!(now >= reference.valid_after, Error::<T>::ReferenceWarmingUp);
+            // Gate already requires a warm reference; re-check for a clear error.
+            let reference = Self::ensure_or_init_reference(netuid)?;
 
             // Accrue interest before sizing so LTV/capacity use remaining collateral.
             let mut existing = Positions::<T>::get(&owner, netuid);
@@ -2613,9 +2656,7 @@ pub mod pallet {
             );
             Self::ensure_lending_live(netuid)?;
             Self::ensure_new_subnet_gate(netuid)?;
-            let reference = Self::ensure_or_init_reference(netuid)
-                .or_else(|_| Self::ensure_reference_warm(netuid))?;
-            ensure!(now >= reference.valid_after, Error::<T>::ReferenceWarmingUp);
+            let reference = Self::ensure_or_init_reference(netuid)?;
             let params = Self::lift_params();
             let price_before = T::Pool::current_alpha_price(netuid);
 

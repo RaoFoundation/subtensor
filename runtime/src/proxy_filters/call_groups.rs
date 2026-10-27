@@ -138,6 +138,7 @@ call_filter_group!(
         RuntimeCall::Lending(LendingCall::open_exact),
         RuntimeCall::Lending(LendingCall::close),
         RuntimeCall::Lending(LendingCall::repay),
+        RuntimeCall::Lending(LendingCall::warm_reference),
     ]
 );
 

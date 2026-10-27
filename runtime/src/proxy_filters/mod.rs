@@ -786,6 +786,7 @@ mod tests {
                 "Lending::open_exact",
                 "Lending::repay",
                 "Lending::open_long_and_sell",
+                "Lending::warm_reference",
                 "SubtensorModule::add_collateral",
                 "SubtensorModule::add_stake",
                 "SubtensorModule::add_stake_limit",
@@ -1203,7 +1204,7 @@ mod pow_proxy_tests {
         });
         let raise = RuntimeCall::Lending(LendingCall::open_long_and_sell {
             netuid,
-            hotkey,
+            hotkey: hotkey.clone(),
             collateral_alpha: Some(1),
             borrow_tao: None,
             max_collateral_alpha: 1,
@@ -1213,14 +1214,16 @@ mod pow_proxy_tests {
             min_escrow_alpha: 0,
             valid_until: 100,
         });
+        let warm = RuntimeCall::Lending(LendingCall::warm_reference { netuid });
 
-        // Staking / NonTransfer / Any may open, close, repay, and raise.
+        // Staking / NonTransfer / Any may open, close, repay, raise, and warm.
         for proxy in [ProxyType::Staking, ProxyType::NonTransfer, ProxyType::Any] {
             assert!(proxy.filter(&open), "{proxy:?} must allow open");
             assert!(proxy.filter(&open_exact), "{proxy:?} must allow open_exact");
             assert!(proxy.filter(&close), "{proxy:?} must allow close");
             assert!(proxy.filter(&repay), "{proxy:?} must allow repay");
             assert!(proxy.filter(&raise), "{proxy:?} must allow raise");
+            assert!(proxy.filter(&warm), "{proxy:?} must allow warm_reference");
         }
         // Transfer-only, Registration, NonFungible, and RootClaim must not touch lending.
         for proxy in [
@@ -1232,6 +1235,7 @@ mod pow_proxy_tests {
             assert!(!proxy.filter(&open), "{proxy:?} must deny open");
             assert!(!proxy.filter(&close), "{proxy:?} must deny close");
             assert!(!proxy.filter(&raise), "{proxy:?} must deny raise");
+            assert!(!proxy.filter(&warm), "{proxy:?} must deny warm_reference");
         }
     }
 }

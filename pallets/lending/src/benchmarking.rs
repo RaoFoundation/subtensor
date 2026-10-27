@@ -140,6 +140,15 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn warm_reference() {
+        seed_enabled::<T>();
+        let caller: T::AccountId = whitelisted_caller();
+        let netuid = NetUid::from(1u16);
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller), netuid);
+    }
+
+    #[benchmark]
     fn collect() {
         seed_enabled::<T>();
         let now = frame_system::Pallet::<T>::block_number();

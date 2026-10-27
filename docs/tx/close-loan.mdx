@@ -20,7 +20,7 @@ Closing remains available when new borrowing is disabled.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.close`](/code/pallets/lending/src/lib.rs#L975-L995) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.close`](/code/pallets/lending/src/lib.rs#L1012-L1032) |
 
 ## Parameters
 
@@ -75,7 +75,7 @@ result = sub.execute_tool("close_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.close` — [`pallets/lending/src/lib.rs#L978`](/code/pallets/lending/src/lib.rs#L975-L995):
+`Lending.close` — [`pallets/lending/src/lib.rs#L1015`](/code/pallets/lending/src/lib.rs#L1012-L1032):
 
 ```rust
 #[pallet::call_index(2)]

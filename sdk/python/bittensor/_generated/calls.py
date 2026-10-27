@@ -1751,3 +1751,8 @@ class Lending:
     @staticmethod
     def set_lift_params(params: 'LiftParams') -> Call:
         return Call('Lending', 'set_lift_params', {'params': params})
+
+    @staticmethod
+    def warm_reference(netuid: 'NetUid') -> Call:
+        'Permissionless seed of the lending reference price and `G_ema` book.  Opens are `#[transactional]` and call `ensure_new_subnet_gate` before any reference init. Seeding inside an open that then returns `ReferenceWarmingUp` / `SubnetTooNew` would roll back. Call this once after subtoken enable; wait for `valid_after` (and the new-subnet min age / `G_ema` age gate) before opening.  Idempotent: re-calling after the reference exists returns `Ok` and only fills a missing `G_ema` seed / `ActiveNets` entry.'
+        return Call('Lending', 'warm_reference', {'netuid': netuid})
