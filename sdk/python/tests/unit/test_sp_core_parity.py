@@ -42,3 +42,35 @@ def test_keyfile_roundtrip_preserves_signing() -> None:
     message = b"keyfile-roundtrip"
     signature = bytes(restored.sign(message))
     assert original.verify(message, signature)
+
+
+@pytest.mark.parametrize("crypto_type", [CRYPTO_ED25519, CRYPTO_SR25519])
+def test_strict_verifier_omits_only_legacy_wrapper_fallback(crypto_type: int) -> None:
+    key = Keypair.create_from_mnemonic(
+        "abandon abandon abandon abandon abandon abandon "
+        "abandon abandon abandon abandon abandon about",
+        crypto_type,
+    )
+    message = b"strict-verification"
+    signature = bytes(key.sign(message))
+    assert bittensor_core.verify_strict(message, signature, key.ss58_address, crypto_type)
+    assert not bittensor_core.verify_strict(b"changed", signature, key.ss58_address, crypto_type)
+    wrapped = b"<Bytes>" + message + b"</Bytes>"
+    signature = bytes(key.sign(wrapped))
+    assert bittensor_core.verify(message, signature, key.ss58_address, crypto_type)
+    assert not bittensor_core.verify_strict(message, signature, key.ss58_address, crypto_type)
+    assert bittensor_core.verify_strict(wrapped, signature, key.ss58_address, crypto_type)
+    with pytest.raises(ValueError, match="signature length"):
+        bittensor_core.verify_strict(message, signature[:-1], key.ss58_address, crypto_type)
+
+
+def test_pure_password_encoding_matches_legacy_bytes_without_environment_writes() -> None:
+    import os
+
+    name = "WALLET_α"
+    before = os.environ.get(name)
+    password = "pässwörd\0\n"
+    assert bittensor_core.encode_password_for_environment(name, password) == "J4LoPzYjnHjDM0FG"
+    assert os.environ.get(name) == before
+    with pytest.raises(ValueError, match="env var name must not be empty"):
+        bittensor_core.encode_password_for_environment("", password)

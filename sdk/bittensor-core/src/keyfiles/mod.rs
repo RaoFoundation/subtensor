@@ -19,6 +19,8 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::error::CoreError;
 use crate::keys::{ensure_sodium, Keypair, CRYPTO_ED25519, CRYPTO_SR25519};
 
+pub use crate::keyfile_env::{decode_password_from_environment, encode_password_for_environment};
+
 const NACL_SALT: &[u8] = b"\x13q\x83\xdf\xf1Z\t\xbc\x9c\x90\xb5Q\x879\xe9\xb1";
 const LEGACY_SALT: &[u8] = b"Iguesscyborgslikemyselfhaveatendencytobeparanoidaboutourorigins";
 
@@ -94,46 +96,35 @@ pub fn encrypt_keyfile_data(keyfile_data: &[u8], password: &str) -> Result<Vec<u
     Ok(result)
 }
 
-fn xor_with_key(data: &[u8], key: &str) -> Vec<u8> {
-    let key_bytes = key.as_bytes();
-    data.iter()
-        .enumerate()
-        .map(|(index, byte)| byte ^ key_bytes[index % key_bytes.len()])
-        .collect()
-}
-
-fn decrypt_password(data: &[u8], key: &str) -> Result<String, CoreError> {
-    let decrypted_bytes = xor_with_key(data, key);
-    String::from_utf8(decrypted_bytes)
-        .map_err(|_| key_err("invalid wallet password env var: corrupt UTF-8"))
-}
-
 pub fn get_password_from_environment(env_var_name: &str) -> Result<Option<String>, CoreError> {
     if env_var_name.is_empty() {
         return Err(CoreError::Crypto("env var name must not be empty".into()));
     }
     match std::env::var(env_var_name) {
         Ok(encrypted_password_base64) => {
-            let encrypted_password = general_purpose::STANDARD
-                .decode(encrypted_password_base64.trim())
-                .map_err(|_| key_err("invalid base64 in wallet password env var"))?;
-            Ok(Some(decrypt_password(&encrypted_password, env_var_name)?))
+            let encrypted_password_base64 = Zeroizing::new(encrypted_password_base64);
+            Ok(Some(decode_password_from_environment(
+                env_var_name,
+                &encrypted_password_base64,
+            )?))
         }
         Err(_) => Ok(None),
     }
 }
 
+/// Compatibility wrapper that stores the password in the process environment.
+///
+/// This retains the legacy mutation behavior. Prefer the pure
+/// [`encode_password_for_environment`] helper when managing process state
+/// externally; `set_var` can race with reads from other threads.
 pub fn save_password_to_environment(
     env_var_name: &str,
     password: &str,
 ) -> Result<String, CoreError> {
-    if env_var_name.is_empty() {
-        return Err(CoreError::Crypto("env var name must not be empty".into()));
-    }
-    let encrypted = xor_with_key(password.as_bytes(), env_var_name);
+    let encrypted = Zeroizing::new(encode_password_for_environment(env_var_name, password)?);
     // Inherited btwallet behavior: set_var is not thread-safe and can race with
     // concurrent getenv calls from other (non-GIL-holding) threads.
-    std::env::set_var(env_var_name, general_purpose::STANDARD.encode(encrypted));
+    std::env::set_var(env_var_name, encrypted.as_str());
     Ok(env_var_name.to_string())
 }
 
