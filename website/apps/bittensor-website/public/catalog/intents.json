@@ -470,9 +470,9 @@
         "pallet": "LimitOrders",
         "call": "authorize_order",
         "path": "pallets/limit-orders/src/lib.rs",
-        "line": 767,
-        "end_line": 798,
-        "url": "/code/pallets/limit-orders/src/lib.rs#L764-L798",
+        "line": 773,
+        "end_line": 797,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L770-L797",
         "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
       }
     ]
@@ -609,9 +609,9 @@
         "pallet": "LimitOrders",
         "call": "cancel_order",
         "path": "pallets/limit-orders/src/lib.rs",
-        "line": 687,
-        "end_line": 711,
-        "url": "/code/pallets/limit-orders/src/lib.rs#L685-L711",
+        "line": 690,
+        "end_line": 714,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L688-L714",
         "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
       }
     ]
@@ -1256,9 +1256,9 @@
         "pallet": "LimitOrders",
         "call": "execute_batched_orders",
         "path": "pallets/limit-orders/src/lib.rs",
-        "line": 665,
-        "end_line": 678,
-        "url": "/code/pallets/limit-orders/src/lib.rs#L663-L678",
+        "line": 668,
+        "end_line": 681,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L666-L681",
         "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
       }
     ]
@@ -1302,9 +1302,9 @@
         "pallet": "LimitOrders",
         "call": "execute_orders",
         "path": "pallets/limit-orders/src/lib.rs",
-        "line": 613,
-        "end_line": 638,
-        "url": "/code/pallets/limit-orders/src/lib.rs#L611-L638",
+        "line": 616,
+        "end_line": 641,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L614-L641",
         "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
       }
     ]

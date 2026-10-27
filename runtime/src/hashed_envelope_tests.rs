@@ -300,17 +300,9 @@ fn account_metadata_uses_scheme_names_and_contiguous_call_indices() {
                     indices,
                     (0..order_calls.variants.len() as u8).collect::<Vec<_>>()
                 );
-                for name in ["ApprovedOrders", "OrderNonces"] {
-                    assert!(
-                        orders
-                            .storage
-                            .as_ref()
-                            .unwrap()
-                            .entries
-                            .iter()
-                            .any(|e| e.name == name)
-                    );
-                }
+                let storage = &orders.storage.as_ref().unwrap().entries;
+                assert!(storage.iter().any(|entry| entry.name == "ApprovedOrders"));
+                assert!(!storage.iter().any(|entry| entry.name == "OrderNonces"));
             }};
         }
         match metadata.1 {

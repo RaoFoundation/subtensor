@@ -1,12 +1,57 @@
 //! Additional order authorization without changing legacy signed-order bytes.
 
 use crate::*;
-use frame_support::{dispatch::DispatchResult, ensure, traits::Get, transactional};
+use frame_support::{
+    BoundedBTreeMap,
+    dispatch::DispatchResult,
+    ensure,
+    traits::{Get, OnKilledAccount},
+    transactional,
+};
 use sp_runtime::traits::Zero;
 
 pub const ORDER_ID_DOMAIN: &[u8] = b"bittensor/ms/v2/order-id";
 /// Bound account-approved entries independently of legacy batching.
 pub type MaxAuthorizedOrders = ConstU32<8>;
+
+/// At most eight live approvals per existing system account. Terminal and expired
+/// entries are reclaimed on the next approval; the nonce watermark stays bounded.
+pub type MaxPendingOrders = ConstU32<8>;
+
+#[derive(
+    Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen,
+)]
+pub struct OrderApproval {
+    pub id: H256,
+    pub commitment: [u8; 64],
+    pub expiry: u64,
+    pub status: Option<OrderStatus>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+)]
+pub struct AccountOrderApprovals {
+    pub highest_nonce: Option<u64>,
+    pub orders: BoundedBTreeMap<u64, OrderApproval, MaxPendingOrders>,
+}
+
+impl<T: Config> OnKilledAccount<AccountId32> for Pallet<T> {
+    fn on_killed_account(who: &AccountId32) {
+        // One bounded value, with no per-order tombstones left behind. In
+        // particular, this hook must never keep an account alive.
+        ApprovedOrders::<T>::remove(who);
+    }
+}
 
 #[derive(
     Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen,
@@ -162,17 +207,23 @@ impl<T: Config> Pallet<T> {
         order: VersionedOrder<AccountId32>,
     ) -> DispatchResult {
         let order_id = Self::derive_authorized_order_id(nonce, &order);
-        Self::check_order_nonce(&who, nonce, order_id)?;
-        ensure!(
-            !matches!(
-                Orders::<T>::get(order_id),
-                Some(OrderStatus::Fulfilled | OrderStatus::Cancelled)
-            ),
-            Error::<T>::OrderAlreadyProcessed
-        );
-        OrderNonces::<T>::insert(&who, nonce, order_id);
-        Orders::<T>::insert(order_id, OrderStatus::Cancelled);
-        ApprovedOrders::<T>::remove(order_id);
+        ApprovedOrders::<T>::try_mutate_exists(&who, |state| -> DispatchResult {
+            // Cancelling an order that was never approved must not create state.
+            let Some(state) = state else { return Ok(()) };
+            let Some(approval) = state.orders.get_mut(&nonce) else {
+                return Ok(());
+            };
+            ensure!(approval.id == order_id, Error::<T>::OrderNonceUsed);
+            ensure!(
+                !matches!(
+                    approval.status,
+                    Some(OrderStatus::Fulfilled | OrderStatus::Cancelled)
+                ),
+                Error::<T>::OrderAlreadyProcessed
+            );
+            approval.status = Some(OrderStatus::Cancelled);
+            Ok(())
+        })?;
         Self::deposit_event(Event::OrderCancelled {
             order_id,
             signer: who,
@@ -208,11 +259,105 @@ impl<T: Config> Pallet<T> {
         subtensor_hashed::mldsa::shake256_64(&[b"bittensor/ms/v2/order-approval", &terms])
     }
 
-    pub(crate) fn check_order_nonce(owner: &AccountId32, nonce: u64, id: H256) -> DispatchResult {
-        if let Some(existing) = OrderNonces::<T>::get(owner, nonce) {
-            ensure!(existing == id, Error::<T>::OrderNonceUsed);
+    pub(crate) fn approve_order(
+        owner: &AccountId32,
+        nonce: u64,
+        order: &VersionedOrder<AccountId32>,
+    ) -> Result<H256, sp_runtime::DispatchError> {
+        use frame_support::traits::UnixTime;
+        // Derived/proxy origins can exist without a System account. Do not give
+        // them orphaned storage that can never trigger OnKilledAccount.
+        let account = frame_system::Account::<T>::get(owner);
+        ensure!(
+            account.providers > 0 || account.sufficients > 0,
+            Error::<T>::OrderAccountMissing
+        );
+        let id = Self::derive_authorized_order_id(nonce, order);
+        let expiry = order.view().expiry;
+        let now = T::TimeProvider::now().as_millis() as u64;
+        ensure!(now <= expiry, Error::<T>::OrderExpired);
+        ApprovedOrders::<T>::try_mutate(owner, |state| -> DispatchResult {
+            let state = state.get_or_insert_with(AccountOrderApprovals::default);
+            if let Some(existing) = state.orders.get_mut(&nonce) {
+                ensure!(existing.id == id, Error::<T>::OrderNonceUsed);
+                ensure!(
+                    !matches!(
+                        existing.status,
+                        Some(OrderStatus::Fulfilled | OrderStatus::Cancelled)
+                    ),
+                    Error::<T>::OrderAlreadyProcessed
+                );
+                existing.commitment = Self::order_approval_commitment(nonce, order);
+                return Ok(());
+            }
+            ensure!(
+                state.highest_nonce.is_none_or(|highest| nonce > highest),
+                Error::<T>::OrderNonceUsed
+            );
+            state.orders.retain(|_, approval| {
+                now <= approval.expiry
+                    && !matches!(
+                        approval.status,
+                        Some(OrderStatus::Fulfilled | OrderStatus::Cancelled)
+                    )
+            });
+            state
+                .orders
+                .try_insert(
+                    nonce,
+                    OrderApproval {
+                        id,
+                        commitment: Self::order_approval_commitment(nonce, order),
+                        expiry,
+                        status: None,
+                    },
+                )
+                .map_err(|_| Error::<T>::TooManyApprovedOrders)?;
+            state.highest_nonce = Some(nonce);
+            Ok(())
+        })
+        .map(|()| id)
+    }
+
+    pub fn approved_order(owner: &AccountId32, nonce: u64) -> Option<OrderApproval> {
+        ApprovedOrders::<T>::get(owner)?.orders.get(&nonce).cloned()
+    }
+
+    pub(crate) fn order_status(
+        owner: &AccountId32,
+        nonce: Option<u64>,
+        id: H256,
+    ) -> Option<OrderStatus> {
+        if let Some(nonce) = nonce {
+            Self::approved_order(owner, nonce)
+                .filter(|approval| approval.id == id)?
+                .status
+        } else {
+            Orders::<T>::get(id)
         }
-        Ok(())
+    }
+
+    pub(crate) fn set_order_status(
+        owner: &AccountId32,
+        nonce: Option<u64>,
+        id: H256,
+        status: OrderStatus,
+    ) {
+        if let Some(nonce) = nonce {
+            ApprovedOrders::<T>::mutate_exists(owner, |state| {
+                // Asset movement may reap the owner during execution. Never
+                // recreate its approvals or fall back to permanent Orders state.
+                if let Some(approval) = state
+                    .as_mut()
+                    .and_then(|state| state.orders.get_mut(&nonce))
+                    && approval.id == id
+                {
+                    approval.status = Some(status);
+                }
+            });
+        } else {
+            Orders::<T>::insert(id, status);
+        }
     }
 
     pub(crate) fn validate_authorized_order(
@@ -233,14 +378,16 @@ impl<T: Config> Pallet<T> {
             order.chain_id == T::ChainId::get(),
             Error::<T>::ChainIdMismatch
         );
-        Self::check_order_nonce(&order.signer, signed.nonce, id)?;
+        let approval = Self::approved_order(&order.signer, signed.nonce)
+            .ok_or(Error::<T>::OrderNotApproved)?;
+        ensure!(approval.id == id, Error::<T>::OrderNonceUsed);
         let (amount, provider) =
             Self::validate_order_execution(order, signed.partial_fill, id, now_ms, price, relayer)?;
         match &signed.authorization {
             OrderAuthorization::AccountApproved => {
                 ensure!(
-                    ApprovedOrders::<T>::get(id)
-                        == Some(Self::order_approval_commitment(signed.nonce, &signed.order)),
+                    approval.commitment
+                        == Self::order_approval_commitment(signed.nonce, &signed.order),
                     Error::<T>::OrderNotApproved
                 );
             }
@@ -255,12 +402,12 @@ impl<T: Config> Pallet<T> {
         relayer: &AccountId32,
     ) -> DispatchResult {
         use frame_support::traits::UnixTime;
-        let order = signed.order.view();
+        let mut order = signed.order.view();
+        order.authorization_nonce = Some(signed.nonce);
         let now_ms = T::TimeProvider::now().as_millis() as u64;
         let price = T::SwapInterface::current_alpha_price(order.netuid);
         let (amount, provider) =
             Self::validate_authorized_order(&signed, &order, id, now_ms, price, relayer)?;
-        OrderNonces::<T>::insert(&order.signer, signed.nonce, id);
         Self::execute_validated_order(&order, signed.partial_fill, id, amount, provider)?;
         Ok(())
     }
@@ -292,11 +439,6 @@ impl<T: Config> Pallet<T> {
             let (amount, provider) = Self::is_order_valid(&signed, id, now_ms, price, relayer)?;
             if let Some(provider) = provider {
                 ensure!(seen_providers.insert(provider), Error::<T>::NoLinkedOutput);
-            }
-            // This reservation is inside the same storage transaction as all
-            // fills. It also catches conflicting nonces within a single batch.
-            if let Some((nonce, _)) = signed.order.authorized_terms() {
-                OrderNonces::<T>::insert(&order.signer, nonce, id);
             }
             let entry = Self::classify_order(&order, signed.partial_fill, id, amount, provider);
             let side = if entry.side.is_buy() {

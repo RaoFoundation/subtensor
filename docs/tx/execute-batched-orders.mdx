@@ -9,7 +9,7 @@ description: "Relay a bounded order batch through the atomic subnet netting engi
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | LimitOrders | [`LimitOrders.execute_batched_orders`](/code/pallets/limit-orders/src/lib.rs#L663-L678) |
+| `coldkey` | signed account (pallet role may apply) | LimitOrders | [`LimitOrders.execute_batched_orders`](/code/pallets/limit-orders/src/lib.rs#L666-L681) |
 
 ## Parameters
 
@@ -60,7 +60,7 @@ result = sub.execute_tool("execute_batched_orders", {...}, wallet)
 
 ## On-chain implementation
 
-`LimitOrders.execute_batched_orders` — [`pallets/limit-orders/src/lib.rs#L665`](/code/pallets/limit-orders/src/lib.rs#L663-L678):
+`LimitOrders.execute_batched_orders` — [`pallets/limit-orders/src/lib.rs#L668`](/code/pallets/limit-orders/src/lib.rs#L666-L681):
 
 ```rust
 #[pallet::call_index(1)]
@@ -81,6 +81,6 @@ pub fn execute_batched_orders(
 }
 ```
 
-Delegates to [`check_authorized_batch_bound`](/code/pallets/limit-orders/src/authorization.rs#L108).
+Delegates to [`check_authorized_batch_bound`](/code/pallets/limit-orders/src/authorization.rs#L153).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

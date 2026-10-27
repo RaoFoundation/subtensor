@@ -190,7 +190,11 @@ impl<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> VersionedOrd
         match self {
             VersionedOrder::V1(order) => OrderView::from_v1(order),
             VersionedOrder::V2(order) => OrderView::from_v2(order),
-            VersionedOrder::Authorized { terms, .. } => terms.versioned().view(),
+            VersionedOrder::Authorized { nonce, terms } => {
+                let mut view = terms.versioned().view();
+                view.authorization_nonce = Some(*nonce);
+                view
+            }
         }
     }
 
@@ -273,6 +277,7 @@ pub enum OrderStatus {
 #[derive(Debug, PartialEq)]
 pub(crate) struct OrderEntry<AccountId> {
     pub(crate) order_id: H256,
+    pub(crate) authorization_nonce: Option<u64>,
     pub(crate) signer: AccountId,
     pub(crate) hotkey: AccountId,
     pub(crate) side: OrderType,
@@ -382,18 +387,12 @@ pub mod pallet {
     #[pallet::storage]
     pub type Orders<T: Config> = StorageMap<_, Blake2_128Concat, H256, OrderStatus, OptionQuery>;
 
-    /// Owner-approved complete nonce-bound order commitments.
+    /// Bounded approvals and replay watermark, removed with the System account.
     #[pallet::storage]
     pub type ApprovedOrders<T: Config> =
-        StorageMap<_, Blake2_128Concat, H256, [u8; 64], OptionQuery>;
+        StorageMap<_, Blake2_128Concat, AccountId32, AccountOrderApprovals, OptionQuery>;
 
-    /// A nonce can name only one canonical order, including after cancellation.
-    #[pallet::storage]
-    pub type OrderNonces<T: Config> =
-        StorageDoubleMap<_, Blake2_128Concat, AccountId32, Twox64Concat, u64, H256, OptionQuery>;
-
-    /// Switch to enable/disable the pallet.
-    /// Defaults to `false` so bare node deployments are safe; genesis sets it to `true`.
+    /// Switch to enable/disable the pallet; genesis enables configured deployments.
     #[pallet::storage]
     pub type LimitOrdersEnabled<T: Config> = StorageValue<_, bool, ValueQuery, ConstBool<false>>;
 
@@ -541,7 +540,7 @@ pub mod pallet {
         LinkedOutputNotPrunable,
         /// The order owner is temporarily prohibited from moving funds.
         OrderSignerFrozen,
-        /// The owner nonce already names a different canonical order.
+        /// The nonce was already consumed or names a different canonical order.
         OrderNonceUsed,
         /// This full order has not been approved by its authenticated owner.
         OrderNotApproved,
@@ -549,6 +548,10 @@ pub mod pallet {
         OrderBatchTooLarge,
         /// Nonce-bearing terms and proof authorization must use the same mode.
         InvalidAuthorizationMode,
+        /// The owner already has eight live account-approved orders.
+        TooManyApprovedOrders,
+        /// The owner must have an existing System account to hold approvals.
+        OrderAccountMissing,
     }
 
     // ── Hooks ─────────────────────────────────────────────────────────────────
@@ -760,6 +763,9 @@ pub mod pallet {
             Ok(())
         }
         /// Approve every economic term through the owner's normal origin.
+        /// The owner must have a live System account and may hold eight live approvals.
+        /// New nonces must increase. Terminal/expired slots are reclaimed here;
+        /// account reaping removes all approvals without retaining any balance.
         /// The explicit Authorized order includes its replay-protection nonce.
         #[pallet::call_index(5)]
         #[pallet::weight(T::WeightInfo::authorize_order())]
@@ -781,14 +787,7 @@ pub mod pallet {
                 T::AuthenticatedOrderSignerFilter::contains(&who),
                 Error::<T>::OrderSignerFrozen
             );
-            let id = Self::derive_authorized_order_id(nonce, &terms);
-            Self::check_order_nonce(&who, nonce, id)?;
-            ensure!(
-                !Orders::<T>::contains_key(id),
-                Error::<T>::OrderAlreadyProcessed
-            );
-            OrderNonces::<T>::insert(&who, nonce, id);
-            ApprovedOrders::<T>::insert(id, Self::order_approval_commitment(nonce, &terms));
+            let id = Self::approve_order(&who, nonce, &terms)?;
             Self::deposit_event(Event::OrderApproved {
                 order_id: id,
                 signer: who,
@@ -1034,7 +1033,7 @@ partial fills {partial}, signer {signer}{tail}",
             if let Some(signed) = Self::authenticated_order(signed_order)? {
                 return Self::validate_authorized_order(
                     &signed,
-                    &signed.order.view(),
+                    &signed_order.order.view(),
                     order_id,
                     now_ms,
                     current_price,
@@ -1091,7 +1090,8 @@ partial fills {partial}, signer {signer}{tail}",
             current_price: U64F64,
             relayer: &AccountId32,
         ) -> Result<(u64, Option<H256>), DispatchError> {
-            let order_status = Orders::<T>::get(order_id);
+            let order_status =
+                Self::order_status(&order.signer, order.authorization_nonce, order_id);
             ensure!(
                 order_status != Some(OrderStatus::Fulfilled),
                 Error::<T>::OrderAlreadyProcessed
@@ -1252,6 +1252,8 @@ partial fills {partial}, signer {signer}{tail}",
         /// `fill_amount`, and returns `Fulfilled` when the total reaches `order_amount`.
         /// Pass `None` for `fill_amount` when the order is being fully executed in one shot.
         pub(crate) fn compute_order_status(
+            owner: &AccountId32,
+            authorization_nonce: Option<u64>,
             order_id: H256,
             fill_amount: Option<u64>,
             order_amount: u64,
@@ -1259,12 +1261,13 @@ partial fills {partial}, signer {signer}{tail}",
             let Some(fill) = fill_amount else {
                 return OrderStatus::Fulfilled;
             };
-            let already_filled =
-                if let Some(OrderStatus::PartiallyFilled(n)) = Orders::<T>::get(order_id) {
-                    n
-                } else {
-                    0
-                };
+            let already_filled = if let Some(OrderStatus::PartiallyFilled(n)) =
+                Self::order_status(owner, authorization_nonce, order_id)
+            {
+                n
+            } else {
+                0
+            };
             let new_total = already_filled.saturating_add(fill);
             if new_total >= order_amount {
                 OrderStatus::Fulfilled
@@ -1368,8 +1371,14 @@ partial fills {partial}, signer {signer}{tail}",
             }
 
             // Mark as fulfilled or partially filled and emit event.
-            let status = Self::compute_order_status(order_id, partial_fill, amount);
-            Orders::<T>::insert(order_id, status);
+            let status = Self::compute_order_status(
+                &order.signer,
+                order.authorization_nonce,
+                order_id,
+                partial_fill,
+                amount,
+            );
+            Self::set_order_status(&order.signer, order.authorization_nonce, order_id, status);
 
             Self::record_linked_output(
                 order_id,
@@ -1639,6 +1648,7 @@ partial fills {partial}, signer {signer}{tail}",
 
             OrderEntry {
                 order_id,
+                authorization_nonce: order.authorization_nonce,
                 signer: order.signer.clone(),
                 hotkey: order.hotkey.clone(),
                 side: order.order_type.clone(),
@@ -1793,8 +1803,14 @@ partial fills {partial}, signer {signer}{tail}",
                     false, // validate_sender: skip — pallet intermediary needs no validation
                     true,  // set_receiver_limit: rate-limit the buyer after they receive stake
                 )?;
-                let status = Self::compute_order_status(e.order_id, e.partial_fill, e.order_amount);
-                Orders::<T>::insert(e.order_id, status);
+                let status = Self::compute_order_status(
+                    &e.signer,
+                    e.authorization_nonce,
+                    e.order_id,
+                    e.partial_fill,
+                    e.order_amount,
+                );
+                Self::set_order_status(&e.signer, e.authorization_nonce, e.order_id, status);
                 if let Some(provider) = e.provider {
                     Self::consume_linked_output(provider, e.order_id, e.order_amount)?;
                 }
@@ -1884,8 +1900,14 @@ partial fills {partial}, signer {signer}{tail}",
                     &e.signer,
                     TaoBalance::from(net_share),
                 )?;
-                let status = Self::compute_order_status(e.order_id, e.partial_fill, e.order_amount);
-                Orders::<T>::insert(e.order_id, status);
+                let status = Self::compute_order_status(
+                    &e.signer,
+                    e.authorization_nonce,
+                    e.order_id,
+                    e.partial_fill,
+                    e.order_amount,
+                );
+                Self::set_order_status(&e.signer, e.authorization_nonce, e.order_id, status);
                 if let Some(provider) = e.provider {
                     Self::consume_linked_output(provider, e.order_id, e.order_amount)?;
                 }

@@ -482,8 +482,7 @@ class AlphaAssets:
 
 class LimitOrders:
     Orders = Item('LimitOrders', 'Orders', 'OrderStatus')
-    ApprovedOrders = Item('LimitOrders', 'ApprovedOrders', '[u8; 64]')
-    OrderNonces = Item('LimitOrders', 'OrderNonces', 'H256')
+    ApprovedOrders = Item('LimitOrders', 'ApprovedOrders', 'AccountOrderApprovals')
     LimitOrdersEnabled = Item('LimitOrders', 'LimitOrdersEnabled', 'bool')
     LinkedOutputs = Item('LimitOrders', 'LinkedOutputs', 'LinkedOutput')
     HasMigrationRun = Item('LimitOrders', 'HasMigrationRun', 'bool')

@@ -133,8 +133,18 @@ DESCRIPTIONS: dict[str, str] = {
         "executed. Retry once the owner's freeze has lifted."
     ),
     "OrderNonceUsed": (
-        "This owner already bound the nonce to different order bytes. Keep the original "
-        "order or allocate a new nonce; cancellation does not make a nonce reusable."
+        "The nonce was already used or names different order bytes. For a new approval, "
+        "choose a nonce greater than ApprovedOrders.highest_nonce; cancellation and expiry "
+        "do not reset that watermark."
+    ),
+    "TooManyApprovedOrders": (
+        "The owner already has eight live approvals. Cancel or complete an existing order, "
+        "or wait for its expiry, before approving another."
+    ),
+    "OrderAccountMissing": (
+        "The approval owner has no live System account. Fund the owner with the normal "
+        "existential balance before approving an order; no registration or extra deposit "
+        "is required."
     ),
     "OrderNotApproved": (
         "The account-approved order has no matching on-chain owner approval. Execute "
