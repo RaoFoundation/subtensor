@@ -7,13 +7,13 @@
 //! Focused unit tests for lift-based lending v5.1 (Jacob §13 / §13.2).
 
 use super::*;
+use crate::weights::WeightInfo;
 use codec::{Decode, Encode};
 use frame_support::{
     BoundedVec, assert_err, assert_ok, construct_runtime, derive_impl, parameter_types,
     traits::{ConstU32, ConstU64, Get, Hooks},
     weights::{Weight, WeightMeter, constants::RocksDbWeight},
 };
-use crate::weights::WeightInfo;
 use sp_runtime::{
     AccountId32, BuildStorage,
     traits::{BlakeTwo256, IdentityLookup},
@@ -2342,15 +2342,18 @@ fn dissolution_before_expiry_wins() {
         assert!(Lending::settle_lending(netuid(), &mut meter));
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
         // Expiry queue entry cleared by remove_position during dissolution.
-        assert!(!Expiry::<Test>::contains_key(expires_at, (&owner, netuid())));
+        assert!(!Expiry::<Test>::contains_key(
+            expires_at,
+            (&owner, netuid())
+        ));
 
         // Advancing to the old expiry must not emit Expired (already settled).
         System::set_block_number(expires_at);
         System::reset_events();
         let _ = <Lending as Hooks<_>>::on_idle(expires_at, Weight::MAX);
-        let saw_expired = System::events().into_iter().any(|e| {
-            matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. }))
-        });
+        let saw_expired = System::events()
+            .into_iter()
+            .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. })));
         assert!(!saw_expired);
     });
 }
