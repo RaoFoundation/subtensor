@@ -56,8 +56,15 @@ jobs:
         run: |
           # RUSTSEC-2026-0020/0021/0085..0096/0222: wasmtime 8.0.1, pinned by
           #   the polkadot-sdk fork's sc-executor; fixed only by a major SDK bump.
-          # RUSTSEC-2026-0098/0099/0104: rustls-webpki 0.101 via the fork's
-          #   libp2p networking stack.
+          # RUSTSEC-2026-0098/0099/0104/0382: rustls-webpki 0.101 via the fork's
+          #   libp2p-tls stack. 0382 is fixed for the web PKI path by
+          #   rustls-webpki 0.103.16; 0.101 stays until libp2p 0.54 is bumped.
+          # RUSTSEC-2026-0381: webpki-roots 0.25.4 is pinned by libp2p-websocket
+          #   0.44.0 (libp2p 0.54.1). That client verifies with rustls 0.23 /
+          #   rustls-webpki 0.103.16, which rejects the distrusted emSign
+          #   intermediate keys. webpki-root-certs 1.0.10 drops the root from
+          #   the bundle that can move. Revisit when libp2p-websocket can take
+          #   webpki-roots >= 0.26.11.
           # RUSTSEC-2026-0118/0119: hickory-proto via libp2p-dns (fork tree).
           # RUSTSEC-2026-0204: crossbeam-epoch via the fork tree.
           # RUSTSEC-2025-0137 / RUSTSEC-2026-0220: ruint via the frontier/EVM
@@ -97,6 +104,8 @@ jobs:
                       --ignore RUSTSEC-2026-0098 \
                       --ignore RUSTSEC-2026-0099 \
                       --ignore RUSTSEC-2026-0104 \
+                      --ignore RUSTSEC-2026-0381 \
+                      --ignore RUSTSEC-2026-0382 \
                       --ignore RUSTSEC-2026-0118 \
                       --ignore RUSTSEC-2026-0119 \
                       --ignore RUSTSEC-2026-0204 \
