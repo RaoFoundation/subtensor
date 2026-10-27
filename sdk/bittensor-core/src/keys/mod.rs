@@ -25,10 +25,7 @@ mod hashed;
 pub use hashed::{verify_hashed_authorization, HashedKeypair};
 mod falcon;
 mod mldsa;
-pub use mldsa::{
-    verify_mldsa_authorization, verify_mldsa_capability, MldsaCapabilityProof, MldsaKeypair,
-    ROLE_MESSAGE, ROLE_ORDER, ROLE_TRANSACTION,
-};
+pub use mldsa::{verify_mldsa_authorization, MldsaKeypair, ROLE_TRANSACTION};
 mod receiving;
 pub use receiving::{
     decode_hashed_receiving_address, decode_mldsa_receiving_address,
@@ -601,7 +598,7 @@ impl Keypair {
             KeypairInner::Sr25519(pair) => Ok(as_bytes(&pair.sign(message))),
             KeypairInner::Hashed(_) => self.sign_hashed_message(message),
             KeypairInner::Mldsa(_) => Err(crypto_err(
-                "post-quantum message signing requires an explicit registered capability and epoch",
+                "post-quantum arbitrary message signing is not supported",
             )),
             KeypairInner::PublicOnly { .. } => {
                 Err(crypto_err("no private key set to create signatures"))

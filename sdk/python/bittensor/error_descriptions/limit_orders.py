@@ -141,13 +141,13 @@ DESCRIPTIONS: dict[str, str] = {
         "authorize_order through the owner's authority with the exact nonce and order."
     ),
     "OrderBatchTooLarge": (
-        "The batch contains more than eight account-approved or ML-DSA-authorized orders. "
+        "The batch contains more than eight account-approved orders. "
         "Split execution into supported batches, retaining each signed order's original "
         "bytes and nonce. Classical orders retain the pallet's original total batch limit."
     ),
     "InvalidAuthorizationMode": (
         "The order terms and authorization scheme do not match. Classical signatures require "
-        "original V1 or V2 terms; account approval and ML-DSA proofs require Authorized terms "
+        "original V1 or V2 terms; account approval requires Authorized terms "
         "containing the owner-local nonce. Prepare and authorize the complete order again."
     ),
 }

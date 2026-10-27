@@ -204,9 +204,9 @@ btcli multisig add treasury --account-mode safe \\
             wallet.
           </p>
           <p>
-            MS message signatures, HTTP authentication, and detached orders use dedicated,
-            owner-approved capabilities. These need their own setup and verifier support; they are
-            separate from account registration. The{' '}
+            MS wallets approve limit orders through a normal signed <code>authorize_order</code>{' '}
+            transaction. Arbitrary message signatures and HTTP authentication are not supported
+            for MS wallets. The{' '}
             <DocLink href='/docs/guides/wallet-crypto-types'>wallet guide</DocLink> explains the
             supported interfaces and recovery steps.
           </p>

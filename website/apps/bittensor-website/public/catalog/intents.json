@@ -470,9 +470,9 @@
         "pallet": "LimitOrders",
         "call": "authorize_order",
         "path": "pallets/limit-orders/src/lib.rs",
-        "line": 769,
-        "end_line": 800,
-        "url": "/code/pallets/limit-orders/src/lib.rs#L766-L800",
+        "line": 767,
+        "end_line": 798,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L764-L798",
         "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
       }
     ]
@@ -609,9 +609,9 @@
         "pallet": "LimitOrders",
         "call": "cancel_order",
         "path": "pallets/limit-orders/src/lib.rs",
-        "line": 689,
-        "end_line": 713,
-        "url": "/code/pallets/limit-orders/src/lib.rs#L687-L713",
+        "line": 687,
+        "end_line": 711,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L685-L711",
         "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
       }
     ]
@@ -1256,17 +1256,17 @@
         "pallet": "LimitOrders",
         "call": "execute_batched_orders",
         "path": "pallets/limit-orders/src/lib.rs",
-        "line": 667,
-        "end_line": 680,
-        "url": "/code/pallets/limit-orders/src/lib.rs#L665-L680",
+        "line": 665,
+        "end_line": 678,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L663-L678",
         "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
       }
     ]
   },
   {
     "name": "execute_orders",
-    "summary": "Relay classical orders and up to eight account-approved or post-quantum orders.",
-    "description": "Relay classical orders and up to eight account-approved or post-quantum orders.\n\nEach signed order includes complete terms, its signature, and an optional\npartial fill. Authorized terms also bind an owner-local nonce. With\nshould_fail true, any failed order reverts the whole batch.",
+    "summary": "Relay classical orders and up to eight account-approved orders.",
+    "description": "Relay classical orders and up to eight account-approved orders.\n\nEach signed order includes complete terms, its signature, and an optional\npartial fill. Authorized terms also bind an owner-local nonce. With\nshould_fail true, any failed order reverts the whole batch.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1302,9 +1302,9 @@
         "pallet": "LimitOrders",
         "call": "execute_orders",
         "path": "pallets/limit-orders/src/lib.rs",
-        "line": 615,
-        "end_line": 640,
-        "url": "/code/pallets/limit-orders/src/lib.rs#L613-L640",
+        "line": 613,
+        "end_line": 638,
+        "url": "/code/pallets/limit-orders/src/lib.rs#L611-L638",
         "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
       }
     ]
@@ -1514,63 +1514,6 @@
         "end_line": 529,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L521-L529",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
-      }
-    ]
-  },
-  {
-    "name": "install_order_capability",
-    "summary": "Grant a revocable post-quantum order key with an explicit trading scope.",
-    "description": "Grant a revocable post-quantum order key with an explicit trading scope.\n\nA permanent epoch tombstone prevents revoked signatures from becoming\nvalid after reinstalling. Expiry is a block number, not an order timestamp.\nUnrestrictedTrading explicitly permits every trade until expiry/revocation.",
-    "signer": "coldkey",
-    "origin": "signed",
-    "verify": null,
-    "wraps": [
-      [
-        "HashedAccounts",
-        "install_capability"
-      ]
-    ],
-    "docs_url": "/docs/tx/install-order-capability",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "expected_epoch": {
-          "type": "integer",
-          "description": "Finalized owner/Order epoch plus one."
-        },
-        "key_commitment": {
-          "type": "string",
-          "description": "64-byte commitment to the post-quantum order public key, in hex."
-        },
-        "expires_at": {
-          "type": "integer",
-          "description": "Inclusive chain block-number expiry."
-        },
-        "scope": {
-          "type": "object",
-          "description": "Explicit Trading bounds, or UnrestrictedTrading."
-        }
-      },
-      "required": [
-        "expected_epoch",
-        "key_commitment",
-        "expires_at",
-        "scope"
-      ],
-      "additionalProperties": false
-    },
-    "cli": "btcli tx install-order-capability --expected-epoch <int> --key-commitment <value> --expires-at <int> --scope '<json>'",
-    "python_class": "InstallOrderCapability",
-    "markdown_url": "/llms.mdx/docs/tx/install-order-capability/content.md",
-    "sources": [
-      {
-        "pallet": "HashedAccounts",
-        "call": "install_capability",
-        "path": "pallets/hashed-accounts/src/lib.rs",
-        "line": 319,
-        "end_line": 328,
-        "url": "/code/pallets/hashed-accounts/src/lib.rs#L316-L328",
-        "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
       }
     ]
   },
@@ -2905,41 +2848,6 @@
         "end_line": 284,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L273-L284",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
-      }
-    ]
-  },
-  {
-    "name": "revoke_order_capability",
-    "summary": "Revoke the active order key and permanently advance its epoch tombstone.",
-    "description": "Revoke the active order key and permanently advance its epoch tombstone.",
-    "signer": "coldkey",
-    "origin": "signed",
-    "verify": null,
-    "wraps": [
-      [
-        "HashedAccounts",
-        "revoke_capability"
-      ]
-    ],
-    "docs_url": "/docs/tx/revoke-order-capability",
-    "input_schema": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "additionalProperties": false
-    },
-    "cli": "btcli tx revoke-order-capability",
-    "python_class": "RevokeOrderCapability",
-    "markdown_url": "/llms.mdx/docs/tx/revoke-order-capability/content.md",
-    "sources": [
-      {
-        "pallet": "HashedAccounts",
-        "call": "revoke_capability",
-        "path": "pallets/hashed-accounts/src/lib.rs",
-        "line": 333,
-        "end_line": 336,
-        "url": "/code/pallets/hashed-accounts/src/lib.rs#L330-L336",
-        "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
       }
     ]
   },

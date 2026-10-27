@@ -22,7 +22,6 @@ import bittensor as bt
 from bittensor._transport.contract import SignedExtrinsic
 from bittensor._transport.errors import SubstrateRequestException
 from bittensor.evm.addresses import h160_to_ss58
-from bittensor.mldsa import install_message_capability, message_capability
 from bittensor.mldsa_signing import PreparedMldsaExtrinsic, sign_prepared_mldsa
 from bittensor.receiving import receiving_address
 from bittensor.sp_core import Keypair, is_stateless_pq, ss58_decode, ss58_encode
@@ -191,7 +190,7 @@ async def test_standard_ms_separate_evm_wallet_round_trip(tmp_path):
 
 
 @pytest.mark.parametrize("code", [7, 8])
-async def test_offline_replay_capabilities_native_evm_and_derived_accounts(code):
+async def test_offline_replay_native_evm_and_derived_accounts(code):
     key = Keypair.create_from_seed(os.urandom(32), code)
     receipts = []
     async with bt.Client(ENDPOINT, fallback_endpoints=[], archive_endpoints=[]) as client:
@@ -265,30 +264,6 @@ async def test_offline_replay_capabilities_native_evm_and_derived_accounts(code)
                 "authority_after_valid_submission_and_replay": after,
             }
         )
-
-        # Hex-looking text and non-UTF8 audiences must never collapse to the
-        # same bytes. Revocation and replacement consume monotonically new epochs.
-        for epoch, audience in enumerate((b"0xff", b"\xff"), 1):
-            await submit(
-                install_message_capability(
-                    key, epoch=epoch, expires_at=await client.block() + 10_000, audience=audience
-                )
-            )
-            cap = await message_capability(client._substrate, key.ss58_address, audience)
-            other = b"\xff" if audience == b"0xff" else b"0xff"
-            with pytest.raises(ValueError, match="audience"):
-                await message_capability(client._substrate, key.ss58_address, other)
-            message = bt.wallets.sign_message_key("live capability", key, message_capability=cap)
-            assert bt.wallets.verify_message(
-                "live capability",
-                message["signature"],
-                key.ss58_address,
-                code,
-                message_capability=cap,
-            )
-        await submit(bt.calls.HashedAccounts.revoke_capability(role="Message"))
-        with pytest.raises(ValueError, match="no active"):
-            await message_capability(client._substrate, key.ss58_address, b"\xff")
 
         # Fixed accounts use the ordinary EVM mirror balance. Registered rotating
         # accounts bind their permanent H160 alias to their native balance.
@@ -523,7 +498,7 @@ async def test_two_of_three_all_mixed_quorums_and_runtime_rejection_of_weak_quor
 
 
 @pytest.mark.parametrize("code", [7, 8])
-async def test_original_limit_order_execution_cancellation_and_capability_revocation(code):
+async def test_original_limit_order_execution_cancellation_and_approval(code):
     owner = Keypair.create_from_seed(os.urandom(32), code)
     hot = Keypair.create_from_seed(os.urandom(32), code)
     # Each order worker has its own relayer nonce; only setup uses shared Bob.
@@ -594,21 +569,6 @@ async def test_original_limit_order_execution_cancellation_and_capability_revoca
         assert (await orders.authorize(second, owner)).success
         assert (await orders.cancel(second, owner)).success
         await rejected([second.account_approved()], "OrderCancelled")
-        result = await orders.install_capability(
-            owner, owner, expires_at=await client.block() + 10_000, scope="UnrestrictedTrading"
-        )
-        assert result.success, result.to_dict()
-        third = await orders.prepare(order, nonce=3)
-        signed = await orders.sign(third, owner)
-        result = await orders.execute([signed], sponsor)
-        assert result.success, result.to_dict()
-        receipts.append(result.to_dict())
-        event(result, "LimitOrders", "OrderExecuted")
-        await rejected([signed], "OrderAlreadyProcessed")
-        fourth = await orders.prepare(order, nonce=4)
-        revoked = await orders.sign(fourth, owner)
-        assert (await orders.revoke_capability(owner)).success
-        await rejected([revoked], "CapabilityMissing")
         # Atomic execution cannot persist a good order when a second order has
         # no authorization; the good order remains usable afterward.
         fifth = await orders.prepare(order, nonce=5)
@@ -620,37 +580,4 @@ async def test_original_limit_order_execution_cancellation_and_capability_revoca
         result = await orders.execute_batched(netuid, [fifth.account_approved()], sponsor)
         assert result.success, result.to_dict()
         receipts.append(result.to_dict())
-        scope = {
-            "Trading": {
-                "netuid": netuid,
-                "hotkey": hot.ss58_address,
-                "fee_recipient": sponsor.coldkey.ss58_address,
-                "max_fee_perbill": 0,
-                "max_tao_per_order": 10**9,
-                "max_alpha_per_order": 0,
-                "total_tao": 2 * 10**9,
-                "total_alpha": 0,
-            }
-        }
-        result = await orders.install_capability(
-            owner, owner, expires_at=await client.block() + 10_000, scope=scope
-        )
-        assert result.success, result.to_dict()
-        # All three proofs are valid when signed. The runtime must enforce the
-        # shared remaining budget when a relayer later submits them separately.
-        bounded = [
-            await orders.sign(await orders.prepare(order, nonce=nonce), owner)
-            for nonce in (7, 8, 9)
-        ]
-        for signed_order in bounded[:2]:
-            result = await orders.execute([signed_order], sponsor)
-            assert result.success, result.to_dict()
-            receipts.append(result.to_dict())
-        await rejected([bounded[2]], "CapabilityScopeViolation")
-        capability = await client.query(
-            ("HashedAccounts", "ActiveCapabilities"), [owner.ss58_address, "Order"]
-        )
-        assert capability["epoch"] == 3 and capability["spent_tao"] == 2 * 10**9
-        with pytest.raises(ValueError, match="budget"):
-            await orders.sign(await orders.prepare(order, nonce=10), owner)
         evidence(f"mldsa-orders-{code}", receipts)

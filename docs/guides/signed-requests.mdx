@@ -64,8 +64,8 @@ Preparation verifies the actual hotkey's descriptor and retired generation at
 one finalized block. It fails if registration or retirement is not finalized;
 do not bypass it by manually selecting a generation. The prepared signer can
 be reused across requests and later spending-key rotations. Ordinary SR/ED
-hotkeys need no preparation. ML-DSA hotkeys use `sign_mldsa` with an approved
-message capability.
+hotkeys need no preparation. ML-DSA and Falcon hotkeys do not support HTTP
+authentication or arbitrary message signing.
 
 ## The wire format (btauth/1)
 

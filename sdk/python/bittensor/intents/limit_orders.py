@@ -14,8 +14,6 @@ from ..limit_orders import (
     encoded_order,
     order_for_chain,
     order_terms,
-    registered_fee_recipient,
-    validate_trading_scope,
 )
 from ._money import UNBOUNDED
 from .base import Intent
@@ -97,7 +95,7 @@ class CancelOrder(_OwnerOrder):
 @register
 @dataclass
 class ExecuteOrders(Intent):
-    """Relay classical orders and up to eight account-approved or post-quantum orders.
+    """Relay classical orders and up to eight account-approved orders.
 
     Each signed order includes complete terms, its signature, and an optional
     partial fill. Authorized terms also bind an owner-local nonce. With
@@ -144,33 +142,7 @@ class ExecuteOrders(Intent):
                     raise ValueError("invalid classical order signature length")
                 authorization[scheme] = "0x" + signature.hex()
                 continue
-            if scheme not in ("MlDsa", "Falcon") or not authorized:
-                raise ValueError("post-quantum authorization requires an Authorized order")
-            proof = authorization[scheme]
-            expected_fields = {"epoch", "public_key", "signature"}
-            if scheme == "Falcon":
-                expected_fields.add("algorithm")
-            if (
-                not isinstance(proof, dict)
-                or set(proof) != expected_fields
-                or not _u64(proof["epoch"], "capability epoch")
-            ):
-                raise ValueError("invalid post-quantum order proof")
-            if scheme == "Falcon":
-                if proof["algorithm"] not in (6, 8):
-                    raise ValueError("unsupported Falcon capability algorithm")
-                public_length, signature_length = {6: (897, 666), 8: (1793, 1280)}[
-                    proof["algorithm"]
-                ]
-            else:
-                public_length, signature_length = 1952, 3309
-            if (
-                len(_bytes(proof["public_key"])) != public_length
-                or len(_bytes(proof["signature"])) != signature_length
-            ):
-                raise ValueError("invalid post-quantum order proof lengths")
-            for name in ("public_key", "signature"):
-                proof[name] = "0x" + _bytes(proof[name]).hex()
+            raise ValueError("unknown order authorization")
         if authorized_count > 8:
             raise ValueError("authorized execution requires 1..8 orders")
 
@@ -227,89 +199,3 @@ class ExecuteBatchedOrders(ExecuteOrders):
 
     def summary(self):
         return f"relay {len(self.orders)} authorized orders through subnet {self.netuid} netting"
-
-
-@register
-@dataclass
-class InstallOrderCapability(Intent):
-    """Grant a revocable post-quantum order key with an explicit trading scope.
-
-    A permanent epoch tombstone prevents revoked signatures from becoming
-    valid after reinstalling. Expiry is a block number, not an order timestamp.
-    UnrestrictedTrading explicitly permits every trade until expiry/revocation.
-    """
-
-    op = "install_order_capability"
-    signer = "coldkey"
-    wraps = (("HashedAccounts", "install_capability"),)
-
-    expected_epoch: int = field(metadata={"help": "Finalized owner/Order epoch plus one."})
-    key_commitment: str = field(
-        metadata={"help": "64-byte commitment to the post-quantum order public key, in hex."}
-    )
-    expires_at: int = field(metadata={"help": "Inclusive chain block-number expiry."})
-    scope: dict = field(metadata={"help": "Explicit Trading bounds, or UnrestrictedTrading."})
-
-    def __post_init__(self):
-        if not _u64(self.expected_epoch, "capability epoch") or not _u64(
-            self.expires_at, "capability expiry"
-        ):
-            raise ValueError("capability epoch and expiry must be positive")
-        commitment = _bytes(self.key_commitment)
-        if len(commitment) != 64 or not any(commitment):
-            raise ValueError("capability commitment must contain 64 bytes and be nonzero")
-        self.scope = validate_trading_scope(self.scope)
-
-    async def build(self, substrate, wallet):
-        scope = deepcopy(self.scope)
-        if "Trading" in scope:
-            terms = scope["Trading"]
-            terms["fee_recipient"] = await registered_fee_recipient(
-                substrate, terms["fee_recipient"]
-            )
-        return await substrate.compose(
-            Call(
-                "HashedAccounts",
-                "install_capability",
-                {
-                    "expected_epoch": self.expected_epoch,
-                    "key_commitment": _bytes(self.key_commitment),
-                    "expires_at": self.expires_at,
-                    "scope": scope,
-                },
-            )
-        )
-
-    def summary(self):
-        return (
-            f"grant post-quantum order capability epoch {self.expected_epoch} "
-            f"until block {self.expires_at}"
-        )
-
-    def spend(self):
-        return UNBOUNDED
-
-    def touches_netuids(self) -> list[int]:
-        terms = self.scope.get("Trading")
-        return [terms["netuid"]] if terms is not None else []
-
-    def affects_all_subnets(self) -> bool:
-        return "UnrestrictedTrading" in self.scope
-
-
-@register
-@dataclass
-class RevokeOrderCapability(Intent):
-    """Revoke the active order key and permanently advance its epoch tombstone."""
-
-    op = "revoke_order_capability"
-    signer = "coldkey"
-    wraps = (("HashedAccounts", "revoke_capability"),)
-
-    async def build(self, substrate, wallet):
-        return await substrate.compose(
-            Call("HashedAccounts", "revoke_capability", {"role": "Order"})
-        )
-
-    def summary(self):
-        return "revoke the active post-quantum order capability"

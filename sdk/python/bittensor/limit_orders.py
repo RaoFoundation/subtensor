@@ -1,7 +1,7 @@
 """Versioned order authorization with complete, pinned economic payloads.
 
 Original execution and cancellation calls accept classical signatures, account
-approvals, and registered post-quantum order capabilities. Authorized orders carry an
+approvals. Authorized orders carry an
 explicit nonce; the transaction key is never a detached order key.
 """
 
@@ -14,8 +14,7 @@ from typing import Any
 
 from ._generated.calls import Call
 from .receiving import parse_recipient
-from .signing import resolve_signer
-from .sp_core import FALCON_CRYPTO_TYPES, PQ_CRYPTO_TYPES, PQ_PROFILES, ROLE_ORDER, ss58_decode
+from .sp_core import ss58_decode
 
 ORDER_ID_DOMAIN = b"bittensor/ms/v2/order-id"
 
@@ -162,13 +161,6 @@ class SignedOrder:
         if self.partial_fill is not None:
             _u64(self.partial_fill, "partial fill")
         authorization = deepcopy(self.authorization)
-        if isinstance(authorization, dict):
-            for scheme in ("MlDsa", "Falcon"):
-                if scheme in authorization:
-                    for name in ("public_key", "signature"):
-                        authorization[scheme][name] = (
-                            "0x" + _bytes(authorization[scheme][name]).hex()
-                        )
         return {
             "order": authorized_order(self.prepared.nonce, self.prepared.order),
             "signature": authorization,
@@ -196,167 +188,6 @@ async def check_prepared_order(substrate, prepared: PreparedOrder) -> None:
         )
 
 
-@dataclass(frozen=True)
-class OrderCapability:
-    owner: str
-    genesis_hash: bytes
-    epoch: int
-    commitment: bytes
-    expires_at: int
-    finalized_block: int
-    scope: Any
-    spent_tao: int
-    spent_alpha: int
-
-
-async def order_capability(substrate, owner: str) -> OrderCapability:
-    owner = parse_recipient(owner).account
-    block = await substrate.finalized_block_number()
-    block_hash = await substrate.block_hash(block)
-    if not block_hash:
-        raise ValueError("could not resolve finalized order capability")
-    if (
-        await substrate.query("AdminUtils", "HashedAccountsEnabled", block_hash=block_hash)
-        is not True
-    ):
-        raise ValueError("post-quantum authorization is disabled")
-    record = await substrate.query(
-        "HashedAccounts", "ActiveCapabilities", [owner, "Order"], block_hash=block_hash
-    )
-    epoch = int(
-        await substrate.query(
-            "HashedAccounts", "CapabilityEpochs", [owner, "Order"], block_hash=block_hash
-        )
-        or 0
-    )
-    if not record or not 0 < epoch < 2**64 or int(record["epoch"]) != epoch:
-        raise ValueError("no active finalized post-quantum order capability")
-    expires = int(record["expires_at"])
-    commitment = _bytes(record["key_commitment"])
-    if not block <= expires < 2**64 or len(commitment) != 64 or not any(commitment):
-        raise ValueError("invalid or expired post-quantum order capability")
-    scope = record["scope"]
-    if scope not in ("UnrestrictedTrading", {"UnrestrictedTrading": None}) and not (
-        isinstance(scope, dict) and set(scope) == {"Trading"}
-    ):
-        raise ValueError("capability does not authorize trading")
-    return OrderCapability(
-        owner,
-        _bytes(await substrate.block_hash(0)),
-        epoch,
-        commitment,
-        expires,
-        block,
-        deepcopy(scope),
-        int(record["spent_tao"]),
-        int(record["spent_alpha"]),
-    )
-
-
-def _check_order_scope(capability: OrderCapability, prepared: PreparedOrder, partial_fill) -> None:
-    if not isinstance(capability.scope, dict) or "Trading" not in capability.scope:
-        return
-    scope, terms = capability.scope["Trading"], order_terms(prepared.order)
-    if (
-        int(terms["netuid"]) != int(scope["netuid"])
-        or terms["hotkey"] != scope["hotkey"]
-        or terms["fee_recipient"] != scope["fee_recipient"]
-        or int(terms["fee_rate"]) > int(scope["max_fee_perbill"])
-    ):
-        raise ValueError("order terms exceed the registered trading scope")
-    buy = terms["order_type"] in ("LimitBuy", {"LimitBuy": None})
-    amount = terms["amount"]
-    if isinstance(amount, dict):
-        amount = amount.get("Fixed")
-    # Linked output amounts are resolved and budgeted by the runtime at fill
-    # time. The signed payload still includes the complete provider/fraction.
-    if amount is None:
-        return
-    asset = "tao" if buy else "alpha"
-    fill = int(amount) if partial_fill is None else _u64(partial_fill, "partial fill")
-    if int(amount) > int(scope[f"max_{asset}_per_order"]) or fill + getattr(
-        capability, f"spent_{asset}"
-    ) > int(scope[f"total_{asset}"]):
-        raise ValueError("order amount exceeds the registered trading budget")
-
-
-async def sign_order(
-    substrate, prepared: PreparedOrder, keypair, *, partial_fill=None
-) -> SignedOrder:
-    await check_prepared_order(substrate, prepared)
-    capability = await order_capability(substrate, prepared.owner)
-    if (
-        keypair.crypto_type not in PQ_CRYPTO_TYPES
-        or capability.genesis_hash != prepared.genesis_hash
-    ):
-        raise ValueError(
-            "detached orders require a post-quantum purpose key and the capability chain"
-        )
-    commitment = bytes(keypair.mldsa_capability_commitment(ROLE_ORDER, capability.epoch))
-    if commitment != capability.commitment:
-        raise ValueError("wallet order key does not match the finalized capability")
-    finalized_hash = await substrate.block_hash(capability.finalized_block)
-    existing = await substrate.query(
-        "LimitOrders", "OrderNonces", [prepared.owner, prepared.nonce], block_hash=finalized_hash
-    )
-    if existing is not None and _bytes(existing) != bytes.fromhex(prepared.order_id[2:]):
-        raise ValueError("order nonce is already bound to different economic terms")
-    _check_order_scope(capability, prepared, partial_fill)
-    proof = {
-        "epoch": capability.epoch,
-        "public_key": bytes(keypair.mldsa_capability_public_key(ROLE_ORDER, capability.epoch)),
-        "signature": bytes(
-            keypair.sign_mldsa_order(
-                capability.epoch,
-                prepared.nonce,
-                prepared.genesis_hash,
-                prepared.encoded,
-                owner=bytes(ss58_decode(prepared.owner)),
-            )
-        ),
-    }
-    scheme = "MlDsa"
-    if keypair.crypto_type in FALCON_CRYPTO_TYPES:
-        scheme = "Falcon"
-        proof["algorithm"] = PQ_PROFILES[keypair.crypto_type] & ~1
-    return SignedOrder(prepared, {scheme: proof}, partial_fill)
-
-
-def validate_trading_scope(scope):
-    if scope == "UnrestrictedTrading" or scope == {"UnrestrictedTrading": None}:
-        return {"UnrestrictedTrading": None}
-    if not isinstance(scope, dict) or set(scope) != {"Trading"}:
-        raise ValueError("choose an explicit Trading scope or UnrestrictedTrading")
-    result = deepcopy(scope)
-    terms = result["Trading"]
-    expected = {
-        "netuid",
-        "hotkey",
-        "fee_recipient",
-        "max_fee_perbill",
-        "max_tao_per_order",
-        "max_alpha_per_order",
-        "total_tao",
-        "total_alpha",
-    }
-    if not isinstance(terms, dict) or set(terms) != expected:
-        raise ValueError("trading scope must contain every bound")
-    if not 0 < terms["netuid"] < 2**16 or not 0 <= terms["max_fee_perbill"] <= 1_000_000_000:
-        raise ValueError("invalid trading subnet or fee bound")
-    for name in ("max_tao_per_order", "max_alpha_per_order", "total_tao", "total_alpha"):
-        _u64(terms[name], name)
-    if not (
-        (terms["max_tao_per_order"] and terms["total_tao"])
-        or (terms["max_alpha_per_order"] and terms["total_alpha"])
-    ):
-        raise ValueError("trading capability must authorize a positive buy or sell budget")
-    terms["hotkey"] = parse_recipient(terms["hotkey"]).account
-    recipient = parse_recipient(terms["fee_recipient"])
-    if recipient.descriptor is None:
-        terms["fee_recipient"] = recipient.account
-    return result
-
-
 class LimitOrders:
     """Client order helpers; submissions pass through normal intent policy."""
 
@@ -365,14 +196,6 @@ class LimitOrders:
 
     async def prepare(self, order: dict, *, nonce: int) -> PreparedOrder:
         return await prepare_order(self._client._substrate, nonce, order)
-
-    async def sign(self, prepared: PreparedOrder, wallet, *, signer="coldkey", partial_fill=None):
-        return await sign_order(
-            self._client._substrate,
-            prepared,
-            resolve_signer(wallet, signer),
-            partial_fill=partial_fill,
-        )
 
     async def authorize(self, prepared: PreparedOrder, wallet, **kwargs):
         from .intents.limit_orders import AuthorizeOrder
@@ -415,47 +238,3 @@ class LimitOrders:
             wallet,
             **kwargs,
         )
-
-    async def capability_grant(self, keypair, *, owner: str, expires_at: int, scope):
-        """Prepare an explicit grant for direct or composite-owner authorization.
-
-        A multisig can approve this intent's composed call through its normal
-        quorum. The purpose key may come from a separate post-quantum wallet.
-        """
-        from .intents.limit_orders import InstallOrderCapability
-
-        owner = parse_recipient(owner).account
-        if keypair.crypto_type not in PQ_CRYPTO_TYPES:
-            raise ValueError("detached order key must come from a post-quantum wallet")
-        substrate = self._client._substrate
-        block_hash = await substrate.block_hash(await substrate.finalized_block_number())
-        if not block_hash:
-            raise ValueError("could not resolve finalized capability epoch")
-        epoch = (
-            int(
-                await substrate.query(
-                    "HashedAccounts", "CapabilityEpochs", [owner, "Order"], block_hash=block_hash
-                )
-                or 0
-            )
-            + 1
-        )
-        _u64(epoch, "capability epoch")
-        commitment = bytes(keypair.mldsa_capability_commitment(ROLE_ORDER, epoch)).hex()
-        return InstallOrderCapability(epoch, commitment, expires_at, validate_trading_scope(scope))
-
-    async def install_capability(
-        self, keypair, wallet, *, expires_at: int, scope, owner: str | None = None, **kwargs
-    ):
-        from .signing import public_view
-
-        owner = owner or public_view(wallet, "coldkey").ss58_address
-        grant = await self.capability_grant(
-            keypair, owner=owner, expires_at=expires_at, scope=scope
-        )
-        return await self._client.execute(grant, wallet, **kwargs)
-
-    async def revoke_capability(self, wallet, **kwargs):
-        from .intents.limit_orders import RevokeOrderCapability
-
-        return await self._client.execute(RevokeOrderCapability(), wallet, **kwargs)

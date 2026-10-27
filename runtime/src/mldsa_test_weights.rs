@@ -100,18 +100,6 @@ impl pallet_shield::weights::WeightInfo for Shield {
 }
 pub struct Orders;
 impl pallet_limit_orders::weights::WeightInfo for Orders {
-    fn execute_falcon512_orders(_: u32, _: u32) -> Weight {
-        crate::hashed_auth::TestVerificationWeight::get()
-    }
-    fn execute_falcon1024_orders(_: u32, _: u32) -> Weight {
-        crate::hashed_auth::TestVerificationWeight::get()
-    }
-    fn execute_falcon512_batched_orders(_: u32, _: u32) -> Weight {
-        crate::hashed_auth::TestVerificationWeight::get()
-    }
-    fn execute_falcon1024_batched_orders(_: u32, _: u32) -> Weight {
-        crate::hashed_auth::TestVerificationWeight::get()
-    }
     fn authorize_order() -> Weight {
         crate::hashed_auth::TestVerificationWeight::get()
     }

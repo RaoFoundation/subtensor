@@ -71,13 +71,14 @@ the profile, purpose, public key, full authorization header and complete encoded
 transaction payload, including call, signed extensions and implicit chain/era
 data. The runtime streams the payload with a protocol size ceiling instead of
 copying it or applying Substrate's 256-byte message-shortening convention.
-Orders and messages use separate domains and independently derived capability
-keys scoped to owner, chain, role and epoch.
+Limit orders use a normal signed transaction to record approval of each order.
+Arbitrary message signatures and HTTP authentication are unsupported for Falcon wallets.
 
 The backend is pinned to `fn-dsa-{comm,kgen,sign,vrfy} = 0.3.0` in original-Falcon
 mode with `no_avx2`. Only integer verification is needed by the production
 runtime; signing/key generation are feature-gated. SDK keys use HKDF-SHA512 with
-the Falcon derivation domain and `(version, profile, role, index)`; the backend
+the Falcon derivation domain and `(version, profile, role, index)`, with transaction
+role 0; the backend
 receives a domain-separated SHAKE256 seed stream. This exact seed-to-key behavior
 is a wallet recovery contract. A dependency upgrade must preserve the pinned
 vectors or use new profile identifiers. SDK signing obtains fresh OS randomness,
@@ -86,14 +87,14 @@ fails closed if it is unavailable, and verifies its output before returning it.
 ## Operations and release checks
 
 Falcon reuses existing native calls, safe composite derivations, EVM association,
-capability storage and registration calls. Mixed-key multisigs are supported;
+account-approved orders and registration calls. Mixed-key multisigs are supported;
 their quantum resistance depends on the quorum and delegates. Separate ECDSA
 Ethereum accounts do not become post-quantum. Existing hardware-wallet apps
 need their own Falcon implementation before they can sign these profiles.
 
-Reference measurements are required for Falcon authorization and detached-order
-verification. Their new production weight entries remain fail-closed until those
-measurements are supplied; test-only weights exercise the functional paths.
+Reference measurements are required for Falcon transaction authorization.
+Production verification weights must come from approved reference measurements;
+test-only weights exercise the functional paths.
 Smaller proofs alone do not establish fees or safe execution limits. Release
 validation must cover native/Wasm verification, independent known-answer vectors,
 recovery, malformed proofs, old-wallet compatibility, Shield sizing/nonces and

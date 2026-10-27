@@ -11,10 +11,8 @@ use node_subtensor_runtime::{
     TxExtension, UncheckedExtrinsic, check_mortality, check_nonce, check_nonzero_sender,
     sudo_wrapper, transaction_payment_wrapper,
 };
-use pallet_hashed_accounts::{CapabilityRole, CapabilityScope, DerivedDescriptor};
-use pallet_limit_orders::{
-    MlDsaOrderProof, Order, OrderSignature, OrderType, SignedOrder, VersionedOrder,
-};
+use pallet_hashed_accounts::DerivedDescriptor;
+use pallet_limit_orders::{Order, OrderSignature, OrderType, SignedOrder, VersionedOrder};
 use sp_runtime::{generic::Era, traits::TransactionExtension};
 use subtensor_hashed::mldsa;
 use subtensor_runtime_common::{AccountId, NetUid, ProxyType, Signature, TaoBalance, Token};
@@ -137,8 +135,6 @@ fn measured_calls_quote_finite_fees_with_real_envelope_sizes() {
             ("register_derived (2-of-2 descriptor)", false, RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register_derived { descriptor: derived.clone() })),
             ("register_derived_sponsored (inner call only)", false, RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::register_derived_sponsored { descriptor: derived.clone(), deposit_payer: AccountId::from([1; 32]) })),
             ("check_derived (2-of-2 descriptor)", false, RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::check_derived { descriptor: derived })),
-            ("install_capability (MS; unrestricted trading)", true, RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::install_capability { expected_epoch: 0, key_commitment: [4; 64], expires_at: 1_000_000, scope: CapabilityScope::UnrestrictedTrading })),
-            ("revoke_capability (MS)", true, RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::revoke_capability { role: CapabilityRole::Order })),
             ("create_protected_pure (MS)", true, RuntimeCall::Proxy(pallet_subtensor_proxy::Call::create_protected_pure { proxy_type: ProxyType::Any, delay: 0, index: 0 })),
             ("as_protected_derivative (MS; empty remark)", true, RuntimeCall::Utility(pallet_subtensor_utility::Call::as_protected_derivative { index: 0, call: Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] })) })),
             ("authorize_order (MS; V1 terms)", true, RuntimeCall::LimitOrders(pallet_limit_orders::Call::authorize_order { order: order.clone() })),
@@ -146,8 +142,8 @@ fn measured_calls_quote_finite_fees_with_real_envelope_sizes() {
             ("transfer 1 TAO (MS; registered destination)", true, RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { dest: AccountId::from([9; 32]).into(), value: TaoBalance::new(1_000_000_000) })),
             ("transfer 1 TAO (SR comparison)", false, RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { dest: AccountId::from([9; 32]).into(), value: TaoBalance::new(1_000_000_000) })),
         ];
-        for (n, label, batch_label) in [(1, "execute_orders (1 MS proof; SR relayer)", "execute_batched_orders (1 MS proof; SR relayer)"), (8, "execute_orders (8 MS proofs; SR relayer)", "execute_batched_orders (8 MS proofs; SR relayer)")] {
-            let entry = SignedOrder { order: order.clone(), signature: OrderSignature::MlDsa(Box::new(MlDsaOrderProof { epoch: 0, public_key: [0; 1952], signature: vec![0; 3309].try_into().expect("signature length") })), partial_fill: None };
+        for (n, label, batch_label) in [(1, "execute_orders (1 account approval; SR relayer)", "execute_batched_orders (1 account approval; SR relayer)"), (8, "execute_orders (8 account approvals; SR relayer)", "execute_batched_orders (8 account approvals; SR relayer)")] {
+            let entry = SignedOrder { order: order.clone(), signature: OrderSignature::AccountApproved, partial_fill: None };
             let orders: frame_support::BoundedVec<_, <Runtime as pallet_limit_orders::Config>::MaxOrdersPerBatch> = vec![entry; n].try_into().expect("bounded orders");
             rows.push((label, false, RuntimeCall::LimitOrders(pallet_limit_orders::Call::execute_orders { orders: orders.clone(), should_fail: true })));
             rows.push((batch_label, false, RuntimeCall::LimitOrders(pallet_limit_orders::Call::execute_batched_orders { netuid: 1.into(), orders })));

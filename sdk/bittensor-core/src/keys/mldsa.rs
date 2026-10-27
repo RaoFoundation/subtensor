@@ -2,7 +2,7 @@
 //! Account identities remain 32 bytes; signing keys have algorithm-specific widths.
 //! Historical ML-DSA method names remain available for client compatibility.
 
-use codec::{Decode, Encode};
+use codec::Encode;
 use hkdf::Hkdf;
 use rand_core::{OsRng, RngCore};
 use sha2::Sha512;
@@ -15,12 +15,9 @@ use super::{CRYPTO_MLDSA65, CRYPTO_MLDSA65_FIXED};
 use crate::error::CoreError;
 
 const DERIVATION_SALT: &[u8] = b"bittensor/ms/v2/derive";
-const CAPABILITY_DOMAIN: &[u8] = b"bittensor/ms/v2/capability";
 /// Bound wallet key generation independently of runtime transaction validation.
 const STATELESS_KEY_SEARCH_LIMIT: u64 = 256;
 pub const ROLE_TRANSACTION: u8 = 0;
-pub const ROLE_ORDER: u8 = 1;
-pub const ROLE_MESSAGE: u8 = 2;
 
 pub struct MldsaKeypair {
     pub(super) descriptor: mldsa::Descriptor,
@@ -109,7 +106,7 @@ impl MldsaKeypair {
         role: u8,
         index: u64,
     ) -> Result<Zeroizing<[u8; 32]>, CoreError> {
-        if role > ROLE_MESSAGE {
+        if role != ROLE_TRANSACTION {
             return Err(crypto_err("unsupported post-quantum key role"));
         }
         let salt = if subtensor_hashed::falcon::is_account_profile(profile) {
@@ -157,50 +154,6 @@ pub(super) fn randomness() -> Result<Zeroizing<[u8; 32]>, CoreError> {
     Ok(random)
 }
 
-fn capability_context(role: u8) -> Result<&'static [u8], CoreError> {
-    match role {
-        ROLE_ORDER => Ok(b"bittensor/ms/v2/order"),
-        ROLE_MESSAGE => Ok(b"bittensor/ms/v2/message"),
-        _ => Err(crypto_err(
-            "capability signing requires order or message role",
-        )),
-    }
-}
-
-/// Detached proofs are not self-authenticating: callers must resolve the
-/// expected commitment and epoch from the owner's authorized chain state.
-#[derive(Clone, Encode, Decode)]
-pub struct MldsaCapabilityProof {
-    pub version: u8,
-    pub algorithm: u8,
-    pub role: u8,
-    pub owner: [u8; 32],
-    pub genesis_hash: [u8; 32],
-    pub epoch: u64,
-    pub public_key: mldsa::PublicKeyBytes,
-    pub signature: mldsa::SignatureBytes,
-}
-
-impl MldsaCapabilityProof {
-    pub const ENCODED_LEN: usize = 5336;
-
-    fn transcript(&self, payload: &[u8]) -> Vec<u8> {
-        let mut bytes = CAPABILITY_DOMAIN.to_vec();
-        (
-            self.version,
-            self.algorithm,
-            self.role,
-            self.owner,
-            self.genesis_hash,
-            self.epoch,
-            self.public_key,
-        )
-            .encode_to(&mut bytes);
-        bytes.extend_from_slice(payload);
-        bytes
-    }
-}
-
 /// Verify a complete offline proof against independently resolved authority.
 /// This never accepts authority advertised only by the proof itself.
 pub fn verify_mldsa_authorization(
@@ -236,56 +189,6 @@ pub fn verify_mldsa_authorization(
         && mldsa::commitment(&proof.public_key) == *expected_commitment
         && descriptor.accepts_next_commitment(expected_commitment, &proof.next_commitment)
         && proof.verify(payload))
-}
-
-pub fn verify_mldsa_capability(
-    encoded: &[u8],
-    payload: &[u8],
-    owner: &[u8; 32],
-    genesis_hash: &[u8; 32],
-    role: u8,
-    epoch: u64,
-    expected_commitment: &[u8; 64],
-) -> Result<bool, CoreError> {
-    if encoded
-        .get(1)
-        .is_some_and(|profile| subtensor_hashed::falcon::is_account_profile(*profile))
-    {
-        return falcon::verify_capability(
-            encoded,
-            payload,
-            owner,
-            genesis_hash,
-            role,
-            epoch,
-            expected_commitment,
-        );
-    }
-    let context = capability_context(role)?;
-    if encoded.len() != MldsaCapabilityProof::ENCODED_LEN {
-        return Ok(false);
-    }
-    let mut input = encoded;
-    let proof = MldsaCapabilityProof::decode(&mut input)
-        .map_err(|_| crypto_err("invalid post-quantum capability proof"))?;
-    if !input.is_empty()
-        || proof.version != mldsa::VERSION
-        || proof.algorithm != mldsa::ALGORITHM
-        || proof.role != role
-        || &proof.owner != owner
-        || &proof.genesis_hash != genesis_hash
-        || proof.epoch != epoch
-        || expected_commitment == &[0; 64]
-        || mldsa::commitment(&proof.public_key) != *expected_commitment
-    {
-        return Ok(false);
-    }
-    Ok(mldsa::verify_message(
-        &proof.public_key,
-        &proof.transcript(payload),
-        context,
-        &proof.signature,
-    ))
 }
 
 impl Keypair {
@@ -429,105 +332,6 @@ impl Keypair {
             .encode())
     }
 
-    pub fn mldsa_capability_public_key(
-        &self,
-        role: u8,
-        epoch: u64,
-    ) -> Result<mldsa::PublicKeyBytes, CoreError> {
-        capability_context(role)?;
-        if subtensor_hashed::falcon::is_account_profile(self.mldsa_profile()?) {
-            return Err(crypto_err(
-                "use pq_capability_public_key for Falcon public keys",
-            ));
-        }
-        mldsa::public_key_from_seed(&*self.mldsa()?.seed_at(role, epoch)?).map_err(crypto_err)
-    }
-    pub fn mldsa_capability_commitment(&self, role: u8, epoch: u64) -> Result<[u8; 64], CoreError> {
-        falcon::commitment(
-            falcon::capability_profile(self.mldsa_profile()?),
-            &self.pq_capability_public_key(role, epoch)?,
-        )
-    }
-    pub fn sign_mldsa_capability(
-        &self,
-        role: u8,
-        epoch: u64,
-        genesis_hash: [u8; 32],
-        payload: &[u8],
-    ) -> Result<Vec<u8>, CoreError> {
-        self.sign_mldsa_capability_for(self.public_key_bytes(), role, epoch, genesis_hash, payload)
-    }
-
-    /// Sign for an explicitly granted owner, including a composite account.
-    /// Only the owner's trusted registry can authorize this purpose key.
-    pub fn sign_mldsa_capability_for(
-        &self,
-        owner: [u8; 32],
-        role: u8,
-        epoch: u64,
-        genesis_hash: [u8; 32],
-        payload: &[u8],
-    ) -> Result<Vec<u8>, CoreError> {
-        if subtensor_hashed::falcon::is_account_profile(self.mldsa_profile()?) {
-            return self.sign_falcon_capability_for(owner, role, epoch, genesis_hash, payload);
-        }
-        if role != ROLE_MESSAGE {
-            return Err(crypto_err(
-                "order authorization requires sign_mldsa_order with its canonical order transcript",
-            ));
-        }
-        let context = capability_context(role)?;
-        let seed = self.mldsa()?.seed_at(role, epoch)?;
-        let mut proof = MldsaCapabilityProof {
-            version: mldsa::VERSION,
-            algorithm: mldsa::ALGORITHM,
-            role,
-            owner,
-            genesis_hash,
-            epoch,
-            public_key: mldsa::public_key_from_seed(&seed).map_err(crypto_err)?,
-            signature: [0; mldsa::SIGNATURE_LEN],
-        };
-        proof.signature =
-            mldsa::sign_message(&seed, &proof.transcript(payload), context, &*randomness()?)
-                .map_err(crypto_err)?;
-        Ok(proof.encode())
-    }
-
-    /// Sign the runtime's exact detached-order transcript. `order` must be the
-    /// complete canonical SCALE VersionedOrder, including its version tag.
-    /// The registry's owner, epoch, expiry and scope are checked at execution.
-    pub fn sign_mldsa_order(
-        &self,
-        epoch: u64,
-        nonce: u64,
-        genesis_hash: [u8; 32],
-        order: &[u8],
-    ) -> Result<mldsa::SignatureBytes, CoreError> {
-        self.sign_mldsa_order_for(self.public_key_bytes(), epoch, nonce, genesis_hash, order)
-    }
-
-    /// The issuer may be a direct, proxy, derivative or multisig owner. The
-    /// current owner-issued capability must be verified separately.
-    pub fn sign_mldsa_order_for(
-        &self,
-        owner: [u8; 32],
-        epoch: u64,
-        nonce: u64,
-        genesis_hash: [u8; 32],
-        order: &[u8],
-    ) -> Result<mldsa::SignatureBytes, CoreError> {
-        if subtensor_hashed::falcon::is_account_profile(self.mldsa_profile()?) {
-            return Err(crypto_err("use sign_pq_order_for for Falcon orders"));
-        }
-        let seed = self.mldsa()?.seed_at(ROLE_ORDER, epoch)?;
-        let context = capability_context(ROLE_ORDER)?;
-        let mut transcript = context.to_vec();
-        (genesis_hash, owner, epoch, nonce).encode_to(&mut transcript);
-        transcript.extend_from_slice(order);
-        mldsa::sign_message(&seed, &transcript, context, &*randomness()?).map_err(crypto_err)
-    }
-
     /// Variable-width authorization APIs support classical and post-quantum profiles without changing
     /// the historical fixed-width Rust v1 APIs.
     pub fn authorization_descriptor(&self) -> Result<Vec<u8>, CoreError> {
@@ -587,7 +391,7 @@ mod tests {
     };
 
     #[test]
-    fn hkdf_sha512_vectors_are_independent_by_role_and_generation() {
+    fn hkdf_sha512_transaction_vectors_preserve_recovery() {
         // Independently computed with Python hashlib/hmac, not this KDF.
         for (role, index, expected) in [
             (
@@ -600,16 +404,6 @@ mod tests {
                 41,
                 "226f863895c02488668a98d3bddf3796368b9616de8cea8143c65a9ee92ca379",
             ),
-            (
-                1,
-                41,
-                "4709cbcf98a580847ecae2ae32f41c2433bc1dbda286d2bc940fd635d6bd3c3f",
-            ),
-            (
-                2,
-                41,
-                "4c916de3bda849119afa5df40b033cd4024d58a143ac085196591a0ca2ce9e06",
-            ),
         ] {
             assert_eq!(
                 hex::encode(*MldsaKeypair::derive_seed(&[7; 32], role, index).unwrap()),
@@ -617,23 +411,11 @@ mod tests {
             );
         }
         // Fixed-profile vectors independently computed with Python HMAC-SHA512.
-        for (role, index, expected) in [
-            (
-                0,
-                0,
-                "753832bab3583b97195c3878523e70d03a5695675a62c6527a004ef1957cb736",
-            ),
-            (
-                1,
-                41,
-                "df24c8ed33762468c68c864987a186a7122277293e960487014be451e644d9c4",
-            ),
-            (
-                2,
-                41,
-                "99e02f7f74a0a312d3ec9df66442c6942b651474e19ec56e043ad5a4be772e6d",
-            ),
-        ] {
+        for (role, index, expected) in [(
+            0,
+            0,
+            "753832bab3583b97195c3878523e70d03a5695675a62c6527a004ef1957cb736",
+        )] {
             assert_eq!(
                 hex::encode(
                     *MldsaKeypair::derive_seed_for_profile(
@@ -647,7 +429,9 @@ mod tests {
                 expected
             );
         }
-        assert!(MldsaKeypair::derive_seed(&[7; 32], 3, 0).is_err());
+        for unsupported_role in [1, 2, 3, u8::MAX] {
+            assert!(MldsaKeypair::derive_seed(&[7; 32], unsupported_role, 0).is_err());
+        }
     }
 
     #[test]
@@ -824,7 +608,7 @@ mod tests {
         assert!(public.private_key_bytes().is_none());
         assert!(public.mldsa_public_key().is_err());
         assert!(public.sign_mldsa(b"no private material").is_err());
-        assert!(wallet.sign(b"must name capability").is_err());
+        assert!(wallet.sign(b"arbitrary message").is_err());
         assert!(Keypair::from_uri("//Alice", CRYPTO_MLDSA65).is_err());
         for crypto in [CRYPTO_HASHED, CRYPTO_SR25519] {
             assert_ne!(
@@ -868,185 +652,6 @@ mod tests {
             assert!(decode_hashed_receiving_address(std::str::from_utf8(&bytes).unwrap()).is_err());
         }
         assert!(decode_hashed_receiving_address(&address.replacen("tao_", "bth1_", 1)).is_err());
-    }
-
-    #[test]
-    fn capability_proofs_require_trusted_owner_role_epoch_and_commitment() {
-        for crypto in [CRYPTO_MLDSA65, CRYPTO_MLDSA65_FIXED] {
-            let wallet = Keypair::from_seed(&[7; 32], crypto).unwrap();
-            let commitment = wallet.mldsa_capability_commitment(ROLE_MESSAGE, 3).unwrap();
-            assert_ne!(commitment, wallet.mldsa_commitment(3).unwrap());
-            assert_ne!(
-                commitment,
-                wallet.mldsa_capability_commitment(ROLE_ORDER, 3).unwrap()
-            );
-            let proof = wallet
-                .sign_mldsa_capability(ROLE_MESSAGE, 3, [9; 32], b"audience/nonce/expiry/body")
-                .unwrap();
-            let verify = |role, epoch, owner, genesis, commitment| {
-                verify_mldsa_capability(
-                    &proof,
-                    b"audience/nonce/expiry/body",
-                    &owner,
-                    &genesis,
-                    role,
-                    epoch,
-                    &commitment,
-                )
-                .unwrap()
-            };
-            assert!(verify(
-                ROLE_MESSAGE,
-                3,
-                wallet.public_key_bytes(),
-                [9; 32],
-                commitment
-            ));
-            assert!(!verify(
-                ROLE_MESSAGE,
-                4,
-                wallet.public_key_bytes(),
-                [9; 32],
-                commitment
-            ));
-            assert!(!verify(
-                ROLE_ORDER,
-                3,
-                wallet.public_key_bytes(),
-                [9; 32],
-                commitment
-            ));
-            assert!(!verify(ROLE_MESSAGE, 3, [0; 32], [9; 32], commitment));
-            assert!(!verify(
-                ROLE_MESSAGE,
-                3,
-                wallet.public_key_bytes(),
-                [8; 32],
-                commitment
-            ));
-            assert!(!verify(
-                ROLE_MESSAGE,
-                3,
-                wallet.public_key_bytes(),
-                [9; 32],
-                [0; 64]
-            ));
-            assert!(wallet
-                .sign_mldsa_capability(ROLE_TRANSACTION, 0, [9; 32], b"transaction")
-                .is_err());
-        }
-    }
-
-    #[test]
-    fn order_signature_binds_runtime_transcript_and_never_uses_transaction_key() {
-        for crypto in [CRYPTO_MLDSA65, CRYPTO_MLDSA65_FIXED] {
-            let wallet = Keypair::from_seed(&[7; 32], crypto).unwrap();
-            let public = wallet.mldsa_capability_public_key(ROLE_ORDER, 3).unwrap();
-            let order = b"canonical SCALE VersionedOrder";
-            let signature = wallet.sign_mldsa_order(3, 11, [9; 32], order).unwrap();
-            let mut transcript = b"bittensor/ms/v2/order".to_vec();
-            ([9_u8; 32], wallet.public_key_bytes(), 3_u64, 11_u64).encode_to(&mut transcript);
-            transcript.extend_from_slice(order);
-            assert!(mldsa::verify_message(
-                &public,
-                &transcript,
-                b"bittensor/ms/v2/order",
-                &signature
-            ));
-            assert!(!mldsa::verify_message(
-                &wallet.mldsa_public_key().unwrap(),
-                &transcript,
-                b"bittensor/ms/v2/order",
-                &signature
-            ));
-            assert!(!mldsa::verify_message(
-                &public,
-                &transcript,
-                b"bittensor/ms/v2/message",
-                &signature
-            ));
-            transcript[21 + 32 + 32 + 8] ^= 1;
-            assert!(!mldsa::verify_message(
-                &public,
-                &transcript,
-                b"bittensor/ms/v2/order",
-                &signature
-            ));
-            assert!(wallet
-                .sign_mldsa_capability(ROLE_ORDER, 3, [9; 32], order)
-                .is_err());
-        }
-    }
-
-    #[test]
-    fn delegated_purpose_keys_bind_the_explicit_composite_owner() {
-        for crypto in [CRYPTO_MLDSA65, CRYPTO_MLDSA65_FIXED] {
-            let wallet = Keypair::from_seed(&[7; 32], crypto).unwrap();
-            let composite = [23; 32];
-            let proof = wallet
-                .sign_mldsa_capability_for(composite, ROLE_MESSAGE, 3, [9; 32], b"body")
-                .unwrap();
-            let commitment = wallet.mldsa_capability_commitment(ROLE_MESSAGE, 3).unwrap();
-            assert!(verify_mldsa_capability(
-                &proof,
-                b"body",
-                &composite,
-                &[9; 32],
-                ROLE_MESSAGE,
-                3,
-                &commitment
-            )
-            .unwrap());
-            assert!(!verify_mldsa_capability(
-                &proof,
-                b"body",
-                &wallet.public_key_bytes(),
-                &[9; 32],
-                ROLE_MESSAGE,
-                3,
-                &commitment
-            )
-            .unwrap());
-            let signature = wallet
-                .sign_mldsa_order_for(composite, 3, 11, [9; 32], b"order")
-                .unwrap();
-            let mut transcript = b"bittensor/ms/v2/order".to_vec();
-            ([9_u8; 32], composite, 3_u64, 11_u64).encode_to(&mut transcript);
-            transcript.extend_from_slice(b"order");
-            assert!(mldsa::verify_message(
-                &wallet.mldsa_capability_public_key(ROLE_ORDER, 3).unwrap(),
-                &transcript,
-                b"bittensor/ms/v2/order",
-                &signature
-            ));
-            transcript[21] ^= 1;
-            assert!(!mldsa::verify_message(
-                &wallet.mldsa_capability_public_key(ROLE_ORDER, 3).unwrap(),
-                &transcript,
-                b"bittensor/ms/v2/order",
-                &signature
-            ));
-        }
-    }
-
-    #[test]
-    fn order_signature_matches_independent_runtime_wire_fixture() {
-        let wallet = Keypair::from_seed(&[7; 32], CRYPTO_MLDSA65).unwrap();
-        let order = include_bytes!(
-            "../../../../pallets/limit-orders/tests/fixtures/authorized-order.scale"
-        );
-        let transcript = include_bytes!(
-            "../../../../pallets/limit-orders/tests/fixtures/authorized-order-transcript.bin"
-        );
-        let signature = wallet
-            .sign_mldsa_order_for([0x11; 32], 3, 42, [0x44; 32], order)
-            .unwrap();
-        assert!(mldsa::verify_message(
-            &wallet.mldsa_capability_public_key(ROLE_ORDER, 3).unwrap(),
-            transcript,
-            b"bittensor/ms/v2/order",
-            &signature
-        ));
     }
 
     #[cfg(feature = "host")]
@@ -1162,15 +767,6 @@ mod tests {
                 mldsa::FIXED_ALGORITHM
             );
             assert!(descriptor_watch.sign_mldsa(b"call").is_err());
-            // Role/epoch derivation is independent of the transaction-key search.
-            assert_ne!(
-                key.mldsa_capability_public_key(ROLE_MESSAGE, 0).unwrap(),
-                key.mldsa_capability_public_key(ROLE_MESSAGE, 1).unwrap()
-            );
-            assert_ne!(
-                key.mldsa_capability_public_key(ROLE_MESSAGE, 0).unwrap(),
-                key.mldsa_public_key().unwrap()
-            );
         }
         assert!(MldsaKeypair::stateless_transaction_key(&[7; 32], 0).is_err());
     }

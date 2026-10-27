@@ -153,7 +153,7 @@ def test_native_aliases_keep_identity_and_variable_width_authorization(wallet):
     assert account_crypto_type(7, "hashed") == 7
     assert account_crypto_type(7, "standard") == 8
     assert account_crypto_type(8, "hashed") == 7
-    with pytest.raises(ValueError, match="capability"):
+    with pytest.raises(ValueError, match="not supported"):
         wallet.sign(b"cannot silently reuse spending key")
     with pytest.raises(ValueError, match="generation synchronization"):
         prepare_extrinsic(

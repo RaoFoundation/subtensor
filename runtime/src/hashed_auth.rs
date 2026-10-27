@@ -72,12 +72,6 @@ impl WeightInfo for TestWeights {
     fn check_derived() -> Weight {
         TestVerificationWeight::get()
     }
-    fn install_capability() -> Weight {
-        TestVerificationWeight::get()
-    }
-    fn revoke_capability() -> Weight {
-        TestVerificationWeight::get()
-    }
     fn authorize_mldsa65(_: u32) -> Weight {
         TestVerificationWeight::get()
     }
@@ -1252,30 +1246,5 @@ fn setup_pq_registration_benchmark(account: &AccountId) -> DispatchResult {
     let backing =
         pallet_evm::HashedAddressMapping::<sp_runtime::traits::BlakeTwo256>::into_account_id(alias);
     let _ = crate::Balances::make_free_balance_be(&backing, crate::TaoBalance::new(1_000_000_000));
-    Ok(())
-}
-
-#[cfg(feature = "runtime-benchmarks")]
-pub(crate) fn setup_pq_benchmark_parent(account: &AccountId) -> DispatchResult {
-    use frame_support::traits::Currency;
-    let _ = crate::Balances::make_free_balance_be(
-        account,
-        crate::TaoBalance::new(1_000_000_000_000_000),
-    );
-    let descriptor = subtensor_hashed::mldsa::Descriptor {
-        version: 2,
-        algorithm: 4,
-        initial_commitment: [7; 64],
-    };
-    pallet_admin_utils::HashedAccountsEnabled::<Runtime>::put(true);
-
-    pallet_hashed_accounts::MlDsaAccounts::<Runtime>::insert(
-        account,
-        pallet_hashed_accounts::MlDsaAccountRecord {
-            descriptor,
-            generation: 0,
-            commitment: descriptor.initial_commitment,
-        },
-    );
     Ok(())
 }

@@ -253,16 +253,17 @@ async def test_cli_wallet_parity(tmp_path, scheme, mode):
                 assert public.ss58_address == key.ss58_address
                 assert public.crypto_type == code
             if code in PQ_CRYPTO_TYPES:
-                from bittensor.mldsa import install_message_capability
-
-                grant = install_message_capability(
-                    key,
-                    epoch=1,
-                    expires_at=(await client.block()) + 100_000,
-                    audience=b"bittensor/wallet-message",
+                error = await cli(
+                    "original",
+                    "wallet",
+                    "sign",
+                    "--message",
+                    "parity test",
+                    *(["--use-hotkey"] if role == "hotkey" else []),
+                    success=False,
                 )
-                result = await client.submit_call(grant, key)
-                assert result.success, result.to_dict()
+                assert "not supported" in error
+                continue
             signed = await cli(
                 "original",
                 "wallet",

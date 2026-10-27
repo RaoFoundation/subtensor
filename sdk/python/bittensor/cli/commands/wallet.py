@@ -801,17 +801,6 @@ def sign(
             app_ctx.wallet(), "hotkey" if use_hotkey else "coldkey", **_unlock_options(app_ctx)
         )
         generation = None
-        capability = None
-        if keypair.crypto_type in wallets.PQ_CRYPTO_TYPES:
-
-            async def finalized_capability(client):
-                from ...mldsa import message_capability
-
-                return await message_capability(
-                    client._substrate, keypair.ss58_address, b"bittensor/wallet-message"
-                )
-
-            capability = app_ctx.run(finalized_capability)
         if keypair.crypto_type in wallets.CLASSICAL_HASHED_CRYPTO_TYPES:
 
             async def retired_generation(client):
@@ -828,9 +817,7 @@ def sign(
                 return int(state["generation"])
 
             generation = app_ctx.run(retired_generation)
-        signed = wallets.sign_message_key(
-            message, keypair, hashed_generation=generation, message_capability=capability
-        )
+        signed = wallets.sign_message_key(message, keypair, hashed_generation=generation)
     except (ValueError, OSError, WrongPasswordError) as error:
         _report_unlock_error(app_ctx, error)
     # Classic btcli field names + bare hex (no 0x).
@@ -895,29 +882,11 @@ def verify(
             if crypto_type is not None or account_type is not None
             else None
         )
-        recipient = parse_recipient(ss58)
-        descriptor_type = (
-            wallets.Keypair.from_hashed_descriptor(recipient.descriptor).crypto_type
-            if recipient.descriptor is not None
-            else None
-        )
-        capability = None
-        if trusted_type in wallets.PQ_CRYPTO_TYPES or descriptor_type in wallets.PQ_CRYPTO_TYPES:
-
-            async def finalized_capability(client):
-                from ...mldsa import message_capability
-
-                return await message_capability(
-                    client._substrate, recipient.account, b"bittensor/wallet-message"
-                )
-
-            capability = app_ctx.run(finalized_capability)
         ok = wallets.verify_message(
             message,
             signature,
             ss58,
             trusted_type,
-            message_capability=capability,
         )
     except (ValueError, TypeError) as error:
         app_ctx.output.error(f"invalid signature or address: {error}")

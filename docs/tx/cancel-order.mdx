@@ -9,7 +9,7 @@ description: "Cancel a order and any unfilled remainder using its complete terms
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | LimitOrders | [`LimitOrders.cancel_order`](/code/pallets/limit-orders/src/lib.rs#L687-L713) |
+| `coldkey` | signed account (pallet role may apply) | LimitOrders | [`LimitOrders.cancel_order`](/code/pallets/limit-orders/src/lib.rs#L685-L711) |
 
 ## Parameters
 
@@ -62,7 +62,7 @@ result = sub.execute_tool("cancel_order", {...}, wallet)
 
 ## On-chain implementation
 
-`LimitOrders.cancel_order` — [`pallets/limit-orders/src/lib.rs#L689`](/code/pallets/limit-orders/src/lib.rs#L687-L713):
+`LimitOrders.cancel_order` — [`pallets/limit-orders/src/lib.rs#L687`](/code/pallets/limit-orders/src/lib.rs#L685-L711):
 
 ```rust
 #[pallet::call_index(2)]
@@ -94,6 +94,6 @@ pub fn cancel_order(
 }
 ```
 
-Delegates to [`cancel_authenticated_order`](/code/pallets/limit-orders/src/authorization.rs#L329), [`derive_order_id`](/code/pallets/limit-orders/src/lib.rs#L838).
+Delegates to [`cancel_authenticated_order`](/code/pallets/limit-orders/src/authorization.rs#L159), [`derive_order_id`](/code/pallets/limit-orders/src/lib.rs#L836).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

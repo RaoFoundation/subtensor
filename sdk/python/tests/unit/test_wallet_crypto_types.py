@@ -193,9 +193,6 @@ def test_cli_recovers_exported_private_key(wallet_path, scheme, code, role):
         restored, original = restored.at_generation(generation), original.at_generation(generation)
     if code in PQ_CRYPTO_TYPES:
         assert restored.mldsa_current_commitment == original.mldsa_current_commitment
-        assert restored.mldsa_capability_commitment(2, 4) == original.mldsa_capability_commitment(
-            2, 4
-        )
     else:
         assert restored.verify(b"restored key", original.sign(b"restored key"))
 

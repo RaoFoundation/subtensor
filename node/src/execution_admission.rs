@@ -161,7 +161,7 @@ fn pq_validation(data: &[u8]) -> bool {
     // Runtime API v3 encodes TransactionSource, the extrinsic, then block hash.
     // Inspect only its prefix, including malformed post-quantum profiles/carriers. The
     // current validation pipeline checks extensions but does not dispatch the
-    // call; legacy validation therefore cannot execute detached order proofs.
+    // call; legacy validation therefore cannot dispatch inner post-quantum calls.
     let Some(mut input) = data.get(1..) else {
         return false;
     };

@@ -493,5 +493,3 @@ class HashedAccounts:
     EvmAliases = Item('HashedAccounts', 'EvmAliases', 'AccountId32')
     MlDsaAccounts = Item('HashedAccounts', 'MlDsaAccounts', 'MlDsaAccountRecord')
     DerivedAuthorities = Item('HashedAccounts', 'DerivedAuthorities', 'DerivedAuthorityRecord')
-    CapabilityEpochs = Item('HashedAccounts', 'CapabilityEpochs', 'u64')
-    ActiveCapabilities = Item('HashedAccounts', 'ActiveCapabilities', 'CapabilityRecord')

@@ -15,13 +15,6 @@ from typing import Callable
 
 from ._transport.codec import is_valid_ss58_address
 from .keyfiles import Keypair, WrongPasswordError, resolve_key_password
-from .mldsa import (
-    MessageCapability,
-    capability_proof_crypto_type,
-    sign_payload,
-    user_message_payload,
-    verify_payload,
-)
 from .settings import SS58_FORMAT
 from .sp_core import (
     CLASSICAL_HASHED_CRYPTO_TYPES,
@@ -237,7 +230,6 @@ def sign_message(
     macos_prompt: bool = False,
     keychain: bool = False,
     hashed_generation: int | None = None,
-    message_capability: MessageCapability | None = None,
 ) -> dict[str, str]:
     """Sign a message with a wallet key; returns the signer address and bare-hex signature.
 
@@ -255,9 +247,7 @@ def sign_message(
         macos_prompt=macos_prompt,
         keychain=keychain,
     )
-    return sign_message_key(
-        message, keypair, hashed_generation=hashed_generation, message_capability=message_capability
-    )
+    return sign_message_key(message, keypair, hashed_generation=hashed_generation)
 
 
 def sign_message_key(
@@ -265,18 +255,10 @@ def sign_message_key(
     keypair: Keypair,
     *,
     hashed_generation: int | None = None,
-    message_capability: MessageCapability | None = None,
 ) -> dict[str, str]:
     """Sign with an unlocked key; a classical hashed key needs its finalized generation."""
     if keypair.crypto_type in PQ_CRYPTO_TYPES:
-        if message_capability is None:
-            raise ValueError(
-                "post-quantum signing requires a finalized owner-approved message capability"
-            )
-        signature = sign_payload(
-            keypair, user_message_payload(message.encode(), message_capability), message_capability
-        )
-        return {"ss58": message_capability.owner, "signature": signature.hex()}
+        raise ValueError("post-quantum arbitrary message signing is not supported")
     if keypair.crypto_type in CLASSICAL_HASHED_CRYPTO_TYPES:
         if hashed_generation is None or hashed_generation < 1:
             raise ValueError(
@@ -293,8 +275,6 @@ def verify_message(
     signature: str,
     ss58_address: str,
     crypto_type: int | None = None,
-    *,
-    message_capability: MessageCapability | None = None,
 ) -> bool:
     """Verify using a trusted scheme, never one inferred from the signature.
 
@@ -317,19 +297,6 @@ def verify_message(
             and crypto_type != descriptor_key.crypto_type
         ):
             return False
-        if message_capability is not None:
-            if recipient.account != message_capability.owner or crypto_type not in (
-                None,
-                *PQ_CRYPTO_TYPES,
-            ):
-                return False
-            if crypto_type is not None and signing_scheme_name(crypto_type) != signing_scheme_name(
-                capability_proof_crypto_type(raw)
-            ):
-                return False
-            return verify_payload(
-                raw, user_message_payload(message.encode(), message_capability), message_capability
-            )
         if descriptor_key is not None:
             return descriptor_key.verify(message.encode(), raw)
     except (ValueError, TypeError):

@@ -3,7 +3,7 @@
 use codec::Encode;
 use subtensor_hashed::{falcon, mldsa};
 
-use super::{crypto_err, mldsa::randomness, Keypair, ROLE_MESSAGE, ROLE_ORDER};
+use super::{crypto_err, Keypair};
 use crate::error::CoreError;
 
 pub(super) fn public_key(profile: u8, seed: &[u8; 32]) -> Result<Vec<u8>, CoreError> {
@@ -27,75 +27,6 @@ pub(super) fn commitment(profile: u8, public: &[u8]) -> Result<[u8; 64], CoreErr
     }
 }
 
-pub(super) fn capability_profile(profile: u8) -> u8 {
-    match profile {
-        6 | 7 => 6,
-        8 | 9 => 8,
-        _ => mldsa::ALGORITHM,
-    }
-}
-
-pub(super) fn context(role: u8) -> Result<&'static [u8], CoreError> {
-    match role {
-        ROLE_ORDER => Ok(b"bittensor/falcon/v1/order"),
-        ROLE_MESSAGE => Ok(b"bittensor/falcon/v1/message"),
-        _ => Err(crypto_err(
-            "capability signing requires order or message role",
-        )),
-    }
-}
-
-const CAPABILITY_DOMAIN: &[u8] = b"bittensor/falcon/v1/capability";
-const CAPABILITY_HEADER_LEN: usize = 75;
-
-/// Raw, fixed-profile capability format; public key/signature have no Vec prefixes.
-/// The supplied commitment must come from independently resolved owner authority.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn verify_capability(
-    encoded: &[u8],
-    payload: &[u8],
-    owner: &[u8; 32],
-    genesis_hash: &[u8; 32],
-    role: u8,
-    epoch: u64,
-    expected_commitment: &[u8; 64],
-) -> Result<bool, CoreError> {
-    let Some(&profile) = encoded.get(1) else {
-        return Ok(false);
-    };
-    if !matches!(profile, 6 | 8) {
-        return Ok(false);
-    }
-    let public_len =
-        falcon::public_key_len(profile).ok_or_else(|| crypto_err("invalid Falcon profile"))?;
-    let signature_len =
-        falcon::signature_len(profile).ok_or_else(|| crypto_err("invalid Falcon profile"))?;
-    if encoded.len() != CAPABILITY_HEADER_LEN + public_len + signature_len
-        || encoded[0] != falcon::VERSION
-        || encoded[2] != role
-        || &encoded[3..35] != owner
-        || &encoded[35..67] != genesis_hash
-        || encoded[67..75] != epoch.to_le_bytes()
-        || expected_commitment == &[0; 64]
-    {
-        return Ok(false);
-    }
-    let public = &encoded[CAPABILITY_HEADER_LEN..CAPABILITY_HEADER_LEN + public_len];
-    if commitment(profile, public)? != *expected_commitment {
-        return Ok(false);
-    }
-    let mut transcript = CAPABILITY_DOMAIN.to_vec();
-    transcript.extend_from_slice(&encoded[..CAPABILITY_HEADER_LEN + public_len]);
-    transcript.extend_from_slice(payload);
-    Ok(falcon::verify_message(
-        profile,
-        public,
-        &transcript,
-        context(role)?,
-        &encoded[CAPABILITY_HEADER_LEN + public_len..],
-    ))
-}
-
 impl Keypair {
     /// Active transaction public key, with the width selected by the wallet profile.
     pub fn pq_public_key(&self) -> Result<Vec<u8>, CoreError> {
@@ -103,19 +34,6 @@ impl Keypair {
         public_key(
             key.descriptor.algorithm,
             &*key.seed_at(super::ROLE_TRANSACTION, key.generation)?,
-        )
-    }
-
-    pub fn pq_capability_public_key(&self, role: u8, epoch: u64) -> Result<Vec<u8>, CoreError> {
-        if !matches!(role, ROLE_ORDER | ROLE_MESSAGE) {
-            return Err(crypto_err(
-                "capability signing requires order or message role",
-            ));
-        }
-        let key = self.mldsa()?;
-        public_key(
-            capability_profile(key.descriptor.algorithm),
-            &*key.seed_at(role, epoch)?,
         )
     }
 
@@ -139,60 +57,6 @@ impl Keypair {
             .map_err(crypto_err)?
             .encode())
     }
-
-    pub(super) fn sign_falcon_capability_for(
-        &self,
-        owner: [u8; 32],
-        role: u8,
-        epoch: u64,
-        genesis_hash: [u8; 32],
-        payload: &[u8],
-    ) -> Result<Vec<u8>, CoreError> {
-        if role != ROLE_MESSAGE {
-            return Err(crypto_err(
-                "orders require their canonical order transcript",
-            ));
-        }
-        let key = self.mldsa()?;
-        let profile = capability_profile(key.descriptor.algorithm);
-        let seed = key.seed_at(role, epoch)?;
-        let public = public_key(profile, &seed)?;
-        let mut encoded = (falcon::VERSION, profile, role, owner, genesis_hash, epoch).encode();
-        encoded.extend_from_slice(&public);
-        let mut transcript = CAPABILITY_DOMAIN.to_vec();
-        transcript.extend_from_slice(&encoded);
-        transcript.extend_from_slice(payload);
-        encoded.extend_from_slice(
-            &falcon::sign_message(profile, &seed, &transcript, context(role)?, &*randomness()?)
-                .map_err(crypto_err)?,
-        );
-        Ok(encoded)
-    }
-
-    /// Detached order signatures bind scheme, chain, owner, epoch, nonce and order.
-    pub fn sign_pq_order_for(
-        &self,
-        owner: [u8; 32],
-        epoch: u64,
-        nonce: u64,
-        genesis_hash: [u8; 32],
-        order: &[u8],
-    ) -> Result<Vec<u8>, CoreError> {
-        let key = self.mldsa()?;
-        if !falcon::is_account_profile(key.descriptor.algorithm) {
-            return self
-                .sign_mldsa_order_for(owner, epoch, nonce, genesis_hash, order)
-                .map(|sig| sig.to_vec());
-        }
-        let profile = capability_profile(key.descriptor.algorithm);
-        let seed = key.seed_at(ROLE_ORDER, epoch)?;
-        let context = context(ROLE_ORDER)?;
-        let mut transcript = context.to_vec();
-        (genesis_hash, owner, profile, epoch, nonce).encode_to(&mut transcript);
-        transcript.extend_from_slice(order);
-        falcon::sign_message(profile, &seed, &transcript, context, &*randomness()?)
-            .map_err(crypto_err)
-    }
 }
 
 #[cfg(test)]
@@ -201,8 +65,8 @@ mod tests {
     use super::*;
     use crate::keys::{
         account_crypto_type, decode_hashed_receiving_address, is_fixed_pq_crypto,
-        verify_mldsa_authorization, verify_mldsa_capability, CRYPTO_FALCON1024,
-        CRYPTO_FALCON1024_HASHED, CRYPTO_FALCON512, CRYPTO_FALCON512_HASHED,
+        verify_mldsa_authorization, CRYPTO_FALCON1024, CRYPTO_FALCON1024_HASHED, CRYPTO_FALCON512,
+        CRYPTO_FALCON512_HASHED,
     };
 
     const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
@@ -295,83 +159,6 @@ mod tests {
             assert!(key.public_only().unwrap().sign_mldsa(payload).is_err());
             assert!(Keypair::from_uri("//Alice", crypto).is_err());
             assert!(Keypair::from_mnemonic("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", crypto, None).is_err());
-        }
-    }
-
-    #[test]
-    fn falcon_capabilities_bind_owner_chain_epoch_role_and_payload() {
-        for crypto in MODES {
-            let key = Keypair::from_seed(&[21; 32], crypto).unwrap();
-            let owner = [23; 32];
-            let epoch = 5;
-            let genesis = [24; 32];
-            let payload = b"audience/nonce/expiry/body";
-            let commitment = key
-                .mldsa_capability_commitment(ROLE_MESSAGE, epoch)
-                .unwrap();
-            let proof = key
-                .sign_mldsa_capability_for(owner, ROLE_MESSAGE, epoch, genesis, payload)
-                .unwrap();
-            let profile = capability_profile(key.mldsa_profile().unwrap());
-            assert_eq!(
-                proof.len(),
-                75 + falcon::public_key_len(profile).unwrap()
-                    + falcon::signature_len(profile).unwrap()
-            );
-            assert!(verify_mldsa_capability(
-                &proof,
-                payload,
-                &owner,
-                &genesis,
-                ROLE_MESSAGE,
-                epoch,
-                &commitment
-            )
-            .unwrap());
-            for (message, expected_owner, chain, role, expected_epoch) in [
-                (b"tampered".as_slice(), owner, genesis, ROLE_MESSAGE, epoch),
-                (payload.as_slice(), [25; 32], genesis, ROLE_MESSAGE, epoch),
-                (payload.as_slice(), owner, [25; 32], ROLE_MESSAGE, epoch),
-                (payload.as_slice(), owner, genesis, ROLE_ORDER, epoch),
-                (payload.as_slice(), owner, genesis, ROLE_MESSAGE, epoch + 1),
-            ] {
-                assert!(!verify_mldsa_capability(
-                    &proof,
-                    message,
-                    &expected_owner,
-                    &chain,
-                    role,
-                    expected_epoch,
-                    &commitment
-                )
-                .unwrap());
-            }
-            let order = b"canonical SCALE VersionedOrder";
-            let signature = key
-                .sign_pq_order_for(owner, epoch, 11, genesis, order)
-                .unwrap();
-            let mut transcript = context(ROLE_ORDER).unwrap().to_vec();
-            (genesis, owner, profile, epoch, 11u64).encode_to(&mut transcript);
-            transcript.extend_from_slice(order);
-            let public = key.pq_capability_public_key(ROLE_ORDER, epoch).unwrap();
-            assert!(falcon::verify_message(
-                profile,
-                &public,
-                &transcript,
-                context(ROLE_ORDER).unwrap(),
-                &signature
-            ));
-            assert!(!falcon::verify_message(
-                profile,
-                &public,
-                &transcript,
-                context(ROLE_MESSAGE).unwrap(),
-                &signature
-            ));
-            assert_ne!(
-                key.mldsa_capability_commitment(ROLE_ORDER, epoch).unwrap(),
-                commitment
-            );
         }
     }
 

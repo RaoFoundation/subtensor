@@ -122,7 +122,7 @@ fn protected_child_benchmarks_start_from_valid_maximum_parent_graph() {
 #[test]
 fn mixed_order_benchmark_fixtures_execute_with_real_runtime_policies() {
     for netted in [false, true] {
-        // Mixed, maximum mixed and all-PQ corners. Every order's fulfilled
+        // Mixed, maximum mixed and all-account-approved corners. Every order's fulfilled
         // status is asserted by the actual benchmark verification function.
         for (n, p) in [
             (8, 1),
@@ -142,36 +142,6 @@ fn mixed_order_benchmark_fixtures_execute_with_real_runtime_policies() {
                     )
                 );
             });
-        }
-    }
-}
-
-#[test]
-fn mixed_falcon_order_benchmark_fixtures_execute_with_real_runtime_policies() {
-    for algorithm in [
-        subtensor_hashed::falcon::ALGORITHM_512,
-        subtensor_hashed::falcon::ALGORITHM_1024,
-    ] {
-        for netted in [false, true] {
-            for (n, p) in [
-                (8, 1),
-                (8, 8),
-                (LimitOrdersMaxOrdersPerBatch::get(), 1),
-                (LimitOrdersMaxOrdersPerBatch::get(), 8),
-            ] {
-                let mut ext = ext();
-                ext.register_extension(sp_keystore::KeystoreExt::new(
-                    sp_keystore::testing::MemoryKeystore::new(),
-                ));
-                ext.execute_with(|| {
-                    System::set_block_number(1);
-                    assert_ok!(
-                        pallet_limit_orders::benchmarking::verify_falcon_order_fixture::<Runtime>(
-                            n, p, netted, algorithm
-                        )
-                    );
-                });
-            }
         }
     }
 }

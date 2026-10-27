@@ -324,22 +324,12 @@ async def test_composable_wallet_lifecycle(tmp_path, scheme, mode):
         for role in ("coldkey", "hotkey"):
             key = getattr(recovered, role)
             generation = (await record(key))["generation"] if hashed else None
-            capability = None
             if code in PQ_CRYPTO_TYPES:
-                from bittensor.mldsa import install_message_capability, message_capability
-
-                grant = install_message_capability(
-                    key,
-                    epoch=1,
-                    expires_at=(await client.block()) + 100_000,
-                    audience=b"wallet-e2e",
-                )
-                await submit(grant, recovered, role=role)
-                capability = await message_capability(
-                    client._substrate, key.ss58_address, b"wallet-e2e"
-                )
+                with pytest.raises(ValueError, match="not supported"):
+                    bt.wallets.sign_message_key("six wallet types", key)
+                continue
             signature = bt.wallets.sign_message_key(
-                "six wallet types", key, hashed_generation=generation, message_capability=capability
+                "six wallet types", key, hashed_generation=generation
             )["signature"]
             address = receiving_address(key) if hashed else key.ss58_address
             assert bt.wallets.verify_message(
@@ -347,33 +337,14 @@ async def test_composable_wallet_lifecycle(tmp_path, scheme, mode):
                 signature,
                 address,
                 crypto_type=code,
-                message_capability=capability,
             )
-            assert not bt.wallets.verify_message(
-                "tampered", signature, address, crypto_type=code, message_capability=capability
-            )
+            assert not bt.wallets.verify_message("tampered", signature, address, crypto_type=code)
         hot = recovered.hotkey
         if hashed:
             hot = hot.at_generation((await record(hot))["generation"])
         if code in PQ_CRYPTO_TYPES:
-            request = bt.http_auth.sign_mldsa(
-                hot,
-                capability=capability,
-                method="POST",
-                path="/wallet-test",
-                body=b"request",
-                receiver_ss58=alice.hotkey.ss58_address,
-            )
-            verified = bt.http_auth.verify_mldsa(
-                request.headers,
-                request.body,
-                capability=capability,
-                method="POST",
-                path="/wallet-test",
-                self_hotkey_ss58=alice.hotkey.ss58_address,
-            )
-            assert verified.body == b"request"
-            assert verified.caller.hotkey_ss58 == hot.ss58_address
+            with pytest.raises(ValueError, match="not supported"):
+                bt.http_auth.sign(hot, method="POST", path="/wallet-test")
         else:
             headers = bt.http_auth.sign(
                 hot,

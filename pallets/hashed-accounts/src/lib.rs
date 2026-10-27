@@ -21,8 +21,6 @@ mod mldsa_tests;
 mod tests;
 pub mod weights;
 pub use mldsa::*;
-pub mod capabilities;
-pub use capabilities::*;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::{
@@ -137,7 +135,7 @@ pub struct AccountRecord {
     pub commitment: [u8; 32],
 }
 
-/// An in-memory capability returned only after signature validation. The
+/// An in-memory authorization returned only after signature validation. The
 /// extension carries it to preparation, which rechecks its state prerequisites.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedProof {
@@ -196,27 +194,6 @@ pub mod pallet {
     pub type DerivedAuthorities<T: Config> =
         StorageMap<_, Blake2_128Concat, AccountId32, DerivedAuthorityRecord>;
 
-    #[pallet::storage]
-    pub type CapabilityEpochs<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        AccountId32,
-        Twox64Concat,
-        CapabilityRole,
-        u64,
-        ValueQuery,
-    >;
-
-    #[pallet::storage]
-    pub type ActiveCapabilities<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        AccountId32,
-        Twox64Concat,
-        CapabilityRole,
-        CapabilityRecord,
-    >;
-
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -238,18 +215,6 @@ pub mod pallet {
             account: AccountId32,
             sponsor: AccountId32,
             deposit: BalanceOf<T>,
-        },
-        #[codec(index = 5)]
-        CapabilityInstalled {
-            owner: AccountId32,
-            role: CapabilityRole,
-            epoch: u64,
-        },
-        #[codec(index = 6)]
-        CapabilityRevoked {
-            owner: AccountId32,
-            role: CapabilityRole,
-            epoch: u64,
         },
     }
 
@@ -304,37 +269,10 @@ pub mod pallet {
         InvalidDerivedAuthority,
         /// The derived authority graph exceeds a deterministic runtime bound.
         DerivedAuthorityTooComplex,
-        CapabilityInvalid,
-        CapabilityEpochMismatch,
-        CapabilityExpired,
-        CapabilityScopeViolation,
-        CapabilityMissing,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        #[pallet::call_index(7)]
-        #[pallet::weight(T::WeightInfo::install_capability())]
-        #[transactional]
-        pub fn install_capability(
-            origin: OriginFor<T>,
-            expected_epoch: u64,
-            key_commitment: [u8; 64],
-            expires_at: u64,
-            scope: CapabilityScope,
-        ) -> DispatchResult {
-            let owner = ensure_signed(origin)?;
-            Self::do_install_capability(&owner, expected_epoch, key_commitment, expires_at, scope)
-        }
-
-        #[pallet::call_index(8)]
-        #[pallet::weight(T::WeightInfo::revoke_capability())]
-        #[transactional]
-        pub fn revoke_capability(origin: OriginFor<T>, role: CapabilityRole) -> DispatchResult {
-            let owner = ensure_signed(origin)?;
-            Self::do_revoke_capability(&owner, role)
-        }
-
         /// Bind an account to its hidden initial key for the selected scheme.
         /// Anyone may sponsor the permanent deposit without gaining authority.
         /// Idempotent registration never changes an existing authorization.
@@ -405,7 +343,7 @@ pub mod pallet {
             }
         }
 
-        #[pallet::call_index(4)]
+        #[pallet::call_index(2)]
         #[pallet::weight(T::WeightInfo::register_derived())]
         #[transactional]
         pub fn register_derived(
@@ -418,7 +356,7 @@ pub mod pallet {
 
         /// Register through the derived account's own authority while an
         /// explicitly consenting outer signer pays the permanent deposit.
-        #[pallet::call_index(9)]
+        #[pallet::call_index(3)]
         #[pallet::weight(T::WeightInfo::register_derived_sponsored())]
         #[transactional]
         pub fn register_derived_sponsored(
@@ -434,7 +372,7 @@ pub mod pallet {
             Self::register_derived_with_authorization(&owner, &deposit_payer, descriptor)
         }
 
-        #[pallet::call_index(5)]
+        #[pallet::call_index(4)]
         #[pallet::weight(T::WeightInfo::check_derived())]
         pub fn check_derived(
             origin: OriginFor<T>,

@@ -164,55 +164,6 @@ mod benchmarks {
     use super::*;
 
     #[benchmark]
-    fn install_capability() -> Result<(), BenchmarkError> {
-        let (sponsor, descriptor, account, _) = setup_mldsa::<T>()?;
-        Pallet::<T>::register(RawOrigin::Signed(sponsor).into(), descriptor.into())?;
-        let scope = CapabilityScope::Message {
-            audience: alloc::vec![42; 128]
-                .try_into()
-                .map_err(|_| BenchmarkError::Stop("audience bound"))?,
-        };
-        #[extrinsic_call]
-        _(
-            RawOrigin::Signed(account.clone()),
-            1,
-            [9; 64],
-            u64::MAX,
-            scope,
-        );
-        assert_eq!(
-            CapabilityEpochs::<T>::get(account, CapabilityRole::Message),
-            1
-        );
-        Ok(())
-    }
-
-    #[benchmark]
-    fn revoke_capability() -> Result<(), BenchmarkError> {
-        let (sponsor, descriptor, account, _) = setup_mldsa::<T>()?;
-        Pallet::<T>::register(RawOrigin::Signed(sponsor).into(), descriptor.into())?;
-        Pallet::<T>::install_capability(
-            RawOrigin::Signed(account.clone()).into(),
-            1,
-            [9; 64],
-            u64::MAX,
-            CapabilityScope::Message {
-                audience: alloc::vec![42;128]
-                    .try_into()
-                    .map_err(|_| BenchmarkError::Stop("audience bound"))?,
-            },
-        )?;
-        #[extrinsic_call]
-        _(RawOrigin::Signed(account.clone()), CapabilityRole::Message);
-        assert!(ActiveCapabilities::<T>::get(account.clone(), CapabilityRole::Message).is_none());
-        assert_eq!(
-            CapabilityEpochs::<T>::get(account, CapabilityRole::Message),
-            2
-        );
-        Ok(())
-    }
-
-    #[benchmark]
     fn register_falcon() -> Result<(), BenchmarkError> {
         let sponsor: AccountId32 = whitelisted_caller();
         let _ = T::Currency::make_free_balance_be(&sponsor, BalanceOf::<T>::max_value());

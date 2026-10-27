@@ -1,8 +1,7 @@
-"""Full-payload pinning and finalized capability boundaries for authorized orders."""
+"""Full-payload pinning for account-approved and classical signed orders."""
 
 import json
 from copy import deepcopy
-from hashlib import blake2b
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -11,12 +10,9 @@ import pytest
 from bittensor.client import Client
 from bittensor.intents.limit_orders import AuthorizeOrder, ExecuteBatchedOrders, ExecuteOrders
 from bittensor.limit_orders import (
-    ORDER_ID_DOMAIN,
-    order_capability,
     prepare_order,
-    sign_order,
 )
-from bittensor.sp_core import FALCON_CRYPTO_TYPES, ROLE_ORDER, Keypair, pq_lengths, ss58_decode
+from bittensor.sp_core import Keypair
 from tests.harness.fake_substrate import FakeSubstrate
 from tests.harness.samples import ALICE_HOT, BOB
 
@@ -63,121 +59,7 @@ class OrderSubstrate(FakeSubstrate):
 
 
 def chain(key):
-    substrate = OrderSubstrate()
-    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], True)
-    substrate.seed("HashedAccounts", "CapabilityEpochs", [key.ss58_address, "Order"], 3)
-    record = {
-        "epoch": 3,
-        "key_commitment": bytes(key.mldsa_capability_commitment(ROLE_ORDER, 3)),
-        "expires_at": 1_000_000,
-        "scope": "UnrestrictedTrading",
-        "spent_tao": 0,
-        "spent_alpha": 0,
-    }
-    substrate.seed("HashedAccounts", "ActiveCapabilities", [key.ss58_address, "Order"], record)
-    return substrate, record
-
-
-class ObservedKey:
-    def __init__(self, key):
-        self.key = key
-
-    def __getattr__(self, name):
-        return getattr(self.key, name)
-
-    def sign_mldsa_order(self, epoch, nonce, genesis, payload, owner=None):
-        self.signed = (epoch, nonce, genesis, bytes(payload))
-        self.signed_owner = owner
-        return self.key.sign_mldsa_order(epoch, nonce, genesis, payload, owner=owner)
-
-
-async def test_detached_signing_keeps_every_economic_byte_and_uses_finalized_epoch(wallet):
-    key = wallet
-    substrate, _ = chain(key)
-    value = order(key.ss58_address)
-    prepared = await prepare_order(substrate, 17, value)
-    assert len(prepared.encoded) > 256
-    observed = ObservedKey(key)
-    signed = await sign_order(substrate, prepared, observed, partial_fill=30)
-    assert observed.signed == (3, 17, prepared.genesis_hash, prepared.encoded)
-    proof = signed.value()["signature"][
-        "Falcon" if key.crypto_type in FALCON_CRYPTO_TYPES else "MlDsa"
-    ]
-    assert (
-        len(bytes.fromhex(proof["public_key"][2:])) == pq_lengths(key.crypto_type)[0]
-        and len(bytes.fromhex(proof["signature"][2:])) == pq_lengths(key.crypto_type)[1]
-    )
-    assert bytes.fromhex(proof["public_key"][2:]) != key.mldsa_public_key
-    assert (
-        signed.value()["order"] == {"Authorized": {"nonce": 17, "terms": value}}
-        and signed.value()["partial_fill"] == 30
-    )
-    assert (
-        json.loads(json.dumps(ExecuteOrders([signed.value()]).to_dict()))["orders"][0]
-        == signed.value()
-    )
-    expected = (
-        ORDER_ID_DOMAIN
-        + prepared.genesis_hash
-        + bytes(ss58_decode(key.ss58_address))
-        + (17).to_bytes(8, "little")
-        + prepared.encoded
-    )
-    assert prepared.order_id == "0x" + blake2b(expected, digest_size=32).hexdigest()
-    value["V1"]["amount"] = 999
-    assert prepared.order["V1"]["amount"] == 100
-
-
-@pytest.mark.parametrize(
-    "failure", ["revoked", "epoch", "commitment", "expiry", "disabled", "nonce", "payload"]
-)
-async def test_stale_or_modified_authority_refuses_before_order_signature(failure, wallet):
-    key = wallet
-    substrate, record = chain(key)
-    prepared = await prepare_order(substrate, 17, order(key.ss58_address))
-    if failure == "revoked":
-        substrate.seed("HashedAccounts", "ActiveCapabilities", [key.ss58_address, "Order"], None)
-    elif failure == "epoch":
-        substrate.seed("HashedAccounts", "CapabilityEpochs", [key.ss58_address, "Order"], 4)
-    elif failure == "commitment":
-        record["key_commitment"] = bytes([1]) * 64
-    elif failure == "expiry":
-        record["expires_at"] = 0
-    elif failure == "disabled":
-        substrate.seed("AdminUtils", "HashedAccountsEnabled", [], False)
-    elif failure == "nonce":
-        substrate.seed("LimitOrders", "OrderNonces", [key.ss58_address, 17], "0x" + "ff" * 32)
-    else:
-        prepared.order["V1"]["limit_price"] += 1
-    observed = ObservedKey(key)
-    with pytest.raises(ValueError):
-        await sign_order(substrate, prepared, observed)
-    assert not hasattr(observed, "signed")
-
-
-async def test_scope_checks_full_amount_not_only_partial_fill_and_remaining_budget(wallet):
-    key = wallet
-    substrate, record = chain(key)
-    record["scope"] = {
-        "Trading": {
-            "netuid": 1,
-            "hotkey": ALICE_HOT,
-            "fee_recipient": BOB,
-            "max_fee_perbill": 10,
-            "max_tao_per_order": 90,
-            "max_alpha_per_order": 0,
-            "total_tao": 200,
-            "total_alpha": 0,
-        }
-    }
-    prepared = await prepare_order(substrate, 17, order(key.ss58_address))
-    with pytest.raises(ValueError, match="budget"):
-        await sign_order(substrate, prepared, key, partial_fill=10)
-    record["scope"]["Trading"]["max_tao_per_order"] = 100
-    await sign_order(substrate, prepared, key, partial_fill=10)
-    record["spent_tao"] = 199
-    with pytest.raises(ValueError, match="budget"):
-        await sign_order(substrate, prepared, key, partial_fill=10)
+    return OrderSubstrate(), None
 
 
 async def test_owner_approval_cancel_and_netting_reuse_identical_order_and_nonce(wallet):
@@ -205,23 +87,6 @@ async def test_owner_approval_cancel_and_netting_reuse_identical_order_and_nonce
         ExecuteOrders([approved.value()] * 9)
 
 
-async def test_grant_reads_tombstone_and_revoke_keeps_owner_origin(wallet):
-    key = wallet
-    substrate, _ = chain(key)
-    client = Client(substrate=substrate)
-    client.execute = AsyncMock(return_value="submitted")
-    await client.limit_orders.install_capability(
-        key, key, expires_at=1_000_000, scope="UnrestrictedTrading"
-    )
-    grant = client.execute.await_args.args[0]
-    assert grant.expected_epoch == 4
-    assert grant.key_commitment == bytes(key.mldsa_capability_commitment(ROLE_ORDER, 4)).hex()
-    assert grant.scope == {"UnrestrictedTrading": None}
-    await client.limit_orders.revoke_capability(key)
-    call = await client.execute.await_args.args[0].build(substrate, key)
-    assert call.params == {"role": "Order"}
-
-
 async def test_account_approved_order_supports_composite_origin_without_private_key(wallet):
     from bittensor.executor import _OriginView
 
@@ -233,37 +98,6 @@ async def test_account_approved_order_supports_composite_origin_without_private_
     assert result.data[11:] == prepared.encoded
     with pytest.raises(ValueError, match="order owner"):
         await intent.build(substrate, key)
-
-
-async def test_capability_snapshot_reads_one_finalized_block(wallet):
-    key = wallet
-    substrate, _ = chain(key)
-    original = substrate.query
-    seen = []
-
-    async def observe(*args, **kwargs):
-        seen.append(kwargs.get("block_hash"))
-        return await original(*args, **kwargs)
-
-    substrate.query = observe
-    capability = await order_capability(substrate, key.ss58_address)
-    assert capability.epoch == 3
-    assert len(set(seen)) == 1 and seen[0] is not None
-
-
-async def test_delegated_order_key_binds_composite_issuer_and_requires_its_grant(wallet):
-    key = wallet
-    substrate, record = chain(key)
-    substrate.seed("HashedAccounts", "CapabilityEpochs", [BOB, "Order"], 3)
-    substrate.seed("HashedAccounts", "ActiveCapabilities", [BOB, "Order"], record)
-    prepared = await prepare_order(substrate, 1, order(BOB))
-    observed = ObservedKey(key)
-    signed = await sign_order(substrate, prepared, observed)
-    assert signed.prepared.owner == BOB
-    assert observed.signed_owner == bytes(ss58_decode(BOB))
-    substrate.seed("HashedAccounts", "ActiveCapabilities", [BOB, "Order"], None)
-    with pytest.raises(ValueError, match="no active finalized"):
-        await sign_order(substrate, prepared, key)
 
 
 def test_order_id_matches_independent_runtime_wire_fixture():
@@ -284,17 +118,6 @@ def test_order_id_matches_independent_runtime_wire_fixture():
     )
 
 
-async def test_composite_owner_can_prepare_grant_for_a_separate_purpose_key(wallet):
-    key = wallet
-    substrate, _ = chain(key)
-    substrate.seed("HashedAccounts", "CapabilityEpochs", [BOB, "Order"], 7)
-    grant = await Client(substrate=substrate).limit_orders.capability_grant(
-        key, owner=BOB, expires_at=1_000_000, scope="UnrestrictedTrading"
-    )
-    assert grant.expected_epoch == 8
-    assert grant.key_commitment == bytes(key.mldsa_capability_commitment(ROLE_ORDER, 8)).hex()
-
-
 async def test_original_execution_calls_accept_mixed_authorization_schemes(wallet):
     key = wallet
     substrate, _ = chain(key)
@@ -305,7 +128,7 @@ async def test_original_execution_calls_accept_mixed_authorization_schemes(walle
         "signature": {"Sr25519": "0x" + "11" * 64},
         "partial_fill": None,
     }
-    # The ML-DSA proof bound must not reduce the existing classical order bound.
+    # The account-approval bound must not reduce the existing classical order bound.
     execution = ExecuteOrders([classical] * 9 + [authorized])
     call = await execution.build(substrate, key)
     assert call.function == "execute_orders"
@@ -413,8 +236,7 @@ async def test_fee_descriptors_require_matching_finalized_registration(
 
 
 @pytest.mark.parametrize("route", [ExecuteOrders, ExecuteBatchedOrders])
-@pytest.mark.parametrize("proof", ["AccountApproved", "MlDsa"])
-async def test_authorized_order_relays_preserve_fee_descriptors(route, proof):
+async def test_authorized_order_relays_preserve_fee_descriptors(route):
     from bittensor.hashed import descriptor_value
     from bittensor.limit_orders import authorized_order
     from bittensor.receiving import receiving_address
@@ -424,8 +246,6 @@ async def test_authorized_order_relays_preserve_fee_descriptors(route, proof):
     value = order(BOB)
     value["V1"]["fee_recipient"] = receiving_address(key)
     signature = "AccountApproved"
-    if proof == "MlDsa":
-        signature = {"MlDsa": {"epoch": 1, "public_key": "00" * 1952, "signature": "00" * 3309}}
     intent = route(
         [{"order": authorized_order(3, value), "signature": signature, "partial_fill": None}]
     )
@@ -440,36 +260,6 @@ async def test_authorized_order_relays_preserve_fee_descriptors(route, proof):
     assert intent.orders[0]["order"]["Authorized"]["terms"]["V1"] == value["V1"]
 
 
-async def test_trading_capability_retains_fee_descriptor_until_finalized_setup():
-    from bittensor.hashed import descriptor_value
-    from bittensor.intents.limit_orders import InstallOrderCapability
-    from bittensor.receiving import receiving_address
-    from tests.harness.samples import dev_wallet
-
-    key = Keypair.create_from_seed(bytes([46]) * 32, 7)
-    scope = {
-        "Trading": {
-            "netuid": 1,
-            "hotkey": BOB,
-            "fee_recipient": receiving_address(key),
-            "max_fee_perbill": 1_000_000,
-            "max_tao_per_order": 100,
-            "max_alpha_per_order": 0,
-            "total_tao": 1000,
-            "total_alpha": 0,
-        }
-    }
-    intent = InstallOrderCapability(1, "01" * 64, 1000, scope)
-    chain = OrderSubstrate()
-    chain.query = AsyncMock(return_value=None)
-    with pytest.raises(ValueError, match="registration is not finalized"):
-        await intent.build(chain, dev_wallet())
-    assert intent.to_dict()["scope"] == scope
-    chain.query.return_value = {"descriptor": descriptor_value(bytes(key.hashed_descriptor))}
-    built = await intent.build(chain, dev_wallet())
-    assert built.params["scope"]["Trading"]["fee_recipient"] == key.ss58_address
-
-
 async def test_order_fee_registration_fails_closed_without_finalized_hash():
     from bittensor.receiving import receiving_address
 
@@ -481,10 +271,3 @@ async def test_order_fee_registration_fails_closed_without_finalized_hash():
     with pytest.raises(ValueError, match="could not verify finalized"):
         await prepare_order(chain, 1, value)
     chain.query.assert_not_called()
-
-
-async def test_master_switch_blocks_order_capabilities_despite_ms_subgate(wallet):
-    substrate, _ = chain(wallet)
-    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], False)
-    with pytest.raises(ValueError, match="authorization is disabled"):
-        await order_capability(substrate, wallet.ss58_address)

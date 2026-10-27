@@ -181,7 +181,7 @@ fn all_metadata_versions_respect_legacy_client_fixed_array_limit() {
 }
 
 #[test]
-fn account_metadata_uses_scheme_names_and_preserves_event_and_call_indices() {
+fn account_metadata_uses_scheme_names_and_contiguous_call_indices() {
     for version in [14, 15, 16] {
         let encoded = hashed_extrinsic::metadata_at_version(version).unwrap();
         let metadata = frame_metadata::RuntimeMetadataPrefixed::decode(&mut &encoded[..]).unwrap();
@@ -195,6 +195,17 @@ fn account_metadata_uses_scheme_names_and_preserves_event_and_call_indices() {
                     .unwrap();
                 let storage = &pallet.storage.as_ref().unwrap().entries;
                 assert!(storage.iter().any(|entry| entry.name == "MlDsaAccounts"));
+                assert!(
+                    storage
+                        .iter()
+                        .all(|entry| !entry.name.contains("Capabilit"))
+                );
+                assert!(
+                    pallet
+                        .constants
+                        .iter()
+                        .all(|item| !item.name.contains("Capabilit"))
+                );
                 assert!(storage.iter().all(|entry| !matches!(
                     entry.name.as_str(),
                     "MlDsaRegistrationEnabled" | "MlDsaAuthorizationEnabled"
@@ -239,8 +250,6 @@ fn account_metadata_uses_scheme_names_and_preserves_event_and_call_indices() {
                         (0, "Registered"),
                         (2, "RegisteredMlDsa"),
                         (4, "DerivedProtected"),
-                        (5, "CapabilityInstalled"),
-                        (6, "CapabilityRevoked"),
                     ]
                 );
                 let scale_info::TypeDef::Variant(calls) = &data
@@ -263,11 +272,9 @@ fn account_metadata_uses_scheme_names_and_preserves_event_and_call_indices() {
                     vec![
                         (0, "register"),
                         (1, "check_registered"),
-                        (4, "register_derived"),
-                        (5, "check_derived"),
-                        (7, "install_capability"),
-                        (8, "revoke_capability"),
-                        (9, "register_derived_sponsored"),
+                        (2, "register_derived"),
+                        (3, "register_derived_sponsored"),
+                        (4, "check_derived"),
                     ]
                 );
                 let orders = data
@@ -275,6 +282,24 @@ fn account_metadata_uses_scheme_names_and_preserves_event_and_call_indices() {
                     .iter()
                     .find(|p| p.name == "LimitOrders")
                     .unwrap();
+                let scale_info::TypeDef::Variant(order_calls) = &data
+                    .types
+                    .resolve(orders.calls.as_ref().unwrap().ty.id)
+                    .unwrap()
+                    .type_def
+                else {
+                    panic!("order call enum")
+                };
+                let mut indices = order_calls
+                    .variants
+                    .iter()
+                    .map(|v| v.index)
+                    .collect::<Vec<_>>();
+                indices.sort_unstable();
+                assert_eq!(
+                    indices,
+                    (0..order_calls.variants.len() as u8).collect::<Vec<_>>()
+                );
                 for name in ["ApprovedOrders", "OrderNonces"] {
                     assert!(
                         orders
@@ -295,6 +320,26 @@ fn account_metadata_uses_scheme_names_and_preserves_event_and_call_indices() {
             _ => panic!("unexpected metadata version"),
         }
     }
+}
+
+#[test]
+fn detached_order_proof_variants_are_rejected() {
+    use pallet_limit_orders::{OrderAuthorization, OrderSignature};
+
+    // Include enough trailing bytes for the former proofs, so these fail on
+    // their removed variant rather than merely on a truncated payload.
+    for index in [4, 5] {
+        let mut encoded = vec![0; 6000];
+        encoded[0] = index;
+        assert!(OrderSignature::decode(&mut encoded.as_slice()).is_err());
+    }
+    for index in [1, 2] {
+        let mut encoded = vec![0; 6000];
+        encoded[0] = index;
+        assert!(OrderAuthorization::decode(&mut encoded.as_slice()).is_err());
+    }
+    assert_eq!(OrderSignature::AccountApproved.encode(), vec![3]);
+    assert_eq!(OrderAuthorization::AccountApproved.encode(), vec![0]);
 }
 
 #[test]

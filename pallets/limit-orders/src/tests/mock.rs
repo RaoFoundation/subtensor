@@ -558,7 +558,6 @@ impl pallet_limit_orders::Config for Test {
     type SwapInterface = MockSwap;
     type OrderSignerFilter = OrderSignerFilter;
     type AuthenticatedOrderSignerFilter = AuthenticatedOrderSignerFilter;
-    type Capabilities = super::authorization::MockCapabilities;
     type TimeProvider = MockTime;
     type MaxOrdersPerBatch = ConstU32<64>;
     type PalletId = LimitOrdersPalletId;

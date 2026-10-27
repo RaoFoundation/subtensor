@@ -20,8 +20,6 @@ pub const VERSION: u8 = 2;
 pub const ALGORITHM: u8 = 4;
 /// Registration-free fixed-key ML-DSA-65 profile. Its derived account must not
 /// encode a legacy Ed25519 or Sr25519 public key.
-/// Capability proofs still use ALGORITHM: their independently revocable keys
-/// are scoped to their owner, purpose and epoch, not the account rotation mode.
 pub const FIXED_ALGORITHM: u8 = 5;
 
 pub fn is_account_profile(profile: u8) -> bool {

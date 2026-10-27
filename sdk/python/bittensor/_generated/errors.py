@@ -457,9 +457,4 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (33, 10): ErrorInfo('HashedAccounts', 'AuthenticationKindConflict', 'A different permanent authentication kind already owns this identity.'),
     (33, 11): ErrorInfo('HashedAccounts', 'InvalidDerivedAuthority', 'A derived descriptor is invalid or its dependencies are not protected.'),
     (33, 12): ErrorInfo('HashedAccounts', 'DerivedAuthorityTooComplex', 'The derived authority graph exceeds a deterministic runtime bound.'),
-    (33, 13): ErrorInfo('HashedAccounts', 'CapabilityInvalid', ''),
-    (33, 14): ErrorInfo('HashedAccounts', 'CapabilityEpochMismatch', ''),
-    (33, 15): ErrorInfo('HashedAccounts', 'CapabilityExpired', ''),
-    (33, 16): ErrorInfo('HashedAccounts', 'CapabilityScopeViolation', ''),
-    (33, 17): ErrorInfo('HashedAccounts', 'CapabilityMissing', ''),
 }

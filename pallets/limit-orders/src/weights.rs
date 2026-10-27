@@ -1,5 +1,5 @@
-//! Reference measurements include the subsequently removed ML-DSA subgate reads.
-//! Their cost remains conservatively charged; the AdminUtils switch is the only gate.
+//! Reference measurements include removed detached verification and registry work.
+//! These measured costs remain conservatively charged for account-approved orders.
 //! ML-DSA additions: reference run 39060946210, commit 437053f80d5ebebce950602b168901bfe6591483.
 //! Measured 2026-10-17, compiled Wasm, AMD EPYC 9V45, 50 steps, 20 repeats.
 
@@ -40,10 +40,6 @@ use core::marker::PhantomData;
 
 /// Weight functions needed for `pallet_limit_orders`.
 pub trait WeightInfo {
-    fn execute_falcon512_orders(n: u32, p: u32) -> Weight;
-    fn execute_falcon1024_orders(n: u32, p: u32) -> Weight;
-    fn execute_falcon512_batched_orders(n: u32, p: u32) -> Weight;
-    fn execute_falcon1024_batched_orders(n: u32, p: u32) -> Weight;
 
 	fn authorize_order() -> Weight;
 	fn execute_authenticated_orders(n: u32, p: u32, ) -> Weight;
@@ -59,54 +55,6 @@ pub trait WeightInfo {
 /// Weights for `pallet_limit_orders` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-	fn execute_falcon512_orders(n: u32, p: u32) -> Weight {
-		Weight::from_parts(1_085_022_887, 6148)
-			.saturating_add(Weight::from_parts(332_424_867, 0).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(300_186_686, 0).saturating_mul(p.into()))
-			.saturating_add(T::DbWeight::get().reads(22_u64))
-			.saturating_add(T::DbWeight::get().reads((18_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes(11_u64))
-			.saturating_add(T::DbWeight::get().writes((9_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(p.into())))
-			.saturating_add(Weight::from_parts(0, 8935).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(0, 2775).saturating_mul(p.into()))
-	}
-	fn execute_falcon1024_orders(n: u32, p: u32) -> Weight {
-		Weight::from_parts(1_085_022_887, 6148)
-			.saturating_add(Weight::from_parts(332_424_867, 0).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(350_186_686, 0).saturating_mul(p.into()))
-			.saturating_add(T::DbWeight::get().reads(22_u64))
-			.saturating_add(T::DbWeight::get().reads((18_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes(11_u64))
-			.saturating_add(T::DbWeight::get().writes((9_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(p.into())))
-			.saturating_add(Weight::from_parts(0, 8935).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(0, 2775).saturating_mul(p.into()))
-	}
-	fn execute_falcon512_batched_orders(n: u32, p: u32) -> Weight {
-		Weight::from_parts(664_894_656, 8727)
-			.saturating_add(Weight::from_parts(253_598_746, 0).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(358_984_370, 0).saturating_mul(p.into()))
-			.saturating_add(T::DbWeight::get().reads(32_u64))
-			.saturating_add(T::DbWeight::get().reads((16_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes(18_u64))
-			.saturating_add(T::DbWeight::get().writes((9_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(p.into())))
-			.saturating_add(Weight::from_parts(0, 8935).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(0, 2775).saturating_mul(p.into()))
-	}
-	fn execute_falcon1024_batched_orders(n: u32, p: u32) -> Weight {
-		Weight::from_parts(664_894_656, 8727)
-			.saturating_add(Weight::from_parts(253_598_746, 0).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(408_984_370, 0).saturating_mul(p.into()))
-			.saturating_add(T::DbWeight::get().reads(32_u64))
-			.saturating_add(T::DbWeight::get().reads((16_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes(18_u64))
-			.saturating_add(T::DbWeight::get().writes((9_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(p.into())))
-			.saturating_add(Weight::from_parts(0, 8935).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(0, 2775).saturating_mul(p.into()))
-	}
 
 	/// Storage: `LimitOrders::Orders` (r:1 w:1)
 	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
@@ -370,8 +318,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `AdminUtils::HashedAccountsEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `HashedAccounts::MlDsaAuthorizationEnabled` (r:1 w:0)
 	/// Proof: `HashedAccounts::MlDsaAuthorizationEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
-	/// Storage: `HashedAccounts::ActiveCapabilities` (r:8 w:8)
-	/// Proof: `HashedAccounts::ActiveCapabilities` (`max_values`: None, `max_size`: Some(300), added: 2775, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubtokenEnabled` (r:1 w:0)
@@ -474,8 +420,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `AdminUtils::HashedAccountsEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `HashedAccounts::MlDsaAuthorizationEnabled` (r:1 w:0)
 	/// Proof: `HashedAccounts::MlDsaAuthorizationEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
-	/// Storage: `HashedAccounts::ActiveCapabilities` (r:8 w:8)
-	/// Proof: `HashedAccounts::ActiveCapabilities` (`max_values`: None, `max_size`: Some(300), added: 2775, mode: `MaxEncodedLen`)
 	/// Storage: `HashedAccounts::Accounts` (r:92 w:0)
 	/// Proof: `HashedAccounts::Accounts` (`max_values`: None, `max_size`: Some(122), added: 2597, mode: `MaxEncodedLen`)
 	/// Storage: `HashedAccounts::MlDsaAccounts` (r:92 w:0)
@@ -552,54 +496,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
-	fn execute_falcon512_orders(n: u32, p: u32) -> Weight {
-		Weight::from_parts(1_085_022_887, 6148)
-			.saturating_add(Weight::from_parts(332_424_867, 0).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(300_186_686, 0).saturating_mul(p.into()))
-			.saturating_add(RocksDbWeight::get().reads(22_u64))
-			.saturating_add(RocksDbWeight::get().reads((18_u64).saturating_mul(n.into())))
-			.saturating_add(RocksDbWeight::get().writes(11_u64))
-			.saturating_add(RocksDbWeight::get().writes((9_u64).saturating_mul(n.into())))
-			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(p.into())))
-			.saturating_add(Weight::from_parts(0, 8935).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(0, 2775).saturating_mul(p.into()))
-	}
-	fn execute_falcon1024_orders(n: u32, p: u32) -> Weight {
-		Weight::from_parts(1_085_022_887, 6148)
-			.saturating_add(Weight::from_parts(332_424_867, 0).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(350_186_686, 0).saturating_mul(p.into()))
-			.saturating_add(RocksDbWeight::get().reads(22_u64))
-			.saturating_add(RocksDbWeight::get().reads((18_u64).saturating_mul(n.into())))
-			.saturating_add(RocksDbWeight::get().writes(11_u64))
-			.saturating_add(RocksDbWeight::get().writes((9_u64).saturating_mul(n.into())))
-			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(p.into())))
-			.saturating_add(Weight::from_parts(0, 8935).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(0, 2775).saturating_mul(p.into()))
-	}
-	fn execute_falcon512_batched_orders(n: u32, p: u32) -> Weight {
-		Weight::from_parts(664_894_656, 8727)
-			.saturating_add(Weight::from_parts(253_598_746, 0).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(358_984_370, 0).saturating_mul(p.into()))
-			.saturating_add(RocksDbWeight::get().reads(32_u64))
-			.saturating_add(RocksDbWeight::get().reads((16_u64).saturating_mul(n.into())))
-			.saturating_add(RocksDbWeight::get().writes(18_u64))
-			.saturating_add(RocksDbWeight::get().writes((9_u64).saturating_mul(n.into())))
-			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(p.into())))
-			.saturating_add(Weight::from_parts(0, 8935).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(0, 2775).saturating_mul(p.into()))
-	}
-	fn execute_falcon1024_batched_orders(n: u32, p: u32) -> Weight {
-		Weight::from_parts(664_894_656, 8727)
-			.saturating_add(Weight::from_parts(253_598_746, 0).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(408_984_370, 0).saturating_mul(p.into()))
-			.saturating_add(RocksDbWeight::get().reads(32_u64))
-			.saturating_add(RocksDbWeight::get().reads((16_u64).saturating_mul(n.into())))
-			.saturating_add(RocksDbWeight::get().writes(18_u64))
-			.saturating_add(RocksDbWeight::get().writes((9_u64).saturating_mul(n.into())))
-			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(p.into())))
-			.saturating_add(Weight::from_parts(0, 8935).saturating_mul(n.into()))
-			.saturating_add(Weight::from_parts(0, 2775).saturating_mul(p.into()))
-	}
 
 	/// Storage: `LimitOrders::Orders` (r:1 w:1)
 	/// Proof: `LimitOrders::Orders` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
@@ -863,8 +759,6 @@ impl WeightInfo for () {
 	/// Proof: `AdminUtils::HashedAccountsEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `HashedAccounts::MlDsaAuthorizationEnabled` (r:1 w:0)
 	/// Proof: `HashedAccounts::MlDsaAuthorizationEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
-	/// Storage: `HashedAccounts::ActiveCapabilities` (r:8 w:8)
-	/// Proof: `HashedAccounts::ActiveCapabilities` (`max_values`: None, `max_size`: Some(300), added: 2775, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubtokenEnabled` (r:1 w:0)
@@ -967,8 +861,6 @@ impl WeightInfo for () {
 	/// Proof: `AdminUtils::HashedAccountsEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `HashedAccounts::MlDsaAuthorizationEnabled` (r:1 w:0)
 	/// Proof: `HashedAccounts::MlDsaAuthorizationEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
-	/// Storage: `HashedAccounts::ActiveCapabilities` (r:8 w:8)
-	/// Proof: `HashedAccounts::ActiveCapabilities` (`max_values`: None, `max_size`: Some(300), added: 2775, mode: `MaxEncodedLen`)
 	/// Storage: `HashedAccounts::Accounts` (r:92 w:0)
 	/// Proof: `HashedAccounts::Accounts` (`max_values`: None, `max_size`: Some(122), added: 2597, mode: `MaxEncodedLen`)
 	/// Storage: `HashedAccounts::MlDsaAccounts` (r:92 w:0)

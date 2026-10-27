@@ -22,8 +22,6 @@ AlphaBalance = Any
 BTreeSet = Any
 BeaconConfigurationPayload = Any
 BoundedVec = Any
-CapabilityRole = Any
-CapabilityScope = Any
 CommitmentInfo = Any
 ConsensusMode = Any
 DerivedDescriptor = Any
@@ -1779,12 +1777,12 @@ class LimitOrders:
 
     @staticmethod
     def execute_batched_orders(netuid: 'NetUid', orders: 'BoundedVec') -> Call:
-        "Execute a batch of signed limit orders for a single subnet using aggregated (netted) pool interaction.  Unlike `execute_orders`, which hits the pool once per order, this extrinsic:  1. Validates every order's authorization, expiry, status and price; any failure aborts the entire batch. 2. Fetches the current price once. 3. Aggregates all valid buy inputs (TAO) and sell inputs (alpha). 4. Nets the two sides: only the residual amount touches the pool in a single swap, minimising price impact. 5. Distributes outputs pro-rata: - Dominant-side orders split the pool output proportionally to their individual net amounts. - Offset-side orders are filled internally at the current price (no pool interaction for them). 6. Collects protocol fees (TAO for buy orders, alpha → TAO for sell orders) and routes them to `FeeCollector`.  All orders must target `netuid`; a mismatch aborts the batch. Classical, approved, and ML-DSA entries may be mixed, with at most eight entries using either new authorization mode."
+        "Execute a batch of signed limit orders for a single subnet using aggregated (netted) pool interaction.  Unlike `execute_orders`, which hits the pool once per order, this extrinsic:  1. Validates every order's authorization, expiry, status and price; any failure aborts the entire batch. 2. Fetches the current price once. 3. Aggregates all valid buy inputs (TAO) and sell inputs (alpha). 4. Nets the two sides: only the residual amount touches the pool in a single swap, minimising price impact. 5. Distributes outputs pro-rata: - Dominant-side orders split the pool output proportionally to their individual net amounts. - Offset-side orders are filled internally at the current price (no pool interaction for them). 6. Collects protocol fees (TAO for buy orders, alpha → TAO for sell orders) and routes them to `FeeCollector`.  All orders must target `netuid`; a mismatch aborts the batch. Classical and account-approved entries may be mixed, with at most eight entries using account approval."
         return Call('LimitOrders', 'execute_batched_orders', {'netuid': netuid, 'orders': orders})
 
     @staticmethod
     def execute_orders(orders: 'BoundedVec', should_fail: 'bool') -> Call:
-        'Execute classical, account-approved, and ML-DSA orders in one batch. Each order independently authenticates its owner and permitted relayer; at most eight entries may use account approval or a purpose-key proof.  The `should_fail` flag controls how individual order failures are handled:  - When `false` (best-effort): orders whose price condition is not yet met are silently skipped so that a single stale order cannot block the rest of the batch. Orders that fail for any other reason (expired, bad signature, etc.) are also skipped; the admin is expected to filter these off-chain. - When `true` (all-or-nothing): the first order failure aborts the whole batch by returning the underlying error, reverting any orders already executed in this call.'
+        'Execute classical and account-approved orders in one batch. Each order independently authenticates its owner and permitted relayer; at most eight entries may use account approval.  The `should_fail` flag controls how individual order failures are handled:  - When `false` (best-effort): orders whose price condition is not yet met are silently skipped so that a single stale order cannot block the rest of the batch. Orders that fail for any other reason (expired, bad signature, etc.) are also skipped; the admin is expected to filter these off-chain. - When `true` (all-or-nothing): the first order failure aborts the whole batch by returning the underlying error, reverting any orders already executed in this call.'
         return Call('LimitOrders', 'execute_orders', {'orders': orders, 'should_fail': should_fail})
 
     @staticmethod
@@ -1811,10 +1809,6 @@ class HashedAccounts:
         return Call('HashedAccounts', 'check_registered', {'descriptor': descriptor})
 
     @staticmethod
-    def install_capability(expected_epoch: 'u64', key_commitment: 'Any', expires_at: 'u64', scope: 'CapabilityScope') -> Call:
-        return Call('HashedAccounts', 'install_capability', {'expected_epoch': expected_epoch, 'key_commitment': key_commitment, 'expires_at': expires_at, 'scope': scope})
-
-    @staticmethod
     def register(descriptor: 'RegistrationDescriptor') -> Call:
         'Bind an account to its hidden initial key for the selected scheme. Anyone may sponsor the permanent deposit without gaining authority. Idempotent registration never changes an existing authorization.'
         return Call('HashedAccounts', 'register', {'descriptor': descriptor})
@@ -1827,7 +1821,3 @@ class HashedAccounts:
     def register_derived_sponsored(descriptor: 'DerivedDescriptor', deposit_payer: 'AccountId32') -> Call:
         "Register through the derived account's own authority while an explicitly consenting outer signer pays the permanent deposit."
         return Call('HashedAccounts', 'register_derived_sponsored', {'descriptor': descriptor, 'deposit_payer': deposit_payer})
-
-    @staticmethod
-    def revoke_capability(role: 'CapabilityRole') -> Call:
-        return Call('HashedAccounts', 'revoke_capability', {'role': role})

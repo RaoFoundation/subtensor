@@ -189,52 +189,6 @@ fn admin_pause_blocks_stateless_auth_without_consuming_the_nonce() {
 }
 
 #[test]
-fn ordinary_owner_can_install_and_revoke_an_optional_order_capability() {
-    use pallet_hashed_accounts::{
-        ActiveCapabilities, CapabilityEpochs, CapabilityRole, CapabilityScope,
-    };
-    ext().execute_with(|| {
-        setup();
-        let wallet = Wallet::new(101);
-        fund(&wallet.account);
-        let commitment = mldsa::commitment(&mldsa::public_key_from_seed(&[102; 32]).unwrap());
-        assert_ok!(
-            Executive::apply_extrinsic(wallet.sign(RuntimeCall::HashedAccounts(
-                pallet_hashed_accounts::Call::install_capability {
-                    expected_epoch: 1,
-                    key_commitment: commitment,
-                    expires_at: 100,
-                    scope: CapabilityScope::UnrestrictedTrading,
-                },
-            )))
-            .unwrap()
-        );
-        assert!(ActiveCapabilities::<Runtime>::contains_key(
-            &wallet.account,
-            CapabilityRole::Order
-        ));
-        assert_ok!(
-            Executive::apply_extrinsic(wallet.sign(RuntimeCall::HashedAccounts(
-                pallet_hashed_accounts::Call::revoke_capability {
-                    role: CapabilityRole::Order
-                },
-            )))
-            .unwrap()
-        );
-        assert!(!ActiveCapabilities::<Runtime>::contains_key(
-            &wallet.account,
-            CapabilityRole::Order
-        ));
-        assert_eq!(
-            CapabilityEpochs::<Runtime>::get(&wallet.account, CapabilityRole::Order),
-            2
-        );
-        assert_eq!(System::account_nonce(&wallet.account), 2);
-        assert_registrationless(&wallet.account);
-    });
-}
-
-#[test]
 fn draining_and_refunding_cannot_reset_consumed_native_nonces() {
     ext().execute_with(|| {
         setup();

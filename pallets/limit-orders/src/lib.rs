@@ -136,7 +136,7 @@ pub enum VersionedOrder<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + 
     V1(Order<AccountId>),
     /// Same fields as V1, plus linked amounts and an opt-in provider flag.
     V2(OrderV2<AccountId>),
-    /// Explicit nonce-bearing terms for account approval or a purpose-key proof.
+    /// Explicit nonce-bearing terms for account approval.
     /// The nonrecursive inner enum cannot contain another authorization wrapper.
     #[codec(index = 2)]
     Authorized {
@@ -241,8 +241,8 @@ impl<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> VersionedOrd
 ///   - wrapped: `<Bytes>` + `blake2_256(SCALE_ENCODE(VersionedOrder))` (the `OrderId`) + `</Bytes>`,
 ///     the `signRaw` envelope used by Polkadot.js / Ledger.
 /// Both sr25519 and ed25519 signatures are accepted; ecdsa is rejected at validation time.
-/// `Authorized` terms additionally accept an account approval or an ML-DSA
-/// purpose-key proof. A classical signature cannot authorize that new mode.
+/// `Authorized` terms require an account approval. A classical detached signature
+/// cannot authorize that mode.
 #[freeze_struct("b365db4d93c61c97")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, PartialEq, Eq, Debug,
@@ -250,7 +250,7 @@ impl<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> VersionedOrd
 pub struct SignedOrder<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> {
     pub order: VersionedOrder<AccountId>,
     /// Typed proof. Legacy variants retain the exact MultiSignature encoding;
-    /// account-approved and ML-DSA variants require explicit Authorized terms.
+    /// the account-approved variant requires explicit Authorized terms.
     pub signature: OrderSignature,
     /// Whether we want a partial fill for this order
     pub partial_fill: Option<u64>,
@@ -337,8 +337,6 @@ pub mod pallet {
 
         /// Execution freezes for authenticated owners, including protected accounts.
         type AuthenticatedOrderSignerFilter: Contains<Self::AccountId>;
-        /// Purpose-specific detached order authorization and spend accounting.
-        type Capabilities: OrderCapabilities;
 
         /// Time provider for expiry checks.
         type TimeProvider: UnixTime;
@@ -595,9 +593,9 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Execute classical, account-approved, and ML-DSA orders in one batch.
+        /// Execute classical and account-approved orders in one batch.
         /// Each order independently authenticates its owner and permitted relayer;
-        /// at most eight entries may use account approval or a purpose-key proof.
+        /// at most eight entries may use account approval.
         ///
         /// The `should_fail` flag controls how individual order failures are
         /// handled:
@@ -660,8 +658,8 @@ pub mod pallet {
         ///    orders) and routes them to `FeeCollector`.
         ///
         /// All orders must target `netuid`; a mismatch aborts the batch.
-        /// Classical, approved, and ML-DSA entries may be mixed, with at most
-        /// eight entries using either new authorization mode.
+        /// Classical and account-approved entries may be mixed, with at most
+        /// eight entries using account approval.
         #[pallet::call_index(1)]
         #[pallet::weight(Pallet::<T>::execute_batched_orders_weight(orders))]
         pub fn execute_batched_orders(

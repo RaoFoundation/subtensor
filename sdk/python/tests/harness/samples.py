@@ -379,13 +379,6 @@ INTENT_SAMPLES.update(
                 }
             ]
         },
-        "install_order_capability": {
-            "expected_epoch": 1,
-            "key_commitment": "11" * 64,
-            "expires_at": 1000,
-            "scope": {"UnrestrictedTrading": None},
-        },
-        "revoke_order_capability": {},
     }
 )
 

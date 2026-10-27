@@ -91,8 +91,6 @@ call_filter_group!(
         RuntimeCall::HashedAccounts(HashedAccountsCall::register),
         RuntimeCall::HashedAccounts(HashedAccountsCall::register_derived),
         RuntimeCall::HashedAccounts(HashedAccountsCall::register_derived_sponsored),
-        RuntimeCall::HashedAccounts(HashedAccountsCall::install_capability),
-        RuntimeCall::HashedAccounts(HashedAccountsCall::revoke_capability),
     ]
 );
 

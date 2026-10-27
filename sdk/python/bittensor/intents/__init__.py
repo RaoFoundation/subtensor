@@ -45,8 +45,6 @@ from .limit_orders import (
     CancelOrder,
     ExecuteBatchedOrders,
     ExecuteOrders,
-    InstallOrderCapability,
-    RevokeOrderCapability,
 )
 from .lock import LockStake, MoveLock, SetPerpetualLock, SetRejectLockedAlpha
 from .multisig import (
@@ -132,7 +130,6 @@ __all__ = [
     "FinalizeCrowdloan",
     "FundEvmKey",
     "IncreaseTake",
-    "InstallOrderCapability",
     "Intent",
     "KillPureProxy",
     "LockStake",
@@ -158,7 +155,6 @@ __all__ = [
     "RemoveStakeLimit",
     "ResetAxon",
     "RevealWeights",
-    "RevokeOrderCapability",
     "RootRegister",
     "ServeAxon",
     "ServeAxonTls",

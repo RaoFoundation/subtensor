@@ -228,7 +228,7 @@ fn included_dispatch_error_rotates_but_disabled_and_overweight_do_not() {
 
 #[test]
 fn single_admin_toggle_controls_all_hashed_schemes_and_preserves_authority() {
-    use pallet_hashed_accounts::{CapabilityEpochs, CapabilityRole, CapabilityScope, EvmAliases};
+    use pallet_hashed_accounts::EvmAliases;
 
     with_profiles(|| {
         // Registered rotating ML-DSA is gated through the same AdminUtils flag.
@@ -237,12 +237,6 @@ fn single_admin_toggle_controls_all_hashed_schemes_and_preserves_authority() {
         let before = MlDsaAccounts::<Runtime>::get(&account);
         let nonce = System::account_nonce(&account);
         let balance = Balances::free_balance(&account);
-        assert_ok!(HashedAccounts::revoke_capability(
-            RuntimeOrigin::signed(account.clone()),
-            CapabilityRole::Order
-        ));
-        let epoch = CapabilityEpochs::<Runtime>::get(&account, CapabilityRole::Order);
-        assert_eq!(epoch, 1);
         let sponsor = pair(70);
         let sponsor_id = AccountId::from(sponsor.public());
         let mut classical = Vec::new();
@@ -314,10 +308,6 @@ fn single_admin_toggle_controls_all_hashed_schemes_and_preserves_authority() {
             EvmAliases::<Runtime>::get(HashedAccounts::evm_alias(&account)),
             Some(account.clone())
         );
-        assert_eq!(
-            CapabilityEpochs::<Runtime>::get(&account, CapabilityRole::Order),
-            epoch
-        );
         let fresh_ms = descriptor(45);
         assert_noop!(
             HashedAccounts::register(RuntimeOrigin::signed(sponsor_id.clone()), fresh_ms.into()),
@@ -386,20 +376,6 @@ fn single_admin_toggle_controls_all_hashed_schemes_and_preserves_authority() {
             MlDsaAccounts::<Runtime>::get(&account).unwrap().generation,
             1
         );
-        assert_eq!(
-            CapabilityEpochs::<Runtime>::get(&account, CapabilityRole::Order),
-            epoch
-        );
-        assert_noop!(
-            HashedAccounts::install_capability(
-                RuntimeOrigin::signed(account.clone()),
-                epoch,
-                fresh_ms.initial_commitment,
-                100,
-                CapabilityScope::UnrestrictedTrading
-            ),
-            pallet_hashed_accounts::Error::<Runtime>::CapabilityEpochMismatch
-        );
         assert_ok!(HashedAccounts::register(
             RuntimeOrigin::signed(sponsor_id),
             fresh_ms.into()
@@ -408,7 +384,7 @@ fn single_admin_toggle_controls_all_hashed_schemes_and_preserves_authority() {
             assert_ok!(Executive::apply_extrinsic(signed.clone()).unwrap());
             assert_eq!(HashedAccounts::accounts(who).unwrap().generation, 1);
         }
-        // A later pause/resume must not reset consumed generations or capability tombstones.
+        // A later pause/resume must not reset consumed generations.
         assert_ok!(AdminUtils::sudo_set_hashed_accounts_enabled(
             RuntimeOrigin::root(),
             false
@@ -421,10 +397,6 @@ fn single_admin_toggle_controls_all_hashed_schemes_and_preserves_authority() {
         assert_eq!(
             MlDsaAccounts::<Runtime>::get(&account).unwrap().generation,
             1
-        );
-        assert_eq!(
-            CapabilityEpochs::<Runtime>::get(&account, CapabilityRole::Order),
-            epoch
         );
         for (who, _, signed, _) in classical {
             assert!(Executive::apply_extrinsic(signed).is_err());

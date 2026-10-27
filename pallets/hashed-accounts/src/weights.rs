@@ -38,9 +38,6 @@ pub trait WeightInfo {
     fn register_derived() -> Weight;
     fn register_derived_sponsored() -> Weight;
     fn check_derived() -> Weight;
-
-    fn install_capability() -> Weight;
-    fn revoke_capability() -> Weight;
 }
 
 pub struct SubstrateWeight<T>(PhantomData<T>);
@@ -66,44 +63,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
         Weight::from_parts(16_291_000, 3587).saturating_add(T::DbWeight::get().reads(2_u64))
     }
 
-    /// Storage: `AdminUtils::HashedAccountsEnabled` (r:1 w:0)
-    /// Proof: `AdminUtils::HashedAccountsEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-    /// Storage: `HashedAccounts::MlDsaAuthorizationEnabled` (r:1 w:0)
-    /// Proof: `HashedAccounts::MlDsaAuthorizationEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::Accounts` (r:1 w:0)
-    /// Proof: `HashedAccounts::Accounts` (`max_values`: None, `max_size`: Some(122), added: 2597, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::MlDsaAccounts` (r:1 w:0)
-    /// Proof: `HashedAccounts::MlDsaAccounts` (`max_values`: None, `max_size`: Some(186), added: 2661, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::CapabilityEpochs` (r:1 w:1)
-    /// Proof: `HashedAccounts::CapabilityEpochs` (`max_values`: None, `max_size`: Some(65), added: 2540, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::ActiveCapabilities` (r:0 w:1)
-    /// Proof: `HashedAccounts::ActiveCapabilities` (`max_values`: None, `max_size`: Some(300), added: 2775, mode: `MaxEncodedLen`)
-    fn install_capability() -> Weight {
-        // Proof Size summary in bytes:
-        //  Measured:  `873`
-        //  Estimated: `3651`
-        // Minimum execution time: 29_505_000 picoseconds.
-        Weight::from_parts(34_592_000, 3651)
-            .saturating_add(T::DbWeight::get().reads(5_u64))
-            .saturating_add(T::DbWeight::get().writes(2_u64))
-    }
-    /// Storage: `HashedAccounts::Accounts` (r:1 w:0)
-    /// Proof: `HashedAccounts::Accounts` (`max_values`: None, `max_size`: Some(122), added: 2597, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::MlDsaAccounts` (r:1 w:0)
-    /// Proof: `HashedAccounts::MlDsaAccounts` (`max_values`: None, `max_size`: Some(186), added: 2661, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::CapabilityEpochs` (r:1 w:1)
-    /// Proof: `HashedAccounts::CapabilityEpochs` (`max_values`: None, `max_size`: Some(65), added: 2540, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::ActiveCapabilities` (r:0 w:1)
-    /// Proof: `HashedAccounts::ActiveCapabilities` (`max_values`: None, `max_size`: Some(300), added: 2775, mode: `MaxEncodedLen`)
-    fn revoke_capability() -> Weight {
-        // Proof Size summary in bytes:
-        //  Measured:  `415`
-        //  Estimated: `3651`
-        // Minimum execution time: 21_362_000 picoseconds.
-        Weight::from_parts(22_364_000, 3651)
-            .saturating_add(T::DbWeight::get().reads(3_u64))
-            .saturating_add(T::DbWeight::get().writes(2_u64))
-    }
     /// Storage: `AdminUtils::HashedAccountsEnabled` (r:1 w:0)
     /// Proof: `AdminUtils::HashedAccountsEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
     /// Storage: `HashedAccounts::MlDsaAccounts` (r:22 w:1)
@@ -532,44 +491,6 @@ impl WeightInfo for () {
         Weight::from_parts(16_291_000, 3587).saturating_add(RocksDbWeight::get().reads(2_u64))
     }
 
-    /// Storage: `AdminUtils::HashedAccountsEnabled` (r:1 w:0)
-    /// Proof: `AdminUtils::HashedAccountsEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-    /// Storage: `HashedAccounts::MlDsaAuthorizationEnabled` (r:1 w:0)
-    /// Proof: `HashedAccounts::MlDsaAuthorizationEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::Accounts` (r:1 w:0)
-    /// Proof: `HashedAccounts::Accounts` (`max_values`: None, `max_size`: Some(122), added: 2597, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::MlDsaAccounts` (r:1 w:0)
-    /// Proof: `HashedAccounts::MlDsaAccounts` (`max_values`: None, `max_size`: Some(186), added: 2661, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::CapabilityEpochs` (r:1 w:1)
-    /// Proof: `HashedAccounts::CapabilityEpochs` (`max_values`: None, `max_size`: Some(65), added: 2540, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::ActiveCapabilities` (r:0 w:1)
-    /// Proof: `HashedAccounts::ActiveCapabilities` (`max_values`: None, `max_size`: Some(300), added: 2775, mode: `MaxEncodedLen`)
-    fn install_capability() -> Weight {
-        // Proof Size summary in bytes:
-        //  Measured:  `873`
-        //  Estimated: `3651`
-        // Minimum execution time: 29_505_000 picoseconds.
-        Weight::from_parts(34_592_000, 3651)
-            .saturating_add(RocksDbWeight::get().reads(5_u64))
-            .saturating_add(RocksDbWeight::get().writes(2_u64))
-    }
-    /// Storage: `HashedAccounts::Accounts` (r:1 w:0)
-    /// Proof: `HashedAccounts::Accounts` (`max_values`: None, `max_size`: Some(122), added: 2597, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::MlDsaAccounts` (r:1 w:0)
-    /// Proof: `HashedAccounts::MlDsaAccounts` (`max_values`: None, `max_size`: Some(186), added: 2661, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::CapabilityEpochs` (r:1 w:1)
-    /// Proof: `HashedAccounts::CapabilityEpochs` (`max_values`: None, `max_size`: Some(65), added: 2540, mode: `MaxEncodedLen`)
-    /// Storage: `HashedAccounts::ActiveCapabilities` (r:0 w:1)
-    /// Proof: `HashedAccounts::ActiveCapabilities` (`max_values`: None, `max_size`: Some(300), added: 2775, mode: `MaxEncodedLen`)
-    fn revoke_capability() -> Weight {
-        // Proof Size summary in bytes:
-        //  Measured:  `415`
-        //  Estimated: `3651`
-        // Minimum execution time: 21_362_000 picoseconds.
-        Weight::from_parts(22_364_000, 3651)
-            .saturating_add(RocksDbWeight::get().reads(3_u64))
-            .saturating_add(RocksDbWeight::get().writes(2_u64))
-    }
     /// Storage: `AdminUtils::HashedAccountsEnabled` (r:1 w:0)
     /// Proof: `AdminUtils::HashedAccountsEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
     /// Storage: `HashedAccounts::MlDsaAccounts` (r:22 w:1)

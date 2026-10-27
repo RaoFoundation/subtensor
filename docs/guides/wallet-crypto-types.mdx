@@ -323,7 +323,8 @@ require ECDSA signatures continue to require the corresponding EVM authority.
 
 ## Message signatures
 
-`btcli wallet sign --message "challenge"` uses the wallet's stored scheme.
+For classical SR/ED wallets, `btcli wallet sign --message "challenge"` uses the
+wallet's stored scheme.
 `btcli wallet verify --message "challenge" --signature HEX --ss58 ADDRESS`
 uses the descriptor in a receiving address. With plain SS58, supply the trusted
 signing scheme and account mode, for example `--crypto-type sr --type hashed`.
@@ -335,16 +336,9 @@ the CLI checks finalized state before revealing that retired key. SDK callers
 pass the finalized generation as `hashed_generation` to `wallets.sign_message`,
 or select it with `key.at_generation(generation)`.
 
-Any authenticated signed owner may optionally install and revoke a scoped
-ML-DSA or Falcon capability; this does not register the owner or change its delegation
-policy. Ordinary and composite owners use their normal authorization path.
-
-Both standard and hashed ML-DSA/Falcon wallets sign messages through an
-owner-approved, finalized message
-capability with a separate purpose key and epoch. The CLI resolves that capability
-before signing or verification; it never exposes the transaction key for an
-arbitrary message. HTTP applications use the post-quantum capability protocol and must
-resolve its owner, audience, epoch, expiry and commitment from trusted state.
+Standard and hashed ML-DSA/Falcon wallets do not support arbitrary message
+signing or HTTP authentication. Their transaction signing remains available,
+and they approve limit orders through a normal signed `authorize_order` call.
 
 For classical HTTP signatures, servers must pass `expected_crypto_type` to `http_auth.verify` from trusted
 configuration or registry state. The request's crypto header is not trusted.

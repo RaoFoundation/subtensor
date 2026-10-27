@@ -9,14 +9,12 @@ accounts are newly generated disposable keys.
 from __future__ import annotations
 
 import os
-from dataclasses import replace
 from itertools import combinations
 
 import pytest
 
 import bittensor as bt
 from bittensor.hashed import compose_derivative
-from bittensor.mldsa import install_message_capability, message_capability
 from bittensor.receiving import receiving_address
 from bittensor.sp_core import requires_registration
 from tests.e2e import test_mldsa_localnet as order_paths
@@ -57,10 +55,8 @@ async def test_contracts_upload_remove_instantiate_and_call(code):
     await operation_paths.test_contracts_upload_remove_instantiate_and_call(code)
 
 
-async def test_order_execution_cancellation_revocation_scope_and_budget(code):
-    await order_paths.test_original_limit_order_execution_cancellation_and_capability_revocation(
-        code
-    )
+async def test_order_execution_cancellation_and_approval(code):
+    await order_paths.test_original_limit_order_execution_cancellation_and_approval(code)
 
 
 async def test_validator_plain_null_and_commit_reveal_weights(code):
@@ -77,133 +73,6 @@ async def test_announced_proxy_delay_regrant_and_revocation(code):
 
 async def test_classical_proxy_grants_follow_fixed_and_rotating_policy(code):
     await proxy_paths.test_ms_classical_delegation_matches_the_account_policy(code)
-
-
-async def test_message_http_capability_audience_owner_replacement_and_revocation(code):
-    owner, other = fresh_key(code), fresh_key(code)
-    receiver = dev_wallet().hotkey.ss58_address
-    trace = Evidence(f"falcon-message-http-boundaries-{code}")
-    async with bt.Client(ENDPOINT, fallback_endpoints=[], archive_endpoints=[]) as client:
-        await operation_paths.fund(client, owner)
-
-        async def submit(call, label):
-            result = await client.submit_call(call, owner, wait_for_finalization=True)
-            trace.add(label, receipt=result.to_dict())
-            assert result.success and result.block_hash, result.to_dict()
-
-        await submit(
-            install_message_capability(
-                owner, epoch=1, expires_at=await client.block() + 10_000, audience=b"0xff"
-            ),
-            "install-first-message-capability",
-        )
-        first = await message_capability(client._substrate, owner.ss58_address, b"0xff")
-        with pytest.raises(ValueError, match="audience"):
-            await message_capability(client._substrate, owner.ss58_address, b"\xff")
-        with pytest.raises(ValueError, match="no active"):
-            await message_capability(client._substrate, other.ss58_address, b"0xff")
-
-        message = "Falcon capability identity boundary"
-        signed = bt.wallets.sign_message_key(message, owner, message_capability=first)["signature"]
-        assert bt.wallets.verify_message(
-            message, signed, owner.ss58_address, code, message_capability=first
-        )
-        for altered in (
-            replace(first, owner=other.ss58_address),
-            replace(first, audience=b"\xff"),
-            replace(first, genesis_hash=bytes(32)),
-        ):
-            assert not bt.wallets.verify_message(
-                message, signed, altered.owner, code, message_capability=altered
-            )
-        with pytest.raises(ValueError, match="does not match"):
-            bt.wallets.sign_message_key(message, other, message_capability=first)
-
-        request = bt.http_auth.sign_pq(
-            owner,
-            capability=first,
-            method="POST",
-            path="/falcon-capability",
-            body=b"authorized request",
-            receiver_ss58=receiver,
-        )
-        store = bt.http_auth.InMemoryNonceStore(retention=660)
-
-        def verify(capability=first, **overrides):
-            kwargs = dict(
-                capability=capability,
-                method="POST",
-                path="/falcon-capability",
-                self_hotkey_ss58=receiver,
-                max_age=600,
-                nonce_store=store,
-            )
-            kwargs.update(overrides)
-            return bt.http_auth.verify_pq(request.headers, request.body, **kwargs)
-
-        for altered in (
-            replace(first, owner=other.ss58_address),
-            replace(first, audience=b"\xff"),
-        ):
-            with pytest.raises(bt.http_auth.BadSignature):
-                verify(altered)
-        with pytest.raises(bt.http_auth.BadSignature):
-            verify(path="/different-endpoint")
-        with pytest.raises(bt.http_auth.WrongReceiver):
-            verify(self_hotkey_ss58=other.ss58_address)
-        accepted = verify()
-        assert accepted.body == b"authorized request"
-        assert accepted.caller.hotkey_ss58 == owner.ss58_address
-        with pytest.raises(bt.http_auth.ReplayedRequest):
-            verify()
-
-        await submit(
-            install_message_capability(
-                owner, epoch=2, expires_at=await client.block() + 10_000, audience=b"\xff"
-            ),
-            "replace-message-capability",
-        )
-        second = await message_capability(client._substrate, owner.ss58_address, b"\xff")
-        assert second.epoch == 2 and second.commitment != first.commitment
-        assert second.finalized_block > first.finalized_block
-        with pytest.raises(ValueError, match="audience"):
-            await message_capability(client._substrate, owner.ss58_address, b"0xff")
-        assert not bt.wallets.verify_message(
-            message, signed, owner.ss58_address, code, message_capability=second
-        )
-        with pytest.raises(bt.http_auth.BadSignature):
-            verify(second)
-        replacement = bt.wallets.sign_message_key(message, owner, message_capability=second)
-        assert bt.wallets.verify_message(
-            message,
-            replacement["signature"],
-            owner.ss58_address,
-            code,
-            message_capability=second,
-        )
-        await submit(bt.calls.HashedAccounts.revoke_capability(role="Message"), "revoke-message")
-        with pytest.raises(ValueError, match="no active"):
-            await message_capability(client._substrate, owner.ss58_address, b"\xff")
-        block = await client._substrate.raw.rpc_request("chain_getFinalizedHead", [])
-        assert (
-            await client._substrate.query(
-                "HashedAccounts",
-                "ActiveCapabilities",
-                [owner.ss58_address, "Message"],
-                block_hash=block,
-            )
-            is None
-        )
-        epoch = await client._substrate.query(
-            "HashedAccounts", "CapabilityEpochs", [owner.ss58_address, "Message"], block_hash=block
-        )
-        assert epoch == 3
-        trace.add(
-            "fresh-finalized-resolution-rejects-revoked-capability",
-            block=block,
-            epoch=epoch,
-            owner=owner.ss58_address,
-        )
 
 
 async def test_safe_mixed_multisig_quorums_cancellation_nested_proxy_and_pure(code):

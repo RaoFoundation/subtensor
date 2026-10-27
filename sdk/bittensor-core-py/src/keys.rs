@@ -353,94 +353,6 @@ impl Keypair {
         }
         self.inner.hashed_receiving_address().map_err(to_py_err)
     }
-    fn mldsa_capability_public_key<'py>(
-        &self,
-        py: Python<'py>,
-        role: u8,
-        epoch: u64,
-    ) -> PyResult<Bound<'py, PyBytes>> {
-        Ok(PyBytes::new(
-            py,
-            &self
-                .inner
-                .pq_capability_public_key(role, epoch)
-                .map_err(to_py_err)?,
-        ))
-    }
-    fn mldsa_capability_commitment<'py>(
-        &self,
-        py: Python<'py>,
-        role: u8,
-        epoch: u64,
-    ) -> PyResult<Bound<'py, PyBytes>> {
-        Ok(PyBytes::new(
-            py,
-            &self
-                .inner
-                .mldsa_capability_commitment(role, epoch)
-                .map_err(to_py_err)?,
-        ))
-    }
-    #[pyo3(signature = (role, epoch, genesis_hash, payload, owner=None))]
-    fn sign_mldsa_capability<'py>(
-        &self,
-        py: Python<'py>,
-        role: u8,
-        epoch: u64,
-        genesis_hash: &[u8],
-        payload: &[u8],
-        owner: Option<&[u8]>,
-    ) -> PyResult<Bound<'py, PyBytes>> {
-        let owner = owner
-            .map(|bytes| {
-                bytes
-                    .try_into()
-                    .map_err(|_| value_err("owner must be 32 bytes"))
-            })
-            .transpose()?
-            .unwrap_or_else(|| self.inner.public_key_bytes());
-        let genesis = genesis_hash
-            .try_into()
-            .map_err(|_| value_err("genesis hash must be 32 bytes"))?;
-        Ok(PyBytes::new(
-            py,
-            &self
-                .inner
-                .sign_mldsa_capability_for(owner, role, epoch, genesis, payload)
-                .map_err(to_py_err)?,
-        ))
-    }
-
-    #[pyo3(signature = (epoch, nonce, genesis_hash, order, owner=None))]
-    fn sign_mldsa_order<'py>(
-        &self,
-        py: Python<'py>,
-        epoch: u64,
-        nonce: u64,
-        genesis_hash: &[u8],
-        order: &[u8],
-        owner: Option<&[u8]>,
-    ) -> PyResult<Bound<'py, PyBytes>> {
-        let owner = owner
-            .map(|bytes| {
-                bytes
-                    .try_into()
-                    .map_err(|_| value_err("owner must be 32 bytes"))
-            })
-            .transpose()?
-            .unwrap_or_else(|| self.inner.public_key_bytes());
-        let genesis = genesis_hash
-            .try_into()
-            .map_err(|_| value_err("genesis hash must be 32 bytes"))?;
-        Ok(PyBytes::new(
-            py,
-            &self
-                .inner
-                .sign_pq_order_for(owner, epoch, nonce, genesis, order)
-                .map_err(to_py_err)?,
-        ))
-    }
-
     /// Sign a message; returns the raw 64-byte signature.
     #[pyo3(signature = (message))]
     fn sign<'py>(
@@ -555,29 +467,6 @@ fn verify_mldsa_authorization(
 }
 
 #[pyfunction]
-fn verify_mldsa_capability(
-    proof: &[u8],
-    payload: &[u8],
-    owner: &[u8],
-    genesis_hash: &[u8],
-    role: u8,
-    epoch: u64,
-    expected_commitment: &[u8],
-) -> PyResult<bool> {
-    let owner = owner
-        .try_into()
-        .map_err(|_| value_err("owner must be 32 bytes"))?;
-    let genesis = genesis_hash
-        .try_into()
-        .map_err(|_| value_err("genesis hash must be 32 bytes"))?;
-    let commitment = expected_commitment
-        .try_into()
-        .map_err(|_| value_err("capability commitment must be 64 bytes"))?;
-    keys::verify_mldsa_capability(proof, payload, owner, genesis, role, epoch, commitment)
-        .map_err(to_py_err)
-}
-
-#[pyfunction]
 fn encode_mldsa_receiving_address(descriptor: &[u8]) -> PyResult<String> {
     keys::encode_mldsa_receiving_address(descriptor).map_err(to_py_err)
 }
@@ -674,7 +563,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decode_hashed_receiving_address, m)?)?;
     m.add_function(wrap_pyfunction!(encode_mldsa_receiving_address, m)?)?;
     m.add_function(wrap_pyfunction!(decode_mldsa_receiving_address, m)?)?;
-    m.add_function(wrap_pyfunction!(verify_mldsa_capability, m)?)?;
     m.add_function(wrap_pyfunction!(verify_hashed_authorization, m)?)?;
     m.add_function(wrap_pyfunction!(verify_mldsa_authorization, m)?)?;
     // Backwards-compatible aliases for pre-migration bittensor.sp_core names.
@@ -702,7 +590,5 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("CRYPTO_FALCON512_HASHED", keys::CRYPTO_FALCON512_HASHED)?;
     m.add("CRYPTO_FALCON1024", keys::CRYPTO_FALCON1024)?;
     m.add("CRYPTO_FALCON1024_HASHED", keys::CRYPTO_FALCON1024_HASHED)?;
-    m.add("ROLE_ORDER", keys::ROLE_ORDER)?;
-    m.add("ROLE_MESSAGE", keys::ROLE_MESSAGE)?;
     Ok(())
 }
