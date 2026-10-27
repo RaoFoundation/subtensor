@@ -303,7 +303,7 @@ pub mod pallet {
 			value: BalanceOf<T>,
 		) -> DispatchResult {
 			let destination = T::WithdrawOrigin::ensure_address_origin(&address, origin)?;
-			let address_account_id = T::AddressMapping::into_account_id(address);
+			let address_account_id = T::AddressMapping::withdraw_source_account_id(address);
 
 			T::Currency::transfer(
 				&address_account_id,
@@ -958,6 +958,13 @@ impl<T> EnsureCreateOrigin<T> for () {
 /// Trait to be implemented for evm address mapping.
 pub trait AddressMapping<A> {
 	fn into_account_id(address: H160) -> A;
+
+	/// Select the source of a native EVM withdrawal. The default uses the
+	/// current balance mapping; runtimes may retain a separately authorized
+	/// legacy balance account for assets delivered after a mapping change.
+	fn withdraw_source_account_id(address: H160) -> A {
+		Self::into_account_id(address)
+	}
 
 	/// Select nonce storage independently of balance/origin identity. The default
 	/// uses the balance account without another lookup. Overrides must be

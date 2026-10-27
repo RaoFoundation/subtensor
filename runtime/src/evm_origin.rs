@@ -24,13 +24,15 @@ use sp_runtime::{
     transaction_validity::{InvalidTransaction, TransactionValidityError},
 };
 
-/// Deposit uses the same Balances keep-alive transfer implementation and adds
-/// the mapping read through the EVM call's account-cost surcharge.
+/// Native EVM balance moves include their Balances transfer cost. Frontier
+/// separately charges the address-mapping reads at the dispatchable call site.
 pub struct EvmWeights;
 
 impl pallet_evm::weights::WeightInfo for EvmWeights {
     fn withdraw() -> Weight {
         <pallet_evm::weights::SubstrateWeight<crate::Runtime> as pallet_evm::weights::WeightInfo>::withdraw()
+            .saturating_add(<<crate::Runtime as pallet_balances::Config>::WeightInfo as pallet_balances::WeightInfo>::transfer_allow_death()
+                .max(<<crate::Runtime as pallet_balances::Config>::WeightInfo as pallet_balances::WeightInfo>::transfer_all()))
     }
 
     fn deposit() -> Weight {
@@ -76,6 +78,13 @@ impl AddressMapping<AccountId32> for HashedAddressMapping {
         hashed_owner(&address).unwrap_or_else(|| legacy_backing_account(address))
     }
 
+    fn withdraw_source_account_id(address: H160) -> AccountId32 {
+        // The full registered account is the only valid native origin. Its
+        // EVM address can still receive a delayed payout at the old backing
+        // AccountId, so let that owner recover the legacy TAO balance.
+        legacy_backing_account(address)
+    }
+
     fn nonce_account_id(address: H160) -> Option<AccountId32> {
         // CheckNonce increments the native signer before native EVM dispatch.
         // Retain the original EVM nonce account for RPC simulation, CREATE and
@@ -102,6 +111,9 @@ pub fn prepare_hashed_alias(account: &AccountId32) -> DispatchResult {
     let state = frame_system::Account::<crate::Runtime>::get(&backing);
     ensure!(
         state.nonce == 0
+            // Balance reaping clears System's nonce. The EVM nonce survives,
+            // and prior activity can leave application assets elsewhere.
+            && pallet_evm::AccountNonces::<crate::Runtime>::get(&backing).is_zero()
             && state.consumers == 0
             && state.sufficients == 0
             && state.providers == u32::from(!state.data.free.is_zero())
@@ -116,6 +128,22 @@ pub fn prepare_hashed_alias(account: &AccountId32) -> DispatchResult {
             && pallet_evm::AccountStorages::<crate::Runtime>::iter_key_prefix(address)
                 .next()
                 .is_none(),
+        DispatchError::Other("HashedEvmAliasAlreadyUsed")
+    );
+    // Incoming stake and ownership transfers can create economic state without
+    // touching the backing account's System nonce or references. Remapping that
+    // account would remove its EVM authorization route without moving its assets.
+    // Check index presence rather than decoding or walking the hotkey vectors;
+    // root-swap claim-only credits have their own index and need a separate probe.
+    ensure!(
+        !pallet_subtensor::StakingHotkeys::<crate::Runtime>::contains_key(&backing)
+            && !pallet_subtensor::OwnedHotkeys::<crate::Runtime>::contains_key(&backing)
+            && !pallet_subtensor::Owner::<crate::Runtime>::contains_key(&backing)
+            && pallet_subtensor::HotkeySwapBasketCredits::<crate::Runtime>::iter_key_prefix(
+                &backing,
+            )
+            .next()
+            .is_none(),
         DispatchError::Other("HashedEvmAliasAlreadyUsed")
     );
     if !state.data.free.is_zero() {

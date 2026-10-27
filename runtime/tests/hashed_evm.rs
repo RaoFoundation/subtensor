@@ -228,11 +228,23 @@ fn native_owner_can_spend_but_another_matching_prefix_cannot() {
             EVM::account_basic(&source).0.nonce,
             evm_nonce_before + U256::one()
         );
+        let legacy = pallet_evm::HashedAddressMapping::<BlakeTwo256>::into_account_id(source);
+        assert_ok!(Balances::force_set_balance(
+            RuntimeOrigin::root(),
+            legacy.clone().into(),
+            TaoBalance::new(1_000),
+        ));
+        let owner_balance = Balances::free_balance(&owner);
         assert_ok!(EVM::withdraw(
-            RuntimeOrigin::signed(owner),
+            RuntimeOrigin::signed(owner.clone()),
             source,
             TaoBalance::new(1_000)
         ));
+        assert_eq!(
+            Balances::free_balance(&owner),
+            owner_balance + TaoBalance::new(1_000)
+        );
+        assert_eq!(Balances::free_balance(&legacy), TaoBalance::new(0));
     });
 }
 
