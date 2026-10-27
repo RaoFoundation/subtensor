@@ -59,11 +59,17 @@ fn storage_entry_js(pallet: &str, info: &StorageInfo) -> Result<JsValue, JsValue
         "valueType",
         &JsValue::from_str(&format!("scale_info::{}", info.value_type)),
     )?;
+    set(&entry, "valueTypeId", &JsValue::from(info.value_type))?;
     set(
         &entry,
         "paramTypes",
         &string_array(info.key_types.iter().map(|id| format!("scale_info::{id}"))).into(),
     )?;
+    let param_type_ids = Array::new();
+    for id in &info.key_types {
+        param_type_ids.push(&JsValue::from(*id));
+    }
+    set(&entry, "paramTypeIds", &param_type_ids.into())?;
     set(&entry, "paramHashers", &string_array(&info.hashers).into())?;
     set(
         &entry,
@@ -580,11 +586,25 @@ impl Runtime {
                     inputs.push(&pair);
                 }
                 set(&entry, "inputs", &inputs.into())?;
+                let input_details = Array::new();
+                for param in &method.inputs {
+                    let detail = Object::new();
+                    set(&detail, "name", &JsValue::from_str(&param.name))?;
+                    set(&detail, "typeId", &JsValue::from(param.ty))?;
+                    set(
+                        &detail,
+                        "type",
+                        &JsValue::from_str(&format!("scale_info::{}", param.ty)),
+                    )?;
+                    input_details.push(&detail.into());
+                }
+                set(&entry, "inputDetails", &input_details.into())?;
                 set(
                     &entry,
                     "output",
                     &JsValue::from_str(&format!("scale_info::{}", method.output)),
                 )?;
+                set(&entry, "outputTypeId", &JsValue::from(method.output))?;
                 set(&entry, "docs", &string_array(&method.docs).into())?;
                 set(&methods, &method.name, &entry.into())?;
             }
@@ -620,22 +640,21 @@ impl Runtime {
                     for call in &variant.variants {
                         let call_entry = Object::new();
                         set(&call_entry, "name", &JsValue::from_str(&call.name))?;
+                        set(&call_entry, "index", &JsValue::from(call.index))?;
                         let args = Array::new();
+                        let arg_types = Array::new();
+                        let arg_type_ids = Array::new();
                         for field in &call.fields {
-                            let arg = Object::new();
-                            set(
-                                &arg,
-                                "name",
-                                &JsValue::from_str(field.name.as_deref().unwrap_or_default()),
-                            )?;
-                            set(
-                                &arg,
-                                "typeIdent",
-                                &JsValue::from_str(&self.inner.type_ident(field.ty.id)),
-                            )?;
-                            args.push(&arg.into());
+                            args.push(&JsValue::from_str(
+                                field.name.as_deref().unwrap_or_default(),
+                            ));
+                            arg_types
+                                .push(&JsValue::from_str(&format!("scale_info::{}", field.ty.id)));
+                            arg_type_ids.push(&JsValue::from(field.ty.id));
                         }
                         set(&call_entry, "args", &args.into())?;
+                        set(&call_entry, "argTypes", &arg_types.into())?;
+                        set(&call_entry, "argTypeIds", &arg_type_ids.into())?;
                         set(
                             &call_entry,
                             "docs",
@@ -667,14 +686,7 @@ impl Runtime {
             // Skip pseudo-entries like `:__STORAGE_VERSION__:`.
             let storage = Array::new();
             for item in pallet.storage.iter().filter(|s| !s.name.contains(':')) {
-                let storage_entry = Object::new();
-                set(&storage_entry, "name", &JsValue::from_str(&item.name))?;
-                set(
-                    &storage_entry,
-                    "valueTypeIdent",
-                    &JsValue::from_str(&self.inner.type_ident(item.value_type)),
-                )?;
-                storage.push(&storage_entry.into());
+                storage.push(&JsValue::from_str(&item.name));
             }
             set(&entry, "storage", &storage.into())?;
             let constants = string_array(pallet.constants.iter().map(|c| c.name.as_str()));

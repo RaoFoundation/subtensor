@@ -59,7 +59,7 @@ mod corpus_tests {
             serde_json::Value::Number(n) => {
                 let text = n.to_string();
                 if let Ok(i) = text.parse::<i128>() {
-                    Value::Int(i128::from(i))
+                    Value::Int(i)
                 } else if let Ok(u) = text.parse::<u128>() {
                     Value::Uint(u)
                 } else {

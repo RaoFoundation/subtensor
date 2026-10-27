@@ -13,9 +13,10 @@ use crate::codec::encode::compact;
 use crate::codec::value::Value;
 use crate::error::CoreError;
 use crate::keys::ss58_from_public;
-use crate::runtime::Runtime;
+use crate::runtime::{Runtime, SignedExtensionInfo};
 
 /// Everything one signature payload / signed extrinsic needs beyond the call.
+#[derive(Debug, Clone)]
 pub struct TxParams {
     /// `"00"` (immortal) or `{"period": N, "phase": P}` / `{"period": N,
     /// "current": M}` — the shapes the SDK has always fed the codec.
@@ -27,6 +28,29 @@ pub struct TxParams {
     pub era_block_hash: [u8; 32],
     /// RFC-0078 metadata digest; flips `CheckMetadataHash` to Enabled.
     pub metadata_hash: Option<[u8; 32]>,
+}
+
+/// Polkadot-compatible JSON payload for extension/browser signers. Each
+/// signed-extension field is encoded through the runtime metadata type that
+/// also drives [`Runtime::signature_payload`], so the display payload and the
+/// bytes Rust assembles for the final extrinsic cannot drift.
+#[derive(Debug, Clone)]
+pub struct SignerPayload {
+    pub address: String,
+    pub block_hash: String,
+    pub block_number: String,
+    pub era: String,
+    pub genesis_hash: String,
+    pub method: String,
+    pub nonce: String,
+    pub signed_extensions: Vec<String>,
+    pub spec_version: String,
+    pub tip: String,
+    pub transaction_version: String,
+    pub version: u8,
+    pub asset_id: Option<String>,
+    pub metadata_hash: Option<String>,
+    pub mode: Option<u8>,
 }
 
 /// The signature payload is ``call ++ extra ++ additional``: each signed
@@ -61,6 +85,168 @@ enum Slot {
 }
 
 impl Runtime {
+    fn ensure_payload_params_supported(&self, params: &TxParams) -> Result<(), CoreError> {
+        if params.metadata_hash.is_some()
+            && !self
+                .extrinsic
+                .signed_extensions
+                .iter()
+                .any(|e| e.identifier == "CheckMetadataHash")
+        {
+            return Err(CoreError::Codec(
+                "this runtime does not declare CheckMetadataHash".into(),
+            ));
+        }
+        if params.tip_asset_id.is_some()
+            && !self
+                .extrinsic
+                .signed_extensions
+                .iter()
+                .any(|e| e.identifier == "ChargeAssetTxPayment")
+        {
+            return Err(CoreError::Codec(
+                "this runtime does not declare ChargeAssetTxPayment".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn hex_prefixed(data: &[u8]) -> String {
+        format!("0x{}", hex::encode(data))
+    }
+
+    fn u32_le_hex(value: u32) -> String {
+        Self::hex_prefixed(&value.to_le_bytes())
+    }
+
+    fn record_u64_field(value: &Value, name: &str) -> Option<u64> {
+        match value {
+            Value::Dict(entries) => entries.iter().find_map(|(k, v)| match (k, v) {
+                (Value::Str(key), Value::Int(i)) if key == name => u64::try_from(*i).ok(),
+                (Value::Str(key), Value::Uint(u)) if key == name => u64::try_from(*u).ok(),
+                _ => None,
+            }),
+            _ => None,
+        }
+    }
+
+    fn signer_payload_block_number(era: &Value) -> Result<String, CoreError> {
+        let current = Self::record_u64_field(era, "current").unwrap_or(0);
+        let current = u32::try_from(current)
+            .map_err(|_| CoreError::Codec("mortal era current block does not fit u32".into()))?;
+        Ok(Self::u32_le_hex(current))
+    }
+
+    fn signed_extension(&self, identifier: &str) -> Option<&SignedExtensionInfo> {
+        self.extrinsic
+            .signed_extensions
+            .iter()
+            .find(|e| e.identifier == identifier)
+    }
+
+    fn named_field_type(
+        &self,
+        composite_ty: u32,
+        field_name: &str,
+    ) -> Result<Option<u32>, CoreError> {
+        let TypeDef::Composite(composite) = &self.resolve(composite_ty)?.type_def else {
+            return Ok(None);
+        };
+        if !composite.fields.iter().any(|field| field.name.is_some()) {
+            return Ok(None);
+        }
+        composite
+            .fields
+            .iter()
+            .find(|field| field.name.as_deref() == Some(field_name))
+            .map(|field| Ok(Some(field.ty.id)))
+            .unwrap_or_else(|| {
+                Err(CoreError::Codec(format!(
+                    "signed extension field {field_name:?} is not present in metadata type {composite_ty}"
+                )))
+            })
+    }
+
+    fn extension_field_type(
+        &self,
+        extension: &SignedExtensionInfo,
+        field_name: &str,
+    ) -> Result<u32, CoreError> {
+        self.named_field_type(extension.ty, field_name)?
+            .map_or(Ok(extension.ty), Ok)
+    }
+
+    fn encode_value_hex(&self, ty: u32, value: &Value) -> Result<String, CoreError> {
+        let mut out = Vec::new();
+        self.encode_id(ty, value, &mut out)?;
+        Ok(Self::hex_prefixed(&out))
+    }
+
+    fn encode_extension_field_hex(
+        &self,
+        extension: &SignedExtensionInfo,
+        field_name: &str,
+        value: &Value,
+    ) -> Result<String, CoreError> {
+        let ty = self.extension_field_type(extension, field_name)?;
+        self.encode_value_hex(ty, value)
+    }
+
+    fn signer_payload_nonce(&self, params: &TxParams) -> Result<String, CoreError> {
+        match self.signed_extension("CheckNonce") {
+            Some(extension) => self.encode_extension_field_hex(
+                extension,
+                "nonce",
+                &Value::Uint(u128::from(params.nonce)),
+            ),
+            None => Ok("0x00".into()),
+        }
+    }
+
+    fn signer_payload_tip(&self, params: &TxParams) -> Result<String, CoreError> {
+        for extension in &self.extrinsic.signed_extensions {
+            match extension.identifier.as_str() {
+                "ChargeTransactionPayment" | "ChargeAssetTxPayment" => {
+                    return self.encode_extension_field_hex(
+                        extension,
+                        "tip",
+                        &Value::Uint(params.tip),
+                    );
+                }
+                _ => {}
+            }
+        }
+        Ok("0x00".into())
+    }
+
+    fn signer_payload_asset_id(&self, params: &TxParams) -> Result<Option<String>, CoreError> {
+        let Some(id) = params.tip_asset_id else {
+            return Ok(None);
+        };
+        let Some(extension) = self.signed_extension("ChargeAssetTxPayment") else {
+            return Ok(None);
+        };
+        self.encode_extension_field_hex(extension, "asset_id", &Value::Uint(id))
+            .map(Some)
+    }
+
+    fn signer_payload_mode(&self, params: &TxParams) -> Result<Option<u8>, CoreError> {
+        let Some(extension) = self.signed_extension("CheckMetadataHash") else {
+            return Ok(None);
+        };
+        let ty = self.extension_field_type(extension, "mode")?;
+        let value = self.payload_field_value("mode", ty, params)?;
+        let mut out = Vec::new();
+        self.encode_id(ty, &value, &mut out)?;
+        match out.as_slice() {
+            [mode] => Ok(Some(*mode)),
+            _ => Err(CoreError::Codec(format!(
+                "CheckMetadataHash mode encoded to {} bytes, expected one byte",
+                out.len()
+            ))),
+        }
+    }
+
     /// The fixed byte length a signature variant carries, when it wraps a
     /// single `[u8; N]` (the MultiSignature shape). `None` for variants whose
     /// payload is not a fixed byte array, where a length check does not apply.
@@ -218,21 +404,47 @@ impl Runtime {
         &self,
         params: &TxParams,
     ) -> Result<(Vec<u8>, Vec<u8>), CoreError> {
-        if params.metadata_hash.is_some()
-            && !self
-                .extrinsic
-                .signed_extensions
-                .iter()
-                .any(|e| e.identifier == "CheckMetadataHash")
-        {
-            return Err(CoreError::Codec(
-                "this runtime does not declare CheckMetadataHash".into(),
-            ));
-        }
+        self.ensure_payload_params_supported(params)?;
         Ok((
             self.encode_payload_section(Slot::Extrinsic, params)?,
             self.encode_payload_section(Slot::AdditionalSigned, params)?,
         ))
+    }
+
+    /// Build the structured signer payload expected by browser/extension
+    /// signers. The same metadata-driven encoders as the raw payload path are
+    /// used for era, nonce, tip, asset id, and metadata-hash mode.
+    pub fn signer_payload(
+        &self,
+        address: &str,
+        call_data: &[u8],
+        params: &TxParams,
+    ) -> Result<SignerPayload, CoreError> {
+        self.ensure_payload_params_supported(params)?;
+        let mut era = Vec::new();
+        self.encode_era_value(&params.era, &mut era)?;
+        Ok(SignerPayload {
+            address: address.into(),
+            block_hash: Self::hex_prefixed(&params.era_block_hash),
+            block_number: Self::signer_payload_block_number(&params.era)?,
+            era: Self::hex_prefixed(&era),
+            genesis_hash: Self::hex_prefixed(&params.genesis_hash),
+            method: Self::hex_prefixed(call_data),
+            nonce: self.signer_payload_nonce(params)?,
+            signed_extensions: self
+                .extrinsic
+                .signed_extensions
+                .iter()
+                .map(|extension| extension.identifier.clone())
+                .collect(),
+            spec_version: Self::u32_le_hex(self.spec_version),
+            tip: self.signer_payload_tip(params)?,
+            transaction_version: Self::u32_le_hex(self.transaction_version),
+            version: self.extrinsic.version,
+            asset_id: self.signer_payload_asset_id(params)?,
+            metadata_hash: params.metadata_hash.map(|hash| Self::hex_prefixed(&hash)),
+            mode: self.signer_payload_mode(params)?,
+        })
     }
 
     /// The exact bytes a signer signs for the given raw call. Payloads longer

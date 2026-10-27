@@ -34,6 +34,7 @@ members = [
 	"sdk/bittensor-core",
 	"sdk/bittensor-core-py",
 	"sdk/bittensor-core-wasm",
+	"sdk/bittensor-ts/native",
 	"support/*",
 	"chain-extensions",
 ]

@@ -33,6 +33,7 @@ openssl = { version = "0.10", features = ["vendored"], optional = true }
 hex = "0.4.3"
 # OpenCL is loaded only when GPU mining is requested; wheels need no GPU SDK.
 libloading = { version = "0.8.9", optional = true }
+libc = { version = "0.2", optional = true }
 pbkdf2 = { version = "0.12.2", optional = true }
 schnorrkel = "0.11.5"
 scrypt = { version = "0.11.0", optional = true }
@@ -42,10 +43,10 @@ serde = { version = "1.0.132", features = ["derive"] }
 serde_json = { version = "1.0.132", features = ["arbitrary_precision"] }
 sha2 = "0.10.8"
 sodiumoxide = { version = "0.2", default-features = false, features = ["std"], optional = true }
-# std is host-only: sp-core/std links the C secp256k1 for ecdsa, which can't
-# build for wasm32; without std sp-core swaps in the pure-Rust k256. serde is
-# needed either way for the ss58 codec.
-sp-core = { workspace = true, features = ["full_crypto", "serde"] }
+# `full_crypto` is sp-core's portable no-std crypto feature. Keep `sp-core/std`
+# gated by `host` below so bittensor-core-wasm never enables it implicitly.
+sp-core = { workspace = true, default-features = false, features = ["full_crypto", "serde"] }
+subtensor-macros.workspace = true
 zeroize = "1"
 
 # timelock (absorbed from bittensor-drand). tle and w3f-bls inherit the
@@ -77,7 +78,6 @@ merkleized-metadata = "0.5.1"
 # workers (codec/batch.rs).
 rayon = { version = "1.10", optional = true }
 scale-info = { workspace = true, features = ["std", "serde"] }
-subtensor-macros = { workspace = true }
 
 # signers (feature "ledger"): APDU types for the Polkadot generic app; the
 # HID transport itself lives in signers/ledger.rs on top of hidapi (below).
@@ -115,6 +115,7 @@ host = [
     "dep:ansible-vault",
     "dep:fernet",
     "dep:libloading",
+    "dep:libc",
     "dep:openssl",
     "dep:pbkdf2",
     "dep:rayon",

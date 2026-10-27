@@ -328,6 +328,10 @@ jobs:
         run: |
           wasm-pack build sdk/bittensor-core-wasm --target nodejs --out-dir pkg-node --no-opt
           node sdk/bittensor-core-wasm/tests/smoke.mjs
+      - name: Build and test the TypeScript SDK
+        run: |
+          npm --prefix sdk/bittensor-ts ci --ignore-scripts
+          npm --prefix sdk/bittensor-ts run check
       - name: Report wasm compiler cache
         if: always()
         run: .github/scripts/sccache-report.sh "Bittensor core wasm compiler cache"
