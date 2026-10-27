@@ -40,9 +40,19 @@ End-to-end tutorials that build on the commands below:
 
 <Cards>
   <Card
+    title="Precompiles"
+    description="Deployed addresses, current coverage, and the proposed typed EVM surface."
+    href="/docs/guides/evm/precompiles"
+  />
+  <Card
     title="Deploy a contract"
     description="Hardhat and Remix, from empty directory to a live contract."
     href="/docs/guides/evm/deploy-a-contract"
+  />
+  <Card
+    title="Precompile design and lifecycle"
+    description="Compatibility, function versioning, deprecation, and reversible disablement."
+    href="/docs/guides/evm/precompile-design"
   />
   <Card
     title="Read chain state"
@@ -339,6 +349,7 @@ index `2053` → `0x…0805`):
 | proxy | 2059 | `0x80b` | Proxy delegations. |
 | address-mapping | 2060 | `0x80c` | On-chain h160 → mirror bytes32. |
 | voting-power | 2061 | `0x80d` | Validator voting power (stake EMA) per subnet. |
+| balance | 2062 | `0x80e` | Free TAO balance for any ss58 coldkey. |
 | ed25519-verify | 1026 | `0x402` | Verify ed25519 (prove ss58 ownership). |
 | sr25519-verify | 1027 | `0x403` | Verify sr25519. |
 
@@ -358,7 +369,7 @@ Examples: [RaoFoundation/evm-bittensor](https://github.com/RaoFoundation/evm-bit
 The same layer lives in `bittensor.evm` (included in the base install):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.evm import h160_to_ss58, association_proof
 from bittensor.evm.keys import create_evm_key, unlock_evm_key
 from bittensor.evm.precompiles import encode_call, get_precompile
@@ -376,6 +387,16 @@ Third-party services (not part of this SDK):
 
 - [tao.app/bridge](https://tao.app/bridge) — TAO between substrate and EVM wallets.
 - vTAO — liquid-staked TAO ERC-20 on the Bittensor EVM, bridgeable to Base.
+
+## EIP-7702 authorizations
+
+Authorization lists accept at most 255 entries in Ethereum transactions,
+direct native EVM calls, and RPC simulations. Oversized lists are rejected
+before signature recovery. Split larger lists across transactions.
+
+Allow intrinsic gas for every entry, including invalid or duplicate
+authorizations. Transaction gas, nonce, and balance checks run before
+authorization signatures are recovered.
 
 ## Tooling notes
 

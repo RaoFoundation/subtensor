@@ -34,6 +34,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# generated (fumadocs collections, compiled docs stylesheet)
+# generated (fumadocs collections, compiled docs stylesheet, /code search snapshot)
 /.source/
 /src/app/docs/docs.css
+/src/lib/generated/code-corpus.json

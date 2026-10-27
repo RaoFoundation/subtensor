@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import typer
 
+from ....settings import guide_docs_url
 from ...tx import intent_command
 
 # keys and stake register their commands on key_app/stake_app at import time.
@@ -33,7 +34,8 @@ from ._shared import PANEL_CHAIN, PANEL_KEYS, PANEL_MONEY, key_app, stake_app
 
 app = typer.Typer(
     no_args_is_help=True,
-    help="Bittensor EVM: keys, funding, transfers, association, and precompiles.",
+    help="Bittensor EVM: keys, funding, transfers, association, and precompiles."
+    f"\n\nGuide: {guide_docs_url('evm')}",
 )
 
 app.add_typer(key_app, name="key", rich_help_panel=PANEL_KEYS)

@@ -4,10 +4,11 @@
 
 use core::{marker::PhantomData, num::NonZeroU64};
 
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use fp_evm::{Context, PrecompileResult};
 use frame_support::{
     PalletId, derive_impl, parameter_types,
-    traits::{Everything, PrivilegeCmp},
+    traits::{Everything, PrivilegeCmp, VariantCount, VariantCountOf},
     weights::Weight,
 };
 use frame_system::{EnsureRoot, limits};
@@ -16,9 +17,10 @@ use pallet_evm::{
     PrecompileHandle, PrecompileSet, SubstrateBalance,
 };
 use precompile_utils::testing::MockHandle;
+use scale_info::TypeInfo;
 use sp_core::{ConstU64, H160, H256, U256, crypto::AccountId32};
 use sp_runtime::{
-    BuildStorage, KeyTypeId, Perbill, Percent,
+    BuildStorage, KeyTypeId, Perbill, Percent, RuntimeDebug,
     testing::TestXt,
     traits::{BlakeTwo256, ConstU32, IdentityLookup},
 };
@@ -30,6 +32,28 @@ use crate::PrecompileExt;
 pub(crate) type AccountId = AccountId32;
 pub(crate) type Block = frame_system::mocking::MockBlock<Runtime>;
 pub(crate) type UncheckedExtrinsic = TestXt<RuntimeCall, ()>;
+
+#[derive(
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    MaxEncodedLen,
+    TypeInfo,
+    RuntimeDebug,
+)]
+pub enum TestBalanceStatus {
+    Test,
+}
+
+impl VariantCount for TestBalanceStatus {
+    const VARIANT_COUNT: u32 = 1;
+}
 
 frame_support::construct_runtime!(
     pub enum Runtime {
@@ -56,6 +80,7 @@ const EVM_DECIMALS_FACTOR: u64 = 1_000_000_000;
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
     pub const SS58Prefix: u8 = 42;
+    pub static BlockLength: limits::BlockLength = limits::BlockLength::max_with_normal_ratio(5 * 1024 * 1024, Perbill::from_percent(75));
     pub BlockWeights: limits::BlockWeights = limits::BlockWeights::with_sensible_defaults(
         Weight::from_parts(2_000_000_000_000, u64::MAX),
         Perbill::from_percent(75),
@@ -82,6 +107,7 @@ parameter_types! {
     pub const MaxAuthorities: u32 = 32;
     pub static BlockGasLimit: U256 = U256::max_value();
     pub WeightPerGas: Weight = Weight::from_parts(20_000, 0);
+    pub PrecompilesValue: crate::Precompiles<Runtime> = crate::Precompiles::new();
     pub const ProxyDepositBase: TaoBalance = TaoBalance::new(1);
     pub const ProxyDepositFactor: TaoBalance = TaoBalance::new(1);
     pub const MaxProxies: u32 = 20;
@@ -113,6 +139,7 @@ parameter_types! {
     pub const InitialBurn: TaoBalance = TaoBalance::new(0);
     pub const InitialMinBurn: TaoBalance = TaoBalance::new(500_000);
     pub const InitialMinStake: TaoBalance = TaoBalance::new(2_000_000);
+    pub const InitialMinTransfer: TaoBalance = TaoBalance::new(2_000_000);
     pub const InitialMaxBurn: TaoBalance = TaoBalance::new(1_000_000_000);
     pub const MinBurnUpperBound: TaoBalance = TaoBalance::new(1_000_000_000);
     pub const MaxBurnLowerBound: TaoBalance = TaoBalance::new(100_000_000);
@@ -164,6 +191,7 @@ parameter_types! {
 impl frame_system::Config for Runtime {
     type BaseCallFilter = Everything;
     type BlockWeights = BlockWeights;
+    type BlockLength = BlockLength;
     type RuntimeOrigin = RuntimeOrigin;
     type RuntimeCall = RuntimeCall;
     type Hash = H256;
@@ -194,10 +222,11 @@ impl pallet_balances::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type ExistentialDeposit = ExistentialDeposit;
     type AccountStore = System;
-    type ReserveIdentifier = [u8; 8];
-    type FreezeIdentifier = ();
-    type MaxFreezes = ();
-    type RuntimeHoldReason = ();
+    type ReserveIdentifier = TestBalanceStatus;
+    type RuntimeHoldReason = TestBalanceStatus;
+    type RuntimeFreezeReason = TestBalanceStatus;
+    type FreezeIdentifier = TestBalanceStatus;
+    type MaxFreezes = VariantCountOf<TestBalanceStatus>;
 }
 
 impl pallet_alpha_assets::Config for Runtime {}
@@ -261,8 +290,8 @@ impl pallet_evm::Config for Runtime {
     type WithdrawOrigin = EnsureAddressNever<AccountId>;
     type AddressMapping = pallet_evm::HashedAddressMapping<BlakeTwo256>;
     type Currency = Balances;
-    type PrecompilesType = ();
-    type PrecompilesValue = ();
+    type PrecompilesType = crate::Precompiles<Self>;
+    type PrecompilesValue = PrecompilesValue;
     type ChainId = ();
     type BlockGasLimit = BlockGasLimit;
     type Runner = pallet_evm::runner::stack::Runner<Self>;
@@ -406,13 +435,15 @@ impl AuthorshipInfo<AccountId> for MockAuthorshipProvider {
 }
 
 pub struct CommitmentsI;
-impl pallet_subtensor::CommitmentsInterface for CommitmentsI {
+impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
+
+    fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 
 impl pallet_subtensor::Config for Runtime {
@@ -459,6 +490,7 @@ impl pallet_subtensor::Config for Runtime {
     type InitialMaxBurn = InitialMaxBurn;
     type InitialMinBurn = InitialMinBurn;
     type InitialMinStake = InitialMinStake;
+    type InitialMinTransfer = InitialMinTransfer;
     type MinBurnUpperBound = MinBurnUpperBound;
     type MaxBurnLowerBound = MaxBurnLowerBound;
     type MinTempo = MinTempo;

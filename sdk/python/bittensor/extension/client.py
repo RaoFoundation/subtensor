@@ -108,8 +108,17 @@ class BridgeClient:
             )
         return out
 
-    async def sign_extrinsic_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        result = await self.request("extrinsic.sign", {"payload": payload})
+    async def sign_extrinsic_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        stage: Optional[str] = None,
+        more_coming: bool = False,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"payload": payload, "moreComing": more_coming}
+        if stage:
+            params["stage"] = stage
+        result = await self.request("extrinsic.sign", params)
         if not isinstance(result, dict):
             raise BridgeError("bridge returned an invalid extrinsic signature")
         return result
@@ -122,3 +131,7 @@ class BridgeClient:
         if not isinstance(result, dict):
             raise BridgeError("bridge returned an invalid bytes signature")
         return result
+
+    async def report_transaction_result(self, success: bool) -> None:
+        """Tell the bridge page that the submitted transaction has finished."""
+        await self.request("transaction.result", {"success": success})

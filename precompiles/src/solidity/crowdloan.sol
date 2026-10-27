@@ -94,6 +94,11 @@ interface ICrowdloan {
      * @param newCap The new cap.
      */
     function updateCap(uint32 crowdloanId, uint64 newCap) external payable;
+    function setMaxContribution(
+        uint32 crowdloanId,
+        bool hasMaxContribution,
+        uint64 maxContribution
+    ) external;
 }
 
 struct CrowdloanInfo {

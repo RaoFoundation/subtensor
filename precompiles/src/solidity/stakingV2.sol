@@ -3,6 +3,28 @@ pragma solidity ^0.8.0;
 address constant ISTAKING_ADDRESS = 0x0000000000000000000000000000000000000805;
 
 interface IStaking {
+    /// A coldkey's non-zero alpha stake position on a subnet.
+    struct StakeInfo {
+        bytes32 hotkey;
+        uint256 stake;
+    }
+
+    /// One coldkey's stake lock, rolled forward to the queried block.
+    struct ColdkeyLockInfo {
+        bool exists;
+        bytes32 hotkey;
+        uint256 locked_mass;
+        uint128 conviction;
+        bool is_perpetual;
+    }
+
+    /// Rolled aggregate lock state targeting one hotkey.
+    struct HotkeyLockInfo {
+        bool exists;
+        uint256 locked_mass;
+        uint128 conviction;
+    }
+
     /**
      * @dev Adds a subtensor stake `amount` associated with the `hotkey`.
      *
@@ -121,6 +143,18 @@ interface IStaking {
     ) external view returns (uint256);
 
     /**
+     * @dev Returns the coldkey's total alpha stake on one subnet.
+     *
+     * @param coldkey The coldkey public key (32 bytes).
+     * @param netuid The subnet containing the stake position (uint256).
+     * @return The coldkey's total alpha stake on the subnet.
+     */
+    function getTotalColdkeyStakeOnSubnet(
+        bytes32 coldkey,
+        uint256 netuid
+    ) external view returns (uint256);
+
+    /**
      * @dev Returns the total amount of stake under a hotkey (delegative or otherwise)
      *
      * This function allows external accounts and contracts to query the total amount of RAO staked under a hotkey
@@ -150,6 +184,23 @@ interface IStaking {
         bytes32 coldkey,
         uint256 netuid
     ) external view returns (uint256);
+
+    /**
+     * @dev Returns non-zero alpha stake positions for up to 64 caller-supplied
+     * distinct hotkeys. Duplicate hotkeys revert. Callers that need more must
+     * split their hotkeys across calls.
+     * This function does not read the coldkey's unbounded historical hotkey index.
+     *
+     * @param coldkey The coldkey public key (32 bytes).
+     * @param netuid The subnet to query.
+     * @param hotkeys The distinct candidate hotkeys to query (maximum 64).
+     * @return positions Non-zero hotkey and alpha stake pairs.
+     */
+    function getStakeInfoForColdkeyAndNetuid(
+        bytes32 coldkey,
+        uint256 netuid,
+        bytes32[] calldata hotkeys
+    ) external view returns (StakeInfo[] memory positions);
 
     /**
      * @dev Delegates staking to a proxy account.
@@ -204,6 +255,123 @@ interface IStaking {
      * @return The minimum required stake for a nominator.
      */
     function getNominatorMinRequiredStake() external view returns (uint256);
+
+    /**
+     * @dev Returns DefaultMinStake. This is a base value only; operation fees,
+     * price conversion, and full-unstake rules can change the accepted amount.
+     *
+     * @return defaultMinStake The current DefaultMinStake value in rao.
+     */
+    function getDefaultMinStake()
+        external
+        view
+        returns (uint256 defaultMinStake);
+
+    /**
+     * @dev Locks existing alpha stake on a subnet and builds conviction for a hotkey.
+     *
+     * The lock is a subnet-wide unstaking floor for the caller. It does not
+     * move stake and may target a different hotkey from the staked positions.
+     * Repeated calls top up the same lock; use `moveLock` to change its target.
+     *
+     * @param hotkey Hotkey that receives the conviction.
+     * @param amount Alpha to add to the lock.
+     * @param netuid Subnet on which the alpha is locked.
+     */
+    function lockStake(
+        bytes32 hotkey,
+        uint256 amount,
+        uint256 netuid
+    ) external payable;
+
+    /**
+     * @dev Moves the caller's existing subnet lock to another hotkey.
+     *
+     * Current decayed mass is preserved. Conviction is preserved when the
+     * source and destination hotkeys share an owner; otherwise it resets.
+     */
+    function moveLock(
+        bytes32 destinationHotkey,
+        uint256 netuid
+    ) external payable;
+
+    /**
+     * @dev Selects perpetual or decaying behavior for the caller's subnet lock.
+     *
+     * There is no direct unlock operation. Disabling perpetual mode lets the
+     * locked mass decay according to the runtime unlock rate.
+     */
+    function setPerpetualLock(
+        uint256 netuid,
+        bool enabled
+    ) external payable;
+
+    /**
+     * @dev Sets whether the caller rejects incoming alpha that carries a lock.
+     *
+     * Rejection is enabled by default. Pass false to opt into receiving locked
+     * alpha through compatible stake transfers or coldkey swaps.
+     */
+    /** @dev Opt out of staking-list growth caused by others (off by default).
+     * Incoming transfers may still use existing or receiver-owned hotkeys.
+     * A subnet swap that cannot rename leaves this account's stake in place.
+     */
+    function setRejectStakingHotkeyGrowth(bool enabled) external;
+
+    /** @dev Read a recipient's flag before transferring stake to avoid a refused call. */
+    function getRejectStakingHotkeyGrowth(bytes32 coldkey) external view returns (bool);
+
+    function setRejectLockedAlpha(bool enabled) external payable;
+
+    /**
+     * @dev Returns a coldkey's lock rolled forward to the current block.
+     *
+     * `conviction` is exact unsigned Q64.64 bits. Divide it by 2^64 to obtain
+     * conviction in alpha rao. `exists` is false once the rolled lock crosses
+     * the runtime cleanup threshold, even if its stale storage row remains.
+     */
+    function getColdkeyLock(
+        bytes32 coldkey,
+        uint256 netuid
+    ) external view returns (ColdkeyLockInfo memory lockInfo);
+
+    /**
+     * @dev Returns rolled aggregate lock state targeting a hotkey.
+     *
+     * Perpetual and decaying buckets are combined. For the subnet owner hotkey,
+     * the owner-specific buckets are included as well. `exists` is derived
+     * from the rolled aggregate, so fully expired stale buckets do not count.
+     */
+    function getHotkeyLock(
+        bytes32 hotkey,
+        uint256 netuid
+    ) external view returns (HotkeyLockInfo memory lockInfo);
+
+    /**
+     * @dev Returns exact rolled Q64.64 conviction for distinct candidate hotkeys.
+     *
+     * Results align with `hotkeys`. The list is capped at 64 to keep gas and
+     * storage work bounded; larger metagraphs can be queried in batches.
+     */
+    function getHotkeyConvictions(
+        uint256 netuid,
+        bytes32[] calldata hotkeys
+    ) external view returns (uint128[] memory convictions);
+
+    /**
+     * @dev Returns `(unlockRate, maturityRate)` in blocks.
+     */
+    function getLockRates()
+        external
+        view
+        returns (uint64 unlockRate, uint64 maturityRate);
+
+    /**
+     * @dev Returns whether a coldkey rejects incoming locked alpha.
+     */
+    function getRejectLockedAlpha(
+        bytes32 coldkey
+    ) external view returns (bool);
 
     /**
      * @dev Adds a subtensor stake `amount` associated with the `hotkey` within a price limit.
@@ -340,7 +508,7 @@ interface IStaking {
     function allowance(
         address sourceAddress,
         address spenderAddress,
-        uint256 netuid,
+        uint256 netuid
     ) external view returns (uint256);
 
     /**
@@ -412,4 +580,209 @@ interface IStaking {
         uint256 destinationNetuid,
         uint256 amount
     ) external;
+
+    function decreaseTake(bytes32 hotkey, uint16 take) external;
+    function increaseTake(bytes32 hotkey, uint16 take) external;
+    function setChildkeyTake(bytes32 hotkey, uint16 netuid, uint16 take) external;
+    function unstakeAll(bytes32 hotkey) external;
+    function unstakeAllAlpha(bytes32 hotkey) external;
+    function swapStake(
+        bytes32 hotkey,
+        uint16 originNetuid,
+        uint16 destinationNetuid,
+        uint64 alphaAmount
+    ) external;
+    function swapStakeLimit(
+        bytes32 hotkey,
+        uint16 originNetuid,
+        uint16 destinationNetuid,
+        uint64 alphaAmount,
+        uint64 limitPrice,
+        bool allowPartial
+    ) external;
+    /**
+     * @notice Moves alpha between hotkeys and subnets subject to a relative price limit.
+     * @param originHotkey Hotkey from which alpha is removed.
+     * @param destinationHotkey Hotkey to which the resulting alpha is credited.
+     * @param originNetuid Subnet from which alpha is removed.
+     * @param destinationNetuid Subnet into which TAO is staked.
+     * @param alphaAmount Origin alpha requested to move, in raw alpha units.
+     * @param limitPrice Minimum destination-alpha per origin-alpha ratio, scaled by 1e9.
+     * @param allowPartial Whether to execute only the amount available before the limit.
+     */
+    function moveStakeLimit(
+        bytes32 originHotkey,
+        bytes32 destinationHotkey,
+        uint16 originNetuid,
+        uint16 destinationNetuid,
+        uint64 alphaAmount,
+        uint64 limitPrice,
+        bool allowPartial
+    ) external;
+    function recycleAlpha(bytes32 hotkey, uint64 amount, uint16 netuid) external;
+    function setColdkeyAutoStakeHotkey(uint16 netuid, bytes32 hotkey) external;
+    function claimRoot(uint16[] calldata subnets) external;
+    function claimRootWithHotkey(bytes32 hotkey) external;
+    function setRootClaimThreshold(uint16 netuid, uint64 threshold) external;
+    function addStakeBurn(
+        bytes32 hotkey,
+        uint16 netuid,
+        uint64 amount,
+        bool hasLimit,
+        uint64 limit
+    ) external;
+    function setAutoParentDelegationEnabled(
+        bytes32 hotkey,
+        bool enabled
+    ) external;
+    function transferStakeAndHotkey(
+        bytes32 destinationColdkey,
+        bytes32 originHotkey,
+        bytes32 destinationHotkey,
+        uint16 originNetuid,
+        uint16 destinationNetuid,
+        uint64 alphaAmount
+    ) external;
+    function addCollateral(
+        uint16 netuid,
+        bytes32 hotkey,
+        uint64 alpha,
+        uint64 limitPrice
+    ) external;
+    function setMinCollateral(
+        uint16 netuid,
+        bytes32 hotkey,
+        uint64 minLocked
+    ) external;
+    function setMinChildkeyTakePerSubnet(uint16 netuid, uint16 take) external;
+    function setCollateralLockShare(uint16 netuid, uint16 lockShare) external;
+    /// Raw U64F64 bits.
+    function setCollateralDrainRatio(
+        uint16 netuid,
+        uint128 rawRatio
+    ) external;
+
+    struct KeyLink {
+        uint64 proportion;
+        bytes32 account;
+    }
+
+    function getDelegate(bytes32 hotkey) external view returns (bool exists, uint16 take);
+    function getChildkeyTake(bytes32 hotkey, uint16 netuid) external view returns (uint16);
+    function getPendingChildKeys(
+        bytes32 parent,
+        uint16 netuid
+    ) external view returns (KeyLink[] memory children, uint64 cooldownBlock);
+    function getChildKeys(
+        bytes32 parent,
+        uint16 netuid
+    ) external view returns (KeyLink[] memory);
+    function getParentKeys(
+        bytes32 child,
+        uint16 netuid
+    ) external view returns (KeyLink[] memory);
+    function getPendingChildKeyCooldown() external view returns (uint64);
+    function getTakeLimits()
+        external
+        view
+        returns (
+            uint16 minDelegateTake,
+            uint16 maxDelegateTake,
+            uint16 minChildkeyTake,
+            uint16 maxChildkeyTake
+        );
+    function getMinChildkeyTakePerSubnet(uint16 netuid) external view returns (uint16);
+    function getHotkeyOwner(bytes32 hotkey) external view returns (bool exists, bytes32 owner);
+    function getOwnedHotkeys(bytes32 coldkey) external view returns (bytes32[] memory);
+
+    /**
+     * @dev Returns at most 64 staking hotkeys beginning at `offset`.
+     * Each call reads the existing staking-hotkey vector and slices it in stored order.
+     * `total` is the vector length; an offset greater than or equal to `total` returns an empty
+     * page.
+     */
+    function getStakingHotkeys(
+        bytes32 coldkey,
+        uint64 offset,
+        uint16 limit
+    ) external view returns (bytes32[] memory hotkeys, uint64 total);
+
+    function getAutoStakeDestination(
+        bytes32 coldkey,
+        uint16 netuid
+    ) external view returns (bool exists, bytes32 hotkey);
+    function getAutoStakeDestinationColdkeys(
+        bytes32 hotkey,
+        uint16 netuid
+    ) external view returns (bytes32[] memory);
+    function getHotkeySuccessor(
+        bytes32 hotkey,
+        uint16 netuid
+    ) external view returns (bool exists, bytes32 successor);
+    function getHotkeyRoot(
+        bytes32 hotkey,
+        uint16 netuid
+    ) external view returns (bool exists, bytes32 root);
+    function getColdkeySuccessor(
+        bytes32 coldkey
+    ) external view returns (bool exists, bytes32 successor);
+    function getColdkeyRoot(
+        bytes32 coldkey
+    ) external view returns (bool exists, bytes32 root);
+    function getColdkeySwapStatus(
+        bytes32 coldkey
+    )
+        external
+        view
+        returns (
+            bool hasAnnouncement,
+            uint64 announcementBlock,
+            bytes32 callHash,
+            bool hasDispute,
+            uint64 disputeBlock
+        );
+    function getColdkeySwapDelays()
+        external
+        view
+        returns (uint64 announcementDelay, uint64 reannouncementDelay);
+    function getLastHotkeySwapOnSubnet(
+        bytes32 coldkey,
+        uint16 netuid
+    ) external view returns (uint64);
+    function getStakeAccounting()
+        external
+        view
+        returns (uint64 totalIssuance, uint64 totalStake);
+    function getMinerCollateral(
+        uint16 netuid,
+        bytes32 hotkey,
+        bytes32 coldkey
+    )
+        external
+        view
+        returns (
+            bool exists,
+            uint64 locked,
+            uint128 drainRatio,
+            uint64 minLocked,
+            uint64 earned
+        );
+    function getColdkeyCollateral(
+        uint16 netuid,
+        bytes32 coldkey
+    ) external view returns (uint64 locked, bytes32[] memory hotkeys);
+    function getCollateralConfig(
+        uint16 netuid
+    ) external view returns (uint16 lockShare, uint128 drainRatio);
+    /// Realizable TAO owed by one validator basket, in 18-decimal EVM units.
+    function getUnclaimedRootTaoByHotkey(
+        bytes32 coldkey,
+        bytes32 hotkey
+    ) external view returns (uint256 taoValue);
+    /// A bounded subtotal for a coldkey's owed value on a subnet.
+    function getUnclaimedRootTaoBySubnet(
+        bytes32 coldkey,
+        uint16 netuid,
+        bytes32[] calldata hotkeys
+    ) external view returns (uint256 taoValue);
 }

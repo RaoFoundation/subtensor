@@ -6,6 +6,7 @@ use subtensor_runtime_common::{AlphaBalance, NetUid};
 
 #[repr(u16)]
 #[derive(TryFromPrimitive, IntoPrimitive, Decode, Encode)]
+/// Caller* IDs 20–33 and 38 are disabled and reserved.
 pub enum FunctionId {
     GetStakeInfoForHotkeyColdkeyNetuidV1 = 0,
     AddStakeV1 = 1,
@@ -44,6 +45,8 @@ pub enum FunctionId {
     GetSubnetRegistrationStateV1 = 34,
     GetColdkeyLockV1 = 35,
     GetStakeAvailabilityV1 = 36,
+    MoveStakeLimitV1 = 37,
+    CallerMoveStakeLimitV1 = 38,
 }
 
 #[freeze_struct("5dc33d60abed5c08")]
@@ -140,6 +143,10 @@ impl From<DispatchError> for Output {
             Some("SlippageTooHigh") => Output::SlippageTooHigh,
             Some("SubnetNotExists") => Output::SubnetNotExists,
             Some("SameAutoStakeHotkeyAlreadySet") => Output::SameAutoStakeHotkeyAlreadySet,
+            Some("InsufficientTaoBalance") => Output::InsufficientBalance,
+            Some("InsufficientAlphaBalance") => Output::InsufficientBalance,
+            // Other pallets (e.g. swap, crowdloan) still emit their own
+            // `InsufficientBalance`; keep mapping it to the same ABI code.
             Some("InsufficientBalance") => Output::InsufficientBalance,
             Some("AmountTooLow") => Output::AmountTooLow,
             Some("InsufficientLiquidity") => Output::InsufficientLiquidity,
@@ -184,11 +191,13 @@ mod function_id_tests {
         assert_eq!(FunctionId::GetSubnetRegistrationStateV1 as u16, 34);
         assert_eq!(FunctionId::GetColdkeyLockV1 as u16, 35);
         assert_eq!(FunctionId::GetStakeAvailabilityV1 as u16, 36);
+        assert_eq!(FunctionId::MoveStakeLimitV1 as u16, 37);
+        assert_eq!(FunctionId::CallerMoveStakeLimitV1 as u16, 38);
     }
 
     #[test]
     fn caller_ids_roundtrip_try_from_primitive() {
-        for id in 16u16..=36u16 {
+        for id in 16u16..=38u16 {
             let v = FunctionId::try_from_primitive(id)
                 .unwrap_or_else(|_| panic!("try_from_primitive failed for {id}"));
             assert_eq!(v as u16, id);

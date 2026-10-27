@@ -1,0 +1,62 @@
+---
+title: min_difficulty
+description: Lower bound for the PoW registration difficulty controller; u64::MAX pins difficulty at maximum, disabling PoW registration.
+---
+
+`min_difficulty` is the floor under
+[`difficulty`](/docs/hyperparameters/difficulty), the proof-of-work target
+for PoW neuron registration. However cheap registrations get, the
+difficulty controller never lets the PoW price fall below this value.
+Setting it to `u64::MAX` pins difficulty at maximum, which effectively
+disables PoW registration outright. Miners care because it fixes the
+minimum compute cost of a PoW slot; root/governance sets it.
+
+## How it works
+
+Storage is [`MinDifficulty`](/code/pallets/subtensor/src/lib.rs#L2145) in
+`pallets/subtensor/src/lib.rs`, read and
+written by
+[`get_min_difficulty`](/code/pallets/subtensor/src/utils/misc.rs#L492-L494) /
+[`set_min_difficulty`](/code/pallets/subtensor/src/utils/misc.rs#L495-L498)
+(`pallets/subtensor/src/utils/misc.rs`). In the classic controller,
+difficulty was rescaled each adjustment interval by how far registrations
+ran over or under target, then clamped to the
+\[`min_difficulty`, `max_difficulty`\] band — so with quiet demand,
+difficulty decayed until it sat on this floor.
+
+The chain-wide migration
+[`migrate_set_min_difficulty`](/code/pallets/subtensor/src/migrations/migrate_set_min_difficulty.rs#L9-L53)
+(`pallets/subtensor/src/migrations/migrate_set_min_difficulty.rs`) set the
+floor to 10,000,000 on every subnet, matching the runtime default
+([`SubtensorInitialMinDifficulty`](/code/runtime/src/lib.rs#L813) in
+`runtime/src/lib.rs`).
+
+The subnet-owner-controlled floor for dynamic PoW pricing. Quiet periods decay difficulty to this floor. The effective minimum is at least one; an owner maximum below it cannot override it.
+
+See [`difficulty`](/docs/hyperparameters/difficulty) for the active PoW controller and its shared settings.
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name min_difficulty
+```
+
+Subnet owner or root/governance:
+[`sudo_set_min_difficulty`](/code/pallets/admin-utils/src/lib.rs)
+in the AdminUtils pallet takes a raw u64. Owner changes use the standard
+per-parameter cooldown and admin freeze window, and can be delegated through
+an Owner proxy. Root remains able to override the owner cooldown.
+
+To enable PoW on a subnet whose floor is pinned at `u64::MAX`, lower
+`min_difficulty` and then set `difficulty` to the desired starting value.
+Both calls can be submitted atomically with `Utility.batch_all`; changing
+one parameter does not consume the other parameter's cooldown.
+
+## Related
+
+[`difficulty`](/docs/hyperparameters/difficulty) ·
+[`max_difficulty`](/docs/hyperparameters/max-difficulty) ·
+[`network_pow_registration_allowed`](/docs/hyperparameters/network-pow-registration-allowed) ·
+[`target_regs_per_interval`](/docs/hyperparameters/target-regs-per-interval) ·
+[`adjustment_interval`](/docs/hyperparameters/adjustment-interval) ·
+[`min_burn`](/docs/hyperparameters/min-burn)

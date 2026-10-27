@@ -32,6 +32,7 @@ class Snapshot:
         # namespaces.NAMESPACES; explicit so type checkers see each attribute).
         self.balances = namespaces.Balances(self)
         self.chain = namespaces.Chain(self)
+        self.collateral = namespaces.Collateral(self)
         self.delegation = namespaces.Delegation(self)
         self.epochs = namespaces.Epochs(self)
         self.hyperparameters = namespaces.Hyperparameters(self)

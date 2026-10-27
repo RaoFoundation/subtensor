@@ -1,0 +1,871 @@
+//! Drain-scheduler and op-bound tests for [`PendingBasketDeposits`].
+//!
+//! Unlike `flush_baskets()` (which flushes every queued hotkey at once for economic
+//! assertions), these tests exercise `flush_pending_basket_deposits_block` itself: the
+//! one-hotkey-per-block cursor, round-robin wrap, root-eviction recycle, and deterministic
+//! swap/quote/write counters on happy and failure paths.
+
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
+use crate::staking::{BasketFlushWork, MAX_BASKET_FLUSH_ROWS, MAX_BASKET_ROWS};
+use crate::tests::claim_root::{
+    escrow_alpha, fund_pool, fund_shares, register_on_root, zero_claim_threshold,
+};
+use crate::tests::mock::*;
+use crate::{
+    AlphaV2, BasketShares, IsNetworkMember, Keys, PendingBasketDeposits, PendingBasketFlushCursor,
+    RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut, SubnetTAO, Uids,
+};
+use frame_support::assert_ok;
+use sp_core::U256;
+use sp_std::collections::btree_set::BTreeSet;
+use substrate_fixed::types::I96F32;
+use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
+
+/// Storage iteration order of distinct hotkeys currently in the pending-deposit map.
+fn pending_hotkey_order() -> Vec<U256> {
+    let mut seen = BTreeSet::new();
+    let mut order = Vec::new();
+    for (hotkey, _) in PendingBasketDeposits::<Test>::iter_keys() {
+        if seen.insert(hotkey) {
+            order.push(hotkey);
+        }
+    }
+    order
+}
+
+fn pending_credit(hotkey: &U256, netuid: NetUid) -> u64 {
+    PendingBasketDeposits::<Test>::get(hotkey, netuid).to_u64()
+}
+
+fn queue_credit(hotkey: &U256, netuid: NetUid, alpha: u64) {
+    // Credits are assumed already counted in SubnetAlphaOut (epoch mint path).
+    let existing = SubnetAlphaOut::<Test>::get(netuid);
+    SubnetAlphaOut::<Test>::insert(netuid, existing.saturating_add(alpha.into()));
+    SubtensorModule::enqueue_basket_deposit(hotkey, netuid, alpha.into());
+}
+
+/// Root-registered uncurated validator with stake, ready to receive queued credits.
+fn setup_root_validator(hotkey: U256, coldkey: U256, uid: u16) -> NetUid {
+    let owner = U256::from(u64::from(uid).saturating_add(9_000));
+    let owner_hot = U256::from(u64::from(uid).saturating_add(9_100));
+    let netuid = add_dynamic_network(&owner_hot, &owner);
+    remove_owner_registration_stake(netuid);
+    fund_pool(netuid);
+    register_on_root(&hotkey, uid);
+    mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+        &hotkey,
+        &coldkey,
+        NetUid::ROOT,
+        2_000_000u64.into(),
+    );
+    netuid
+}
+
+/// The per-block drain flushes exactly one hotkey and advances the cursor past it.
+#[test]
+fn test_flush_drain_one_hotkey_per_block_advances_cursor() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let cold_a = U256::from(2001);
+        let cold_b = U256::from(2002);
+        let hot_a = U256::from(3001);
+        let hot_b = U256::from(3002);
+        let net_a = setup_root_validator(hot_a, cold_a, 1);
+        let net_b = setup_root_validator(hot_b, cold_b, 2);
+
+        queue_credit(&hot_a, net_a, 1_000_000);
+        queue_credit(&hot_b, net_b, 1_000_000);
+
+        let order = pending_hotkey_order();
+        assert_eq!(order.len(), 2, "both hotkeys must be queued");
+        assert!(PendingBasketFlushCursor::<Test>::get().is_none());
+
+        reset_basket_op_counters();
+        SubtensorModule::flush_pending_basket_deposits_block();
+
+        let first = *order.first().expect("queued hotkey order");
+        let second = *order.get(1).expect("queued hotkey order");
+        assert!(
+            fund_shares(&first) > 0,
+            "first hotkey in storage order must be flushed"
+        );
+        assert_eq!(
+            fund_shares(&second),
+            0,
+            "second hotkey must wait for the next block"
+        );
+        assert!(
+            PendingBasketFlushCursor::<Test>::get().is_some(),
+            "cursor must advance past the flushed hotkey"
+        );
+        // One hotkey's pending rows removed + one cursor write.
+        assert_eq!(basket_write_ops(), 2);
+        // Uncurated accumulate: no swaps.
+        assert_eq!(basket_swap_ops(), 0);
+
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert!(fund_shares(&second) > 0, "second hotkey flushes next block");
+    });
+}
+
+/// After the last hotkey, the next drain spends its turn clearing the cursor (wrap).
+#[test]
+fn test_flush_drain_wraps_and_clears_cursor_at_end() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let cold = U256::from(2001);
+        let hot_a = U256::from(3001);
+        let hot_b = U256::from(3002);
+        let net_a = setup_root_validator(hot_a, cold, 1);
+        let net_b = setup_root_validator(hot_b, cold, 2);
+
+        queue_credit(&hot_a, net_a, 500_000);
+        queue_credit(&hot_b, net_b, 500_000);
+
+        // Flush both hotkeys.
+        SubtensorModule::flush_pending_basket_deposits_block();
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert!(PendingBasketDeposits::<Test>::iter().next().is_none());
+        assert!(
+            PendingBasketFlushCursor::<Test>::get().is_some(),
+            "cursor sits at the last flushed key until the wrap pass"
+        );
+
+        // End-of-map pass: no hotkey left after the cursor → kill and restart next block.
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert!(
+            PendingBasketFlushCursor::<Test>::get().is_none(),
+            "wrap pass must clear the cursor"
+        );
+
+        // Fresh credits are picked up from the top after the wrap.
+        queue_credit(&hot_a, net_a, 250_000);
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert!(fund_shares(&hot_a) > 0);
+    });
+}
+
+/// An empty queue is a no-op that leaves (or clears) the cursor at None.
+#[test]
+fn test_flush_drain_empty_queue_kills_cursor() {
+    new_test_ext(1).execute_with(|| {
+        PendingBasketFlushCursor::<Test>::put(vec![1, 2, 3]);
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert!(PendingBasketFlushCursor::<Test>::get().is_none());
+    });
+}
+
+/// Sub-threshold dust stays queued, but the cursor still advances so the hotkey is not pinned.
+#[test]
+fn test_flush_drain_dust_advances_cursor_without_deposit() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        // Spot filter defers anything below this.
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(1_000_000_000u64));
+
+        let cold_a = U256::from(2001);
+        let cold_b = U256::from(2002);
+        let hot_a = U256::from(3001);
+        let hot_b = U256::from(3002);
+        let net_a = setup_root_validator(hot_a, cold_a, 1);
+        let net_b = setup_root_validator(hot_b, cold_b, 2);
+
+        queue_credit(&hot_a, net_a, 1_000);
+        queue_credit(&hot_b, net_b, 1_000_000);
+
+        let order = pending_hotkey_order();
+        assert_eq!(order.len(), 2, "both hotkeys must be queued");
+        let first = *order.first().expect("queued hotkey order");
+        let second = *order.get(1).expect("queued hotkey order");
+
+        // Lower threshold only for the second hotkey's turn by flushing first (dust) then
+        // opening the gate before the second drain.
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert_eq!(fund_shares(&first), 0, "dust must not mint shares");
+        assert!(
+            pending_credit(&first, if first == hot_a { net_a } else { net_b }) > 0,
+            "dust credit must remain queued"
+        );
+        assert!(
+            PendingBasketFlushCursor::<Test>::get().is_some(),
+            "cursor must skip past dust-only hotkey"
+        );
+
+        zero_claim_threshold();
+        SubtensorModule::flush_pending_basket_deposits_block();
+        assert!(
+            fund_shares(&second) > 0,
+            "non-dust hotkey after cursor must still flush"
+        );
+    });
+}
+
+/// Root replacement settles flushable pending credits into the basket before membership
+/// drops, so already-earned dividends are not recycled away.
+#[test]
+fn test_flush_root_eviction_deposits_pending_credits() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let cold = U256::from(2001);
+        let hot = U256::from(3001);
+        let replacement = U256::from(3002);
+        // Origin subnet for the queued credit (pool + alpha-out accounting).
+        let owner = U256::from(9001);
+        let owner_hot = U256::from(9101);
+        let netuid = add_dynamic_network(&owner_hot, &owner);
+        remove_owner_registration_stake(netuid);
+        fund_pool(netuid);
+
+        // Real root membership so replace_neuron runs the churn flush hook.
+        // (Burned registration is not permitted on root; seed the maps directly.)
+        let uid = 1u16;
+        Uids::<Test>::insert(NetUid::ROOT, hot, uid);
+        Keys::<Test>::insert(NetUid::ROOT, uid, hot);
+        IsNetworkMember::<Test>::insert(hot, NetUid::ROOT, true);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &cold,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+
+        let credit = 750_000u64;
+        queue_credit(&hot, netuid, credit);
+        let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
+
+        SubtensorModule::replace_neuron(NetUid::ROOT, uid, &replacement, 1);
+
+        assert!(
+            !PendingBasketDeposits::<Test>::contains_key(hot, netuid),
+            "root churn must clear the queued credit"
+        );
+        assert!(
+            fund_shares(&hot) > 0,
+            "flushable credit must deposit into the basket before membership drops"
+        );
+        assert!(
+            escrow_alpha(&hot, netuid) > 0,
+            "uncurated deposit must credit the origin holding"
+        );
+        // Accumulate-in-place keeps SubnetAlphaOut (alpha was already issued).
+        assert_eq!(SubnetAlphaOut::<Test>::get(netuid), alpha_out_before);
+        assert!(!SubtensorModule::is_hotkey_registered_on_network(
+            NetUid::ROOT,
+            &hot
+        ));
+    });
+}
+
+/// Sub-threshold dust still recycles after root membership drops — the hotkey can no
+/// longer earn dividends to merge it past the deposit threshold.
+#[test]
+fn test_flush_root_eviction_recycles_dust_after_membership_drop() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(1_000_000_000u64));
+
+        let cold = U256::from(2001);
+        let hot = U256::from(3001);
+        let replacement = U256::from(3002);
+        let owner = U256::from(9001);
+        let owner_hot = U256::from(9101);
+        let netuid = add_dynamic_network(&owner_hot, &owner);
+        remove_owner_registration_stake(netuid);
+        fund_pool(netuid);
+
+        let uid = 1u16;
+        Uids::<Test>::insert(NetUid::ROOT, hot, uid);
+        Keys::<Test>::insert(NetUid::ROOT, uid, hot);
+        IsNetworkMember::<Test>::insert(hot, NetUid::ROOT, true);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &cold,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+
+        let credit = 1_000u64;
+        queue_credit(&hot, netuid, credit);
+        let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
+
+        SubtensorModule::replace_neuron(NetUid::ROOT, uid, &replacement, 1);
+
+        assert!(
+            !PendingBasketDeposits::<Test>::contains_key(hot, netuid),
+            "dust must not pin the queue after root eviction"
+        );
+        assert_eq!(
+            fund_shares(&hot),
+            0,
+            "sub-threshold dust must not mint shares"
+        );
+        assert_eq!(
+            SubnetAlphaOut::<Test>::get(netuid),
+            alpha_out_before.saturating_sub(credit.into()),
+            "post-eviction dust flush recycles the credit"
+        );
+    });
+}
+
+/// Happy path: a multi-origin flush credits each dividend in place on its origin subnet in
+/// one batch — no swaps at all — and the work counters match the deposit formula
+/// (`H + 2C` quotes on top of the scan, one in-place row per credit).
+#[test]
+fn test_flush_happy_path_accumulates_in_place_with_bounded_ops() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let owner = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+
+        let origin_a = add_dynamic_network(&hotkey, &owner);
+        let origin_b_hot = U256::from(1006);
+        let origin_b_owner = U256::from(1007);
+        let origin_b = add_dynamic_network(&origin_b_hot, &origin_b_owner);
+        let untouched = add_dynamic_network(&U256::from(1005), &U256::from(1004));
+        for netuid in [origin_a, origin_b, untouched] {
+            remove_owner_registration_stake(netuid);
+            fund_pool(netuid);
+        }
+
+        register_on_root(&hotkey, 0);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+
+        let credits = 2u64;
+        let credit_alpha = 1_000_000u64;
+        queue_credit(&hotkey, origin_a, credit_alpha);
+        queue_credit(&hotkey, origin_b, credit_alpha);
+        let pools_before: Vec<_> = [origin_a, origin_b]
+            .iter()
+            .map(|n| (SubnetTAO::<Test>::get(*n), SubnetAlphaIn::<Test>::get(*n)))
+            .collect();
+
+        reset_basket_op_counters();
+        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+
+        assert!(completed);
+        assert!(fund_shares(&hotkey) > 0);
+        // Each credit lands as alpha on the subnet it was earned on; nothing is bought
+        // anywhere else and no pool moves.
+        assert_eq!(escrow_alpha(&hotkey, origin_a), credit_alpha);
+        assert_eq!(escrow_alpha(&hotkey, origin_b), credit_alpha);
+        assert_eq!(escrow_alpha(&hotkey, untouched), 0);
+        assert_eq!(escrow_alpha(&hotkey, NetUid::ROOT), 0);
+        for (netuid, (tao, alpha_in)) in [origin_a, origin_b].iter().zip(pools_before) {
+            assert_eq!(SubnetTAO::<Test>::get(*netuid), tao);
+            assert_eq!(SubnetAlphaIn::<Test>::get(*netuid), alpha_in);
+        }
+        assert!(!PendingBasketDeposits::<Test>::contains_key(
+            hotkey, origin_a
+        ));
+        assert!(!PendingBasketDeposits::<Test>::contains_key(
+            hotkey, origin_b
+        ));
+
+        // Quotes: scan (credits) + NAV sweep over the empty fund (0) + two quotes per
+        // credit. Rows: one in-place credit per origin.
+        assert_eq!(work, BasketFlushWork::new(credits + 2 * credits, credits));
+        assert_eq!(basket_swap_ops(), 0, "in-place accumulation swaps nothing");
+        assert!(
+            basket_quote_ops() <= 16,
+            "quotes must stay single-batch bounded, got {}",
+            basket_quote_ops()
+        );
+        // Two pending-row removes for the batch.
+        assert_eq!(basket_write_ops(), credits);
+    });
+}
+
+/// Failure path: a multi-origin batch that cannot mint (a shared-phase failure) re-queues
+/// every credit after exactly one attempt — no per-credit retry. Soft failure must not
+/// recycle healthy (or dust) dividends — they stay pending to merge / retry later. Work is
+/// the scan plus one batch attempt, linear in the credit count.
+#[test]
+fn test_flush_shared_failure_requeues_batch_without_retry() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let owner = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let origin_b_hot = U256::from(1006);
+        let origin_b_owner = U256::from(1007);
+        let origin_c_hot = U256::from(1008);
+        let origin_c_owner = U256::from(1009);
+
+        let origin_a = add_dynamic_network(&hotkey, &owner);
+        let origin_b = add_dynamic_network(&origin_b_hot, &origin_b_owner);
+        let origin_c = add_dynamic_network(&origin_c_hot, &origin_c_owner);
+        remove_owner_registration_stake(origin_a);
+        remove_owner_registration_stake(origin_b);
+        remove_owner_registration_stake(origin_c);
+        fund_pool(origin_a);
+        fund_pool(origin_b);
+        fund_pool(origin_c);
+
+        register_on_root(&hotkey, 0);
+        // Enormous claimant base: share/rate increment rounds to zero → deposit fails.
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            10_000_000_000_000_000u64.into(),
+        );
+        // Uncurated: accumulate-in-place (no swaps), so failure is purely the dust mint.
+        let origins = [origin_a, origin_b, origin_c];
+        let credits = origins.len() as u64;
+        let credit_alpha = 1_000u64;
+        for netuid in origins {
+            queue_credit(&hotkey, netuid, credit_alpha);
+        }
+
+        let alpha_before: Vec<_> = origins
+            .iter()
+            .map(|n| SubnetAlphaOut::<Test>::get(*n))
+            .collect();
+
+        reset_basket_op_counters();
+        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+
+        assert!(!completed);
+        assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+        for netuid in origins {
+            assert_eq!(
+                PendingBasketDeposits::<Test>::get(hotkey, netuid).to_u64(),
+                credit_alpha,
+                "soft-failed credit must be re-queued, not recycled"
+            );
+        }
+        // Soft failure must not touch origin issuance.
+        for (netuid, before) in origins.iter().zip(alpha_before.iter()) {
+            assert_eq!(SubnetAlphaOut::<Test>::get(*netuid), *before);
+        }
+
+        // Scan + exactly one batch attempt (holdings=0, two quotes and one in-place row per
+        // credit). A per-credit retry would add another `credits * 2` quotes here.
+        assert_eq!(
+            work,
+            BasketFlushWork::new(credits + credits.saturating_mul(2), credits)
+        );
+        assert!(work.total() <= SubtensorModule::basket_flush_work_bound().total());
+        assert_eq!(basket_swap_ops(), 0, "uncurated failure does no swaps");
+        // Spot quotes per origin on the scan, plus quotes inside the single batch attempt —
+        // O(credits), not quadratic.
+        assert!(
+            basket_quote_ops() <= credits.saturating_mul(4),
+            "quotes must stay single-attempt bounded, got {}",
+            basket_quote_ops()
+        );
+        // Pre-deposit removes + one re-queue write per credit after the batch rolls back.
+        assert_eq!(basket_write_ops(), credits.saturating_mul(2));
+    });
+}
+
+/// A credit whose own step cannot proceed (here: its origin pool is terminally shallow, so
+/// the holding cannot be valued) is disposed of from inside the batch while the other
+/// credits deposit in one mint. The terminal credit is recycled, never queued again, and
+/// never becomes a holding.
+#[test]
+fn test_flush_isolates_terminal_credit_and_deposits_the_rest() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let owner = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let origin_b_hot = U256::from(1006);
+        let origin_b_owner = U256::from(1007);
+        let origin_c_hot = U256::from(1008);
+        let origin_c_owner = U256::from(1009);
+
+        let origin_a = add_dynamic_network(&hotkey, &owner);
+        let origin_b = add_dynamic_network(&origin_b_hot, &origin_b_owner);
+        let origin_c = add_dynamic_network(&origin_c_hot, &origin_c_owner);
+        for netuid in [origin_a, origin_b, origin_c] {
+            remove_owner_registration_stake(netuid);
+            fund_pool(netuid);
+        }
+        // Origin B cannot sell alpha for TAO: its TAO reserve is below the engine floor.
+        SubnetTAO::<Test>::insert(
+            origin_b,
+            TaoBalance::from(u64::from(SwapMinimumReserve::get()) - 1),
+        );
+        SubnetAlphaIn::<Test>::insert(origin_b, AlphaBalance::from(1_000_000u64));
+
+        register_on_root(&hotkey, 0);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+
+        let credit_alpha = 1_000_000u64;
+        for netuid in [origin_a, origin_b, origin_c] {
+            queue_credit(&hotkey, netuid, credit_alpha);
+        }
+        let b_alpha_out_before = SubnetAlphaOut::<Test>::get(origin_b);
+
+        reset_basket_op_counters();
+        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+
+        assert!(
+            completed,
+            "every selected credit was settled (B by recycling)"
+        );
+        assert!(
+            fund_shares(&hotkey) > 0,
+            "the healthy credits mint together"
+        );
+        assert_eq!(escrow_alpha(&hotkey, origin_a), credit_alpha);
+        assert_eq!(escrow_alpha(&hotkey, origin_c), credit_alpha);
+        assert_eq!(
+            escrow_alpha(&hotkey, origin_b),
+            0,
+            "terminal credit never lands"
+        );
+        for netuid in [origin_a, origin_b, origin_c] {
+            assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, netuid));
+        }
+        assert_eq!(
+            SubnetAlphaOut::<Test>::get(origin_b),
+            b_alpha_out_before - AlphaBalance::from(credit_alpha),
+            "the terminal credit is recycled out of issuance"
+        );
+
+        // Quotes: scan (3) + NAV sweep over the empty fund (0) + two quotes per credit.
+        // Rows: one in-place credit per origin (the recycled one still executed its step).
+        assert_eq!(work, BasketFlushWork::new(3 + 2 * 3, 3));
+        assert!(work.total() <= SubtensorModule::basket_flush_work_bound().total());
+        assert_eq!(basket_swap_ops(), 0);
+        // Three pending-row removes; nothing is re-queued.
+        assert_eq!(basket_write_ops(), 3);
+    });
+}
+
+/// The flush work of a failing many-credit batch on a fund with many holdings stays linear
+/// (scan + one attempt) and under the flat allowance every flushing extrinsic declares. The
+/// old split-and-retry path would have cost `credits x holdings` here.
+#[test]
+fn test_flush_work_stays_within_declared_bound_for_failing_wide_batch() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        register_on_root(&hotkey, 0);
+        // Enormous claimant base: the share/rate increment rounds to zero → dust mint →
+        // the whole batch rolls back and re-queues (shared-phase failure).
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            10_000_000_000_000_000u64.into(),
+        );
+
+        let count = 12u64;
+        let mut origins = Vec::new();
+        for i in 0..count {
+            let owner = U256::from(5_000 + i);
+            let owner_hot = U256::from(6_000 + i);
+            let netuid = add_dynamic_network(&owner_hot, &owner);
+            remove_owner_registration_stake(netuid);
+            fund_pool(netuid);
+            // One existing holding per subnet, so every NAV sweep values `count` rows.
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                netuid,
+                1_000_000u64.into(),
+            );
+            queue_credit(&hotkey, netuid, 1_000);
+            origins.push(netuid);
+        }
+        let holdings = SubtensorModule::get_basket_holdings(&hotkey).len() as u64;
+        assert_eq!(holdings, count);
+
+        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+
+        assert!(!completed);
+        assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+        for netuid in origins {
+            assert_eq!(pending_credit(&hotkey, netuid), 1_000);
+        }
+        // Scan + one uncurated attempt: `holdings + 2 * credits` quotes and one in-place row
+        // per credit. Linear, not `credits * holdings`.
+        assert_eq!(
+            work,
+            BasketFlushWork::new(count + holdings + 2 * count, count)
+        );
+        assert!(work.total() < count * holdings);
+        let bound = SubtensorModule::basket_flush_work_bound();
+        assert!(work.quotes <= bound.quotes && work.rows <= bound.rows);
+    });
+}
+
+/// The flush admission axis of a coldkey-wide claim: the queued credit rows summed over the
+/// hotkeys must fit `MAX_BASKET_FLUSH_ROWS`. Two hotkeys at the per-axis maximum exactly
+/// fill it; one more queued row anywhere tips a coldkey-wide claim over. Holdings are not
+/// counted here (they have their own admission axis in `root_claim_fits_declared_budget`).
+#[test]
+fn test_basket_flush_fits_declared_budget_bounds_queued_rows() {
+    new_test_ext(1).execute_with(|| {
+        let rows = MAX_BASKET_ROWS as u16;
+        let hot_a = U256::from(3001);
+        let hot_b = U256::from(3002);
+        let hot_c = U256::from(3003);
+
+        // No queue: nothing to flush.
+        assert!(SubtensorModule::basket_flush_fits_declared_budget(&[hot_a]));
+
+        assert_eq!(MAX_BASKET_FLUSH_ROWS, 2 * MAX_BASKET_ROWS);
+        for hot in [hot_a, hot_c] {
+            for raw in 1..=rows {
+                PendingBasketDeposits::<Test>::insert(
+                    hot,
+                    NetUid::from(raw),
+                    AlphaBalance::from(1u64),
+                );
+            }
+        }
+        assert!(SubtensorModule::basket_flush_fits_declared_budget(&[hot_a]));
+        // Two full queues exactly fill the flush axis.
+        assert!(SubtensorModule::basket_flush_fits_declared_budget(&[
+            hot_a, hot_c
+        ]));
+
+        // A third hotkey with a single queued credit tips a coldkey-wide claim over.
+        PendingBasketDeposits::<Test>::insert(hot_b, NetUid::from(1), AlphaBalance::from(1u64));
+        assert!(SubtensorModule::basket_flush_fits_declared_budget(&[hot_b]));
+        assert!(!SubtensorModule::basket_flush_fits_declared_budget(&[
+            hot_a, hot_b, hot_c
+        ]));
+
+        // Escrow holdings do not count on this axis.
+        AlphaV2::<Test>::insert(
+            (
+                hot_a,
+                SubtensorModule::get_beta_escrow_account_id(),
+                NetUid::from(1),
+            ),
+            share_pool::SafeFloat::from(1_u64),
+        );
+        assert!(SubtensorModule::basket_flush_fits_declared_budget(&[
+            hot_a, hot_c
+        ]));
+
+        // The claim admission check folds the flush axis in.
+        assert!(SubtensorModule::root_claim_fits_declared_budget(&[hot_a]));
+        assert!(!SubtensorModule::root_claim_fits_declared_budget(&[
+            hot_a, hot_b, hot_c
+        ]));
+    });
+}
+
+/// A dividend credit from a terminally shallow pool is recycled and removed instead of being
+/// re-queued forever. Because it never entered the fund, no shares or basket holding are minted.
+#[test]
+fn test_flush_terminal_origin_recycles_credit_without_pinning_queue() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let coldkey = U256::from(2001);
+        let hotkey = U256::from(3001);
+        let netuid = setup_root_validator(hotkey, coldkey, 1);
+        let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
+
+        // Alpha -> TAO cannot execute once its TAO output reserve is below the engine floor.
+        SubnetTAO::<Test>::insert(
+            netuid,
+            TaoBalance::from(u64::from(SwapMinimumReserve::get()) - 1),
+        );
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000u64));
+        queue_credit(&hotkey, netuid, 1_000u64);
+
+        let (_, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+
+        assert!(completed);
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, netuid));
+        assert_eq!(escrow_alpha(&hotkey, netuid), 0);
+        assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+        assert_eq!(SubnetAlphaOut::<Test>::get(netuid), alpha_out_before);
+    });
+}
+
+/// Drain path: one block's op counters stay at a single hotkey even with many queued.
+#[test]
+fn test_flush_drain_ops_bounded_to_one_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let mut hotkeys = Vec::new();
+        for i in 0..5u16 {
+            let hot = U256::from(3_000u64 + u64::from(i));
+            let cold = U256::from(2_000u64 + u64::from(i));
+            let netuid = setup_root_validator(hot, cold, i + 1);
+            queue_credit(&hot, netuid, 500_000);
+            hotkeys.push(hot);
+        }
+        assert_eq!(pending_hotkey_order().len(), 5);
+
+        reset_basket_op_counters();
+        SubtensorModule::flush_pending_basket_deposits_block();
+
+        let flushed = hotkeys.iter().filter(|h| fund_shares(h) > 0).count();
+        assert_eq!(flushed, 1, "drain must flush exactly one hotkey");
+        // Uncurated single-credit: 1 spot quote + accumulate quotes, 1 pending remove + cursor.
+        assert_eq!(basket_swap_ops(), 0);
+        assert!(
+            basket_quote_ops() <= 8,
+            "one-hotkey drain quotes bounded, got {}",
+            basket_quote_ops()
+        );
+        assert_eq!(basket_write_ops(), 2);
+    });
+}
+
+/// Calling the drain via block_step still only processes one hotkey.
+#[test]
+fn test_flush_drain_via_block_step_one_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let hot_a = U256::from(3001);
+        let hot_b = U256::from(3002);
+        let net_a = setup_root_validator(hot_a, U256::from(2001), 1);
+        let net_b = setup_root_validator(hot_b, U256::from(2002), 2);
+        queue_credit(&hot_a, net_a, 400_000);
+        queue_credit(&hot_b, net_b, 400_000);
+
+        assert_ok!(SubtensorModule::block_step());
+
+        let flushed = [hot_a, hot_b].iter().filter(|h| fund_shares(h) > 0).count();
+        assert_eq!(flushed, 1);
+        assert!(PendingBasketFlushCursor::<Test>::get().is_some());
+    });
+}
+
+/// An escrow-only fund (no real-staker root, only the fund's cash slot) must
+/// keep its root dividend. Recycle would pin NAV and destroy the yield.
+#[test]
+fn test_escrow_only_fund_keeps_its_own_dividend() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let coldkey = U256::from(2001);
+        let hotkey = U256::from(3001);
+        let netuid = setup_root_validator(hotkey, coldkey, 1);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+
+        let real = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        );
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            real,
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            NetUid::ROOT,
+            10_000_000_000u64.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, 10_000_000_000u64);
+
+        let nav_before = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
+        let credit = 500_000_000u64;
+        queue_credit(&hotkey, netuid, credit);
+
+        let _ = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+
+        let nav_after = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        assert!(
+            nav_after > nav_before,
+            "escrow-only dividend must raise NAV: {nav_before} -> {nav_after}"
+        );
+        assert_eq!(
+            SubnetAlphaOut::<Test>::get(netuid),
+            alpha_out_before.saturating_add(credit.into()),
+            "credit must stay in issuance, not recycle"
+        );
+        assert!(escrow_alpha(&hotkey, netuid) > 0);
+        assert_eq!(BasketShares::<Test>::get(hotkey), 10_000_000_000u64);
+    });
+}
+
+/// Shareless escrow-only credit cannot mint. Recycle it; do not re-queue forever.
+#[test]
+fn test_shareless_escrow_only_credit_is_recycled() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let coldkey = U256::from(2001);
+        let hotkey = U256::from(3001);
+        let netuid = setup_root_validator(hotkey, coldkey, 1);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+
+        let real = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        );
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            real,
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            NetUid::ROOT,
+            10_000_000_000u64.into(),
+        );
+        assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+
+        let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
+        let credit = 500_000_000u64;
+        queue_credit(&hotkey, netuid, credit);
+
+        let _ = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+
+        assert!(
+            !PendingBasketDeposits::<Test>::contains_key(hotkey, netuid),
+            "shareless escrow-only credit must not re-queue"
+        );
+        assert_eq!(
+            SubnetAlphaOut::<Test>::get(netuid),
+            alpha_out_before,
+            "credit must recycle back into issuance"
+        );
+        assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+    });
+}

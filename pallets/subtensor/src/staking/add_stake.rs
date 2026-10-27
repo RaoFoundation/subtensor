@@ -168,7 +168,7 @@ impl<T: Config> Pallet<T> {
         Ok(result.into())
     }
 
-    fn ensure_add_stake_input_within_swap_limit(
+    pub(crate) fn ensure_add_stake_input_within_swap_limit(
         netuid: NetUid,
         amount: TaoBalance,
     ) -> Result<(), Error<T>> {

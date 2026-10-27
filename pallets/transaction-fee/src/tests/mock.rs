@@ -1,13 +1,13 @@
 #![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
 
 use core::num::NonZeroU64;
+use std::cell::RefCell;
 
 use crate::TransactionFeeHandler;
 use frame_support::pallet_prelude::Zero;
 use frame_support::{
     PalletId, assert_ok, derive_impl, parameter_types,
     traits::{Everything, Hooks, PrivilegeCmp},
-    weights::IdentityFee,
 };
 use frame_system::{self as system, EnsureRoot, RawOrigin, limits};
 pub use pallet_subtensor::*;
@@ -133,7 +133,7 @@ impl pallet_transaction_payment::Config for Test {
     // Convert dispatch weight to a chargeable fee.
     type WeightToFee = crate::LinearWeightToFee;
     type OperationalFeeMultiplier = OperationalFeeMultiplier;
-    type LengthToFee = IdentityFee<Balance>;
+    type LengthToFee = crate::LinearLengthToFee;
     type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
     type WeightInfo = pallet_transaction_payment::weights::SubstrateWeight<Test>;
 }
@@ -142,15 +142,28 @@ pub struct MockAuthorshipProvider;
 
 pub const MOCK_BLOCK_BUILDER: u64 = 12345u64;
 
+thread_local! {
+    static MOCK_BLOCK_AUTHOR: RefCell<Option<U256>> =
+        RefCell::new(Some(U256::from(MOCK_BLOCK_BUILDER)));
+}
+
+pub fn set_mock_block_author(author: Option<U256>) {
+    MOCK_BLOCK_AUTHOR.with(|mock_author| *mock_author.borrow_mut() = author);
+}
+
+fn mock_block_author() -> Option<U256> {
+    MOCK_BLOCK_AUTHOR.with(|mock_author| *mock_author.borrow())
+}
+
 impl AuthorshipInfo<U256> for MockAuthorshipProvider {
     fn author() -> Option<U256> {
-        Some(U256::from(MOCK_BLOCK_BUILDER))
+        mock_block_author()
     }
 }
 
 impl AuthorshipInfo<U256> for Test {
     fn author() -> Option<U256> {
-        Some(U256::from(MOCK_BLOCK_BUILDER))
+        mock_block_author()
     }
 }
 
@@ -190,6 +203,7 @@ parameter_types! {
     pub const InitialBurn: TaoBalance = TaoBalance::new(0);
     pub const InitialMinBurn: TaoBalance = TaoBalance::new(500_000);
     pub const InitialMinStake: TaoBalance = TaoBalance::new(2_000_000);
+    pub const InitialMinTransfer: TaoBalance = TaoBalance::new(2_000_000);
     pub const InitialMaxBurn: TaoBalance = TaoBalance::new(1_000_000_000);
     pub const MinBurnUpperBound: TaoBalance = TaoBalance::new(1_000_000_000); // 1 TAO
     pub const MaxBurnLowerBound: TaoBalance = TaoBalance::new(100_000_000); // 0.1 TAO
@@ -282,6 +296,7 @@ impl pallet_subtensor::Config for Test {
     type InitialMaxBurn = InitialMaxBurn;
     type InitialMinBurn = InitialMinBurn;
     type InitialMinStake = InitialMinStake;
+    type InitialMinTransfer = InitialMinTransfer;
     type MinBurnUpperBound = MinBurnUpperBound;
     type MaxBurnLowerBound = MaxBurnLowerBound;
     type MinTempo = MinTempo;
@@ -450,13 +465,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl pallet_subtensor::CommitmentsInterface for CommitmentsI {
+impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
+
+    fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 
 parameter_types! {
@@ -546,6 +563,7 @@ where
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
     sp_tracing::try_init_simple();
+    set_mock_block_author(Some(U256::from(MOCK_BLOCK_BUILDER)));
     let t = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap();
@@ -608,13 +626,13 @@ pub fn register_ok_neuron(
     let result = SubtensorModule::burned_register(origin.clone(), netuid, hotkey_account_id);
 
     match result {
-        Ok(()) => {
+        Ok(_) => {
             // success
         }
         Err(e)
-            if e == Error::<Test>::TooManyRegistrationsThisInterval.into()
-                || e == Error::<Test>::NotEnoughBalanceToStake.into()
-                || e == Error::<Test>::ZeroBalanceAfterWithdrawn.into() =>
+            if e.error == Error::<Test>::TooManyRegistrationsThisInterval.into()
+                || e.error == Error::<Test>::NotEnoughBalanceToStake.into()
+                || e.error == Error::<Test>::ZeroBalanceAfterWithdrawn.into() =>
         {
             // Re-top-up and retry once (burn can be state-dependent).
             top_up_for_burn(netuid, coldkey_account_id);
@@ -650,7 +668,10 @@ pub fn remove_balance_from_coldkey_account(coldkey: &U256, tao: TaoBalance) {
 pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
     let netuid = SubtensorModule::get_next_netuid();
     let lock_cost = SubtensorModule::get_network_lock_cost();
-    add_balance_to_coldkey_account(coldkey, lock_cost.into());
+    add_balance_to_coldkey_account(
+        coldkey,
+        ExistentialDeposit::get().saturating_add(lock_cost.into()),
+    );
 
     assert_ok!(SubtensorModule::register_network(
         RawOrigin::Signed(*coldkey).into(),
@@ -698,38 +719,6 @@ pub(crate) fn swap_alpha_to_tao_ext(
 
 pub(crate) fn swap_alpha_to_tao(netuid: NetUid, alpha: AlphaBalance) -> (u64, u64) {
     swap_alpha_to_tao_ext(netuid, alpha, false)
-}
-
-pub(crate) fn swap_tao_to_alpha_ext(
-    netuid: NetUid,
-    tao: TaoBalance,
-    drop_fees: bool,
-) -> (u64, u64) {
-    if netuid.is_root() {
-        return (tao.into(), 0);
-    }
-
-    let order = GetAlphaForTao::<Test>::with_amount(tao);
-    let result = <Test as pallet::Config>::SwapInterface::swap(
-        netuid.into(),
-        order,
-        <Test as pallet::Config>::SwapInterface::max_price(),
-        drop_fees,
-        true,
-    );
-
-    assert_ok!(&result);
-
-    let result = result.unwrap();
-
-    // we don't want to have silent 0 comparisons in tests
-    assert!(!result.amount_paid_out.is_zero());
-
-    (result.amount_paid_out.to_u64(), result.fee_paid.to_u64())
-}
-
-pub(crate) fn swap_tao_to_alpha(netuid: NetUid, tao: TaoBalance) -> (u64, u64) {
-    swap_tao_to_alpha_ext(netuid, tao, false)
 }
 
 #[allow(dead_code)]
@@ -831,9 +820,9 @@ pub(crate) fn quote_remove_stake_after_alpha_fee(
     hotkey: &U256,
     netuid: NetUid,
     alpha: AlphaBalance,
-) -> (u64, u64) {
+) -> u64 {
     if netuid.is_root() {
-        return (alpha.into(), 0);
+        return alpha.into();
     }
 
     let call: RuntimeCall = RuntimeCall::SubtensorModule(pallet_subtensor::Call::remove_stake {
@@ -845,17 +834,15 @@ pub(crate) fn quote_remove_stake_after_alpha_fee(
     let tao_fee = pallet_transaction_payment::Pallet::<Test>::compute_fee(0, &info, 0.into());
 
     frame_support::storage::with_transaction(
-        || -> frame_support::storage::TransactionOutcome<
-            Result<(u64, u64), sp_runtime::DispatchError>,
-        > {
-            let alpha_balance =
-                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid);
+        || -> frame_support::storage::TransactionOutcome<Result<u64, sp_runtime::DispatchError>> {
+            let alpha_balance = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                hotkey, coldkey, netuid,
+            );
 
-            let mut alpha_fee =
-                pallet_subtensor_swap::Pallet::<Test>::get_alpha_amount_for_tao(
-                    netuid,
-                    tao_fee.into(),
-                );
+            let mut alpha_fee = pallet_subtensor_swap::Pallet::<Test>::get_alpha_amount_for_tao(
+                netuid,
+                tao_fee.into(),
+            );
 
             if alpha_fee.is_zero() {
                 alpha_fee = alpha_balance;
@@ -872,17 +859,17 @@ pub(crate) fn quote_remove_stake_after_alpha_fee(
                     alpha_fee,
                     0.into(),
                     true,
+                    false,
                 ));
             }
 
-            let alpha_after_fee =
-                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
-                    hotkey, coldkey, netuid,
-                );
+            let alpha_after_fee = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                hotkey, coldkey, netuid,
+            );
             let quoted_alpha = alpha.min(alpha_after_fee);
 
-            let quote = swap_alpha_to_tao(netuid, quoted_alpha);
-            frame_support::storage::TransactionOutcome::Rollback(Ok(quote))
+            let (tao_amount, _) = swap_alpha_to_tao(netuid, quoted_alpha);
+            frame_support::storage::TransactionOutcome::Rollback(Ok(tao_amount))
         },
     )
     .expect("transactional quote should not fail")

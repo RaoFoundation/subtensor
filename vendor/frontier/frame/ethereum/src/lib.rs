@@ -118,6 +118,7 @@ where
 	pub fn check_self_contained(&self) -> Option<Result<H160, TransactionValidityError>> {
 		if let Call::transact { transaction } = self {
 			let check = || {
+				Pallet::<T>::check_authorization_list(transaction)?;
 				let origin = Pallet::<T>::recover_signer(transaction).ok_or(
 					InvalidTransaction::Custom(TransactionValidationError::InvalidSignature as u8),
 				)?;
@@ -529,6 +530,7 @@ impl<T: Config> Pallet<T> {
 		origin: H160,
 		transaction: &Transaction,
 	) -> TransactionValidity {
+		Self::check_authorization_list(transaction)?;
 		let transaction_data: TransactionData = transaction.into();
 		let transaction_nonce = transaction_data.nonce;
 		let (weight_limit, proof_size_base_cost) = Self::transaction_weight(&transaction_data);
@@ -941,6 +943,7 @@ impl<T: Config> Pallet<T> {
 		origin: H160,
 		transaction: &Transaction,
 	) -> Result<(), TransactionValidityError> {
+		Self::check_authorization_list(transaction)?;
 		let transaction_data: TransactionData = transaction.into();
 		let (weight_limit, proof_size_base_cost) = Self::transaction_weight(&transaction_data);
 		let (base_fee, _) = T::FeeCalculator::min_gas_price();
@@ -968,6 +971,19 @@ impl<T: Config> Pallet<T> {
 		.and_then(|v| v.with_eip7702_authorization_list(is_eip7702))
 		.map_err(|e| TransactionValidityError::Invalid(e.0))?;
 
+		Ok(())
+	}
+
+	/// Reject oversized lists before cloning transaction data or recovering any signatures.
+	fn check_authorization_list(transaction: &Transaction) -> Result<(), TransactionValidityError> {
+		if let Transaction::EIP7702(transaction) = transaction {
+			if transaction.authorization_list.len() > fp_evm::MAX_AUTHORIZATION_LIST_SIZE {
+				return Err(InvalidTransaction::Custom(
+					TransactionValidationError::AuthorizationListTooLarge as u8,
+				)
+				.into());
+			}
+		}
 		Ok(())
 	}
 

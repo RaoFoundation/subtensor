@@ -1,6 +1,8 @@
 use super::*;
+use crate::weights::WeightInfo;
 use frame_support::weights::WeightMeter;
-use subtensor_runtime_common::{NetUid, NetUidStorageIndex, clear_prefix_with_meter};
+use pallet_alpha_assets::AlphaAssetsInterface;
+use subtensor_runtime_common::{NetUid, clear_prefix_with_meter};
 use subtensor_swap_interface::SwapHandler;
 /// Enum for the dissolve cleanup phase.
 #[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug, DecodeWithMemTracking)]
@@ -33,7 +35,9 @@ pub enum DissolveCleanupPhase {
     NetworkParameters,
     /// Phase 5.3: Remove map-backed subnet storage (keys, axons, per-mechanism weights, etc.).
     NetworkMapParameters,
-    /// Phase 5.4: Clear root-network weight entries referencing this netuid.
+    /// Phase 5.4: Retired no-op (root basket weight vectors were removed with
+    /// `set_root_weights`; `Weights[ROOT]` is empty). Kept so in-flight cleanup
+    /// discriminants stay stable; the hook advances straight to childkey takes.
     NetworkUpdateWeightsOnRoot,
     /// Phase 5.5: Remove childkey take entries for this netuid.
     NetworkChildkeyTake,
@@ -51,11 +55,65 @@ pub enum DissolveCleanupPhase {
     NetworkLock,
     /// Phase 5.12: Remove decaying lock entries for this netuid.
     NetworkDecayingLock,
+    /// Phase 0: Convert each validator's beta-basket holding on this subnet into the fund's
+    /// root (TAO) slot. Must finish before stake / protocol-liquidity teardown so the AMM and
+    /// escrow alpha still exist. Appended (not inserted) so in-flight cleanup discriminants stay
+    /// stable; new dissolves start here via [`Default`].
+    SubnetBasketHoldingsToRoot,
+    /// Phase 5.13: Recycle and drop queued [`PendingBasketDeposits`] credits originating
+    /// from this netuid. Without this, a stale credit (dust can sit queued indefinitely)
+    /// would survive dissolution and — once a new subnet reuses the netuid, making
+    /// `if_subnet_exist` true again — deposit the old subnet's alpha against the new
+    /// subnet's pool. Credits are recycled (issuance conservation) rather than silently
+    /// deleted. Must complete before cleanup finishes because netuid reuse is only
+    /// possible after that. Appended (not inserted) so in-flight cleanup discriminants
+    /// stay stable.
+    NetworkPendingBasketDeposits,
+    /// Phase 5.14: Clear generation-scoped alpha-asset counters after every operation
+    /// that can recycle alpha has completed. Appended so existing in-flight cleanup
+    /// discriminants remain stable.
+    NetworkAlphaAssetCounters,
 }
 
 impl Default for DissolveCleanupPhase {
     fn default() -> Self {
-        Self::SubnetRootDividendsRootClaimable
+        Self::SubnetBasketHoldingsToRoot
+    }
+}
+
+impl DissolveCleanupPhase {
+    /// Whether the owner's legacy lock refund has not been paid yet. The refund
+    /// is settled at the end of [`Self::AlphaInOutStakes`] (phase 2.7), so every
+    /// phase up to and including it still needs `SubnetOwnerCutAccrued`.
+    pub fn lock_refund_pending(&self) -> bool {
+        match self {
+            Self::SubnetBasketHoldingsToRoot
+            | Self::SubnetRootDividendsRootClaimable
+            | Self::SubnetRootDividendsRootClaimed
+            | Self::AlphaInOutStakesGetTotalAlphaValue
+            | Self::AlphaInOutStakesSettleStakes
+            | Self::AlphaInOutStakesAlpha
+            | Self::AlphaInOutStakesHotkeyTotals
+            | Self::AlphaInOutStakesLocks
+            | Self::AlphaInOutStakesDecayingLocks
+            | Self::AlphaInOutStakes => true,
+            Self::ProtocolLiquidity
+            | Self::PurgeNetuid
+            | Self::NetworkIsNetworkMember
+            | Self::NetworkParameters
+            | Self::NetworkMapParameters
+            | Self::NetworkUpdateWeightsOnRoot
+            | Self::NetworkChildkeyTake
+            | Self::NetworkChildkeys
+            | Self::NetworkParentkeys
+            | Self::NetworkLastHotkeyEmissionOnNetuid
+            | Self::NetworkTotalHotkeyAlphaLastEpoch
+            | Self::NetworkTransactionKeyLastBlock
+            | Self::NetworkLock
+            | Self::NetworkDecayingLock
+            | Self::NetworkPendingBasketDeposits
+            | Self::NetworkAlphaAssetCounters => false,
+        }
     }
 }
 
@@ -124,8 +182,12 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NetworkDissolveAlreadyQueued
         );
 
+        // Basket holdings are converted to each fund's root slot in the metered
+        // `SubnetBasketHoldingsToRoot` cleanup phase (before stake / AMM teardown).
+
         // Just remove the network from the added networks, it is used to check if the network is existed.
         NetworksAdded::<T>::remove(netuid);
+        SubnetState::<T>::insert(netuid, SubnetLifecycleState::PendingDissolution);
         // Reduce the total networks count.
         TotalNetworks::<T>::mutate(|n: &mut u16| *n = n.saturating_sub(1));
         TotalStake::<T>::mutate(|total| *total = total.saturating_sub(SubnetTAO::<T>::get(netuid)));
@@ -149,6 +211,8 @@ impl<T: Config> Pallet<T> {
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Uids::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            VotingPower::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             BlockAtRegistration::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Axons::<T>::clear_prefix(netuid, limit, None)
@@ -170,6 +234,16 @@ impl<T: Config> Pallet<T> {
             DecayingHotkeyLock::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             LockingColdkeys::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            // Lock metadata only. Alpha (including collateral stake) was already
+            // pro-rata converted to coldkey free TAO in AlphaInOutStakesSettleStakes;
+            // unlocking here would double-pay. Clearing drops the now-meaningless
+            // MinerCollateral rows for the dissolved netuid.
+            MinerCollateral::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            ColdkeyMinerCollateral::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            ColdkeyCollateralHotkeys::<T>::clear_prefix(netuid, limit, None)
         });
 
         if !result {
@@ -184,7 +258,7 @@ impl<T: Config> Pallet<T> {
         let mechanisms: u8 = MechanismCountCurrent::<T>::get(netuid).into();
 
         for subid in 0..mechanisms {
-            let mechanism_weight = T::DbWeight::get().reads_writes(1, 2);
+            let mechanism_weight = T::DbWeight::get().reads_writes(1, 3);
             if !weight_meter.can_consume(mechanism_weight) {
                 return false;
             }
@@ -193,6 +267,7 @@ impl<T: Config> Pallet<T> {
 
             LastUpdate::<T>::remove(netuid_index);
             Incentive::<T>::remove(netuid_index);
+            ConsensusByMechanism::<T>::remove(netuid_index);
 
             let result = clear_prefix_with_meter(weight_meter, write_weight, |limit| {
                 WeightCommits::<T>::clear_prefix(netuid_index, limit, None)
@@ -224,6 +299,12 @@ impl<T: Config> Pallet<T> {
 
         if !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             LastHotkeySwapOnNetuid::<T>::clear_prefix(netuid, limit, None)
+        }) || !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            StakeMoveCooldownUntil::<T>::clear_prefix(netuid, limit, None)
+        }) || !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            HotkeySuccessor::<T>::clear_prefix(netuid, limit, None)
+        }) || !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            HotkeyRoot::<T>::clear_prefix(netuid, limit, None)
         }) {
             return false;
         }
@@ -231,6 +312,11 @@ impl<T: Config> Pallet<T> {
         if let Some(lease_id) = SubnetUidToLeaseId::<T>::get(netuid) {
             if !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
                 SubnetLeaseShares::<T>::clear_prefix(lease_id, limit, None)
+            }) {
+                return false;
+            }
+            if !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+                SubnetLeaseUnpaidDividends::<T>::clear_prefix(lease_id, limit, None)
             }) {
                 return false;
             }
@@ -248,7 +334,9 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn remove_network_parameters(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
-        let removal_weight = T::DbWeight::get().writes(80);
+        // Flat write charge for the `::remove(netuid)` list below. Bump this when
+        // adding or removing entries from that list so the weight stays in step.
+        let removal_weight = T::DbWeight::get().writes(92);
         if !weight_meter.can_consume(removal_weight) {
             return false;
         }
@@ -299,6 +387,9 @@ impl<T: Config> Pallet<T> {
         MinerBurned::<T>::remove(netuid);
         BlocksSinceLastStep::<T>::remove(netuid);
         LastMechansimStepBlock::<T>::remove(netuid);
+        LastYumaStepBlock::<T>::remove(netuid);
+        NullPruningTarget::<T>::remove(netuid);
+        SavedYumaMaxAllowedValidators::<T>::remove(netuid);
         LastAdjustmentBlock::<T>::remove(netuid);
         ServingRateLimit::<T>::remove(netuid);
         Rho::<T>::remove(netuid);
@@ -314,6 +405,8 @@ impl<T: Config> Pallet<T> {
         CommitRevealWeightsEnabled::<T>::remove(netuid);
         BurnHalfLife::<T>::remove(netuid);
         BurnIncreaseMult::<T>::remove(netuid);
+        CollateralLockShare::<T>::remove(netuid);
+        CollateralDrainRatio::<T>::remove(netuid);
         Burn::<T>::remove(netuid);
         MinBurn::<T>::remove(netuid);
         MaxBurn::<T>::remove(netuid);
@@ -327,7 +420,10 @@ impl<T: Config> Pallet<T> {
         LiquidAlphaOn::<T>::remove(netuid);
         Yuma3On::<T>::remove(netuid);
         AlphaValues::<T>::remove(netuid);
+        LiquidAlphaConsensusMode::<T>::remove(netuid);
+        SubnetEpochConsensus::<T>::remove(netuid);
         SubtokenEnabled::<T>::remove(netuid);
+        SubnetFastMovingPrice::<T>::remove(netuid);
         OwnerCutAutoLockEnabled::<T>::remove(netuid);
         ImmuneOwnerUidsLimit::<T>::remove(netuid);
         StakeWeight::<T>::remove(netuid);
@@ -338,6 +434,18 @@ impl<T: Config> Pallet<T> {
         LastEpochBlock::<T>::remove(netuid);
         PendingEpochAt::<T>::remove(netuid);
         SubnetEpochIndex::<T>::remove(netuid);
+        TotalVotingPower::<T>::remove(netuid);
+        VotingPowerTrackingEnabled::<T>::remove(netuid);
+        VotingPowerDisableAtBlock::<T>::remove(netuid);
+        VotingPowerEmaAlpha::<T>::remove(netuid);
+        TotalAlphaStaked::<T>::remove(netuid);
+        SubnetEmissionWeights::<T>::remove(netuid);
+        SubnetCreatedViaLease::<T>::remove(netuid);
+        SubnetOwnerCutAccrued::<T>::remove(netuid);
+        Self::remove_rate_limited_last_block(&RateLimitKey::OwnerHyperparamUpdate(
+            netuid,
+            Hyperparameter::EmissionWeights,
+        ));
 
         if SubnetIdentitiesV3::<T>::contains_key(netuid) {
             SubnetIdentitiesV3::<T>::remove(netuid);
@@ -368,51 +476,6 @@ impl<T: Config> Pallet<T> {
         (
             read_all,
             last_item.map(|(nu, uid, _)| Keys::<T>::hashed_key_for(nu, uid)),
-        )
-    }
-
-    pub fn remove_network_update_weights_on_root(
-        netuid: NetUid,
-        weight_meter: &mut WeightMeter,
-        last_key: Option<Vec<u8>>,
-    ) -> (bool, Option<Vec<u8>>) {
-        let netuid_u16 = u16::from(netuid);
-
-        let root = NetUidStorageIndex::ROOT;
-        let iter = match last_key {
-            Some(raw_key) => Weights::<T>::iter_prefix_from(root, raw_key),
-            None => Weights::<T>::iter_prefix(root),
-        };
-
-        fn filter_weights(netuid_u16: u16, weights: &[(u16, u16)]) -> (bool, Vec<(u16, u16)>) {
-            let mut need_update = false;
-            let mut filtered_weights = weights.to_vec();
-            for (subnet_id, weight) in filtered_weights.iter_mut() {
-                if *subnet_id == netuid_u16 && *weight != 0 {
-                    need_update = true;
-                    *weight = 0;
-                }
-            }
-            (need_update, filtered_weights)
-        }
-
-        let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
-            weight_meter,
-            iter,
-            |_| true,
-            |(uid, weights)| (uid, weights),
-            |(uid, weights)| {
-                let (update, filtered_weights) = filter_weights(netuid_u16, weights);
-                if update {
-                    Weights::<T>::insert(root, *uid, filtered_weights);
-                }
-            },
-            1,
-        );
-
-        (
-            read_all,
-            last_item.map(|key| Weights::<T>::hashed_key_for(root, key.0)),
         )
     }
 
@@ -541,6 +604,33 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    pub fn remove_network_pending_basket_deposits(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+    ) -> (bool, Option<Vec<u8>>) {
+        let iter = match last_key {
+            Some(raw_key) => PendingBasketDeposits::<T>::iter_from(raw_key),
+            None => PendingBasketDeposits::<T>::iter(),
+        };
+
+        // Recycle + remove: three writes typical (PendingBasketDeposits remove, AlphaAssets
+        // recycle, and SubnetAlphaOut when it still exists). Charge the upper bound.
+        let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
+            weight_meter,
+            iter,
+            |(_, nu, _)| *nu == netuid,
+            |(hot, _, alpha)| (hot, alpha),
+            |(hot, alpha)| Self::drop_pending_basket_deposit(hot, netuid, *alpha),
+            3,
+        );
+
+        (
+            read_all,
+            last_item.map(|(hot, nu, _)| PendingBasketDeposits::<T>::hashed_key_for(&hot, nu)),
+        )
+    }
+
     pub fn remove_network_transaction_key_last_block(
         netuid: NetUid,
         weight_meter: &mut WeightMeter,
@@ -569,7 +659,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn remove_data_for_dissolved_networks(remaining_weight: Weight) -> Weight {
-        let w = T::DbWeight::get().writes(1);
+        let start_writes = T::DbWeight::get().writes(2);
         let r = T::DbWeight::get().reads(1);
         let mut weight_meter = frame_support::weights::WeightMeter::with_limit(remaining_weight);
 
@@ -582,7 +672,8 @@ impl<T: Config> Pallet<T> {
                     queue.retain(|queued_netuid| *queued_netuid != status.netuid);
                 });
                 CurrentDissolveCleanupStatus::<T>::kill();
-                return weight.saturating_add(T::DbWeight::get().writes(2));
+                SubnetState::<T>::remove(status.netuid);
+                return weight.saturating_add(T::DbWeight::get().writes(3));
             }
             return weight;
         }
@@ -594,13 +685,14 @@ impl<T: Config> Pallet<T> {
 
         let dissolved_networks = DissolveCleanupQueue::<T>::get();
         if let Some(netuid) = dissolved_networks.first() {
-            if !weight_meter.can_consume(w) {
+            if !weight_meter.can_consume(start_writes) {
                 return weight_meter.consumed();
             }
-            weight_meter.consume(w);
+            weight_meter.consume(start_writes);
 
             let mut status = DissolveCleanupStatus::new(*netuid);
             CurrentDissolveCleanupStatus::<T>::set(Some(status.clone()));
+            SubnetState::<T>::insert(*netuid, SubnetLifecycleState::Dissolving);
 
             let (cleanup_completed, _weight) =
                 Self::clean_up_data_for_one_dissolved_network(&mut weight_meter, &mut status);
@@ -610,7 +702,8 @@ impl<T: Config> Pallet<T> {
                     queue.retain(|queued_netuid| *queued_netuid != status.netuid);
                 });
                 CurrentDissolveCleanupStatus::<T>::kill();
-                weight_meter.consume(T::DbWeight::get().writes(2));
+                SubnetState::<T>::remove(status.netuid);
+                weight_meter.consume(T::DbWeight::get().writes(3));
             }
         }
 
@@ -643,6 +736,22 @@ impl<T: Config> Pallet<T> {
             );
 
             let done = match &status.phase {
+                DissolveCleanupPhase::SubnetBasketHoldingsToRoot => {
+                    let (done, new_key) = Self::convert_subnet_basket_holdings_to_root(
+                        netuid,
+                        weight_meter,
+                        status.last_key.clone(),
+                    );
+
+                    if done {
+                        status.set_phase(DissolveCleanupPhase::SubnetRootDividendsRootClaimable);
+                        status.last_key = None;
+                    } else {
+                        status.last_key = new_key;
+                    }
+                    done
+                }
+
                 DissolveCleanupPhase::SubnetRootDividendsRootClaimable => {
                     let (done, new_key) = Self::clean_up_root_claimable_for_subnet(
                         netuid,
@@ -825,19 +934,10 @@ impl<T: Config> Pallet<T> {
                     done
                 }
                 DissolveCleanupPhase::NetworkUpdateWeightsOnRoot => {
-                    let (done, new_key) = Self::remove_network_update_weights_on_root(
-                        netuid,
-                        weight_meter,
-                        status.last_key.clone(),
-                    );
-
-                    if done {
-                        status.set_phase(DissolveCleanupPhase::NetworkChildkeyTake);
-                        status.last_key = None;
-                    } else {
-                        status.last_key = new_key;
-                    }
-                    done
+                    // Retired phase: root basket weight vectors no longer exist.
+                    status.set_phase(DissolveCleanupPhase::NetworkChildkeyTake);
+                    status.last_key = None;
+                    true
                 }
                 DissolveCleanupPhase::NetworkChildkeyTake => {
                     let (done, new_key) = Self::remove_network_childkey_take(
@@ -947,13 +1047,39 @@ impl<T: Config> Pallet<T> {
                         status.last_key.clone(),
                     );
 
-                    // if all phases are done, remove the network from the dissolved networks list and emit the event
                     if done {
-                        cleanup_completed = true;
+                        status.set_phase(DissolveCleanupPhase::NetworkPendingBasketDeposits);
+                        status.last_key = None;
                     } else {
                         status.last_key = new_key;
                     }
                     done
+                }
+                DissolveCleanupPhase::NetworkPendingBasketDeposits => {
+                    let (done, new_key) = Self::remove_network_pending_basket_deposits(
+                        netuid,
+                        weight_meter,
+                        status.last_key.clone(),
+                    );
+
+                    if done {
+                        status.set_phase(DissolveCleanupPhase::NetworkAlphaAssetCounters);
+                        status.last_key = None;
+                    } else {
+                        status.last_key = new_key;
+                    }
+                    done
+                }
+                DissolveCleanupPhase::NetworkAlphaAssetCounters => {
+                    let clear_weight = T::DbWeight::get().writes(3);
+                    if !weight_meter.can_consume(clear_weight) {
+                        false
+                    } else {
+                        weight_meter.consume(clear_weight);
+                        T::AlphaAssets::clear_alpha_counters(netuid);
+                        cleanup_completed = true;
+                        true
+                    }
                 }
             };
 
@@ -975,9 +1101,9 @@ impl<T: Config> Pallet<T> {
         let queue = NetworkRegistrationQueue::<T>::get();
         let mut weight = db_weight.reads(1);
 
-        for (index, info) in queue.iter().enumerate() {
-            // just complete one registration at a time since on_idle just complete one network dissolve cleanup
-            // if one registration fails, then try next one. it could be not align with the order of registration in the queue
+        // Bound work to one attempted settlement or cancellation per idle call.
+        // A failed entry must not create partial state or block later entries forever.
+        if let Some(info) = queue.first() {
             match Self::set_new_network_state(
                 &info.coldkey,
                 &info.hotkey,
@@ -988,18 +1114,41 @@ impl<T: Config> Pallet<T> {
                 Some(info.lock_id),
             ) {
                 Ok(post_info) => {
-                    NetworkRegistrationQueue::<T>::mutate(|queue| queue.remove(index));
+                    NetworkRegistrationQueue::<T>::mutate(|queue| queue.remove(0));
                     weight.saturating_accrue(db_weight.reads_writes(1, 1));
                     weight.saturating_accrue(post_info.actual_weight.unwrap_or_else(Weight::zero));
                     return weight;
                 }
-                Err(_) => {
+                Err(error) => {
+                    // Settlement is transactional even outside an extrinsic. Charge
+                    // attempted work as well as the refund/queue bookkeeping.
+                    weight.saturating_accrue(<T as Config>::WeightInfo::register_network());
+                    if error.error == Error::<T>::SubnetLimitReached.into() {
+                        return weight;
+                    }
                     log::error!(
                         "Failed to set new network state for coldkey: {:?}, hotkey: {:?}",
                         info.coldkey,
                         info.hotkey
                     );
-                    continue;
+                    // Leave the obligation recorded if refund itself fails. Never
+                    // discard an escrow claim without returning its principal.
+                    let cancelled: DispatchResult =
+                        frame_support::storage::with_storage_layer(|| {
+                            Self::refund_network_registration_cost(&info.coldkey, info.lock_id)?;
+                            NetworkRegistrationQueue::<T>::mutate(|queue| queue.remove(0));
+                            Self::deposit_event(Event::NetworkRegistrationCancelled {
+                                coldkey: info.coldkey.clone(),
+                                hotkey: info.hotkey.clone(),
+                                lock_id: info.lock_id,
+                                error: error.error,
+                            });
+                            Ok(())
+                        });
+                    weight.saturating_accrue(db_weight.reads_writes(5, 4));
+                    if let Err(refund_error) = cancelled {
+                        log::error!("Registration refund failed: {:?}", refund_error);
+                    }
                 }
             }
         }

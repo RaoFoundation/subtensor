@@ -98,4 +98,86 @@ interface IAlpha {
     /// @dev Returns the CK burn rate.
     /// @return The CK burn rate.
     function getCKBurn() external view returns (uint256);
+
+    /// mode: 0 = burn, 1 = recycle.
+    function setRecycleOrBurn(uint16 netuid, uint8 mode) external;
+    function setBurnHalfLife(uint16 netuid, uint16 burnHalfLife) external;
+    /// Raw U64F64 bits.
+    function setBurnIncreaseMultiplier(
+        uint16 netuid,
+        uint128 rawMultiplier
+    ) external;
+    function getEmissionAccounting(
+        uint16 netuid,
+        bytes32 hotkey
+    )
+        external
+        view
+        returns (
+            uint64 alphaDividends,
+            uint64 rootAlphaDividends,
+            uint64 lastHotkeyEmission,
+            uint64 pendingServerEmission,
+            uint64 pendingValidatorEmission,
+            uint64 pendingRootAlphaDividends,
+            uint64 pendingOwnerCut,
+            uint128 minerBurned,
+            uint64 raoRecycledForRegistration
+        );
+    function getSubnetEconomicState(
+        uint16 netuid
+    )
+        external
+        view
+        returns (
+            bool emissionEnabled,
+            uint128 rootProportion,
+            uint64 excessTao,
+            uint64 rootSellTao,
+            uint64 protocolAlpha
+        );
+    function getSubnetFlowState(
+        uint16 netuid
+    )
+        external
+        view
+        returns (
+            int64 taoFlow,
+            bool hasTaoFlowEma,
+            uint64 taoFlowEmaBlock,
+            int128 taoFlowEma,
+            int64 protocolFlow,
+            bool hasProtocolFlowEma,
+            uint64 protocolFlowEmaBlock,
+            int128 protocolFlowEma
+        );
+    function getEmissionGateConfig()
+        external
+        view
+        returns (
+            uint64 blockEmission,
+            int128 movingAlpha,
+            bool netTaoFlowEnabled,
+            int128 taoFlowCutoff,
+            uint128 flowNormExponent,
+            uint128 emissionBarQuantile,
+            uint128 emissionGateExponent,
+            uint128 emissionGateBar,
+            uint64 flowEmaSmoothingFactor
+        );
+    function getSwapState(
+        uint16 netuid
+    )
+        external
+        view
+        returns (
+            uint16 feeRate,
+            bool initialized,
+            uint64 quoteWeight,
+            uint64 taoReservoir,
+            uint64 alphaReservoir
+        );
+    function hasSwapMigrationRun(
+        bytes calldata migrationName
+    ) external view returns (bool);
 }

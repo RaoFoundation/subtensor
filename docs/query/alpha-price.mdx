@@ -23,17 +23,25 @@ btcli query alpha-price --netuid <integer> --json
 
 ## Python
 
-Typed namespace method (autocomplete, signature help):
+Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await client.prices.alpha_price(netuid=1)
+sub = bt.Subtensor()
+result = sub.prices.alpha_price(netuid=1)
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await client.read("alpha_price", netuid=1)
+result = sub.read("alpha_price", netuid=1)
 ```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Runtime API [`SwapRuntimeApi.current_alpha_price`](/code/pallets/subtensor/src/staking/order_swap.rs#L100-L102)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

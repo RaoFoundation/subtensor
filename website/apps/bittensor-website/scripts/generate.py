@@ -1,10 +1,13 @@
 """Generate the docs reference section from the SDK's own registries.
 
-Everything under docs/tx, docs/query, docs/errors.mdx (in the repo-root docs
-folder) and public/catalog/ is emitted by this script — never hand-edited. The inputs
-are the same registries that generate the CLI (`bittensor.intents.REGISTRY`,
-`bittensor.reads.REGISTRY`) and the error taxonomy (`bittensor.error_map`,
-`bittensor.result`), so the docs cannot drift from the code.
+Everything under docs/tx, docs/query, docs/errors, and the hyperparameters
+index/meta (in the repo-root docs folder) plus public/catalog/ is emitted by
+this script — never hand-edited (the per-hyperparameter explainer pages in
+docs/hyperparameters/ are hand-written; --check verifies one exists per
+parameter). The inputs are the same registries that generate the CLI
+(`bittensor.intents.REGISTRY`, `bittensor.reads.REGISTRY`), the error taxonomy
+(`bittensor.error_map`, `bittensor.result`), and the hyperparameter semantics
+table (`bittensor.hyperparams`), so the docs cannot drift from the code.
 
 Usage (from sdk/python, whose environment provides the bittensor SDK):
 
@@ -15,17 +18,21 @@ Usage (from sdk/python, whose environment provides the bittensor SDK):
 from __future__ import annotations
 
 import argparse
-import filecmp
+import functools
 import inspect
 import json
+import re
 import shutil
 import sys
 import tempfile
+import textwrap
 from dataclasses import MISSING, fields
 from pathlib import Path
 
-from bittensor import error_map, result
+from bittensor import error_descriptions, error_map, hyperparams, result
+from bittensor._generated.errors import ERRORS as CHAIN_ERROR_CATALOG
 from bittensor.intents import REGISTRY as INTENTS
+from bittensor.intents.hyperparameters import OWNER_HYPERPARAMETERS
 from bittensor.intents.registry import list_tools
 from bittensor.namespaces import NAMESPACES
 from bittensor.reads import REGISTRY as READS
@@ -67,6 +74,20 @@ def frontmatter(title: str, description: str) -> str:
         json.dumps(description),
         GENERATED_NOTE,
     )
+
+
+def docs_markdown_url(docs_url: str) -> str:
+    """Agent-fetchable markdown for a `/docs/...` page URL."""
+    if docs_url == "/docs" or docs_url == "/docs/":
+        return "/llms.mdx/docs/content.md"
+    if not docs_url.startswith("/docs/"):
+        raise ValueError(f"expected /docs/... path, got {docs_url!r}")
+    return f"/llms.mdx{docs_url}/content.md"
+
+
+def with_code_urls(path: str, url: str) -> dict[str, str]:
+    """HTML viewer URL plus plain-text raw URL for the same file."""
+    return {"url": url, "raw_url": f"/code/raw/{path}"}
 
 
 def kebab(name: str) -> str:
@@ -113,8 +134,6 @@ def cli_placeholder(field_name: str, fragment: dict) -> str:
         return "<int>"
     if t == "number":
         return "<number>"
-    if t == "boolean":
-        return "<true|false>"
     if t == "array":
         return "<a,b,c>"
     if t == "object":
@@ -122,10 +141,27 @@ def cli_placeholder(field_name: str, fragment: dict) -> str:
     return "<value>"
 
 
+def cli_arg(field_name: str, fragment: dict) -> str:
+    """Full CLI arg for a field. Typer bools are ``--flag/--no-flag``."""
+    if fragment.get("type") == "boolean":
+        # Match the Typer bool pattern in cli (same as query --lite/--no-lite).
+        flag = cli_flag(field_name)
+        return f"{flag}/--no-{flag.removeprefix('--')}"
+    return f"{cli_flag(field_name)} {cli_placeholder(field_name, fragment)}"
+
+
 def py_placeholder(field_name: str, fragment: dict) -> str:
     if field_name == "netuid":
         return "1"
+    if field_name in {"origin_netuid", "source_netuid"}:
+        return "1"
+    if field_name in {"dest_netuid", "destination_netuid"}:
+        return "2"
     if field_name.endswith("_ss58"):
+        if field_name.startswith(("dest_", "destination_", "new_")):
+            return '"5G...destination"'
+        if field_name.startswith(("origin_", "source_")):
+            return '"5F...origin"'
         return '"5F..."'
     if "anyOf" in fragment:
         return "1.0"
@@ -165,11 +201,437 @@ def params_table(schema: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+# --- On-chain implementation ------------------------------------------------
+#
+# Each intent declares the chain call(s) it wraps; the pages link (and quote)
+# the actual dispatchable from the Rust source, served by the site's /code
+# viewer. Extraction is deterministic over the checkout, so --check catches quoted
+# code that changed after a Rust edit (line numbers alone are not checked).
+
+REPO_ROOT = APP_DIR.parents[2]
+
+# Runtime pallet name (as used in Intent.wraps, storage containers, and the
+# chain error catalog) -> in-repo crate directory.
+PALLET_DIRS = {
+    "SubtensorModule": "pallets/subtensor",
+    "AdminUtils": "pallets/admin-utils",
+    "Commitments": "pallets/commitments",
+    "Crowdloan": "pallets/crowdloan",
+    "Drand": "pallets/drand",
+    "LimitOrders": "pallets/limit-orders",
+    "MevShield": "pallets/shield",
+    "Proxy": "pallets/proxy",
+    "Swap": "pallets/swap",
+    "Utility": "pallets/utility",
+}
+
+# Pallets referenced by intents, reads, or errors but implemented outside this
+# repository's pallets/ tree — pages say so instead of linking.
+UPSTREAM_PALLETS = {
+    "Balances": "Substrate's `pallet_balances`",
+    "Contracts": "Substrate's `pallet_contracts`",
+    "Ethereum": "Frontier's `pallet_ethereum` (vendored under `vendor/frontier`)",
+    "EVM": "Frontier's `pallet_evm` (vendored under `vendor/frontier`)",
+    "Grandpa": "Substrate's `pallet_grandpa`",
+    "Multisig": "Substrate's `pallet_multisig`",
+    "Preimage": "Substrate's `pallet_preimage`",
+    "SafeMode": "Substrate's `pallet_safe_mode`",
+    "Scheduler": "Substrate's `pallet_scheduler`",
+    "Sudo": "Substrate's `pallet_sudo`",
+    "System": "Substrate's `frame_system`",
+}
+
+# Mirrors the /code corpus exclusions (src/lib/code.ts).
+_EXCLUDED_RUST = {"tests.rs", "mock.rs", "benchmarks.rs", "benchmarking.rs"}
+
+
+@functools.lru_cache(maxsize=None)
+def pallet_sources(pallet_dir: str) -> tuple[tuple[str, list[str]], ...]:
+    """(repo-relative path, lines) for each non-test source file of a crate."""
+    out = []
+    for path in sorted((REPO_ROOT / pallet_dir / "src").rglob("*.rs")):
+        if "tests" in path.parts or path.name in _EXCLUDED_RUST:
+            continue
+        rel = str(path.relative_to(REPO_ROOT))
+        out.append((rel, path.read_text().splitlines()))
+    return tuple(out)
+
+
+def brace_block_end(lines: list[str], start: int) -> int:
+    """0-based index of the line closing the brace block opened at/after
+    `start` (returns `start` when no block opens)."""
+    depth = 0
+    opened = False
+    for k in range(start, len(lines)):
+        depth += lines[k].count("{") - lines[k].count("}")
+        opened = opened or "{" in lines[k]
+        if opened and depth <= 0:
+            return k
+    return start
+
+
+def find_dispatchable(pallet_dir: str, call: str) -> dict | None:
+    """Locate `pub fn <call>` guarded by #[pallet::call_index]; return its
+    file, 1-based line numbers, and the snippet from the attribute down to
+    the closing brace."""
+    fn_re = re.compile(rf"\s*pub fn {re.escape(call)}\s*\(")
+    for rel, lines in pallet_sources(pallet_dir):
+        for i, line in enumerate(lines):
+            if not fn_re.match(line):
+                continue
+            # The attribute block above the fn; require call_index so plain
+            # helpers with the same name never match. Intermediate lines may
+            # be multi-line attributes (e.g. a weight tuple), so only another
+            # function boundary invalidates the match.
+            start = None
+            for j in range(i - 1, max(0, i - 15) - 1, -1):
+                if "#[pallet::call_index" in lines[j]:
+                    start = j
+                    break
+                stripped = lines[j].strip()
+                if "pub fn " in stripped or stripped == "}":
+                    break
+            if start is None:
+                continue
+            end = brace_block_end(lines, i)
+            snippet = textwrap.dedent("\n".join(lines[start : end + 1]))
+            return {
+                "path": rel,
+                "line": start + 1,
+                "fn_line": i + 1,
+                "end_line": end + 1,
+                "body": lines[i : end + 1],
+                "snippet": snippet,
+            }
+    return None
+
+
+def find_fn(pallet_dir: str, name: str) -> tuple[str, int] | None:
+    """First `pub fn <name>` in the crate (any impl block), as (path, line)."""
+    fn_re = re.compile(rf"\s*pub(?:\(\w+\))? fn {re.escape(name)}\s*[(<]")
+    for rel, lines in pallet_sources(pallet_dir):
+        for i, line in enumerate(lines):
+            if fn_re.match(line):
+                return rel, i + 1
+    return None
+
+
+def range_anchor(found: dict) -> str:
+    """#L<start>-L<end> covering the quoted snippet (attribute line through
+    the closing brace) — the /code viewer highlights the whole range."""
+    return f"#L{found['line']}-L{found['end_line']}"
+
+
+@functools.lru_cache(maxsize=None)
+def find_storage_item(pallet: str, name: str) -> tuple[str, int] | None:
+    """Declaration of a #[pallet::storage] item, as (path, 1-based line of
+    the `pub type` line). Only attribute/comment lines may sit between the
+    storage attribute and the type alias."""
+    pallet_dir = PALLET_DIRS.get(pallet)
+    if pallet_dir is None:
+        return None
+    ty_re = re.compile(rf"\s*pub(?:\(\w+\))?\s+type\s+{re.escape(name)}\s*[<=]")
+    for rel, lines in pallet_sources(pallet_dir):
+        for i, line in enumerate(lines):
+            if not ty_re.match(line):
+                continue
+            for j in range(i - 1, max(0, i - 12) - 1, -1):
+                stripped = lines[j].strip()
+                if stripped.startswith("#[pallet::storage"):
+                    return rel, i + 1
+                if not (
+                    stripped.startswith("#[")
+                    or stripped.startswith("//")
+                    or stripped.endswith("]")
+                    or stripped == ""
+                ):
+                    break
+    return None
+
+
+@functools.lru_cache(maxsize=None)
+def find_error_variant(pallet: str, name: str) -> tuple[str, int] | None:
+    """Declaration line of a #[pallet::error] enum variant, as (path, line)."""
+    pallet_dir = PALLET_DIRS.get(pallet)
+    if pallet_dir is None:
+        return None
+    var_re = re.compile(rf"\s*{re.escape(name)}\s*[,(=]")
+    for rel, lines in pallet_sources(pallet_dir):
+        for i, line in enumerate(lines):
+            if "#[pallet::error]" not in line:
+                continue
+            k = i
+            while k < len(lines) and "enum Error" not in lines[k]:
+                k += 1
+            if k == len(lines):
+                continue
+            end = brace_block_end(lines, k)
+            for m in range(k + 1, end + 1):
+                if var_re.match(lines[m]):
+                    return rel, m + 1
+    return None
+
+
+# Crates searched for runtime-API implementations, in preference order: the
+# rpc_info modules carry the real logic; runtime/src/lib.rs only has the
+# impl_runtime_apis! glue and is the fallback.
+_RUNTIME_API_DIRS = ("pallets/subtensor", "pallets/swap", "runtime")
+
+
+@functools.lru_cache(maxsize=None)
+def find_runtime_api_fn(method: str) -> dict | None:
+    """Implementation of a runtime-API method, as {path, line, end_line} of
+    the function body (searched across the rpc crates, then the runtime)."""
+    fn_re = re.compile(rf"\s*(?:pub(?:\(\w+\))? )?fn {re.escape(method)}\s*[(<]")
+    for pallet_dir in _RUNTIME_API_DIRS:
+        for rel, lines in pallet_sources(pallet_dir):
+            for i, line in enumerate(lines):
+                if fn_re.match(line):
+                    end = brace_block_end(lines, i)
+                    return {"path": rel, "line": i + 1, "end_line": end + 1}
+    return None
+
+
+@functools.lru_cache(maxsize=None)
+def find_runtime_constant(name: str) -> tuple[str, int] | None:
+    """`pub const <name>` in the runtime's parameter_types, as (path, line)."""
+    const_re = re.compile(rf"\s*pub const {re.escape(name)}\s*[:=]")
+    for rel, lines in pallet_sources("runtime"):
+        for i, line in enumerate(lines):
+            if const_re.match(line):
+                return rel, i + 1
+    return None
+
+
+# --- Read (query) chain targets ----------------------------------------------
+#
+# Reads reference their chain surface through the generated descriptor modules
+# (`st.Pallet.Item`, `api.Api.method`, `constants.Pallet.Name`); scraping the
+# fetch source for those references yields the storage items, runtime-API
+# methods, and constants each read touches — resolved into /code links the
+# same way tx pages resolve dispatchables.
+
+_ST_REF_RE = re.compile(r"\bst\.(\w+)\.(\w+)")
+_API_REF_RE = re.compile(r"\bapi\.(\w+)\.(\w+)")
+_CONST_REF_RE = re.compile(r"\bconstants\.(\w+)\.(\w+)")
+
+
+def _closure_targets(fetch) -> list[tuple[str, str, str]]:
+    """(kind, container, name) for descriptor values captured in a fetch
+    closure — how factory-made reads (scalar_read) carry their storage item."""
+    kinds = {"storage": "storage", "runtime_apis": "runtime", "constants": "constant"}
+    out = []
+    for cell in fetch.__closure__ or ():
+        value = cell.cell_contents
+        module = type(value).__module__.rsplit(".", 1)[-1]
+        if module in kinds and hasattr(value, "container") and hasattr(value, "name"):
+            out.append((kinds[module], value.container, value.name))
+    return out
+
+
+def read_targets(spec) -> list[dict]:
+    """Chain-side targets of a read, in first-use order, resolved into the
+    /code corpus where possible. Each dict has kind/container/name and, when
+    resolved, path/line(/end_line)/url."""
+    try:
+        src = inspect.getsource(spec.fetch)
+    except (OSError, TypeError):
+        src = ""
+    scraped = []
+    for kind, pattern in (
+        ("storage", _ST_REF_RE),
+        ("runtime", _API_REF_RE),
+        ("constant", _CONST_REF_RE),
+    ):
+        scraped.extend((kind, container, name) for container, name in pattern.findall(src))
+    out: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    for kind, container, name in [*scraped, *_closure_targets(spec.fetch)]:
+        key = (kind, container, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        target: dict = {"kind": kind, "container": container, "name": name}
+        if kind == "storage":
+            found = find_storage_item(container, name)
+            if found:
+                path, line = found
+                target.update(
+                    path=path,
+                    line=line,
+                    **with_code_urls(path, f"/code/{path}#L{line}"),
+                )
+        elif kind == "runtime":
+            fn = find_runtime_api_fn(name)
+            if fn:
+                path = fn["path"]
+                target.update(
+                    path=path,
+                    line=fn["line"],
+                    end_line=fn["end_line"],
+                    **with_code_urls(
+                        path, f"/code/{path}#L{fn['line']}-L{fn['end_line']}"
+                    ),
+                )
+        else:
+            found = find_runtime_constant(name)
+            if found:
+                path, line = found
+                target.update(
+                    path=path,
+                    line=line,
+                    **with_code_urls(path, f"/code/{path}#L{line}"),
+                )
+        out.append(target)
+    return out
+
+
+def read_implementation_section(spec) -> str:
+    """An "On-chain implementation" section listing the storage items,
+    runtime-API methods, and constants a read touches, linked into /code.
+    Reads served entirely by the client view layer get no section."""
+    targets = read_targets(spec)
+    if not targets:
+        return ""
+    kind_labels = {
+        "storage": "Storage",
+        "runtime": "Runtime API",
+        "constant": "Constant",
+    }
+    lines = ["\n## On-chain implementation\n"]
+    for t in targets:
+        label = kind_labels[t["kind"]]
+        full = f"{t['container']}.{t['name']}"
+        if "url" in t:
+            lines.append(f"- {label} [`{full}`]({t['url']})")
+        elif t["container"] in UPSTREAM_PALLETS:
+            lines.append(
+                f"- {label} `{full}` — implemented by {UPSTREAM_PALLETS[t['container']]}, "
+                "outside this repository's pallets."
+            )
+        else:
+            lines.append(f"- {label} `{full}`")
+    lines.append(
+        "\nEvery file is browsable under [/code](/code) exactly as built into "
+        "the runtime.\n"
+    )
+    return "\n".join(lines)
+
+
+def delegate_links(pallet_dir: str, dispatchable: dict, call: str) -> list[str]:
+    """Markdown links to the `Self::…` functions the dispatchable delegates
+    to, in call order — the pointer past the thin wrapper into the logic."""
+    links = []
+    seen = set()
+    for line in dispatchable["body"]:
+        for name in re.findall(r"Self::(\w+)\s*\(", line):
+            if name in seen or name == call:
+                continue
+            seen.add(name)
+            found = find_fn(pallet_dir, name)
+            if found:
+                path, lineno = found
+                links.append(f"[`{name}`](/code/{path}#L{lineno})")
+    return links[:3]
+
+
+def implementation_section(cls) -> str:
+    if not cls.wraps:
+        return ""
+    parts = ["## On-chain implementation\n"]
+    in_repo = [(p, c) for p, c in cls.wraps if p in PALLET_DIRS]
+
+    # An intent fanning out over many calls (set_hyperparameter) gets a link
+    # table; quoting dozens of near-identical dispatchables helps nobody.
+    if len(in_repo) > 3:
+        parts.append("| Chain call | Source |")
+        parts.append("| --- | --- |")
+        for pallet, call in in_repo:
+            found = find_dispatchable(PALLET_DIRS[pallet], call)
+            if found is None:
+                raise RuntimeError(f"dispatchable {pallet}.{call} not found in Rust source")
+            anchor = range_anchor(found)
+            parts.append(
+                f"| `{pallet}.{call}` | "
+                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}{anchor}) |"
+            )
+        parts.append("")
+    else:
+        for pallet, call in cls.wraps:
+            if pallet in UPSTREAM_PALLETS:
+                parts.append(
+                    f"`{pallet}.{call}` is implemented by {UPSTREAM_PALLETS[pallet]}, "
+                    "outside this repository's pallets.\n"
+                )
+                continue
+            found = find_dispatchable(PALLET_DIRS[pallet], call)
+            if found is None:
+                raise RuntimeError(f"dispatchable {pallet}.{call} not found in Rust source")
+            anchor = range_anchor(found)
+            parts.append(
+                f"`{pallet}.{call}` — "
+                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}{anchor}):\n"
+            )
+            parts.append(f"```rust\n{found['snippet']}\n```\n")
+            links = delegate_links(PALLET_DIRS[pallet], found, call)
+            if links:
+                parts.append(f"Delegates to {', '.join(links)}.\n")
+
+    parts.append(
+        "Every file is browsable under [/code](/code) exactly as built into "
+        "the runtime, or as plain text under `/code/raw/<path>` "
+        "(index: [`/code/index.json`](/code/index.json)).\n"
+    )
+    return "\n" + "\n".join(parts)
+
+
 # --- Intent (tx) pages -----------------------------------------------------
+
+# `Intent.origin` classvar -> the human phrasing the docs show for it.
+# "signed" is the extrinsic origin only — many calls still require a specific
+# hotkey, beneficiary, or other pallet role (see each intent's body).
+ORIGIN_LABELS = {
+    "signed": "signed account (pallet role may apply)",
+    "subnet_owner": "subnet owner",
+    "root": "root (chain sudo)",
+}
 
 
 def intent_pallet(cls) -> str:
     return cls.wraps[0][0] if cls.wraps else "Other"
+
+
+def verify_section(cls) -> str:
+    """A "Verify" section linking to the read that confirms the intent's
+    effect (``cls.verify``), when the intent declares one."""
+    if not cls.verify:
+        return ""
+    name = kebab(cls.verify)
+    spec = READS.get(cls.verify)
+    if spec is not None:
+        cli_parts, _ = read_cli_invocation(spec)
+        cmd = " ".join(cli_parts) + " --json"
+    else:
+        cmd = f"btcli query {name} --json"
+    return f"""
+## Verify
+
+After inclusion, confirm the effect with the
+[`{name}`](/docs/query/{name}) read:
+
+```bash
+{cmd}
+```
+"""
+
+
+def wrap_link(pallet: str, call: str) -> str:
+    """`Pallet.call` linked to its dispatchable in /code when in-repo."""
+    if pallet in PALLET_DIRS:
+        found = find_dispatchable(PALLET_DIRS[pallet], call)
+        if found:
+            return f"[`{pallet}.{call}`](/code/{found['path']}{range_anchor(found)})"
+    return f"`{pallet}.{call}`"
 
 
 def intent_page(op: str, cls) -> str:
@@ -179,24 +641,33 @@ def intent_page(op: str, cls) -> str:
     props = schema.get("properties", {})
     required = [n for n in schema.get("required", []) if n in props]
 
-    wraps = ", ".join(f"`{p}.{c}`" for p, c in cls.wraps) or "—"
+    wraps = ", ".join(wrap_link(p, c) for p, c in cls.wraps) or "—"
     body = mdx_escape(body_after_summary(description))
 
-    cli_parts = [f"btcli tx {kebab(op)}"]
+    # Intents may pin a friendlier CLI spelling (e.g. root registration goes
+    # through the ordinary `subnets register` command); default to the
+    # generic tx command.
+    cli_parts = [getattr(cls, "cli_example", None) or f"btcli tx {kebab(op)}"]
     for name in required:
-        cli_parts.append(f"{cli_flag(name)} {cli_placeholder(name, props[name])}")
+        cli_parts.append(cli_arg(name, props[name]))
     cli_cmd = " \\\n  ".join(cli_parts)
 
-    py_args = ", ".join(f"{n}={py_placeholder(n, props[n])}" for n in required)
+    examples = {
+        "trim_subnet": {"max_n": "64"},
+        "trim_null_subnet_batch": {"target": "64"},
+    }.get(op, {})
+    py_args = ", ".join(
+        f"{n}={examples.get(n, py_placeholder(n, props[n]))}" for n in required
+    )
     class_name = cls.__name__
 
     return f"""{frontmatter(kebab(op), summary)}
 {body}
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `{cls.signer}` | {intent_pallet(cls)} | {wraps} |
-
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `{cls.signer}` | {ORIGIN_LABELS[cls.origin]} | {intent_pallet(cls)} | {wraps} |
+{verify_section(cls)}
 ## Parameters
 
 {params_table(schema)}
@@ -216,25 +687,27 @@ submitting), then submit:
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.{class_name}({py_args})
+intent = bt.{class_name}({py_args})
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("{op}", {{...}}, wallet)
+result = sub.execute_tool("{op}", {{...}}, wallet)
 ```
-"""
+{implementation_section(cls)}"""
 
 
 def intent_index() -> str:
@@ -250,18 +723,19 @@ def intent_index() -> str:
         header,
         "Every mutation is an **intent**: preview it with `plan` / `--dry-run`, "
         "submit it with `execute`. Each CLI command below is `btcli tx <name>`; "
-        "each Python class is `sub.<ClassName>`. The machine-readable catalog of all "
+        "each Python class is `bt.<ClassName>`. The machine-readable catalog of all "
         "of these (with JSON schemas) is at [`/catalog/intents.json`](/catalog/intents.json) "
-        "or via `btcli tools` / `sub.intents.list_tools()`.\n",
+        "or via `btcli tools` / `bt.intents.list_tools()`.\n",
     ]
     for pallet in sorted(groups):
         parts.append(f"## {pallet}\n")
-        parts.append("| Operation | Signer | Summary |")
-        parts.append("| --- | --- | --- |")
+        parts.append("| Operation | Signer | Origin | Summary |")
+        parts.append("| --- | --- | --- | --- |")
         for op, cls in groups[pallet]:
             summary = cls.describe().split("\n")[0]
             parts.append(
-                f"| [`{kebab(op)}`](/docs/tx/{kebab(op)}) | {cls.signer} | {cell(summary)} |"
+                f"| [`{kebab(op)}`](/docs/tx/{kebab(op)}) | {cls.signer} | "
+                f"{ORIGIN_LABELS[cls.origin]} | {cell(summary)} |"
             )
         parts.append("")
     return "\n".join(parts)
@@ -309,7 +783,30 @@ def namespace_shadowed(spec) -> bool:
 
 
 def namespace_call(spec, py_kwargs: list[str]) -> str:
-    return f"client.{namespace_attr(spec)}.{spec.name}({', '.join(py_kwargs)})"
+    return f"sub.{namespace_attr(spec)}.{spec.name}({', '.join(py_kwargs)})"
+
+
+def read_cli_invocation(spec) -> tuple[list[str], list[str]]:
+    """The ``btcli query`` command parts and Python kwarg placeholders for a read."""
+    cli_parts = [f"btcli query {kebab(spec.name)}"]
+    py_kwargs = []
+    for name, jtype in spec.params.items():
+        # Match cli/query.py: any param with `_ss58` (singular or plural
+        # `*_ss58s`) uses address_cli_name / cli_flag, not raw kebab.
+        if "_ss58" in name:
+            placeholder = "<array>" if jtype == "array" else "<ss58|name>"
+            cli_parts.append(f"{cli_flag(name)} {placeholder}")
+            py_value = "[...]" if jtype == "array" else '"5F..."'
+        elif jtype == "boolean":
+            # Match the Typer bool pattern in cli/query.py (--flag/--no-flag).
+            flag = f"--{kebab(name)}"
+            cli_parts.append(f"{flag}/--no-{kebab(name)}")
+            py_value = _JSON_PY_PLACEHOLDER.get(jtype, "...")
+        else:
+            cli_parts.append(f"--{kebab(name)} <{jtype}>")
+            py_value = _JSON_PY_PLACEHOLDER.get(jtype, "...")
+        py_kwargs.append(f"{name}={py_value}")
+    return cli_parts, py_kwargs
 
 
 def read_page(spec) -> str:
@@ -327,42 +824,35 @@ def read_page(spec) -> str:
     else:
         table = "This read takes no parameters.\n"
 
-    cli_parts = [f"btcli query {kebab(spec.name)}"]
-    py_kwargs = []
-    for name, jtype in spec.params.items():
-        if name.endswith("_ss58"):
-            cli_parts.append(f"{cli_flag(name)} <ss58|name>")
-            py_value = '"5F..."'
-        else:
-            cli_parts.append(f"--{kebab(name)} <{jtype}>")
-            py_value = _JSON_PY_PLACEHOLDER.get(jtype, "...")
-        py_kwargs.append(f"{name}={py_value}")
+    cli_parts, py_kwargs = read_cli_invocation(spec)
 
-    read_call = f"client.read({', '.join([json.dumps(spec.name), *py_kwargs])})"
+    read_call = f"sub.read({', '.join([json.dumps(spec.name), *py_kwargs])})"
     if namespace_shadowed(spec):
         # A curated method with different semantics owns this name on the
         # namespace, so the page documents the name-dispatch form only.
         python_section = f"""```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await {read_call}
+sub = bt.Subtensor()
+result = {read_call}
 ```"""
     else:
-        python_section = f"""Typed namespace method (autocomplete, signature help):
+        python_section = f"""Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await {namespace_call(spec, py_kwargs)}
+sub = bt.Subtensor()
+result = {namespace_call(spec, py_kwargs)}
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await {read_call}
-```"""
+result = {read_call}
+```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`."""
 
     return f"""{frontmatter(kebab(spec.name), spec.summary)}
 {body}
@@ -381,7 +871,7 @@ result = await {read_call}
 ## Python
 
 {python_section}
-"""
+{read_implementation_section(spec)}"""
 
 
 def read_index() -> str:
@@ -398,12 +888,13 @@ def read_index() -> str:
         "Reads are free, unsigned, and safe to call at any time. Each CLI command "
         "is `btcli query <name>` (add `--json` for machine-readable output). In "
         "Python every read is a typed method on its category's namespace — "
-        "`await client.subnets.subnet_registration_cost()`, "
-        "`await client.delegation.delegates()` — with autocomplete and signature "
-        "help; `await client.read(\"<name>\", ...)` dispatches the same read by "
+        "`sub.subnets.subnet_registration_cost()`, "
+        "`sub.delegation.delegates()` on `sub = bt.Subtensor()` (awaited on the "
+        "async client) — with autocomplete and signature "
+        "help; `sub.read(\"<name>\", ...)` dispatches the same read by "
         "name. The machine-readable catalog is at "
         "[`/catalog/reads.json`](/catalog/reads.json) or via "
-        "`sub.reads.list_reads()`.\n",
+        "`bt.reads.list_reads()`.\n",
     ]
     for category in sorted(groups):
         parts.append(f"## {category}\n")
@@ -428,7 +919,7 @@ def query_meta() -> dict:
     return {"title": "Queries", "pages": pages}
 
 
-# --- Errors page -----------------------------------------------------------
+# --- Error pages -----------------------------------------------------------
 
 
 def sentence_case(text: str) -> str:
@@ -445,7 +936,66 @@ def sentence_case(text: str) -> str:
     return "\n\n".join(paragraphs)
 
 
-def errors_page() -> str:
+def chain_errors_for(code) -> list[str]:
+    """Chain error names classifying to a code, sorted."""
+    return sorted(n for n, c in error_map.NAME_TO_CODE.items() if c is code)
+
+
+# Chain error name -> the pallets that declare it (a name can exist in several).
+CHAIN_ERROR_PALLETS: dict[str, list[str]] = {}
+for _info in CHAIN_ERROR_CATALOG.values():
+    _pallets = CHAIN_ERROR_PALLETS.setdefault(_info.name, [])
+    if _info.pallet not in _pallets:
+        _pallets.append(_info.pallet)
+
+
+def chain_error_remediation(name: str) -> str:
+    """The remediation the CLI would print for this exact chain error (includes
+    the per-name overrides, e.g. SlippageTooHigh's tolerance flags)."""
+    return result.ChainError("", name=name).remediation
+
+
+def error_page(code) -> str:
+    """One explainer page per semantic error code (the hyperparameters layout:
+    an index table linking to a page per entry). The page carries the long-form
+    explanation (`btcli explain <code>`), the remediation hint, and the chain
+    errors that classify to this code."""
+    remediation = sentence_case(result.REMEDIATION[code])
+    explanation = sentence_case(result.EXPLANATIONS[code])
+    header = frontmatter(code.value, remediation)
+    parts = [header, mdx_escape(explanation) + "\n"]
+
+    parts.append("## Remediation\n")
+    parts.append(mdx_escape(remediation) + "\n")
+
+    names = chain_errors_for(code)
+    parts.append("## Chain errors\n")
+    if names:
+        parts.append(
+            f"The exact chain error names (from the extrinsic receipt) that "
+            f"classify to `{code.value}`; the description says what triggered "
+            "the failure and where to check. Each name has its own page:\n"
+        )
+        parts.append("| Chain error | Description |")
+        parts.append("| --- | --- |")
+        for name in names:
+            description = error_descriptions.DESCRIPTIONS[name]
+            parts.append(f"| [`{name}`](/docs/errors/chain/{name}) | {cell(description)} |")
+        parts.append("")
+    else:
+        parts.append(
+            "No chain error classifies to this code — it is raised client-side "
+            "by the SDK before or after the call reaches the chain.\n"
+        )
+    parts.append(
+        "The same explanation is available in the terminal: "
+        f"`btcli explain {code.value}` (or `btcli explain <ChainErrorName>` "
+        "for one exact chain error).\n"
+    )
+    return "\n".join(parts)
+
+
+def errors_index() -> str:
     header = frontmatter(
         "Errors",
         "Every failure carries a machine-readable code and a remediation hint.",
@@ -455,25 +1005,167 @@ def errors_page() -> str:
         "A failed `execute` returns an `ExtrinsicResult` whose `error` has a "
         "semantic `code` (branch on it) and a `remediation` hint (what to try "
         "next). Every chain error name is deliberately classified — a CI gate "
-        "keeps the mapping complete in both directions. The machine-readable "
-        "version is at [`/catalog/errors.json`](/catalog/errors.json).\n",
-        "## Error codes\n",
+        "keeps the mapping complete in both directions. Each code has its own "
+        "explainer page listing the chain errors that map to it, and every "
+        "exact chain error name has its own page under "
+        "[chain errors](/docs/errors/chain). The machine-readable version is "
+        "at [`/catalog/errors.json`](/catalog/errors.json).\n",
+        "| Code | Chain errors | Remediation |",
+        "| --- | --- | --- |",
     ]
     for code in error_map.ErrorCode:
         remediation = sentence_case(result.REMEDIATION[code])
-        parts.append(f"### `{code.value}`\n")
-        parts.append(mdx_escape(remediation) + "\n")
-
-    parts.append("## Chain error classification\n")
-    parts.append(
-        "The exact chain error name (from the extrinsic receipt) maps to a code:\n"
-    )
-    parts.append("| Chain error | Code |")
-    parts.append("| --- | --- |")
-    for name, code in sorted(error_map.NAME_TO_CODE.items()):
-        parts.append(f"| `{name}` | `{code.value}` |")
+        count = len(chain_errors_for(code))
+        parts.append(
+            f"| [`{code.value}`](/docs/errors/{kebab(code.value)}) | "
+            f"{count if count else '—'} | {cell(remediation)} |"
+        )
     parts.append("")
     return "\n".join(parts)
+
+
+def errors_meta() -> dict:
+    return {
+        "title": "Errors",
+        "pages": [
+            "index",
+            *(kebab(code.value) for code in error_map.ErrorCode),
+            "chain",
+        ],
+    }
+
+
+def chain_error_page(name: str, code) -> str:
+    """One page per exact chain error name, at /docs/errors/chain/<Name> (the
+    URL keeps the on-chain CamelCase name so CLI links never need mangling)."""
+    description = sentence_case(error_descriptions.DESCRIPTIONS[name])
+    remediation = sentence_case(chain_error_remediation(name))
+    pallets = CHAIN_ERROR_PALLETS.get(name, [])
+    header = frontmatter(name, remediation)
+    parts = [header, mdx_escape(description) + "\n"]
+
+    pallet_list = ", ".join(f"`{p}`" for p in pallets)
+    origin = (
+        f"Declared by the {pallet_list} pallet{'s' if len(pallets) > 1 else ''}; it"
+        if pallets
+        else "It"
+    )
+    parts.append(
+        f"{origin} classifies to the semantic code "
+        f"[`{code.value}`](/docs/errors/{kebab(code.value)}).\n"
+    )
+
+    # The declaration site(s) in the chain source, for in-repo pallets.
+    sources = []
+    for pallet in pallets:
+        found = find_error_variant(pallet, name)
+        if found:
+            path, line = found
+            sources.append(f"[`{path}#L{line}`](/code/{path}#L{line})")
+    if sources:
+        parts.append(f"Declared at {', '.join(sources)}.\n")
+
+    parts.append("## Remediation\n")
+    parts.append(mdx_escape(remediation) + "\n")
+
+    parts.append(
+        "The same explanation is available in the terminal: "
+        f"`btcli explain {name}`.\n"
+    )
+    return "\n".join(parts)
+
+
+def chain_errors_index() -> str:
+    header = frontmatter(
+        "Chain errors",
+        "Every exact chain error name, classified to a semantic code.",
+    )
+    parts = [
+        header,
+        "The exact chain error name (from the extrinsic receipt) maps to a "
+        "semantic [code](/docs/errors); the description says what triggered "
+        "the failure and where to check. Each name has its own page:\n",
+        "| Chain error | Code | Description |",
+        "| --- | --- | --- |",
+    ]
+    for name, code in sorted(error_map.NAME_TO_CODE.items()):
+        description = error_descriptions.DESCRIPTIONS[name]
+        parts.append(
+            f"| [`{name}`](/docs/errors/chain/{name}) | "
+            f"[`{code.value}`](/docs/errors/{kebab(code.value)}) | "
+            f"{cell(description)} |"
+        )
+    parts.append("")
+    return "\n".join(parts)
+
+
+def chain_errors_meta() -> dict:
+    return {
+        "title": "Chain errors",
+        "pages": ["index", *sorted(error_map.NAME_TO_CODE)],
+    }
+
+
+# --- Hyperparameters page ---------------------------------------------------
+
+# Unit kind -> the label the docs table shows for it.
+UNIT_LABELS = {
+    "u16": "fraction (u16, 65535 = 1.0)",
+    "u64": "fraction (u64, u64::MAX = 1.0)",
+    "per_million": "fraction (1,000,000 = 1.0)",
+    "rao": "TAO amount in rao",
+    "blocks": "blocks (12s)",
+    "epochs": "epochs (tempos)",
+    "difficulty": "PoW difficulty (u64)",
+    "fixed128": "multiplier (U64F64 bits / 2^64)",
+    "int": "integer",
+    "bool": "flag",
+}
+
+
+def hyperparameters_index() -> str:
+    """The overview table; each parameter links to its hand-written explainer
+    page (docs/hyperparameters/<kebab>.mdx, checked for existence by --check)."""
+    header = frontmatter(
+        "Hyperparameters",
+        "What each subnet hyperparameter controls, its unit, and how to change it.",
+    )
+    parts = [
+        header,
+        "Read them with `btcli sudo get --netuid N` (the "
+        "[`subnet_hyperparameters`](/docs/query/subnet-hyperparameters) read); the "
+        "subnet owner changes the owner-settable ones with `btcli sudo set` (the "
+        "[`set_hyperparameter`](/docs/tx/set-hyperparameter) intent). Raw on-chain "
+        "integers are primary; where a parameter is a fixed-point fraction or a rao "
+        "amount, the value also accepts the human form with a decimal point. "
+        "Each parameter has its own explainer page; the source column links "
+        "the on-chain storage declaration.\n",
+        "| Hyperparameter | Unit | Owner-settable | What it controls | Source |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for name, meta in hyperparams.HYPERPARAMS.items():
+        settable = "yes" if name in OWNER_HYPERPARAMETERS else "root only"
+        unit = UNIT_LABELS[hyperparams.kind_of(name)]
+        source = "—"
+        item = hyperparams.STORAGE_ITEMS.get(name)
+        if item is not None:
+            found = find_storage_item(item.container, item.name)
+            if found:
+                path, line = found
+                source = f"[`{item.name}`](/code/{path}#L{line})"
+        parts.append(
+            f"| [`{name}`](/docs/hyperparameters/{kebab(name)}) | {unit} | "
+            f"{settable} | {cell(meta.short)} | {source} |"
+        )
+    parts.append("")
+    return "\n".join(parts)
+
+
+def hyperparameters_meta() -> dict:
+    return {
+        "title": "Hyperparameters",
+        "pages": ["index", *(kebab(name) for name in hyperparams.HYPERPARAMS)],
+    }
 
 
 # --- Catalogs --------------------------------------------------------------
@@ -484,9 +1176,51 @@ def intent_examples(op: str, cls) -> dict:
     props = schema.get("properties", {})
     required = [n for n in schema.get("required", []) if n in props]
     cli = f"btcli tx {kebab(op)} " + " ".join(
-        f"{cli_flag(n)} {cli_placeholder(n, props[n])}" for n in required
+        cli_arg(n, props[n]) for n in required
     )
     return {"cli": cli.strip(), "python_class": cls.__name__}
+
+
+def intent_sources(cls) -> list[dict]:
+    """Resolved /code locations for the dispatchables an intent wraps."""
+    sources = []
+    for pallet, call in cls.wraps:
+        if pallet not in PALLET_DIRS:
+            continue
+        found = find_dispatchable(PALLET_DIRS[pallet], call)
+        if found is None:
+            continue
+        path = found["path"]
+        sources.append(
+            {
+                "pallet": pallet,
+                "call": call,
+                "path": path,
+                "line": found["fn_line"],
+                "end_line": found["end_line"],
+                **with_code_urls(path, f"/code/{path}{range_anchor(found)}"),
+            }
+        )
+    return sources
+
+
+def chain_error_sources(name: str) -> list[dict]:
+    """Resolved /code declaration sites for a chain error name."""
+    sources = []
+    for pallet in CHAIN_ERROR_PALLETS.get(name, []):
+        found = find_error_variant(pallet, name)
+        if found is None:
+            continue
+        path, line = found
+        sources.append(
+            {
+                "pallet": pallet,
+                "path": path,
+                "line": line,
+                **with_code_urls(path, f"/code/{path}#L{line}"),
+            }
+        )
+    return sources
 
 
 def write_catalogs(catalog_root: Path) -> None:
@@ -495,16 +1229,54 @@ def write_catalogs(catalog_root: Path) -> None:
     by_op = {t["name"]: t for t in tools}
     for op, cls in INTENTS.items():
         by_op[op].update(intent_examples(op, cls))
-        by_op[op]["docs_url"] = f"/docs/tx/{kebab(op)}"
+        docs_url = f"/docs/tx/{kebab(op)}"
+        by_op[op]["docs_url"] = docs_url
+        by_op[op]["markdown_url"] = docs_markdown_url(docs_url)
+        by_op[op]["wraps"] = [list(pair) for pair in cls.wraps]
+        sources = intent_sources(cls)
+        if sources:
+            by_op[op]["sources"] = sources
     reads = list_reads()
     for r in reads:
-        r["docs_url"] = f"/docs/query/{kebab(r['name'])}"
+        docs_url = f"/docs/query/{kebab(r['name'])}"
+        r["docs_url"] = docs_url
+        r["markdown_url"] = docs_markdown_url(docs_url)
         spec = READS[r["name"]]
         if not namespace_shadowed(spec):
-            r["python"] = f"client.{namespace_attr(spec)}.{spec.name}(...)"
+            r["python"] = f"sub.{namespace_attr(spec)}.{spec.name}(...)"
+        hits = read_targets(spec)
+        if hits:
+            r["hits"] = hits
+    codes = {}
+    for code in error_map.ErrorCode:
+        docs_url = f"/docs/errors/{kebab(code.value)}"
+        codes[code.value] = {
+            "remediation": result.REMEDIATION[code],
+            "docs_url": docs_url,
+            "markdown_url": docs_markdown_url(docs_url),
+        }
+    chain_errors = {}
+    for n, c in sorted(error_map.NAME_TO_CODE.items()):
+        docs_url = f"/docs/errors/chain/{n}"
+        entry = {
+            "code": c.value,
+            "description": error_descriptions.DESCRIPTIONS[n],
+            "docs_url": docs_url,
+            "markdown_url": docs_markdown_url(docs_url),
+            "pallets": CHAIN_ERROR_PALLETS.get(n, []),
+        }
+        sources = chain_error_sources(n)
+        if sources:
+            entry["sources"] = sources
+        chain_errors[n] = entry
     errors = {
-        "codes": {code.value: result.REMEDIATION[code] for code in error_map.ErrorCode},
-        "chain_errors": {n: c.value for n, c in sorted(error_map.NAME_TO_CODE.items())},
+        "note": (
+            "Semantic ErrorCode values are under `codes` (snake_case keys). "
+            "Exact on-chain error names are under `chain_errors` (CamelCase keys). "
+            "Each entry has `docs_url` (HTML page) and `markdown_url` (raw markdown)."
+        ),
+        "codes": codes,
+        "chain_errors": chain_errors,
     }
     (catalog_root / "intents.json").write_text(json.dumps(tools, indent=2) + "\n")
     (catalog_root / "reads.json").write_text(json.dumps(reads, indent=2) + "\n")
@@ -521,8 +1293,10 @@ def generate(content_root: Path) -> None:
     with tempfile.TemporaryDirectory(dir=content_root) as tmp:
         tx_dir = Path(tmp) / "tx"
         query_dir = Path(tmp) / "query"
+        errors_dir = Path(tmp) / "errors"
         tx_dir.mkdir()
         query_dir.mkdir()
+        errors_dir.mkdir()
 
         for op, cls in sorted(INTENTS.items()):
             (tx_dir / f"{kebab(op)}.mdx").write_text(intent_page(op, cls))
@@ -534,17 +1308,55 @@ def generate(content_root: Path) -> None:
         (query_dir / "index.mdx").write_text(read_index())
         (query_dir / "meta.json").write_text(json.dumps(query_meta(), indent=2) + "\n")
 
-        errors = errors_page()
+        for code in error_map.ErrorCode:
+            (errors_dir / f"{kebab(code.value)}.mdx").write_text(error_page(code))
+        (errors_dir / "index.mdx").write_text(errors_index())
+        (errors_dir / "meta.json").write_text(json.dumps(errors_meta(), indent=2) + "\n")
 
-        for src, dest in ((tx_dir, content_root / "tx"), (query_dir, content_root / "query")):
+        chain_dir = errors_dir / "chain"
+        chain_dir.mkdir()
+        for name, code in sorted(error_map.NAME_TO_CODE.items()):
+            (chain_dir / f"{name}.mdx").write_text(chain_error_page(name, code))
+        (chain_dir / "index.mdx").write_text(chain_errors_index())
+        (chain_dir / "meta.json").write_text(json.dumps(chain_errors_meta(), indent=2) + "\n")
+
+        for src, dest in (
+            (tx_dir, content_root / "tx"),
+            (query_dir, content_root / "query"),
+            (errors_dir, content_root / "errors"),
+        ):
             if dest.exists():
                 shutil.rmtree(dest)
             src.rename(dest)
-        (content_root / "errors.mdx").write_text(errors)
+        # The errors section used to be a single generated errors.mdx page;
+        # drop the leftover so it does not shadow the errors/ folder.
+        (content_root / "errors.mdx").unlink(missing_ok=True)
+        # Only the index and meta are generated: the per-parameter explainer
+        # pages in this folder are hand-written and left untouched.
+        hyperparams_dir = content_root / "hyperparameters"
+        hyperparams_dir.mkdir(exist_ok=True)
+        (hyperparams_dir / "index.mdx").write_text(hyperparameters_index())
+        (hyperparams_dir / "meta.json").write_text(
+            json.dumps(hyperparameters_meta(), indent=2) + "\n"
+        )
+
+
+# Source line numbers in /code links and catalog entries move with every unrelated Rust
+# edit. --check masks them so only real drift (wording, snippets, links to a different
+# symbol or file) fails; any regeneration refreshes the numbers.
+_LINE_REF = re.compile(r'(#L)\d+(?:-L\d+)?|("(?:line|end_line)": )\d+')
+
+
+def _same_ignoring_line_numbers(fresh: Path, committed: Path) -> bool:
+    def masked(path: Path) -> str:
+        return _LINE_REF.sub(r"\1\2", path.read_text())
+
+    return masked(fresh) == masked(committed)
 
 
 def check() -> int:
-    """Regenerate into a temp dir and diff against the committed output."""
+    """Regenerate into a temp dir and diff against the committed output, ignoring
+    source line numbers."""
     stale: list[str] = []
     with tempfile.TemporaryDirectory() as tmp:
         tmp_content = Path(tmp) / "content"
@@ -561,16 +1373,24 @@ def check() -> int:
                     continue
                 rel = fresh.relative_to(fresh_root)
                 committed = committed_root / rel
-                if not committed.exists() or not filecmp.cmp(fresh, committed, shallow=False):
+                if not committed.exists() or not _same_ignoring_line_numbers(fresh, committed):
                     stale.append(str(committed))
         # Files that were generated once but no longer are (e.g. a removed intent).
-        for sub in ("tx", "query"):
+        for sub in ("tx", "query", "errors"):
             committed_dir = CONTENT / sub
             if not committed_dir.exists():
                 continue
             for committed in sorted(committed_dir.rglob("*")):
                 if committed.is_file() and not (tmp_content / committed.relative_to(CONTENT)).exists():
                     stale.append(str(committed))
+        # The pre-folder single errors page must not linger beside errors/.
+        if (CONTENT / "errors.mdx").exists():
+            stale.append(str(CONTENT / "errors.mdx"))
+        # Every hyperparameter must have its hand-written explainer page.
+        for name in hyperparams.HYPERPARAMS:
+            page = CONTENT / "hyperparameters" / f"{kebab(name)}.mdx"
+            if not page.exists():
+                stale.append(f"{page} (missing explainer page)")
     if stale:
         print("Generated docs are stale; run scripts/generate.py:", file=sys.stderr)
         for path in stale:
@@ -589,7 +1409,12 @@ def main() -> int:
     generate(CONTENT)
     write_catalogs(CATALOG)
     n_tx, n_q = len(INTENTS), len(READS)
-    print(f"Generated {n_tx} tx pages, {n_q} query pages, errors.mdx, and 3 catalogs.")
+    n_err = len(list(error_map.ErrorCode))
+    n_chain = len(error_map.NAME_TO_CODE)
+    print(
+        f"Generated {n_tx} tx pages, {n_q} query pages, {n_err} error pages, "
+        f"{n_chain} chain error pages, the hyperparameters index, and 3 catalogs."
+    )
     return 0
 
 

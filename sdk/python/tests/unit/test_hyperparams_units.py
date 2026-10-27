@@ -115,21 +115,52 @@ def test_to_raw_integer_is_raw_within_bounds():
 
 
 def test_to_raw_rejects_raw_above_denominator():
-    with pytest.raises(ValueError, match=r"exceeds the raw maximum 65535"):
+    with pytest.raises(ValueError, match=r"must be within 0\.\.65535"):
         hp.to_raw("kappa", U16_MAX + 1)
     with pytest.raises(ValueError, match=r"0\.\.65535"):
         hp.to_raw("max_weights_limit", 10**6)
-    with pytest.raises(ValueError, match=r"exceeds the raw maximum 1000000"):
+    with pytest.raises(ValueError, match=r"must be within 0\.\.1000000"):
         hp.to_raw("bonds_moving_avg", 1_000_001)
-    with pytest.raises(ValueError, match="exceeds the raw maximum"):
+    with pytest.raises(ValueError, match="must be within"):
         hp.to_raw("adjustment_alpha", hp.U64_MAX + 1)
 
 
-def test_to_raw_non_fraction_kinds_unbounded():
-    # Only fraction kinds have a denominator to bound against.
-    assert hp.to_raw("tempo", 10**12) == 10**12
-    assert hp.to_raw("min_burn", 10**18) == 10**18
+def test_to_raw_rejects_outside_codec_width():
+    with pytest.raises(ValueError, match=r"must be within 0\.\.65535"):
+        hp.to_raw("rho", 65_536)
+    with pytest.raises(ValueError, match=r"must be within 360\.\.50400"):
+        hp.to_raw("tempo", 10**12)
+    with pytest.raises(ValueError, match=r"must be within 0\.\."):
+        hp.to_raw("min_burn", 2**64)
     assert hp.to_raw("difficulty", hp.U64_MAX) == hp.U64_MAX
+    assert hp.to_raw("tempo", 360) == 360
+    assert hp.to_raw("min_burn", 10**18) == 10**18
+
+
+def test_to_raw_bool_only_zero_one():
+    assert hp.to_raw("registration_allowed", True) == 1
+    assert hp.to_raw("registration_allowed", False) == 0
+    assert hp.to_raw("registration_allowed", "true") == 1
+    assert hp.to_raw("registration_allowed", "false") == 0
+    assert hp.to_raw("registration_allowed", 0) == 0
+    assert hp.to_raw("registration_allowed", 1) == 1
+    for bad in (2, 999, "yes", "on", "2"):
+        with pytest.raises(ValueError, match="true/false"):
+            hp.to_raw("registration_allowed", bad)
+
+
+def test_to_raw_rejects_negative_human_rao_and_fixed128():
+    with pytest.raises(ValueError, match="cannot be negative"):
+        hp.to_raw("min_burn", -0.5)
+    with pytest.raises(ValueError, match="cannot be negative"):
+        hp.to_raw("burn_increase_mult", -1.5)
+    with pytest.raises(ValueError, match="must be within"):
+        hp.to_raw("burn_increase_mult", 0.5)
+
+
+def test_to_raw_overflow_becomes_value_error():
+    with pytest.raises(ValueError, match="out of range"):
+        hp.to_raw("burn_increase_mult", "1e10000")
 
 
 def test_to_raw_human_forms_unchanged():
@@ -140,5 +171,5 @@ def test_to_raw_human_forms_unchanged():
     assert hp.to_raw("registration_allowed", "true") == 1
     with pytest.raises(ValueError, match="normalized fraction"):
         hp.to_raw("kappa", 1.5)
-    with pytest.raises(ValueError, match="cannot be negative"):
+    with pytest.raises(ValueError, match="must be within"):
         hp.to_raw("kappa", -1)

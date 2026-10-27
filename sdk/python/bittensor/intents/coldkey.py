@@ -2,11 +2,15 @@
 
 The safe, non-deprecated flow is two steps:
 
-  1. ``announce_coldkey_swap`` publishes only the BlakeTwo256 hash of the new
-     coldkey — committing to it without revealing it — and records the block at
-     which the swap becomes executable (now + the chain's announcement delay).
-  2. after that delay, ``swap_coldkey_announced`` reveals the new coldkey and
-     performs the swap.
+  1. ``announce_coldkey_swap`` publishes the cleartext destination via
+     ``announce_coldkey_swap_v2`` (validated and reserved before the fee) and
+     records the block at which the swap becomes executable (now + the chain's
+     announcement delay). The on-chain announcement stores the BlakeTwo256
+     hash of that key. The legacy hash-only ``announce_coldkey_swap`` extrinsic
+     remains available for raw callers that must keep the destination secret.
+  2. after that delay, ``swap_coldkey_announced`` reveals/confirms the new
+     coldkey and performs the swap (merging into the destination if it is
+     already in use).
 
 An announcement can be cleared before execution, and a coldkey holder can
 dispute a swap they did not initiate (freezing it for governance to resolve) —
@@ -18,19 +22,11 @@ stay raw-only on purpose.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from hashlib import blake2b
 from typing import Any
 
 from .._generated import calls
-from ..sp_core import ss58_decode
 from .base import Intent
 from .registry import register
-
-
-def coldkey_hash(ss58: str) -> str:
-    """BlakeTwo256 (0x-hex) of an account's public key, as ``announce_coldkey_swap`` expects."""
-    public_key = bytes(ss58_decode(ss58))
-    return "0x" + blake2b(public_key, digest_size=32).hexdigest()
 
 
 @register
@@ -38,14 +34,16 @@ def coldkey_hash(ss58: str) -> str:
 class AnnounceColdkeySwap(Intent):
     """Announce (commit to) a coldkey swap; executable after the chain's delay.
 
-    Step one of the two-step coldkey migration: publishes only the BlakeTwo256
-    hash of ``new_coldkey_ss58`` — committing to the new key without revealing
-    it — and starts the chain's announcement delay. After the delay, run the
+    Step one of the two-step coldkey migration: publishes ``new_coldkey_ss58``
+    (validated before any fee — destination must not be a hotkey, must not
+    hold active locks, and the combined swap work must fit one call) and
+    starts the chain's announcement delay. After the delay, run the
     ``swap_coldkey_announced`` intent to move EVERYTHING this coldkey owns
-    (balance, stake, subnets) to the new key; check timing with the
-    ``coldkey_swap_announcement`` read. The first announcement charges the
-    key-swap cost (0.1 TAO, recycled); re-announcing after the chain's
-    reannouncement delay is free. While an announcement is pending, the chain
+    (balance, stake, subnets) to the new key, merging with any assets the
+    destination already holds; check timing with the
+    ``coldkey_swap_announcement`` read. Every announcement, including a
+    re-announcement after the chain's reannouncement delay, charges the
+    key-swap cost (0.1 TAO, recycled). While an announcement is pending, the chain
     blocks every other signed extrinsic from this coldkey — only the
     swap-related calls and shielded (encrypted) submission go through — so the
     account is operationally locked for the full delay. Before announcing, be
@@ -57,20 +55,18 @@ class AnnounceColdkeySwap(Intent):
 
     op = "announce_coldkey_swap"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "announce_coldkey_swap"),)
+    wraps = (("SubtensorModule", "announce_coldkey_swap_v2"),)
 
     new_coldkey_ss58: str = field(
         metadata={
             "help": "Coldkey that will take over everything this coldkey owns once the "
-            "swap executes; only its hash is published now."
+            "swap executes; validated and reserved before the announcement fee is charged."
         }
     )
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
-            calls.SubtensorModule.announce_coldkey_swap(
-                new_coldkey_hash=coldkey_hash(self.new_coldkey_ss58)
-            )
+            calls.SubtensorModule.announce_coldkey_swap_v2(new_coldkey=self.new_coldkey_ss58)
         )
 
     def summary(self) -> str:
@@ -81,6 +77,7 @@ class AnnounceColdkeySwap(Intent):
             "after the announcement delay, swap_coldkey_announced will move EVERYTHING "
             "this coldkey owns (balance, stake, subnets) to the new coldkey",
             "make sure you control the new coldkey and have its mnemonic backed up",
+            "if the destination already holds assets, the swap merges into it",
         ]
 
 
@@ -89,10 +86,11 @@ class AnnounceColdkeySwap(Intent):
 class SwapColdkeyAnnounced(Intent):
     """Execute a previously announced coldkey swap (after the delay has passed).
 
-    Step two of the two-step migration: reveals the new coldkey and moves
+    Step two of the two-step migration: confirms the new coldkey and moves
     everything the signing coldkey owns — balance, stake, and subnet ownership
-    — to it. Irreversible once included. The revealed key must hash to exactly
-    what ``announce_coldkey_swap`` committed to, and the call fails if the
+    — to it (merging with any assets already on the destination). Irreversible
+    once included. The revealed key must hash to exactly what
+    ``announce_coldkey_swap`` committed to, and the call fails if the
     announcement delay has not elapsed, no announcement exists, or the swap
     is frozen by a dispute. After it succeeds, the old coldkey is empty; all
     future operations sign with the new coldkey.
@@ -183,3 +181,29 @@ class DisputeColdkeySwap(Intent):
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         return ["blocks the swap until the triumvirate resolves the dispute"]
+
+
+@register
+@dataclass
+class ReleaseOwnColdkeySwapDestinationReservation(Intent):
+    """Free a coldkey-swap destination reservation that names this account.
+
+    Announce exclusively reserves its destination so a third party cannot
+    register that address as a hotkey during the delay. If someone else
+    announced a swap into your coldkey (or you no longer want the hold), sign
+    this from the reserved destination to drop exclusivity. The announcer's
+    announcement may still exist; reservations also expire after
+    ``when + reannouncement delay``.
+    """
+
+    op = "release_own_coldkey_swap_destination_reservation"
+    signer = "coldkey"
+    wraps = (("SubtensorModule", "release_own_coldkey_swap_destination_reservation"),)
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.SubtensorModule.release_own_coldkey_swap_destination_reservation()
+        )
+
+    def summary(self) -> str:
+        return "release this account's coldkey-swap destination reservation"

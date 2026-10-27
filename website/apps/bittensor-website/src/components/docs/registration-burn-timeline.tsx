@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -8,10 +8,11 @@ import {
   PointElement,
   LineElement,
   Tooltip,
-  Legend,
+  type Plugin,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import { ACCENT, AXIS_BORDER, GRAPH_FONT, GRID, INK, axisTitle, baseTicks } from './chart-theme';
 import {
   DEFAULT_BURN_HALF_LIFE,
   DEFAULT_BURN_INCREASE_MULT,
@@ -22,7 +23,7 @@ import {
   simulateBurnPrice,
 } from '@/lib/emission-math';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip);
 
 export function RegistrationBurnTimeline() {
   const [blocks, setBlocks] = useState(720);
@@ -43,6 +44,50 @@ export function RegistrationBurnTimeline() {
     [blocks, regBlock, halfLife],
   );
 
+  // The plugin is registered once at chart creation, so it reads live values
+  // through a ref instead of closing over state that would go stale.
+  const drawState = useRef({ prices, regBlock });
+  drawState.current = { prices, regBlock };
+
+  // Direct uppercase labels replacing the legend: the curve name early in the
+  // decay, and a callout on the registration-event highlight point.
+  const annotationPlugin = useMemo<Plugin<'line'>>(
+    () => ({
+      id: 'burnTimelineAnnotations',
+      afterDatasetsDraw(chart) {
+        const { prices, regBlock } = drawState.current;
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales.x;
+        const yScale = scales.y;
+        if (!xScale || !yScale) return;
+
+        ctx.save();
+        ctx.font = GRAPH_FONT;
+        ctx.textAlign = 'left';
+
+        // Curve label on the initial decay
+        const idx = Math.floor(prices.length * 0.08);
+        ctx.fillStyle = INK;
+        ctx.fillText(
+          'REGISTRATION BURN',
+          xScale.getPixelForValue(idx) + 6,
+          yScale.getPixelForValue(prices[idx] ?? 0) + 14,
+        );
+
+        // Registration event callout
+        const eventY = yScale.getPixelForValue(prices[regBlock] ?? 0);
+        const eventX = xScale.getPixelForValue(regBlock);
+        ctx.fillStyle = ACCENT;
+        const align = eventX > chartArea.right - 120 ? 'right' : 'left';
+        ctx.textAlign = align;
+        ctx.fillText('REGISTRATION ×1.26', eventX + (align === 'left' ? 8 : -8), eventY - 8);
+
+        ctx.restore();
+      },
+    }),
+    [],
+  );
+
   const data = useMemo(
     () => ({
       labels: prices.map((_, i) => String(i)),
@@ -50,9 +95,10 @@ export function RegistrationBurnTimeline() {
         {
           label: 'Registration burn',
           data: prices,
-          borderColor: 'rgb(41, 41, 41)',
+          borderColor: INK,
           pointRadius: prices.map((_, i) => (i === regBlock ? 4 : 0)),
-          pointBackgroundColor: 'rgb(41, 41, 41)',
+          pointBackgroundColor: ACCENT,
+          pointBorderColor: ACCENT,
           borderWidth: 1.5,
           tension: 0.1,
         },
@@ -75,16 +121,18 @@ export function RegistrationBurnTimeline() {
       },
       scales: {
         x: {
-          display: true,
-          title: {display: true, text: 'Block', font: {size: 11}},
-          ticks: {maxTicksLimit: 8, font: {size: 10}},
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          title: axisTitle('Block'),
+          ticks: baseTicks(),
         },
         y: {
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
-          ticks: {
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({
+            maxTicksLimit: 5,
             callback: (v: number | string) => formatTao(Number(v)),
-            font: {size: 10},
-          },
+          }),
         },
       },
     }),
@@ -100,7 +148,7 @@ export function RegistrationBurnTimeline() {
       caption="Price decays continuously (halving every BurnHalfLife blocks) and jumps ×1.26 on each successful registration."
     >
       <div className="h-44">
-        <Line data={data} options={options} />
+        <Line data={data} options={options} plugins={[annotationPlugin]} />
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">

@@ -21,17 +21,17 @@ use crate::RuntimeCall;
 // read as "allow if the call is in any of these groups".
 // ============================================================================
 
-/// All admin-utils configuration. Every broad proxy historically allowed every
-/// admin call; the root-only (`RootConfigCalls`) and owner-key (`OwnerKeyCalls`)
-/// calls are gated by the dispatch's own origin check, so granting them to a
-/// signed proxy is inert.
-type AdminAll = (SubnetManagementCalls, RootConfigCalls, OwnerKeyCalls);
+/// Admin-utils configuration granted to broad proxies. Root-only
+/// (`RootConfigCalls`) calls are still inert (they need `ensure_root`).
+/// Owner-key rotation is **not** inert: `sudo_set_sn_owner_hotkey` is
+/// owner-or-root, so `OwnerKeyCalls` stays inventory-only.
+type AdminAll = (SubnetManagementCalls, RootConfigCalls);
 
 /// `Transfer`: liquid value movement.
 type TransferAllowed = (BalanceTransferCalls, StakeTransferCalls);
 
-/// `Staking`: stake position management plus root-claim mode selection.
-type StakingAllowed = (StakeManagementCalls, RootClaimTypeCalls);
+/// `Staking`: stake position management.
+type StakingAllowed = StakeManagementCalls;
 
 /// `Registration`: acquire a slot (POW or by burn).
 type RegistrationAllowed = (PowRegistrationCalls, BurnedRegistrationCalls);
@@ -49,11 +49,31 @@ type SubnetLeaseAllowed = (
     SubnetManagementCalls,
 );
 
-/// `NonTransfer`: everything except liquid value movement and coldkey swaps.
+/// `Weights`: submit weights for the real hotkey and nothing else. The
+/// least-privilege grant for a third-party weight setter: it cannot re-point
+/// the axon or the EVM key, so it cannot redirect where the subnet reaches or
+/// pays the neuron.
+type WeightsAllowed = WeightCalls;
+
+/// `Validate`: run a validator hotkey from an operations key. Weights, axon /
+/// prometheus serving, EVM-key association, and commitments. No stake, no
+/// transfers, no key rotation, no child keys, no take changes, no wrappers
+/// (`Utility`, `Proxy`, `Multisig`), so the delegate can never move or lock the
+/// real's TAO or alpha. Carries forward `ProxyType::Validate` from PR #2543
+/// (ppolewicz) and PR #3041 (cisterciansis), re-indexed after `BasketTrading`.
+type ValidateAllowed = (WeightCalls, NeuronServingCalls, CommitmentCalls);
+
+/// `NonTransfer`: excludes liquid value movement, coldkey swaps, sudo, EVM,
+/// Contracts, and Crowdloan calls that can move value indirectly, Multisig
+/// wrappers (they re-dispatch on a fresh origin that drops this filter),
+/// `MevShield::store_encrypted` (decrypt-and-dispatch drops the filter),
+/// owner-key rotation, and basket trading (which needs the explicit
+/// `BasketTrading` grant). Sudo is excluded because a sudo-key principal
+/// would otherwise hand the delegate root, including forced transfers.
+/// `SudoCalls` is inventory-only: no restricted proxy grants it.
 type NonTransferAllowed = (
     InfraCommonCalls,
     AdminAll,
-    SudoCalls,
     StakeManagementCalls,
     PowRegistrationCalls,
     BurnedRegistrationCalls,
@@ -63,32 +83,41 @@ type NonTransferAllowed = (
     CriticalNetworkCalls,
     ChildKeyCalls,
     RootClaimCalls,
-    RootClaimTypeCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    SubtensorValueCalls,
+    WeightCalls,
+    NeuronServingCalls,
     SubtensorCommonCalls,
 );
 
-/// `NonFungible`: nothing that moves TAO/alpha and no key swaps.
+/// `NonFungible`: nothing that moves, locks, burns or spends TAO/alpha, no key
+/// swaps, no sudo, no Multisig wrappers (fresh-origin re-dispatch), no
+/// `store_encrypted`, and no owner-key rotation.
 type NonFungibleAllowed = (
     InfraCommonCalls,
     AdminAll,
-    SudoCalls,
     PowRegistrationCalls,
     FaucetCalls,
     CriticalNetworkCalls,
     ChildKeyCalls,
     RootClaimCalls,
-    RootClaimTypeCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    WeightCalls,
+    NeuronServingCalls,
     SubtensorCommonCalls,
 );
 
 /// `NonCritical`: day-to-day operations including value movement, but no sudo,
-/// network dissolution, root/burned registration, or coldkey swaps.
+/// network dissolution, root/burned registration, coldkey swaps, Crowdloan
+/// wrappers (they re-dispatch a caller-supplied call as the real coldkey),
+/// Multisig wrappers, `store_encrypted`, owner-key rotation, or basket
+/// trading (which needs the explicit `BasketTrading` grant).
 type NonCriticalAllowed = (
     InfraCommonCalls,
+    EvmCalls,
+    ContractsCalls,
     AdminAll,
     BalanceTransferCalls,
     BalanceMaintenanceCalls,
@@ -99,9 +128,11 @@ type NonCriticalAllowed = (
     HotkeySwapCalls,
     ChildKeyCalls,
     RootClaimCalls,
-    RootClaimTypeCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    SubtensorValueCalls,
+    WeightCalls,
+    NeuronServingCalls,
     SubtensorCommonCalls,
 );
 
@@ -120,6 +151,9 @@ pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> b
         ProxyType::SwapHotkey => HotkeySwapCalls::contains(call),
         ProxyType::SubnetLeaseBeneficiary => SubnetLeaseAllowed::contains(call),
         ProxyType::RootClaim => RootClaimCalls::contains(call),
+        ProxyType::BasketTrading => BasketTradingCalls::contains(call),
+        ProxyType::Validate => ValidateAllowed::contains(call),
+        ProxyType::Weights => WeightsAllowed::contains(call),
         ProxyType::SudoUncheckedSetCode => SudoSetCodeCalls::contains(call),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -140,7 +174,8 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
             (_, ProxyType::Any) => false,
             // Keep this positive list explicit. A future proxy type that can
             // move value must not become addable through `NonTransfer` by
-            // default.
+            // default. `SudoUncheckedSetCode` is not listed: `NonTransfer`
+            // no longer reaches Sudo.
             (
                 ProxyType::NonTransfer,
                 ProxyType::Owner
@@ -152,12 +187,14 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                 | ProxyType::Registration
                 | ProxyType::RootWeights
                 | ProxyType::ChildKeys
-                | ProxyType::SudoUncheckedSetCode
                 | ProxyType::SwapHotkey
                 | ProxyType::SubnetLeaseBeneficiary
-                | ProxyType::RootClaim,
+                | ProxyType::RootClaim
+                | ProxyType::Validate
+                | ProxyType::Weights,
             ) => true,
             (ProxyType::Transfer, ProxyType::SmallTransfer) => true,
+            (ProxyType::Validate, ProxyType::Weights) => true,
             _ => false,
         }
     }
@@ -186,6 +223,9 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         ProxyType::SwapHotkey => FilterMode::Allow(HotkeySwapCalls::call_infos()),
         ProxyType::SubnetLeaseBeneficiary => FilterMode::Allow(SubnetLeaseAllowed::call_infos()),
         ProxyType::RootClaim => FilterMode::Allow(RootClaimCalls::call_infos()),
+        ProxyType::BasketTrading => FilterMode::Allow(BasketTradingCalls::call_infos()),
+        ProxyType::Validate => FilterMode::Allow(ValidateAllowed::call_infos()),
+        ProxyType::Weights => FilterMode::Allow(WeightsAllowed::call_infos()),
         ProxyType::SudoUncheckedSetCode => FilterMode::Allow(SudoSetCodeCalls::call_infos()),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -305,10 +345,14 @@ mod tests {
     // Because the inventory groups partition every runtime call, the two must
     // agree exactly; a missing or extra group in the filter shows up as a diff.
     #[test]
-    fn non_transfer_is_everything_but_transfers_and_coldkey_swaps() {
+    fn non_transfer_excludes_transfers_coldkey_swaps_sudo_and_indirect_value_pallets() {
         let denied = &(&group_calls::<BalanceTransferCalls>()
             | &group_calls::<BalanceMaintenanceCalls>())
             | &(&group_calls::<StakeTransferCalls>() | &group_calls::<ColdkeySwapCalls>());
+        let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
+        let denied = &denied | &group_calls::<(SudoCalls, MultisigCalls)>();
+        let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -316,17 +360,201 @@ mod tests {
     }
 
     #[test]
-    fn non_fungible_is_everything_but_value_movement_and_key_swaps() {
+    fn non_fungible_is_everything_but_value_movement_key_swaps_and_sudo() {
         let denied = &(&(&group_calls::<BalanceTransferCalls>()
             | &group_calls::<BalanceMaintenanceCalls>())
             | &(&group_calls::<StakeManagementCalls>() | &group_calls::<StakeTransferCalls>()))
             | &(&(&group_calls::<BurnedRegistrationCalls>()
                 | &group_calls::<RootRegistrationCalls>())
                 | &(&group_calls::<HotkeySwapCalls>() | &group_calls::<ColdkeySwapCalls>()));
+        let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
+        let denied = &denied | &group_calls::<(SubtensorValueCalls, SudoCalls)>();
+        let denied = &denied | &group_calls::<MultisigCalls>();
+        let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
         );
+    }
+
+    /// Executable-filter proof (the pallet mock allows everything, so this must live in
+    /// the runtime): `NonFungible` cannot dispatch the calls that spend, lock or destroy the
+    /// principal's TAO/alpha, neither `NonTransfer` nor `NonFungible` can reach Sudo, and
+    /// ordinary non-fungible operations still pass. Sudo-capable value-moving delegation
+    /// also stays refused through the metadata the runtime API advertises.
+    #[test]
+    fn non_fungible_cannot_move_value_and_no_non_financial_proxy_reaches_sudo() {
+        use subtensor_runtime_common::{AccountId, AlphaBalance, NetUid, TaoBalance};
+
+        let hotkey = AccountId::new([7; 32]);
+        let netuid = NetUid::from(1);
+        let value_calls = [
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::add_stake_burn {
+                hotkey: hotkey.clone(),
+                netuid,
+                amount: TaoBalance::from(1),
+                limit: None,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::lock_stake {
+                hotkey: hotkey.clone(),
+                netuid,
+                amount: AlphaBalance::from(1),
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_lock {
+                destination_hotkey: hotkey.clone(),
+                netuid,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::set_perpetual_lock {
+                netuid,
+                enabled: true,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::recycle_alpha {
+                hotkey: hotkey.clone(),
+                amount: AlphaBalance::from(1),
+                netuid,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::burn_alpha {
+                hotkey: hotkey.clone(),
+                amount: AlphaBalance::from(1),
+                netuid,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::register_network {
+                hotkey: hotkey.clone(),
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::register_network_with_identity {
+                hotkey: hotkey.clone(),
+                identity: None,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::register_leased_network {
+                emissions_share: sp_runtime::Percent::from_percent(10),
+                end_block: None,
+            }),
+        ];
+        let sudo_calls = [
+            RuntimeCall::Sudo(pallet_sudo::Call::sudo {
+                call: alloc::boxed::Box::new(RuntimeCall::Balances(
+                    pallet_balances::Call::force_transfer {
+                        source: hotkey.clone().into(),
+                        dest: hotkey.clone().into(),
+                        value: TaoBalance::from(1),
+                    },
+                )),
+            }),
+            RuntimeCall::Sudo(pallet_sudo::Call::set_key {
+                new: hotkey.clone().into(),
+            }),
+        ];
+        let non_fungible_calls = [
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::set_weights {
+                netuid,
+                dests: vec![0],
+                weights: vec![1],
+                version_key: 0,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::serve_axon {
+                netuid,
+                version: 1,
+                ip: 1,
+                port: 1,
+                ip_type: 4,
+                protocol: 0,
+                placeholder1: 0,
+                placeholder2: 0,
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::set_reject_locked_alpha {
+                enabled: true,
+            }),
+        ];
+
+        for call in &value_calls {
+            let name = call.get_call_metadata().function_name;
+            assert!(
+                !ProxyType::NonFungible.filter(call),
+                "NonFungible must not dispatch {name}"
+            );
+            assert!(
+                ProxyType::NonTransfer.filter(call),
+                "NonTransfer keeps {name}"
+            );
+            assert!(
+                ProxyType::NonCritical.filter(call),
+                "NonCritical keeps {name}"
+            );
+        }
+        for call in &sudo_calls {
+            let name = call.get_call_metadata().function_name;
+            for proxy_type in [
+                ProxyType::NonTransfer,
+                ProxyType::NonFungible,
+                ProxyType::NonCritical,
+            ] {
+                assert!(
+                    !proxy_type.filter(call),
+                    "{proxy_type:?} must not dispatch Sudo::{name}"
+                );
+            }
+            assert!(ProxyType::Any.filter(call));
+        }
+        for call in &non_fungible_calls {
+            let name = call.get_call_metadata().function_name;
+            assert!(
+                ProxyType::NonFungible.filter(call),
+                "NonFungible still dispatches {name}"
+            );
+        }
+
+        // The advertised allowlist agrees with the executable filter.
+        for proxy_type in [ProxyType::NonTransfer, ProxyType::NonFungible] {
+            let advertised = allowed_calls(proxy_type);
+            for call in value_calls.iter().chain(sudo_calls.iter()) {
+                let metadata = call.get_call_metadata();
+                let name = format!("{}::{}", metadata.pallet_name, metadata.function_name);
+                assert_eq!(
+                    advertised.contains(&name),
+                    proxy_type.filter(call),
+                    "{name}"
+                );
+            }
+        }
+    }
+
+    /// Multisig wrappers re-dispatch the inner call on a fresh `Signed(multisig)`
+    /// origin that does not carry the proxy filter. Restricted proxies must not
+    /// reach them; `Any` still can.
+    #[test]
+    fn restricted_proxies_cannot_reach_multisig_wrappers() {
+        use subtensor_runtime_common::AccountId;
+
+        let other = AccountId::new([3; 32]);
+        let inner = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+        let wrappers = [
+            RuntimeCall::Multisig(pallet_multisig::Call::as_multi_threshold_1 {
+                other_signatories: vec![other.clone()],
+                call: alloc::boxed::Box::new(inner.clone()),
+            }),
+            RuntimeCall::Multisig(pallet_multisig::Call::as_multi {
+                threshold: 2,
+                other_signatories: vec![other],
+                maybe_timepoint: None,
+                call: alloc::boxed::Box::new(inner),
+                max_weight: frame_support::weights::Weight::from_parts(1, 1),
+            }),
+        ];
+        for call in &wrappers {
+            let name = call.get_call_metadata().function_name;
+            for proxy_type in [
+                ProxyType::NonTransfer,
+                ProxyType::NonFungible,
+                ProxyType::NonCritical,
+            ] {
+                assert!(
+                    !proxy_type.filter(call),
+                    "{proxy_type:?} must not dispatch Multisig::{name}"
+                );
+            }
+            assert!(ProxyType::Any.filter(call));
+        }
     }
 
     #[test]
@@ -334,10 +562,98 @@ mod tests {
         let denied = &(&(&group_calls::<SudoCalls>() | &group_calls::<BurnedRegistrationCalls>())
             | &(&group_calls::<RootRegistrationCalls>() | &group_calls::<CriticalNetworkCalls>()))
             | &group_calls::<ColdkeySwapCalls>();
+        let denied = &denied | &group_calls::<(CrowdloanCalls, MultisigCalls)>();
+        let denied = &denied | &group_calls::<BasketTradingCalls>();
+        let denied = &denied | &group_calls::<(MevShieldStoreEncryptedCalls, OwnerKeyCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied
         );
+    }
+
+    #[test]
+    fn indirect_value_calls_match_proxy_permissions_and_runtime_api_metadata() {
+        use frame_support::weights::Weight;
+        use subtensor_runtime_common::{AccountId, TaoBalance};
+
+        let dest = AccountId::new([2; 32]);
+        let calls = [
+            RuntimeCall::EVM(pallet_evm::Call::call {
+                source: Default::default(),
+                target: Default::default(),
+                input: vec![],
+                value: 1.into(),
+                gas_limit: 100_000,
+                max_fee_per_gas: 1.into(),
+                max_priority_fee_per_gas: None,
+                nonce: None,
+                access_list: vec![],
+                authorization_list: Default::default(),
+            }),
+            RuntimeCall::Contracts(pallet_contracts::Call::call {
+                dest: dest.clone().into(),
+                value: TaoBalance::from(1),
+                gas_limit: Weight::from_parts(100_000, 0),
+                storage_deposit_limit: None,
+                data: vec![],
+            }),
+            RuntimeCall::Crowdloan(pallet_crowdloan::Call::create {
+                deposit: TaoBalance::from(1),
+                min_contribution: TaoBalance::from(1),
+                cap: TaoBalance::from(10),
+                end: 100,
+                call: None,
+                target_address: Some(dest),
+            }),
+            RuntimeCall::Crowdloan(pallet_crowdloan::Call::contribute {
+                crowdloan_id: 0,
+                amount: TaoBalance::from(1),
+            }),
+            RuntimeCall::Crowdloan(pallet_crowdloan::Call::finalize { crowdloan_id: 0 }),
+        ];
+
+        for proxy_type in [
+            ProxyType::Any,
+            ProxyType::NonCritical,
+            ProxyType::NonTransfer,
+            ProxyType::NonFungible,
+        ] {
+            // This is the metadata provider exposed by ProxyFilterRuntimeApi.
+            let infos = get_proxy_filters(Some(vec![proxy_type as u8]));
+            assert_eq!(infos.len(), 1);
+            let info = infos.first().unwrap();
+            assert_eq!(info.proxy_type, proxy_type as u8);
+            for call in &calls {
+                let metadata = call.get_call_metadata();
+                let is_crowdloan = metadata.pallet_name == "Crowdloan";
+                // Crowdloan wrappers re-dispatch as the real coldkey; they stay on Any
+                // only. EVM / Contracts remain on NonCritical.
+                let expected = match proxy_type {
+                    ProxyType::Any => true,
+                    ProxyType::NonCritical => !is_crowdloan,
+                    ProxyType::NonTransfer | ProxyType::NonFungible => false,
+                    _ => false,
+                };
+                let executable = proxy_type.filter(call);
+                let advertised = match &info.filter_mode {
+                    FilterMode::AllowAll => true,
+                    FilterMode::Allow(allowed) => allowed.iter().any(|info| {
+                        info.pallet_name == metadata.pallet_name.as_bytes()
+                            && info.call_name == metadata.function_name.as_bytes()
+                    }),
+                };
+                assert_eq!(
+                    executable, expected,
+                    "{proxy_type:?}: {}::{} executable filter",
+                    metadata.pallet_name, metadata.function_name,
+                );
+                assert_eq!(
+                    advertised, executable,
+                    "{proxy_type:?}: {}::{} runtime API metadata",
+                    metadata.pallet_name, metadata.function_name,
+                );
+            }
+        }
     }
 
     #[test]
@@ -397,15 +713,51 @@ mod tests {
             ProxyType::Registration,
             ProxyType::RootWeights,
             ProxyType::ChildKeys,
-            ProxyType::SudoUncheckedSetCode,
             ProxyType::SwapHotkey,
             ProxyType::SubnetLeaseBeneficiary,
             ProxyType::RootClaim,
+            ProxyType::Validate,
+            ProxyType::Weights,
         ]
         .into_iter()
         .collect::<BTreeSet<_>>();
 
         assert_eq!(actual, expected);
+    }
+
+    /// `Weights` sits strictly inside `Validate`, and `NonTransfer` covers both.
+    /// `is_superset` governs onward `add_proxy` grants: only `Any` and
+    /// `NonTransfer` can actually hand out either type, since neither `Validate`
+    /// nor `Weights` reaches `Proxy::add_proxy`; the `Validate` ⊇ `Weights` arm
+    /// records the call-set containment.
+    #[test]
+    fn validate_and_weights_superset_ordering() {
+        let supersets = |child: ProxyType| {
+            all_proxy_types()
+                .into_iter()
+                .filter(|parent| parent.is_superset(&child))
+                .collect::<BTreeSet<_>>()
+        };
+        assert_eq!(
+            supersets(ProxyType::Weights),
+            [
+                ProxyType::Any,
+                ProxyType::NonTransfer,
+                ProxyType::Validate,
+                ProxyType::Weights,
+            ]
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+        );
+        assert_eq!(
+            supersets(ProxyType::Validate),
+            [ProxyType::Any, ProxyType::NonTransfer, ProxyType::Validate]
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+        );
+        assert!(!ProxyType::Weights.is_superset(&ProxyType::Validate));
+        assert!(allowed_calls(ProxyType::Weights).is_subset(&allowed_calls(ProxyType::Validate)));
+        assert!(allowed_calls(ProxyType::Validate).len() > allowed_calls(ProxyType::Weights).len());
     }
 
     #[test]
@@ -414,9 +766,17 @@ mod tests {
         // Owner-settable subnet params + subnet identity.
         assert!(owner.contains("AdminUtils::sudo_set_serving_rate_limit"));
         assert!(owner.contains("AdminUtils::sudo_set_max_difficulty"));
+        assert!(owner.contains("AdminUtils::sudo_set_min_difficulty"));
+        assert!(owner.contains("AdminUtils::sudo_set_difficulty"));
+        assert!(owner.contains("AdminUtils::sudo_set_network_pow_registration_allowed"));
         assert!(owner.contains("SubtensorModule::set_subnet_identity"));
+        // Canonical owner-or-root tempo control lives in AdminUtils; deprecated
+        // Subtensor entry points remain available for encoded-call compatibility.
+        assert!(owner.contains("AdminUtils::sudo_set_tempo"));
+        assert!(owner.contains("AdminUtils::sudo_set_activity_cutoff_factor"));
+        assert!(owner.contains("SubtensorModule::set_tempo"));
+        assert!(owner.contains("SubtensorModule::set_activity_cutoff_factor"));
         // Root-only admin is not owner-settable (gated by `ensure_root`).
-        assert!(!owner.contains("AdminUtils::sudo_set_tempo"));
         assert!(!owner.contains("AdminUtils::sudo_set_kappa"));
         assert!(!owner.contains("AdminUtils::sudo_set_total_issuance"));
         assert!(!owner.contains("AdminUtils::swap_authorities"));
@@ -452,6 +812,7 @@ mod tests {
                 "Balances::transfer_allow_death",
                 "Balances::transfer_all",
                 "SubtensorModule::transfer_stake",
+                "SubtensorModule::transfer_stake_and_hotkey",
             ])
         );
         assert_eq!(
@@ -460,11 +821,13 @@ mod tests {
                 "Balances::transfer_keep_alive",
                 "Balances::transfer_allow_death",
                 "SubtensorModule::transfer_stake",
+                "SubtensorModule::transfer_stake_and_hotkey",
             ])
         );
         assert_eq!(
             allowed_calls(ProxyType::Staking),
             expected(&[
+                "SubtensorModule::add_collateral",
                 "SubtensorModule::add_stake",
                 "SubtensorModule::add_stake_limit",
                 "SubtensorModule::remove_stake",
@@ -473,9 +836,11 @@ mod tests {
                 "SubtensorModule::unstake_all",
                 "SubtensorModule::unstake_all_alpha",
                 "SubtensorModule::move_stake",
+                "SubtensorModule::move_stake_limit",
+                "SubtensorModule::set_min_collateral",
+                "SubtensorModule::stake_into_basket",
                 "SubtensorModule::swap_stake",
                 "SubtensorModule::swap_stake_limit",
-                "SubtensorModule::set_root_claim_type",
             ])
         );
         assert_eq!(
@@ -484,6 +849,7 @@ mod tests {
                 "SubtensorModule::register",
                 "SubtensorModule::register_limit",
                 "SubtensorModule::burned_register",
+                "SubtensorModule::pow_register",
             ])
         );
         assert_eq!(
@@ -502,12 +868,382 @@ mod tests {
         );
         assert_eq!(
             allowed_calls(ProxyType::RootClaim),
-            expected(&["SubtensorModule::claim_root"])
+            expected(&[
+                "SubtensorModule::claim_root",
+                "SubtensorModule::claim_root_with_hotkey",
+            ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::BasketTrading),
+            expected(&[
+                "SubtensorModule::swap_basket",
+                "SubtensorModule::swap_basket_many",
+            ])
         );
         assert_eq!(
             allowed_calls(ProxyType::SudoUncheckedSetCode),
             expected(&["Sudo::sudo_unchecked_weight"])
         );
+        assert_eq!(
+            allowed_calls(ProxyType::Weights),
+            expected(&[
+                "SubtensorModule::batch_commit_weights",
+                "SubtensorModule::batch_reveal_weights",
+                "SubtensorModule::batch_set_weights",
+                "SubtensorModule::commit_crv3_mechanism_weights",
+                "SubtensorModule::commit_mechanism_weights",
+                "SubtensorModule::commit_timelocked_mechanism_weights",
+                "SubtensorModule::commit_timelocked_weights",
+                "SubtensorModule::commit_weights",
+                "SubtensorModule::reveal_mechanism_weights",
+                "SubtensorModule::reveal_weights",
+                "SubtensorModule::set_mechanism_weights",
+                "SubtensorModule::set_weights",
+            ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::Validate),
+            expected(&[
+                "Commitments::set_commitment",
+                "SubtensorModule::associate_evm_key",
+                "SubtensorModule::batch_commit_weights",
+                "SubtensorModule::batch_reveal_weights",
+                "SubtensorModule::batch_set_weights",
+                "SubtensorModule::commit_crv3_mechanism_weights",
+                "SubtensorModule::commit_mechanism_weights",
+                "SubtensorModule::commit_timelocked_mechanism_weights",
+                "SubtensorModule::commit_timelocked_weights",
+                "SubtensorModule::commit_weights",
+                "SubtensorModule::reveal_mechanism_weights",
+                "SubtensorModule::reveal_weights",
+                "SubtensorModule::serve_axon",
+                "SubtensorModule::serve_axon_tls",
+                "SubtensorModule::serve_prometheus",
+                "SubtensorModule::set_mechanism_weights",
+                "SubtensorModule::set_weights",
+            ])
+        );
+    }
+
+    /// Per-type deny proof for the `Validate` / `Weights` hotkey-operations grants. Every
+    /// inventory group that moves, locks, burns or spends value, rotates a key,
+    /// changes take or child keys, or re-dispatches on a fresh / inherited origin
+    /// (`Utility`, `Proxy`, `Multisig`, `Sudo`, `MevShield::store_encrypted`,
+    /// EVM, Contracts, Crowdloan) is disjoint from both allow-lists. Because the
+    /// inventory groups partition every runtime call, a new value-moving call
+    /// that lands in one of these groups is covered without editing this test.
+    #[test]
+    fn validate_and_weights_reach_no_value_key_or_wrapper_call() {
+        let forbidden = group_calls::<(
+            BalanceTransferCalls,
+            BalanceMaintenanceCalls,
+            StakeManagementCalls,
+            StakeTransferCalls,
+            BurnedRegistrationCalls,
+            RootRegistrationCalls,
+            FaucetCalls,
+            HotkeySwapCalls,
+            ColdkeySwapCalls,
+            CriticalNetworkCalls,
+            ChildKeyCalls,
+            RootClaimCalls,
+            BasketTradingCalls,
+            SubtensorValueCalls,
+            OwnerKeyCalls,
+        )>();
+        let forbidden = &forbidden
+            | &group_calls::<(
+                SudoCalls,
+                MultisigCalls,
+                MevShieldStoreEncryptedCalls,
+                MevShieldCalls,
+                EvmCalls,
+                EthereumCalls,
+                ContractsCalls,
+                CrowdloanCalls,
+                UtilityCalls,
+                ProxyCalls,
+                SchedulerCalls,
+                PreimageCalls,
+                SwapCalls,
+                LimitOrdersCalls,
+                SubnetManagementCalls,
+                RootConfigCalls,
+            )>();
+        // `SubtensorCommonCalls` still holds take changes, identity, and the
+        // coldkey-side association calls; none of them belong to a hotkey grant.
+        let forbidden = &forbidden | &group_calls::<SubtensorCommonCalls>();
+
+        for proxy_type in [ProxyType::Validate, ProxyType::Weights] {
+            let leaked = allowed_calls(proxy_type)
+                .intersection(&forbidden)
+                .cloned()
+                .collect::<Vec<_>>();
+            assert!(
+                leaked.is_empty(),
+                "{proxy_type:?} reaches forbidden calls: {leaked:?}"
+            );
+        }
+    }
+
+    /// `Validate` reaches `Commitments::set_commitment`, which reserves
+    /// `InitialDeposit + fields * FieldDeposit` from the real. The "no value
+    /// movement" claim for `Validate` holds only while both are zero, so raising
+    /// either constant must force this grant to be re-evaluated.
+    #[test]
+    fn validate_commitment_grant_relies_on_zero_commitment_deposit() {
+        use subtensor_runtime_common::{TaoBalance, Token};
+
+        assert_eq!(crate::CommitmentInitialDeposit::get(), TaoBalance::ZERO);
+        assert_eq!(crate::CommitmentFieldDeposit::get(), TaoBalance::ZERO);
+    }
+
+    /// Executable-filter proof for `Validate` / `Weights`: value-moving, key, and
+    /// wrapper calls are refused at dispatch (not only in the advertised
+    /// metadata); `Weights` also refuses the serving / association / commitment
+    /// calls that `Validate` admits; and the advertised allow-lists agree with the
+    /// filter for every call checked.
+    #[test]
+    fn validate_and_weights_executable_filter_denies_value_moves() {
+        use alloc::boxed::Box;
+        use frame_support::weights::Weight;
+        use frame_system::Call as SystemCall;
+        use pallet_balances::Call as BalancesCall;
+        use pallet_subtensor::Call as SubtensorCall;
+        use pallet_subtensor_proxy::Call as ProxyCall;
+        use pallet_subtensor_utility::Call as UtilityCall;
+        use subtensor_runtime_common::{AccountId, AlphaBalance, NetUid, TaoBalance};
+
+        let hotkey = AccountId::new([7u8; 32]);
+        let other = AccountId::new([3u8; 32]);
+        let netuid = NetUid::from(1);
+        let set_weights = RuntimeCall::SubtensorModule(SubtensorCall::set_weights {
+            netuid,
+            dests: vec![0],
+            weights: vec![1],
+            version_key: 0,
+        });
+
+        let value_or_wrapper_calls = [
+            RuntimeCall::Balances(BalancesCall::transfer_keep_alive {
+                dest: other.clone().into(),
+                value: TaoBalance::from(1),
+            }),
+            RuntimeCall::Balances(BalancesCall::transfer_all {
+                dest: other.clone().into(),
+                keep_alive: false,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::add_stake {
+                hotkey: hotkey.clone(),
+                netuid,
+                amount_staked: TaoBalance::from(1),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::remove_stake {
+                hotkey: hotkey.clone(),
+                netuid,
+                amount_unstaked: AlphaBalance::from(1),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::unstake_all {
+                hotkey: hotkey.clone(),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake {
+                destination_coldkey: other.clone(),
+                hotkey: hotkey.clone(),
+                origin_netuid: netuid,
+                destination_netuid: netuid,
+                alpha_amount: AlphaBalance::from(1),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::move_stake {
+                origin_hotkey: hotkey.clone(),
+                destination_hotkey: other.clone(),
+                origin_netuid: netuid,
+                destination_netuid: netuid,
+                alpha_amount: AlphaBalance::from(1),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+                hotkey: hotkey.clone(),
+                origin_netuid: netuid,
+                destination_netuid: NetUid::from(2),
+                amount: AlphaBalance::from(1),
+                min_amount_out: 0,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket {
+                hotkey: hotkey.clone(),
+                amount_staked: TaoBalance::from(1),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::claim_root_with_hotkey {
+                hotkey: hotkey.clone(),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::burned_register {
+                netuid,
+                hotkey: hotkey.clone(),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::root_register {
+                hotkey: hotkey.clone(),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::swap_hotkey {
+                hotkey: hotkey.clone(),
+                new_hotkey: other.clone(),
+                netuid: None,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::set_children {
+                hotkey: hotkey.clone(),
+                netuid,
+                children: vec![],
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::increase_take {
+                hotkey: hotkey.clone(),
+                take: sp_runtime::PerU16::from_percent(1),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::burn_alpha {
+                hotkey: hotkey.clone(),
+                amount: AlphaBalance::from(1),
+                netuid,
+            }),
+            RuntimeCall::Utility(UtilityCall::batch {
+                calls: vec![set_weights.clone()],
+            }),
+            RuntimeCall::Utility(UtilityCall::batch_all {
+                calls: vec![set_weights.clone()],
+            }),
+            RuntimeCall::Utility(UtilityCall::with_weight {
+                call: Box::new(set_weights.clone()),
+                weight: Weight::zero(),
+            }),
+            RuntimeCall::Proxy(ProxyCall::add_proxy {
+                delegate: other.clone().into(),
+                proxy_type: ProxyType::Weights,
+                delay: 0,
+            }),
+            RuntimeCall::Proxy(ProxyCall::set_real_pays_fee {
+                delegate: other.clone().into(),
+                pays_fee: true,
+            }),
+            RuntimeCall::Multisig(pallet_multisig::Call::as_multi_threshold_1 {
+                other_signatories: vec![other.clone()],
+                call: Box::new(set_weights.clone()),
+            }),
+            RuntimeCall::Sudo(pallet_sudo::Call::sudo {
+                call: Box::new(set_weights.clone()),
+            }),
+            RuntimeCall::MevShield(pallet_shield::Call::store_encrypted {
+                encrypted_call: Default::default(),
+            }),
+            RuntimeCall::EVM(pallet_evm::Call::call {
+                source: Default::default(),
+                target: Default::default(),
+                input: vec![],
+                value: 0.into(),
+                gas_limit: 100_000,
+                max_fee_per_gas: 1.into(),
+                max_priority_fee_per_gas: None,
+                nonce: None,
+                access_list: vec![],
+                authorization_list: Default::default(),
+            }),
+            RuntimeCall::System(SystemCall::remark { remark: vec![] }),
+        ];
+        let validate_only_calls = [
+            RuntimeCall::SubtensorModule(SubtensorCall::serve_axon {
+                netuid,
+                version: 1,
+                ip: 1,
+                port: 1,
+                ip_type: 4,
+                protocol: 0,
+                placeholder1: 0,
+                placeholder2: 0,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::serve_prometheus {
+                netuid,
+                version: 1,
+                ip: 1,
+                port: 1,
+                ip_type: 4,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::associate_evm_key {
+                netuid,
+                evm_key: Default::default(),
+                block_number: 0,
+                signature: sp_core::ecdsa::Signature::from_raw([0u8; 65]),
+            }),
+            RuntimeCall::Commitments(pallet_commitments::Call::set_commitment {
+                netuid,
+                info: Box::default(),
+            }),
+        ];
+        let weight_calls = [
+            set_weights.clone(),
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_weights {
+                netuid,
+                commit_hash: Default::default(),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::reveal_weights {
+                netuid,
+                uids: vec![0],
+                values: vec![1],
+                salt: vec![],
+                version_key: 0,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights {
+                netuids: vec![codec::Compact(netuid)],
+                weights: vec![vec![(codec::Compact(0u16), codec::Compact(1u16))]],
+                version_keys: vec![codec::Compact(0u64)],
+            }),
+        ];
+
+        let advertised = |proxy_type: ProxyType, call: &RuntimeCall| {
+            let metadata = call.get_call_metadata();
+            allowed_calls(proxy_type).contains(&format!(
+                "{}::{}",
+                metadata.pallet_name, metadata.function_name
+            ))
+        };
+
+        for call in &value_or_wrapper_calls {
+            let name = call.get_call_metadata().function_name;
+            for proxy_type in [ProxyType::Validate, ProxyType::Weights] {
+                assert!(
+                    !proxy_type.filter(call),
+                    "{proxy_type:?} must not dispatch {name}"
+                );
+                assert!(
+                    !advertised(proxy_type, call),
+                    "{proxy_type:?} advertises {name}"
+                );
+            }
+        }
+        for call in &validate_only_calls {
+            let name = call.get_call_metadata().function_name;
+            assert!(
+                ProxyType::Validate.filter(call),
+                "Validate dispatches {name}"
+            );
+            assert!(
+                !ProxyType::Weights.filter(call),
+                "Weights must not dispatch {name}"
+            );
+            assert!(advertised(ProxyType::Validate, call));
+            assert!(!advertised(ProxyType::Weights, call));
+        }
+        for call in &weight_calls {
+            let name = call.get_call_metadata().function_name;
+            for proxy_type in [ProxyType::Validate, ProxyType::Weights] {
+                assert!(proxy_type.filter(call), "{proxy_type:?} dispatches {name}");
+                assert!(advertised(proxy_type, call));
+            }
+        }
+        // The broad grants that already covered these hotkey operations keep them.
+        for call in weight_calls.iter().chain(validate_only_calls.iter()) {
+            let name = call.get_call_metadata().function_name;
+            for proxy_type in [
+                ProxyType::NonTransfer,
+                ProxyType::NonFungible,
+                ProxyType::NonCritical,
+            ] {
+                assert!(proxy_type.filter(call), "{proxy_type:?} keeps {name}");
+            }
+        }
     }
 
     // The newer calls that leaked through `main`'s denylists must stay denied
@@ -521,8 +1257,15 @@ mod tests {
         ] {
             let allowed = allowed_calls(proxy_type);
             assert!(!allowed.contains("SubtensorModule::reset_coldkey_swap"));
+            assert!(!allowed.contains("SubtensorModule::reset_coldkey_swap_keep_locked"));
             assert!(!allowed.contains("SubtensorModule::swap_coldkey"));
             assert!(!allowed.contains("SubtensorModule::schedule_swap_coldkey"));
+            assert!(!allowed.contains("Multisig::as_multi_threshold_1"));
+            assert!(!allowed.contains("Multisig::as_multi"));
+            assert!(!allowed.contains("Crowdloan::finalize"));
+            assert!(!allowed.contains("Sudo::sudo"));
+            assert!(!allowed.contains("MevShield::store_encrypted"));
+            assert!(!allowed.contains("AdminUtils::sudo_set_sn_owner_hotkey"));
         }
         // `root_dissolve_network` leaked into NonCritical specifically.
         assert!(
@@ -617,6 +1360,138 @@ mod tests {
         ));
     }
 
+    /// `BasketTrading` admits only the single- and multi-leg basket trade calls, no other
+    /// narrow proxy admits either call, and broad proxies include them only where
+    /// value-moving stake calls are allowed.
+    #[test]
+    fn basket_trading_proxy_grants_exactly_swap_basket() {
+        use frame_system::Call as SystemCall;
+        use pallet_subtensor::Call as SubtensorCall;
+        use subtensor_runtime_common::{AccountId, AlphaBalance, NetUid, TaoBalance};
+
+        let hotkey = AccountId::new([7u8; 32]);
+        let swap_basket = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+            hotkey: hotkey.clone(),
+            origin_netuid: NetUid::from(1),
+            destination_netuid: NetUid::from(2),
+            amount: AlphaBalance::from(1),
+            min_amount_out: 0,
+        });
+        let swap_basket_many = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket_many {
+            hotkey: hotkey.clone(),
+            legs: sp_runtime::BoundedVec::truncate_from(vec![(
+                NetUid::from(1),
+                NetUid::from(2),
+                AlphaBalance::from(1),
+                0,
+            )]),
+        });
+        let stake_into_basket = RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket {
+            hotkey: hotkey.clone(),
+            amount_staked: TaoBalance::from(1),
+        });
+        let claim = RuntimeCall::SubtensorModule(SubtensorCall::claim_root_with_hotkey { hotkey });
+        let remark = RuntimeCall::System(SystemCall::remark { remark: vec![] });
+
+        // The trading proxy admits the trade and nothing adjacent to it.
+        assert!(proxy_type_filter(&ProxyType::BasketTrading, &swap_basket));
+        assert!(proxy_type_filter(
+            &ProxyType::BasketTrading,
+            &swap_basket_many
+        ));
+        for denied in [&stake_into_basket, &claim, &remark] {
+            assert!(!proxy_type_filter(&ProxyType::BasketTrading, denied));
+        }
+
+        // No other narrow proxy can be used to trade the basket.
+        for narrow in [
+            ProxyType::Owner,
+            ProxyType::Staking,
+            ProxyType::Registration,
+            ProxyType::Transfer,
+            ProxyType::SmallTransfer,
+            ProxyType::RootClaim,
+            ProxyType::ChildKeys,
+            ProxyType::SwapHotkey,
+            ProxyType::SubnetLeaseBeneficiary,
+            ProxyType::SudoUncheckedSetCode,
+            ProxyType::RootWeights,
+            ProxyType::Validate,
+            ProxyType::Weights,
+        ] {
+            assert!(
+                !proxy_type_filter(&narrow, &swap_basket),
+                "{narrow:?} must not admit swap_basket"
+            );
+            assert!(
+                !proxy_type_filter(&narrow, &swap_basket_many),
+                "{narrow:?} must not admit swap_basket_many"
+            );
+        }
+
+        // Only `Any` may trade among the broad proxies; `NonFungible` (no value movement)
+        // may not. `NonTransfer` / `NonCritical` are pinned separately below.
+        assert!(proxy_type_filter(&ProxyType::Any, &swap_basket));
+        assert!(proxy_type_filter(&ProxyType::Any, &swap_basket_many));
+        assert!(!proxy_type_filter(&ProxyType::NonFungible, &swap_basket));
+        assert!(!proxy_type_filter(
+            &ProxyType::NonFungible,
+            &swap_basket_many
+        ));
+
+        // Superset relation: only `Any` covers the trading grant.
+        let supersets = all_proxy_types()
+            .into_iter()
+            .filter(|proxy_type| proxy_type.is_superset(&ProxyType::BasketTrading))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            supersets,
+            [ProxyType::Any, ProxyType::BasketTrading]
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+        );
+    }
+
+    /// Basket trades need the explicit `BasketTrading` grant: the broad `NonTransfer` and
+    /// `NonCritical` delegations do not admit them (PR #3150 calibration pass §5.6), so an
+    /// existing delegate does not gain trading power at upgrade without opting in.
+    #[test]
+    fn broad_proxies_do_not_admit_swap_basket_without_explicit_grant() {
+        use pallet_subtensor::Call as SubtensorCall;
+        use subtensor_runtime_common::{AccountId, AlphaBalance, NetUid};
+
+        let swap_basket = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+            hotkey: AccountId::new([7u8; 32]),
+            origin_netuid: NetUid::from(1),
+            destination_netuid: NetUid::from(2),
+            amount: AlphaBalance::from(1),
+            min_amount_out: 0,
+        });
+        let swap_basket_many = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket_many {
+            hotkey: AccountId::new([7u8; 32]),
+            legs: sp_runtime::BoundedVec::truncate_from(vec![(
+                NetUid::from(1),
+                NetUid::from(2),
+                AlphaBalance::from(1),
+                0,
+            )]),
+        });
+        for broad in [ProxyType::NonTransfer, ProxyType::NonCritical] {
+            assert!(
+                !proxy_type_filter(&broad, &swap_basket),
+                "{broad:?} must not admit swap_basket"
+            );
+            assert!(!allowed_calls(broad).contains("SubtensorModule::swap_basket"));
+            assert!(!proxy_type_filter(&broad, &swap_basket_many));
+            assert!(!allowed_calls(broad).contains("SubtensorModule::swap_basket_many"));
+        }
+        assert!(proxy_type_filter(&ProxyType::BasketTrading, &swap_basket));
+        assert!(proxy_type_filter(
+            &ProxyType::BasketTrading,
+            &swap_basket_many
+        ));
+    }
+
     #[test]
     fn sudo_unchecked_set_code_only_matches_set_code() {
         use alloc::boxed::Box;
@@ -650,5 +1525,41 @@ mod tests {
             &ProxyType::SudoUncheckedSetCode,
             &checked
         ));
+    }
+}
+
+#[cfg(test)]
+mod pow_proxy_tests {
+    use super::*;
+    use pallet_subtensor::Call;
+    use subtensor_runtime_common::{AccountId, NetUid};
+
+    #[test]
+    fn pow_and_legacy_burn_registration_have_distinct_proxy_permissions() {
+        let hotkey = AccountId::new([7; 32]);
+        let coldkey = AccountId::new([8; 32]);
+        let netuid = NetUid::from(1);
+        let pow = RuntimeCall::SubtensorModule(Call::pow_register {
+            netuid,
+            work_block: 1,
+            nonce: 0,
+            work: [0; 32],
+            hotkey: hotkey.clone(),
+        });
+        let legacy = RuntimeCall::SubtensorModule(Call::register {
+            netuid,
+            block_number: 1,
+            nonce: 0,
+            work: vec![],
+            hotkey,
+            coldkey,
+        });
+        assert!(ProxyType::Registration.filter(&pow));
+        assert!(ProxyType::Registration.filter(&legacy));
+        assert!(ProxyType::NonFungible.filter(&pow));
+        assert!(!ProxyType::NonFungible.filter(&legacy));
+        assert!(ProxyType::NonCritical.filter(&pow));
+        assert!(!ProxyType::NonCritical.filter(&legacy));
+        assert!(!ProxyType::Staking.filter(&pow));
     }
 }

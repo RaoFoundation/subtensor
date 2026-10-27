@@ -182,8 +182,9 @@ function WalletCard({card}: {card: WalletCardConfig}) {
       ) : (
         <Link
           href={(card as StandardWalletCard).primaryHref}
-          target="_blank"
-          rel="noreferrer noopener"
+          {...((card as StandardWalletCard).primaryHref.startsWith('/')
+            ? {}
+            : {target: '_blank', rel: 'noreferrer noopener'})}
           className={styles.cardHitArea}
           aria-label={(card as StandardWalletCard).primaryAriaLabel}
           onClick={triggerCardBorderAccent}>
@@ -195,6 +196,13 @@ function WalletCard({card}: {card: WalletCardConfig}) {
 }
 
 const walletsSectionCards: WalletCardConfig[] = [
+  {
+    title: 'Bittensor CLI',
+    primaryHref: '/docs/quickstart#1-install',
+    primaryAriaLabel: 'Bittensor CLI — open install docs',
+    description: 'Command-line interface for managing wallets, staking, and on-chain interactions',
+    platforms: [{kind: 'cli'}],
+  },
   {
     title: 'Crucible Wallet',
     primaryHref: 'https://cruciblelabs.com/',
@@ -252,13 +260,6 @@ const walletsSectionCards: WalletCardConfig[] = [
       </>
     ),
     platforms: [{kind: 'chrome'}, {kind: 'external'}],
-  },
-  {
-    title: 'Bittensor CLI',
-    primaryHref: 'https://github.com/RaoFoundation/btcli',
-    primaryAriaLabel: 'Bittensor CLI — open GitHub repository',
-    description: 'Command-line interface for managing wallets, staking, and on-chain interactions',
-    platforms: [{kind: 'cli'}],
   },
 ];
 

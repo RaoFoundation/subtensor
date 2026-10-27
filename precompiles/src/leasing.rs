@@ -122,6 +122,23 @@ where
         Ok(lease_id.into())
     }
 
+    #[precompile::public("getNextLeaseId()")]
+    #[precompile::view]
+    fn get_next_lease_id(handle: &mut impl PrecompileHandle) -> EvmResult<u32> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::NextSubnetLeaseId::<R>::get())
+    }
+
+    #[precompile::public("getAccumulatedLeaseDividends(uint32)")]
+    #[precompile::view]
+    fn get_accumulated_lease_dividends(
+        handle: &mut impl PrecompileHandle,
+        lease_id: u32,
+    ) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::AccumulatedLeaseDividends::<R>::get(lease_id).into())
+    }
+
     #[precompile::public("createLeaseCrowdloan(uint64,uint64,uint64,uint32,uint8,bool,uint32)")]
     #[precompile::payable]
     #[allow(clippy::too_many_arguments)]
@@ -175,6 +192,15 @@ where
         let hotkey = R::AccountId::from(hotkey.0);
         let call = pallet_subtensor::Call::<R>::terminate_lease { lease_id, hotkey };
 
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(who))
+    }
+
+    #[precompile::public("startCall(uint16)")]
+    fn start_call(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<()> {
+        let who = handle.caller_account_id::<R>();
+        let call = pallet_subtensor::Call::<R>::start_call {
+            netuid: NetUid::from(netuid),
+        };
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(who))
     }
 }
@@ -325,6 +351,32 @@ mod tests {
             get_lease(caller, lease_id, expected_lease_info(lease_id));
 
             let precompile_addr = addr_from_index(LeasingPrecompile::<Runtime>::INDEX);
+            precompiles::<LeasingPrecompile<Runtime>>()
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    selector_u32("getNextLeaseId()").to_be_bytes().to_vec(),
+                )
+                .with_static_call(true)
+                .execute_returns(pallet_subtensor::NextSubnetLeaseId::<Runtime>::get());
+
+            let accumulated_dividends = 321_u64;
+            pallet_subtensor::AccumulatedLeaseDividends::<Runtime>::insert(
+                lease_id,
+                subtensor_runtime_common::AlphaBalance::from(accumulated_dividends),
+            );
+            precompiles::<LeasingPrecompile<Runtime>>()
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getAccumulatedLeaseDividends(uint32)"),
+                        (lease_id,),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_returns(accumulated_dividends);
+
             precompiles::<LeasingPrecompile<Runtime>>()
                 .prepare_test(
                     caller,

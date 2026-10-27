@@ -1,0 +1,129 @@
+@import url(../../shared.module.css);
+
+.paper_title {
+  font-size: 20px;
+}
+
+.subtitle {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 200;
+  margin-bottom: -8px;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.paper_link {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 200;
+  text-transform: uppercase;
+  color: #d15168;
+}
+
+.inline_link {
+  color: #d15168;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.list {
+  list-style-type: decimal;
+  margin: 10px 10px;
+  padding: inherit 10px;
+  display: flex;
+  gap: 10px;
+  flex-direction: column;
+  width: calc(100% - 40px);
+}
+
+.code_block {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 200;
+  width: calc(100vw - 64px);
+  max-width: 896px;
+  margin: 0;
+  padding: 16px 20px;
+  border: 1px solid rgba(41, 41, 41, 0.2);
+  box-sizing: border-box;
+  text-align: left;
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.6;
+}
+
+.graph {
+  width: 100%;
+  height: auto;
+  margin-top: 8px;
+}
+
+@media (max-width: 640px) {
+  .graph text {
+    font-size: 16px;
+  }
+}
+
+.graph_caption {
+  font-size: 12px;
+  opacity: 0.7;
+  text-align: center !important;
+}
+
+.metrics_table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.metrics_table th {
+  font-family: 'FiraCode';
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgb(41, 41, 41);
+}
+
+.metrics_table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(41, 41, 41, 0.15);
+  text-align: left;
+}
+
+.metrics_table td:last-child,
+.metrics_table th:last-child {
+  text-align: right;
+  font-family: 'FiraCode';
+  font-size: 12px;
+}
+
+.headline_number {
+  font-family: 'FiraCode';
+  font-size: 34px;
+  font-weight: 400;
+  text-align: center;
+  margin: 8px 0 0;
+  letter-spacing: 0.02em;
+}
+
+.headline_label {
+  font-family: 'FiraCode';
+  font-size: 11px;
+  font-weight: 200;
+  text-transform: uppercase;
+  text-align: center;
+  opacity: 0.6;
+  margin-top: 2px;
+}
+
+.data_note {
+  font-family: 'FiraCode';
+  font-size: 10px;
+  font-weight: 200;
+  text-transform: uppercase;
+  opacity: 0.55;
+  text-align: center !important;
+}

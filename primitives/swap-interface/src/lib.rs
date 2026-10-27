@@ -11,6 +11,16 @@ use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 
 mod order;
 
+/// Coarse failure classification for protocol-owned basket operations. Callers may recover from
+/// an oversized input by chunking, and may explicitly write off a terminally untradeable asset;
+/// every other error remains fatal so accounting/transfer failures are never mistaken for dust.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SwapFailureKind {
+    InputTooLarge,
+    TerminalLiquidity,
+    Other,
+}
+
 pub trait SwapEngine<O: Order>: DefaultPriceLimit<O::PaidIn, O::PaidOut> {
     fn swap(
         netuid: NetUid,
@@ -53,6 +63,18 @@ pub trait SwapHandler {
     fn clear_protocol_liquidity(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool;
     fn init_swap(netuid: NetUid, maybe_price: Option<U64F64>);
     fn get_alpha_amount_for_tao(netuid: NetUid, tao_amount: TaoBalance) -> AlphaBalance;
+
+    /// Maximum conservative gross input accepted by one swap for this order. Protocol basket
+    /// swaps drop fees, so the input-reserve multiple is exact for their use. Larger operations
+    /// must be executed in sequential chunks so each chunk observes the reserves left by the
+    /// previous one.
+    fn max_swap_input<O: Order>(netuid: NetUid) -> O::PaidIn
+    where
+        Self: SwapEngine<O>;
+
+    /// Classify a swap error without making callers depend on a concrete swap pallet's module
+    /// error indices.
+    fn classify_failure(error: &DispatchError) -> SwapFailureKind;
 }
 
 /// Combined swap + balance execution interface for limit orders.

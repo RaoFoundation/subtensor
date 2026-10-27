@@ -12,16 +12,16 @@ produces headers, `verify` checks them — with no HTTP server or client
 attached. Bring your own framework; recipes for FastAPI and httpx are below.
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
 # client (e.g. a validator querying a miner)
-headers = sub.http_auth.sign(
+headers = bt.http_auth.sign(
     wallet, method="POST", path="/generate", body=body_bytes,
     receiver_ss58=miner_hotkey,
 )
 
 # server (e.g. the miner)
-caller = sub.http_auth.verify(
+caller = bt.http_auth.verify(
     request_headers, body_bytes,
     method="POST", path="/generate", self_hotkey_ss58=my_hotkey,
 )
@@ -109,14 +109,14 @@ re-encodes parsed JSON (key order, whitespace) will compute a different hash
 and reject valid requests.
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from fastapi import Depends, FastAPI, HTTPException, Request
 
-MY_HOTKEY = sub.Wallet(name="my_coldkey", hotkey="my_hotkey").hotkey.ss58_address
+MY_HOTKEY = bt.Wallet(name="my_coldkey", hotkey="my_hotkey").hotkey.ss58_address
 
 app = FastAPI()
 
-async def authenticated(request: Request) -> sub.http_auth.Caller:
+async def authenticated(request: Request) -> bt.http_auth.Caller:
     body = await request.body()          # raw bytes, cached by Starlette
     # Rebuild the request target in its wire (percent-encoded) form. ASGI's
     # `path` is percent-decoded — using it would break signatures on any
@@ -125,17 +125,17 @@ async def authenticated(request: Request) -> sub.http_auth.Caller:
     if request.scope["query_string"]:
         target += "?" + request.scope["query_string"].decode()
     try:
-        return sub.http_auth.verify(
+        return bt.http_auth.verify(
             request.headers, body,
             method=request.method,
             path=target,
             self_hotkey_ss58=MY_HOTKEY,
         )
-    except sub.http_auth.AuthError as e:
+    except bt.http_auth.AuthError as e:
         raise HTTPException(status_code=401, detail=str(e))
 
 @app.post("/generate")
-async def generate(request: Request, caller: sub.http_auth.Caller = Depends(authenticated)):
+async def generate(request: Request, caller: bt.http_auth.Caller = Depends(authenticated)):
     payload = await request.json()       # parse only after verification
     ...
 ```
@@ -147,9 +147,9 @@ subnet with real stake" — that's a metagraph lookup:
 ```python
 mg = await client.subnets.metagraph(netuid)      # refresh periodically
 
-def allowed(caller: sub.http_auth.Caller) -> bool:
+def allowed(caller: bt.http_auth.Caller) -> bool:
     n = mg.by_hotkey(caller.hotkey_ss58)
-    return n is not None and n.validator_permit and n.tao_stake >= sub.tao(1000)
+    return n is not None and n.validator_permit and n.tao_stake >= bt.tao(1000)
 ```
 
 Return 403 for a verified-but-unwelcome caller, and use `caller.hotkey_ss58`
@@ -167,7 +167,7 @@ already-signed request and will be rejected as replays — retry at the
 application level:
 
 ```python
-import bittensor as sub
+import bittensor as bt
 import httpx
 
 class HotkeyAuth(httpx.Auth):
@@ -177,7 +177,7 @@ class HotkeyAuth(httpx.Auth):
         self.wallet, self.receiver = wallet, receiver_ss58
 
     def auth_flow(self, request):
-        request.headers.update(sub.http_auth.sign(
+        request.headers.update(bt.http_auth.sign(
             self.wallet,
             method=request.method,
             path=request.url.raw_path.decode(),   # path + query, as sent
@@ -186,7 +186,7 @@ class HotkeyAuth(httpx.Auth):
         ))
         yield request
 
-async def query_miner(wallet, miner: sub.MetagraphNeuron, body: bytes):
+async def query_miner(wallet, miner: bt.MetagraphNeuron, body: bytes):
     async with httpx.AsyncClient(base_url=f"http://{miner.axon}") as http:
         r = await http.post(
             "/generate", content=body,
@@ -285,7 +285,7 @@ address. The signature must be exactly:
 0x1a6b631988bf1f7ea093ab9d5acf61f05c316d0b0e428b24b487b75a5f6ee0e1a56a26918fdf871b6cf09437e6588023a4ce423cf622621b2a7feee17612f704
 ```
 
-The Python `sub.http_auth.build_payload(...)` function produces these payload
+The Python `bt.http_auth.build_payload(...)` function produces these payload
 bytes directly, for pinning in tests.
 
 ## Accepting legacy (v10 SDK) callers

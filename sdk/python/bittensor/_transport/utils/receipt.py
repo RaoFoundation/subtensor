@@ -1,9 +1,75 @@
-from typing import Optional
+from typing import Any, Optional
+
+from ...error_map import DISPATCH_ERRORS
+
+# Wrapper pallets that report an *inner* DispatchResult while the outer
+# extrinsic still emits System.ExtrinsicSuccess. Keyed by (module, event) →
+# attribute holding the Result (or a bare DispatchError for Utility batch).
+_NESTED_RESULT_EVENTS: dict[tuple[str, str], str] = {
+    ("Sudo", "Sudid"): "sudo_result",
+    ("Sudo", "SudoAsDone"): "sudo_result",
+    ("Proxy", "ProxyExecuted"): "result",
+    ("Multisig", "MultisigExecuted"): "result",
+    # Utility.batch stops on first failure; force_batch emits ItemFailed per item.
+    ("Utility", "BatchInterrupted"): "error",
+    ("Utility", "ItemFailed"): "error",
+}
 
 
 def _get_event_parts(event: dict) -> tuple[str, str, dict]:
     event_data = event["event"]
     return event_data["module_id"], event_data["event_id"], event_data["attributes"]
+
+
+def nested_dispatch_error(events: list) -> Optional[Any]:
+    """Inner ``Err`` payload from a Sudo/Proxy/Multisig wrapper event, if any.
+
+    These wrappers dispatch a nested call: the outer extrinsic succeeds (and
+    emits ``System.ExtrinsicSuccess``) even when the nested call fails. The
+    failure lives only in the wrapper event's ``Result`` field.
+    """
+    for entry in events:
+        record = entry.value if hasattr(entry, "value") else entry
+        if not isinstance(record, dict):
+            continue
+        event = record.get("event", record)
+        if not isinstance(event, dict):
+            continue
+        module_id = event.get("module_id")
+        event_id = event.get("event_id")
+        if not isinstance(module_id, str) or not isinstance(event_id, str):
+            continue
+        field = _NESTED_RESULT_EVENTS.get((module_id, event_id))
+        if field is None:
+            continue
+        attributes = event.get("attributes")
+        result = attributes.get(field) if isinstance(attributes, dict) else attributes
+        if isinstance(result, dict) and "Err" in result:
+            return result["Err"]
+        # Utility.BatchInterrupted / ItemFailed carry a bare DispatchError.
+        if module_id == "Utility" and result is not None:
+            return result
+    return None
+
+
+def dispatch_error_message(dispatch_error: Any, codec: Any) -> Optional[dict]:
+    """Resolve a ``DispatchError`` (module or system) to the receipt error shape."""
+    if dispatch_error is None:
+        return None
+    if isinstance(dispatch_error, str):
+        return {"type": "System", "name": dispatch_error, "docs": dispatch_error}
+    if not isinstance(dispatch_error, dict):
+        return {"type": "System", "name": "DispatchError", "docs": str(dispatch_error)}
+    module_error = normalize_module_error(dispatch_error)
+    if module_error is not None:
+        return codec.module_error(module_error["module_index"], module_error["error_index"])
+    message = build_system_error_message(dispatch_error)
+    if message is not None:
+        return message
+    if len(dispatch_error) == 1:
+        name, detail = next(iter(dispatch_error.items()))
+        return {"type": "System", "name": str(name), "docs": str(detail)}
+    return {"type": "System", "name": "DispatchError", "docs": str(dispatch_error)}
 
 
 def extract_total_fee_amount(events: list[dict]) -> tuple[int, bool]:
@@ -129,19 +195,40 @@ def build_system_error_message(dispatch_error: dict) -> Optional[dict]:
 
     if "BadOrigin" in dispatch_error:
         name = "BadOrigin"
-        docs = "Bad origin"
     elif "CannotLookup" in dispatch_error:
         name = "CannotLookup"
-        docs = "Cannot lookup"
     elif "Other" in dispatch_error:
         name = "Other"
         docs = "Unspecified error occurred"
     elif "Token" in dispatch_error:
-        name = "Token"
-        docs = dispatch_error["Token"]
+        # The TokenError variant is the useful name ("FundsUnavailable"), not
+        # the "Token" wrapper — downstream classification and `btcli explain`
+        # key on the variant.
+        variant = dispatch_error["Token"]
+        if isinstance(variant, dict) and variant:
+            variant = next(iter(variant))
+        name = str(variant)
+    elif "Arithmetic" in dispatch_error:
+        variant = dispatch_error["Arithmetic"]
+        name = str(next(iter(variant))) if isinstance(variant, dict) and variant else "Arithmetic"
+    elif "Transactional" in dispatch_error:
+        variant = dispatch_error["Transactional"]
+        name = (
+            str(next(iter(variant))) if isinstance(variant, dict) and variant else "Transactional"
+        )
+    elif "Exhausted" in dispatch_error:
+        name = "Exhausted"
+    elif "Corruption" in dispatch_error:
+        name = "Corruption"
+    elif "Unavailable" in dispatch_error:
+        name = "Unavailable"
+    elif "RootNotAllowed" in dispatch_error:
+        name = "RootNotAllowed"
 
     if name is None:
         return None
+    if docs is None:
+        _, docs = DISPATCH_ERRORS.get(name, (None, name))
 
     return {
         "type": "System",

@@ -160,6 +160,7 @@ impl frame_support::traits::InstanceFilter<RuntimeCall> for subtensor_runtime_co
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_stake { .. })
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_stake_limit { .. })
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_stake { .. })
+                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_stake_limit { .. })
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::transfer_stake { .. })
             ),
             _ => false,
@@ -310,6 +311,7 @@ parameter_types! {
     pub const InitialBurn: u64 = 0;
     pub const InitialMinBurn: u64 = 500_000;
     pub const InitialMinStake: u64 = 2_000_000;
+    pub const InitialMinTransfer: u64 = 2_000_000;
     pub const InitialMaxBurn: u64 = 1_000_000_000;
     pub const MinBurnUpperBound: TaoBalance = TaoBalance::new(1_000_000_000); // 1 TAO
     pub const MaxBurnLowerBound: TaoBalance = TaoBalance::new(100_000_000); // 0.1 TAO
@@ -345,7 +347,7 @@ parameter_types! {
     pub const InitialColdkeySwapAnnouncementDelay: u64 =  50;
     pub const InitialColdkeySwapReannouncementDelay: u64 = 10;
     pub const InitialDissolveNetworkScheduleDuration: u64 =  5 * 24 * 60 * 60 / 12; // Default as 5 days
-    pub const InitialTaoWeight: u64 = 0; // 100% global weight.
+    pub const InitialTaoWeight: u64 = 0; // 0% TAO weight.
     pub const InitialEmaPriceHalvingPeriod: u64 = 201_600_u64; // 4 weeks
     pub const InitialStartCallDelay: u64 =  7 * 24 * 60 * 60 / 12; // Default as 7 days
     pub const InitialKeySwapOnSubnetCost: TaoBalance = TaoBalance::new(10_000_000);
@@ -403,6 +405,7 @@ impl pallet_subtensor::Config for Test {
     type InitialMaxBurn = InitialMaxBurn;
     type InitialMinBurn = InitialMinBurn;
     type InitialMinStake = InitialMinStake;
+    type InitialMinTransfer = InitialMinTransfer;
     type MinBurnUpperBound = MinBurnUpperBound;
     type MaxBurnLowerBound = MaxBurnLowerBound;
     type MinTempo = MinTempo;
@@ -475,13 +478,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
+
+    fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 
 parameter_types! {
@@ -547,6 +552,10 @@ impl ProxyInterface<U256> for FakeProxier {
             proxies.0.retain(|(b, l)| b != beneficiary && l != lease);
         });
         Ok(())
+    }
+
+    fn has_delegator_proxies(_delegator: &AccountId) -> bool {
+        false
     }
 }
 
@@ -704,13 +713,13 @@ pub fn register_ok_neuron(
     let result = SubtensorModule::burned_register(origin.clone(), netuid, hotkey_account_id);
 
     match result {
-        Ok(()) => {
+        Ok(_) => {
             // success
         }
         Err(e)
-            if e == Error::<Test>::TooManyRegistrationsThisInterval.into()
-                || e == Error::<Test>::NotEnoughBalanceToStake.into()
-                || e == Error::<Test>::ZeroBalanceAfterWithdrawn.into() =>
+            if e.error == Error::<Test>::TooManyRegistrationsThisInterval.into()
+                || e.error == Error::<Test>::NotEnoughBalanceToStake.into()
+                || e.error == Error::<Test>::ZeroBalanceAfterWithdrawn.into() =>
         {
             // Re-top-up and retry once (burn can be state-dependent).
             top_up_for_burn(netuid, coldkey_account_id);
@@ -746,7 +755,10 @@ pub fn remove_balance_from_coldkey_account(coldkey: &U256, tao: TaoBalance) {
 pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
     let netuid = SubtensorModule::get_next_netuid();
     let lock_cost = SubtensorModule::get_network_lock_cost();
-    add_balance_to_coldkey_account(coldkey, lock_cost.into());
+    add_balance_to_coldkey_account(
+        coldkey,
+        ExistentialDeposit::get().saturating_add(lock_cost.into()),
+    );
 
     assert_ok!(SubtensorModule::register_network(
         RawOrigin::Signed(*coldkey).into(),

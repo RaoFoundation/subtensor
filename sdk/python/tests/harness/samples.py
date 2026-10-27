@@ -20,6 +20,36 @@ ALICE_HOT = Keypair.create_from_uri("//Alice//hot").ss58_address
 BOB = Keypair.create_from_uri("//Bob").ss58_address
 BOB_HOT = Keypair.create_from_uri("//Bob//hot").ss58_address
 
+_U64_MAX = 2**64 - 1
+_OWNER_18 = (11796 * _U64_MAX) // 65535
+_VALIDATOR_41 = (_U64_MAX - _OWNER_18) // 2
+# Mainnet ``SubtensorInitialTaoWeight`` (~5.27%).
+TAO_WEIGHT = 971_718_665_099_567_868
+# Root TAO and the sample subnet's alpha issuance (rao) the emission fixtures
+# are seeded with; root's baseline share ``V0 * x / (x + A)`` is derived from
+# them exactly as the chain's ``get_subnet_emission_weights`` reports it.
+EMISSION_ROOT_TAO = 5_443_000 * 10**9
+EMISSION_ALPHA_ISSUANCE = 6_457_000 * 10**9
+_ROOT_X = EMISSION_ROOT_TAO * TAO_WEIGHT // _U64_MAX
+ROOT_BASELINE_SHARE = _VALIDATOR_41 * _ROOT_X // (_ROOT_X + EMISSION_ALPHA_ISSUANCE)
+
+# The chain's default emission weight vector as ``get_subnet_emission_weights``
+# decodes it (mainnet: 18% owner, 41% validator, 41% miner); root is paid its
+# baseline share off the top of the validator slot, so on the default vector
+# ``root_share == root_baseline_share``.
+EMISSION_WEIGHTS_INFO: dict = {
+    "netuid": 1,
+    "weights": [0, 0, _OWNER_18, _VALIDATOR_41, _U64_MAX - _OWNER_18 - _VALIDATOR_41],
+    "burn": 0,
+    "recycle": 0,
+    "owner": _OWNER_18,
+    "validator": _VALIDATOR_41,
+    "miner": _U64_MAX - _OWNER_18 - _VALIDATOR_41,
+    "root_baseline_share": ROOT_BASELINE_SHARE,
+    "root_share": min(ROOT_BASELINE_SHARE, _VALIDATOR_41),
+    "created_via_lease": False,
+}
+
 
 def dev_wallet(cold: str = "//Alice", hot: str = "//Alice//hot") -> SimpleNamespace:
     """A KeyedWallet-shaped object carrying dev keypairs (no keyfiles)."""
@@ -54,6 +84,13 @@ INTENT_SAMPLES: dict[str, dict] = {
         "dest_netuid": 1,
         "amount_alpha": 1.0,
     },
+    "move_swap_stake": {
+        "origin_hotkey_ss58": BOB_HOT,
+        "origin_netuid": 1,
+        "dest_hotkey_ss58": ALICE_HOT,
+        "dest_netuid": 2,
+        "amount_alpha": 1.0,
+    },
     "swap_stake": {
         "hotkey_ss58": BOB_HOT,
         "origin_netuid": 1,
@@ -72,11 +109,13 @@ INTENT_SAMPLES: dict[str, dict] = {
     "stake_burn": {"netuid": 1, "amount_tao": 1.0, "limit_price": 10**9},
     "transfer": {"dest_ss58": BOB, "amount_tao": 1.0},
     "transfer_all": {"dest_ss58": BOB},
+    "pow_register": {"netuid": 1, "work_block": 1, "nonce": 0, "work_hex": "ab" * 32},
     "burned_register": {"netuid": 1},
     "root_register": {},
     "register_subnet": {},
     "start_call": {"netuid": 1},
-    "claim_root": {"subnets": [1]},
+    "claim_root": {"subnets": [0]},
+    "claim_root_with_hotkey": {"hotkey_ss58": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"},
     "swap_hotkey": {"new_hotkey_ss58": BOB_HOT},
     "set_children": {"netuid": 1, "children": [[2**63, BOB_HOT]]},
     "set_childkey_take": {"netuid": 1, "take": 1000},
@@ -115,21 +154,42 @@ INTENT_SAMPLES: dict[str, dict] = {
     "announce_coldkey_swap": {"new_coldkey_ss58": BOB},
     "swap_coldkey_announced": {"new_coldkey_ss58": BOB},
     "clear_coldkey_swap_announcement": {},
+    "release_own_coldkey_swap_destination_reservation": {},
     "dispute_coldkey_swap": {},
     "set_hyperparameter": {"netuid": 1, "name": "immunity_period", "value": 42},
+    "set_subnet_emission_weights": {
+        "netuid": 1,
+        "slots": ["owner"],
+        "values": ["10%"],
+        "renormalize": True,
+    },
     "set_identity": {"name": "verify"},
     "set_subnet_identity": {"netuid": 1, "subnet_name": "verify"},
     "trim_subnet": {"netuid": 1, "max_n": 64},
+    "trim_null_subnet_batch": {"netuid": 1, "target": 64},
     "update_symbol": {"netuid": 1, "symbol": "β"},
     "set_mechanism_count": {"netuid": 1, "mechanism_count": 2},
-    "set_mechanism_emission_split": {"netuid": 1, "split": [32768, 32767]},
     "register_leased_network": {"emissions_share": 20, "end_block": 10**9},
     "terminate_lease": {"lease_id": 0},
     "set_auto_stake": {"netuid": 1, "hotkey_ss58": BOB_HOT},
-    "set_root_claim_type": {"claim_type": "KeepSubnets", "subnets": [1]},
+    "set_root_claim_threshold": {"threshold": 0.0005},
+    "set_subnet_emission_enabled": {"netuids": [1], "enabled": True},
     "lock_stake": {"netuid": 1, "amount_alpha": 1.0},
     "move_lock": {"netuid": 1, "destination_hotkey_ss58": BOB_HOT},
     "set_perpetual_lock": {"netuid": 1, "enabled": True},
+    "set_reject_locked_alpha": {"enabled": True},
+    "set_reject_staking_hotkey_growth": {"enabled": True},
+    "stake_into_basket": {"hotkey_ss58": BOB_HOT, "amount_tao": 1.0},
+    "swap_basket": {"hotkey_ss58": BOB_HOT, "origin_netuid": 1, "dest_netuid": 0, "amount": 1.0},
+    "swap_basket_many": {
+        "hotkey_ss58": BOB_HOT,
+        "legs": [
+            {"origin_netuid": 1, "dest_netuid": 0, "amount": 1.0},
+            {"origin_netuid": 0, "dest_netuid": 2, "amount": 0.5, "min_amount_out": 0.4},
+        ],
+    },
+    "add_collateral": {"netuid": 1, "amount_alpha": 1.0},
+    "set_min_collateral": {"netuid": 1, "min_alpha": 1.0},
     "create_crowdloan": {
         "deposit_tao": 100,
         "min_contribution_tao": 1,
@@ -180,6 +240,7 @@ INTENT_SAMPLES: dict[str, dict] = {
 
 # Params to dispatch every registered read against the FakeSubstrate.
 READ_SAMPLES: dict[str, dict] = {
+    "accepts_locked_alpha": {"coldkey_ss58": ALICE},
     "alpha_price": {"netuid": 1},
     "alpha_prices": {},
     "associated_evm_key": {"netuid": 1, "uid": 0},
@@ -187,6 +248,7 @@ READ_SAMPLES: dict[str, dict] = {
     "auto_stake_all": {"coldkey_ss58": ALICE},
     "balance": {"coldkey_ss58": ALICE},
     "balances": {"coldkey_ss58s": [ALICE, BOB]},
+    "basket_position": {"hotkey_ss58": ALICE_HOT, "coldkey_ss58": ALICE},
     "block_info": {"block": 100},
     "block_time": {},
     "blocks_since_last_step": {"netuid": 1},
@@ -195,7 +257,11 @@ READ_SAMPLES: dict[str, dict] = {
     "bonds": {"netuid": 1},
     "burn": {"netuid": 1},
     "children": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
+    "childkey_threshold_suspended": {"hotkey_ss58": ALICE_HOT},
     "coldkey_lock": {"coldkey_ss58": ALICE, "netuid": 1},
+    "collateral_policy": {"netuid": 1},
+    "miner_collateral": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
+    "subnet_collateral": {"netuid": 1},
     "coldkey_swap_announcement": {"coldkey_ss58": ALICE},
     "commit_reveal_enabled": {"netuid": 1},
     "commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
@@ -220,6 +286,7 @@ READ_SAMPLES: dict[str, dict] = {
     "lease": {"lease_id": 0},
     "leases": {},
     "locks_for_coldkey": {"coldkey_ss58": ALICE},
+    "locks_for_hotkey": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
     "max_weight_limit": {"netuid": 1},
     "mechanism_count": {"netuid": 1},
     "mechanism_emission_split": {"netuid": 1},
@@ -239,26 +306,43 @@ READ_SAMPLES: dict[str, dict] = {
     "quote_unstake": {"netuid": 1, "amount_alpha": 1.0},
     "reveal_period": {"netuid": 1},
     "revealed_commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
-    "root_claim_type": {"coldkey_ss58": ALICE},
+    "root_basket_owed": {"coldkey_ss58": ALICE},
+    "root_basket_portfolio": {"coldkey_ss58": ALICE},
+    "root_basket_owed_breakdown": {"coldkey_ss58": ALICE},
+    "root_basket_total_nav": {},
+    "root_baskets": {},
+    "root_claim_threshold": {},
     "stake": {"coldkey_ss58": ALICE, "hotkey_ss58": ALICE_HOT, "netuid": 1},
+    "stake_availability": {"coldkey_ss58": ALICE, "netuid": 1},
+    "stake_availability_for_coldkey": {"coldkey_ss58": ALICE, "netuids": [1]},
     "stake_for_coldkey": {"coldkey_ss58": ALICE},
     "stake_for_coldkeys": {"coldkey_ss58s": [ALICE, BOB]},
     "stake_value_for_coldkey": {"coldkey_ss58": ALICE},
     "stake_value_for_coldkeys": {"coldkey_ss58s": [ALICE, BOB]},
     "staking_hotkeys": {"coldkey_ss58": ALICE},
     "subnet": {"netuid": 1},
+    "subnet_state": {"netuid": 1},
+    "subnet_states": {},
     "subnet_convictions": {"netuid": 1},
+    "subnet_emission_enabled": {"netuid": 1},
+    "subnet_emission_weights": {"netuid": 1},
     "subnet_hyperparameters": {"netuid": 1},
     "subnet_identity": {"netuid": 1},
     "subnet_names": {},
     "subnet_registration_cost": {},
     "subnet_start_schedule": {"netuid": 1},
+    "subnet_tao_flows": {},
     "subnets": {},
     "timelocked_weight_commits": {"netuid": 1},
     "timestamp": {},
     "token_symbols": {},
+    "total_alpha_staked": {"netuid": 1},
     "tx_rate_limit": {},
     "uid": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
+    "basket_trading_status": {"hotkey_ss58": ALICE_HOT},
+    "validator_basket": {"hotkey_ss58": ALICE_HOT},
+    "validator_basket_nav": {"hotkey_ss58": ALICE_HOT},
+    "validator_basket_summary": {"hotkey_ss58": ALICE_HOT},
     "weights": {"netuid": 1},
     "weights_rate_limit": {"netuid": 1},
 }

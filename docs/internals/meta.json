@@ -9,6 +9,7 @@
     "transaction-priority",
     "benchmarks-and-weights",
     "testing",
+    "null-consensus-testnet",
     "mainnet-clone",
     "sdk-tests",
     "eco-tests",

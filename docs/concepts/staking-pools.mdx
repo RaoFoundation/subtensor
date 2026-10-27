@@ -1,0 +1,171 @@
+---
+title: Staking and pools
+description: The per-subnet balancer pools, what a stake operation actually does, price impact, swap fees, and MEV-shielded submission.
+---
+
+Staking on a subnet is not a deposit — it is a **swap**. Every subnet has a
+liquidity pool holding TAO and the subnet's alpha; staking sells TAO into
+that pool for alpha, unstaking sells alpha back for TAO. Everything that
+follows — price impact, swap fees, limit orders, MEV — falls out of that one
+fact. This page explains the machinery; the
+[staking guide](/docs/guides/staking) covers the commands, and
+[how money moves](/docs/concepts/money) covers units and valuation.
+
+## The pool
+
+Each subnet's pool is a **weighted balancer pool** (a generalization of the
+constant-product AMM): two reserves, TAO ([`SubnetTAO`](/code/pallets/subtensor/src/lib.rs#L1377)) and alpha
+([`SubnetAlphaIn`](/code/pallets/subtensor/src/lib.rs#L1419)), plus a pair of weights $w_1 + w_2 = 1$. The spot price
+([`calculate_price`](/code/pallets/swap/src/pallet/balancer.rs#L220-L228)) is
+
+$$
+p = \frac{w_1 \cdot \text{TAO reserve}}{w_2 \cdot \text{alpha reserve}}
+$$
+
+With the default equal weights $w_1 = w_2 = 0.5$ this reduces to the
+familiar reserve ratio `TAO / alpha`. Unlike Uniswap-style pools, the weights
+let the protocol add liquidity *disproportionally* to price without moving
+the price — the weights absorb the imbalance instead (they are re-solved on
+every injection and bounded so they stay near 0.5 in practice). Only the
+protocol adds liquidity this way; user staking always trades against the
+pool.
+
+A swap moves along the weighted invariant
+$L = x^{w_1} \cdot y^{w_2}$. Selling TAO into the pool (staking), the alpha
+you receive for `Δy` TAO is
+
+$$
+\Delta x = x \cdot \left(1 - \left(\tfrac{y}{y+\Delta y}\right)^{w_2/w_1}\right)
+$$
+
+which is why the execution price curves away from spot as the trade grows —
+each slice of your order fills at a slightly worse price than the last.
+
+<StakingPoolSwapDemo />
+
+The math lives in [`pallets/swap/src/pallet/balancer.rs`](/code/pallets/swap/src/pallet/balancer.rs); quotes over RPC use
+exactly the same path ([`quote-stake`](/docs/query/quote-stake),
+[`quote-unstake`](/docs/query/quote-unstake)), so a quote is a faithful
+simulation, not an estimate.
+
+## What a stake operation does
+
+[`add-stake`](/docs/tx/add-stake) is a coldkey-signed extrinsic that moves
+TAO out of your free balance, swaps it through the subnet's pool, and
+credits the resulting alpha to the *(hotkey, coldkey, netuid)* stake
+position. Step through it:
+
+<StakingFlowDiagram />
+
+Points worth pinning down:
+
+- **The fee comes off the input side first.** Amount × [`FeeRate`](/code/pallets/swap/src/pallet/mod.rs#L96)/65535
+  (default 33 ≈ 0.05%, per-subnet) is deducted before the swap and paid to
+  the block author — TAO when staking, alpha when unstaking.
+- **The swap updates both reserves.** Your TAO enters `SubnetTAO`, alpha
+  leaves the pool's side (`SubnetAlphaIn`) and joins the staked total
+  ([`SubnetAlphaOut`](/code/pallets/subtensor/src/lib.rs#L1424)). The price after your trade is the new reserve ratio —
+  your own trade moved it.
+- **The position is alpha, not TAO.** From the moment the swap settles, the
+  position's TAO value floats with the pool price, and it earns the
+  validator's staking emissions (minus its take) every epoch.
+- **Unstaking is the mirror image** ([`remove-stake`](/docs/tx/remove-stake)):
+  alpha leaves the position, the fee is taken in alpha, the swap pays out
+  TAO. There is no unbonding period — the TAO is spendable immediately.
+
+Moving a position between hotkeys on the same subnet
+([`move-stake`](/docs/tx/move-stake)) is *not* a swap — no fee, no price
+impact. Cross-subnet moves run two swaps (alpha → TAO → alpha) and pay the
+fee once.
+
+## Price impact, slippage, and limit orders
+
+Two different things eat your execution price, and they have different
+defenses:
+
+- **Price impact** — self-inflicted: your own order consumes reserves as it
+  fills. Deterministic, included in every quote.
+- **Slippage** — external: other transactions land before yours and move the
+  price between quote and execution. Not knowable in advance.
+
+The limit variants ([`add-stake-limit`](/docs/tx/add-stake-limit),
+[`remove-stake-limit`](/docs/tx/remove-stake-limit)) defend against both by
+bounding the execution price itself: the chain computes exactly how much can
+fill before the pool price reaches your limit, fills up to that point, and
+either stops there (`allow_partial=true`) or rejects the whole order
+(`allow_partial=false`).
+
+<StakingSlippageLimit />
+
+To turn a tolerance into a `limit_price`: staking, ceiling = spot × (1 +
+tolerance); unstaking, floor = spot × (1 − tolerance). Read spot with
+[`alpha-price`](/docs/query/alpha-price).
+
+## MEV and shielded submission
+
+A large stake order sitting in the public mempool is legible to everyone —
+including a front-runner who can buy alpha before your order executes, let
+your price impact reprice the pool, and sell back after. The sandwich's
+profit is carved out of your execution price.
+
+[MEV-shielded submission](/docs/concepts/advanced#mev-shielded-submission)
+closes the window: the SDK signs your call as a complete inner extrinsic,
+encrypts it to the chain's rotating ML-KEM-768 key, and submits only the
+ciphertext. The mempool sees an opaque blob; the block author decrypts it at
+block-build time and includes the inner extrinsic in the block it builds.
+There is no interval where the order is both public and pending.
+
+<MevShieldTimeline />
+
+```python
+await client.submit_shielded(
+    bt.AddStakeLimit(hotkey_ss58="5F...", netuid=1, amount_tao=5_000,
+                      limit_price_rao=int(spot["price_rao"] * 1.01),
+                      allow_partial=False),
+    wallet,
+)
+```
+
+Shield *and* bound the price — they protect against different things.
+Shielding hides the order from front-runners; the limit caps damage from
+whatever moves the price anyway. What is worth shielding follows the same
+economics as price impact: a large swap with a loose limit is the prime
+target, while small swaps (well under ~1 TAO) and root-network staking (no
+pool, nothing to front-run) gain nothing from it.
+
+## Root staking: the exception
+
+Staking on the root network (netuid 0) is not a pool swap. TAO stays
+TAO-denominated and converts 1:1 — no swap fee, no price impact, no MEV
+exposure. The `limit_price` machinery degenerates accordingly: any limit ≥
+1 TAO/TAO fills fully, anything lower fills nothing. See
+[root stake and dividends](/docs/guides/staking#root-stake-and-dividends)
+for how root positions earn.
+
+## Where the liquidity comes from
+
+Nobody LPs these pools. Every block, the coinbase injects each subnet's
+share of TAO emission into its pool's TAO reserve, alongside newly issued
+alpha into the alpha reserve (`alpha_in ≈ tao_in / price`, capped by the
+subnet's root proportion) — see
+[emissions](/docs/concepts/emissions). Because the protocol may inject the
+two sides disproportionally to price, the balancer weights absorb the
+imbalance; this is the reason the pools are weighted at all. Reserves only
+grow through injection and trading — stake swaps in TAO, unstake swaps it
+back out — and the pool refuses trades that would drain a reserve below a
+minimum, and rejects single swaps larger than 1,000× the TAO reserve
+([`InsufficientLiquidity`](/code/pallets/swap/src/pallet/mod.rs#L151)).
+
+## Reading the pool
+
+```bash
+btcli query alpha-price --netuid 1 --json      # spot price now
+btcli query quote-stake --netuid 1 --amount-tao 100 --json    # simulate entry
+btcli query quote-unstake --netuid 1 --amount-alpha 50 --json # simulate exit
+```
+
+Spot valuation of a position (`alpha × price`,
+[`stake-value-for-coldkey`](/docs/query/stake-value-for-coldkey)) marks to
+the current reserve ratio and ignores what your own exit would do to it. For
+what you would actually receive, quote the exit — the quote runs the real
+swap math against the real reserves.

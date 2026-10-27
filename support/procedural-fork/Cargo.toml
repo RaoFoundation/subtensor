@@ -1,5 +1,6 @@
 [package]
 name = "procedural-fork"
+publish = false
 version = "1.10.0-rc3"
 edition.workspace = true
 
@@ -10,7 +11,7 @@ all = "allow"
 derive-syn-parse.workspace = true
 Inflector.workspace = true
 cfg-expr.workspace = true
-itertools.workspace = true
+itertools = { workspace = true, features = ["use_alloc"] }
 proc-macro2.workspace = true
 quote.workspace = true
 syn = { workspace = true, features = [

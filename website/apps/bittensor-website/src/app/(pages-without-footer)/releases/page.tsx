@@ -1,0 +1,201 @@
+import FadeInWrapper from '@/app/components/FadeInWrapper';
+import {Link} from '@raofoundation/ui';
+import type {Metadata} from 'next';
+import {Suspense} from 'react';
+import styles from './page.module.css';
+
+export const metadata: Metadata = {
+  title: 'Releases',
+  description:
+    'Bittensor network releases: every runtime upgrade with what changed, why it matters, ' +
+    'and what to do about it.',
+  alternates: {canonical: '/releases'},
+};
+
+type Release = {
+  tag: string;
+  date: string;
+  title: string;
+  summary: string;
+  href: string;
+};
+
+// Newest first. Add new releases to the top.
+const releases: Release[] = [
+  {
+    tag: 'v481',
+    date: 'October 2026',
+    title: 'Etao',
+    summary:
+      'Subnets choose their emission split. A per-subnet five-slot vector sets how much of each ' +
+      'block goes to the owner (0–33%), validators (≤50%) and miners (≥33%), changeable by the ' +
+      'owner once a week. Root TAO stakers keep their baseline payout whatever the owner picks: ' +
+      'every block the chain pays root its baseline share off the top of the validator slot, ' +
+      'recomputed from live state, so neither owners nor drifting stake can move it. Payouts ' +
+      'are identical at upgrade; sudo_set_subnet_owner_cut is deprecated.',
+    href: '/releases/etao',
+  },
+  {
+    tag: 'next',
+    date: 'Upcoming',
+    title: 'Null Consensus',
+    summary:
+      'An opt-in epoch mechanism with highest-stake-validator miner incentives, ' +
+      'stake-proportional dividends, exact integer payouts, and a shared 16,000-UID capacity. ' +
+      'Includes raw-u16 SDK and CLI submission and larger bounded timelock commits.',
+    href: '/releases/null-consensus',
+  },
+  {
+    tag: 'next',
+    date: 'September 2026',
+    title: 'Basket Trading',
+    summary:
+      'V461 adds swap_basket: root validators trade one basket holding for another through a ' +
+      'dedicated BasketTrading proxy, boxed in by a 2% per-leg price band, a token-bucket ' +
+      'turnover budget of 10% of NAV per day, a 10% per-pool liquidity cap, the 1/16 ' +
+      'concentration cap, and governance freeze switches. Trading becomes the only way a ' +
+      'basket changes shape: set_root_weights is removed and dividends accumulate in place. ' +
+      'Launches gated off.',
+    href: '/releases/v461-upgrade',
+  },
+  {
+    tag: 'v450',
+    date: 'August 2026',
+    title: 'Curated Beta',
+    summary:
+      'V450 enables set_root_weights. Validators curate their dividend baskets under a ' +
+      '1/16 concentration cap, and the chain now computes the basket index, display ' +
+      'prices, and staker yield itself — one canonical scoreboard for every consumer. ' +
+      'btcli root list, allocate, claim, and weights are the working surface.',
+    href: '/releases/v450-upgrade',
+  },
+  {
+    tag: 'v448',
+    date: 'August 2026',
+    title: 'Root Claims, Safer Staking, and Linked Orders',
+    summary:
+      'V448 makes root claims predictable, protects cross-subnet stake moves, adds bulk ' +
+      'multi-hotkey exits, exposes live staking indexes, and introduces composable linked orders.',
+    href: '/releases/v448-upgrade',
+  },
+  {
+    tag: 'v447',
+    date: 'August 2026',
+    title: 'Conviction Normalization',
+    summary:
+      'The subnet ownership gate now measures one hotkey alone against an 18% conviction ' +
+      'threshold — matching the owner cut — restoring the TAO cost of a takeover to above ' +
+      'pre-v446 levels.',
+    href: '/releases/conviction-normalization',
+  },
+  {
+    tag: 'v446',
+    date: 'August 2026',
+    title: 'Accounting, Liquid Alpha, and Timelock Recovery',
+    summary:
+      'This release repairs historical alpha accounting, bases the conviction ownership gate on ' +
+      'eligible alpha, adds selectable Liquid Alpha consensus modes, makes failed timelock ' +
+      'reveals auditable, and corrects GRANDPA warp-sync set handling.',
+    href: '/releases/v446-upgrade',
+  },
+  {
+    tag: 'v445',
+    date: 'August 2026',
+    title: 'EVM, btcli, and Reliability',
+    summary:
+      'This release completes the typed EVM surface, makes multisigs first-class btcli wallets, ' +
+      'recycles transaction fees, adds human-readable ' +
+      'Ledger orders, and lands a broad reliability pass.',
+    href: '/releases/v445-upgrade',
+  },
+  {
+    tag: 'v441',
+    date: 'July 2026',
+    title: 'Root Reborn',
+    summary:
+      'Nearly half of all TAO sits on root. This release turns its dividend stream into ' +
+      'validator-curated baskets — live network numbers, how the fund works, btcli ' +
+      'commands, breaking changes, and the migration of legacy claimable state.',
+    href: '/releases/v441-upgrade',
+  },
+  {
+    tag: 'v440',
+    date: 'July 2026',
+    title: 'The Emission Gate',
+    summary:
+      'Subnet emission now has to beat a market-set demand bar: price-proportional above it, ' +
+      'a smooth collapse below it. Idle slots stop earning, and the cost of building on ' +
+      'Bittensor falls toward the registration transaction.',
+    href: '/releases/v440-upgrade',
+  },
+  {
+    tag: 'v439',
+    date: 'July 2026',
+    title: 'Conviction for Contracts',
+    summary:
+      'EVM access to stake locks and miner conviction, rolled lock views, bounded conviction ' +
+      'queries, locked-alpha transfer policy, and subnet owner-cut auto-lock controls.',
+    href: '/releases/v439-upgrade',
+  },
+  {
+    tag: 'v438',
+    date: 'July 2026',
+    title: 'Interfaces & Reliability',
+    summary:
+      'Bounded EVM staking views, Ledger-friendly limit-order signatures, exact mechanism ' +
+      'emission splits, predictable epoch counters, repaired testnet warp sync, and a more ' +
+      'recoverable release train.',
+    href: '/releases/v438-upgrade',
+  },
+  {
+    tag: 'v437',
+    date: 'July 2026',
+    title: 'Collateral & Key Lineage',
+    summary:
+      'Miner registration collateral, on-chain hotkey and coldkey swap lineage, bonded ' +
+      'key-swap hardening, one-call stake transfer to a new coldkey and hotkey, air-gapped ' +
+      'Polkadot Vault signing, and fully benchmarked extrinsic weights.',
+    href: '/releases/v436-upgrade',
+  },
+  {
+    tag: 'v431',
+    date: 'July 2026',
+    title: 'The Monorepo Release',
+    summary:
+      'Conviction-based subnet ownership, price-driven emissions, the bittensor v11 SDK ' +
+      'with a Rust core, Ledger and browser-extension signing, and a verifiable upgrade ' +
+      'pipeline — the chain, SDK, CLI, and docs developed and released together.',
+    href: '/releases/v431-upgrade',
+  },
+];
+
+const page = () => {
+  return (
+    <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
+      <FadeInWrapper className={styles.page_container}>
+        <section className={styles.title_section}>
+          <p className={styles.paper_title}>Releases</p>
+          <p className={styles.subtitle} style={{fontSize: '10px'}}>
+            Network upgrades, in order
+          </p>
+        </section>
+        <section className={styles.section} style={{width: '100%'}}>
+          <div className={styles.release_list}>
+            {releases.map((release) => (
+              <Link key={release.tag} href={release.href} className={styles.release_item}>
+                <span className={styles.release_meta}>
+                  <span className={styles.release_tag}>{release.tag}</span>
+                  <span className={styles.release_date}>{release.date}</span>
+                </span>
+                <span className={styles.release_title}>{release.title}</span>
+                <p className={styles.release_summary}>{release.summary}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      </FadeInWrapper>
+    </Suspense>
+  );
+};
+
+export default page;

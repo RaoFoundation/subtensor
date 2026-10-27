@@ -10,13 +10,14 @@ themselves) and dissolves the loan. Amounts are TAO.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 from .._generated import calls
-from ._money import Money, Spend, tao_amount
+from ._money import ALL, UNBOUNDED, Money, Spend, tao_amount
 from .base import BuiltCall, Intent
 from .registry import build as build_intent
 from .registry import register
+from .staking import _stakeable_rao
 
 CROWDLOAN_ID_HELP = "Identifier of the crowdloan, assigned when it was created."
 
@@ -124,32 +125,50 @@ class ContributeCrowdloan(Intent):
     back when the creator calls ``refund_crowdloan``, or the contributor can
     ``withdraw_crowdloan`` themselves any time before finalization. On
     success, the funds go to the loan's target or fund its inner call.
+    Pass ``all`` to contribute the whole free balance minus the existential
+    deposit and a small fee headroom.
     """
 
     op = "contribute_crowdloan"
     signer = "coldkey"
     wraps = (("Crowdloan", "contribute"),)
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_tao",)
 
     crowdloan_id: int = field(metadata={"help": CROWDLOAN_ID_HELP})
     amount_tao: Money = field(
         metadata={
-            "help": "Amount to contribute; moved into the crowdloan's pot. Recoverable "
-            "via refund or withdraw while the loan is not finalized."
+            "help": "Amount to contribute, or ``all``. Moved into the crowdloan's "
+            "pot. Recoverable via refund or withdraw while the loan is not finalized."
         }
     )
 
     def __post_init__(self):
-        self.amount_tao = tao_amount(self.amount_tao)
+        self.amount_tao = tao_amount(self.amount_tao, allow_all=True)
 
     async def build(self, substrate, wallet: Any):
+        if self.amount_tao == ALL:
+            rao = await _stakeable_rao(substrate, wallet)
+        else:
+            rao = self.amount_tao.rao
         return await substrate.compose(
-            calls.Crowdloan.contribute(crowdloan_id=self.crowdloan_id, amount=self.amount_tao.rao)
+            calls.Crowdloan.contribute(crowdloan_id=self.crowdloan_id, amount=rao)
         )
 
     def summary(self) -> str:
-        return f"contribute {self.amount_tao} to crowdloan {self.crowdloan_id}"
+        amount = "ALL free TAO" if self.amount_tao == ALL else str(self.amount_tao)
+        return f"contribute {amount} to crowdloan {self.crowdloan_id}"
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        if self.amount_tao == ALL:
+            return [
+                "contributes the entire free balance "
+                "(minus the existential deposit and fee headroom)"
+            ]
+        return []
 
     def spend(self) -> Spend:
+        if self.amount_tao == ALL:
+            return UNBOUNDED
         return self.amount_tao
 
 

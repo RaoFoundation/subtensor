@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_schedule_swap_coldkey
+expression: fee
+---
+42547

@@ -1,0 +1,78 @@
+@import url(../shared.module.css);
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.paper_title {
+  font-size: 20px;
+}
+
+.subtitle {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 200;
+  margin-bottom: -8px;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.release_list {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 0;
+}
+
+.release_item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 28px 0;
+  border-bottom: 1px solid rgba(41, 41, 41, 0.15);
+  text-decoration: none;
+  color: inherit;
+}
+
+.release_item:first-child {
+  border-top: 1px solid rgba(41, 41, 41, 0.15);
+}
+
+.release_meta {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.release_tag {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: uppercase;
+  color: #d15168;
+}
+
+.release_date {
+  font-family: 'FiraCode';
+  font-size: 11px;
+  font-weight: 200;
+  text-transform: uppercase;
+  color: rgb(41, 41, 41);
+}
+
+.release_title {
+  font-size: 16px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.release_summary {
+  text-align: left;
+  margin: 0;
+}

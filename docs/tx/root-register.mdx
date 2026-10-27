@@ -7,17 +7,24 @@ description: "Register a hotkey on the root network (netuid 0)."
 
 Joins the hotkey to the root network, the TAO staking pool (netuid 0 has
 no miners and no alpha; validators register here to receive root stake).
-Placement is stake-based rather than burn-based: root slots are limited, so
-joining a full root network evicts the member with the least stake, and a
-hotkey without enough stake behind it will not hold a seat. Root
-registrations are also capped per block (`max_registrations_per_block`)
-and per interval (three times `target_registrations_per_interval`);
-hitting either cap fails until the window passes. Use
-`burned_register` for ordinary subnets.
+Admission is burn-based, like subnet registration: the coldkey pays the
+root burn price (recycled out of issuance, demand-priced — each
+registration bumps it and it decays back toward the floor). No prior
+stake is required, but root slots are limited: joining a full root
+network evicts the lowest-staked non-immune member
+(`ImmunityPeriod`). If every seat is still immune, registration
+fails with `NoNeuronIdAvailable`. A seat is only held by keeping
+stake behind the hotkey after that window. Root registrations are
+also capped per block (`max_registrations_per_block`) and per
+interval (three times `target_registrations_per_interval`); hitting
+either cap fails until the window passes. After a successful
+registration the hotkey is auto-childkeyed to every existing subnet
+owner (full proportion) unless the validator opted out of auto parent
+delegation. Use `burned_register` for ordinary subnets.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.root_register` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L832-L836) |
 
 ## Parameters
 
@@ -34,28 +41,46 @@ Preview with `--dry-run` (shows fee, effects, and policy result without
 submitting), then submit:
 
 ```bash
-btcli tx root-register --dry-run
-btcli tx root-register -w my_coldkey
+btcli root register --dry-run
+btcli root register -w my_coldkey
 ```
 
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.RootRegister()
+intent = bt.RootRegister()
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("root_register", {...}, wallet)
+result = sub.execute_tool("root_register", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L834`](/code/pallets/subtensor/src/macros/dispatches.rs#L832-L836):
+
+```rust
+#[pallet::call_index(62)]
+#[pallet::weight(Pallet::<T>::root_register_dispatch_weight())]
+pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
+    Self::do_root_register(origin, hotkey)
+}
+```
+
+Delegates to [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L110).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

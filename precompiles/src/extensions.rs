@@ -2,7 +2,7 @@ extern crate alloc;
 
 use alloc::format;
 
-use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, Pays, PostDispatchInfo};
+use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
 use frame_system::RawOrigin;
 use pallet_admin_utils::{PrecompileEnable, PrecompileEnum};
 use pallet_evm::{
@@ -75,16 +75,73 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
     {
         let call = <R as frame_system::Config>::RuntimeCall::from(call);
         let info = GetDispatchInfo::get_dispatch_info(&call);
+        self.dispatch_with_info::<R>(call, origin, info)
+    }
 
-        let target_gas = self.gas_limit();
-        if let Some(gas) = target_gas {
-            let valid_weight =
-                <R as pallet_evm::Config>::GasWeightMapping::gas_to_weight(gas, false).ref_time();
-            if info.total_weight().ref_time() > valid_weight {
-                return Err(PrecompileFailure::Error {
-                    exit_status: ExitError::OutOfGas,
-                });
-            }
+    /// Dispatches a stake exit signed by `coldkey`, sizing its `StakingHotkeys` walk
+    /// allowance to the coldkey's current list instead of the declared cap.
+    ///
+    /// The declared weight of an unstake-side call reserves its walks over the longest list
+    /// a coldkey may hold (one walk, or one per envelope slot for `unstake_all*`), because
+    /// a transaction's weight is fixed before earlier extrinsics in its block can grow that
+    /// list. Here the list is read and the call dispatched with nothing in between, so the
+    /// gas limit only has to cover the walks this coldkey can perform. Calls that declare
+    /// no walk dispatch unchanged.
+    fn try_dispatch_stake_exit<R>(
+        &mut self,
+        call: pallet_subtensor::Call<R>,
+        coldkey: R::AccountId,
+    ) -> EvmResult<()>
+    where
+        R: frame_system::Config
+            + pallet_evm::Config
+            + pallet_subtensor::Config
+            + pallet_shield::Config
+            + pallet_subtensor_proxy::Config,
+        <R as frame_system::Config>::RuntimeCall: From<pallet_subtensor::Call<R>>,
+        <R as frame_system::Config>::RuntimeCall:
+            GetDispatchInfo + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>,
+        <R as frame_system::Config>::RuntimeOrigin: From<RawOrigin<R::AccountId>> + Clone,
+    {
+        let walks = pallet_subtensor::Pallet::<R>::declared_staking_hotkeys_walks(&call);
+        let call = <R as frame_system::Config>::RuntimeCall::from(call);
+        let mut info = GetDispatchInfo::get_dispatch_info(&call);
+
+        if walks > 0 {
+            self.record_db_reads::<R>(1)?;
+            info.call_weight = info.call_weight.saturating_sub(
+                pallet_subtensor::Pallet::<R>::staking_hotkeys_walk_unused(&coldkey, walks),
+            );
+        }
+
+        self.dispatch_with_info::<R>(call, RawOrigin::Signed(coldkey), info)
+    }
+
+    /// Checks `info` against the remaining gas, reserves it, dispatches `call`, then charges the
+    /// weight the dispatch reports (capped at `info`) and refunds the rest.
+    fn dispatch_with_info<R>(
+        &mut self,
+        call: <R as frame_system::Config>::RuntimeCall,
+        origin: RawOrigin<R::AccountId>,
+        info: DispatchInfo,
+    ) -> EvmResult<()>
+    where
+        R: frame_system::Config + pallet_evm::Config,
+        <R as frame_system::Config>::RuntimeCall:
+            Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>,
+        <R as frame_system::Config>::RuntimeOrigin: From<RawOrigin<R::AccountId>>,
+    {
+        let remaining_gas = self.remaining_gas();
+        let valid_weight =
+            <R as pallet_evm::Config>::GasWeightMapping::gas_to_weight(remaining_gas, false)
+                .ref_time();
+        if info.total_weight().ref_time() > valid_weight {
+            // Input handling may already have spent part of this frame's gas. Exhaust
+            // only its remaining budget, never the parent transaction's gasometer.
+            self.record_cost(remaining_gas)?;
+            return Err(PrecompileFailure::Error {
+                exit_status: ExitError::OutOfGas,
+            });
         }
 
         self.record_external_cost(
@@ -99,7 +156,7 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
             Ok(mut post_info) => {
                 post_info.set_extension_weight(&info);
                 log::debug!("Dispatch succeeded. Post info: {post_info:?}");
-                self.charge_and_refund_after_dispatch::<R, Call>(&info, &post_info)?;
+                self.charge_and_refund_after_dispatch::<R>(&info, &post_info)?;
 
                 Ok(())
             }
@@ -108,7 +165,7 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
                 let mut post_info = e.post_info;
                 post_info.set_extension_weight(&info);
                 log::info!("Precompile dispatch failed. message as: {e:?}");
-                self.charge_and_refund_after_dispatch::<R, Call>(&info, &post_info)?;
+                self.charge_and_refund_after_dispatch::<R>(&info, &post_info)?;
 
                 Err(PrecompileFailure::Error {
                     exit_status: ExitError::Other(
@@ -119,7 +176,7 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         }
     }
 
-    fn charge_and_refund_after_dispatch<R, Call>(
+    fn charge_and_refund_after_dispatch<R>(
         &mut self,
         info: &DispatchInfo,
         post_info: &PostDispatchInfo,
@@ -127,24 +184,25 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
     where
         R: frame_system::Config + pallet_evm::Config,
     {
-        if post_info.pays_fee(info) == Pays::Yes {
-            let actual_weight = post_info.calc_actual_weight(info);
-            let cost = <R as pallet_evm::Config>::GasWeightMapping::weight_to_gas(actual_weight);
-            self.record_cost(cost)?;
+        // `Pays` decides whether the native fee is charged; gas is the EVM's weight meter
+        // and must always cover the weight the dispatch consumed, or a `Pays::No` call
+        // runs at zero gas and the block accounts none of its execution time.
+        let actual_weight = post_info.calc_actual_weight(info);
+        let cost = <R as pallet_evm::Config>::GasWeightMapping::weight_to_gas(actual_weight);
+        self.record_cost(cost)?;
 
-            self.refund_external_cost(
-                Some(
-                    info.total_weight()
-                        .ref_time()
-                        .saturating_sub(actual_weight.ref_time()),
-                ),
-                Some(
-                    info.total_weight()
-                        .proof_size()
-                        .saturating_sub(actual_weight.proof_size()),
-                ),
-            );
-        }
+        self.refund_external_cost(
+            Some(
+                info.total_weight()
+                    .ref_time()
+                    .saturating_sub(actual_weight.ref_time()),
+            ),
+            Some(
+                info.total_weight()
+                    .proof_size()
+                    .saturating_sub(actual_weight.proof_size()),
+            ),
+        );
 
         Ok(())
     }

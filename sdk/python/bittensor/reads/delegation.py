@@ -157,7 +157,10 @@ async def children(view, hotkey_ss58: str, netuid: int) -> list[tuple[int, str]]
     """Child hotkeys of a parent on a subnet, as (proportion, child_ss58) pairs.
 
     Proportions are u64-normalized fractions of the parent's stake, where
-    u64::MAX means 100%.
+    u64::MAX means 100%. This is the stored relation set; while the parent is
+    below the childkey stake threshold (see `childkey_threshold_suspended`)
+    the chain treats these edges as inert on every subnet the parent does
+    not own.
     """
     entries = await view.query(st.SubtensorModule.ChildKeys, [hotkey_ss58, netuid])
     return [(int(prop), str(child)) for prop, child in entries or []]
@@ -176,7 +179,10 @@ async def parents(view, hotkey_ss58: str, netuid: int) -> list[tuple[int, str]]:
     """Parent hotkeys of a child on a subnet, as (proportion, parent_ss58) pairs.
 
     Proportions are u64-normalized fractions of the parent's stake, where
-    u64::MAX means 100%.
+    u64::MAX means 100%. This is the stored relation set; a parent that is
+    below the childkey stake threshold (see `childkey_threshold_suspended`)
+    contributes nothing to the child until it qualifies again, unless it
+    owns the subnet.
     """
     entries = await view.query(st.SubtensorModule.ParentKeys, [hotkey_ss58, netuid])
     return [(int(prop), str(parent)) for prop, parent in entries or []]
@@ -207,3 +213,23 @@ async def pending_children(view, hotkey_ss58: str, netuid: int) -> dict:
         "children": [(int(prop), str(child)) for prop, child in entries or []],
         "cooldown_block": int(cooldown_block),
     }
+
+
+@read(
+    "childkey_threshold_suspended",
+    {"hotkey_ss58": "string"},
+    category="Delegation",
+    param_docs={"hotkey_ss58": "Parent hotkey to check."},
+)
+async def childkey_threshold_suspended(view, hotkey_ss58: str) -> bool:
+    """Whether a parent hotkey's child relations are currently inert.
+
+    The chain re-checks a parent's total stake against the childkey stake
+    threshold (`StakeThreshold`) whenever that stake changes. A parent that
+    has dropped below it is flagged here: its `children` and `parents` rows
+    stay stored, but stake inheritance and dividend routing ignore them on
+    every subnet the parent does not own. The flag clears on its own once the
+    parent's stake meets the threshold again.
+    """
+    flag = await view.query(st.SubtensorModule.ChildkeyThresholdSuspended, [hotkey_ss58])
+    return flag is not None

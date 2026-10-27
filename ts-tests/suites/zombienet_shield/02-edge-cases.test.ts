@@ -24,10 +24,14 @@ describeSuite({
 
         let alice: KeyringPair;
         let bob: KeyringPair;
+        let charlie: KeyringPair;
+        let dave: KeyringPair;
 
         beforeAll(async () => {
             alice = keyringPairFromUri("//Alice");
             bob = keyringPairFromUri("//Bob");
+            charlie = keyringPairFromUri("//Charlie");
+            dave = keyringPairFromUri("//Dave");
 
             api = context.papi("Node").getTypedApi(subtensor);
 
@@ -35,6 +39,10 @@ describeSuite({
 
             await waitForFinalizedBlocks(api, 2);
         }, 120000);
+
+        // T01 and T02 run concurrently in this shard. Each case has a distinct
+        // funded sender and recipient, so nonce and balance state remain
+        // independent while production-time finality waits overlap.
 
         it({
             id: "T01",
@@ -46,12 +54,13 @@ describeSuite({
                 const nextKey = await getNextKey(api);
                 expect(nextKey).toBeDefined();
 
+                const amount = 2_000_000_000n;
                 const balanceBefore = await getBalance(api, bob.address);
 
                 const nonce = await getAccountNonce(api, alice.address);
                 const innerTxHex = await api.tx.Balances.transfer_keep_alive({
                     dest: MultiAddress.Id(bob.address),
-                    value: 2_000_000_000n,
+                    value: amount,
                 }).sign(getSignerFromKeypair(alice), { nonce: nonce + 1 });
 
                 // Submit and wait for finalization — the tx may land in the next block
@@ -59,7 +68,7 @@ describeSuite({
                 await submitEncrypted(api, alice, hexToU8a(innerTxHex), nextKey, nonce);
 
                 const balanceAfter = await getBalance(api, bob.address);
-                expect(balanceAfter).toBeGreaterThan(balanceBefore);
+                expect(balanceAfter).toBe(balanceBefore + amount);
             },
         });
 
@@ -76,18 +85,18 @@ describeSuite({
                 const nextKey = await getNextKey(api);
                 expect(nextKey).toBeDefined();
 
-                const balanceBefore = await getBalance(api, bob.address);
+                const balanceBefore = await getBalance(api, dave.address);
 
                 // Garbage "inner transaction" bytes — not a valid extrinsic at all.
                 const garbageInner = new Uint8Array(64);
                 for (let i = 0; i < 64; i++) garbageInner[i] = (i * 7 + 13) & 0xff;
 
-                const nonce = await getAccountNonce(api, alice.address);
+                const nonce = await getAccountNonce(api, charlie.address);
 
-                await submitEncrypted(api, alice, garbageInner, nextKey, nonce);
+                await submitEncrypted(api, charlie, garbageInner, nextKey, nonce);
 
                 // No balance change — the garbage inner call could not have been a valid transfer.
-                const balanceAfter = await getBalance(api, bob.address);
+                const balanceAfter = await getBalance(api, dave.address);
                 expect(balanceAfter).toBe(balanceBefore);
             },
         });

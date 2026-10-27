@@ -61,8 +61,8 @@ mod config {
         /// Interface to get commitments.
         type GetCommitments: GetCommitments<Self::AccountId>;
 
-        ///  Interface to clean commitments on network dissolution.
-        type CommitmentsInterface: CommitmentsInterface;
+        /// Interface to clean commitments when a network or neuron is removed.
+        type CommitmentsInterface: CommitmentsInterface<Self::AccountId>;
 
         /// Interface to mint, burn, and recycle subnet alpha.
         type AlphaAssets: AlphaAssetsInterface;
@@ -114,6 +114,9 @@ mod config {
         /// Initial minimum stake.
         #[pallet::constant]
         type InitialMinStake: Get<TaoBalance>;
+        /// Initial minimum stake transfer amount.
+        #[pallet::constant]
+        type InitialMinTransfer: Get<TaoBalance>;
         /// Min  burn upper bound.
         #[pallet::constant]
         type MinBurnUpperBound: Get<TaoBalance>;

@@ -65,6 +65,12 @@ pub enum Data {
     ResetBondsFlag,
     /// The data is stored directly (up to 512 bytes).
     BigRaw(BoundedVec<u8, ConstU32<MAX_BIGRAW_COMMITMENT_SIZE_BYTES>>),
+    /// A timelock that was attempted after its pulse existed and could not be
+    /// revealed. Kept for audit; not retried by the reveal hook.
+    TimelockRevealFailed {
+        encrypted: BoundedVec<u8, ConstU32<MAX_TIMELOCK_COMMITMENT_SIZE_BYTES>>,
+        reveal_round: u64,
+    },
 }
 
 impl Data {
@@ -85,7 +91,8 @@ impl Data {
             | Data::Sha256(arr)
             | Data::Keccak256(arr)
             | Data::ShaThree256(arr) => arr.len() as u64,
-            Data::TimelockEncrypted { encrypted, .. } => encrypted.len() as u64,
+            Data::TimelockEncrypted { encrypted, .. }
+            | Data::TimelockRevealFailed { encrypted, .. } => encrypted.len() as u64,
             Data::ResetBondsFlag => 0,
             Data::BigRaw(bytes) => bytes.len() as u64,
         }
@@ -123,6 +130,15 @@ impl Decode for Data {
                     BoundedVec::<u8, ConstU32<MAX_BIGRAW_COMMITMENT_SIZE_BYTES>>::decode(input)?;
                 Data::BigRaw(bigvec)
             }
+            137 => {
+                let encrypted =
+                    BoundedVec::<u8, ConstU32<MAX_TIMELOCK_COMMITMENT_SIZE_BYTES>>::decode(input)?;
+                let reveal_round = u64::decode(input)?;
+                Data::TimelockRevealFailed {
+                    encrypted,
+                    reveal_round,
+                }
+            }
             _ => return Err(codec::Error::from("invalid leading byte")),
         })
     }
@@ -155,6 +171,15 @@ impl Encode for Data {
             Data::BigRaw(bigvec) => {
                 let mut r = vec![136];
                 r.extend_from_slice(&bigvec.encode());
+                r
+            }
+            Data::TimelockRevealFailed {
+                encrypted,
+                reveal_round,
+            } => {
+                let mut r = vec![137];
+                r.extend_from_slice(&encrypted.encode());
+                r.extend_from_slice(&reveal_round.encode());
                 r
             }
         }
@@ -348,6 +373,17 @@ impl TypeInfo for Data {
                 v.index(136).fields(Fields::unnamed().field(|f| {
                     f.ty::<BoundedVec<u8, ConstU32<MAX_BIGRAW_COMMITMENT_SIZE_BYTES>>>()
                 }))
+            })
+            .variant("TimelockRevealFailed", |v| {
+                v.index(137).fields(
+                    Fields::named()
+                        .field(|f| {
+                            f.name("encrypted")
+                                .ty::<BoundedVec<u8, ConstU32<MAX_TIMELOCK_COMMITMENT_SIZE_BYTES>>>(
+                                )
+                        })
+                        .field(|f| f.name("reveal_round").ty::<u64>()),
+                )
             });
 
         Type::builder()
@@ -384,6 +420,27 @@ pub struct CommitmentInfo<FieldLimit: Get<u32>> {
 /// Maximum size of the serialized timelock commitment in bytes
 pub const MAX_TIMELOCK_COMMITMENT_SIZE_BYTES: u32 = 1024;
 pub const MAX_BIGRAW_COMMITMENT_SIZE_BYTES: u32 = 512;
+
+/// Why a timelock reveal failed. The ciphertext is kept as
+/// `TimelockRevealFailed` and is not retried.
+#[derive(
+    Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, RuntimeDebug, TypeInfo,
+)]
+pub enum RevealFailure {
+    /// Drand pulse signature could not be deserialized.
+    SignatureDeserialize,
+    /// Timelock ciphertext could not be deserialized.
+    CiphertextDeserialize,
+    /// Timelock decryption failed.
+    Decrypt,
+    /// Decryption succeeded but produced no plaintext.
+    EmptyPlaintext,
+    /// The reveal round is older than the oldest Drand pulse still stored.
+    /// That pulse will not return.
+    PulseExpired,
+    /// The SDK envelope and outer commitment specify different reveal rounds.
+    RoundMismatch,
+}
 
 /// Contains the decrypted data of a revealed commitment.
 #[freeze_struct("bf575857b57f9bef")]

@@ -70,6 +70,31 @@ impl<T: Config> Runner<T>
 where
 	BalanceOf<T>: TryFrom<U256> + Into<U256>,
 {
+	fn check_authorizations(
+		authorizations: &AuthorizationList,
+		gas_limit: u64,
+		config: &evm::Config,
+	) -> Result<(), RunnerError<Error<T>>> {
+		if authorizations.len() > fp_evm::MAX_AUTHORIZATION_LIST_SIZE {
+			return Err(RunnerError {
+				error: Error::<T>::AuthorizationListTooLarge,
+				weight: Weight::zero(),
+			});
+		}
+		// Protect simulations and already-validated entry points too. Normal
+		// validation checks the remaining intrinsic cost before recovery.
+		let authorization_gas = config
+			.gas_per_empty_account_cost
+			.saturating_mul(authorizations.len() as u64);
+		if gas_limit < authorization_gas {
+			return Err(RunnerError {
+				error: Error::<T>::GasLimitTooLow,
+				weight: Weight::zero(),
+			});
+		}
+		Ok(())
+	}
+
 	#[allow(clippy::let_and_return)]
 	/// Execute an already validated EVM operation.
 	fn execute<'config, 'precompiles, F, R>(
@@ -535,17 +560,13 @@ where
 	) -> Result<CallInfo, RunnerError<Self::Error>> {
 		let measured_proof_size_before = get_proof_size().unwrap_or_default();
 
-		let authorization_list = authorization_list
+		// Bound work and validate intrinsic gas before performing signature recovery.
+		Self::check_authorizations(&authorization_list, gas_limit, config)?;
+		let signed_authorizations = authorization_list;
+		let mut authorization_list = signed_authorizations
 			.iter()
-			.map(|d| {
-				(
-					U256::from(d.chain_id),
-					d.address,
-					d.nonce,
-					d.authorizing_address().ok(),
-				)
-			})
-			.collect::<Vec<(U256, sp_core::H160, U256, Option<sp_core::H160>)>>();
+			.map(|d| (U256::from(d.chain_id), d.address, d.nonce, None))
+			.collect::<Vec<(U256, H160, U256, Option<H160>)>>();
 
 		if validate {
 			Self::validate(
@@ -564,6 +585,12 @@ where
 				proof_size_base_cost,
 				config,
 			)?;
+		}
+
+		for (signed, (_, _, _, authority)) in
+			signed_authorizations.iter().zip(&mut authorization_list)
+		{
+			*authority = signed.authorizing_address().ok();
 		}
 
 		let precompiles = T::PrecompilesValue::get();
@@ -617,17 +644,13 @@ where
 		T::CreateOriginFilter::check_create_origin(&source)
 			.map_err(|error| RunnerError { error, weight })?;
 
-		let authorization_list = authorization_list
+		// Bound work and validate intrinsic gas before performing signature recovery.
+		Self::check_authorizations(&authorization_list, gas_limit, config)?;
+		let signed_authorizations = authorization_list;
+		let mut authorization_list = signed_authorizations
 			.iter()
-			.map(|d| {
-				(
-					U256::from(d.chain_id),
-					d.address,
-					d.nonce,
-					d.authorizing_address().ok(),
-				)
-			})
-			.collect::<Vec<(U256, sp_core::H160, U256, Option<sp_core::H160>)>>();
+			.map(|d| (U256::from(d.chain_id), d.address, d.nonce, None))
+			.collect::<Vec<(U256, H160, U256, Option<H160>)>>();
 
 		if validate {
 			if !disable_whitelist_check && !whitelist.contains(&source) {
@@ -653,6 +676,12 @@ where
 				proof_size_base_cost,
 				config,
 			)?;
+		}
+
+		for (signed, (_, _, _, authority)) in
+			signed_authorizations.iter().zip(&mut authorization_list)
+		{
+			*authority = signed.authorizing_address().ok();
 		}
 
 		let precompiles = T::PrecompilesValue::get();
@@ -709,17 +738,13 @@ where
 		T::CreateOriginFilter::check_create_origin(&source)
 			.map_err(|error| RunnerError { error, weight })?;
 
-		let authorization_list = authorization_list
+		// Bound work and validate intrinsic gas before performing signature recovery.
+		Self::check_authorizations(&authorization_list, gas_limit, config)?;
+		let signed_authorizations = authorization_list;
+		let mut authorization_list = signed_authorizations
 			.iter()
-			.map(|d| {
-				(
-					U256::from(d.chain_id),
-					d.address,
-					d.nonce,
-					d.authorizing_address().ok(),
-				)
-			})
-			.collect::<Vec<(U256, sp_core::H160, U256, Option<sp_core::H160>)>>();
+			.map(|d| (U256::from(d.chain_id), d.address, d.nonce, None))
+			.collect::<Vec<(U256, H160, U256, Option<H160>)>>();
 
 		if validate {
 			if !disable_whitelist_check && !whitelist.contains(&source) {
@@ -745,6 +770,12 @@ where
 				proof_size_base_cost,
 				config,
 			)?;
+		}
+
+		for (signed, (_, _, _, authority)) in
+			signed_authorizations.iter().zip(&mut authorization_list)
+		{
+			*authority = signed.authorizing_address().ok();
 		}
 
 		let precompiles = T::PrecompilesValue::get();
@@ -917,6 +948,16 @@ pub struct SubstrateStackState<'vicinity, 'config, T> {
 }
 
 impl<'vicinity, 'config, T: Config> SubstrateStackState<'vicinity, 'config, T> {
+	fn record_nonce_access(weight_info: &mut WeightInfo) -> Result<(), ExitError> {
+		let reads = T::AccountProvider::extra_nonce_reads();
+		if reads != 0 {
+			weight_info.try_record_ref_time_or_fail(T::DbWeight::get().reads(reads).ref_time())?;
+			weight_info
+				.try_record_proof_size_or_fail(T::AccountProvider::extra_nonce_proof_size())?;
+		}
+		Ok(())
+	}
+
 	/// Create a new backend with given vicinity.
 	pub fn new(
 		vicinity: &'vicinity Vicinity,
@@ -967,6 +1008,7 @@ impl<'vicinity, 'config, T: Config> SubstrateStackState<'vicinity, 'config, T> {
 			// First we record account emptiness check.
 			// Transfers to EOAs with standard 21_000 gas limit are able to
 			// pay for this pov size.
+			Self::record_nonce_access(weight_info)?;
 			weight_info.try_record_proof_size_or_fail(IS_EMPTY_CHECK_PROOF_SIZE)?;
 			if <AccountCodes<T>>::decode_len(address).unwrap_or(0) == 0 {
 				return Ok(());
@@ -1125,9 +1167,16 @@ where
 	}
 
 	fn inc_nonce(&mut self, address: H160) -> Result<(), ExitError> {
+		let (reads, writes) = T::AccountProvider::extra_nonce_write_counts();
+		if reads != 0 || writes != 0 {
+			self.record_external_cost(
+				Some(T::DbWeight::get().reads_writes(reads, writes).ref_time()),
+				Some(T::AccountProvider::extra_nonce_proof_size()),
+				None,
+			)?;
+		}
 		let account_id = T::AddressMapping::into_account_id(address);
-		T::AccountProvider::inc_account_nonce(&account_id);
-		Ok(())
+		T::AccountProvider::try_inc_account_nonce(&account_id)
 	}
 
 	fn set_storage(&mut self, address: H160, index: H256, value: H256) {
@@ -1263,13 +1312,15 @@ where
 		if let Some(weight_info) = weight_info {
 			match op {
 				ExternalOperation::AccountBasicRead => {
-					weight_info.try_record_proof_size_or_fail(ACCOUNT_BASIC_PROOF_SIZE)?
+					Self::record_nonce_access(weight_info)?;
+					weight_info.try_record_proof_size_or_fail(ACCOUNT_BASIC_PROOF_SIZE)?;
 				}
 				ExternalOperation::AddressCodeRead(address) => {
 					Self::record_address_code_read(address, weight_info, recorded, size_limit)?;
 				}
 				ExternalOperation::IsEmpty => {
-					weight_info.try_record_proof_size_or_fail(IS_EMPTY_CHECK_PROOF_SIZE)?
+					Self::record_nonce_access(weight_info)?;
+					weight_info.try_record_proof_size_or_fail(IS_EMPTY_CHECK_PROOF_SIZE)?;
 				}
 				ExternalOperation::Write(len) => {
 					weight_info.try_record_proof_size_or_fail(WRITE_PROOF_SIZE)?;
@@ -1345,6 +1396,7 @@ where
 				|address: H160, empty_check: bool| -> Result<(), ExitError> {
 					let mut base_size = ACCOUNT_CODES_METADATA_PROOF_SIZE;
 					if empty_check {
+						Self::record_nonce_access(weight_info)?;
 						base_size = base_size.saturating_add(IS_EMPTY_CHECK_PROOF_SIZE);
 					}
 					weight_info.try_record_proof_size_or_fail(base_size)?;
@@ -1376,6 +1428,7 @@ where
 			//	contract size limit.
 			match opcode {
 				Opcode::BALANCE => {
+					Self::record_nonce_access(weight_info)?;
 					weight_info.try_record_proof_size_or_fail(ACCOUNT_BASIC_PROOF_SIZE)?;
 				}
 				Opcode::EXTCODESIZE | Opcode::EXTCODECOPY | Opcode::EXTCODEHASH => {
@@ -1415,6 +1468,7 @@ where
 				//	- Target basic account read
 				//	- 5 bytes of `decode_len`
 				Opcode::SUICIDE => {
+					Self::record_nonce_access(weight_info)?;
 					weight_info.try_record_proof_size_or_fail(IS_EMPTY_CHECK_PROOF_SIZE)?;
 				}
 				// Rest of dynamic opcodes that do not involve proof size recording, do nothing

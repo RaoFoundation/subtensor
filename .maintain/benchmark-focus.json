@@ -1,0 +1,30 @@
+{
+  "pallet_dirs": [
+    "subtensor",
+    "admin-utils"
+  ],
+  "extrinsics": [
+    "block_step",
+    "block_step_null_sole_owner",
+    "block_step_yuma",
+    "commit_crv3_mechanism_weights_null",
+    "commit_timelocked_mechanism_weights_null",
+    "commit_timelocked_weights_null",
+    "sudo_trim_to_max_allowed_uids",
+    "sudo_trim_null_uids_batch",
+    "sudo_trim_null_uids_batch_many_mechanisms",
+    "sudo_set_epoch_consensus",
+    "sudo_set_mechanism_count",
+    "dissolve_network",
+    "root_dissolve_network",
+    "set_mechanism_weights_null",
+    "reveal_mechanism_weights_null",
+    "pow_register",
+    "check_pow_registration",
+    "sudo_set_network_pow_registration_allowed",
+    "register",
+    "register_limit",
+    "burned_register",
+    "sudo_set_network_registration_allowed"
+  ]
+}

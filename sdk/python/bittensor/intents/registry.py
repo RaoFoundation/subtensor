@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Type, TypeVar
 
+from ..settings import tx_docs_url
 from .base import Intent
 
 REGISTRY: dict[str, Type[Intent]] = {}
@@ -55,6 +56,10 @@ def list_tools() -> list[dict[str, Any]]:
                 "summary": description.split("\n")[0],
                 "description": description,
                 "signer": cls.signer,
+                "origin": cls.origin,
+                "verify": cls.verify,
+                "wraps": [list(pair) for pair in cls.wraps],
+                "docs_url": tx_docs_url(op),
                 "input_schema": cls.json_schema(),
             }
         )

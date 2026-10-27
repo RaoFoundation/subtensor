@@ -1,0 +1,51 @@
+---
+title: min_allowed_weights
+description: Minimum number of distinct weights a validator must include in one weight submission.
+---
+
+`min_allowed_weights` is the floor on how many miners a validator must score in
+a single weight submission. Subnet owners raise it to force validators to
+evaluate a broad slice of the miner pool instead of concentrating weight on a
+favored few; validators care because a submission with too few entries is
+rejected outright.
+
+## How it works
+
+[`set_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L70-L82)
+validates the submission length in
+[`check_length`](/code/pallets/subtensor/src/subnets/weights.rs#L1093-L1115)
+(`pallets/subtensor/src/subnets/weights.rs`). The effective minimum is the
+smaller of `min_allowed_weights` and the subnet's current neuron count, so a
+freshly launched subnet with 5 neurons and a minimum of 50 still accepts
+5-entry submissions. Anything below the effective minimum fails with
+[`WeightVecLengthIsLow`](/code/pallets/subtensor/src/macros/errors.rs#L58).
+A single **self-weight** — one entry naming the
+validator's own UID — is exempt, as it is from most weight checks.
+
+What counts is the number of weights that actually reach the chain. The SDK
+quantizes weights to u16 and drops zeros before submitting, then enforces the
+minimum on what remains — so `btcli tx set-weights` (the `set_weights` intent)
+fails fast client-side with the same rule instead of burning an on-chain
+submission. Assigning zero to a miner does not help you meet the minimum.
+
+<HyperparamWeightsRules focus="min_allowed_weights" />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid N --name min_allowed_weights
+```
+
+Owner-settable; the value is a plain integer count:
+
+```bash
+btcli sudo set --netuid N --name min_allowed_weights --value 8
+```
+
+## Related
+
+- [`max_weights_limit`](/docs/hyperparameters/max-weights-limit) — cap on any single weight in the same submission
+- [`weights_rate_limit`](/docs/hyperparameters/weights-rate-limit) — how often submissions are accepted
+- [`weights_version`](/docs/hyperparameters/weights-version) — version gate on submissions
+- [`commit_reveal_weights_enabled`](/docs/hyperparameters/commit-reveal-weights-enabled) — whether weights go through commit-reveal
+- [`max_allowed_uids`](/docs/hyperparameters/max-allowed-uids) — the pool of UIDs available to weight

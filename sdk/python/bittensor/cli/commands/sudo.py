@@ -1,7 +1,8 @@
-"""`btcli sudo`: subnet-owner hyperparameters and governance."""
+"""`btcli hparams`: subnet-owner hyperparameters and governance."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Optional
 
 import typer
@@ -10,24 +11,28 @@ from ...hyperparams import to_raw
 from ...intents import (
     SetHyperparameter,
     SetMechanismCount,
-    SetMechanismEmissionSplit,
     SetSubnetIdentity,
     SetTake,
     StakeBurn,
     StartCall,
+    TrimNullSubnetBatch,
     TrimSubnet,
     UpdateSymbol,
 )
 from ...intents.children import take_to_u16
 from ...intents.hyperparameters import OWNER_HYPERPARAMETERS
-from ...settings import U16_MAX
+from ...settings import DOCS_URL, U16_MAX
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
-from ..hyperparams_view import show_hyperparameters
-from ..prompt import PromptSpec, fill_missing, interactive
+from ..hyperparams_view import fetch_hyperparameters, show_hyperparameters
+from ..null_pruning import run_pruning
+from ..prompt import PromptSpec, confirm_wallet, fill_missing, interactive
 from ..tx import _parse_money
 
-app = typer.Typer(no_args_is_help=True, help="Subnet-owner config and governance.")
+app = typer.Typer(
+    no_args_is_help=True,
+    help=f"Subnet-owner config and governance.\n\nDocs: {DOCS_URL}/hyperparameters",
+)
 
 PANEL_SUBNETS = "Subnets"
 PANEL_VALIDATORS = "Validators"
@@ -61,7 +66,7 @@ def _prompt_set_args(
     specs: list[PromptSpec] = []
     if name is None:
         if interactive(app_ctx):
-            params = app_ctx.run(lambda c: c.read("subnet_hyperparameters", netuid=netuid))
+            params = app_ctx.run(lambda c: fetch_hyperparameters(c, netuid))
             show_hyperparameters(
                 app_ctx,
                 netuid,
@@ -82,7 +87,11 @@ def _prompt_set_args(
 
         def _parse_value(_app_ctx: AppContext, raw: str) -> str:
             if kwargs["name"] is not None:
-                to_raw(kwargs["name"], raw)  # validate the form; the intent converts again
+                if kwargs["name"] == "epoch_consensus":
+                    if raw not in ("Yuma", "Null"):
+                        raise ValueError("epoch_consensus must be Yuma or Null")
+                else:
+                    to_raw(kwargs["name"], raw)  # validate the form; the intent converts again
             return raw
 
         specs.append(
@@ -109,17 +118,19 @@ def sudo_set(
 
     Only the subnet owner coldkey can sign this. The change takes effect
     immediately, and some parameters are rate-limited by the chain. Use
-    `btcli sudo get` to see current values and per-parameter help.
+    `btcli hparams get` to see current values and per-parameter help.
     """
     app_ctx: AppContext = ctx_of(ctx)
     if name is None or value is None:
+        # Wallet first, so prompts narrow down (submit skips its own ask).
+        confirm_wallet(app_ctx, help_text="Wallet whose coldkey signs this transaction.")
         name, value = _prompt_set_args(app_ctx, netuid, name, value)
     try:
         intent = SetHyperparameter(netuid=netuid, name=name, value=value)
-    except ValueError as error:
+    except (ValueError, OverflowError) as error:
         app_ctx.output.error(
             str(error),
-            help=f"`btcli sudo get --netuid {netuid} --name {name}` explains "
+            help=f"`btcli hparams get --netuid {netuid} --name {name}` explains "
             "the parameter and the value forms it accepts",
         )
         raise typer.Exit(2)
@@ -139,7 +150,7 @@ def sudo_get(
 ):
     """Show subnet hyperparameters."""
     app_ctx: AppContext = ctx_of(ctx)
-    params = app_ctx.run(lambda c: c.read("subnet_hyperparameters", netuid=netuid))
+    params = app_ctx.run(lambda c: fetch_hyperparameters(c, netuid))
     show_hyperparameters(app_ctx, netuid, params, name)
 
 
@@ -262,7 +273,7 @@ def start_subnet(
     """Start a registered subnet.
 
     Only the subnet owner can call this, and only after the
-    post-registration waiting period (see `btcli sudo check-start`).
+    post-registration waiting period (see `btcli hparams check-start`).
     It activates emissions for the subnet and cannot be undone.
     """
     app_ctx: AppContext = ctx_of(ctx)
@@ -297,32 +308,99 @@ def get_subnet_identity(
     app_ctx.output.detail(f"subnet {netuid} identity", identity)
 
 
+_SUBNET_IDENTITY_FLAGS = {
+    "subnet_name": "--name",
+    "github_repo": "--github-repo",
+    "subnet_contact": "--contact",
+    "subnet_url": "--url",
+    "discord": "--discord",
+    "description": "--description",
+    "logo_url": "--logo-url",
+    "additional": "--additional",
+}
+
+
 @app.command("set-identity", rich_help_panel=PANEL_SUBNETS)
 @with_tx_globals
 def set_subnet_identity(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", help=SetSubnetIdentity.field_help("netuid")),
-    name: str = typer.Option(..., "--name", help=SetSubnetIdentity.field_help("subnet_name")),
-    url: str = typer.Option("", "--url", help=SetSubnetIdentity.field_help("subnet_url")),
-    description: str = typer.Option(
-        "", "--description", help=SetSubnetIdentity.field_help("description")
+    name: Optional[str] = typer.Option(
+        None, "--name", help=SetSubnetIdentity.field_help("subnet_name")
+    ),
+    github_repo: Optional[str] = typer.Option(
+        None, "--github-repo", help=SetSubnetIdentity.field_help("github_repo")
+    ),
+    contact: Optional[str] = typer.Option(
+        None, "--contact", help=SetSubnetIdentity.field_help("subnet_contact")
+    ),
+    url: Optional[str] = typer.Option(
+        None, "--url", help=SetSubnetIdentity.field_help("subnet_url")
+    ),
+    discord: Optional[str] = typer.Option(
+        None, "--discord", help=SetSubnetIdentity.field_help("discord")
+    ),
+    description: Optional[str] = typer.Option(
+        None, "--description", help=SetSubnetIdentity.field_help("description")
+    ),
+    logo_url: Optional[str] = typer.Option(
+        None, "--logo-url", help=SetSubnetIdentity.field_help("logo_url")
+    ),
+    additional: Optional[str] = typer.Option(
+        None, "--additional", help=SetSubnetIdentity.field_help("additional")
     ),
 ):
     """Set subnet identity metadata (subnet owner).
 
-    Only the subnet owner can call this. Publishes the display name, URL,
-    and description that explorers and the CLI show for the subnet,
-    replacing any identity set before.
+    Only the subnet owner can call this. The chain replaces the whole
+    identity, so every field not passed as a flag is prompted for
+    interactively, with Enter keeping its current value.
     """
     app_ctx: AppContext = ctx_of(ctx)
-    app_ctx.submit(
-        SetSubnetIdentity(
-            netuid=netuid,
-            subnet_name=name,
-            subnet_url=url,
-            description=description,
+    current = app_ctx.run(lambda c: c.read("subnet_identity", netuid=netuid)) or {}
+
+    out = app_ctx.output
+    if not out.json_mode:
+        if current:
+            out.detail(f"subnet {netuid} current identity", current)
+        else:
+            out.message(f"[dim]subnet {netuid} has no identity yet[/dim]")
+
+    def current_value(field: str) -> str:
+        return str(current.get(field) or "")
+
+    fields = {
+        "subnet_name": name,
+        "github_repo": github_repo,
+        "subnet_contact": contact,
+        "subnet_url": url,
+        "discord": discord,
+        "description": description,
+        "logo_url": logo_url,
+        "additional": additional,
+    }
+    specs = [
+        PromptSpec(
+            field=field,
+            flag=_SUBNET_IDENTITY_FLAGS[field],
+            help=SetSubnetIdentity.field_help(field),
+            parse=lambda _app_ctx, raw: raw,
+            # Enter keeps the current value; the name has no fallback when
+            # there is no identity yet, so it stays required.
+            default=(
+                (current_value(field) or None) if field == "subnet_name" else current_value(field)
+            ),
         )
-    )
+        for field, value in fields.items()
+        if value is None
+    ]
+    fill_missing(app_ctx, specs, fields)
+    # Non-interactive sessions keep the current (or empty) value for omitted flags.
+    for field, value in fields.items():
+        if value is None:
+            fields[field] = current_value(field)
+
+    app_ctx.submit(SetSubnetIdentity(netuid=netuid, **fields))
 
 
 @app.command("trim", rich_help_panel=PANEL_SUBNETS)
@@ -340,6 +418,100 @@ def trim_subnet(
     """
     app_ctx: AppContext = ctx_of(ctx)
     app_ctx.submit(TrimSubnet(netuid=netuid, max_n=max_n))
+
+
+@app.command("trim-null-batch", rich_help_panel=PANEL_SUBNETS)
+@with_tx_globals
+def trim_null_subnet_batch(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", help=TrimNullSubnetBatch.field_help("netuid")),
+    target: int = typer.Option(..., "--target", help=TrimNullSubnetBatch.field_help("target")),
+):
+    """Prune one bounded Null batch; repeat the same target until completion.
+
+    Each transaction can remove at most 64 UIDs. Commit cleanup may produce
+    a batch with no UID deletions. Check NullPruningTarget and SubnetworkN
+    after inclusion; a successful receipt alone does not mean pruning is done.
+    """
+    app_ctx: AppContext = ctx_of(ctx)
+    app_ctx.submit(TrimNullSubnetBatch(netuid=netuid, target=target))
+
+
+@app.command("trim-null", rich_help_panel=PANEL_SUBNETS)
+@with_tx_globals
+def trim_null_subnet(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", min=1, max=4095),
+    target: Optional[int] = typer.Option(
+        None,
+        "--target",
+        min=1,
+        max=65535,
+        help="Final population. Defaults to the pending target or floor(256 / mechanism_count).",
+    ),
+    switch_to_yuma: bool = typer.Option(
+        False,
+        "--switch-to-yuma",
+        help="Switch to Yuma after pruning and its prerequisites pass.",
+    ),
+    wait_timeout: float = typer.Option(
+        3600,
+        "--wait-timeout",
+        min=1,
+        max=86400,
+        help="Maximum seconds for each administration-window or switch-prerequisite wait.",
+    ),
+    poll_seconds: float = typer.Option(
+        12,
+        "--poll-seconds",
+        min=1,
+        max=60,
+        help="Seconds between state polls while waiting.",
+    ),
+    max_batches: int = typer.Option(
+        256,
+        "--max-batches",
+        min=1,
+        max=4096,
+        help="Stop after this many batches; rerun to resume.",
+    ),
+    state_file: Optional[Path] = typer.Option(
+        None,
+        "--state-file",
+        help="Recovery record; default is beside btcli config, keyed by chain and subnet.",
+    ),
+):
+    """Prune sequential finalized Null batches for a return to Yuma.
+
+    Deregisters participants and may change survivor UIDs. Restart with the
+    same target to resume from on-chain state. --switch-to-yuma is opt-in;
+    without it, consensus remains Null. --dry-run previews one transaction.
+    Each transaction uses the usual confirmation flow; --yes skips prompts.
+    """
+    app_ctx = ctx_of(ctx)
+    confirm_wallet(
+        app_ctx, help_text="Subnet owner coldkey signing every batch.", require_coldkey=True
+    )
+    try:
+        run_pruning(
+            app_ctx,
+            netuid=netuid,
+            target=target,
+            switch_to_yuma=switch_to_yuma,
+            wait_timeout=wait_timeout,
+            poll_seconds=poll_seconds,
+            max_batches=max_batches,
+            state_file=state_file,
+        )
+    except (ValueError, OSError) as error:
+        app_ctx.output.error(str(error))
+        raise typer.Exit(1) from error
+    except KeyboardInterrupt:
+        app_ctx.output.message(
+            "Interrupted; rerun with the same target to resume. "
+            "Uncertain submissions are not retried."
+        )
+        raise typer.Exit(130)
 
 
 @app.command("stake-burn", rich_help_panel=PANEL_SUBNETS)
@@ -367,12 +539,13 @@ def stake_burn(
     except ValueError as error:
         app_ctx.output.error(f"invalid value for `--amount-tao`: {error}")
         raise typer.Exit(2)
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     app_ctx.submit(
         StakeBurn(
             netuid=netuid,
             amount_tao=amount,
             limit_price=limit_price,
-            hotkey_ss58=hotkey_ss58,
+            hotkey_ss58=hotkey,
         )
     )
 
@@ -420,30 +593,3 @@ def mechanism_emissions(
     app_ctx: AppContext = ctx_of(ctx)
     split = app_ctx.run(lambda c: c.read("mechanism_emission_split", netuid=netuid))
     app_ctx.output.detail(None, {"netuid": netuid, "split": split})
-
-
-@mechanisms_app.command("split-emissions")
-@with_tx_globals
-def set_mechanism_emissions(
-    ctx: typer.Context,
-    netuid: int = typer.Option(
-        ..., "--netuid", help=SetMechanismEmissionSplit.field_help("netuid")
-    ),
-    split: str = typer.Option(
-        ...,
-        "--split",
-        help="Comma-separated integer weights, one per mechanism; the subnet's "
-        "emission is divided between mechanisms in proportion to them.",
-    ),
-):
-    """Set mechanism emission split.
-
-    Only the subnet owner can call this. It changes how the subnet's
-    emission is divided between its mechanisms from the next epoch on.
-    """
-    app_ctx: AppContext = ctx_of(ctx)
-    values = [int(part.strip()) for part in split.split(",") if part.strip()]
-    app_ctx.submit(SetMechanismEmissionSplit(netuid=netuid, split=values))
-
-
-mechanisms_app.command("emissions-split", hidden=True)(set_mechanism_emissions)

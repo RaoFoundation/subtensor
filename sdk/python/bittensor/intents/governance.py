@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .._generated import calls
-from ..settings import U16_MAX
 from ._money import Money, Spend, tao_amount
 from .base import Intent
 from .registry import register
+from .staking import DEFAULT_RATE_TOLERANCE, _alpha_price_rao, _check_rate_tolerance
 
 
 @register
@@ -30,10 +30,14 @@ class TrimSubnet(Intent):
     before shrinking a live subnet. To simply cap future growth without
     evicting anyone, set the ``max_allowed_uids`` hyperparameter to a value
     at or above the current UID count instead.
+
+    For Null consensus, this legacy atomic operation can remove at most one
+    pruning batch. Use ``TrimNullSubnetBatch`` repeatedly for a larger shrink.
     """
 
     op = "trim_subnet"
     signer = "coldkey"
+    origin = "subnet_owner"  # the chain also accepts root
     wraps = (("AdminUtils", "sudo_trim_to_max_allowed_uids"),)
 
     netuid: int = field(metadata={"help": "Subnet to trim; the signer must be its owner."})
@@ -54,6 +58,38 @@ class TrimSubnet(Intent):
 
 @register
 @dataclass
+class TrimNullSubnetBatch(Intent):
+    """Execute one bounded Null subnet pruning batch toward ``target``.
+
+    Cancels pending weight commits before moving UIDs, then removes at most
+    the runtime's batch size (currently 64). A large legacy commit backlog
+    can produce a cleanup-only batch. Read ``NullPruningTarget`` and
+    ``SubnetworkN`` after inclusion: a successful transaction does not imply
+    the final target has been reached. Continue with the same target until
+    the pending target is absent. Each batch is owner-authorized and respects
+    the admin freeze window. Only the first batch starts the trimming cooldown;
+    changing the target is a new operation. Survivor UID values can change.
+    """
+
+    op = "trim_null_subnet_batch"
+    signer = "coldkey"
+    origin = "subnet_owner"
+    wraps = (("AdminUtils", "sudo_trim_null_uids_batch"),)
+
+    netuid: int = field(metadata={"help": "Null subnet owned by the signer."})
+    target: int = field(metadata={"help": "Final UID count, shared by every continuation."})
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.AdminUtils.sudo_trim_null_uids_batch(netuid=self.netuid, target=self.target)
+        )
+
+    def summary(self) -> str:
+        return f"prune one Null batch on netuid {self.netuid} toward {self.target} UIDs"
+
+
+@register
+@dataclass
 class StakeBurn(Intent):
     """Buy back / burn stake via the stake-burn extrinsic.
 
@@ -63,25 +99,35 @@ class StakeBurn(Intent):
     so this is not an investment call; use a regular add-stake intent to
     acquire a position. Fails on the root subnet
     (``CannotBurnOrRecycleOnRootSubnet``). The chain accepts an optional
-    limit (omitted = market order), but this intent always requires
-    ``limit_price`` and executes all-or-nothing: the swap fails instead of
-    partially filling at a worse rate. Counts against a configured spend
-    cap.
+    limit (omitted = market order), but this intent always submits one and
+    executes all-or-nothing: the swap fails instead of partially filling at
+    a worse rate. When ``limit_price`` is omitted, the limit is derived from
+    the current pool price plus ``rate_tolerance`` (5% by default). Counts
+    against a configured spend cap.
     """
 
     op = "stake_burn"
     signer = "coldkey"
     wraps = (("SubtensorModule", "add_stake_burn"),)
+    mev_shield_default = True
 
     netuid: int = field(metadata={"help": "Subnet whose alpha is bought and burned."})
     amount_tao: Money = field(
         metadata={"help": "Spent from the coldkey to buy alpha that is then burned."}
     )
-    limit_price: int = field(
+    limit_price: Optional[int] = field(
+        default=None,
         metadata={
             "help": "Worst acceptable price in rao per alpha; the call fails rather than "
-            "filling beyond it."
-        }
+            "filling beyond it. Defaults to the current pool price plus `rate_tolerance`."
+        },
+    )
+    rate_tolerance: float = field(
+        default=DEFAULT_RATE_TOLERANCE,
+        metadata={
+            "help": "Maximum price move accepted when `limit_price` is omitted, as a "
+            "fraction (0.05 = 5%). Ignored when `limit_price` is given."
+        },
     )
     hotkey_ss58: Optional[str] = field(
         default=None,
@@ -90,15 +136,21 @@ class StakeBurn(Intent):
 
     def __post_init__(self):
         self.amount_tao = tao_amount(self.amount_tao)
+        _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
+        if self.limit_price is not None:
+            limit = self.limit_price
+        else:
+            price = await _alpha_price_rao(substrate, self.netuid)
+            limit = int(price * (1 + self.rate_tolerance))
         return await substrate.compose(
             calls.SubtensorModule.add_stake_burn(
                 hotkey=hotkey,
                 netuid=self.netuid,
                 amount=self.amount_tao.rao,
-                limit=self.limit_price,
+                limit=limit,
             )
         )
 
@@ -120,13 +172,13 @@ class SetMechanismCount(Intent):
     how many mechanisms a subnet may have. Increasing the count opens new
     mechanisms; decreasing it removes the highest-numbered ones and the
     miner state in them. Any change to the count clears the emission split
-    back to an even division — reapply ``set_mechanism_emission_split``
-    afterwards if you want an uneven split. Rate-limited and blocked during
-    the end-of-epoch admin freeze window.
+    back to an even division. Rate-limited and blocked during the
+    end-of-epoch admin freeze window.
     """
 
     op = "set_mechanism_count"
     signer = "coldkey"
+    origin = "subnet_owner"  # the chain also accepts root
     wraps = (("AdminUtils", "sudo_set_mechanism_count"),)
 
     netuid: int = field(metadata={"help": "Subnet to configure; the signer must be its owner."})
@@ -141,84 +193,6 @@ class SetMechanismCount(Intent):
 
     def summary(self) -> str:
         return f"set mechanism count to {self.mechanism_count} on netuid {self.netuid}"
-
-
-def _normalize_split(split: list) -> list[int]:
-    """Normalize an emission split to raw u16 weights summing to exactly 65,535.
-
-    All-integer input is taken as the raw weights (validated to sum exactly);
-    any float in the list marks the human form: entries become relative
-    weights, scaled to the exact-sum split with largest-remainder rounding so
-    the result always lands on 65,535 on the nose.
-    """
-    if not split:
-        raise ValueError("the emission split needs at least one entry")
-    if any(isinstance(w, bool) or not isinstance(w, (int, float)) for w in split):
-        raise ValueError(f"emission split entries must be numbers; got {split!r}")
-    if any(w < 0 for w in split):
-        raise ValueError(f"emission split entries must be non-negative; got {split!r}")
-    if all(isinstance(w, int) for w in split):
-        total = sum(split)
-        if total != U16_MAX:
-            raise ValueError(
-                f"raw u16 emission weights must sum to exactly {U16_MAX}; got {total}. "
-                "Pass weights with a decimal point (e.g. [0.5, 0.5]) to have the "
-                "split normalized for you."
-            )
-        return list(split)
-    total = float(sum(split))
-    if total <= 0:
-        raise ValueError("relative emission weights must sum to more than zero")
-    scaled = [w / total * U16_MAX for w in split]
-    floors = [int(s) for s in scaled]
-    remainder = U16_MAX - sum(floors)
-    # Distribute the leftover units to the largest fractional parts.
-    by_fraction = sorted(range(len(split)), key=lambda i: scaled[i] - floors[i], reverse=True)
-    for i in by_fraction[:remainder]:
-        floors[i] += 1
-    return floors
-
-
-@register
-@dataclass
-class SetMechanismEmissionSplit(Intent):
-    """Set emission split between mechanisms on a subnet.
-
-    Owner-only: divides the subnet's emission between its mechanisms, one
-    entry per mechanism in order. Entries with a decimal point are relative
-    weights (e.g. ``[0.5, 0.5]`` or ``[3.0, 1.0]``), normalized to the exact
-    u16 split the chain requires; plain integers are raw u16 weights and must
-    sum to exactly 65,535 themselves. The list may be at most as long as the
-    subnet's current mechanism count (see ``set_mechanism_count``) — a
-    shorter list leaves the trailing mechanisms with zero. Changing the
-    split reallocates future emission only — nothing already emitted moves.
-    """
-
-    op = "set_mechanism_emission_split"
-    signer = "coldkey"
-    wraps = (("AdminUtils", "sudo_set_mechanism_emission_split"),)
-
-    netuid: int = field(metadata={"help": "Subnet to configure; the signer must be its owner."})
-    split: list = field(
-        metadata={
-            "help": "Emission weights in mechanism order, at most one entry per "
-            "mechanism: relative weights with a decimal point (normalized for you, "
-            "e.g. [0.5, 0.5]), or raw u16 integers summing to exactly 65,535."
-        }
-    )
-
-    def __post_init__(self):
-        self.split = _normalize_split(self.split)
-
-    async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.AdminUtils.sudo_set_mechanism_emission_split(
-                netuid=self.netuid, maybe_split=[int(x) for x in self.split]
-            )
-        )
-
-    def summary(self) -> str:
-        return f"set mechanism emission split on netuid {self.netuid}: {self.split}"
 
 
 @register
@@ -237,6 +211,7 @@ class UpdateSymbol(Intent):
 
     op = "update_symbol"
     signer = "coldkey"
+    origin = "subnet_owner"  # the chain also accepts root
     wraps = (("SubtensorModule", "update_symbol"),)
 
     netuid: int = field(

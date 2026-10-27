@@ -40,6 +40,10 @@ impl TransactionType {
         match self {
             Self::SetWeightsVersionKey => (Tempo::<T>::get(netuid) as u64)
                 .saturating_mul(WeightsVersionKeyRateLimit::<T>::get()),
+            // The emission weight vector has its own weekly limit, keyed per subnet.
+            Self::OwnerHyperparamUpdate(Hyperparameter::EmissionWeights) => {
+                SubnetEmissionWeightsRateLimit::<T>::get()
+            }
             // Owner hyperparameter updates are rate-limited by N tempos on the subnet (sudo configurable)
             Self::OwnerHyperparamUpdate(_) => {
                 let epochs = OwnerHyperparamRateLimit::<T>::get() as u64;
@@ -212,6 +216,15 @@ pub enum Hyperparameter {
     MinChildkeyTake = 29,
     ActivityCutoffFactorMilli = 30,
     TriggerEpoch = 31,
+    CollateralLockShare = 32,
+    CollateralDrainRatio = 33,
+    LiquidAlphaConsensusMode = 34,
+    EpochConsensus = 35,
+    BurnRegistrationAllowed = 36,
+    MinDifficulty = 37,
+    Difficulty = 38,
+    /// `set_subnet_emission_weights`; limited to once a week per subnet rather than by tempo.
+    EmissionWeights = 39,
 }
 
 impl<T: Config> Pallet<T> {

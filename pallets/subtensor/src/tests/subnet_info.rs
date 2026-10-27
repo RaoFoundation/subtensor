@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
 
 use super::mock::*;
 use crate::rpc_info::subnet_info::{HyperparamEntry, HyperparamValue, SubnetHyperparamsV3};
@@ -44,8 +44,14 @@ const EXPECTED_V3_NAMES: &[&[u8]] = &[
     b"bonds_reset_enabled",
     b"user_liquidity_enabled",
     b"owner_cut_enabled",
+    b"owner_emission",
+    b"validator_emission",
+    b"miner_emission",
     b"owner_cut_auto_lock_enabled",
     b"min_childkey_take",
+    b"collateral_lock_share",
+    b"collateral_drain_ratio",
+    b"epoch_consensus",
 ];
 
 fn find<'a>(params: &'a [HyperparamEntry], name: &[u8]) -> &'a HyperparamValue {
@@ -124,7 +130,7 @@ fn test_get_subnet_hyperparams_v3_values_reflect_storage() {
         SubtensorModule::set_alpha_sigmoid_steepness(netuid, 5i16);
         SubtensorModule::set_yuma3_enabled(netuid, true);
         SubtensorModule::set_bonds_reset(netuid, true);
-        SubtensorModule::set_owner_cut_enabled_flag(netuid, true);
+        set_subnet_owner_cut_for_test(netuid, u16::MAX / 10);
         SubtensorModule::set_owner_cut_auto_lock_enabled(netuid, true);
         SubtensorModule::set_min_childkey_take(PerU16::from_parts(31));
         SubtensorModule::set_min_childkey_take_for_subnet(netuid, PerU16::from_parts(32));
@@ -150,6 +156,19 @@ fn test_get_subnet_hyperparams_v3_values_reflect_storage() {
             &HyperparamValue::Bool(true)
         );
         assert_eq!(find(p, b"owner_cut_enabled"), &HyperparamValue::Bool(true));
+        let weights = SubtensorModule::get_subnet_emission_weights(netuid);
+        assert_eq!(
+            find(p, b"owner_emission"),
+            &HyperparamValue::U64(Compact(weights[2]))
+        );
+        assert_eq!(
+            find(p, b"validator_emission"),
+            &HyperparamValue::U64(Compact(weights[3]))
+        );
+        assert_eq!(
+            find(p, b"miner_emission"),
+            &HyperparamValue::U64(Compact(weights[4]))
+        );
         assert_eq!(
             find(p, b"owner_cut_auto_lock_enabled"),
             &HyperparamValue::Bool(true)

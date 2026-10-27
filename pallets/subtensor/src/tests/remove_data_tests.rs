@@ -109,6 +109,24 @@ fn test_remove_data_for_dissolved_networks_all_phases() {
             AlphaBalance::from(lock_tao),
         ));
 
+        // Queue pending basket-deposit credits: the one for the dissolving netuid must be
+        // recycled+purged by the `NetworkPendingBasketDeposits` phase (otherwise a subnet
+        // reusing the netuid would inherit the old subnet's queued alpha), while the credit
+        // for an unrelated netuid must survive untouched.
+        let other_netuid = NetUid::from(u16::from(netuid).saturating_add(1));
+        let pending_alpha = AlphaBalance::from(12_345);
+        // Seed issuance so the dissolve-phase recycle has something to decrement.
+        SubnetAlphaOut::<Test>::insert(netuid, pending_alpha);
+        let issuance_before = pallet_alpha_assets::TotalAlphaIssuance::<Test>::get(netuid);
+        pallet_alpha_assets::TotalAlphaIssuance::<Test>::insert(
+            netuid,
+            issuance_before.saturating_add(pending_alpha),
+        );
+        PendingBasketDeposits::<Test>::insert(owner_hot, netuid, pending_alpha);
+        PendingBasketDeposits::<Test>::insert(owner_hot, other_netuid, AlphaBalance::from(777));
+        StakeMoveCooldownUntil::<Test>::insert(netuid, owner_hot, 100);
+        StakeMoveCooldownUntil::<Test>::insert(other_netuid, owner_hot, 100);
+
         // Now test the full dissolution cleanup process by running on_idle multiple times
         // until all phases complete
         let total_weight = Weight::from_parts(u64::MAX, u64::MAX);
@@ -145,6 +163,31 @@ fn test_remove_data_for_dissolved_networks_all_phases() {
 
         // Verify the subnet no longer exists
         assert!(!SubtensorModule::if_subnet_exist(netuid));
+        assert!(!StakeMoveCooldownUntil::<Test>::contains_key(
+            netuid, owner_hot
+        ));
+        assert!(StakeMoveCooldownUntil::<Test>::contains_key(
+            other_netuid,
+            owner_hot
+        ));
+
+        // The dissolved netuid's queued credit is gone; the unrelated netuid's survives.
+        assert!(!PendingBasketDeposits::<Test>::contains_key(
+            owner_hot, netuid
+        ));
+        assert_eq!(
+            PendingBasketDeposits::<Test>::get(owner_hot, other_netuid),
+            AlphaBalance::from(777)
+        );
+        // The queued credit is recycled before the completed generation is dropped;
+        // no alpha-asset counter from it may survive netuid reuse.
+        assert!(!pallet_alpha_assets::TotalAlphaIssuance::<Test>::contains_key(netuid));
+        assert!(!pallet_alpha_assets::AlphaBurned::<Test>::contains_key(
+            netuid
+        ));
+        assert!(!pallet_alpha_assets::AlphaRecycled::<Test>::contains_key(
+            netuid
+        ));
     });
 }
 
@@ -800,6 +843,13 @@ fn test_clean_up_hotkey_swap_records() {
         let swap_block_other_new: u64 = 101;
         LastHotkeySwapOnNetuid::<Test>::insert(netuid_2, coldkey_other_new, swap_block_other_new);
 
+        let expired_hotkey = U256::from(5001);
+        let active_hotkey = U256::from(5002);
+        let other_hotkey = U256::from(5003);
+        StakeMoveCooldownUntil::<Test>::insert(netuid_1, expired_hotkey, block_number);
+        StakeMoveCooldownUntil::<Test>::insert(netuid_1, active_hotkey, block_number + 1);
+        StakeMoveCooldownUntil::<Test>::insert(netuid_2, other_hotkey, block_number);
+
         // Before calling the function, verify the records exist
         assert!(LastHotkeySwapOnNetuid::<Test>::contains_key(
             netuid_1,
@@ -843,6 +893,18 @@ fn test_clean_up_hotkey_swap_records() {
             LastHotkeySwapOnNetuid::<Test>::contains_key(netuid_2, coldkey_other_new),
             "Hotkey swap record for netuid_2 should remain untouched"
         );
+        assert!(!StakeMoveCooldownUntil::<Test>::contains_key(
+            netuid_1,
+            expired_hotkey
+        ));
+        assert!(StakeMoveCooldownUntil::<Test>::contains_key(
+            netuid_1,
+            active_hotkey
+        ));
+        assert!(StakeMoveCooldownUntil::<Test>::contains_key(
+            netuid_2,
+            other_hotkey
+        ));
 
         // We can also check that the weight returned is reasonable (non-zero and not max)
         // Note: Weight comparison is tricky, but we can at least check it's not zero

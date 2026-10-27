@@ -96,7 +96,7 @@ use frame_support::{
 use frame_system::RawOrigin;
 use sp_core::{H160, H256, U256};
 use sp_runtime::{
-	traits::{BadOrigin, NumberFor, Saturating, UniqueSaturatedInto, Zero},
+	traits::{BadOrigin, CheckedAdd, NumberFor, One, Saturating, UniqueSaturatedInto, Zero},
 	AccountId32, DispatchErrorWithPostInfo,
 };
 // Frontier
@@ -646,6 +646,8 @@ pub mod pallet {
 		NotAllowed,
 		/// Address not allowed to deploy contracts either via CREATE or CALL(CREATE).
 		CreateOriginNotAllowed,
+		/// The authorization list exceeds the limit enforced before signature recovery.
+		AuthorizationListTooLarge,
 	}
 
 	impl<T> From<TransactionValidationError> for Error<T> {
@@ -662,7 +664,9 @@ pub mod pallet {
 				TransactionValidationError::InvalidChainId => Error::<T>::InvalidChainId,
 				TransactionValidationError::InvalidSignature => Error::<T>::InvalidSignature,
 				TransactionValidationError::EmptyAuthorizationList => Error::<T>::Undefined,
-				TransactionValidationError::AuthorizationListTooLarge => Error::<T>::Undefined,
+				TransactionValidationError::AuthorizationListTooLarge => {
+					Error::<T>::AuthorizationListTooLarge
+				}
 				TransactionValidationError::UnknownError => Error::<T>::Undefined,
 			}
 		}
@@ -729,6 +733,17 @@ pub mod pallet {
 
 	#[pallet::storage]
 	pub type DisableWhitelistCheck<T: Config> = StorageValue<_, bool, ValueQuery>;
+
+	/// Nonces retained when a mapped balance account is reaped. Initialized lazily
+	/// from the existing system nonce by `NoncePreservingAccountProvider`.
+	#[pallet::storage]
+	pub type AccountNonces<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		<T as frame_system::Config>::AccountId,
+		<T as frame_system::Config>::Nonce,
+		ValueQuery,
+	>;
 }
 
 /// Utility alias for easy access to the [`AccountProvider::AccountId`] type from a given config.
@@ -1100,7 +1115,7 @@ impl<T: Config> Pallet<T> {
 				nonce: U256::from(UniqueSaturatedInto::<u128>::unique_saturated_into(nonce)),
 				balance: balance_eth.into(),
 			},
-			T::DbWeight::get().reads(2),
+			T::DbWeight::get().reads(2 + T::AccountProvider::extra_nonce_reads()),
 		)
 	}
 
@@ -1408,6 +1423,67 @@ impl<T: frame_system::Config> AccountProvider for FrameSystemAccountProvider<T> 
 
 	fn remove_account(who: &Self::AccountId) {
 		let _ = frame_system::Pallet::<T>::dec_sufficients(who);
+	}
+}
+
+/// Preserve EVM transaction uniqueness independently of balance-account lifetime.
+/// Existing accounts keep their current nonce without an unbounded migration.
+pub struct NoncePreservingAccountProvider<T>(core::marker::PhantomData<T>);
+
+impl<T: Config> AccountProvider for NoncePreservingAccountProvider<T> {
+	type AccountId = <T as frame_system::Config>::AccountId;
+	type Nonce = <T as frame_system::Config>::Nonce;
+
+	fn account_nonce(who: &Self::AccountId) -> Self::Nonce {
+		frame_system::Pallet::<T>::account_nonce(who).max(AccountNonces::<T>::get(who))
+	}
+
+	fn inc_account_nonce(who: &Self::AccountId) {
+		let _ = Self::try_inc_account_nonce(who);
+	}
+
+	fn try_inc_account_nonce(who: &Self::AccountId) -> Result<(), ExitError> {
+		let retained = AccountNonces::<T>::get(who);
+		// Keep native and EVM callers sharing the current system nonce while the
+		// account exists, including after it is funded again following reaping.
+		let nonce = frame_system::Account::<T>::try_mutate(who, |account| {
+			let nonce = account
+				.nonce
+				.max(retained)
+				.checked_add(&Self::Nonce::one())
+				.ok_or(ExitError::MaxNonce)?;
+			account.nonce = nonce;
+			Ok::<_, ExitError>(nonce)
+		})?;
+		AccountNonces::<T>::insert(who, nonce);
+		Ok(())
+	}
+
+	fn create_account(who: &Self::AccountId) {
+		FrameSystemAccountProvider::<T>::create_account(who);
+	}
+
+	fn remove_account(who: &Self::AccountId) {
+		// Explicit EVM account deletion (e.g. SELFDESTRUCT) retains its existing
+		// semantics. Balance reaping never takes this path.
+		AccountNonces::<T>::remove(who);
+		FrameSystemAccountProvider::<T>::remove_account(who);
+	}
+
+	fn extra_nonce_reads() -> u64 {
+		1
+	}
+
+	fn extra_nonce_proof_size() -> u64 {
+		// Blake2_128Concat key and maximum encoded account ID / nonce lengths.
+		16u64
+			.saturating_add(T::AccountId::max_encoded_len() as u64)
+			.saturating_add(T::Nonce::max_encoded_len() as u64)
+	}
+
+	fn extra_nonce_write_counts() -> (u64, u64) {
+		// The retained-nonce read/write is additional to the system increment.
+		(1, 1)
 	}
 }
 

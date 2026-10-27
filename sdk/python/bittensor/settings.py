@@ -40,6 +40,15 @@ NETWORKS = {
 
 DEFAULT_NETWORK = "finney"
 
+# Mainnet genesis, e.g. to check which network a Vault-exported address QR
+# belongs to (Vault address QRs carry the network's genesis hash).
+FINNEY_GENESIS_HASH = "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
+
+# Polkadot Vault onboarding guide: hosts the one-time chain-specs QR that
+# adds the Bittensor network to a Vault phone (transaction QRs carry their
+# own metadata proof, so no metadata updates are ever needed).
+VAULT_GUIDE_URL = "https://www.bittensor.com/docs/guides/vault"
+
 # Default fallback pools, keyed by network label. When the primary endpoint is
 # unreachable (or exhausts its reconnect retries mid-session) the connection
 # rotates through these transparently. Networks without public alternatives
@@ -99,6 +108,42 @@ def resolve_endpoint(network: str) -> tuple[str, str]:
 
 
 _REVERSE_NETWORKS = {url: name for name, url in NETWORKS.items()}
+
+# The published SDK/CLI documentation site (docs pages referenced from CLI
+# output link here).
+DOCS_URL = "https://www.bittensor.com/docs"
+
+
+def error_docs_url(code_value: str) -> str:
+    """Docs explainer page for a semantic error code (e.g. insufficient_balance)."""
+    return f"{DOCS_URL}/errors/{code_value.replace('_', '-')}"
+
+
+def chain_error_docs_url(name: str) -> str:
+    """Docs explainer page for an exact chain error name (e.g. SlippageTooHigh).
+
+    The docs keep the on-chain CamelCase name in the URL, so no mangling."""
+    return f"{DOCS_URL}/errors/chain/{name}"
+
+
+def tx_docs_url(op: str) -> str:
+    """Docs page for a transaction intent (e.g. add_stake). The page carries
+    the parameters, CLI/Python forms, and the on-chain implementation with
+    source links."""
+    return f"{DOCS_URL}/tx/{op.replace('_', '-')}"
+
+
+def query_docs_url(name: str) -> str:
+    """Docs page for a read (e.g. subnet_hyperparameters), including the
+    storage items and runtime APIs it hits with source links."""
+    return f"{DOCS_URL}/query/{name.replace('_', '-')}"
+
+
+def guide_docs_url(slug: str) -> str:
+    """Docs guide page (e.g. staking, conviction, mining/collateral).
+    Command groups link their topic guide from --help."""
+    return f"{DOCS_URL}/guides/{slug}"
+
 
 # Public block-explorer pages for an extrinsic, keyed by network label. ``{id}``
 # is the on-chain extrinsic identifier "block_number-index" (index zero-padded

@@ -1,0 +1,70 @@
+---
+title: liquid_alpha_enabled
+description: Switches the bonds EMA from one flat rate to a per-weight rate that varies between alpha_low and alpha_high.
+---
+
+`liquid_alpha_enabled` turns on "liquid alpha": instead of every validator–miner bond smoothing at the same flat rate, each pair gets its own EMA rate based on how far the validator's weight deviates from consensus. Subnet owners enable it to reward decisive, differentiated weight-setting; validators care because it changes how fast their bonds — and dividends — respond to weight changes.
+
+## How it works
+
+In the epoch's [`compute_bonds`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1333-L1360) (`pallets/subtensor/src/epoch/run_epoch.rs`), if this flag is on and consensus is non-empty, the chain builds a full matrix of per-pair alphas via [`compute_liquid_alpha_values`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1415-L1455): each pair's deviation (weight above consensus when increasing a bond, bond above weight when decreasing) is pushed through a sigmoid and mapped into the [`alpha_low`](/docs/hyperparameters/alpha-low)..[`alpha_high`](/docs/hyperparameters/alpha-high) range, with [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness) controlling the transition sharpness. Larger deviations get a higher alpha, so those bonds move faster.
+
+When the flag is off, every pair uses the flat rate `1 − bonds_moving_avg / 1,000,000` ([`compute_disabled_liquid_alpha`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1567-L1577)).
+
+### Choosing the consensus source
+
+V446 adds `LiquidAlphaConsensusMode`, which selects the consensus vector used
+by liquid alpha:
+
+| Mode | Consensus used |
+| --- | --- |
+| `Current` | Consensus calculated in the current epoch. |
+| `Previous` | Consensus persisted by the previous epoch. If none is stored, the chain falls back to current consensus. |
+| `Auto` (default) | Previous consensus when `bonds_penalty` is `u16::MAX`; current consensus otherwise. |
+
+Subnet owners can change the mode during the subnet's admin window. The call
+has the same owner/root authorization and per-hyperparameter rate limiting as
+other owner-settable parameters. It is available as a raw call:
+
+```bash
+btcli call AdminUtils.sudo_set_liquid_alpha_consensus_mode \
+  --args '{"netuid": 42, "mode": "Auto"}' -w my_owner_wallet
+```
+
+The root account can submit the same call with `--sudo`. Read the live mode
+through typed storage:
+
+```python
+mode = await client.query(
+    bt.storage.SubtensorModule.LiquidAlphaConsensusMode,
+    [42],
+)
+```
+
+EVM contracts can use the Subnet precompile at `0x0803` through
+`getLiquidAlphaConsensusMode(uint16)` and
+`setLiquidAlphaConsensusMode(uint16,uint8)`. The EVM encoding is `0` for
+`Current`, `1` for `Previous`, and `2` for `Auto`; other values revert. The
+setter exposes the signed subnet-owner path and retains the runtime's admin
+window and rate-limit checks.
+
+One important dependency: `compute_bonds` only runs on the Yuma3 path. If [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) is off, the classic bond code ignores this toggle entirely and always uses [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg). Setting `alpha_low`/`alpha_high` also requires this flag to be on first ([`LiquidAlphaDisabled`](/code/pallets/subtensor/src/macros/errors.rs#L134) error otherwise).
+
+<HyperparamLiquidAlpha focus="liquid_alpha_enabled" />
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name liquid_alpha_enabled
+```
+
+Boolean — pass true or false. This toggles liquid alpha itself; the consensus
+mode above only takes effect while liquid alpha is enabled:
+
+```
+btcli sudo set --netuid N --name liquid_alpha_enabled --value true
+```
+
+## Related
+
+[`alpha_low`](/docs/hyperparameters/alpha-low), [`alpha_high`](/docs/hyperparameters/alpha-high), [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness), [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled), [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg)

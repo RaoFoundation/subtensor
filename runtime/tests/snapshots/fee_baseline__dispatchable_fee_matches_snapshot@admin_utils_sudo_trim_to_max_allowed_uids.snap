@@ -1,0 +1,7 @@
+---
+source: runtime/tests/fee_baseline.rs
+assertion_line: 405
+description: admin_utils_sudo_trim_to_max_allowed_uids
+expression: fee
+---
+132654

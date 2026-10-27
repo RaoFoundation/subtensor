@@ -172,6 +172,30 @@ impl From<(&str, HyperparamValue)> for HyperparamEntry {
 /// clients should not rely on it for semantics.
 pub type SubnetHyperparamsV3 = Vec<HyperparamEntry>;
 
+/// A subnet's emission weight vector and root's share of its emission.
+///
+/// Every share is a `u64` part of `u64::MAX`. `weights` is the full
+/// `[burn, recycle, owner, validator, miner]` vector; the named fields repeat
+/// each slot for callers that want them by name. `root_baseline_share` is
+/// root's live baseline share `r = V0 · x_g / (x_g + A)` at this block (what
+/// root earns here on the default split); `root_share` is what root is paid
+/// off the top of the validator slot this block, `min(validator, r)`. Alpha
+/// validators receive `validator − root_share`.
+#[freeze_struct("4cd41617c4b67f55")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct SubnetEmissionWeightsInfo {
+    pub netuid: Compact<NetUid>,
+    pub weights: Vec<Compact<u64>>,
+    pub burn: Compact<u64>,
+    pub recycle: Compact<u64>,
+    pub owner: Compact<u64>,
+    pub validator: Compact<u64>,
+    pub miner: Compact<u64>,
+    pub root_baseline_share: Compact<u64>,
+    pub root_share: Compact<u64>,
+    pub created_via_lease: bool,
+}
+
 impl<T: Config> Pallet<T> {
     pub fn get_subnet_info(netuid: NetUid) -> Option<SubnetInfo<T::AccountId>> {
         if !Self::if_subnet_exist(netuid) {
@@ -459,6 +483,34 @@ impl<T: Config> Pallet<T> {
         AutoStakeDestination::<T>::get(coldkey, netuid)
     }
 
+    /// The subnet's emission weight vector together with root's baseline and
+    /// paid share of its emission this block, or `None` if the subnet does not
+    /// exist.
+    pub fn get_subnet_emission_weights_info(netuid: NetUid) -> Option<SubnetEmissionWeightsInfo> {
+        if !Self::if_subnet_exist(netuid) {
+            return None;
+        }
+        let view = Self::read_subnet_emission_weights_view(netuid);
+        let slot = |index: EmissionIndex| -> Compact<u64> {
+            Compact(view.weights.get(index.position()).copied().unwrap_or(0))
+        };
+        let validator = slot(EmissionIndex::Validator);
+        let root_baseline_share =
+            emission_share_to_parts(Self::baseline_root_emission_share(netuid));
+        Some(SubnetEmissionWeightsInfo {
+            netuid: netuid.into(),
+            weights: view.weights.iter().map(|w| Compact(*w)).collect(),
+            burn: slot(EmissionIndex::Burn),
+            recycle: slot(EmissionIndex::Recycle),
+            owner: slot(EmissionIndex::Owner),
+            validator,
+            miner: slot(EmissionIndex::Miner),
+            root_baseline_share: Compact(root_baseline_share),
+            root_share: Compact(root_baseline_share.min(validator.0)),
+            created_via_lease: view.created_via_lease,
+        })
+    }
+
     /// Returns every hyperparameter for `netuid` as a flat
     /// [`SubnetHyperparamsV3`] list, or `None` if the subnet does not exist.
     ///
@@ -478,6 +530,14 @@ impl<T: Config> Pallet<T> {
         };
 
         Some(alloc::vec![
+            (
+                "epoch_consensus",
+                HyperparamValue::U16(Compact(match Self::get_epoch_consensus(netuid) {
+                    EpochConsensus::Yuma => 0,
+                    EpochConsensus::Null => 1,
+                })),
+            )
+                .into(),
             (
                 "kappa",
                 HyperparamValue::U16(Self::get_kappa(netuid).into())
@@ -618,6 +678,21 @@ impl<T: Config> Pallet<T> {
             )
                 .into(),
             (
+                "owner_emission",
+                HyperparamValue::U64(Self::get_subnet_owner_emission_cut(netuid).into()),
+            )
+                .into(),
+            (
+                "validator_emission",
+                HyperparamValue::U64(Self::get_subnet_validator_emission_cut(netuid).into()),
+            )
+                .into(),
+            (
+                "miner_emission",
+                HyperparamValue::U64(Self::get_subnet_miner_emission_cut(netuid).into()),
+            )
+                .into(),
+            (
                 "owner_cut_auto_lock_enabled",
                 HyperparamValue::Bool(Self::get_owner_cut_auto_lock_enabled(netuid)),
             )
@@ -625,6 +700,16 @@ impl<T: Config> Pallet<T> {
             (
                 "min_childkey_take",
                 HyperparamValue::U16(Self::get_effective_min_childkey_take(netuid).into()),
+            )
+                .into(),
+            (
+                "collateral_lock_share",
+                HyperparamValue::U16(CollateralLockShare::<T>::get(netuid).into()),
+            )
+                .into(),
+            (
+                "collateral_drain_ratio",
+                HyperparamValue::U64F64(CollateralDrainRatio::<T>::get(netuid)),
             )
                 .into(),
         ])

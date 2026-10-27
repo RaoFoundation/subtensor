@@ -11,19 +11,19 @@ pub mod types;
 pub mod weights;
 
 use ark_serialize::CanonicalDeserialize;
-use codec::Encode;
+use codec::{Decode, Encode};
 use frame_support::IterableStorageDoubleMap;
 use frame_support::weights::WeightMeter;
 use frame_support::{
     BoundedVec,
-    traits::{Currency, Get},
+    traits::{Currency, Get, ReservableCurrency},
 };
 use frame_system::pallet_prelude::BlockNumberFor;
 pub use pallet::*;
 use scale_info::prelude::collections::BTreeSet;
 use sp_runtime::SaturatedConversion;
 use sp_runtime::{Saturating, Weight, traits::Zero};
-use sp_std::{boxed::Box, vec::Vec};
+use sp_std::{boxed::Box, ops::Bound, vec::Vec};
 use subtensor_runtime_common::{NetUid, clear_prefix_with_meter};
 use tle::{
     curves::drand::TinyBLS381,
@@ -111,6 +111,17 @@ pub mod pallet {
             /// The account
             who: T::AccountId,
         },
+        /// A timelock-encrypted commitment could not be revealed and was left in place
+        CommitmentRevealFailed {
+            /// The netuid of the commitment
+            netuid: NetUid,
+            /// The account
+            who: T::AccountId,
+            /// The drand round that was attempted
+            reveal_round: u64,
+            /// Why reveal failed
+            error: RevealFailure,
+        },
     }
 
     #[pallet::error]
@@ -123,6 +134,8 @@ pub mod pallet {
         SpaceLimitExceeded,
         /// Indicates that unreserve returned a leftover, which is unexpected.
         UnexpectedUnreserveLeftover,
+        /// `TimelockRevealFailed` fields may only be created by the runtime.
+        TimelockRevealFailedNotAllowed,
     }
 
     /// Tracks all CommitmentOf that have at least one timelocked field.
@@ -130,6 +143,13 @@ pub mod pallet {
     #[pallet::getter(fn timelocked_index)]
     pub type TimelockedIndex<T: Config> =
         StorageValue<_, BTreeSet<(NetUid, T::AccountId)>, ValueQuery>;
+
+    /// Last `TimelockedIndex` entry visited by a reveal pass that hit the per-block
+    /// decryption budget. The next pass resumes after it so a burst of matured
+    /// commitments at the front of the index cannot starve the rest. Absent when the
+    /// previous pass covered the whole index.
+    #[pallet::storage]
+    pub type TimelockRevealCursor<T: Config> = StorageValue<_, (NetUid, T::AccountId), OptionQuery>;
 
     /// Identity data by account
     #[pallet::storage]
@@ -211,7 +231,8 @@ pub mod pallet {
         /// Set the commitment for a given netuid
         #[pallet::call_index(0)]
         #[pallet::weight((
-            <T as pallet::Config>::WeightInfo::set_commitment(),
+            <T as pallet::Config>::WeightInfo::set_commitment()
+                .saturating_add(T::CanCommit::validation_weight()),
             DispatchClass::Normal,
             Pays::No
         ))]
@@ -221,15 +242,20 @@ pub mod pallet {
             info: Box<CommitmentInfo<T::MaxFields>>,
         ) -> DispatchResult {
             let who = ensure_signed(origin.clone())?;
-            ensure!(
-                T::CanCommit::can_commit(netuid, &who),
-                Error::<T>::AccountNotAllowedCommit
-            );
+            T::CanCommit::validate(netuid, &who)
+                .map_err(|_| Error::<T>::AccountNotAllowedCommit)?;
 
             let extra_fields = info.fields.len() as u32;
             ensure!(
                 extra_fields <= T::MaxFields::get(),
                 Error::<T>::TooManyFieldsInCommitmentInfo
+            );
+            ensure!(
+                !info
+                    .fields
+                    .iter()
+                    .any(|field| matches!(field, Data::TimelockRevealFailed { .. })),
+                Error::<T>::TimelockRevealFailedNotAllowed
             );
 
             let cur_block = <frame_system::Pallet<T>>::block_number();
@@ -343,10 +369,11 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(n: BlockNumberFor<T>) -> Weight {
             match Self::reveal_timelocked_commitments() {
-                Ok(w) => w,
+                Ok(w) => <T as pallet::Config>::WeightInfo::reveal_timelocked_commitments()
+                    .saturating_add(w),
                 Err(e) => {
                     log::debug!("Failed to unveil matured commitments on block {n:?}: {e:?}");
-                    Weight::from_parts(0, 0)
+                    <T as pallet::Config>::WeightInfo::reveal_timelocked_commitments()
                 }
             }
         }
@@ -355,12 +382,21 @@ pub mod pallet {
 
 // Interfaces to interact with other pallets
 pub trait CanCommit<AccountId> {
-    fn can_commit(netuid: NetUid, who: &AccountId) -> bool;
+    type Error;
+
+    fn validate(netuid: NetUid, who: &AccountId) -> Result<(), Self::Error>;
+    fn validation_weight() -> frame_support::weights::Weight;
 }
 
 impl<A> CanCommit<A> for () {
-    fn can_commit(_: NetUid, _: &A) -> bool {
-        false
+    type Error = ();
+
+    fn validate(_: NetUid, _: &A) -> Result<(), Self::Error> {
+        Err(())
+    }
+
+    fn validation_weight() -> frame_support::weights::Weight {
+        frame_support::weights::Weight::zero()
     }
 }
 
@@ -384,14 +420,127 @@ pub enum CallType {
 
 use frame_support::{dispatch::DispatchResult, pallet_prelude::TypeInfo};
 
+/// SCALE envelope used by `bt.timelock.encrypt` / `encrypt_at_round`.
+/// The chain also accepts a raw compressed `TLECiphertext`.
+#[derive(Decode)]
+struct TimelockUserData {
+    encrypted_data: Vec<u8>,
+    reveal_round: u64,
+}
+
+fn tle_ciphertext_from_bytes(
+    encrypted: &[u8],
+    reveal_round: u64,
+) -> Result<TLECiphertext<TinyBLS381>, RevealFailure> {
+    let mut raw_reader = encrypted;
+    if let Ok(commit) = TLECiphertext::<TinyBLS381>::deserialize_compressed(&mut raw_reader)
+        && raw_reader.is_empty()
+    {
+        return Ok(commit);
+    }
+
+    let mut envelope_reader = encrypted;
+    let Ok(envelope) = TimelockUserData::decode(&mut envelope_reader) else {
+        return Err(RevealFailure::CiphertextDeserialize);
+    };
+    if !envelope_reader.is_empty() {
+        return Err(RevealFailure::CiphertextDeserialize);
+    }
+
+    let TimelockUserData {
+        encrypted_data,
+        reveal_round: envelope_round,
+    } = envelope;
+    if envelope_round != reveal_round {
+        return Err(RevealFailure::RoundMismatch);
+    }
+    let mut inner_reader = encrypted_data.as_slice();
+    let commit = TLECiphertext::<TinyBLS381>::deserialize_compressed(&mut inner_reader)
+        .map_err(|_| RevealFailure::CiphertextDeserialize)?;
+    if !inner_reader.is_empty() {
+        return Err(RevealFailure::CiphertextDeserialize);
+    }
+    Ok(commit)
+}
+
+fn decrypt_timelock_ciphertext(
+    encrypted: &[u8],
+    reveal_round: u64,
+    pulse_signature: &[u8],
+) -> Result<Vec<u8>, RevealFailure> {
+    let signature_bytes = pulse_signature
+        .strip_prefix(b"0x")
+        .unwrap_or(pulse_signature);
+    let sig_reader = &mut &signature_bytes[..];
+    let sig = <TinyBLS381 as EngineBLS>::SignatureGroup::deserialize_compressed(sig_reader)
+        .map_err(|_| RevealFailure::SignatureDeserialize)?;
+
+    let commit = tle_ciphertext_from_bytes(encrypted, reveal_round)?;
+    if commit.header.v.len() != 32 || commit.header.w.len() != 32 {
+        return Err(RevealFailure::CiphertextDeserialize);
+    }
+
+    let decrypted_bytes = tld::<TinyBLS381, AESGCMStreamCipherProvider>(commit, sig)
+        .map_err(|_| RevealFailure::Decrypt)?;
+    if decrypted_bytes.is_empty() {
+        return Err(RevealFailure::EmptyPlaintext);
+    }
+    Ok(decrypted_bytes)
+}
+
+/// Upper bound on timelock decryptions one block's `on_initialize` performs. Each
+/// decryption is a BLS pairing (the benchmarked `reveal_timelocked_commitments` unit);
+/// fields left over are revealed by later blocks in index order.
+pub const MAX_TIMELOCK_REVEALS_PER_BLOCK: u32 = 32;
+
+/// Maximum `TimelockedIndex` entries one reveal pass visits, whether or not they decrypt
+/// anything. An entry whose round has no pulse yet still costs a commitment read and one
+/// pulse read per field, so without this bound the per-block cost of the hook would grow
+/// with the number of pending commitments instead of with the work actually done. The
+/// cursor makes the pass round-robin, so every entry is still reached within
+/// `ceil(N / MAX_TIMELOCK_VISITS_PER_BLOCK)` blocks.
+pub const MAX_TIMELOCK_VISITS_PER_BLOCK: u32 = 256;
+
 impl<T: Config> Pallet<T> {
+    /// Index entries in visiting order: those after the cursor first, then the rest.
+    fn timelock_reveal_order(
+        index: &BTreeSet<(NetUid, T::AccountId)>,
+        cursor: Option<&(NetUid, T::AccountId)>,
+    ) -> Vec<(NetUid, T::AccountId)> {
+        match cursor {
+            Some(cursor) => index
+                .range((Bound::Excluded(cursor), Bound::Unbounded))
+                .chain(index.range((Bound::Unbounded, Bound::Included(cursor))))
+                .cloned()
+                .collect(),
+            None => index.iter().cloned().collect(),
+        }
+    }
+
     pub fn reveal_timelocked_commitments() -> Result<Weight, sp_runtime::DispatchError> {
         let mut total_weight = Weight::from_parts(0, 0);
 
         let index = TimelockedIndex::<T>::get();
         total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
+        let oldest_kept = pallet_drand::OldestStoredRound::<T>::get();
+        total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
+        let cursor = TimelockRevealCursor::<T>::get();
+        total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
 
-        for (netuid, who) in index.clone() {
+        let mut decryptions: u32 = 0;
+        let mut visits: u32 = 0;
+        let mut last_visited: Option<(NetUid, T::AccountId)> = None;
+        let mut budget_exhausted = false;
+
+        for (netuid, who) in Self::timelock_reveal_order(&index, cursor.as_ref()) {
+            if decryptions >= MAX_TIMELOCK_REVEALS_PER_BLOCK
+                || visits >= MAX_TIMELOCK_VISITS_PER_BLOCK
+            {
+                budget_exhausted = true;
+                break;
+            }
+            visits = visits.saturating_add(1);
+            last_visited = Some((netuid, who.clone()));
             let maybe_registration = <CommitmentOf<T>>::get(netuid, &who);
             total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
 
@@ -407,8 +556,8 @@ impl<T: Config> Pallet<T> {
             let original_fields = registration.info.fields.clone();
             let mut remain_fields = Vec::new();
             let mut revealed_fields = Vec::new();
-            let mut saw_timelock = false;
-            let mut processed_timelock = false;
+            let mut still_pending = false;
+            let mut mutated = false;
 
             for data in original_fields {
                 match data {
@@ -416,86 +565,91 @@ impl<T: Config> Pallet<T> {
                         encrypted,
                         reveal_round,
                     } => {
-                        saw_timelock = true;
                         total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
                         let pulse = match pallet_drand::Pulses::<T>::get(reveal_round) {
                             Some(p) => p,
                             None => {
-                                remain_fields.push(Data::TimelockEncrypted {
-                                    encrypted,
-                                    reveal_round,
-                                });
+                                if oldest_kept > 0 && reveal_round < oldest_kept {
+                                    mutated = true;
+                                    log::warn!(
+                                        "Timelock round {reveal_round} expired for {who:?} (oldest kept {oldest_kept})"
+                                    );
+                                    Self::deposit_event(Event::CommitmentRevealFailed {
+                                        netuid,
+                                        who: who.clone(),
+                                        reveal_round,
+                                        error: RevealFailure::PulseExpired,
+                                    });
+                                    remain_fields.push(Data::TimelockRevealFailed {
+                                        encrypted,
+                                        reveal_round,
+                                    });
+                                } else {
+                                    remain_fields.push(Data::TimelockEncrypted {
+                                        encrypted,
+                                        reveal_round,
+                                    });
+                                    still_pending = true;
+                                }
                                 continue;
                             }
                         };
 
-                        processed_timelock = true;
-
-                        let signature_bytes = pulse
-                            .signature
-                            .strip_prefix(b"0x")
-                            .unwrap_or(&pulse.signature);
-                        let sig_reader = &mut &signature_bytes[..];
-                        let sig =
-                            <TinyBLS381 as EngineBLS>::SignatureGroup::deserialize_compressed(
-                                sig_reader,
-                            )
-                            .map_err(|e| {
-                                log::warn!(
-                                    "Failed to deserialize drand signature for {who:?}: {e:?}"
-                                )
-                            })
-                            .ok();
-
-                        let Some(sig) = sig else {
-                            log::warn!("No sig after deserialization");
-                            continue;
-                        };
-
-                        let reader = &mut &encrypted[..];
-                        let commit = TLECiphertext::<TinyBLS381>::deserialize_compressed(reader)
-                            .map_err(|e| {
-                                log::warn!("Failed to deserialize TLECiphertext for {who:?}: {e:?}")
-                            })
-                            .ok();
-
-                        let Some(commit) = commit else {
-                            log::warn!("No commit after deserialization");
-                            continue;
-                        };
-
-                        let decrypted_bytes: Vec<u8> =
-                            tld::<TinyBLS381, AESGCMStreamCipherProvider>(commit, sig)
-                                .map_err(|e| {
-                                    log::warn!("Failed to decrypt timelock for {who:?}: {e:?}")
-                                })
-                                .ok()
-                                .unwrap_or_default();
-
-                        if decrypted_bytes.is_empty() {
-                            log::warn!("Bytes were decrypted for {who:?} but they are empty");
+                        if decryptions >= MAX_TIMELOCK_REVEALS_PER_BLOCK {
+                            // Out of decryption budget: leave the field for a later block.
+                            remain_fields.push(Data::TimelockEncrypted {
+                                encrypted,
+                                reveal_round,
+                            });
+                            still_pending = true;
+                            budget_exhausted = true;
                             continue;
                         }
+                        decryptions = decryptions.saturating_add(1);
+                        total_weight = total_weight.saturating_add(
+                            <T as pallet::Config>::WeightInfo::reveal_timelocked_commitments(),
+                        );
+                        mutated = true;
 
-                        revealed_fields.push(decrypted_bytes);
+                        match decrypt_timelock_ciphertext(
+                            &encrypted,
+                            reveal_round,
+                            &pulse.signature,
+                        ) {
+                            Ok(decrypted_bytes) => {
+                                revealed_fields.push(decrypted_bytes);
+                            }
+                            Err(error) => {
+                                log::warn!(
+                                    "Failed to reveal timelock for {who:?} round {reveal_round}: {error:?}"
+                                );
+                                Self::deposit_event(Event::CommitmentRevealFailed {
+                                    netuid,
+                                    who: who.clone(),
+                                    reveal_round,
+                                    error,
+                                });
+                                remain_fields.push(Data::TimelockRevealFailed {
+                                    encrypted,
+                                    reveal_round,
+                                });
+                            }
+                        }
                     }
 
                     other => remain_fields.push(other),
                 }
             }
 
-            if !saw_timelock {
-                TimelockedIndex::<T>::mutate(|idx| {
-                    idx.remove(&(netuid, who.clone()));
-                });
-                total_weight = total_weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
-                continue;
-            }
-
-            // Do not rewrite CommitmentOf every block for entries whose reveal round is
-            // not yet available in the drand pulse storage. The hook has only performed
-            // the index, commitment, and pulse reads accounted above.
-            if !processed_timelock {
+            // Waiting on a pulse, nothing converted or revealed: leave storage alone.
+            if !mutated {
+                if !still_pending {
+                    TimelockedIndex::<T>::mutate(|idx| {
+                        idx.remove(&(netuid, who.clone()));
+                    });
+                    total_weight =
+                        total_weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
+                }
                 continue;
             }
 
@@ -515,7 +669,6 @@ impl<T: Config> Pallet<T> {
                 let current_block = <frame_system::Pallet<T>>::block_number();
                 let block_u64 = current_block.saturated_into::<u64>();
 
-                // Push newly revealed items onto the tail of existing_reveals and emit the event
                 for revealed_bytes in revealed_fields {
                     existing_reveals.push((revealed_bytes, block_u64));
                     Self::deposit_event(Event::CommitmentRevealed {
@@ -552,12 +705,7 @@ impl<T: Config> Pallet<T> {
                     <CommitmentOf<T>>::insert(netuid, &who, &registration);
                     total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
 
-                    let has_timelock = registration
-                        .info
-                        .fields
-                        .iter()
-                        .any(|f| matches!(f, Data::TimelockEncrypted { .. }));
-                    if !has_timelock {
+                    if !still_pending {
                         TimelockedIndex::<T>::mutate(|idx| {
                             idx.remove(&(netuid, who.clone()));
                         });
@@ -566,6 +714,16 @@ impl<T: Config> Pallet<T> {
                     }
                 }
             }
+        }
+
+        if budget_exhausted {
+            if last_visited != cursor {
+                TimelockRevealCursor::<T>::set(last_visited);
+                total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
+            }
+        } else if cursor.is_some() {
+            TimelockRevealCursor::<T>::kill();
+            total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
         }
 
         Ok(total_weight)
@@ -583,6 +741,20 @@ impl<T: Config> Pallet<T> {
             })
             .collect();
         commitments
+    }
+
+    /// Purges all commitment state for one neuron on a subnet.
+    pub fn purge_neuron(netuid: NetUid, account: &T::AccountId) {
+        if let Some(registration) = CommitmentOf::<T>::take(netuid, account) {
+            T::Currency::unreserve(account, registration.deposit);
+        }
+        LastCommitment::<T>::remove(netuid, account);
+        LastBondsReset::<T>::remove(netuid, account);
+        RevealedCommitments::<T>::remove(netuid, account);
+        UsedSpaceOf::<T>::remove(netuid, account);
+        TimelockedIndex::<T>::mutate(|index| {
+            index.remove(&(netuid, account.clone()));
+        });
     }
 
     pub fn purge_netuid(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {

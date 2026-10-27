@@ -2,7 +2,8 @@
 
 use super::mock::*;
 use crate::*;
-use frame_support::{assert_err, assert_ok};
+use frame_support::{BoundedVec, assert_err, assert_ok};
+use pallet_commitments::{CommitmentInfo, Data};
 use sp_core::{H160, U256};
 use sp_runtime::PerU16;
 use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex};
@@ -10,6 +11,74 @@ use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex};
 /********************************************
     tests for uids.rs file
 *********************************************/
+
+#[test]
+fn test_trim_to_max_allowed_uids_purges_removed_neuron_commitment() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let removed_hotkey = U256::from(1);
+        let retained_hotkey = U256::from(2);
+
+        add_network(netuid, 13, 0);
+        MinAllowedUids::<Test>::insert(netuid, 2);
+        SubtensorModule::set_immunity_period(netuid, 0);
+
+        for hotkey in [removed_hotkey, retained_hotkey, U256::from(3)] {
+            SubtensorModule::append_neuron(netuid, &hotkey, 0);
+        }
+        let emissions: Vec<AlphaBalance> = vec![0.into(), 2.into(), 1.into()];
+        Emission::<Test>::insert(netuid, emissions);
+        let netuid_index = NetUidStorageIndex::from(netuid);
+        ConsensusByMechanism::<Test>::insert(
+            netuid_index,
+            [10, 20, 30].map(PerU16::from_parts).to_vec(),
+        );
+
+        let commitment = || {
+            Box::new(CommitmentInfo {
+                fields: BoundedVec::try_from(vec![Data::None]).unwrap(),
+            })
+        };
+        assert_ok!(Commitments::set_commitment(
+            RuntimeOrigin::signed(removed_hotkey),
+            netuid,
+            commitment(),
+        ));
+        assert_ok!(Commitments::set_commitment(
+            RuntimeOrigin::signed(retained_hotkey),
+            netuid,
+            commitment(),
+        ));
+
+        assert_ok!(SubtensorModule::trim_to_max_allowed_uids(netuid, 2));
+
+        assert!(Commitments::commitment_of(netuid, removed_hotkey).is_none());
+        assert!(Commitments::commitment_of(netuid, retained_hotkey).is_some());
+        assert_eq!(
+            ConsensusByMechanism::<Test>::get(netuid_index),
+            [20, 30].map(PerU16::from_parts).to_vec()
+        );
+    });
+}
+
+#[test]
+fn append_neuron_does_not_manufacture_consensus_history() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let netuid_index = NetUidStorageIndex::from(netuid);
+        add_network(netuid, 13, 0);
+
+        SubtensorModule::append_neuron(netuid, &U256::from(1), 0);
+        assert!(!ConsensusByMechanism::<Test>::contains_key(netuid_index));
+
+        ConsensusByMechanism::<Test>::insert(netuid_index, vec![PerU16::from_parts(10)]);
+        SubtensorModule::append_neuron(netuid, &U256::from(2), 0);
+        assert_eq!(
+            ConsensusByMechanism::<Test>::get(netuid_index),
+            vec![PerU16::from_parts(10)]
+        );
+    });
+}
 
 /********************************************
     tests uids::replace_neuron()
@@ -51,6 +120,10 @@ fn test_replace_neuron() {
         Incentive::<Test>::mutate(NetUidStorageIndex::from(netuid), |v| {
             SubtensorModule::set_element_at(v, neuron_uid as usize, PerU16::from_parts(5))
         });
+        ConsensusByMechanism::<Test>::insert(
+            NetUidStorageIndex::from(netuid),
+            vec![PerU16::from_parts(5)],
+        );
         Dividends::<Test>::mutate(netuid, |v| {
             SubtensorModule::set_element_at(v, neuron_uid as usize, PerU16::from_parts(5))
         });
@@ -64,6 +137,13 @@ fn test_replace_neuron() {
         );
         Prometheus::<Test>::insert(netuid, hotkey_account_id, PrometheusInfoOf::default());
         SubtensorModule::set_associated_evm_address(netuid, neuron_uid, evm_address, 1);
+        assert_ok!(Commitments::set_commitment(
+            RuntimeOrigin::signed(hotkey_account_id),
+            netuid,
+            Box::new(CommitmentInfo {
+                fields: BoundedVec::try_from(vec![Data::None]).unwrap(),
+            }),
+        ));
 
         // Replace the neuron.
         SubtensorModule::replace_neuron(netuid, neuron_uid, &new_hotkey_account_id, block_number);
@@ -106,6 +186,10 @@ fn test_replace_neuron() {
             0
         );
         assert_eq!(
+            ConsensusByMechanism::<Test>::get(NetUidStorageIndex::from(netuid)),
+            vec![PerU16::zero()]
+        );
+        assert_eq!(
             SubtensorModule::get_dividends_for_uid(netuid, neuron_uid),
             0
         );
@@ -128,6 +212,10 @@ fn test_replace_neuron() {
         );
         assert_eq!(AssociatedEvmAddress::<Test>::get(netuid, neuron_uid), None);
         assert!(AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_address).is_empty());
+        assert!(
+            Commitments::commitment_of(netuid, hotkey_account_id).is_none(),
+            "deregistered neuron's commitment should be purged"
+        );
     });
 }
 

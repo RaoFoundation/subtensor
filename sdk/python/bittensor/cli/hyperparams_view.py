@@ -9,19 +9,49 @@ set command for owner-settable parameters.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Optional
 
 import typer
 
 from .. import hyperparams as hp
 from ..intents.hyperparameters import OWNER_HYPERPARAMETERS
+from ..settings import DOCS_URL
 from .context import AppContext
+
+HYPERPARAMS_DOCS_URL = f"{DOCS_URL}/hyperparameters"
+
+
+async def fetch_hyperparameters(client, netuid: int) -> Optional[dict[str, Any]]:
+    """The ``subnet_hyperparameters`` read plus the owner-settable values it
+    omits (queried from their storage items), so the listing shows everything
+    ``sudo set`` can change.
+
+    Returns ``None`` when the subnet does not exist.
+    """
+    params = await client.read("subnet_hyperparameters", netuid=netuid)
+    if params is None:
+        return None
+    extras = sorted(
+        name for name in OWNER_HYPERPARAMETERS if name not in params and name in hp.STORAGE_ITEMS
+    )
+    values = await asyncio.gather(
+        *(client.query(hp.STORAGE_ITEMS[name], [netuid]) for name in extras)
+    )
+    for name, value in zip(extras, values):
+        if isinstance(value, dict) and set(value) == {"bits"}:
+            # Fixed-point newtypes (U64F64) decode as {'bits': raw}; the raw
+            # bits are the value `sudo set` takes and `annotate` reads.
+            value = value["bits"]
+        if value is not None:
+            params[name] = value
+    return params
 
 
 def show_hyperparameters(
     app_ctx: AppContext,
     netuid: int,
-    params: Any,
+    params: Optional[dict[str, Any]],
     name: Optional[str],
     hint: Optional[str] = None,
 ) -> None:
@@ -30,7 +60,9 @@ def show_hyperparameters(
     ``hint`` overrides the listing's default help line (the `sudo set` prompt
     flow reuses the listing with its own guidance).
     """
-    params = _params_by_name(params)
+    if params is None:
+        app_ctx.output.error(f"subnet {netuid} does not exist")
+        raise typer.Exit(1)
     if name is None:
         _listing(app_ctx, netuid, params, hint)
         return
@@ -46,13 +78,17 @@ def show_hyperparameters(
 def _listing(
     app_ctx: AppContext, netuid: int, params: dict[str, Any], hint: Optional[str] = None
 ) -> None:
-    rows = [(key, str(value), hp.annotate(key, value)) for key, value in params.items()]
+    rows = [
+        (key, str(value), hp.annotate(key, value), hp.short_of(key))
+        for key, value in params.items()
+    ]
     example = "kappa" if "kappa" in params else next(iter(params), "tempo")
     app_ctx.output.hyperparameters(
         f"hyperparameters netuid {netuid}",
         rows,
         params,
         hint=hint or f"`--name {example}` explains one parameter and how to set it",
+        docs=HYPERPARAMS_DOCS_URL,
     )
 
 
@@ -71,7 +107,7 @@ def _single(app_ctx: AppContext, netuid: int, name: str, raw: Any) -> None:
     settable = name in OWNER_HYPERPARAMETERS
     if settable:
         example = _example_value(kind, fraction, raw)
-        help_text = f"set it: `btcli sudo set --netuid {netuid} --name {name} --value {example}`"
+        help_text = f"set it: `btcli hparams set --netuid {netuid} --name {name} --value {example}`"
         note = f"--value takes {hp.value_forms(name)}"
     else:
         help_text = None
@@ -92,36 +128,8 @@ def _single(app_ctx: AppContext, netuid: int, name: str, raw: Any) -> None:
         },
         help=help_text,
         note=note,
+        see=f"{HYPERPARAMS_DOCS_URL}/{name.replace('_', '-')}",
     )
-
-
-def _params_by_name(params: Any) -> dict[str, Any]:
-    if params is None:
-        return {}
-    if isinstance(params, dict):
-        return params
-    if not isinstance(params, list):
-        raise TypeError("subnet hyperparameters must be a V3 list or dict")
-    out: dict[str, Any] = {}
-    for entry in params:
-        if not isinstance(entry, dict):
-            continue
-        name = entry.get("name")
-        if isinstance(name, (bytes, bytearray)):
-            name = bytes(name).decode("utf8")
-        if not isinstance(name, str):
-            continue
-        out[name] = _v3_value(entry.get("value"))
-    return out
-
-
-def _v3_value(value: Any) -> Any:
-    if not isinstance(value, dict) or len(value) != 1:
-        return value
-    payload = next(iter(value.values()))
-    if isinstance(payload, dict) and set(payload) == {"bits"}:
-        return payload["bits"]
-    return payload
 
 
 def _example_value(kind: str, fraction: Optional[float], raw: Any) -> str:
@@ -130,6 +138,8 @@ def _example_value(kind: str, fraction: Optional[float], raw: Any) -> str:
         return _with_decimal_point(f"{fraction:.4g}")
     if kind == "rao" and isinstance(raw, int):
         return _with_decimal_point(f"{raw / hp.RAO_PER_TAO:g}")
+    if kind == "fixed128" and isinstance(raw, int):
+        return _with_decimal_point(f"{raw / hp.FIXED128_ONE:g}")
     if kind == "bool":
         return "true" if raw else "false"
     return str(raw)

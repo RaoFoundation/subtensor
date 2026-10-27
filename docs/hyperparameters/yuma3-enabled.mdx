@@ -1,0 +1,35 @@
+---
+title: yuma3_enabled
+description: Enables the Yuma3 consensus variant, which changes how bonds are stored and dividends computed — and unlocks liquid alpha.
+---
+
+`yuma3_enabled` switches a subnet's epoch from the classic Yuma bond computation to the Yuma3 variant. Subnet owners toggle it to change how validator dividends reward conviction; validators care because it alters both the bond math and whether liquid alpha can apply at all.
+
+## How it works
+
+The epoch function [branches on `Yuma3On`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L372) (`pallets/subtensor/src/epoch/run_epoch.rs`, "Bonds and Dividends" section):
+
+- **Classic path (off).** Instant bonds `ΔB = W ∘ S` are column-normalized, smoothed by the flat EMA from [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg) ([`compute_ema_bonds_normal`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1297-L1320)), and dividends are `d_i = Σ_j B_ij × I_j`.
+- **Yuma3 path (on).** Bonds are read as fixed proportions ([`get_bonds_fixed_proportion`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1230-L1238)) without column normalization, the EMA runs through [`compute_bonds`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1333-L1360) — which is where [`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled) can swap in per-pair alpha rates — and dividends are the row-sum of normalized EMA bonds times incentive, scaled by each validator's active stake, then renormalized.
+
+Practical consequence: liquid alpha and its parameters ([`alpha_low`](/docs/hyperparameters/alpha-low), [`alpha_high`](/docs/hyperparameters/alpha-high), [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness)) only take effect when this flag is on; the classic path never consults them. See the [Yuma Consensus overview](/docs/concepts/emissions#yuma-consensus) for the full epoch pipeline.
+
+The two paths split the same dividend pool differently whenever validators disagree — compare them on a minimal example:
+
+<HyperparamYuma3Chart />
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name yuma3_enabled
+```
+
+Boolean — pass true or false:
+
+```
+btcli sudo set --netuid N --name yuma3_enabled --value true
+```
+
+## Related
+
+[`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled), [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg), [`bonds_penalty`](/docs/hyperparameters/bonds-penalty), [`bonds_reset_enabled`](/docs/hyperparameters/bonds-reset-enabled)

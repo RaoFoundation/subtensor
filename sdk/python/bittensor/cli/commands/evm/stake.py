@@ -9,7 +9,7 @@ import typer
 from ....balance import Balance
 from ....evm import precompiles as evm_precompiles
 from ...context import ctx_of
-from ...globals import with_globals, with_tx_globals
+from ...globals import evm_key_signed, with_globals, with_tx_globals
 from ._shared import (
     EVM_KEY_HELP,
     HOTKEY_OPTION_HELP,
@@ -29,6 +29,7 @@ def _staking_call(function: str, args: list) -> str:
 
 @stake_app.command("add")
 @with_tx_globals
+@evm_key_signed
 def stake_add(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", help="Subnet to stake on."),
@@ -61,6 +62,7 @@ def stake_add(
 
 @stake_app.command("remove")
 @with_tx_globals
+@evm_key_signed
 def stake_remove(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", help="Subnet to unstake from."),

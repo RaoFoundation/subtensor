@@ -57,6 +57,7 @@ class NeuronCommitment:
     The chain drops a commitment's storage entry once its sealed payload is
     fully revealed; such commitments still appear here (status ``revealed``)
     with ``block`` set to the reveal block, since the commit block is gone.
+    Terminal reveal failures remain in storage with status ``failed``.
     """
 
     hotkey: str
@@ -78,17 +79,20 @@ class NeuronCommitment:
 
     @property
     def status(self) -> str:
-        """``"plain"`` (never sealed), ``"sealed"`` (waiting on drand), or ``"revealed"``."""
+        """``plain``, ``sealed``, ``revealed``, or terminal ``failed``."""
         if self.decrypted:
             return "revealed"
+        if _failed_timelock_round(self.fields) is not None:
+            return "failed"
         return "sealed" if self.encrypted else "plain"
 
     @property
     def is_revealed(self) -> bool:
         """True when the content is readable now — committed in the clear or
         already chain-decrypted. False while a sealed payload waits on drand
-        (``data`` may still carry a plaintext part committed alongside it)."""
-        return self.status != "sealed"
+        or after a terminal reveal failure (``data`` may still carry a
+        plaintext part committed alongside it)."""
+        return self.status in {"plain", "revealed"}
 
     @property
     def age_blocks(self) -> int:
@@ -150,6 +154,11 @@ class MetagraphNeuron:
     axon: Optional[str]
     identity: Optional[dict]
     commitment: Optional[NeuronCommitment]
+    # Miner collateral (zero for hotkeys without a collateral entry; None on
+    # runtimes older than spec 435, which do not report collateral).
+    collateral_locked: Optional[Balance] = None
+    collateral_min: Optional[Balance] = None
+    collateral_earned: Optional[Balance] = None
 
 
 @dataclass
@@ -320,6 +329,16 @@ def _build(netuid: int, graph: dict, commitment_map: dict[str, NeuronCommitment]
     alpha_stake = column("alpha_stake")
     tao_stake = column("tao_stake")
     total_stake = column("total_stake")
+    # Present from spec 435; None-columns on older runtimes.
+    has_collateral = graph.get("collateral_locked") is not None
+    collateral_locked = column("collateral_locked")
+    collateral_min = column("collateral_min")
+    collateral_earned = column("collateral_earned")
+
+    def collateral(values: list, uid: int) -> Optional[Balance]:
+        if not has_collateral:
+            return None
+        return Balance.from_rao(int(values[uid] or 0), netuid, symbol)
 
     def score(values: list, uid: int) -> float:
         # Runtime-API values, so no storage descriptor carries their identity;
@@ -348,6 +367,9 @@ def _build(netuid: int, graph: dict, commitment_map: dict[str, NeuronCommitment]
             axon=_axon_endpoint(axons[uid]),
             identity=identities[uid] if isinstance(identities[uid], dict) else None,
             commitment=by_uid.get(uid),
+            collateral_locked=collateral(collateral_locked, uid),
+            collateral_min=collateral(collateral_min, uid),
+            collateral_earned=collateral(collateral_earned, uid),
         )
         for uid, hotkey in enumerate(hotkeys)
     ]
@@ -450,17 +472,31 @@ def _text(value: Any) -> str:
     return str(value)
 
 
+def _field_items(entry: Any) -> list[tuple[str, Any]]:
+    """(variant, payload) pairs from one decoded Commitments ``Data`` field.
+
+    SCALE unit variants (``None``, ``ResetBondsFlag``) arrive as a string.
+    Variants with a payload arrive as a one-key dict such as
+    ``{"Raw64": "0x…"}`` or ``{"TimelockEncrypted": {...}}``.
+    """
+    if isinstance(entry, str) and entry:
+        return [(entry, None)]
+    if isinstance(entry, dict):
+        return list(entry.items())
+    return []
+
+
 def _decode_fields(fields: list) -> str:
     """The readable content of commitment fields.
 
     ``Raw*`` bytes concatenate to utf-8 (else 0x-hex); hash variants render as
-    ``sha256:0x…``; ``TimelockEncrypted`` payloads are sealed and contribute
-    nothing here.
+    ``sha256:0x…``; unit variants and pending or failed timelock payloads
+    contribute nothing here.
     """
     raw = b""
     hashes = []
     for entry in fields:
-        for variant, value in (entry or {}).items():
+        for variant, value in _field_items(entry):
             if variant.startswith("Raw") and isinstance(value, str):
                 raw += bytes.fromhex(value.removeprefix("0x"))
             elif variant != "TimelockEncrypted" and isinstance(value, str):
@@ -479,8 +515,19 @@ def _timelock_round(fields: list) -> Optional[int]:
     rounds = [
         int(value["reveal_round"])
         for entry in fields
-        for variant, value in (entry or {}).items()
+        for variant, value in _field_items(entry)
         if variant == "TimelockEncrypted" and isinstance(value, dict)
+    ]
+    return max(rounds) if rounds else None
+
+
+def _failed_timelock_round(fields: list) -> Optional[int]:
+    """The latest terminally failed timelock round, or None."""
+    rounds = [
+        int(value["reveal_round"])
+        for entry in fields
+        for variant, value in _field_items(entry)
+        if variant == "TimelockRevealFailed" and isinstance(value, dict)
     ]
     return max(rounds) if rounds else None
 

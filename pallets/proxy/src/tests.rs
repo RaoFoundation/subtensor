@@ -77,6 +77,7 @@ pub enum ProxyType {
     Any,
     JustTransfer,
     JustUtility,
+    JustProxy,
 }
 impl Default for ProxyType {
     fn default() -> Self {
@@ -94,6 +95,7 @@ impl frame::traits::InstanceFilter<RuntimeCall> for ProxyType {
                 )
             }
             ProxyType::JustUtility => matches!(c, RuntimeCall::Utility { .. }),
+            ProxyType::JustProxy => matches!(c, RuntimeCall::Proxy { .. }),
         }
     }
     fn is_superset(&self, o: &Self) -> bool {
@@ -173,6 +175,12 @@ fn expect_events(e: Vec<RuntimeEvent>) {
 
 fn call_transfer(dest: u64, value: u64) -> RuntimeCall {
     RuntimeCall::Balances(BalancesCall::transfer_allow_death { dest, value })
+}
+
+fn call_batch_with_refund() -> RuntimeCall {
+    RuntimeCall::Utility(UtilityCall::batch {
+        calls: vec![call_transfer(6, 20), call_transfer(6, 1)],
+    })
 }
 
 #[test]
@@ -360,6 +368,58 @@ fn calling_proxy_doesnt_remove_announcement() {
                 height: 1
             }]
         );
+    });
+}
+
+#[test]
+fn proxy_propagates_inner_actual_weight() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(1),
+            2,
+            ProxyType::Any,
+            0
+        ));
+
+        let call = RuntimeCall::Proxy(ProxyCall::new_call_variant_proxy(
+            1,
+            None,
+            Box::new(call_batch_with_refund()),
+        ));
+        let info = call.get_dispatch_info();
+        let result = call.dispatch(RuntimeOrigin::signed(2));
+
+        assert_ok!(result);
+        assert_ne!(extract_actual_weight(&result, &info), info.call_weight);
+    });
+}
+
+#[test]
+fn proxy_announced_propagates_inner_actual_weight() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(1),
+            2,
+            ProxyType::Any,
+            1
+        ));
+
+        let call = Box::new(call_batch_with_refund());
+        assert_ok!(Proxy::announce(
+            RuntimeOrigin::signed(2),
+            1,
+            BlakeTwo256::hash_of(&call)
+        ));
+        System::set_block_number(2);
+
+        let call = RuntimeCall::Proxy(ProxyCall::new_call_variant_proxy_announced(
+            2, 1, None, call,
+        ));
+        let info = call.get_dispatch_info();
+        let result = call.dispatch(RuntimeOrigin::signed(0));
+
+        assert_ok!(result);
+        assert_ne!(extract_actual_weight(&result, &info), info.call_weight);
     });
 }
 
@@ -654,6 +714,98 @@ fn filtering_works() {
             BalancesEvent::<Test>::Unreserved { who: 1, amount: 5 }.into(),
             ProxyEvent::ProxyExecuted { result: Ok(()) }.into(),
         ]);
+    });
+}
+
+#[test]
+fn nested_proxy_intersects_outer_and_inner_authority() {
+    new_test_ext().execute_with(|| {
+        Balances::make_free_balance_be(&5, 100);
+        // Account 2 may use proxy calls as account 1, while account 1 has
+        // unrestricted proxy authority over account 5.
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(1),
+            2,
+            ProxyType::JustProxy,
+            0
+        ));
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(5),
+            1,
+            ProxyType::Any,
+            0
+        ));
+
+        let victim_before = Balances::free_balance(5);
+        let recipient_before = Balances::free_balance(6);
+        let nested = RuntimeCall::Proxy(ProxyCall::new_call_variant_proxy(
+            5,
+            Some(ProxyType::Any),
+            Box::new(call_transfer(6, 10)),
+        ));
+
+        assert_ok!(Proxy::proxy(
+            RuntimeOrigin::signed(2),
+            1,
+            Some(ProxyType::JustProxy),
+            Box::new(nested),
+        ));
+
+        assert_eq!(Balances::free_balance(5), victim_before);
+        assert_eq!(Balances::free_balance(6), recipient_before);
+        assert!(System::events().iter().any(|event| event.event
+            == RuntimeEvent::Proxy(ProxyEvent::ProxyExecuted {
+                result: Err(SystemError::CallFiltered.into()),
+            })));
+    });
+}
+
+#[test]
+fn nested_announced_proxy_intersects_outer_and_inner_authority() {
+    new_test_ext().execute_with(|| {
+        Balances::make_free_balance_be(&5, 100);
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(1),
+            2,
+            ProxyType::JustProxy,
+            0
+        ));
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(5),
+            1,
+            ProxyType::Any,
+            1
+        ));
+
+        let transfer = Box::new(call_transfer(6, 10));
+        assert_ok!(Proxy::announce(
+            RuntimeOrigin::signed(1),
+            5,
+            BlakeTwo256::hash_of(&transfer)
+        ));
+        System::set_block_number(2);
+
+        let victim_before = Balances::free_balance(5);
+        let recipient_before = Balances::free_balance(6);
+        let nested = RuntimeCall::Proxy(ProxyCall::new_call_variant_proxy_announced(
+            1,
+            5,
+            Some(ProxyType::Any),
+            transfer,
+        ));
+        assert_ok!(Proxy::proxy(
+            RuntimeOrigin::signed(2),
+            1,
+            Some(ProxyType::JustProxy),
+            Box::new(nested),
+        ));
+
+        assert_eq!(Balances::free_balance(5), victim_before);
+        assert_eq!(Balances::free_balance(6), recipient_before);
+        assert!(System::events().iter().any(|event| event.event
+            == RuntimeEvent::Proxy(ProxyEvent::ProxyExecuted {
+                result: Err(SystemError::CallFiltered.into()),
+            })));
     });
 }
 
@@ -1249,6 +1401,147 @@ fn poke_deposit_fails_for_unsigned_origin() {
             Proxy::poke_deposit(RuntimeOrigin::none()),
             DispatchError::BadOrigin,
         );
+    });
+}
+
+#[test]
+fn restricted_proxy_cannot_enable_fee_sponsorship() {
+    for delay in [0, 1] {
+        new_test_ext().execute_with(|| {
+            assert_ok!(Proxy::add_proxy(
+                RuntimeOrigin::signed(1),
+                2,
+                ProxyType::JustProxy,
+                delay
+            ));
+            let call = Box::new(RuntimeCall::Proxy(ProxyCall::set_real_pays_fee {
+                delegate: 2,
+                pays_fee: true,
+            }));
+            if delay == 0 {
+                assert_ok!(Proxy::proxy(RuntimeOrigin::signed(2), 1, None, call));
+            } else {
+                let hash = BlakeTwo256::hash_of(&call);
+                assert_ok!(Proxy::announce(RuntimeOrigin::signed(2), 1, hash));
+                System::set_block_number(2);
+                assert_ok!(Proxy::proxy_announced(
+                    RuntimeOrigin::signed(3),
+                    2,
+                    1,
+                    None,
+                    call
+                ));
+            }
+            assert_eq!(
+                LastCallResult::<Test>::get(1),
+                Some(Err(SystemError::CallFiltered.into()))
+            );
+            assert!(!Proxy::is_real_pays_fee(&1, &2));
+
+            // Consent from the real account works, and its delegate can relinquish it.
+            assert_ok!(Proxy::set_real_pays_fee(RuntimeOrigin::signed(1), 2, true));
+            assert!(Proxy::is_real_pays_fee(&1, &2));
+            if delay == 0 {
+                assert_ok!(Proxy::proxy(
+                    RuntimeOrigin::signed(2),
+                    1,
+                    None,
+                    Box::new(RuntimeCall::Proxy(ProxyCall::set_real_pays_fee {
+                        delegate: 2,
+                        pays_fee: false,
+                    }))
+                ));
+                assert!(!Proxy::is_real_pays_fee(&1, &2));
+            }
+        });
+    }
+}
+
+#[test]
+fn restricted_outer_proxy_cannot_enable_fee_sponsorship_through_a_full_proxy() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(1),
+            2,
+            ProxyType::JustProxy,
+            0
+        ));
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(3),
+            1,
+            ProxyType::Any,
+            0
+        ));
+        let grant = Box::new(RuntimeCall::Proxy(ProxyCall::set_real_pays_fee {
+            delegate: 1,
+            pays_fee: true,
+        }));
+        let inner = Box::new(RuntimeCall::Proxy(ProxyCall::proxy {
+            real: 3,
+            force_proxy_type: None,
+            call: grant,
+        }));
+        assert_ok!(Proxy::proxy(RuntimeOrigin::signed(2), 1, None, inner));
+        assert_eq!(
+            LastCallResult::<Test>::get(3),
+            Some(Err(SystemError::CallFiltered.into()))
+        );
+        assert!(!Proxy::is_real_pays_fee(&3, &1));
+    });
+}
+
+#[test]
+fn full_proxy_can_enable_fee_sponsorship() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(1),
+            2,
+            ProxyType::Any,
+            0
+        ));
+        assert_ok!(Proxy::proxy(
+            RuntimeOrigin::signed(2),
+            1,
+            None,
+            Box::new(RuntimeCall::Proxy(ProxyCall::set_real_pays_fee {
+                delegate: 2,
+                pays_fee: true,
+            }))
+        ));
+        assert_eq!(LastCallResult::<Test>::get(1), Some(Ok(())));
+        assert!(Proxy::is_real_pays_fee(&1, &2));
+    });
+}
+
+#[test]
+fn legacy_fee_sponsorship_requires_renewed_consent() {
+    // The old prefix contains no evidence that the real account authorized the opt-in.
+    mod legacy {
+        use super::*;
+        #[frame_support::storage_alias]
+        pub type RealPaysFee<T: Config> = StorageDoubleMap<
+            Pallet<T>,
+            Twox64Concat,
+            <T as frame_system::Config>::AccountId,
+            Twox64Concat,
+            <T as frame_system::Config>::AccountId,
+            (),
+            OptionQuery,
+        >;
+    }
+    new_test_ext().execute_with(|| {
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(1),
+            2,
+            ProxyType::JustProxy,
+            0
+        ));
+        legacy::RealPaysFee::<Test>::insert(1, 2, ());
+        assert!(!Proxy::is_real_pays_fee(&1, &2));
+        assert_ok!(Proxy::set_real_pays_fee(RuntimeOrigin::signed(1), 2, true));
+        assert!(Proxy::is_real_pays_fee(&1, &2));
+        assert_ok!(Proxy::set_real_pays_fee(RuntimeOrigin::signed(1), 2, false));
+        assert!(!Proxy::is_real_pays_fee(&1, &2));
     });
 }
 

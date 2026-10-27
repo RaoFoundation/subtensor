@@ -14,6 +14,41 @@ use frame_support::traits::{Contains, Everything, InsideBoth, InstanceFilter};
 use frame_support::weights::Weight;
 use frame_support::weights::constants::RocksDbWeight;
 use frame_support::{PalletId, derive_impl};
+
+/// The bare `DispatchError` of a failed dispatch, with or without post-dispatch info.
+pub trait BareDispatchError {
+    fn bare(self) -> sp_runtime::DispatchError;
+}
+
+impl BareDispatchError for sp_runtime::DispatchError {
+    fn bare(self) -> sp_runtime::DispatchError {
+        self
+    }
+}
+
+impl BareDispatchError for frame_support::dispatch::DispatchErrorWithPostInfo {
+    fn bare(self) -> sp_runtime::DispatchError {
+        self.error
+    }
+}
+
+/// `assert_noop!` for dispatchables that report actual weight on failure (spec 469):
+/// compares the error only, ignoring the post-dispatch info, and checks storage is
+/// untouched.
+#[macro_export]
+macro_rules! assert_noop_ignore_postinfo {
+    ($x:expr, $y:expr $(,)?) => {
+        let h = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        match $x {
+            Ok(_) => panic!("expected Err({:?}), got Ok", $y),
+            Err(err) => assert_eq!(
+                $crate::tests::mock::BareDispatchError::bare(err),
+                sp_runtime::DispatchError::from($y)
+            ),
+        }
+        assert_eq!(h, sp_io::storage::root(sp_runtime::StateVersion::V1));
+    };
+}
 use frame_support::{
     assert_ok, parameter_types,
     traits::{Hooks, PrivilegeCmp},
@@ -31,7 +66,11 @@ use sp_runtime::{
     BuildStorage, Percent,
     traits::{BlakeTwo256, IdentityLookup},
 };
-use sp_std::{cell::RefCell, cmp::Ordering, sync::OnceLock};
+use sp_std::{
+    cell::{Cell, RefCell},
+    cmp::Ordering,
+    sync::OnceLock,
+};
 use sp_tracing::tracing_subscriber;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AuthorshipInfo, ConstTao, NetUid, TaoBalance};
@@ -48,8 +87,20 @@ impl Get<u32> for TestMaxFields {
 
 pub struct TestCanCommit;
 impl pallet_commitments::CanCommit<U256> for TestCanCommit {
-    fn can_commit(_netuid: NetUid, _who: &U256) -> bool {
-        true
+    type Error = crate::Error<Test>;
+
+    fn validate(netuid: NetUid, who: &U256) -> Result<(), Self::Error> {
+        if !SubtensorModule::if_subnet_exist(netuid) {
+            return Err(crate::Error::<Test>::SubnetNotExists);
+        }
+        if !SubtensorModule::is_hotkey_registered_on_network(netuid, who) {
+            return Err(crate::Error::<Test>::HotKeyNotRegisteredInSubNet);
+        }
+        Ok(())
+    }
+
+    fn validation_weight() -> Weight {
+        <Test as frame_system::Config>::DbWeight::get().reads(2)
     }
 }
 
@@ -133,7 +184,7 @@ impl pallet_balances::Config for Test {
     type WeightInfo = ();
     type MaxReserves = ();
     type ReserveIdentifier = ();
-    type RuntimeHoldReason = ();
+    type RuntimeHoldReason = RuntimeHoldReason;
     type FreezeIdentifier = ();
     type MaxFreezes = ();
 }
@@ -223,8 +274,11 @@ impl AuthorshipInfo<U256> for MockAuthorshipProvider {
 parameter_types! {
     pub const InitialMinAllowedWeights: u16 = 0;
     pub const InitialEmissionValue: u16 = 0;
+    // Same block budget as the runtime (`MAXIMUM_BLOCK_WEIGHT`, 4 s of ref time), so
+    // tests that compare declared extrinsic weights against `max_extrinsic` see the
+    // real limit.
     pub BlockWeights: limits::BlockWeights = limits::BlockWeights::with_sensible_defaults(
-        Weight::from_parts(2_000_000_000_000, u64::MAX),
+        Weight::from_parts(4_000_000_000_000, u64::MAX),
         Perbill::from_percent(75),
     );
     pub const ExistentialDeposit: Balance = TaoBalance::new(1);
@@ -256,6 +310,7 @@ parameter_types! {
     pub const InitialBurn: u64 = 0;
     pub const InitialMinBurn: u64 = 500_000;
     pub const InitialMinStake: u64 = 2_000_000;
+    pub const InitialMinTransfer: u64 = 2_000_000;
     pub const InitialMaxBurn: u64 = 1_000_000_000;
     pub const MinBurnUpperBound: TaoBalance = TaoBalance::new(1_000_000_000); // 1 TAO
     pub const MaxBurnLowerBound: TaoBalance = TaoBalance::new(100_000_000); // 0.1 TAO
@@ -280,7 +335,9 @@ parameter_types! {
     pub const InitialRAORecycledForRegistration: u64 = 0;
     pub const InitialNetworkImmunityPeriod: u64 = 1_296_000;
     pub const InitialNetworkMinLockCost: u64 = 100_000_000_000;
-    pub const InitialSubnetOwnerCut: u16 = 0; // 0%. 100% of rewards go to validators + miners.
+    // 0%: 100% of rewards go to validators + miners. `static` so emission-weight
+    // tests can raise it to the mainnet 18% and exercise the leased-subnet floor.
+    pub static InitialSubnetOwnerCut: u16 = 0;
     pub const InitialNetworkLockReductionInterval: u64 = 2; // 2 blocks.
     pub const InitialNetworkRateLimit: u64 = 0;
     pub const InitialKeySwapCost: u64 = 1_000_000_000;
@@ -291,7 +348,7 @@ parameter_types! {
     pub const InitialColdkeySwapAnnouncementDelay: u64 = 50;
     pub const InitialColdkeySwapReannouncementDelay: u64 = 10;
     pub const InitialDissolveNetworkScheduleDuration: u64 =  5 * 24 * 60 * 60 / 12; // Default as 5 days
-    pub const InitialTaoWeight: u64 = 0; // 100% global weight.
+    pub const InitialTaoWeight: u64 = 0; // 0% TAO weight.
     pub const InitialEmaPriceHalvingPeriod: u64 = 201_600_u64; // 4 weeks
     pub const InitialStartCallDelay: u64 =  0; // 0 days
     pub const InitialKeySwapOnSubnetCost: u64 = 10_000_000;
@@ -349,6 +406,7 @@ impl crate::Config for Test {
     type InitialMaxBurn = InitialMaxBurn;
     type InitialMinBurn = InitialMinBurn;
     type InitialMinStake = InitialMinStake;
+    type InitialMinTransfer = InitialMinTransfer;
     type MinBurnUpperBound = MinBurnUpperBound;
     type MaxBurnLowerBound = MaxBurnLowerBound;
     type MinTempo = MinTempo;
@@ -433,12 +491,16 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         CommitmentsPallet::<Test>::purge_netuid(netuid, weight_meter)
+    }
+
+    fn purge_neuron(netuid: NetUid, account: &AccountId) {
+        CommitmentsPallet::<Test>::purge_neuron(netuid, account);
     }
 }
 
@@ -485,6 +547,41 @@ impl pallet_preimage::Config for Test {
 
 thread_local! {
     pub static PROXIES: RefCell<FakeProxier> = const { RefCell::new(FakeProxier(vec![])) };
+    /// Deterministic op counters for basket-flush asymptotics tests.
+    static BASKET_SWAP_OPS: Cell<u64> = const { Cell::new(0) };
+    static BASKET_QUOTE_OPS: Cell<u64> = const { Cell::new(0) };
+    static BASKET_WRITE_OPS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Reset swap/quote/write counters used by pending-basket flush tests.
+pub fn reset_basket_op_counters() {
+    BASKET_SWAP_OPS.set(0);
+    BASKET_QUOTE_OPS.set(0);
+    BASKET_WRITE_OPS.set(0);
+}
+
+pub fn basket_swap_ops() -> u64 {
+    BASKET_SWAP_OPS.get()
+}
+
+pub fn basket_quote_ops() -> u64 {
+    BASKET_QUOTE_OPS.get()
+}
+
+pub fn basket_write_ops() -> u64 {
+    BASKET_WRITE_OPS.get()
+}
+
+pub(crate) fn inc_basket_swap_ops() {
+    BASKET_SWAP_OPS.set(BASKET_SWAP_OPS.get().saturating_add(1));
+}
+
+pub(crate) fn inc_basket_quote_ops() {
+    BASKET_QUOTE_OPS.set(BASKET_QUOTE_OPS.get().saturating_add(1));
+}
+
+pub(crate) fn inc_basket_write_ops() {
+    BASKET_WRITE_OPS.set(BASKET_WRITE_OPS.get().saturating_add(1));
 }
 
 pub struct FakeProxier(pub Vec<(U256, U256)>);
@@ -502,9 +599,13 @@ impl ProxyInterface<U256> for FakeProxier {
         lease: &AccountId,
     ) -> DispatchResult {
         PROXIES.with_borrow_mut(|proxies| {
-            proxies.0.retain(|(b, l)| b != beneficiary && l != lease);
+            proxies.0.retain(|(b, l)| b != beneficiary || l != lease);
         });
         Ok(())
+    }
+
+    fn has_delegator_proxies(_delegator: &AccountId) -> bool {
+        false
     }
 }
 
@@ -682,7 +783,16 @@ pub fn new_test_ext(block_number: BlockNumber) -> sp_io::TestExternalities {
         .build_storage()
         .unwrap();
     let mut ext = sp_io::TestExternalities::new(t);
-    ext.execute_with(|| System::set_block_number(block_number));
+    ext.execute_with(|| {
+        System::set_block_number(block_number);
+        // The mock never advances `SubnetMovingPrice` (it stays at its zero default unless
+        // a test sets it), so at the guarded mark every alpha row would read as claim dust
+        // and no redemption test could sell anything. Tests start with the dust floors off;
+        // `tests::claim_root_dust` pins the chain defaults explicitly, with priced pools.
+        BasketClaimRowDustCapTao::<Test>::put(0);
+        BasketClaimRowDustBps::<Test>::put(0);
+        BasketClaimSliceDustTao::<Test>::put(0);
+    });
     ext
 }
 
@@ -814,6 +924,22 @@ pub(crate) fn next_block() -> u64 {
     block
 }
 
+/// Fund `coldkey` for the current root burn price and register `hotkey` on
+/// the root network. Root admission is burn-based; this mirrors the
+/// `register_ok_neuron` top-up so tests don't have to fund the burn by hand.
+pub fn root_register_ok(hotkey_account_id: U256, coldkey_account_id: U256) {
+    let burn: TaoBalance = SubtensorModule::get_burn(NetUid::ROOT);
+    let ed: TaoBalance = ExistentialDeposit::get();
+    let min_balance_needed: TaoBalance = burn + ed.max(1.into()) + TaoBalance::from(10);
+    let bal: TaoBalance = SubtensorModule::get_coldkey_balance(&coldkey_account_id);
+    if bal < min_balance_needed {
+        add_balance_to_coldkey_account(&coldkey_account_id, min_balance_needed - bal);
+    }
+    let origin = <<Test as frame_system::Config>::RuntimeOrigin>::signed(coldkey_account_id);
+    SubtensorModule::root_register(origin, hotkey_account_id)
+        .expect("funded root registration should succeed");
+}
+
 pub fn register_ok_neuron(
     netuid: NetUid,
     hotkey_account_id: U256,
@@ -856,13 +982,13 @@ pub fn register_ok_neuron(
     let result = SubtensorModule::burned_register(origin.clone(), netuid, hotkey_account_id);
 
     match result {
-        Ok(()) => {
+        Ok(_) => {
             // success
         }
         Err(e)
-            if e == Error::<Test>::TooManyRegistrationsThisInterval.into()
-                || e == Error::<Test>::NotEnoughBalanceToStake.into()
-                || e == Error::<Test>::ZeroBalanceAfterWithdrawn.into() =>
+            if e.error == Error::<Test>::TooManyRegistrationsThisInterval.into()
+                || e.error == Error::<Test>::NotEnoughBalanceToStake.into()
+                || e.error == Error::<Test>::ZeroBalanceAfterWithdrawn.into() =>
         {
             // Re-top-up and retry once (burn can be state-dependent).
             top_up_for_burn(netuid, coldkey_account_id);
@@ -895,6 +1021,19 @@ pub fn add_network(netuid: NetUid, tempo: u16, _modality: u16) {
     BurnIncreaseMult::<Test>::insert(netuid, U64F64::from_num(1));
 }
 
+/// Set the subnet's owner emission share from a legacy `u16 / u16::MAX` cut,
+/// splitting the remainder evenly between validators and miners. Bypasses the
+/// extrinsic rules so tests can exercise extreme cuts (0% and 100%).
+#[allow(dead_code)]
+pub fn set_subnet_owner_cut_for_test(netuid: NetUid, cut: u16) {
+    SubtensorModule::set_subnet_emission_weights_unchecked(
+        netuid,
+        SubtensorModule::emission_weights_with_owner(
+            SubtensorModule::scale_u16_fraction_to_emission_weight(cut),
+        ),
+    );
+}
+
 #[allow(dead_code)]
 pub fn add_network_without_emission_block(netuid: NetUid, tempo: u16, _modality: u16) {
     SubtensorModule::init_new_network(netuid, tempo);
@@ -919,7 +1058,8 @@ pub fn add_network_disable_subtoken(netuid: NetUid, tempo: u16, _modality: u16) 
 pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
     let netuid = SubtensorModule::get_next_netuid();
     let lock_cost = SubtensorModule::get_network_lock_cost();
-    add_balance_to_coldkey_account(coldkey, lock_cost.into());
+    // Registration now requires the full price in addition to keep-alive ED.
+    add_balance_to_coldkey_account(coldkey, lock_cost.saturating_add(ExistentialDeposit::get()));
     TotalIssuance::<Test>::mutate(|total_issuance| {
         *total_issuance = total_issuance.saturating_add(lock_cost);
     });
@@ -943,7 +1083,7 @@ pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
 pub fn add_dynamic_network_without_emission_block(hotkey: &U256, coldkey: &U256) -> NetUid {
     let netuid = SubtensorModule::get_next_netuid();
     let lock_cost = SubtensorModule::get_network_lock_cost();
-    add_balance_to_coldkey_account(coldkey, lock_cost.into());
+    add_balance_to_coldkey_account(coldkey, lock_cost.saturating_add(ExistentialDeposit::get()));
     TotalIssuance::<Test>::mutate(|total_issuance| {
         *total_issuance = total_issuance.saturating_add(lock_cost);
     });
@@ -1191,6 +1331,21 @@ pub fn add_balance_to_coldkey_account(coldkey: &U256, tao: TaoBalance) {
     }
 }
 
+/// Drives a coldkey's stored share `S` above the pool denominator `D` (S/D = `factor`).
+/// This is the divergent state that accumulated rounding drift can produce. It lets tests
+/// prove that the value cap and the real-debit accounting hold even when the raw quote
+/// `V * S / D` would exceed the whole pool value `V`.
+#[allow(dead_code)]
+pub fn inflate_alpha_share(hotkey: &U256, coldkey: &U256, netuid: NetUid, factor: u32) {
+    let denominator = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
+    assert!(!denominator.is_zero(), "share pool must be initialized");
+    let mut share = denominator.clone();
+    for _ in 1..factor {
+        share = share.add(&denominator).expect("share fits in SafeFloat");
+    }
+    AlphaV2::<Test>::insert((hotkey, coldkey, netuid), share);
+}
+
 #[allow(dead_code)]
 pub fn remove_balance_from_coldkey_account(coldkey: &U256, tao: TaoBalance) {
     let _ = SubtensorModule::burn_tao(coldkey, tao);
@@ -1307,6 +1462,21 @@ pub fn dissolve_cleanup_status(netuid: NetUid) -> DissolveCleanupStatus {
     let mut status = DissolveCleanupStatus::new(netuid);
     status.subnet_distributed_tao = Some(0);
     status
+}
+
+/// Assert the canonical per-subnet alpha-stake accounting invariant.
+pub fn assert_total_alpha_staked_invariant(netuid: NetUid) {
+    let summed = TotalHotkeyAlpha::<Test>::iter()
+        .filter(|(_, this_netuid, _)| *this_netuid == netuid)
+        .fold(AlphaBalance::ZERO, |total, (_, _, alpha)| {
+            total.saturating_add(alpha)
+        });
+
+    assert_eq!(
+        TotalAlphaStaked::<Test>::get(netuid),
+        summed,
+        "TotalAlphaStaked must equal the sum of TotalHotkeyAlpha for netuid {netuid}"
+    );
 }
 
 /// Runs `get_total_alpha_value` then `settle_stakes` with one shared dissolve status.

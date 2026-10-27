@@ -47,10 +47,13 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "NetworksAdded"): True,
     ("SubtensorModule", "BlocksSinceLastStep"): 0,
     ("SubtensorModule", "Burn"): 10**9,
+    ("SubtensorModule", "TotalAlphaStaked"): 0,
     ("SubtensorModule", "Difficulty"): 10**7,
     ("SubtensorModule", "ImmunityPeriod"): 4096,
     ("SubtensorModule", "SubnetworkN"): 0,
     ("SubtensorModule", "NetworkRegisteredAt"): 0,
+    ("SubtensorModule", "SubnetLocked"): 10**9,
+    ("SubtensorModule", "SubnetEmissionEnabled"): True,
     ("System", "Account"): {"data": {"free": 0, "reserved": 0, "frozen": 0}},
     ("Timestamp", "Now"): 1_700_000_000_000,
 }
@@ -61,11 +64,29 @@ DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "InitialStartCallDelay"): 100,
 }
 
+# Runtime-API results answered when the test seeds nothing. Chosen so intent
+# builds that consult chain state (e.g. the alpha price backing the default
+# slippage-protection limit) work offline.
+DEFAULT_RUNTIME: dict[tuple[str, str], Any] = {
+    ("SwapRuntimeApi", "current_alpha_price"): 10**9,  # 1 TAO per alpha
+    ("SubnetRegistrationRuntimeApi", "get_network_registration_cost"): 10**9,
+    ("BetaBasketRuntimeApi", "get_validator_basket"): [],
+}
+
 GENESIS_HASH = "0x" + "00" * 32
 
 
+def _freeze(value: Any) -> Any:
+    """Hashable stand-in for a storage key part; enum keys arrive as dicts."""
+    if isinstance(value, dict):
+        return tuple((k, _freeze(v)) for k, v in value.items())
+    if isinstance(value, list):
+        return tuple(_freeze(v) for v in value)
+    return value
+
+
 def _key(params: Optional[list]) -> tuple:
-    return tuple(params or [])
+    return tuple(_freeze(p) for p in (params or []))
 
 
 class ComposedCall:
@@ -119,6 +140,8 @@ class FakeSubstrate:
         self.connected = False
         self.closed = False
         self.block = 100
+        self.finalized = 100
+        self.runtime_spec_version = 300
 
         # (module, item) -> {params-tuple: value}
         self._storage: dict[tuple[str, str], dict[tuple, Any]] = defaultdict(dict)
@@ -128,7 +151,7 @@ class FakeSubstrate:
         self._maps: dict[tuple[str, str], list[tuple[Any, Any]]] = {}
         self._constants: dict[tuple[str, str], Any] = dict(DEFAULT_CONSTANTS)
         # (api, method) -> value, or callable(params) -> value
-        self._runtime: dict[tuple[str, str], Any] = {}
+        self._runtime: dict[tuple[str, str], Any] = dict(DEFAULT_RUNTIME)
 
         self.fee = Balance.from_rao(124_414)
         self.weight = {"ref_time": 1_000_000, "proof_size": 3_593}
@@ -140,6 +163,11 @@ class FakeSubstrate:
         # Results handed out by submit/submit_signed/submit_multisig, FIFO;
         # empty -> a fresh success result.
         self.pending_results: list[ExtrinsicResult] = []
+        # Receipts handed out by find_extrinsic (the decrypted inner extrinsic
+        # of a shielded submission), FIFO; empty -> a fresh success result.
+        self.inner_results: list[ExtrinsicResult] = []
+        # block number -> decoded System.Events records, for event-driven waits.
+        self._events: dict[int, list[dict]] = {}
 
     # -- seeding -------------------------------------------------------------
 
@@ -161,6 +189,9 @@ class FakeSubstrate:
 
     def queue_result(self, result: ExtrinsicResult) -> None:
         self.pending_results.append(result)
+
+    def seed_events(self, block: int, events: list[dict]) -> None:
+        self._events[int(block)] = list(events)
 
     @property
     def last_call(self) -> Any:
@@ -188,9 +219,15 @@ class FakeSubstrate:
     async def block_number(self) -> int:
         return self.block
 
+    async def finalized_block_number(self) -> int:
+        return self.finalized
+
     async def block_time(self) -> float:
         # Same derivation as production: the chain's Aura.SlotDuration constant.
         return int(await self.constant("Aura", "SlotDuration")) / 1000.0
+
+    async def spec_version(self) -> int:
+        return self.runtime_spec_version
 
     async def get_block(
         self, block_number: Optional[int] = None, block_hash: Optional[str] = None
@@ -217,6 +254,19 @@ class FakeSubstrate:
         if item in self._storage_defaults:
             return self._storage_defaults[item]
         return DEFAULT_STORAGE.get(item)
+
+    async def map_has_entries(
+        self,
+        module: str,
+        storage_function: str,
+        params: list,
+        block_hash: Optional[str] = None,
+    ) -> bool:
+        item = (module, storage_function)
+        prefix = _key(params)
+        return bool(self._maps.get(item)) or any(
+            key[: len(prefix)] == prefix for key in self._storage.get(item, {})
+        )
 
     async def query_map(
         self,
@@ -264,6 +314,10 @@ class FakeSubstrate:
             number = self.block + offset
             yield {"header": {"number": number, "parentHash": f"0x{number - 1:064x}"}}
 
+    async def events(self, block_hash: Optional[str] = None) -> list[dict]:
+        block = self.block if block_hash is None else int(block_hash, 16)
+        return list(self._events.get(block, []))
+
     # -- calls and fees ----------------------------------------------------------
 
     async def compose(self, call) -> ComposedCall:
@@ -289,6 +343,13 @@ class FakeSubstrate:
     async def sign_extrinsic(self, call, keypair, *, nonce: int, period: int) -> tuple[bytes, str]:
         payload = repr((call, keypair.ss58_address, nonce)).encode()
         return payload, "0x" + payload.hex()[:64].ljust(64, "0")
+
+    async def find_extrinsic(self, extrinsic_hash: str, block_hash: str):
+        """Shielded inner receipts: pop a queued inner result, else succeed
+        immediately (the decrypted inner extrinsic lands in the carrier's block)."""
+        if self.inner_results:
+            return self.inner_results.pop(0)
+        return success_result(self.block)
 
     def _next_result(self) -> ExtrinsicResult:
         if self.pending_results:

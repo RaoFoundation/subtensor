@@ -594,6 +594,42 @@ impl IntentCall {
         )
     }
 
+    /// Move stake between hotkeys/subnets with a relative cross-subnet price limit.
+    pub fn move_stake_limit(
+        origin_hotkey: impl Into<String>,
+        origin_netuid: u16,
+        destination_hotkey: impl Into<String>,
+        destination_netuid: u16,
+        amount_alpha_rao: u128,
+        limit_price: u128,
+        allow_partial: bool,
+    ) -> Self {
+        Self::trusted(
+            "move_stake_limit",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "move_stake_limit",
+            Value::record(vec![
+                ("origin_hotkey".into(), Value::str(origin_hotkey)),
+                ("destination_hotkey".into(), Value::str(destination_hotkey)),
+                (
+                    "origin_netuid".into(),
+                    Value::Uint(u128::from(origin_netuid)),
+                ),
+                (
+                    "destination_netuid".into(),
+                    Value::Uint(u128::from(destination_netuid)),
+                ),
+                ("alpha_amount".into(), Value::Uint(amount_alpha_rao)),
+                ("limit_price".into(), Value::Uint(limit_price)),
+                ("allow_partial".into(), Value::Bool(allow_partial)),
+            ]),
+            Spend::None,
+            [origin_netuid, destination_netuid],
+            false,
+        )
+    }
+
     /// Swap stake between two subnets on one hotkey.
     pub fn swap_stake(
         hotkey: impl Into<String>,
@@ -644,6 +680,45 @@ impl IntentCall {
                     Value::str(destination_coldkey),
                 ),
                 ("hotkey".into(), Value::str(hotkey)),
+                (
+                    "origin_netuid".into(),
+                    Value::Uint(u128::from(origin_netuid)),
+                ),
+                (
+                    "destination_netuid".into(),
+                    Value::Uint(u128::from(destination_netuid)),
+                ),
+                ("alpha_amount".into(), Value::Uint(amount_alpha_rao)),
+            ]),
+            Spend::Unbounded,
+            [origin_netuid, destination_netuid],
+            false,
+        )
+    }
+
+    /// Transfer stake ownership to another coldkey, landing it on a different
+    /// hotkey. Like `transfer_stake`, the alpha value is not cheaply
+    /// TAO-bounded, so a spend cap must reject it.
+    pub fn transfer_stake_and_hotkey(
+        destination_coldkey: impl Into<String>,
+        origin_hotkey: impl Into<String>,
+        destination_hotkey: impl Into<String>,
+        origin_netuid: u16,
+        destination_netuid: u16,
+        amount_alpha_rao: u128,
+    ) -> Self {
+        Self::trusted(
+            "transfer_stake_and_hotkey",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "transfer_stake_and_hotkey",
+            Value::record(vec![
+                (
+                    "destination_coldkey".into(),
+                    Value::str(destination_coldkey),
+                ),
+                ("origin_hotkey".into(), Value::str(origin_hotkey)),
+                ("destination_hotkey".into(), Value::str(destination_hotkey)),
                 (
                     "origin_netuid".into(),
                     Value::Uint(u128::from(origin_netuid)),
@@ -1303,6 +1378,20 @@ mod tests {
         let invalid_type = IntentCall::serve_axon(1, 0, 0, 30333, 5, 4);
         assert!(
             matches!(invalid_type, Err(CoreError::Codec(message)) if message.contains("ip_type"))
+        );
+    }
+
+    #[test]
+    fn trusted_move_stake_limit_uses_constructor_derived_netuids() {
+        let intent =
+            IntentCall::move_stake_limit("5origin", 1, "5destination", 2, 10, 900_000_000, false);
+        let policy = Policy {
+            allowed_netuids: Some(BTreeSet::from([1])),
+            ..Policy::default()
+        };
+        assert_eq!(
+            policy.check(&intent, Some(0)),
+            vec![String::from("netuid 2 is not allowed by policy")]
         );
     }
 

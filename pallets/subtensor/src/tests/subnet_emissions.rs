@@ -192,6 +192,415 @@ fn get_shares_ignores_root_prop_storage_when_prices_and_burns_match() {
     });
 }
 
+/// Miner-burn scaling is applied before the emission gate. Equal EMA prices
+/// with burns 0.25 : 0.75 produce pre-gate shares 0.75 : 0.25. With the
+/// default h=3 gate and theta=0.25, the final shares are 81/95 : 14/95.
+#[test]
+fn get_shares_scales_by_miner_burn_before_gate() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(90);
+        let owner_coldkey = U256::from(91);
+        let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let n2 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        SubnetMovingPrice::<Test>::insert(n1, i96f32(1.0));
+        SubnetMovingPrice::<Test>::insert(n2, i96f32(1.0));
+        MinerBurned::<Test>::insert(n1, U96F32::saturating_from_num(0.25));
+        MinerBurned::<Test>::insert(n2, U96F32::saturating_from_num(0.75));
+
+        let shares = SubtensorModule::get_shares(&[n1, n2]);
+        let s1 = shares.get(&n1).copied().unwrap().to_num::<f64>();
+        let s2 = shares.get(&n2).copied().unwrap().to_num::<f64>();
+
+        assert_abs_diff_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            0.25,
+            epsilon = 1e-9
+        );
+        assert_abs_diff_eq!(s1, 81.0 / 95.0, epsilon = 1e-6);
+        assert_abs_diff_eq!(s2, 14.0 / 95.0, epsilon = 1e-6);
+        assert_abs_diff_eq!(s1 + s2, 1.0, epsilon = 1e-9);
+    });
+}
+
+#[test]
+fn get_shares_full_miner_burn_gets_zero() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(92);
+        let owner_coldkey = U256::from(93);
+        let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let n2 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        SubnetMovingPrice::<Test>::insert(n1, i96f32(1.0));
+        SubnetMovingPrice::<Test>::insert(n2, i96f32(1.0));
+        MinerBurned::<Test>::insert(n1, U96F32::saturating_from_num(1.0));
+        MinerBurned::<Test>::insert(n2, U96F32::saturating_from_num(0.0));
+
+        let shares = SubtensorModule::get_shares(&[n1, n2]);
+        assert_abs_diff_eq!(shares[&n1].to_num::<f64>(), 0.0, epsilon = 1e-9);
+        assert_abs_diff_eq!(shares[&n2].to_num::<f64>(), 1.0, epsilon = 1e-9);
+    });
+}
+
+#[test]
+fn get_shares_all_full_miner_burn_falls_back_to_price_shares() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(94);
+        let owner_coldkey = U256::from(95);
+        let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let n2 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        SubnetMovingPrice::<Test>::insert(n1, i96f32(1.0));
+        SubnetMovingPrice::<Test>::insert(n2, i96f32(1.0));
+        MinerBurned::<Test>::insert(n1, U96F32::saturating_from_num(1.0));
+        MinerBurned::<Test>::insert(n2, U96F32::saturating_from_num(1.0));
+
+        let shares = SubtensorModule::get_shares(&[n1, n2]);
+        assert_abs_diff_eq!(shares[&n1].to_num::<f64>(), 0.5, epsilon = 1e-9);
+        assert_abs_diff_eq!(shares[&n2].to_num::<f64>(), 0.5, epsilon = 1e-9);
+    });
+}
+
+/// Empty candidate set: no panic, empty map, bar stays unset.
+#[test]
+fn emission_gate_empty_set_no_panic() {
+    new_test_ext(1).execute_with(|| {
+        System::set_block_number(0);
+        assert_eq!(EmissionGateBar::<Test>::get().to_num::<f64>(), 0.0);
+
+        let shares = SubtensorModule::get_shares(&[]);
+        assert!(shares.is_empty());
+        assert_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            0.0,
+            "empty set must not write a bar"
+        );
+    });
+}
+
+/// Single subnet: gets the whole share; bar equals that share (q-mass of one).
+#[test]
+fn emission_gate_one_subnet_full_share() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(80);
+        let owner_coldkey = U256::from(81);
+        let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        System::set_block_number(0);
+        SubnetMovingPrice::<Test>::insert(n1, i96f32(1.0));
+        MinerBurned::<Test>::insert(n1, U96F32::saturating_from_num(0.0));
+
+        let shares = SubtensorModule::get_shares(&[n1]);
+        let s1 = shares.get(&n1).copied().unwrap().to_num::<f64>();
+        assert_abs_diff_eq!(s1, 1.0_f64, epsilon = 1e-9);
+
+        // q-mass of a single share-1 distribution lands at theta = 1.
+        // gate(1) = 1/2, but after renormalizing a singleton the share is still 1.
+        assert_abs_diff_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            1.0_f64,
+            epsilon = 1e-9
+        );
+    });
+}
+
+/// Two-subnet 1:2 prices through the default gate (q = 0.61, h = 3) → 1/10 : 9/10.
+#[test]
+fn emission_gate_concentrates_1_to_2_price_split() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(82);
+        let owner_coldkey = U256::from(83);
+        let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let n2 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        // Pin to q-mass (quantile) mode; this test asserts quantile bar selection.
+        EmissionBarRank::<Test>::set(0);
+
+        System::set_block_number(0);
+        SubnetMovingPrice::<Test>::insert(n1, i96f32(1.0));
+        SubnetMovingPrice::<Test>::insert(n2, i96f32(2.0));
+        MinerBurned::<Test>::insert(n1, U96F32::saturating_from_num(0.0));
+        MinerBurned::<Test>::insert(n2, U96F32::saturating_from_num(0.0));
+
+        let shares = SubtensorModule::get_shares(&[n1, n2]);
+        let s1 = shares.get(&n1).copied().unwrap().to_num::<f64>();
+        let s2 = shares.get(&n2).copied().unwrap().to_num::<f64>();
+
+        // Linear 1/3 : 2/3; q-mass bar lands on 2/3; gated weights normalize to 1/10 : 9/10.
+        assert_abs_diff_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            2.0 / 3.0,
+            epsilon = 1e-9
+        );
+        assert_abs_diff_eq!(s1, 0.1_f64, epsilon = 1e-6);
+        assert_abs_diff_eq!(s2, 0.9_f64, epsilon = 1e-6);
+        assert_abs_diff_eq!(s1 + s2, 1.0_f64, epsilon = 1e-9);
+    });
+}
+
+/// Stale theta ≫ equal shares with max h can underflow every gated product to
+/// zero; the gate must restore the ungated distribution instead of stranding
+/// the block's emission.
+#[test]
+fn emission_gate_underflow_restores_ungated_shares() {
+    new_test_ext(1).execute_with(|| {
+        // theta = 1, 256 equal shares (1/256), h = 8 → ratio = 256; safe_pow
+        // saturates near 2^64, gate rounds to the smallest U64F64, and
+        // share * gate underflows every entry to zero.
+        EmissionGateBar::<Test>::put(u64f64(1.0));
+        EmissionGateExponent::<Test>::set(u64f64(8.0));
+
+        let equal = u64f64(1.0 / 256.0);
+        let mut shares: BTreeMap<NetUid, U64F64> =
+            (1u16..=256).map(|i| (NetUid::from(i), equal)).collect();
+
+        SubtensorModule::apply_emission_gate(&mut shares);
+
+        let sum: f64 = shares.values().map(|v| v.to_num::<f64>()).sum();
+        assert!(
+            sum > 0.0,
+            "gated underflow must not strand emission (sum was {sum})"
+        );
+        assert_abs_diff_eq!(sum, 1.0_f64, epsilon = 1e-9);
+        for v in shares.values() {
+            assert_abs_diff_eq!(v.to_num::<f64>(), 1.0 / 256.0, epsilon = 1e-9);
+        }
+    });
+}
+
+/// Bar is sticky mid-interval and recomputes on the cadence boundary when the
+/// demand distribution has changed.
+#[test]
+fn emission_gate_bar_update_cadence() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(84);
+        let owner_coldkey = U256::from(85);
+        let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let n2 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let n3 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        // Pin to q-mass (quantile) mode; this test asserts quantile bar selection.
+        EmissionBarRank::<Test>::set(0);
+
+        System::set_block_number(0);
+        // Shares 0.7, 0.2, 0.1. q = 0.61 crosses on the first → theta = 0.7.
+        SubnetMovingPrice::<Test>::insert(n1, i96f32(7.0));
+        SubnetMovingPrice::<Test>::insert(n2, i96f32(2.0));
+        SubnetMovingPrice::<Test>::insert(n3, i96f32(1.0));
+        for n in [n1, n2, n3] {
+            MinerBurned::<Test>::insert(n, U96F32::saturating_from_num(0.0));
+        }
+
+        let _ = SubtensorModule::get_shares(&[n1, n2, n3]);
+        let bar_head = EmissionGateBar::<Test>::get().to_num::<f64>();
+        assert_abs_diff_eq!(bar_head, 0.7_f64, epsilon = 1e-9);
+
+        // Flatten to equal thirds. Mid-interval: bar sticky at 0.6.
+        SubnetMovingPrice::<Test>::insert(n1, i96f32(1.0));
+        SubnetMovingPrice::<Test>::insert(n2, i96f32(1.0));
+        SubnetMovingPrice::<Test>::insert(n3, i96f32(1.0));
+        System::set_block_number(179);
+        let _ = SubtensorModule::get_shares(&[n1, n2, n3]);
+        assert_abs_diff_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            bar_head,
+            epsilon = 1e-9
+        );
+
+        // At the cadence boundary: q = 0.61 over equal thirds crosses on the
+        // second share → theta = 1/3.
+        System::set_block_number(SubtensorModule::EMISSION_BAR_UPDATE_INTERVAL);
+        let _ = SubtensorModule::get_shares(&[n1, n2, n3]);
+        assert_abs_diff_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            1.0 / 3.0,
+            epsilon = 1e-9
+        );
+    });
+}
+
+/// The upgrade-active default: rank mode at N = 32.
+#[test]
+fn emission_bar_rank_default_is_32() {
+    new_test_ext(1).execute_with(|| {
+        assert_eq!(EmissionBarRank::<Test>::get(), 32);
+    });
+}
+
+/// Rank mode pins theta to the Nth-largest share: five subnets with distinct
+/// prices 5:4:3:2:1 and rank 3 → theta is the 3rd-largest share (3/15).
+#[test]
+fn emission_bar_rank_selects_nth_largest_share() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(86);
+        let owner_coldkey = U256::from(87);
+        let nets: Vec<NetUid> = (0..5)
+            .map(|_| add_dynamic_network(&owner_hotkey, &owner_coldkey))
+            .collect();
+
+        EmissionBarRank::<Test>::set(3);
+
+        System::set_block_number(0);
+        for (i, n) in nets.iter().enumerate() {
+            SubnetMovingPrice::<Test>::insert(n, i96f32((5 - i) as f64));
+            MinerBurned::<Test>::insert(n, U96F32::saturating_from_num(0.0));
+        }
+
+        let _ = SubtensorModule::get_shares(&nets);
+        assert_abs_diff_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            3.0 / 15.0,
+            epsilon = 1e-9
+        );
+    });
+}
+
+/// Zero-demand subnets are excluded from rank selection: prices 3:2:0:1 with
+/// rank 3 → theta is the 3rd-largest positive share (1/6), not the zero.
+#[test]
+fn emission_bar_rank_ignores_zero_shares() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(88);
+        let owner_coldkey = U256::from(89);
+        let nets: Vec<NetUid> = (0..4)
+            .map(|_| add_dynamic_network(&owner_hotkey, &owner_coldkey))
+            .collect();
+
+        EmissionBarRank::<Test>::set(3);
+
+        System::set_block_number(0);
+        for (n, price) in nets.iter().zip([3.0, 2.0, 0.0, 1.0]) {
+            SubnetMovingPrice::<Test>::insert(n, i96f32(price));
+            MinerBurned::<Test>::insert(n, U96F32::saturating_from_num(0.0));
+        }
+
+        let _ = SubtensorModule::get_shares(&nets);
+        assert_abs_diff_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            1.0 / 6.0,
+            epsilon = 1e-9
+        );
+    });
+}
+
+/// Ties at the bar: prices 3:2:2:1 with rank 3 → theta = 2/8; both tied
+/// subnets sit exactly at the gate midpoint.
+#[test]
+fn emission_bar_rank_ties_at_bar() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(90);
+        let owner_coldkey = U256::from(91);
+        let nets: Vec<NetUid> = (0..4)
+            .map(|_| add_dynamic_network(&owner_hotkey, &owner_coldkey))
+            .collect();
+
+        EmissionBarRank::<Test>::set(3);
+
+        System::set_block_number(0);
+        for (n, price) in nets.iter().zip([3.0, 2.0, 2.0, 1.0]) {
+            SubnetMovingPrice::<Test>::insert(n, i96f32(price));
+            MinerBurned::<Test>::insert(n, U96F32::saturating_from_num(0.0));
+        }
+
+        let _ = SubtensorModule::get_shares(&nets);
+        assert_abs_diff_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            2.0 / 8.0,
+            epsilon = 1e-9
+        );
+    });
+}
+
+/// The mainnet-default path: rank 32 with fewer than 32 subnets falls back to
+/// the smallest positive share, so every subnet passes at or above the gate
+/// midpoint and no emission is stranded.
+#[test]
+fn emission_bar_rank_fewer_subnets_than_rank_falls_back_to_smallest() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(92);
+        let owner_coldkey = U256::from(93);
+        let nets: Vec<NetUid> = (0..3)
+            .map(|_| add_dynamic_network(&owner_hotkey, &owner_coldkey))
+            .collect();
+
+        // Deliberately no EmissionBarRank override: exercise the default (32).
+        assert_eq!(EmissionBarRank::<Test>::get(), 32);
+
+        System::set_block_number(0);
+        for (n, price) in nets.iter().zip([5.0, 3.0, 2.0]) {
+            SubnetMovingPrice::<Test>::insert(n, i96f32(price));
+            MinerBurned::<Test>::insert(n, U96F32::saturating_from_num(0.0));
+        }
+
+        let shares = SubtensorModule::get_shares(&nets);
+
+        // theta = smallest positive share (2/10).
+        assert_abs_diff_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            2.0 / 10.0,
+            epsilon = 1e-9
+        );
+
+        // Everyone passes: each post-gate share is at least half its pre-gate
+        // linear share (gate ≥ 1/2 for s ≥ theta), and mass is fully allocated.
+        let sum: f64 = shares.values().map(|v| v.to_num::<f64>()).sum();
+        assert_abs_diff_eq!(sum, 1.0_f64, epsilon = 1e-9);
+        for (n, linear) in nets.iter().zip([0.5, 0.3, 0.2]) {
+            let gated = shares.get(n).copied().unwrap().to_num::<f64>();
+            assert!(
+                gated >= linear * 0.5 / (0.5 + 0.3 + 0.2),
+                "subnet {n:?} gated share {gated} fell below the everyone-passes floor"
+            );
+        }
+    });
+}
+
+/// The setter stores the new rank and kills the bar, forcing a recompute on
+/// the next shares evaluation even mid-cadence-interval.
+#[test]
+fn set_emission_bar_rank_updates_and_forces_recompute() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(94);
+        let owner_coldkey = U256::from(95);
+        let nets: Vec<NetUid> = (0..3)
+            .map(|_| add_dynamic_network(&owner_hotkey, &owner_coldkey))
+            .collect();
+
+        System::set_block_number(0);
+        for (n, price) in nets.iter().zip([5.0, 3.0, 2.0]) {
+            SubnetMovingPrice::<Test>::insert(n, i96f32(price));
+            MinerBurned::<Test>::insert(n, U96F32::saturating_from_num(0.0));
+        }
+
+        // Establish a bar under the default rank (32 → smallest share, 0.2).
+        let _ = SubtensorModule::get_shares(&nets);
+        assert_abs_diff_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            0.2_f64,
+            epsilon = 1e-9
+        );
+
+        // Change the rank mid-interval: the bar is killed immediately...
+        SubtensorModule::set_emission_bar_rank(1);
+        assert_eq!(EmissionBarRank::<Test>::get(), 1);
+        assert_abs_diff_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            0.0_f64,
+            epsilon = 1e-18
+        );
+
+        // ...and the next evaluation recomputes with the new rank even though
+        // block 179 is not a cadence boundary (rank 1 → largest share, 0.5).
+        System::set_block_number(179);
+        let _ = SubtensorModule::get_shares(&nets);
+        assert_abs_diff_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            0.5_f64,
+            epsilon = 1e-9
+        );
+    });
+}
+
 // /// Normal (moderate, non-zero) EMA flows across 3 subnets.
 // /// Expect: shares sum to ~1 and are monotonic with flows.
 // #[test]

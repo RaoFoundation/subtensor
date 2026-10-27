@@ -65,7 +65,10 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         // Get full balance including ED
         let max_transferrable = Self::get_coldkey_balance(origin_coldkey);
-        ensure!(amount <= max_transferrable, Error::<T>::InsufficientBalance);
+        ensure!(
+            amount <= max_transferrable,
+            Error::<T>::InsufficientTaoBalance
+        );
 
         Self::transfer_allow_death_update_ti(origin_coldkey, destination_coldkey, amount)
     }
@@ -118,7 +121,7 @@ impl<T: Config> Pallet<T> {
     /// Returns the actual amount transferred.
     ///
     /// # Errors
-    /// Returns [`Error::<T>::InsufficientBalance`] if no positive amount can be
+    /// Returns [`Error::<T>::InsufficientTaoBalance`] if no positive amount can be
     /// transferred while preserving the origin account.
     ///
     /// Propagates any other transfer error from the underlying currency.
@@ -144,7 +147,7 @@ impl<T: Config> Pallet<T> {
 
         ensure!(
             !amount_to_transfer.is_zero(),
-            Error::<T>::InsufficientBalance
+            Error::<T>::InsufficientTaoBalance
         );
 
         <T as Config>::Currency::transfer(
@@ -188,7 +191,7 @@ impl<T: Config> Pallet<T> {
         );
         ensure!(
             amount <= max_preserving_amount,
-            Error::<T>::InsufficientBalance
+            Error::<T>::InsufficientTaoBalance
         );
 
         // Decrease subtensor pallet total issuance
@@ -323,6 +326,84 @@ impl<T: Config> Pallet<T> {
         id
     }
 
+    /// A distinct, non-signing account per queue entry; unrelated holds/locks on
+    /// the registrant cannot spend or collateralize these funds.
+    pub fn network_registration_escrow_account(lock_id: u32) -> T::AccountId {
+        T::SubtensorPalletId::get().into_sub_account_truncating((*b"rges", lock_id))
+    }
+
+    pub fn escrow_network_registration_cost(
+        coldkey: &T::AccountId,
+        amount: TaoBalance,
+        lock_id: u32,
+    ) -> DispatchResult {
+        ensure!(
+            !NetworkRegistrationEscrow::<T>::contains_key(lock_id),
+            Error::<T>::BalanceWithdrawalError
+        );
+        let escrow = Self::network_registration_escrow_account(lock_id);
+        ensure!(&escrow != coldkey, Error::<T>::CannotUseSystemAccount);
+        let paid =
+            <T as Config>::Currency::transfer(coldkey, &escrow, amount, Preservation::Preserve)?;
+        ensure!(paid == amount, Error::<T>::CannotAffordLockCost);
+        NetworkRegistrationEscrow::<T>::insert(lock_id, (coldkey.clone(), amount));
+        Ok(())
+    }
+
+    /// Pay exactly the snapshotted price. Legacy locks are released only within
+    /// the caller's storage transaction, so a failed payment restores the lock.
+    pub fn pay_network_registration_cost(
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+        amount: TaoBalance,
+        lock_id: Option<u32>,
+    ) -> Result<TaoBalance, DispatchError> {
+        if let Some(id) = lock_id {
+            if let Some((owner, reserved)) = NetworkRegistrationEscrow::<T>::get(id) {
+                ensure!(
+                    owner == *coldkey && reserved == amount,
+                    Error::<T>::BalanceWithdrawalError
+                );
+                let destination =
+                    Self::get_subnet_account_id(netuid).ok_or(Error::<T>::SubnetNotExists)?;
+                let paid = <T as Config>::Currency::transfer(
+                    &Self::network_registration_escrow_account(id),
+                    &destination,
+                    amount,
+                    Preservation::Expendable,
+                )?;
+                ensure!(paid == amount, Error::<T>::CannotAffordLockCost);
+                NetworkRegistrationEscrow::<T>::remove(id);
+                return Ok(paid);
+            }
+            Self::unlock_network_registration_cost(coldkey, id)?;
+        }
+        let paid = Self::transfer_tao_to_subnet(netuid, coldkey, amount)?;
+        ensure!(paid == amount, Error::<T>::CannotAffordLockCost);
+        Ok(paid)
+    }
+
+    #[frame_support::transactional]
+    pub fn refund_network_registration_cost(
+        coldkey: &T::AccountId,
+        lock_id: u32,
+    ) -> DispatchResult {
+        if let Some((owner, amount)) = NetworkRegistrationEscrow::<T>::get(lock_id) {
+            ensure!(owner == *coldkey, Error::<T>::BalanceWithdrawalError);
+            let refunded = <T as Config>::Currency::transfer(
+                &Self::network_registration_escrow_account(lock_id),
+                coldkey,
+                amount,
+                Preservation::Expendable,
+            )?;
+            ensure!(refunded == amount, Error::<T>::BalanceWithdrawalError);
+            NetworkRegistrationEscrow::<T>::remove(lock_id);
+        } else {
+            Self::unlock_network_registration_cost(coldkey, lock_id)?;
+        }
+        Ok(())
+    }
+
     pub fn lock_network_registration_cost(
         coldkey: &T::AccountId,
         amount: BalanceOf<T>,
@@ -330,7 +411,7 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         ensure!(
             Self::can_remove_balance_from_coldkey_account(coldkey, amount),
-            Error::<T>::InsufficientBalance
+            Error::<T>::InsufficientTaoBalance
         );
 
         let identifier = Self::get_network_registration_lock_identifier(lock_id);

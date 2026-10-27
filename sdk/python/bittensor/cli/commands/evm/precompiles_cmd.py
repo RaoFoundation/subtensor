@@ -10,7 +10,7 @@ from ....evm import addresses as evm_addresses
 from ....evm import contracts as evm_contracts
 from ....evm import precompiles as evm_precompiles
 from ...context import ctx_of
-from ...globals import with_globals, with_tx_globals
+from ...globals import evm_key_signed, with_globals, with_tx_globals
 from ._shared import (
     EVM_KEY_HELP,
     PANEL_CHAIN,
@@ -115,6 +115,7 @@ def _find_function(app_ctx, functions: "list[dict]", label: str, name: str) -> d
 
 
 @with_tx_globals
+@evm_key_signed
 def call(
     ctx: typer.Context,
     name: str = typer.Argument(

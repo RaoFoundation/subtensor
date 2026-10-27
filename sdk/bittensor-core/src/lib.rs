@@ -16,6 +16,8 @@ pub mod error;
 pub mod keyfiles;
 pub mod keys;
 pub mod mlkem;
+#[cfg(feature = "host")]
+pub mod pow;
 pub mod runtime;
 pub mod signers;
 pub mod timelock;

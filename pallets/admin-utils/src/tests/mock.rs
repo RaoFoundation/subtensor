@@ -120,6 +120,7 @@ parameter_types! {
     pub const InitialBurn: TaoBalance = TaoBalance::new(0);
     pub const InitialMinBurn: TaoBalance = TaoBalance::new(500_000);
     pub const InitialMinStake: TaoBalance = TaoBalance::new(2_000_000);
+    pub const InitialMinTransfer: TaoBalance = TaoBalance::new(2_000_000);
     pub const InitialMaxBurn: TaoBalance = TaoBalance::new(1_000_000_000);
     pub const MinBurnUpperBound: TaoBalance = TaoBalance::new(1_000_000_000); // 1 TAO
     pub const MaxBurnLowerBound: TaoBalance = TaoBalance::new(100_000_000); // 0.1 TAO
@@ -212,6 +213,7 @@ impl pallet_subtensor::Config for Test {
     type InitialMaxBurn = InitialMaxBurn;
     type InitialMinBurn = InitialMinBurn;
     type InitialMinStake = InitialMinStake;
+    type InitialMinTransfer = InitialMinTransfer;
     type MinBurnUpperBound = MinBurnUpperBound;
     type MaxBurnLowerBound = MaxBurnLowerBound;
     type MinTempo = MinTempo;
@@ -380,13 +382,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl pallet_subtensor::CommitmentsInterface for CommitmentsI {
+impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
+
+    fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 
 pub struct GrandpaInterfaceImpl;
@@ -396,7 +400,12 @@ impl crate::GrandpaInterface<Test> for GrandpaInterfaceImpl {
         in_blocks: BlockNumber,
         forced: Option<BlockNumber>,
     ) -> sp_runtime::DispatchResult {
-        Grandpa::schedule_change(next_authorities, in_blocks, forced)
+        let next_set_id = Grandpa::current_set_id()
+            .checked_add(1)
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+        Grandpa::schedule_change(next_authorities, in_blocks, forced)?;
+        pallet_grandpa::CurrentSetId::<Test>::put(next_set_id);
+        Ok(())
     }
 }
 

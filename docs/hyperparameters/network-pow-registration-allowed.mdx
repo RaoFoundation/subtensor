@@ -1,0 +1,52 @@
+---
+title: network_pow_registration_allowed
+description: Enable fee-free proof-of-work registration on a non-root subnet.
+---
+
+Subnet owners may enable PoW registration independently of the epoch consensus
+mechanism. It is off by default and independent of the burn toggle,
+`registration_allowed`. Owners may enable burn, PoW or both, but cannot disable
+the last enabled method. Root registration retains its separate admission path.
+
+```bash
+btcli hparams set --netuid 1 --name network_pow_registration_allowed --value true
+btcli subnets register --netuid 1 --pow --yes
+```
+
+The CLI mines a recent challenge and submits the new `pow_register` call, signed
+by the coldkey. Direct submission with zero tip requires no TAO: there is no
+registration burn, upfront collateral purchase or transaction fee. A proxy,
+multisig or encrypted wrapper may charge its ordinary outer transaction fee.
+Standing miner collateral and emission settlement keep their existing rules.
+
+The proof binds the subnet, hotkey, signing coldkey, nonce and recent block hash.
+Invalid proofs are rejected during transaction-pool validation. Reused challenge
+blocks are rejected per hotkey, including after hotkey swaps or registration on
+another subnet; use a newer challenge block for another successful PoW registration.
+Per-block registration limits still apply. A full subnet uses its existing
+pruning and immunity rules; work does not guarantee that an occupied slot is available.
+
+The owner toggle uses the normal admin window and hyperparameter cooldown.
+Disabling it stops new PoW submissions without deleting existing participants.
+Burn registration remains available when its own toggle is enabled. The legacy
+`register` call retains its
+burn-based behaviour; use `pow_register` for actual PoW.
+
+The current `difficulty` value controls the work threshold. Successful PoW
+registration increases only difficulty, while burn registration increases only
+burn price. Both reuse `burn_increase_mult` and `burn_half_life`; their prices
+decay independently toward their own bounds. Root/governance controls the PoW
+minimum, and owners cannot bypass it with a lower maximum. The old interval
+controller is not restored.
+
+The Rust miner uses all discovered OpenCL GPUs by default, with CPU fallback.
+Use `--pow-backend gpu` to require GPU mining or `--pow-backend cpu` to select CPU.
+Long searches refresh the latest block hash every twelve seconds; found proofs
+are checked against current difficulty. Work is accepted through the five-block
+window, and the CLI can remine a proof rejected before inclusion because it expired.
+See [Null consensus](/docs/guides/null-consensus) and
+[difficulty](/docs/hyperparameters/difficulty).
+
+New PoW hotkey associations keep each coldkey’s ownership and staking indexes below the existing 256-entry staking work limit. An already-associated hotkey can register on another subnet without growing those indexes.
+
+The default is off for new subnets and missing storage entries. Previously stored explicit PoW toggle values are retained across the upgrade; owners should review their toggle before activation.

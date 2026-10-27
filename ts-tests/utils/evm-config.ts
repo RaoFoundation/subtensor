@@ -166,6 +166,47 @@ export const IStakingV2ABI = [
         inputs: [
             {
                 internalType: "bytes32",
+                name: "coldkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "uint256",
+                name: "netuid",
+                type: "uint256",
+            },
+            {
+                internalType: "bytes32[]",
+                name: "hotkeys",
+                type: "bytes32[]",
+            },
+        ],
+        name: "getStakeInfoForColdkeyAndNetuid",
+        outputs: [
+            {
+                components: [
+                    {
+                        internalType: "bytes32",
+                        name: "hotkey",
+                        type: "bytes32",
+                    },
+                    {
+                        internalType: "uint256",
+                        name: "stake",
+                        type: "uint256",
+                    },
+                ],
+                internalType: "struct IStaking.StakeInfo[]",
+                name: "positions",
+                type: "tuple[]",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "bytes32",
                 name: "hotkey",
                 type: "bytes32",
             },
@@ -284,6 +325,19 @@ export const IStakingV2ABI = [
             {
                 internalType: "uint256",
                 name: "",
+                type: "uint256",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [],
+        name: "getDefaultMinStake",
+        outputs: [
+            {
+                internalType: "uint256",
+                name: "defaultMinStake",
                 type: "uint256",
             },
         ],

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import getpass
 import os
 import sys
 from pathlib import Path
 
+from ._live import pause_live_display
+from .masked_input import masked_input
 from .sp_core import (
     KeyfileError,
     Keypair,
@@ -38,11 +39,27 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def _prompt_password(prompt: str = "Enter password to unlock key: ") -> str:
-    password = getpass.getpass(prompt)
-    if not password:
-        raise ValueError("password cannot be empty")
-    return password
+def _prompt_password(
+    prompt: str = "Enter password to unlock key: ",
+    *,
+    confirm: bool = False,
+) -> str:
+    """Prompt for a password; re-ask on empty (and mismatch) when stdin is a TTY."""
+    while True:
+        password = masked_input(prompt)
+        if not password:
+            if not sys.stdin.isatty():
+                raise ValueError("password cannot be empty")
+            print("password cannot be empty", file=sys.stderr)
+            continue
+        if confirm:
+            again = masked_input("Retype password: ")
+            if again != password:
+                if not sys.stdin.isatty():
+                    raise ValueError("passwords do not match")
+                print("passwords do not match", file=sys.stderr)
+                continue
+        return password
 
 
 def resolve_key_password(
@@ -51,6 +68,7 @@ def resolve_key_password(
     env_var_name: str | None = None,
     prompt: str = "Enter password to unlock key: ",
     allow_prompt: bool = True,
+    confirm: bool = False,
 ) -> str | None:
     """Resolve a keyfile password from explicit input, env, or an interactive prompt."""
     if password:
@@ -60,7 +78,7 @@ def resolve_key_password(
         if env_password:
             return env_password
     if allow_prompt:
-        return _prompt_password(prompt)
+        return _prompt_password(prompt, confirm=confirm)
     return None
 
 
@@ -114,7 +132,10 @@ class Keyfile:
             # get the documented refusal instead of an input() hang/EOFError.
             if not sys.stdin.isatty():
                 raise FileExistsError(f"refusing to overwrite existing keyfile {self.path!r}")
-            answer = input(f"File {self.path} already exists. Overwrite? (y/N) ").strip().lower()
+            with pause_live_display():
+                answer = (
+                    input(f"File {self.path} already exists. Overwrite? (y/N) ").strip().lower()
+                )
             if answer not in {"y", "yes"}:
                 raise FileExistsError(f"refusing to overwrite existing keyfile {self.path!r}")
         self.make_dirs()
@@ -168,9 +189,12 @@ class Keyfile:
     ) -> None:
         plaintext = bytes(serialized_keypair_to_keyfile_data(keypair))
         if encrypt:
+            # Confirm only when prompting interactively; an explicit/env
+            # password is already chosen by the caller.
             resolved = resolve_key_password(
                 password,
                 prompt=f"Enter password to encrypt key {self.path}: ",
+                confirm=password is None,
             )
             if resolved is None:
                 raise KeyfileError("password required to encrypt keyfile")

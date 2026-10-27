@@ -106,6 +106,7 @@ export interface BrowserWasmModule {
   encrypt(data: Uint8Array, nBlocks: BrowserIntegerLike, blockTime?: number): [Uint8Array, number]
   encryptAtRound(data: Uint8Array, revealRound: BrowserIntegerLike): [Uint8Array, number]
   revealRound(encryptedData: Uint8Array): number
+  innerCiphertext(encryptedData: Uint8Array): Uint8Array
   decryptWithSignature(encryptedData: Uint8Array, signatureHex: string): Uint8Array
   encryptMlkem768(
     publicKey: Uint8Array,

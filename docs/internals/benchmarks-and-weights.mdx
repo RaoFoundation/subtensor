@@ -26,7 +26,7 @@ by running benchmarks on reference hardware.
    `#[benchmarks]` and `#[benchmark]` macros.
 
 2. Create `pallets/<name>/src/weights.rs` manually. Copy the structure from
-   any existing pallet (e.g. `pallets/drand/src/weights.rs`) and replace the
+   any existing pallet (e.g. [`pallets/drand/src/weights.rs`](/code/pallets/drand/src/weights.rs)) and replace the
    function signatures with yours, using `Weight::from_parts(0, 0)` as the
    body so the pallet compiles immediately:
 
@@ -57,7 +57,7 @@ by running benchmarks on reference hardware.
 5. Use `T::WeightInfo::extrinsic_name()` in `#[pallet::weight(...)]`
    annotations instead of hardcoded `Weight::from_parts(...)`.
 
-6. Wire up in `runtime/src/lib.rs`:
+6. Wire up in [`runtime/src/lib.rs`](/code/runtime/src/lib.rs):
    ```rust
    type WeightInfo = pallet_<name>::weights::SubstrateWeight<Runtime>;
    ```
@@ -66,7 +66,7 @@ by running benchmarks on reference hardware.
    `Config`.
 
 8. Register the pallet in the `define_benchmarks!` macro in
-   `runtime/src/lib.rs` so the benchmark runner can discover it:
+   [`runtime/src/lib.rs`](/code/runtime/src/lib.rs) so the benchmark runner can discover it:
    ```rust
    define_benchmarks!(
        // ...existing pallets...
@@ -191,7 +191,7 @@ Generated `weights.rs` files contain:
 - `()` impl — used in tests, references `RocksDbWeight`
 
 The `()` fallback uses `RocksDbWeight` constants directly. The production
-runtime uses `T::DbWeight::get()`, which `runtime/src/lib.rs` also configures
+runtime uses `T::DbWeight::get()`, which [`runtime/src/lib.rs`](/code/runtime/src/lib.rs) also configures
 as `type DbWeight = RocksDbWeight` (matching the node's default RocksDb
 backend), so in this repo both impls resolve to the same constants.
 

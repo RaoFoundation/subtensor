@@ -52,6 +52,7 @@ async function main() {
   const keyring = new Keyring({ type: "sr25519" });
   const pair = keyring.addFromUri(seedPhrase); // CI's signing key
   const ciKeyAddress = pair.address;
+  console.log(`CI key address (fee payer + multisig depositor): ${ciKeyAddress}`);
 
   // Grab the sudo key from the chain
   const sudoKey = (await api.query.sudo.key()).toString();
@@ -78,6 +79,24 @@ async function main() {
       `Sudo key ${sudoKey} does not have a proxy matching the deployment multi-sig address ${multisigAddress}: ${JSON.stringify(
         proxies
       )}`
+    );
+  }
+
+  // The CI key pays the extrinsic fee and the multisig deposit
+  // (depositBase + threshold * depositFactor), so an unfunded key fails with
+  // an opaque 1010 at submission time. Check up front and name the account.
+  const account = await api.query.system.account(ciKeyAddress);
+  const free = account.data.free.toBigInt();
+  const depositBase = api.consts.multisig.depositBase.toBigInt();
+  const depositFactor = api.consts.multisig.depositFactor.toBigInt();
+  const required = depositBase + 2n * depositFactor;
+  console.log(
+    `CI key free balance: ${free} rao; multisig deposit needed: ${required} rao (+ fee)`
+  );
+  if (free < required) {
+    throw Error(
+      `CI key ${ciKeyAddress} has ${free} rao free but needs at least ` +
+        `${required} rao for the multisig deposit plus fees — fund it and re-run`
     );
   }
 

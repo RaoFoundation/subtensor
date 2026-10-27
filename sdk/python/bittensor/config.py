@@ -238,6 +238,14 @@ def get_address(name: str) -> Optional[str]:
     return None
 
 
+def get_address_entry(name_or_address: str) -> Optional[dict[str, Any]]:
+    """The address-book row for a contact name or ss58, if one exists."""
+    for entry in load_addresses():
+        if entry.get("name") == name_or_address or entry.get("address") == name_or_address:
+            return entry
+    return None
+
+
 def add_address(entry: dict[str, Any]) -> dict[str, Any]:
     name = entry.get("name")
     address = entry.get("address")

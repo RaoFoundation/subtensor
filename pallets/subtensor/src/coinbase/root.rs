@@ -16,9 +16,10 @@
 // DEALINGS IN THE SOFTWARE.
 
 use super::*;
+use crate::weights::WeightInfo;
 use safe_math::*;
 use substrate_fixed::types::{I64F64, U64F64};
-use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
+use subtensor_runtime_common::{NetUid, TaoBalance, Token};
 impl<T: Config> Pallet<T> {
     /// Fetches the total count of root network validators
     ///
@@ -42,15 +43,15 @@ impl<T: Config> Pallet<T> {
         Self::get_max_allowed_uids(NetUid::ROOT)
     }
 
-    /// Checks for any UIDs in the given list that are either equal to the root netuid or exceed the total number of subnets.
+    /// Checks whether any netuid in the given list does not exist.
     ///
-    /// It's important to check for invalid UIDs to ensure data integrity and avoid referencing nonexistent subnets.
+    /// It's important to check for invalid netuids to ensure data integrity and avoid referencing nonexistent subnets.
     ///
     /// # Arguments
-    /// * `uids`: A reference to a vector of UIDs to check.
+    /// * `netuids`: A reference to a slice of netuids to check.
     ///
     /// # Returns
-    /// * `bool`: 'true' if any of the UIDs are invalid, 'false' otherwise.
+    /// * `bool`: 'true' if any of the netuids are invalid, 'false' otherwise.
     ///
     pub fn contains_invalid_root_uids(netuids: &[NetUid]) -> bool {
         for netuid in netuids {
@@ -62,10 +63,42 @@ impl<T: Config> Pallet<T> {
         false
     }
 
+    /// Declared weight for [`crate::Pallet::root_register`].
+    ///
+    /// `WeightInfo::root_register` is the pre-auto-parent measurement.
+    /// The extra term is `TotalNetworks`-scaled `DbWeight` for one persist
+    /// per subnet on apply, and one more persist per subnet if a seat is
+    /// pruned. This is not a substitute for a reference re-benchmark.
+    pub fn root_register_dispatch_weight() -> Weight {
+        let n = TotalNetworks::<T>::get() as u64;
+        // Per persist: subnet exists, owner, child set, pending, parent
+        // of the owner, plus the child/parent writes.
+        const READS_PER_PERSIST: u64 = 6;
+        const WRITES_PER_PERSIST: u64 = 4;
+        const PROOF_PER_PERSIST: u64 = 256;
+        let persists = n.saturating_mul(2);
+        <T as crate::pallet::Config>::WeightInfo::root_register()
+            .saturating_add(T::DbWeight::get().reads(1))
+            .saturating_add(T::DbWeight::get().reads(persists.saturating_mul(READS_PER_PERSIST)))
+            .saturating_add(T::DbWeight::get().writes(persists.saturating_mul(WRITES_PER_PERSIST)))
+            .saturating_add(Weight::from_parts(
+                0,
+                persists.saturating_mul(PROOF_PER_PERSIST),
+            ))
+    }
+
     /// Registers a user's hotkey to the root network.
     ///
-    /// This function is responsible for registering the hotkey of a user.
-    /// The root key with the least stake if pruned in the event of a filled network.
+    /// Admission is burn-based: the coldkey pays the root burn price
+    /// (`Burn(0)`, demand-priced like subnet registration — bumped on every
+    /// registration, decaying back toward the floor each block). No prior
+    /// stake is required. When the network is full, the lowest-staked
+    /// non-immune member is pruned to make room. A just-registered seat is
+    /// immune for `ImmunityPeriod` blocks.
+    ///
+    /// After a successful registration, the hotkey is auto-childkeyed to
+    /// every existing subnet owner (unless the validator opted out of
+    /// auto parent delegation).
     ///
     /// # Arguments
     /// * `origin`: Represents the origin of the call.
@@ -108,54 +141,64 @@ impl<T: Config> Pallet<T> {
 
         // --- 6. Create a network account for the user if it doesn't exist.
         Self::create_account_if_non_existent(&coldkey, &hotkey)?;
+        ensure!(
+            Self::coldkey_owns_hotkey(&coldkey, &hotkey),
+            Error::<T>::NonAssociatedColdKey
+        );
 
         // --- 7. Fetch the current size of the subnetwork.
         let current_num_root_validators: u16 = Self::get_num_root_validators();
 
-        // Declare a variable to hold the root UID.
-        let subnetwork_uid: u16;
+        // --- 8. Resolve the slot: append while below capacity (max allowed is
+        // senate size), otherwise prune the lowest-staked *non-immune* member.
+        // A just-registered seat is immune (`ImmunityPeriod`) so it can attract
+        // stake before the next registration can evict it. Evicting a seat
+        // requires the registrant to hold at least as much root stake as the
+        // seat it displaces, so an unstaked key can never unseat a staked
+        // validator. Resolution only reads state, so the burn charged below
+        // can never be taken for a registration that fails.
+        let maybe_replacement: Option<(u16, T::AccountId)> =
+            if current_num_root_validators < Self::get_max_root_validators() {
+                None
+            } else {
+                let lowest_uid =
+                    Self::get_root_neuron_to_prune().ok_or(Error::<T>::NoNeuronIdAvailable)?;
+                let replaced_hotkey: T::AccountId =
+                    Self::get_hotkey_for_net_and_uid(NetUid::ROOT, lowest_uid)?;
+                ensure!(
+                    Self::get_stake_for_hotkey_on_subnet(&hotkey, NetUid::ROOT)
+                        >= Self::get_stake_for_hotkey_on_subnet(&replaced_hotkey, NetUid::ROOT),
+                    Error::<T>::StakeTooLowForRoot
+                );
+                Some((lowest_uid, replaced_hotkey))
+            };
 
-        // --- 8. Check if the root net is below its allowed size.
-        // max allowed is senate size.
-        if current_num_root_validators < Self::get_max_root_validators() {
-            // --- 12.1.1 We can append to the subnetwork as it's not full.
-            subnetwork_uid = current_num_root_validators;
-
-            // --- 12.1.2 Add the new account and make them a member of the Senate.
-            Self::append_neuron(NetUid::ROOT, &hotkey, current_block_number);
-            log::debug!("add new neuron: {hotkey:?} on uid {subnetwork_uid:?}");
-        } else {
-            // --- 13.1.1 The network is full. Perform replacement.
-            // Find the neuron with the lowest stake value to replace.
-            let mut lowest_stake = AlphaBalance::MAX;
-            let mut lowest_uid: u16 = 0;
-
-            // Iterate over all keys in the root network to find the neuron with the lowest stake.
-            for (uid_i, hotkey_i) in Keys::<T>::iter_prefix(NetUid::ROOT) {
-                let stake_i = Self::get_stake_for_hotkey_on_subnet(&hotkey_i, NetUid::ROOT);
-                if stake_i < lowest_stake {
-                    lowest_stake = stake_i;
-                    lowest_uid = uid_i;
-                }
-            }
-            subnetwork_uid = lowest_uid;
-            let replaced_hotkey: T::AccountId =
-                Self::get_hotkey_for_net_and_uid(NetUid::ROOT, subnetwork_uid)?;
-
-            // --- 13.1.2 The new account has a higher stake than the one being replaced.
-            ensure!(
-                lowest_stake < Self::get_stake_for_hotkey_on_subnet(&hotkey, NetUid::ROOT),
-                Error::<T>::StakeTooLowForRoot
-            );
-
-            // --- 13.1.3 The new account has a higher stake than the one being replaced.
-            // Replace the neuron account with new information.
-            Self::replace_neuron(NetUid::ROOT, lowest_uid, &hotkey, current_block_number);
-
-            log::debug!(
-                "replace neuron: {replaced_hotkey:?} with {hotkey:?} on uid {subnetwork_uid:?}"
-            );
+        // --- 9. Charge the burn: recycled out of issuance, priced by demand.
+        // `recycle_tao` refuses to drop the coldkey below the existential
+        // deposit, so an underfunded caller fails here before any mutation.
+        let burn_cost: TaoBalance = Self::get_burn(NetUid::ROOT);
+        if !burn_cost.is_zero() {
+            Self::recycle_tao(&coldkey, burn_cost.into())?;
+            Self::increase_rao_recycled(NetUid::ROOT, burn_cost);
         }
+        Self::bump_registration_price_after_registration(NetUid::ROOT);
+
+        // --- 10. Insert the neuron.
+        let subnetwork_uid: u16 = match maybe_replacement {
+            None => {
+                let uid = current_num_root_validators;
+                Self::append_neuron(NetUid::ROOT, &hotkey, current_block_number);
+                log::debug!("add new neuron: {hotkey:?} on uid {uid:?}");
+                uid
+            }
+            Some((lowest_uid, replaced_hotkey)) => {
+                Self::replace_neuron(NetUid::ROOT, lowest_uid, &hotkey, current_block_number);
+                log::debug!(
+                    "replace neuron: {replaced_hotkey:?} with {hotkey:?} on uid {lowest_uid:?}"
+                );
+                lowest_uid
+            }
+        };
 
         // --- 13. Force all members on root to become a delegate.
         if !Self::hotkey_is_delegate(&hotkey) {
@@ -180,10 +223,12 @@ impl<T: Config> Pallet<T> {
         Self::deposit_event(Event::NeuronRegistered(
             NetUid::ROOT,
             subnetwork_uid,
-            hotkey,
+            hotkey.clone(),
         ));
 
-        // --- 16. Finish and return success.
+        // --- 16. Auto-childkey this root validator to every subnet owner.
+        Self::do_set_subnet_owners_for_root_validator(&hotkey);
+
         Ok(())
     }
 

@@ -1,0 +1,41 @@
+---
+title: Leasing
+description: Reference for the deployed LeasingPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `LeasingPrecompile` |
+| Solidity interface | `ILeasing` |
+| Address | `0x000000000000000000000000000000000000080a` |
+| Status | Deployed |
+
+## Views
+
+```text
+getLease(uint32)
+getContributorShare(uint32,bytes32)
+getLeaseIdForSubnet(uint16)
+getNextLeaseId()
+getAccumulatedLeaseDividends(uint32)
+```
+
+## Operations
+
+```text
+createLeaseCrowdloan(uint64,uint64,uint64,uint32,uint8,bool,uint32)
+terminateLease(uint32,bytes32)
+```
+
+Both operations are `payable`.
+
+## Added operation
+
+| Function | Source extrinsic |
+|---|---|
+| `startCall` | `SubtensorModule.start_call` |
+
+`startCall` accepts a signed subnet owner. The Root-only start-call delay
+configuration is not exposed.
+
+Source: [`leasing.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/leasing.sol)

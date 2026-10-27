@@ -46,7 +46,10 @@ SUDO_PROXY_TYPE = "SudoUncheckedSetCode"
 # exactly. Both must stay in lockstep with propose-upgrade-multisig.js /
 # approve-upgrade-multisig.js.
 PROPOSAL_WEIGHT = {"ref_time": 50_000_000_000, "proof_size": 0}
-FINALIZE_WEIGHT = {"ref_time": 60_000_000_000, "proof_size": 10_000}
+# Must cover the proxy+setCode proposal's declared weight (v432 measured
+# ~50.5B ref_time / ~13.4k proof_size). Too-low proof_size fails the
+# deployment as_multi with MaxWeightTooLow *after* the outer sudo approval.
+FINALIZE_WEIGHT = {"ref_time": 80_000_000_000, "proof_size": 50_000}
 
 _MAX_FETCH_BYTES = 64 * 1024 * 1024
 _FETCH_TIMEOUT = 60.0
@@ -445,6 +448,24 @@ async def compose_finalizing_call(
     )
 
 
+async def finalizing_max_weight(client, finalizing, signer_address: str) -> dict:
+    """max_weight for the sudo-layer approval that dispatches ``finalizing``.
+
+    ``pallet_multisig`` rejects the executing ``as_multi`` with
+    ``MaxWeightTooLow`` unless its max_weight covers the wrapped call's
+    declared dispatch weight — which for the finalizing call is the pinned
+    ``FINALIZE_WEIGHT`` it embeds *plus* the multisig pallet's own overhead.
+    Estimate the declared weight from the live runtime and pad it 10% so the
+    approval never lands just under the line.
+    """
+
+    weight = await client.estimate_weight(finalizing, address=signer_address)
+    return {
+        "ref_time": int(weight["ref_time"] * 11 // 10),
+        "proof_size": int(weight["proof_size"] * 11 // 10),
+    }
+
+
 def sorted_other_signatories(signatories: list[str], self_address: str) -> list[str]:
     """Everyone but ``self_address``, sorted by raw account id (chain order)."""
     others = [s for s in signatories if s != self_address]
@@ -495,6 +516,7 @@ def srtool_recipe(manifest: Optional[dict]) -> list[str]:
         "  -e PACKAGE=node-subtensor-runtime \\",
         '  -e BUILD_OPTS="--features=metadata-hash" \\',
         "  -e PROFILE=production \\",
+        "  -e CONST_RANDOM_SEED=subtensor-runtime \\",
         '  -v "$(pwd)":/build \\',
         f"  {image} /srtool/build --app",
     ]

@@ -1413,7 +1413,7 @@ impl NativeClient {
     ) -> AsyncTask<ClientSubnetHyperparametersTask> {
         AsyncTask::new(ClientSubnetHyperparametersTask::new(
             Arc::clone(&self.inner),
-            move |client| client.subnet_hyperparameters(netuid, block_hash.as_deref()),
+            move |client| client.subnet_hyperparameters_typed(netuid, block_hash.as_deref()),
         ))
     }
 

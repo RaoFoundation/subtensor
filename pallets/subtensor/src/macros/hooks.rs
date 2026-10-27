@@ -1,3 +1,4 @@
+#![allow(clippy::crate_in_macro_def)]
 use frame_support::pallet_macros::pallet_section;
 
 /// A [`pallet_section`] that defines the events for a pallet.
@@ -18,22 +19,33 @@ mod hooks {
             let hotkey_swap_clean_up_weight = Self::clean_up_hotkey_swap_records(block_number);
 
             let block_step_result = Self::block_step();
+            // Advance the paged beta-index sweep right after the block step (deposit
+            // queue drained), charging its bounded page into the hook weight.
+            let beta_index_sweep_weight = Self::advance_beta_index_sweep_weight();
+            // Reserve the larger measured hook envelope once per block. The
+            // existing MaxEpochsPerBlock scheduler bounds both consensus modes.
+            let null_weight =
+                <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step();
+            let yuma_weight =
+                <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step_yuma();
+            let block_step_weight = Weight::from_parts(
+                null_weight.ref_time().max(yuma_weight.ref_time()),
+                null_weight.proof_size().max(yuma_weight.proof_size()),
+            );
             match block_step_result {
                 Ok(_) => {
                     // --- If the block step was successful, return the weight.
                     log::debug!("Successfully ran block step.");
-                    Weight::from_parts(110_634_229_000_u64, 0)
-                        .saturating_add(T::DbWeight::get().reads(8304_u64))
-                        .saturating_add(T::DbWeight::get().writes(110_u64))
+                    block_step_weight
                         .saturating_add(hotkey_swap_clean_up_weight)
+                        .saturating_add(beta_index_sweep_weight)
                 }
                 Err(e) => {
                     // --- If the block step was unsuccessful, return the weight anyway.
                     log::error!("Error while stepping block: {:?}", e);
-                    Weight::from_parts(110_634_229_000_u64, 0)
-                        .saturating_add(T::DbWeight::get().reads(8304_u64))
-                        .saturating_add(T::DbWeight::get().writes(110_u64))
+                    block_step_weight
                         .saturating_add(hotkey_swap_clean_up_weight)
+                        .saturating_add(beta_index_sweep_weight)
                 }
             }
         }
@@ -179,7 +191,51 @@ mod hooks {
                 // Fix lock state left behind by subnet-scoped hotkey swaps.
                 .saturating_add(migrations::migrate_fix_subnet_hotkey_lock_swaps::migrate_fix_subnet_hotkey_lock_swaps::<T>())
                 // Populate reverse lookup index for EVM address associations.
-                .saturating_add(migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<T>());
+                .saturating_add(migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<T>())
+                // Fold deprecated SubnetTaoProvided / SubnetAlphaInProvided residuals into the
+                // main AMM reserves (issue #2793). Guarded by HasMigrationRun, so it only runs once.
+                .saturating_add(migrations::migrate_cleanup_swap_v3::migrate_cleanup_swap_v3::<T>())
+                // Remove orphan SubnetIdentitiesV3 entries left for recycled netuids.
+                .saturating_add(migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<T>())
+                // Backfill ColdkeyCollateralHotkeys from standing MinerCollateral rows.
+                .saturating_add(migrations::migrate_coldkey_collateral_hotkeys::migrate_coldkey_collateral_hotkeys::<T>())
+                // Backfill the O(1) aggregate used by the voting-power precompile.
+                .saturating_add(migrations::migrate_total_voting_power::migrate_total_voting_power::<T>())
+                // Backfill the per-subnet aggregate of all hotkey alpha stake.
+                .saturating_add(migrations::migrate_total_alpha_staked::migrate_total_alpha_staked::<T>())
+                // Kick off the unified beta-basket seed (cursor only — conversion is on_idle
+                // so ORU stays idempotent for try-runtime). Fresh key so chains that ran the
+                // superseded per-slot v1 seed still convert.
+                .saturating_add(migrations::migrate_seed_beta_basket::kickoff_seed_beta_basket_v2::<T>())
+                // Root admission: 1 reg/block, 2/interval, 7200-block immunity,
+                // 1 TAO burn floor. Prune in `do_root_register` skips immune UIDs.
+                .saturating_add(migrations::migrate_tune_root_registration::migrate_tune_root_registration::<T>())
+                // Kill the stale quantile-derived emission gate bar so the
+                // rank-32 bar (DefaultEmissionBarRank) applies from the first
+                // recompute after the upgrade instead of the next cadence boundary.
+                .saturating_add(migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<T>())
+                // Repair stabilized SubnetAlphaOut undercounts caused by duplicated RAO-launch
+                // local dividends and legacy root dividends omitted from the root counter.
+                .saturating_add(migrations::migrate_fix_rao_alpha_out_accounting::migrate_fix_rao_alpha_out_accounting::<T>())
+                // Remove prior-generation alpha-asset counter offsets from recycled mainnet
+                // netuids without discarding burns accumulated by their current generations.
+                .saturating_add(migrations::migrate_rebase_recycled_alpha_asset_counters::migrate_rebase_recycled_alpha_asset_counters::<T>())
+                // Add pre-tracking burns to the generation-scoped AlphaBurned counters. This
+                // follows both AlphaOut repair and recycled-generation counter rebasing.
+                .saturating_add(migrations::migrate_backfill_historical_alpha_burned::migrate_backfill_historical_alpha_burned::<T>())
+                // Schedule the large storage-GC sweep. Actual work is bounded by the remaining
+                // on_idle weight over subsequent blocks.
+                .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>())
+                // Schedule stale StakingHotkeys relationship cleanup. It runs after storage GC
+                // and uses only otherwise-unused on_idle weight; normal operations stay enabled.
+                .saturating_add(migrations::migrate_cleanup_staking_hotkeys::kickoff_staking_hotkeys_cleanup::<T>());
+            // The beta-baseline seed (`migrate_stamp_beta_baselines`), the root pot
+            // reconciliation (`migrate_fix_root_pot_shortfall`), the TotalStake resync
+            // (`migrate_resync_total_stake`, issue #3156), the share-pool reconciliation,
+            // the subnet lifecycle backfill, and the root-weights removal
+            // (`migrate_remove_root_weights`) run from the runtime `Migrations` tuple instead
+            // of this hook, so try-runtime validates their pre/post-upgrade invariants against
+            // real network state.
             weight
         }
 
@@ -187,14 +243,117 @@ mod hooks {
         fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
             // Disabled: https://github.com/RaoFoundation/subtensor/pull/1166
             // Self::check_total_stake()?;
-            Ok(())
+            migrations::migrate_subnet_state::subnet_state::try_state::<T>()
         }
 
         fn on_idle(_block: BlockNumberFor<T>, limit: Weight) -> Weight {
-            let mut weight = Self::remove_data_for_dissolved_networks(limit);
+            let status_weight = T::DbWeight::get().reads(2);
+            let alpha_in_progress = migrations::migrate_alpha_v2::in_progress::<T>();
+            let seed_in_progress =
+                migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>();
+
+            // Dissolution removes RootClaimable/RootClaimed state that the seed still needs.
+            // Give the migration exclusive ownership of those legacy maps until it completes;
+            // queued dissolutions resume on the first subsequent idle block. Alpha conversion
+            // also retains ownership of positions until its accounting sweep finishes.
+            let mut weight = if seed_in_progress || alpha_in_progress {
+                status_weight
+            } else {
+                Self::remove_data_for_dissolved_networks(limit.saturating_sub(status_weight))
+                    .saturating_add(status_weight)
+            };
 
             if weight.all_lt(limit) {
                 weight.saturating_accrue(Self::process_network_registration_queue());
+            }
+
+            // Parents whose stake just changed: re-check the childkey threshold here, metered,
+            // instead of inside the stake extrinsics, and suspend or resume their relations.
+            if weight.all_lt(limit) {
+                weight.saturating_accrue(Self::process_childkey_threshold_checks(
+                    limit.saturating_sub(weight),
+                ));
+            }
+
+            // Continue the multi-block beta-basket seed migration until HasMigrationRun is set.
+            // Always call it while the cursor exists: its adaptive limits normally respect the
+            // remaining weight, but it deliberately performs one overweight item when needed
+            // so an individually oversized row/hotkey cannot stall the migration forever.
+            if seed_in_progress {
+                weight.saturating_accrue(
+                    migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2_with_limit::<
+                        T,
+                    >(limit.saturating_sub(weight)),
+                );
+            }
+
+            // Storage GC is independent from beta-basket conversion, but both are large. Let the
+            // state-sensitive seed finish first and then consume only otherwise-unused block
+            // weight, so normal extrinsics and dissolution work retain priority.
+            if weight.all_lt(limit) {
+                weight.saturating_accrue(
+                    migrations::migrate_total_alpha_staked::continue_total_alpha_staked::<T>(
+                        limit.saturating_sub(weight),
+                    ),
+                );
+            }
+
+            if !seed_in_progress && alpha_in_progress && weight.all_lt(limit) {
+                weight.saturating_accrue(migrations::migrate_alpha_v2::continue_migration::<T>(
+                    limit.saturating_sub(weight),
+                ));
+            }
+
+            if !seed_in_progress && !alpha_in_progress && weight.all_lt(limit) {
+                weight.saturating_accrue(
+                    migrations::migrate_storage_bloat_v2::continue_storage_bloat_cleanup::<T>(
+                        limit.saturating_sub(weight),
+                    ),
+                );
+            }
+
+            // StakingHotkeys cleanup depends on storage GC having completed all of its targets.
+            // Gate on the positive completion marker rather than cursor absence so an absent or
+            // unexpectedly removed cursor cannot start the dependent cleanup early.
+            let storage_bloat_completion_read = T::DbWeight::get().reads(1);
+            let storage_bloat_complete = if !seed_in_progress
+                && !alpha_in_progress
+                && weight
+                    .saturating_add(storage_bloat_completion_read)
+                    .all_lt(limit)
+            {
+                weight.saturating_accrue(storage_bloat_completion_read);
+                migrations::migrate_storage_bloat_v2::storage_bloat_cleanup_complete::<T>()
+            } else {
+                false
+            };
+            if !seed_in_progress && storage_bloat_complete && weight.all_lt(limit) {
+                weight.saturating_accrue(
+                    migrations::migrate_cleanup_staking_hotkeys::continue_staking_hotkeys_cleanup::<
+                        T,
+                    >(limit.saturating_sub(weight)),
+                );
+            }
+
+            // Repair historical omissions only after conversion and destructive
+            // index cleanup finish. Normal deposits maintain their own associations.
+            let repair_status = T::DbWeight::get().reads(1);
+            if !seed_in_progress
+                && !alpha_in_progress
+                && storage_bloat_complete
+                && weight.saturating_add(repair_status).all_lte(limit)
+            {
+                let cleanup_done = HasMigrationRun::<T>::get(
+                    migrations::migrate_cleanup_staking_hotkeys::MIGRATION_NAME,
+                );
+                weight.saturating_accrue(repair_status);
+                if cleanup_done {
+                    weight.saturating_accrue(
+                        migrations::migrate_restore_staking_hotkeys::continue_restore::<T>(
+                            limit.saturating_sub(weight),
+                        ),
+                    );
+                }
             }
 
             weight
@@ -230,6 +389,14 @@ mod hooks {
                             < block_number
                         {
                             LastHotkeySwapOnNetuid::<T>::remove(netuid, coldkey);
+                            weight.saturating_accrue(T::DbWeight::get().writes(1_u64));
+                        }
+                        weight.saturating_accrue(T::DbWeight::get().reads(1_u64));
+                    }
+                    for (hotkey, cooldown_until) in StakeMoveCooldownUntil::<T>::iter_prefix(netuid)
+                    {
+                        if cooldown_until <= block_number {
+                            StakeMoveCooldownUntil::<T>::remove(netuid, hotkey);
                             weight.saturating_accrue(T::DbWeight::get().writes(1_u64));
                         }
                         weight.saturating_accrue(T::DbWeight::get().reads(1_u64));

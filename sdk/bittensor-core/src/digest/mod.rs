@@ -184,17 +184,21 @@ mod tests {
 
     /// Cross-implementation vector: the same metadata + chain info fed to
     /// polkadot-api's `merkleizeMetadata` (the JS implementation wallets use)
-    /// produces this digest. 419 is the localnet spec version the golden
-    /// fixture was recorded at — the JS library validates the extra info
-    /// against the metadata's own System.Version, so this pins spec name,
-    /// version, prefix, decimals, and symbol all at once.
+    /// produces this digest. The JS library validates the extra info against
+    /// the metadata's own System.Version, so this pins spec name, version,
+    /// prefix, decimals, and symbol all at once.
     #[test]
     fn digest_matches_polkadot_js_merkleize_metadata() {
+        let golden = golden();
+        let spec_version = golden["network"]["spec_version"]
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .expect("golden.json network.spec_version fits u32");
         let metadata = golden_metadata_v15();
-        let digest = metadata_digest(&metadata, &chain_info(419)).unwrap();
+        let digest = metadata_digest(&metadata, &chain_info(spec_version)).unwrap();
         assert_eq!(
             hex::encode(digest),
-            "a78a71553275dbde7fdbf35da05ea6703d775fda4e49993b89e9bdb6c1323c97"
+            "affbcc25b1cb6847bc94dcf3a7f35fb8d6a5c59d9d47da92063a9399a5fc11c0"
         );
     }
 

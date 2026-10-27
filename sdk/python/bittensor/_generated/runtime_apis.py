@@ -1,7 +1,6 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 429
 
 Runtime API method descriptors: unpack into substrate.runtime_call.
 """
@@ -29,6 +28,26 @@ class BabeApi:
     next_epoch = Method('BabeApi', 'next_epoch')
     generate_key_ownership_proof = Method('BabeApi', 'generate_key_ownership_proof')
     submit_report_equivocation_unsigned_extrinsic = Method('BabeApi', 'submit_report_equivocation_unsigned_extrinsic')
+
+class BetaBasketRuntimeApi:
+    get_root_basket_owed = Method('BetaBasketRuntimeApi', 'get_root_basket_owed')
+    get_basket_payout = Method('BetaBasketRuntimeApi', 'get_basket_payout')
+    get_validator_basket_nav = Method('BetaBasketRuntimeApi', 'get_validator_basket_nav')
+    get_validator_basket = Method('BetaBasketRuntimeApi', 'get_validator_basket')
+    get_root_basket_total_nav = Method('BetaBasketRuntimeApi', 'get_root_basket_total_nav')
+    get_validator_basket_summary = Method('BetaBasketRuntimeApi', 'get_validator_basket_summary')
+    get_all_validator_baskets = Method('BetaBasketRuntimeApi', 'get_all_validator_baskets')
+    get_root_basket_positions = Method('BetaBasketRuntimeApi', 'get_root_basket_positions')
+    get_basket_position = Method('BetaBasketRuntimeApi', 'get_basket_position')
+    get_root_basket_portfolio = Method('BetaBasketRuntimeApi', 'get_root_basket_portfolio')
+    get_beta_pricing = Method('BetaBasketRuntimeApi', 'get_beta_pricing')
+    get_all_beta_pricing = Method('BetaBasketRuntimeApi', 'get_all_beta_pricing')
+    get_beta_index = Method('BetaBasketRuntimeApi', 'get_beta_index')
+    get_beta_position = Method('BetaBasketRuntimeApi', 'get_beta_position')
+    get_beta_portfolio = Method('BetaBasketRuntimeApi', 'get_beta_portfolio')
+    get_basket_trading_status = Method('BetaBasketRuntimeApi', 'get_basket_trading_status')
+    get_basket_claim_preview = Method('BetaBasketRuntimeApi', 'get_basket_claim_preview')
+    get_root_basket_claim_previews = Method('BetaBasketRuntimeApi', 'get_root_basket_claim_previews')
 
 class BlockBuilder:
     apply_extrinsic = Method('BlockBuilder', 'apply_extrinsic')
@@ -127,6 +146,8 @@ class SubnetInfoRuntimeApi:
     get_subnets_info = Method('SubnetInfoRuntimeApi', 'get_subnets_info')
     get_subnet_info_v2 = Method('SubnetInfoRuntimeApi', 'get_subnet_info_v2')
     get_subnets_info_v2 = Method('SubnetInfoRuntimeApi', 'get_subnets_info_v2')
+    get_subnet_hyperparams = Method('SubnetInfoRuntimeApi', 'get_subnet_hyperparams')
+    get_subnet_hyperparams_v2 = Method('SubnetInfoRuntimeApi', 'get_subnet_hyperparams_v2')
     get_all_dynamic_info = Method('SubnetInfoRuntimeApi', 'get_all_dynamic_info')
     get_all_metagraphs = Method('SubnetInfoRuntimeApi', 'get_all_metagraphs')
     get_metagraph = Method('SubnetInfoRuntimeApi', 'get_metagraph')
@@ -142,6 +163,7 @@ class SubnetInfoRuntimeApi:
     get_next_epoch_start_block = Method('SubnetInfoRuntimeApi', 'get_next_epoch_start_block')
     get_block_emission = Method('SubnetInfoRuntimeApi', 'get_block_emission')
     get_subnet_hyperparams_v3 = Method('SubnetInfoRuntimeApi', 'get_subnet_hyperparams_v3')
+    get_subnet_emission_weights = Method('SubnetInfoRuntimeApi', 'get_subnet_emission_weights')
 
 class SubnetRegistrationRuntimeApi:
     get_network_registration_cost = Method('SubnetRegistrationRuntimeApi', 'get_network_registration_cost')

@@ -37,6 +37,11 @@ impl<T: Config> Pallet<T> {
         VotingPowerEmaAlpha::<T>::get(netuid)
     }
 
+    /// Get the maintained sum of voting power for all validators on a subnet.
+    pub fn get_total_voting_power(netuid: NetUid) -> u64 {
+        TotalVotingPower::<T>::get(netuid)
+    }
+
     // ========================
     // === Extrinsic Handlers ===
     // ========================
@@ -148,7 +153,7 @@ impl<T: Config> Pallet<T> {
                 Self::update_voting_power_for_hotkey(netuid, hotkey, terms.stake, alpha, min_stake);
             } else {
                 // Miner without vpermit - remove any existing voting power
-                VotingPower::<T>::remove(netuid, hotkey);
+                Self::remove_voting_power(netuid, hotkey);
             }
         }
 
@@ -174,7 +179,7 @@ impl<T: Config> Pallet<T> {
 
         // Remove voting power for deregistered hotkeys
         for hotkey in hotkeys_to_remove {
-            VotingPower::<T>::remove(netuid, &hotkey);
+            Self::remove_voting_power(netuid, &hotkey);
             log::trace!(
                 "VotingPower removed for deregistered hotkey {hotkey:?} on netuid {netuid:?}"
             );
@@ -201,13 +206,13 @@ impl<T: Config> Pallet<T> {
         // This allows new validators to build up voting power from 0 without being removed.
         if new_ema < min_stake && previous_ema >= min_stake {
             // Was above threshold, now decayed below - remove
-            VotingPower::<T>::remove(netuid, hotkey);
+            Self::remove_voting_power(netuid, hotkey);
             log::trace!(
                 "VotingPower removed for hotkey {hotkey:?} on netuid {netuid:?} (decayed below removal threshold: {new_ema:?} < {min_stake:?})"
             );
         } else if new_ema > 0 {
             // Update voting power (building up or maintaining)
-            VotingPower::<T>::insert(netuid, hotkey, new_ema);
+            Self::set_voting_power(netuid, hotkey, previous_ema, new_ema);
             log::trace!(
                 "VotingPower updated for hotkey {hotkey:?} on netuid {netuid:?}: {previous_ema:?} -> {new_ema:?}"
             );
@@ -238,11 +243,39 @@ impl<T: Config> Pallet<T> {
         result.min(u64::MAX as u128) as u64
     }
 
+    /// Store one validator's voting power and update the subnet aggregate by
+    /// the same delta.
+    fn set_voting_power(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        previous_voting_power: u64,
+        new_voting_power: u64,
+    ) {
+        VotingPower::<T>::insert(netuid, hotkey, new_voting_power);
+        TotalVotingPower::<T>::mutate(netuid, |total| {
+            *total = total
+                .saturating_sub(previous_voting_power)
+                .saturating_add(new_voting_power);
+        });
+    }
+
+    /// Remove one validator's voting power and subtract it from the subnet
+    /// aggregate.
+    fn remove_voting_power(netuid: NetUid, hotkey: &T::AccountId) {
+        let removed = VotingPower::<T>::take(netuid, hotkey);
+        if removed > 0 {
+            TotalVotingPower::<T>::mutate(netuid, |total| {
+                *total = total.saturating_sub(removed);
+            });
+        }
+    }
+
     /// Finalize the disabling of voting power tracking.
     /// Clears all VotingPower entries for the subnet.
     fn finalize_voting_power_disable(netuid: NetUid) {
         // Clear all VotingPower entries for this subnet
         let _ = VotingPower::<T>::clear_prefix(netuid, u32::MAX, None);
+        TotalVotingPower::<T>::remove(netuid);
 
         // Disable tracking
         VotingPowerTrackingEnabled::<T>::insert(netuid, false);

@@ -8,11 +8,11 @@ application's choice; this module only signs and verifies.
 
 Client side::
 
-    import bittensor as sub
+    import bittensor as bt
 
-    wallet = sub.Wallet(name="my_coldkey", hotkey="my_hotkey")
+    wallet = bt.Wallet(name="my_coldkey", hotkey="my_hotkey")
     body = b'{"prompt": "hello"}'
-    headers = sub.http_auth.sign(
+    headers = bt.http_auth.sign(
         wallet, method="POST", path="/generate", body=body,
         receiver_ss58=miner_hotkey,
     )
@@ -20,7 +20,7 @@ Client side::
 
 Server side::
 
-    caller = sub.http_auth.verify(
+    caller = bt.http_auth.verify(
         request_headers, raw_body,
         method="POST", path="/generate",
         self_hotkey_ss58=my_hotkey,
@@ -36,8 +36,8 @@ multi-process servers).
 The wire format is deliberately language-neutral — sha256 over the raw body
 bytes, a newline-joined signed payload, sr25519/ed25519 signatures — so
 miners and validators in other languages interoperate from the spec alone.
-See the signed-requests guide (/docs/guides/signed-requests) for the
-normative spec, framework recipes, and golden test vectors.
+See the signed-requests guide (https://www.bittensor.com/docs/guides/signed-requests)
+for the normative spec, framework recipes, and golden test vectors.
 """
 
 from __future__ import annotations

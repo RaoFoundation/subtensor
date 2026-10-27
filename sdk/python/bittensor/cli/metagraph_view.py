@@ -4,7 +4,8 @@ Subnet-level data renders as aligned key/value sections (raw chain values
 primary, dim readings beside them — the hyperparameters convention); the
 per-uid arrays collapse into one tree branch per neuron, largest stake first,
 hotkeys labeled with their local wallet name when one exists, else their
-on-chain identity name. JSON carries the raw metagraph record untouched.
+on-chain identity name. JSON carries the runtime record as the read returns
+it (untouched except `name`/`symbol`, which the read decodes to text).
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ def show_metagraph(app_ctx: AppContext, netuid: int, graph: Any) -> None:
     if not isinstance(graph, dict):
         app_ctx.output.error(f"subnet {netuid} does not exist")
         raise typer.Exit(1)
-    sections = _sections(app_ctx, graph, netuid)
+    sections = _sections(graph, netuid)
     neurons = _neurons(app_ctx, graph, netuid)
     num_uids = int(graph.get("num_uids") or len(neurons))
     max_uids = int(graph.get("max_uids") or 0)
@@ -51,14 +52,14 @@ def show_metagraph(app_ctx: AppContext, netuid: int, graph: Any) -> None:
 Row = tuple[str, str, Optional[str]]
 
 
-def _sections(
-    app_ctx: AppContext, graph: dict, netuid: int
-) -> list[tuple[Optional[str], list[Row]]]:
+def _sections(graph: dict, netuid: int) -> list[tuple[Optional[str], list[Row]]]:
     def tao(key: str) -> str:
         return str(Balance(int(graph[key])))
 
     def alpha(key: str) -> str:
-        return str(app_ctx.output.balance(int(graph[key]), netuid))
+        # The response's symbol belongs to this block. The display cache may
+        # predate a symbol change (or describe a newer block on historical reads).
+        return str(Balance(int(graph[key]), netuid, graph.get("symbol") or None))
 
     def raw(key: str) -> Row:
         value = graph[key]
@@ -183,8 +184,8 @@ def _neurons(app_ctx: AppContext, graph: dict, netuid: int) -> list[dict[str, An
                 "label": names.get(hotkey) or identity_name or hotkey,
                 "named": hotkey in names,
                 "identity": hotkey not in names and identity_name is not None,
-                "stake": Balance(int(total_stake[uid] or 0)),
-                "emission": app_ctx.output.balance(int(emission[uid] or 0), netuid),
+                "stake": Balance(int(total_stake[uid] or 0), netuid, graph.get("symbol") or None),
+                "emission": Balance(int(emission[uid] or 0), netuid, graph.get("symbol") or None),
                 "incentive": int(incentives[uid] or 0) / U16_MAX,
                 "dividends": int(dividends[uid] or 0) / U16_MAX,
                 "validator": bool(permits[uid]),

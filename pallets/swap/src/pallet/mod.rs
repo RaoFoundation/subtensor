@@ -1,6 +1,6 @@
 use core::num::NonZeroU64;
 
-use frame_support::{PalletId, pallet_prelude::*, traits::Get};
+use frame_support::{PalletId, pallet_macros::import_section, pallet_prelude::*, traits::Get};
 use frame_system::pallet_prelude::*;
 use subtensor_runtime_common::{
     AlphaBalance, BalanceOps, NetUid, SubnetInfo, TaoBalance, TokenReserve,
@@ -22,6 +22,7 @@ mod tests;
 type MigrationKeyMaxLen = ConstU32<128>;
 
 #[allow(clippy::module_inception)]
+#[import_section(hooks::hooks)]
 #[frame_support::pallet]
 #[allow(clippy::expect_used)]
 mod pallet {
@@ -211,7 +212,7 @@ mod pallet {
 
         /// DEPRECATED
         #[pallet::call_index(4)]
-        #[pallet::weight(Weight::from_parts(15_000_000, 0))]
+        #[pallet::weight(<T as Config>::WeightInfo::toggle_user_liquidity())]
         pub fn toggle_user_liquidity(
             _origin: OriginFor<T>,
             _netuid: NetUid,
@@ -222,7 +223,7 @@ mod pallet {
 
         /// DEPRECATED
         #[pallet::call_index(1)]
-        #[pallet::weight(Weight::from_parts(15_000_000, 0))]
+        #[pallet::weight(<T as Config>::WeightInfo::add_liquidity())]
         pub fn add_liquidity(
             _origin: OriginFor<T>,
             _hotkey: T::AccountId,
@@ -236,7 +237,7 @@ mod pallet {
 
         /// DEPRECATED
         #[pallet::call_index(2)]
-        #[pallet::weight(Weight::from_parts(15_000_000, 0))]
+        #[pallet::weight(<T as Config>::WeightInfo::remove_liquidity())]
         pub fn remove_liquidity(
             _origin: OriginFor<T>,
             _hotkey: T::AccountId,
@@ -248,7 +249,7 @@ mod pallet {
 
         /// DEPRECATED
         #[pallet::call_index(3)]
-        #[pallet::weight(Weight::from_parts(15_000_000, 0))]
+        #[pallet::weight(<T as Config>::WeightInfo::modify_position())]
         #[deprecated(note = "Deprecated, user liquidity is permanently disabled")]
         pub fn modify_position(
             _origin: OriginFor<T>,
@@ -262,7 +263,7 @@ mod pallet {
 
         /// DEPRECATED
         #[pallet::call_index(5)]
-        #[pallet::weight(Weight::from_parts(15_000_000, 0))]
+        #[pallet::weight(<T as Config>::WeightInfo::disable_lp())]
         #[deprecated(note = "Deprecated, user liquidity is permanently disabled")]
         pub fn disable_lp(_origin: OriginFor<T>) -> DispatchResult {
             Err(Error::<T>::Deprecated.into())

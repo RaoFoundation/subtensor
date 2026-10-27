@@ -15,7 +15,7 @@ from .reads.identity import Commitment
 from .reads.neurons import Neuron
 from .reads.prices import SwapQuote
 from .reads.staking import StakePosition, StakeValuation
-from .reads.subnets import SubnetInfo
+from .reads.subnets import SubnetEmissionWeights, SubnetInfo, SubnetLifecycleState
 
 class _ReadNamespace:
     def __init__(self, view: Any) -> None: ...
@@ -39,10 +39,13 @@ class Balances(_ReadNamespace):
         """Free TAO balance for several coldkey addresses in one batched request."""
 
     async def coldkey_swap_announcement(self, coldkey_ss58: str, *, block: Optional[int] = None) -> Optional[dict]:
-        """A coldkey's pending swap announcement (execute block, new-key hash, disputed), or None.
+        """A coldkey's swap state (execute block, new-key hash, dispute, recovery lock), or None.
 
         This is the `swap-check` status: `ColdkeySwapAnnouncements` stores the block
         at which the swap becomes executable and the BlakeTwo256 hash committed to.
+        `recovery_locked` is true after root `reset_coldkey_swap_keep_locked` (stored
+        dispute block 0): the coldkey can only make swap calls until a successful swap or
+        a full reset, even when no announcement is pending.
         """
 
     async def multisig(self, account_ss58: str, call_hash: str, *, block: Optional[int] = None) -> Optional[dict]:
@@ -76,14 +79,68 @@ class Chain(_ReadNamespace):
     async def tx_rate_limit(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
         """Global transaction rate limit in blocks."""
 
+class Collateral(_ReadNamespace):
+    """Miner registration collateral."""
+
+    async def collateral_policy(self, netuid: int, *, block: Optional[int] = None) -> dict:
+        """A subnet's collateral configuration.
+
+        `lock_share` is the fraction of the registration price locked as
+        collateral instead of burned (0 disables collateral); `drain_ratio` is
+        the alpha released per alpha of hotkey emission earned, snapshot per
+        miner at registration.
+        """
+
+    async def miner_collateral(self, netuid: int, hotkey_ss58: str, coldkey_ss58: str | None = None, *, block: Optional[int] = None) -> Optional[dict]:
+        """A `(hotkey, coldkey)` stake position's standing collateral, or None.
+
+        Collateral is keyed by hotkey + coldkey so nominators on the same hotkey are
+        never charged for the owner's bond. When `coldkey_ss58` is omitted, the
+        hotkey owner is used.
+
+        `locked_alpha` is non-withdrawable stake released through earned emission
+        (miner incentive and validator dividends) at `drain_ratio` alpha per alpha
+        earned; `min_locked_alpha` is the miner-set floor the lock self-maintains
+        around (the drain stops at it and emission fills any shortfall);
+        `earned_alpha` is lifetime emission since the collateral entry existed.
+        Derived: `headroom_alpha` (draining portion above the floor),
+        `shortfall_alpha` (capture in progress below the floor), and
+        `releasable_work_alpha` (emission still needed to release the headroom).
+        The lock survives deregistration and is credited on re-registration.
+        """
+
+    async def subnet_collateral(self, netuid: int, *, block: Optional[int] = None) -> list[dict]:
+        """Every `(hotkey, coldkey)` position with standing collateral on a subnet.
+
+        The list validator code reads to enforce a per-machine collateral
+        requirement: each record carries the locked amount, the miner's
+        self-maintained floor, the drain-ratio snapshot, and the hotkey's current
+        `uid` (None when the hotkey is deregistered but its collateral persists) —
+        ready to join against the metagraph when scoring.
+        """
+
 class Delegation(_ReadNamespace):
     """Delegate info, delegated stake, and child/parent hotkey relations."""
+
+    async def childkey_threshold_suspended(self, hotkey_ss58: str, *, block: Optional[int] = None) -> bool:
+        """Whether a parent hotkey's child relations are currently inert.
+
+        The chain re-checks a parent's total stake against the childkey stake
+        threshold (`StakeThreshold`) whenever that stake changes. A parent that
+        has dropped below it is flagged here: its `children` and `parents` rows
+        stay stored, but stake inheritance and dividend routing ignore them on
+        every subnet the parent does not own. The flag clears on its own once the
+        parent's stake meets the threshold again.
+        """
 
     async def children(self, hotkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> list[tuple[int, str]]:
         """Child hotkeys of a parent on a subnet, as (proportion, child_ss58) pairs.
 
         Proportions are u64-normalized fractions of the parent's stake, where
-        u64::MAX means 100%.
+        u64::MAX means 100%. This is the stored relation set; while the parent is
+        below the childkey stake threshold (see `childkey_threshold_suspended`)
+        the chain treats these edges as inert on every subnet the parent does
+        not own.
         """
 
     async def delegate(self, hotkey_ss58: str, *, block: Optional[int] = None) -> Optional[DelegateInfo]:
@@ -113,7 +170,10 @@ class Delegation(_ReadNamespace):
         """Parent hotkeys of a child on a subnet, as (proportion, parent_ss58) pairs.
 
         Proportions are u64-normalized fractions of the parent's stake, where
-        u64::MAX means 100%.
+        u64::MAX means 100%. This is the stored relation set; a parent that is
+        below the childkey stake threshold (see `childkey_threshold_suspended`)
+        contributes nothing to the child until it qualifies again, unless it
+        owns the subnet.
         """
 
     async def pending_children(self, hotkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> dict:
@@ -188,6 +248,9 @@ class Hyperparameters(_ReadNamespace):
     async def reveal_period(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
         """Commit-reveal reveal window, in epochs, for a subnet."""
 
+    async def subnet_emission_enabled(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
+        """Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). New registrations start enabled. When 0, the subnet earns no TAO emission share even while subnet_is_active is true; only root can flip it (see the set_subnet_emission_enabled intent)."""
+
     async def weights_rate_limit(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
         """Blocks a hotkey must wait between weight sets on a subnet."""
 
@@ -201,10 +264,11 @@ class Identity(_ReadNamespace):
         """Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state.
 
         One row per hotkey that has (or had) a commitment — including sealed
-        timelocked payloads waiting on drand (`is_revealed` false, `reveals_at`
-        set) and fully-revealed ones whose live storage entry the chain already
-        dropped. `commitment` is the currently visible content: the plaintext, or
-        the latest chain-decrypted payload; null while still sealed.
+        timelocked payloads waiting on drand (`status` `sealed`), terminal
+        on-chain reveal failures retained for audit (`status` `failed`), and
+        fully-revealed ones whose live storage entry the chain already dropped.
+        `commitment` is the currently visible content: the plaintext, or the
+        latest chain-decrypted payload; null while sealed or failed.
         """
 
     async def hotkey_identities(self, hotkey_ss58s: list[str], *, block: Optional[int] = None) -> dict[str, dict]:
@@ -244,6 +308,14 @@ class Leasing(_ReadNamespace):
 class Locks(_ReadNamespace):
     """Stake locks and conviction."""
 
+    async def accepts_locked_alpha(self, coldkey_ss58: str, *, block: Optional[int] = None) -> bool:
+        """Whether a coldkey accepts incoming locked alpha transfers.
+
+        Coldkeys reject locked alpha by default; the pallet's
+        `set_reject_locked_alpha(false)` sets bit 0 of the coldkey's
+        `AccountFlags` to opt in.
+        """
+
     async def coldkey_lock(self, coldkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
         """Lock state for a coldkey on a subnet, or None if no lock exists.
 
@@ -261,6 +333,16 @@ class Locks(_ReadNamespace):
     async def locks_for_coldkey(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
         """Every lock a coldkey holds (one per subnet), rolled forward to now."""
 
+    async def locks_for_hotkey(self, hotkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> list[dict]:
+        """Every coldkey's lock targeting a hotkey on a subnet, rolled forward to now.
+
+        The reverse of `locks_for_coldkey`: scans the `LockingColdkeys`
+        reverse index for the coldkeys with a non-zero lock pointed at the
+        hotkey, then loads each lock record. This is the target-side view — a
+        subnet owner can see which coldkeys are building conviction toward a
+        hotkey, not just the locks their own coldkey created.
+        """
+
     async def most_convicted_hotkey(self, netuid: int, *, block: Optional[int] = None) -> Optional[str]:
         """Hotkey with the highest conviction on a subnet, if any."""
 
@@ -268,13 +350,18 @@ class Locks(_ReadNamespace):
         """Every hotkey with locked stake on a subnet, rolled forward to now.
 
         Per hotkey: locked mass, conviction, and the estimated blocks until its
-        conviction reaches 10% of the subnet's outstanding alpha. That per-hotkey
-        figure is a projection heuristic, not a takeover trigger: the ownership
-        takeover in `change_subnet_owner_if_needed` requires the subnet to be
-        at least ~1 year old (2,629,800 blocks) and the total aggregate
-        conviction across all lockers to reach 10% of `SubnetAlphaOut`, at
-        which point the highest-conviction hotkey's coldkey becomes the subnet
-        owner. Projections assume the lock rates and alpha out stay constant.
+        own conviction strictly exceeds 18% of the subnet's eligible alpha.
+        Eligible alpha is `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned`
+        (saturating at zero). `change_subnet_owner_if_needed` reassigns
+        ownership when the subnet is at least ~1 year old (2,629,800 blocks) and
+        the highest-conviction hotkey holds more than 18% of eligible alpha on
+        its own, at which point that hotkey's coldkey becomes the subnet owner.
+        The gate measures a single hotkey — exactly 18% is not enough — so
+        `leader_hotkey` and `leader_blocks_to_threshold` describe the current
+        conviction leader's standing against the gate, while the subnet-wide
+        `total_conviction_alpha` is reported for context only and never gates
+        the takeover. Projections assume the lock rates and alpha accounting
+        stay constant.
         """
 
 class Neurons(_ReadNamespace):
@@ -346,11 +433,104 @@ class Staking(_ReadNamespace):
         entry have auto-stake unset.
         """
 
-    async def root_claim_type(self, coldkey_ss58: str, *, block: Optional[int] = None) -> dict:
-        """How a coldkey claims root alpha emission: Swap, Keep, or KeepSubnets(+subnets)."""
+    async def basket_position(self, hotkey_ss58: str, coldkey_ss58: str, *, block: Optional[int] = None) -> Optional[dict]:
+        """A staker's beta token position in one validator's basket.
+
+        `beta` is the staker's beta token balance — the product-facing number:
+        it never moves with market prices, only grows as root dividends accrue
+        and shrinks when you claim. One beta is 10^9 raw chain units and had a
+        par value of τ1 at fund inception, so `beta_price_tao` (fund NAV over
+        outstanding beta) tracks the fund's performance from 1.0. `value_tao`
+        is the realizable TAO a claim would pay right now — exactly what
+        `claim_root_with_hotkey` would redeem; `spot_value_tao` marks the
+        same slice at spot prices (display only). Returns `None` when the
+        staker holds no beta there.
+        """
+
+    async def basket_trading_status(self, hotkey_ss58: str, *, block: Optional[int] = None) -> dict:
+        """A validator's `swap_basket` trading status: gates and the turnover bucket.
+
+        `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.
+        The turnover budget is a token bucket: `budget_tao` is its capacity
+        (`BasketDailyTurnoverCap` share of the fund's guarded NAV — each holding at
+        the lower of its realizable value and its slow-moving-price value, so a
+        pumped pool cannot enlarge it), `remaining_tao` what a trade right
+        now could push through the fund, `used_tao` the difference, and the bucket
+        refills by `refill_per_block_tao` every block (`budget_tao / refill_blocks`,
+        a full refill over `refill_blocks` = 7200 blocks).
+        """
+
+    async def root_basket_owed(self, coldkey_ss58: str, *, block: Optional[int] = None) -> Balance:
+        """Total TAO a coldkey would realize by claiming its root dividends now.
+
+        Marks the coldkey's accrued basket entitlement across every validator it
+        root-stakes to at current pool prices (the same slippage-aware valuation
+        the chain uses to size redemptions). This is the "pending TAO" figure
+        behind coldkey-wide `claim_root`; for a per-validator breakdown use
+        `root_basket_owed_breakdown` before `claim_root_with_hotkey`.
+        Per-validator amounts below the claim threshold are still included here
+        even though a claim would skip them.
+        """
+
+    async def root_basket_owed_breakdown(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """A coldkey's pending root dividends, itemized per validator hotkey.
+
+        For each hotkey the coldkey stakes to: the TAO its accrued entitlement
+        would realize if claimed now with `claim_root_with_hotkey`. Zero-owed
+        validators are omitted. Use this to pick a validator before claiming.
+        """
+
+    async def root_basket_portfolio(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """A coldkey's basket portfolio: beta tokens held per validator, with values.
+
+        One `basket_position` record per validator on which the coldkey holds
+        beta, sorted by `value_tao` descending. `beta` is the stable holding
+        count (grows with accruals, shrinks with claims), and `value_tao` is
+        what claiming would realize right now at current pool depth. Multiply
+        `value_tao` by an off-chain TAO/USD price for fiat value — the chain
+        has no USD oracle.
+        """
+
+    async def root_basket_total_nav(self, *, block: Optional[int] = None) -> Balance:
+        """Network-wide total basket NAV across all validators, in TAO.
+
+        Sampling this over time yields the TAO/day flowing to root stakers.
+        """
+
+    async def root_baskets(self, *, block: Optional[int] = None) -> list[dict]:
+        """Basket summaries for every validator with an active basket.
+
+        The network-wide leaderboard: one `validator_basket_summary` record per
+        validator with an active fund, sorted by NAV descending, each including
+        its `basket_rate` (the cumulative entitlement accumulator: β raw units
+        minted per rao of root stake, migration-seeded history included).
+        Compare `lifetime_return` across validators to rank basket performance;
+        for staker returns use `chain_pricing` (`staker_twr` / `stake_price`).
+        """
+
+    async def root_claim_threshold(self, *, block: Optional[int] = None) -> Balance:
+        """The minimum TAO payout for a root dividend claim.
+
+        `claim_root` and `claim_root_with_hotkey` silently skip any per-validator
+        basket redemption whose estimated payout falls below this threshold; the
+        entitlement keeps accruing and pays out once it clears. Set by root via
+        `set_root_claim_threshold`.
+        """
 
     async def stake(self, coldkey_ss58: str, hotkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> Balance:
         """Alpha staked by a coldkey to a hotkey on a subnet (TAO when netuid is 0)."""
+
+    async def stake_availability(self, coldkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> dict:
+        """Free vs locked stake for a coldkey on one subnet.
+
+        `locked` is conviction-locked mass (plus any miner collateral reserved
+        against the coldkey on that subnet). `available` is what can still be
+        unstaked or transferred without moving lock mass. Both are denominated in
+        the subnet's own currency (TAO on netuid 0).
+        """
+
+    async def stake_availability_for_coldkey(self, coldkey_ss58: str, netuids: list[int], *, block: Optional[int] = None) -> list[dict]:
+        """Free vs locked stake for a coldkey across many subnets (one runtime call)."""
 
     async def stake_for_coldkey(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[StakePosition]:
         """Every stake position held by a coldkey, across all hotkeys and subnets.
@@ -374,14 +554,59 @@ class Staking(_ReadNamespace):
         """Spot-price stake valuation for several coldkeys at once, at one block."""
 
     async def staking_hotkeys(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[str]:
-        """Every hotkey a coldkey has stake with, owned or nominated.
+        """Every hotkey associated with a coldkey's staking or root-basket state.
 
         Unlike `owned_hotkeys` this includes delegates the coldkey has nominated.
-        Use `stake_for_coldkey` for the per-subnet amounts behind each entry.
+        A hotkey may remain listed with no current stake when a root-basket claim
+        watermark still requires the relationship to be discoverable. During the
+        v448 bounded cleanup, unrelated stale relationships may also remain until
+        the cleanup cursor reaches them. Use `stake_for_coldkey` for the
+        per-subnet amounts behind each entry.
+        """
+
+    async def total_alpha_staked(self, netuid: int, *, block: Optional[int] = None) -> Balance:
+        """Total alpha currently staked on a subnet, across all hotkeys (TAO when netuid is 0).
+
+        This is the chain-maintained O(1) aggregate: it equals the sum of
+        `TotalHotkeyAlpha` for the subnet. Use this instead of walking every
+        position. After the v448 upgrade, the historical total is backfilled over
+        otherwise-idle blocks. Until the bounded migration finishes, keys ahead of
+        its cursor are omitted; concurrent stake changes are reconciled by
+        completion but are not necessarily visible in this aggregate immediately.
+        """
+
+    async def validator_basket(self, hotkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """A validator's basket holdings: per subnet, the alpha held and its TAO value.
+
+        The netuid-0 entry is the basket's TAO cash slot (held as root stake, so
+        alpha and value coincide). Values are realizable quotes — what selling
+        the holding would actually fetch at current pool depth — not spot marks.
+        """
+
+    async def validator_basket_nav(self, hotkey_ss58: str, *, block: Optional[int] = None) -> Balance:
+        """A validator's basket net asset value in TAO (realizable quote)."""
+
+    async def validator_basket_summary(self, hotkey_ss58: str, *, block: Optional[int] = None) -> dict:
+        """Everything about one validator's basket, in a single call.
+
+        Valuation (realizable NAV and spot NAV), lifetime deposited/redeemed TAO
+        and the lifetime return multiple `(nav + redeemed) / deposited`, the
+        validator's root weight vector, the per-subnet alpha holdings each
+        valued at spot and at realizable depth, and `basket_rate` — the
+        cumulative β raw units minted per rao of root stake (a lifetime
+        accumulator that includes migration-seeded history). For staker returns
+        use `chain_pricing` (`staker_twr` / `stake_price` ratios), not rate
+        deltas. All figures are TAO (or alpha for the holdings themselves).
         """
 
 class Subnets(_ReadNamespace):
     """Aggregating/decoding subnet reads, plus every "Subnets" read."""
+
+    async def state(self, netuid: int, block: Optional[int] = None) -> Optional[SubnetLifecycleState]:
+        """Reporting lifecycle for one subnet, including deferred dissolution."""
+
+    async def states(self, block: Optional[int] = None) -> dict[int, SubnetLifecycleState]:
+        """Reporting lifecycle for every active or dissolving subnet."""
 
     async def burn(self, netuid: int, block: Optional[int] = None) -> Balance:
         """Current burn (recycle) cost to register on a subnet."""
@@ -430,8 +655,25 @@ class Subnets(_ReadNamespace):
     async def subnet(self, netuid: int, *, block: Optional[int] = None) -> SubnetInfo:
         """Tempo, burn, and neuron count for one subnet (the three reads run concurrently)."""
 
-    async def subnet_hyperparameters(self, netuid: int, *, block: Optional[int] = None) -> Optional[list[dict]]:
-        """All hyperparameters for a subnet as V3 named entries."""
+    async def subnet_emission_weights(self, netuid: int, *, block: Optional[int] = None) -> Optional[SubnetEmissionWeights]:
+        """The subnet's emission weight vector `[burn, recycle, owner, validator,
+        miner]` with the bounds that apply to it, or None if the subnet does not
+        exist (the root subnet has no vector).
+
+        Pair with the `set_subnet_emission_weights` intent: `min_validator`
+        and `created_via_lease` are the per-subnet inputs the chain uses to
+        accept or reject a change (`min_validator` moves with root stake, alpha
+        issuance and the global TAO weight, so it is a snapshot of this block).
+        """
+
+    async def subnet_hyperparameters(self, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
+        """All hyperparameters for a subnet, as a flat name -> raw value mapping.
+
+        The set of names is version-dependent; None if the subnet does not exist.
+        Uses the forward-compatible `get_subnet_hyperparams_v3` runtime API, so
+        newly added chain hyperparameters (e.g. `burn_half_life`) show up
+        without a client update.
+        """
 
     async def subnet_identity(self, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
         """The identity metadata of a subnet, or None."""
@@ -453,6 +695,24 @@ class Subnets(_ReadNamespace):
         reaches `earliest_start_block` (registration block plus the chain's delay).
         """
 
+    async def subnet_state(self, netuid: int, *, block: Optional[int] = None) -> Optional[SubnetLifecycleState]:
+        """Reporting lifecycle for one subnet, or None after cleanup/nonexistence."""
+
+    async def subnet_states(self, *, block: Optional[int] = None) -> dict[int, SubnetLifecycleState]:
+        """Reporting lifecycle for every active or dissolving subnet."""
+
+    async def subnet_tao_flows(self, *, block: Optional[int] = None) -> dict[int, float]:
+        """Per-subnet EMA of net TAO flow, in rao per block.
+
+        TAO flow is the chain's running measure of user stake activity on a
+        subnet: every stake adds to the accumulator and every unstake subtracts,
+        so a positive value means TAO is (on average) flowing into the subnet
+        and a negative value means it is flowing out. The chain smooths the
+        per-block accumulator (`SubnetTaoFlow`) into an exponential moving
+        average (`SubnetEmaTaoFlow`); this read returns that EMA per netuid.
+        Subnets with no recorded flow are omitted.
+        """
+
     async def subnets(self, *, block: Optional[int] = None) -> list[SubnetInfo]:
         """Info for every subnet, fetched in four batched map queries rather than
         one-query-per-subnet. This is what listing should use.
@@ -461,7 +721,7 @@ class Subnets(_ReadNamespace):
     async def token_symbols(self, *, block: Optional[int] = None) -> dict[int, str]:
         """Chain-registered token symbol of every subnet, keyed by netuid.
 
-        `Client.connect` runs this automatically (through a disk cache) and
+        Connecting runs this automatically (through a disk cache) and
         installs the result as the connection's display symbols, so balances
         decoded by that client render with each subnet's real symbol.
         """

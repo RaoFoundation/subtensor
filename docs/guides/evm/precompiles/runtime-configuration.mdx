@@ -1,0 +1,66 @@
+---
+title: Runtime configuration
+description: Typed EVM views for global runtime configuration.
+---
+
+| Property | Value |
+|---|---|
+| Implementation | `RuntimeConfigurationPrecompile` |
+| Solidity interface | `IRuntimeConfiguration` |
+| Address | `0x0000000000000000000000000000000000000812` |
+| Status | Deployed |
+
+This domain contains bounded typed views of runtime configuration. The grouped
+constant views read their values from the runtime and therefore reflect the
+runtime version executing the call.
+
+## Views
+
+| Function | Meaning |
+|---|---|
+| `getEvmChainId()` | Current EVM chain identifier |
+| `getTransactionRateLimit()` | Global Subtensor transaction rate limit |
+| `getSubtensorEconomicConstants()` | Initial issuance, burn, stake, transfer, registration-lock, and key-swap balance constants |
+| `getSubtensorSubnetConstants()` | Subnet size, tempo, immunity, activity, owner-cut, and epoch limits |
+| `getSubtensorConsensusConstants()` | Initial weight, emission, Yuma, bonds, pruning, and TAO-weight configuration |
+| `getSubtensorRegistrationConstants()` | Registration difficulty, adjustment, rate-limit, immunity, lock-reduction, and price-EMA configuration |
+| `getSubtensorDelegationConstants()` | Initial delegate and childkey takes plus Liquid Alpha and Yuma feature defaults |
+| `getSubtensorRateLimitConstants()` | Transaction, serving, EVM-association, swap, dissolution, start-call, and lease timing constants |
+| `getSubtensorProtocolConstants()` | Fixed public protocol bounds, flags, voting-power timing, lock timing, and maximum TAO issuance |
+| `getSubtensorSystemAccounts()` | Derived Subtensor pallet and burn accounts as `bytes32` |
+| `getBalancesConstants()` | Existential deposit and lock, reserve, and freeze limits |
+| `getProxyConstants()` | Proxy and announcement deposits and count limits |
+| `getSchedulerConstants()` | Maximum scheduler weight and calls per block |
+| `getDrandConstants()` | Quicknet chain hash, unsigned transaction configuration, and pulse-retention limits |
+| `getCrowdloanConstants()` | Deposit, contribution, duration, contributor, refund, and pallet-account configuration |
+| `getSwapConstants()` | Maximum fee rate, minimum liquidity and reserve, and derived protocol account |
+| `getTimestampConstants()` | Minimum timestamp period |
+| `getAdminConstants()` | Maximum authority count |
+
+## Constant representation
+
+All balance-valued constants are returned as `uint256` values using EVM's
+18-decimal convention. Block numbers, durations, percentages, fixed-point
+parts, and count limits retain the units stated by their Solidity output
+names. `PalletId` configuration is wrapped as the derived 32-byte account that
+contracts can use.
+
+A runtime upgrade may change a constant's returned value. The function
+selector, output type and order, units, and documented meaning remain the
+compatibility contract.
+
+## State-changing operations
+
+The currently identified global configuration extrinsics are Root-only:
+
+```text
+AdminUtils.swap_authorities
+AdminUtils.sudo_set_tx_rate_limit
+AdminUtils.sudo_set_evm_chain_id
+AdminUtils.schedule_grandpa_change
+```
+
+They are not exposed as typed EVM operations. A future view must return a
+typed, bounded representation and must not expose SCALE-encoded runtime values.
+
+Source: [`runtimeConfiguration.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/runtimeConfiguration.sol)

@@ -23,17 +23,25 @@ btcli query most-convicted-hotkey --netuid <integer> --json
 
 ## Python
 
-Typed namespace method (autocomplete, signature help):
+Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await client.locks.most_convicted_hotkey(netuid=1)
+sub = bt.Subtensor()
+result = sub.locks.most_convicted_hotkey(netuid=1)
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await client.read("most_convicted_hotkey", netuid=1)
+result = sub.read("most_convicted_hotkey", netuid=1)
 ```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Runtime API [`StakeInfoRuntimeApi.get_most_convicted_hotkey_on_subnet`](/code/runtime/src/lib.rs#L2617-L2619)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

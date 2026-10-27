@@ -17,18 +17,19 @@ hotkey must match the existing lock's hotkey or the call fails with
 `LockHotkeyMismatch` — repeat calls only top up the lock; use
 `move_lock` to change hotkeys. Whether the lock decays over time or
 persists is controlled per coldkey per subnet with
-`set_perpetual_lock`.
+`set_perpetual_lock`. Pass `all` to lock every unlocked alpha the
+coldkey holds on the subnet (a top-up of the remaining free mass).
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.lock_stake` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.lock_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L2860-L2870) |
 
 ## Parameters
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet the locked stake lives on. |
-| `amount_alpha` | number \| `"all"` | yes | How much of the existing stake to lock. |
+| `amount_alpha` | number \| `"all"` | yes | How much of the existing unlocked stake to lock, or ``all``. |
 | `hotkey_ss58` | string | no | Hotkey the lock's conviction is credited to. Defaults to the wallet hotkey. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
@@ -51,21 +52,45 @@ btcli tx lock-stake \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.LockStake(netuid=1, amount_alpha=1.0)
+intent = bt.LockStake(netuid=1, amount_alpha=1.0)
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("lock_stake", {...}, wallet)
+result = sub.execute_tool("lock_stake", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.lock_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L2862`](/code/pallets/subtensor/src/macros/dispatches.rs#L2860-L2870):
+
+```rust
+#[pallet::call_index(136)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::lock_stake())]
+pub fn lock_stake(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+    netuid: NetUid,
+    amount: AlphaBalance,
+) -> DispatchResult {
+    let coldkey = ensure_signed(origin)?;
+    Self::do_lock_stake(&coldkey, netuid, &hotkey, amount)
+}
+```
+
+Delegates to [`do_lock_stake`](/code/pallets/subtensor/src/staking/lock.rs#L792).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

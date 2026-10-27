@@ -1,0 +1,345 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Tooltip,
+  Legend,
+  type Plugin,
+} from 'chart.js';
+import { Bar } from 'react-chartjs-2';
+import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import { AXIS_BORDER, GRAPH_FONT, GRID, INK, INK_FAINT, axisTitle, baseTicks } from './chart-theme';
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
+
+const U16_MAX = 65535;
+const MINER_LABELS = ['uid 3', 'uid 7', 'uid 12', 'uid 21', 'uid 34'];
+
+/** Largest cutoff c such that, after clipping every weight to c and
+ * sum-normalizing, the largest share is <= limit. Mirrors the chain's
+ * check (`check_vec_max_limited`) and the SDK's redistribution-preserving
+ * clip (`clip_to_max_weight`). */
+function clipToLimit(weights: number[], limit: number): number[] {
+  const total = weights.reduce((a, b) => a + b, 0);
+  if (total <= 0) return weights.map(() => 0);
+  if (weights.length * limit <= 1) return weights.map(() => 1 / weights.length);
+
+  const normalized = weights.map((w) => w / total);
+  if (Math.max(...normalized) <= limit) return normalized;
+
+  let lo = 0;
+  let hi = Math.max(...weights);
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2;
+    const clippedSum = weights.reduce((a, w) => a + Math.min(w, mid), 0);
+    if (clippedSum > 0 && mid / clippedSum <= limit) lo = mid;
+    else hi = mid;
+  }
+  const clipped = weights.map((w) => Math.min(w, lo));
+  const clippedTotal = clipped.reduce((a, b) => a + b, 0);
+  return clipped.map((w) => w / clippedTotal);
+}
+
+const CLIPPING_CAPTIONS: Record<string, string> = {
+  min_allowed_weights:
+    'Drag the raw weights: only nonzero entries count toward the length check, so zeroing a miner can push a submission below min_allowed_weights and get it rejected with WeightVecLengthIsLow.',
+  max_weights_limit:
+    'Drag the raw weights and the limit. The stored max_weights_limit caps the largest normalized share; the SDK clips and renormalizes to fit it, redistributing the excess (the on-chain check is currently pinned open at u16::MAX).',
+};
+
+const DEFAULT_CLIPPING_CAPTION =
+  'Drag the raw weights and the limit. The chain rejects submissions whose largest normalized share exceeds max_weights_limit; the SDK instead clips and renormalizes, redistributing the excess.';
+
+// In-plot key drawn as uppercase FiraCode swatch rows (no Chart.js legend).
+// Grouped bars leave no reliable spot for per-bar labels, so the key sits in
+// the top-right corner, which stays clear in all but extreme slider configs.
+const barKeyPlugin: Plugin<'bar'> = {
+  id: 'clippingBarKey',
+  afterDatasetsDraw(chart) {
+    const { ctx, chartArea } = chart;
+    const rows = [
+      { color: 'rgba(41, 41, 41, 0.25)', text: 'SUBMITTED (NORMALIZED)', ink: INK_FAINT },
+      { color: 'rgba(41, 41, 41, 0.75)', text: 'AFTER CLIP + RENORMALIZE', ink: INK },
+    ];
+    const x = chartArea.right - 168;
+    ctx.save();
+    ctx.font = GRAPH_FONT;
+    ctx.textAlign = 'left';
+    rows.forEach((row, i) => {
+      const y = chartArea.top + 10 + i * 15;
+      ctx.fillStyle = row.color;
+      ctx.fillRect(x, y - 7, 8, 8);
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(x, y - 7, 8, 8);
+      ctx.fillStyle = row.ink;
+      ctx.fillText(row.text, x + 13, y);
+    });
+    ctx.restore();
+  },
+};
+
+function ClippingPlayground({ focus }: { focus?: string }) {
+  const [weights, setWeights] = useState([80, 35, 20, 10, 0]);
+  const [limitRaw, setLimitRaw] = useState(19661); // ~0.3
+  const [minAllowed, setMinAllowed] = useState(3);
+
+  const limit = limitRaw / U16_MAX;
+  const total = weights.reduce((a, b) => a + b, 0);
+  const before = weights.map((w) => (total > 0 ? w / total : 0));
+  const after = useMemo(() => clipToLimit(weights, limit), [weights, limit]);
+
+  const nonzero = weights.filter((w) => w > 0).length;
+  const meetsMin = nonzero >= minAllowed;
+  const wouldClip = Math.max(...before) > limit + 1e-9;
+
+  const data = useMemo(
+    () => ({
+      labels: MINER_LABELS,
+      datasets: [
+        {
+          label: 'Submitted (normalized)',
+          data: before,
+          backgroundColor: 'rgba(41, 41, 41, 0.25)',
+          borderColor: INK,
+          borderWidth: 1,
+        },
+        {
+          label: 'After clip + renormalize',
+          data: after,
+          backgroundColor: 'rgba(41, 41, 41, 0.75)',
+          borderColor: INK,
+          borderWidth: 1,
+        },
+      ],
+    }),
+    [before, after],
+  );
+
+  const options = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {display: false},
+        tooltip: {
+          callbacks: {
+            label: (ctx: {dataset: {label?: string}; parsed: {y: number}}) =>
+              `${ctx.dataset.label}: ${(ctx.parsed.y * 100).toFixed(1)}%`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks(),
+        },
+        y: {
+          min: 0,
+          max: 1,
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({
+            maxTicksLimit: 5,
+            callback: (value: string | number) => `${(Number(value) * 100).toFixed(0)}%`,
+          }),
+          title: axisTitle('share of total weight'),
+        },
+      },
+    }),
+    [],
+  );
+
+  const highlight = (name: string) =>
+    focus === name ? 'border border-[rgb(41,41,41)] bg-bg p-3' : undefined;
+  const highlightStat = (name: string) =>
+    focus === name ? 'border border-[rgb(41,41,41)]' : undefined;
+
+  return (
+    <ExplainerPanel
+      title="Weight clipping playground"
+      caption={(focus && CLIPPING_CAPTIONS[focus]) || DEFAULT_CLIPPING_CAPTION}
+    >
+      <div className="h-52">
+        <Bar data={data} options={options} plugins={[barKeyPlugin]} />
+      </div>
+
+      <div className="mt-5 grid gap-4 sm:grid-cols-3">
+        <ExplainerStat
+          label="Largest share"
+          value={`${(Math.max(...before) * 100).toFixed(1)}% → ${(Math.max(...after) * 100).toFixed(1)}%`}
+          hint={wouldClip ? 'exceeds limit — clipped' : 'within limit — unchanged'}
+          accent={wouldClip}
+        />
+        <div className={highlightStat('max_weights_limit')}>
+          <ExplainerStat
+            label="max_weights_limit"
+            value={`${limitRaw} / 65535 ≈ ${(limit * 100).toFixed(1)}%`}
+            hint="u16 fraction; 65535 = no cap"
+          />
+        </div>
+        <div className={highlightStat('min_allowed_weights')}>
+          <ExplainerStat
+            label="min_allowed_weights"
+            value={`${nonzero} nonzero / ${minAllowed} required`}
+            hint={meetsMin ? 'passes length check' : 'rejected: WeightVecLengthIsLow'}
+            accent={!meetsMin}
+          />
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        {weights.map((w, i) => (
+          <ExplainerSlider
+            key={MINER_LABELS[i]}
+            label={`weight for ${MINER_LABELS[i]}`}
+            value={w}
+            min={0}
+            max={100}
+            step={1}
+            display={String(w)}
+            onChange={(value) =>
+              setWeights((prev) => prev.map((p, j) => (j === i ? value : p)))
+            }
+          />
+        ))}
+      </div>
+
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <div className={highlight('max_weights_limit')}>
+          <ExplainerSlider
+            label="max_weights_limit"
+            value={limitRaw}
+            min={3277}
+            max={U16_MAX}
+            step={655}
+            display={`≈ ${(limit * 100).toFixed(0)}%`}
+            onChange={setLimitRaw}
+          />
+        </div>
+        <div className={highlight('min_allowed_weights')}>
+          <ExplainerSlider
+            label="min_allowed_weights"
+            value={minAllowed}
+            min={1}
+            max={5}
+            step={1}
+            display={String(minAllowed)}
+            onChange={setMinAllowed}
+          />
+        </div>
+      </div>
+    </ExplainerPanel>
+  );
+}
+
+const TEMPO_BLOCKS = 360;
+const TIMELINE_EPOCHS = 8;
+
+function epochState(epoch: number, period: number): 'commit' | 'hidden' | 'reveal' | 'expired' {
+  if (epoch === 0) return 'commit';
+  if (epoch < period) return 'hidden';
+  if (epoch === period) return 'reveal';
+  return 'expired';
+}
+
+const EPOCH_STYLE: Record<ReturnType<typeof epochState>, string> = {
+  commit: 'border-[rgb(41,41,41)] bg-bg',
+  hidden: 'border-line bg-[rgba(41,41,41,0.08)] text-mute',
+  reveal: 'border-[rgb(41,41,41)] bg-[rgba(41,41,41,0.75)] text-white',
+  expired: 'border-line bg-bg text-mute opacity-50',
+};
+
+const EPOCH_LABEL: Record<ReturnType<typeof epochState>, string> = {
+  commit: 'commit',
+  hidden: 'hidden',
+  reveal: 'reveal',
+  expired: 'expired',
+};
+
+const TIMELINE_CAPTIONS: Record<string, string> = {
+  commit_reveal_period:
+    'Slide the period: the reveal is valid in exactly one epoch — commit epoch + commit_reveal_period. Earlier fails with RevealTooEarly; later, the commit is expired and dropped.',
+  commit_reveal_weights_enabled:
+    'With the flag on, this is the only path weights can take: commit hidden, wait, reveal. Plain set_weights is rejected with CommitRevealEnabled; turn the flag off and commits are rejected instead.',
+};
+
+function CommitRevealTimeline({ focus }: { focus?: string }) {
+  const [period, setPeriod] = useState(1);
+
+  const delayBlocks = period * TEMPO_BLOCKS;
+  const delayMinutes = (delayBlocks * 12) / 60;
+
+  return (
+    <ExplainerPanel
+      title="Commit-reveal timeline"
+      caption={
+        (focus && TIMELINE_CAPTIONS[focus]) ||
+        'A commit is tagged with its epoch. The reveal is valid in exactly one epoch — commit epoch + commit_reveal_period. Earlier fails with RevealTooEarly; later, the commit is expired and dropped.'
+      }
+    >
+      <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-8">
+        {Array.from({length: TIMELINE_EPOCHS}, (_, epoch) => {
+          const state = epochState(epoch, period);
+          return (
+            <div
+              key={epoch}
+              className={`border px-1 py-2 text-center ${EPOCH_STYLE[state]}`}
+            >
+              <p className="font-mono text-[0.6875rem]">e+{epoch}</p>
+              <p className="mt-0.5 text-[0.625rem]">{EPOCH_LABEL[state]}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-5 grid gap-4 sm:grid-cols-3">
+        <ExplainerStat
+          label="Reveal epoch"
+          value={`commit epoch + ${period}`}
+          hint="valid in exactly this epoch"
+        />
+        <ExplainerStat
+          label="Hidden for"
+          value={`≈ ${delayBlocks} blocks`}
+          hint={`≈ ${delayMinutes.toFixed(0)} min at tempo ${TEMPO_BLOCKS}, 12s blocks`}
+        />
+        <ExplainerStat
+          label="Allowed range"
+          value="1 – 100 epochs"
+          hint="enforced by set_reveal_period"
+        />
+      </div>
+
+      <div
+        className={`mt-5 ${
+          focus === 'commit_reveal_period'
+            ? 'border border-[rgb(41,41,41)] bg-bg p-3'
+            : ''
+        }`}
+      >
+        <ExplainerSlider
+          label="commit_reveal_period"
+          value={period}
+          min={1}
+          max={TIMELINE_EPOCHS - 1}
+          step={1}
+          display={`${period} epoch${period === 1 ? '' : 's'}`}
+          onChange={setPeriod}
+        />
+      </div>
+    </ExplainerPanel>
+  );
+}
+
+export function HyperparamWeightsRules({ focus }: { focus?: string }) {
+  if (focus === 'commit_reveal_period' || focus === 'commit_reveal_weights_enabled') {
+    return <CommitRevealTimeline focus={focus} />;
+  }
+  return <ClippingPlayground focus={focus} />;
+}

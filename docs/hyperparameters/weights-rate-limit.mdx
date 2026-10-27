@@ -1,0 +1,59 @@
+---
+title: weights_rate_limit
+description: Minimum number of blocks a validator must wait between weight submissions on a subnet.
+---
+
+`weights_rate_limit` (on chain: `WeightsSetRateLimit`) is the cooldown between
+a validator's weight submissions, measured in 12-second blocks. The default is
+100 blocks (20 minutes). It keeps validators from churning weights every
+block, which would bloat chain state and make consensus inputs noisy.
+
+## How it works
+
+The chain tracks each UID's last submission block (`LastUpdate`).
+[`check_rate_limit`](/code/pallets/subtensor/src/subnets/weights.rs#L1023-L1043)
+(`pallets/subtensor/src/subnets/weights.rs`) passes when
+`current_block - last_update >= weights_rate_limit`; a UID that has never
+submitted always passes. Too-frequent calls fail with
+[`SettingWeightsTooFast`](/code/pallets/subtensor/src/macros/errors.rs#L81).
+
+Which call is limited depends on the commit-reveal setting. With commit-reveal
+off, the limit applies to
+[`set_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L70-L82)
+itself. With it on, the limit applies
+to the **commit** (failing with
+[`CommittingWeightsTooFast`](/code/pallets/subtensor/src/macros/errors.rs#L186)),
+and the reveal is
+exempt — the commit already paid the cooldown, and updates `LastUpdate` at
+commit time.
+
+Because `LastUpdate` also feeds the [activity
+cutoff](/docs/hyperparameters/activity-cutoff), the rate limit bounds how
+fresh a validator's weights can be — a subnet's cutoff should comfortably
+exceed its rate limit.
+
+`btcli tx set-weights` (the `set_weights` intent) preflights this check: it
+reads `LastUpdate` before signing and, if you are inside the cooldown, fails
+immediately with the number of blocks (and approximate seconds) left to wait
+instead of submitting a doomed extrinsic.
+
+Drag the limit to see which submission attempts survive the cooldown:
+
+<HyperparamWeightsRateLimitChart />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid N --name weights_rate_limit
+```
+
+Root/governance-only — not settable by the subnet owner. The value is a plain
+block count.
+
+## Related
+
+- [`commit_reveal_weights_enabled`](/docs/hyperparameters/commit-reveal-weights-enabled) — decides whether the limit hits set or commit
+- [`min_allowed_weights`](/docs/hyperparameters/min-allowed-weights) — the floor on submission size
+- [`max_weights_limit`](/docs/hyperparameters/max-weights-limit) — cap on any single weight
+- [`activity_cutoff`](/docs/hyperparameters/activity-cutoff) — staleness window fed by the same LastUpdate
+- [`tempo`](/docs/hyperparameters/tempo) — how often submitted weights are consumed

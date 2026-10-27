@@ -25,6 +25,14 @@ if TYPE_CHECKING:
 
 Signer = Literal["coldkey", "hotkey"]
 
+# Dispatch privilege the chain's call filter accepts before pallet logic runs.
+# This is *not* a full application-role model: "signed" only means a signed
+# extrinsic origin — the pallet may still require a registered hotkey, the
+# stake beneficiary, the subnet owner, etc. "subnet_owner" / "root" are the
+# cases the SDK elevates in docs and (for root) wraps with Sudo.sudo at
+# execute time. Finer roles belong in each intent's docstring / field help.
+Origin = Literal["signed", "subnet_owner", "root"]
+
 # Field annotations are strings here (PEP 563 / `from __future__ import annotations`),
 # so this maps by annotation name.
 _JSON_TYPES: dict[str, str] = {
@@ -98,6 +106,38 @@ def _json_type(annotation: str) -> dict[str, Any]:
 
 
 @dataclass
+class IntentPreflight:
+    """Context-aware intent preview assembled before signing.
+
+    ``dispatch_origin`` and the account paying the outer extrinsic fee are the
+    same for direct calls, but differ for proxy and multisig wrappers.  The
+    executor passes both through :meth:`Intent.preflight` so state reads and
+    affordability checks do not have to guess which account an address names.
+    """
+
+    effects: list[str]
+    warnings: list[str]
+    blocks: list[str]
+    # Minimum free TAO needed by the composed call itself. Shielded execution
+    # adds its carrier fee to this before any signature is requested.
+    required_free: Optional[Balance] = None
+    available_free: Optional[Balance] = None
+    # Exact fee estimate already obtained from the fully composed call. The
+    # executor reuses it; conservative fallbacks stay out of this field.
+    estimated_fee: Optional[Balance] = None
+    # The same information as ``effects``, as (label, value) pairs, for
+    # renderers that lay the preview out structurally (the CLI's pre-sign
+    # review). Optional: intents that only produce prose leave it empty.
+    facts: list[tuple[str, str]] = field(default_factory=list)
+    # Stage heading for ``facts`` in the review card: "Fees" for cost
+    # breakdowns, "Quote" for simulated swap outcomes (what you receive).
+    facts_title: str = "Fees"
+    # Structured, JSON-native counterpart of ``effects`` (``Plan.preview``)
+    # for intents whose preview has a fixed shape. Optional.
+    preview: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class Intent(ABC):
     """Base class for all state-changing operations.
 
@@ -108,6 +148,16 @@ class Intent(ABC):
 
     op: ClassVar[str]
     signer: ClassVar[Signer] = "coldkey"
+    # Extrinsic-origin privilege (not a full app-role model): "signed" (any
+    # signed account — pallet checks may still require a hotkey, beneficiary,
+    # owner, …), "subnet_owner" (owner coldkey of the touched netuid), or
+    # "root" (chain sudo key / sudo multisig; Executor wraps Sudo.sudo).
+    # Surfaced in the tool catalog, CLI help, pre-sign plan, and docs.
+    origin: ClassVar[Origin] = "signed"
+    # The registered read that confirms this intent's effect after inclusion
+    # (e.g. "subnet_emission_enabled"). Optional, but every root intent should
+    # declare one: a privileged write with no paired verify is a docs bug.
+    verify: ClassVar[Optional[str]] = None
     # The chain call(s) this intent wraps, as (pallet, call_function) pairs. Used by
     # the codegen coverage gate to prove every chain call has a deliberate status.
     wraps: ClassVar[tuple[tuple[str, str], ...]] = ()
@@ -118,8 +168,13 @@ class Intent(ABC):
     # Whether the CLI submits this intent MEV-shielded by default (via
     # ``client.submit_shielded``). Set on intents that trade through subnet
     # pools, where a visible mempool entry can be front-run. Overridable per
-    # invocation with --mev-shield/--no-mev-shield or the mev_shield config key.
+    # invocation with --mev-shield/--no-mev-shield or the mev_shield config key
+    # unless ``mev_shield_required`` is set.
     mev_shield_default: ClassVar[bool] = False
+    # When True, unshielded submission is refused (CLI ``--no-mev-shield`` /
+    # config false and SDK ``execute``). Use for collateral AMM buys where a
+    # clear mempool entry can be sandwich-attacked into a worse fill.
+    mev_shield_required: ClassVar[bool] = False
 
     @abstractmethod
     async def build(self, substrate: "Substrate", wallet: "Any"):
@@ -144,6 +199,54 @@ class Intent(ABC):
     async def warnings(self, substrate: "Substrate", signer_address: str) -> list[str]:
         """Non-fatal cautions surfaced by ``plan`` (e.g. dust amounts)."""
         return []
+
+    async def blocks(self, substrate: "Substrate", signer_address: str) -> list[str]:
+        """Hard stops merged into ``Plan.violations`` (dry-run shows them; execute refuses)."""
+        return []
+
+    async def preflight(
+        self,
+        substrate: "Substrate",
+        dispatch_origin: str,
+        fee_payer: str,
+        *,
+        call: Any = None,
+    ) -> IntentPreflight:
+        """Return effects, warnings, and hard stops for the actual call context.
+
+        Existing intent hooks describe state relative to the dispatch origin.
+        Context-sensitive intents may override this method when an outer signer
+        pays fees for another account, or when the fully wrapped ``call`` is
+        needed for an accurate fee estimate.  Keeping this as a separate hook
+        preserves compatibility with third-party intents that override the
+        original two-argument preview methods.
+        """
+        del fee_payer, call
+        return IntentPreflight(
+            effects=list(await self.effects(substrate, dispatch_origin)),
+            warnings=list(await self.warnings(substrate, dispatch_origin)),
+            blocks=list(await self.blocks(substrate, dispatch_origin)),
+        )
+
+    async def wrap_call(self, substrate: "Substrate", wallet: "Any", call: Any):
+        """Apply an execution wrapper around an already composed semantic call.
+
+        The executor calls this after root and proxy composition. Ordinary
+        intents leave the call unchanged; execution adapters such as saved
+        multisigs add their transport wrapper here.
+        """
+        return call
+
+    def origin_view(self, substrate: "Substrate", wallet: "Any") -> "Any":
+        """The account view the semantic call builds against.
+
+        Ordinary intents dispatch as the signing wallet, so this is ``wallet``.
+        Execution adapters whose inner call runs from a different origin (a
+        saved multisig) return that account instead, so origin-derived lookups
+        in the semantic build — hotkey/coldkey defaults, registration and
+        balance preflights — see the account that will actually dispatch.
+        """
+        return wallet
 
     # Key views ----------------------------------------------------------------
     #
@@ -220,6 +323,14 @@ class Intent(ABC):
     def affects_all_subnets(self) -> bool:
         """True if the intent acts across every subnet (so any allowlist must fail it)."""
         return False
+
+    def semantic_intent(self) -> "Intent":
+        """Intent whose safety contract governs this submission.
+
+        Execution adapters may wrap a call without changing the spend, subnet,
+        or MEV requirements of the operation being dispatched.
+        """
+        return self
 
     # Introspection ----------------------------------------------------------
 

@@ -28,9 +28,10 @@ just an address, and ``submit_signature`` reunites it with the signature.
 
 Native keyfiles are the first backend (:class:`WalletSigner`).
 Every SDK API that accepts a ``wallet`` accepts a :data:`WalletLike`: a
-``Wallet``, anything wallet-shaped (:class:`KeyedWallet` — e.g. an object
-carrying dev keypairs), or a :class:`Signer` directly. ``resolve_signer`` at
-the signing choke points normalizes all of them.
+``Wallet``, a wallet name string (``"cold"`` or ``"cold/hot"``), anything
+wallet-shaped (:class:`KeyedWallet` — e.g. an object carrying dev keypairs),
+or a :class:`Signer` directly. ``as_wallet`` and ``resolve_signer`` at the
+choke points normalize all of them.
 """
 
 from __future__ import annotations
@@ -88,8 +89,55 @@ class KeyedWallet(Protocol):
     def hotkey(self) -> Any: ...
 
 
-# What every ``wallet`` parameter in the SDK accepts.
-WalletLike = Union[Wallet, KeyedWallet, "Signer"]
+# What every ``wallet`` parameter in the SDK accepts. A plain string is a
+# wallet name ("cold" or "cold/hot"), resolved by ``as_wallet`` at the entry
+# points before anything key-shaped is needed.
+WalletLike = Union[Wallet, KeyedWallet, "Signer", str]
+
+
+def as_wallet(wallet: WalletLike) -> Union[Wallet, KeyedWallet, "Signer"]:
+    """Normalize the wallet shorthands: a string becomes a :class:`Wallet`
+    (``"cold"`` or ``"cold/hot"``); everything else passes through."""
+    if isinstance(wallet, str):
+        return Wallet(wallet)
+    return wallet
+
+
+def as_ss58(value: Any, param: str = "") -> Any:
+    """Normalize an address argument: a string passes through; a ``Wallet`` (or
+    anything wallet-shaped) yields the key the parameter name asks for
+    (``*hotkey*`` -> hotkey, otherwise coldkey); a keypair/:class:`Signer`
+    yields its address. Unknown shapes pass through for downstream validation.
+
+    Never unlocks or reads a private keyfile: wallet shapes go through
+    :func:`public_view`, so the address comes from the public coldkeypub /
+    hotkeypub files (a hotkey lookup on a wallet with no hotkey at all still
+    raises the keyfile's own not-found error, which is the right message).
+    """
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, (Wallet, KeyedWallet)) and not isinstance(value, Signer):
+        role = "hotkey" if "hotkey" in param else "coldkey"
+        return public_view(value, role).ss58_address
+    if hasattr(value, "ss58_address"):
+        return value.ss58_address
+    return value
+
+
+def is_address_param(name: str) -> bool:
+    """Whether a parameter or field name carries an ss58 address (``*_ss58``)
+    or a list of them (``*_ss58s``) — the single predicate every coercion seam
+    (intent fields, read parameters) matches against."""
+    return name.endswith("_ss58") or name.endswith("_ss58s")
+
+
+def coerce_address(value: Any, param: str) -> Any:
+    """:func:`as_ss58` over a scalar or, for plural ``*_ss58s`` parameters, a
+    list — returning the input unchanged when nothing needs coercing."""
+    if isinstance(value, (list, tuple)):
+        coerced = [as_ss58(item, param) for item in value]
+        return coerced if any(a is not b for a, b in zip(coerced, value)) else value
+    return as_ss58(value, param)
 
 
 class WalletSigner:
@@ -189,8 +237,10 @@ def resolve_signer(
     through, and a :class:`KeyedWallet` yields its keypair for ``role``.
 
     This is the single seam every signing path goes through. Passing a raw
-    ``Keypair`` also works — it already satisfies the protocol.
+    ``Keypair`` also works — it already satisfies the protocol — and so does a
+    wallet name string.
     """
+    wallet = as_wallet(wallet)
     if isinstance(wallet, Wallet):
         return WalletSigner(
             wallet,
@@ -220,6 +270,7 @@ def public_view(wallet: WalletLike, role: str = "coldkey") -> Any:
     coldkey view (or its hotkey, which is stored unencrypted); a ``Signer``
     already exposes its public parts without unlocking.
     """
+    wallet = as_wallet(wallet)
     if isinstance(wallet, (Wallet, KeyedWallet)) and not isinstance(wallet, Signer):
         if role == "coldkey":
             return wallet.coldkeypub

@@ -16,12 +16,12 @@ denominates (netuid 0 is TAO). Arithmetic between different units raises
 `UnitMismatchError` instead of silently mixing currencies.
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-sub.Balance.from_tao("10000000.123456789")   # exact TAO (str/Decimal for big amounts)
-sub.Balance.from_alpha(2.5, netuid=42)       # subnet-42 alpha; prints with the subnet's
+bt.Balance.from_tao("10000000.123456789")   # exact TAO (str/Decimal for big amounts)
+bt.Balance.from_alpha(2.5, netuid=42)       # subnet-42 alpha; prints with the subnet's
                                              # on-chain token symbol (α₄₂ before connect)
-sub.tao(1.5); sub.alpha(2.5, 42); sub.rao(1_500_000_000)   # shorthands
+bt.tao(1.5); bt.alpha(2.5, 42); bt.rao(1_500_000_000)   # shorthands
 ```
 
 Readback is unit-named too: `.tao` on a TAO balance, `.alpha` on an alpha
@@ -47,9 +47,14 @@ For what you would actually receive by exiting a position, simulate the swap
 with [`quote-unstake`](/docs/query/quote-unstake), which includes fees and
 slippage.
 
+Root-basket **beta** is not a `Balance` denomination. It is a share count in
+one validator's fund — see [beta tokens](/docs/concepts/beta-tokens).
+
 ## Slippage
 
-Staking and unstaking are swaps against a pool, so the trade itself moves the
+Staking and unstaking are swaps against a pool
+([staking and pools](/docs/concepts/staking-pools) explains the pool
+mechanics with interactive charts), so the trade itself moves the
 price: your order consumes reserves as it fills, and the gap between what the
 spot price promised and what you actually receive grows with the trade's size
 relative to the pool's liquidity. Strictly, that self-inflicted gap is
@@ -76,7 +81,7 @@ or absent limit price.
 ## Swap fees
 
 Every swap against a pool pays a fee of amount × FeeRate / 65535, where
-`FeeRate` is per-subnet and governance-settable (default 33 ≈ 0.05%). It is
+[`FeeRate`](/code/pallets/swap/src/pallet/mod.rs#L96) is per-subnet and governance-settable (default 33 ≈ 0.05%). It is
 taken from the input side: TAO when staking, alpha when unstaking — and paid
 to the block author (an alpha-side fee is converted to TAO first). Moving
 stake between hotkeys within the same subnet is not a swap and pays no swap
@@ -94,8 +99,10 @@ Two floors to know about:
   is reaped: deactivated, with the remaining dust destroyed. Live value:
   [`existential-deposit`](/docs/query/existential-deposit).
 - **Minimum stake** — staking operations below a chain-configured minimum
+  ([`DefaultMinStake`](/code/pallets/subtensor/src/lib.rs#L1047), enforced in
+  [`stake_utils.rs`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1089-L1102))
   (default 2,000,000 rao = 0.002 TAO, plus the swap fee on top) fail with
-  `AmountTooLow`; unstakes are held to the same floor, both on the amount
+  [`AmountTooLow`](/code/pallets/subtensor/src/macros/errors.rs#L188); unstakes are held to the same floor, both on the amount
   withdrawn and on any dust position left behind.
 
 ## Supply
@@ -114,6 +121,7 @@ schedule can re-issue them later — neuron registration costs are recycled
 this way. **Burned** tokens stay counted in total issuance and are simply
 gone forever; nothing re-emits them. The distinction matters when reasoning
 about supply: recycling slows emission's approach to the cap, burning
-permanently retires supply. Transaction fees are neither — they are paid to
-the block author, not destroyed
+permanently retires supply. Transaction fees are recycled rather than paid to
+the block author: native TAO and EVM fees reduce issuance directly, while
+eligible alpha-paid fees are sold for TAO and recycled atomically
 ([fees](/docs/concepts/transactions#fees)).

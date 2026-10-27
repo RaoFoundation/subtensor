@@ -1,0 +1,49 @@
+---
+title: Precompile registry
+description: Registry for precompile availability.
+---
+
+| Property | Value |
+|---|---|
+| Implementation | `PrecompileRegistry` |
+| Solidity interface | `IPrecompileRegistry` |
+| Address | `0x0000000000000000000000000000000000000813` |
+| Status | Deployed |
+
+In v445, the registry reports the current operational availability of a whole
+precompile through `isDisabled`. It does not report whether an individual
+selector exists, is deprecated, or has a replacement.
+
+## Interface
+
+```solidity
+interface IPrecompileRegistry {
+    struct PrecompileStatus {
+        bool isDeprecated;
+        bool isDisabled;
+        address newPrecompile;
+        bytes4 newSelector;
+        string message;
+    }
+
+    function getPrecompileStatus(
+        address precompile,
+        bytes4 selector
+    ) external view returns (PrecompileStatus memory);
+}
+```
+
+The `selector` parameter and the `isDeprecated`, `newPrecompile`, `newSelector`,
+and `message` result fields are reserved for future selector-lifecycle support.
+In v445 those fields are not populated, and the selector is not interpreted.
+Do not use this call to test whether a selector is supported; use the canonical
+Solidity interfaces and JSON ABIs for selector discovery.
+
+`AdminUtils.sudo_toggle_evm_precompile` is Root-only and is not exposed by this
+precompile. The registry reports availability but does not grant callers
+permission to change it.
+
+The lifecycle model is described in
+[Precompile design and lifecycle](/docs/guides/evm/precompile-design#discovering-status).
+
+Source: [`registry.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/registry.sol)

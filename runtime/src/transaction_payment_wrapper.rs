@@ -17,7 +17,6 @@ use sp_runtime::traits::{
 use sp_runtime::transaction_validity::{
     TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
 };
-use sp_std::boxed::Box;
 use sp_std::vec::Vec;
 use subtensor_macros::freeze_struct;
 
@@ -28,11 +27,27 @@ type RuntimeOriginOf<T> = <T as frame_system::Config>::RuntimeOrigin;
 type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 type LookupOf<T> = <T as frame_system::Config>::Lookup;
 
+const MAX_REAL_PAYS_FEE_PROXY_DEPTH: u8 = 3;
+
 /// Runtime-supplied policy: which calls have their fee charged to the signing
 /// hotkey's coldkey. Keeping the concrete list in the runtime (see `fee_filters`)
 /// lets this generic extension stay free of a hardcoded allow-list.
 pub trait ColdkeyFeeCallFilter<Call> {
     fn charges_coldkey(call: &Call) -> bool;
+}
+
+/// Weight subsidies apply only to fees, never to block admission or execution accounting.
+pub trait FeeWeightDiscount<Call> {
+    /// Weight to subtract from `info.call_weight` before pricing the fee.
+    fn fee_weight_discount(call: &Call, info: &DispatchInfo) -> Weight;
+    fn fee_discount_overhead(call: &Call) -> Weight;
+}
+
+pub fn fee_dispatch_info(info: &DispatchInfo, discount: Weight) -> DispatchInfo {
+    DispatchInfo {
+        call_weight: info.call_weight.saturating_sub(discount),
+        ..*info
+    }
 }
 
 #[freeze_struct("f003cde1f9da4a90")]
@@ -71,22 +86,13 @@ where
     T: ColdkeyFeeCallFilter<RuntimeCallOf<T>>,
     RuntimeOriginOf<T>: AsSystemOriginSigner<AccountIdOf<T>> + Clone,
 {
-    /// Extract (real, delegate, inner_call) from a `proxy` call.
-    /// `signer` is used as the delegate since it is implicit (the caller).
-    /// `proxy_announced` is intentionally not handled here; fee propagation
-    /// only applies to `proxy` calls to keep the logic simple.
-    fn extract_proxy_parts<'a>(
-        call: &'a RuntimeCallOf<T>,
-        signer: &AccountIdOf<T>,
-    ) -> Option<(
-        AccountIdOf<T>,
-        AccountIdOf<T>,
-        &'a Box<<T as pallet_proxy::Config>::RuntimeCall>,
-    )> {
+    /// Resolve the real account and inner call of an ordinary `proxy`.
+    /// `proxy_announced` does not participate in fee propagation.
+    fn resolve_proxy_call(call: &RuntimeCallOf<T>) -> Option<(AccountIdOf<T>, &RuntimeCallOf<T>)> {
         match call.is_sub_type()? {
             pallet_proxy::Call::proxy { real, call, .. } => {
                 let real = LookupOf::<T>::lookup(real.clone()).ok()?;
-                Some((real, signer.clone(), call))
+                Some((real, call.as_ref().into_ref()))
             }
             _ => None,
         }
@@ -94,64 +100,41 @@ where
 
     /// Determine who should pay the transaction fee for a proxy call.
     ///
-    /// Follows the RealPaysFee chain up to 2 levels deep:
-    /// - Case 1: `proxy(real=A, call)` → A pays if `RealPaysFee<A, signer>`
-    /// - Case 2: `proxy(real=B, proxy(real=A, call))` → A pays if both
-    ///   `RealPaysFee<B, signer>` and `RealPaysFee<A, B>` are set; B pays if only the former.
-    /// - Case 3: `proxy(real=B, batch([proxy(real=A, ..), ..]))` → A pays if
-    ///   `RealPaysFee<B, signer>`, all batch items are proxy calls with the same real A,
-    ///   and `RealPaysFee<A, B>` is set; B pays if only the first condition holds.
+    /// Follow at most three proxy levels, retaining the nearest opted-in real.
+    /// A homogeneous batch of proxies can supply the final level; lookup never
+    /// descends into its items. Every hop requires RealPaysFee for its delegate.
     ///
     /// Returns `None` if the signer should pay (no RealPaysFee opt-in).
-    fn extract_real_fee_payer(
+    fn resolve_real_fee_payer(
         call: &RuntimeCallOf<T>,
         origin: &RuntimeOriginOf<T>,
     ) -> Option<AccountIdOf<T>> {
         let signer = origin.as_system_origin_signer()?;
-        let (outer_real, delegate, inner_call) = Self::extract_proxy_parts(call, signer)?;
+        let (mut real, mut inner_call) = Self::resolve_proxy_call(call)?;
 
-        // Check if the outer real account has opted in to pay for the delegate.
-        if !pallet_proxy::Pallet::<T>::is_real_pays_fee(&outer_real, &delegate) {
+        if !pallet_proxy::Pallet::<T>::is_real_pays_fee(&real, signer) {
             return None;
         }
 
-        // outer_real pays. Try to push the fee deeper into nested proxy structures.
-        let inner_call: &RuntimeCallOf<T> = (*inner_call).as_ref().into_ref();
+        for _ in 1..MAX_REAL_PAYS_FEE_PROXY_DEPTH {
+            let Some((inner_real, next_call)) = Self::resolve_proxy_call(inner_call) else {
+                return Self::resolve_batch_proxy_payer(inner_call, &real).or(Some(real));
+            };
+            if !pallet_proxy::Pallet::<T>::is_real_pays_fee(&inner_real, &real) {
+                break;
+            }
 
-        // Case 2: inner call is another proxy call.
-        if let Some(inner_payer) = Self::extract_inner_proxy_payer(inner_call, &outer_real) {
-            return Some(inner_payer);
+            real = inner_real;
+            inner_call = next_call;
         }
 
-        // Case 3: inner call is a batch of proxy calls with the same real.
-        if let Some(batch_payer) = Self::extract_batch_proxy_payer(inner_call, &outer_real) {
-            return Some(batch_payer);
-        }
-
-        // Case 1: simple proxy, outer_real pays.
-        Some(outer_real)
-    }
-
-    /// Check if an inner call is a proxy call where the inner real has opted in to pay.
-    /// `outer_real` is used as the implicit delegate for `proxy` calls.
-    fn extract_inner_proxy_payer(
-        inner_call: &RuntimeCallOf<T>,
-        outer_real: &AccountIdOf<T>,
-    ) -> Option<AccountIdOf<T>> {
-        let (inner_real, inner_delegate, _call) =
-            Self::extract_proxy_parts(inner_call, outer_real)?;
-
-        if pallet_proxy::Pallet::<T>::is_real_pays_fee(&inner_real, &inner_delegate) {
-            Some(inner_real)
-        } else {
-            None
-        }
+        Some(real)
     }
 
     /// Check if an inner call is a batch where ALL items are proxy calls with the same real
     /// account, and that real account has opted in to pay.
     /// `outer_real` is used as the implicit delegate for `proxy` calls within the batch.
-    fn extract_batch_proxy_payer(
+    fn resolve_batch_proxy_payer(
         inner_call: &RuntimeCallOf<T>,
         outer_real: &AccountIdOf<T>,
     ) -> Option<AccountIdOf<T>> {
@@ -171,14 +154,13 @@ where
 
         for call in calls.iter() {
             let call_ref: &RuntimeCallOf<T> = call.into_ref();
-            let (inner_real, inner_delegate, _) = Self::extract_proxy_parts(call_ref, outer_real)?;
+            let (inner_real, _) = Self::resolve_proxy_call(call_ref)?;
 
             match &common_real {
                 None => {
-                    // Check RealPaysFee once on the first item and memoize. For `proxy`
-                    // calls the delegate is always `outer_real`, so a single read covers
-                    // the entire batch; for `proxy_announced` it uses the explicit delegate.
-                    if !pallet_proxy::Pallet::<T>::is_real_pays_fee(&inner_real, &inner_delegate) {
+                    // Every item must have the same real and implicit delegate, so one
+                    // RealPaysFee read covers the entire batch.
+                    if !pallet_proxy::Pallet::<T>::is_real_pays_fee(&inner_real, outer_real) {
                         return None;
                     }
                     common_real = Some(inner_real);
@@ -218,7 +200,7 @@ where
     RuntimeCallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
         + IsSubType<pallet_proxy::Call<T>>
         + IsSubType<pallet_utility::Call<T>>,
-    T: ColdkeyFeeCallFilter<RuntimeCallOf<T>>,
+    T: ColdkeyFeeCallFilter<RuntimeCallOf<T>> + FeeWeightDiscount<RuntimeCallOf<T>>,
     BalanceOf<T>: Zero + Send + Sync,
     RuntimeOriginOf<T>: AsSystemOriginSigner<AccountIdOf<T>>
         + Clone
@@ -227,14 +209,14 @@ where
     const IDENTIFIER: &'static str = "ChargeTransactionPaymentWrapper";
     type Implicit = ();
     type Val = Val<T>;
-    type Pre = Pre<T>;
+    type Pre = (Pre<T>, Weight);
 
     fn weight(&self, call: &RuntimeCallOf<T>) -> Weight {
-        // Account for up to 3 storage reads in the worst-case fee payer resolution
-        // (outer is_real_pays_fee + inner/batch is_real_pays_fee + margin).
+        // Three proxy consent reads (including a final batch lookup), plus margin.
         self.inner
             .weight(call)
-            .saturating_add(T::DbWeight::get().reads(3))
+            .saturating_add(T::DbWeight::get().reads(4))
+            .saturating_add(T::fee_discount_overhead(call))
     }
 
     fn validate(
@@ -257,15 +239,13 @@ where
         };
 
         // Resolve the fee payer. A proxy `RealPaysFee` opt-in takes precedence; otherwise an
-        // owned hotkey's coldkey pays for allow-listed calls. In that case the coldkey covers
-        // the protocol fee only — the signer-chosen tip is dropped, since a tip does not buy
-        // priority in this wrapper (priority is overridden above) and billing it to the coldkey
-        // would let a hotkey drain coldkey funds. Other payers keep the original tip.
-        let (fee_origin, tip) = if let Some(real) = Self::extract_real_fee_payer(call, &origin) {
-            (
-                frame_system::RawOrigin::Signed(real).into(),
-                self.inner.tip(),
-            )
+        // owned hotkey's coldkey pays for allow-listed calls. Whenever the payer is not the
+        // signer, only the protocol fee is redirected — the signer-chosen tip is dropped. A tip
+        // does not buy priority in this wrapper (priority is overridden above), and billing it
+        // to another account would let the signer spend that account's funds without limit,
+        // regardless of what the proxy type allows. Only a self-paying signer keeps its tip.
+        let (fee_origin, tip) = if let Some(real) = Self::resolve_real_fee_payer(call, &origin) {
+            (frame_system::RawOrigin::Signed(real).into(), Zero::zero())
         } else if let Some(coldkey) = Self::extract_coldkey_fee_payer(call, &origin) {
             (
                 frame_system::RawOrigin::Signed(coldkey).into(),
@@ -275,11 +255,12 @@ where
             (origin.clone(), self.inner.tip())
         };
 
+        let fee_info = fee_dispatch_info(info, T::fee_weight_discount(call, info));
         let (mut valid_transaction, val, _fee_origin) = ChargeTransactionPayment::<T>::from(tip)
             .validate(
                 fee_origin,
                 call,
-                info,
+                &fee_info,
                 len,
                 self_implicit,
                 inherited_implication,
@@ -301,7 +282,10 @@ where
         info: &DispatchInfoOf<RuntimeCallOf<T>>,
         len: usize,
     ) -> Result<Self::Pre, TransactionValidityError> {
-        self.inner.prepare(val, origin, call, info, len)
+        let discount = T::fee_weight_discount(call, info);
+        let fee_info = fee_dispatch_info(info, discount);
+        let pre = self.inner.prepare(val, origin, call, &fee_info, len)?;
+        Ok((pre, discount))
     }
 
     fn metadata() -> Vec<TransactionExtensionMetadata> {
@@ -315,17 +299,26 @@ where
         len: usize,
         result: &DispatchResult,
     ) -> Result<Weight, TransactionValidityError> {
-        ChargeTransactionPayment::<T>::post_dispatch_details(pre, info, post_info, len, result)
-    }
-
-    fn post_dispatch(
-        pre: Self::Pre,
-        info: &DispatchInfoOf<RuntimeCallOf<T>>,
-        post_info: &mut PostDispatchInfoOf<RuntimeCallOf<T>>,
-        len: usize,
-        result: &DispatchResult,
-    ) -> Result<(), TransactionValidityError> {
-        ChargeTransactionPayment::<T>::post_dispatch(pre, info, post_info, len, result)
+        let (pre, discount) = pre;
+        let fee_info = fee_dispatch_info(info, discount);
+        // Cap the fee at its discounted declaration, retaining normal refunds when
+        // actual work costs less. Do not modify the execution post-info: CheckWeight
+        // must still see the full scan, including work beyond four hotkeys.
+        let fee_post_info = PostDispatchInfo {
+            actual_weight: Some(
+                post_info
+                    .calc_actual_weight(info)
+                    .min(fee_info.total_weight()),
+            ),
+            pays_fee: post_info.pays_fee,
+        };
+        ChargeTransactionPayment::<T>::post_dispatch_details(
+            pre,
+            &fee_info,
+            &fee_post_info,
+            len,
+            result,
+        )
     }
 
     fn bare_validate(
@@ -370,9 +363,12 @@ mod tests {
     use pallet_subtensor_utility as pallet_utility;
     use pallet_transaction_payment::Val;
     use sp_runtime::Saturating;
-    use sp_runtime::traits::{DispatchTransaction, TransactionExtension, TxBaseImplication};
+    use sp_runtime::traits::{
+        AsSystemOriginSigner, DispatchTransaction, Dispatchable, TransactionExtension,
+        TxBaseImplication,
+    };
     use sp_runtime::transaction_validity::{
-        TransactionSource, TransactionValidityError, ValidTransaction,
+        InvalidTransaction, TransactionSource, TransactionValidityError, ValidTransaction,
     };
     use subtensor_runtime_common::{AccountId, NetUid, ProxyType, TaoBalance};
 
@@ -476,10 +472,14 @@ mod tests {
     // -- Setup helpers --
 
     fn add_proxy(real: &AccountId, delegate: &AccountId) {
+        add_proxy_of(real, delegate, ProxyType::Any);
+    }
+
+    fn add_proxy_of(real: &AccountId, delegate: &AccountId, proxy_type: ProxyType) {
         assert_ok!(Proxy::add_proxy(
             RuntimeOrigin::signed(real.clone()),
             delegate.clone().into(),
-            ProxyType::Any,
+            proxy_type,
             0,
         ));
     }
@@ -745,7 +745,7 @@ mod tests {
             add_proxy(&real_b(), &signer());
             enable_real_pays_fee(&real_b(), &signer());
 
-            // Batch contains a non-proxy call → extract_proxy_parts fails
+            // A non-proxy batch item prevents further fee propagation.
             let batch = batch_call(vec![proxy_call(real_a(), call_remark()), call_remark()]);
             let call = proxy_call(real_b(), batch);
             let (_valid_tx, val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
@@ -782,6 +782,401 @@ mod tests {
             let call = proxy_call(real_b(), batch);
             let (_valid_tx, val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
             assert_eq!(fee_payer(&val), real_b());
+        });
+    }
+
+    // ============================================================
+    // Three-level proxy chains and propagation boundaries
+    // ============================================================
+
+    #[test]
+    fn three_level_proxy_charges_deepest_real() {
+        new_test_ext().execute_with(|| {
+            for (real, delegate) in [
+                (real_b(), signer()),
+                (real_a(), real_b()),
+                (other(), real_a()),
+            ] {
+                add_proxy(&real, &delegate);
+                enable_real_pays_fee(&real, &delegate);
+            }
+
+            let call = proxy_call(
+                real_b(),
+                proxy_call(real_a(), proxy_call(other(), call_remark())),
+            );
+            let (_, val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
+            assert_eq!(fee_payer(&val), other());
+        });
+    }
+
+    #[test]
+    fn three_level_proxy_requires_consent_at_every_hop() {
+        for (consent, expected) in [
+            ([false, false, false], signer()),
+            ([false, false, true], signer()),
+            ([false, true, false], signer()),
+            ([false, true, true], signer()),
+            ([true, false, false], real_b()),
+            ([true, false, true], real_b()),
+            ([true, true, false], real_a()),
+            ([true, true, true], other()),
+        ] {
+            new_test_ext().execute_with(|| {
+                for ((real, delegate), pays_fee) in [
+                    (real_b(), signer()),
+                    (real_a(), real_b()),
+                    (other(), real_a()),
+                ]
+                .into_iter()
+                .zip(consent)
+                {
+                    add_proxy(&real, &delegate);
+                    if pays_fee {
+                        enable_real_pays_fee(&real, &delegate);
+                    }
+                }
+
+                let inner = proxy_call(other(), call_remark());
+                for last_level in [
+                    inner.clone(),
+                    batch_call(vec![inner.clone(), inner.clone()]),
+                    batch_all_call(vec![inner.clone(), inner.clone()]),
+                    force_batch_call(vec![inner.clone(), inner]),
+                ] {
+                    let call = proxy_call(real_b(), proxy_call(real_a(), last_level));
+                    let (valid_tx, val) =
+                        validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
+                    assert_eq!(fee_payer(&val), expected, "consent: {consent:?}, {call:?}");
+                    assert_eq!(valid_tx.priority, NORMAL_DISPATCH_BASE_PRIORITY);
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn three_level_batch_keeps_middle_payer_when_items_are_unsupported() {
+        new_test_ext().execute_with(|| {
+            for (real, delegate) in [
+                (real_b(), signer()),
+                (real_a(), real_b()),
+                (other(), real_a()),
+                (signer(), real_a()),
+            ] {
+                add_proxy(&real, &delegate);
+                enable_real_pays_fee(&real, &delegate);
+            }
+
+            for calls in [
+                vec![],
+                vec![proxy_call(other(), call_remark()), call_remark()],
+                vec![call_remark(), proxy_call(other(), call_remark())],
+                vec![
+                    proxy_call(other(), call_remark()),
+                    proxy_call(signer(), call_remark()),
+                ],
+                vec![
+                    proxy_call(signer(), call_remark()),
+                    proxy_call(other(), call_remark()),
+                ],
+                vec![
+                    proxy_call(other(), call_remark()),
+                    proxy_announced_call(real_a(), other(), call_remark()),
+                ],
+                vec![batch_call(vec![proxy_call(other(), call_remark())])],
+            ] {
+                for batch in [
+                    batch_call(calls.clone()),
+                    batch_all_call(calls.clone()),
+                    force_batch_call(calls.clone()),
+                ] {
+                    let call = proxy_call(real_b(), proxy_call(real_a(), batch));
+                    let (_, val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
+                    assert_eq!(fee_payer(&val), real_a(), "{call:?}");
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn batch_fee_lookup_never_descends_into_items() {
+        new_test_ext().execute_with(|| {
+            for (real, delegate) in [
+                (real_b(), signer()),
+                (real_a(), real_b()),
+                (other(), real_a()),
+            ] {
+                add_proxy(&real, &delegate);
+                enable_real_pays_fee(&real, &delegate);
+            }
+
+            // There is still depth available, but a batch must terminate the lookup.
+            let nested = proxy_call(real_a(), proxy_call(other(), call_remark()));
+            for calls in [
+                vec![nested.clone(), nested.clone()],
+                vec![nested.clone(), proxy_call(real_a(), call_remark())],
+            ] {
+                for batch in [
+                    batch_call(calls.clone()),
+                    batch_all_call(calls.clone()),
+                    force_batch_call(calls.clone()),
+                ] {
+                    let call = proxy_call(real_b(), batch);
+                    let (_, val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
+                    assert_eq!(fee_payer(&val), real_a(), "{call:?}");
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn proxy_fee_lookup_stops_at_three_levels() {
+        new_test_ext().execute_with(|| {
+            for (real, delegate) in [
+                (real_b(), signer()),
+                (real_a(), real_b()),
+                (other(), real_a()),
+                (signer(), other()),
+            ] {
+                add_proxy(&real, &delegate);
+                enable_real_pays_fee(&real, &delegate);
+            }
+
+            let fourth = proxy_call(signer(), call_remark());
+            for inner in [
+                fourth.clone(),
+                batch_call(vec![fourth.clone()]),
+                batch_all_call(vec![fourth.clone()]),
+                force_batch_call(vec![fourth]),
+            ] {
+                let call = proxy_call(real_b(), proxy_call(real_a(), proxy_call(other(), inner)));
+                let (_, val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
+                assert_eq!(fee_payer(&val), other(), "{call:?}");
+            }
+        });
+    }
+
+    #[test]
+    fn nested_announced_proxy_does_not_propagate_fees() {
+        new_test_ext().execute_with(|| {
+            for (real, delegate) in [
+                (real_b(), signer()),
+                (real_a(), real_b()),
+                (other(), real_a()),
+            ] {
+                add_proxy(&real, &delegate);
+                enable_real_pays_fee(&real, &delegate);
+            }
+
+            for (call, expected) in [
+                (
+                    proxy_call(
+                        real_b(),
+                        proxy_announced_call(
+                            real_b(),
+                            real_a(),
+                            proxy_call(other(), call_remark()),
+                        ),
+                    ),
+                    real_b(),
+                ),
+                (
+                    proxy_call(
+                        real_b(),
+                        proxy_call(
+                            real_a(),
+                            proxy_announced_call(real_a(), other(), call_remark()),
+                        ),
+                    ),
+                    real_a(),
+                ),
+            ] {
+                let (_, val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
+                assert_eq!(fee_payer(&val), expected);
+            }
+        });
+    }
+
+    #[test]
+    fn three_level_proxy_respects_revoked_consent() {
+        new_test_ext().execute_with(|| {
+            for (real, delegate) in [
+                (real_b(), signer()),
+                (real_a(), real_b()),
+                (other(), real_a()),
+            ] {
+                add_proxy(&real, &delegate);
+                enable_real_pays_fee(&real, &delegate);
+            }
+            let call = proxy_call(
+                real_b(),
+                proxy_call(real_a(), proxy_call(other(), call_remark())),
+            );
+            let (_, val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
+            assert_eq!(fee_payer(&val), other());
+
+            assert_ok!(Proxy::set_real_pays_fee(
+                RuntimeOrigin::signed(other()),
+                real_a().into(),
+                false,
+            ));
+            let (_, val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
+            assert_eq!(fee_payer(&val), real_a());
+
+            assert_ok!(Proxy::remove_proxy(
+                RuntimeOrigin::signed(real_a()),
+                real_b().into(),
+                ProxyType::Any,
+                0,
+            ));
+            let (_, val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
+            assert_eq!(fee_payer(&val), real_b());
+        });
+    }
+
+    #[test]
+    fn three_level_proxy_does_not_fall_back_when_payer_cannot_afford_fee() {
+        new_test_ext().execute_with(|| {
+            for (real, delegate) in [
+                (real_b(), signer()),
+                (real_a(), real_b()),
+                (other(), real_a()),
+            ] {
+                add_proxy(&real, &delegate);
+                enable_real_pays_fee(&real, &delegate);
+            }
+            assert_ok!(pallet_balances::Pallet::<Runtime>::force_set_balance(
+                RuntimeOrigin::root(),
+                other().into(),
+                crate::ExistentialDeposit::get(),
+            ));
+
+            let call = proxy_call(
+                real_b(),
+                proxy_call(real_a(), proxy_call(other(), call_remark())),
+            );
+            assert!(matches!(
+                validate_call(RuntimeOrigin::signed(signer()), &call),
+                Err(TransactionValidityError::Invalid(
+                    InvalidTransaction::Payment
+                ))
+            ));
+        });
+    }
+
+    #[test]
+    fn three_level_proxy_dispatch_charges_deepest_real_without_tip() {
+        new_test_ext().execute_with(|| {
+            for (real, delegate) in [
+                (real_b(), signer()),
+                (real_a(), real_b()),
+                (other(), real_a()),
+            ] {
+                add_proxy(&real, &delegate);
+                enable_real_pays_fee(&real, &delegate);
+            }
+
+            let inner = proxy_call(other(), call_remark());
+            for last_level in [
+                inner.clone(),
+                batch_call(vec![inner.clone(), inner.clone()]),
+                batch_all_call(vec![inner.clone(), inner.clone()]),
+                force_batch_call(vec![inner.clone(), inner]),
+            ] {
+                let call = proxy_call(real_b(), proxy_call(real_a(), last_level));
+                let info = call.get_dispatch_info();
+                let payer_before = pallet_balances::Pallet::<Runtime>::free_balance(other());
+                let unchanged = [signer(), real_b(), real_a()].map(|account| {
+                    let balance = pallet_balances::Pallet::<Runtime>::free_balance(&account);
+                    (account, balance)
+                });
+                let tip = payer_before.saturating_sub(TaoBalance::new(1_000_000_000));
+                let ext = ChargeTransactionPaymentWrapper::<Runtime>::new(tip);
+                let post_info = ext
+                    .test_run(
+                        RuntimeOrigin::signed(signer()),
+                        &call,
+                        &info,
+                        100,
+                        0,
+                        |origin| {
+                            assert_eq!(origin.as_system_origin_signer(), Some(&signer()));
+                            call.clone().dispatch(origin)
+                        },
+                    )
+                    .unwrap()
+                    .unwrap();
+
+                for real in [real_b(), real_a(), other()] {
+                    assert_eq!(
+                        pallet_proxy::LastCallResult::<Runtime>::get(real),
+                        Some(Ok(()))
+                    );
+                }
+                let fee = pallet_transaction_payment::Pallet::<Runtime>::compute_actual_fee(
+                    100,
+                    &info,
+                    &post_info,
+                    TaoBalance::new(0),
+                );
+                assert!(fee > TaoBalance::new(0));
+                assert_eq!(
+                    payer_before
+                        .saturating_sub(pallet_balances::Pallet::<Runtime>::free_balance(other())),
+                    fee,
+                );
+                for (account, before) in unchanged {
+                    assert_eq!(
+                        pallet_balances::Pallet::<Runtime>::free_balance(account),
+                        before
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn three_level_validate_proxy_still_requires_consent_at_every_hop() {
+        // Validate is a narrow filter; fee redirection is independent of proxy
+        // type and must still demand RealPaysFee on every hop (#3270).
+        new_test_ext().execute_with(|| {
+            for (real, delegate) in [
+                (real_b(), signer()),
+                (real_a(), real_b()),
+                (other(), real_a()),
+            ] {
+                add_proxy_of(&real, &delegate, ProxyType::Validate);
+            }
+            // Outer opt-in only → outer pays; no deeper consent means no
+            // unconsenting real is charged.
+            enable_real_pays_fee(&real_b(), &signer());
+            let call = proxy_call(
+                real_b(),
+                proxy_call(real_a(), proxy_call(other(), call_set_weights())),
+            );
+            let (_, val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
+            assert_eq!(fee_payer(&val), real_b());
+
+            enable_real_pays_fee(&real_a(), &real_b());
+            enable_real_pays_fee(&other(), &real_a());
+            let (_, val) = validate_call(RuntimeOrigin::signed(signer()), &call).unwrap();
+            assert_eq!(fee_payer(&val), other());
+        });
+    }
+
+    #[test]
+    fn proxy_fee_weight_covers_three_consent_reads_and_batch_margin() {
+        new_test_ext().execute_with(|| {
+            let call = proxy_call(real_a(), call_remark());
+            let declared =
+                ChargeTransactionPaymentWrapper::<Runtime>::new(TaoBalance::new(0)).weight(&call);
+            let expected_reads = <Runtime as frame_system::Config>::DbWeight::get().reads(4);
+            // Hard lower bound: the wrapper adds four consent/batch reads on top
+            // of the inner ChargeTransactionPayment weight.
+            assert!(
+                declared.proof_size() >= expected_reads.proof_size(),
+                "declared={declared:?} expected at least {expected_reads:?}"
+            );
         });
     }
 
@@ -934,6 +1329,57 @@ mod tests {
                 coldkey_before.saturating_sub(coldkey_after),
                 tipless_fee,
                 "coldkey pays the tipless fee, not the tip"
+            );
+        });
+    }
+
+    // Full lifecycle for the proxy opt-in path: the real pays the protocol fee for its
+    // delegate, and the delegate's tip is never billed to the real. The tip is a free field
+    // in the signed extrinsic, so without this bound a delegate could spend the real's whole
+    // balance through the fee extension no matter how narrow its proxy type is.
+    #[test]
+    fn full_lifecycle_real_pays_fee_excluding_tip() {
+        new_test_ext().execute_with(|| {
+            add_proxy(&real_a(), &signer());
+            enable_real_pays_fee(&real_a(), &signer());
+
+            let call = proxy_call(real_a(), call_remark());
+            let info = DispatchInfo {
+                pays_fee: Pays::Yes,
+                ..call.get_dispatch_info()
+            };
+
+            let real_before = pallet_balances::Pallet::<Runtime>::free_balance(real_a());
+            let signer_before = pallet_balances::Pallet::<Runtime>::free_balance(signer());
+
+            // A tip almost as large as the real's whole balance.
+            let tip = real_before.saturating_sub(TaoBalance::new(1_000_000_000));
+            let ext = ChargeTransactionPaymentWrapper::<Runtime>::new(tip);
+            assert_ok!(ext.test_run(
+                RuntimeOrigin::signed(signer()),
+                &call,
+                &info,
+                0,
+                0,
+                |_origin| Ok(Default::default()),
+            ));
+
+            let tipless_fee = pallet_transaction_payment::Pallet::<Runtime>::compute_fee(
+                0,
+                &info,
+                TaoBalance::new(0),
+            );
+            let real_after = pallet_balances::Pallet::<Runtime>::free_balance(real_a());
+
+            assert_eq!(
+                real_before.saturating_sub(real_after),
+                tipless_fee,
+                "the real pays the tipless fee only"
+            );
+            assert_eq!(
+                pallet_balances::Pallet::<Runtime>::free_balance(signer()),
+                signer_before,
+                "the delegate is not charged when the real opted in"
             );
         });
     }

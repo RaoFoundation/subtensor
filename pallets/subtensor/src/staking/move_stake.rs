@@ -37,6 +37,12 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // Check that the origin is signed by the origin_hotkey.
         let coldkey = ensure_signed(origin)?;
+        let alpha_amount = Self::cap_move_all_to_live_origin(
+            &origin_hotkey,
+            &coldkey,
+            origin_netuid,
+            alpha_amount,
+        );
 
         // Validate input and move stake
         let tao_moved = Self::transition_stake_internal(
@@ -72,6 +78,82 @@ impl<T: Config> Pallet<T> {
 
         // Ok and return.
         Ok(())
+    }
+
+    /// Moves stake from one hotkey to another across subnets with a relative
+    /// price limit on the cross-subnet swap.
+    pub fn do_move_stake_limit(
+        origin: OriginFor<T>,
+        origin_hotkey: T::AccountId,
+        destination_hotkey: T::AccountId,
+        origin_netuid: NetUid,
+        destination_netuid: NetUid,
+        alpha_amount: AlphaBalance,
+        limit_price: TaoBalance,
+        allow_partial: bool,
+    ) -> dispatch::DispatchResult {
+        let coldkey = ensure_signed(origin)?;
+        let alpha_amount = Self::cap_move_all_to_live_origin(
+            &origin_hotkey,
+            &coldkey,
+            origin_netuid,
+            alpha_amount,
+        );
+
+        let tao_moved = Self::transition_stake_internal(
+            &coldkey,
+            &coldkey,
+            &origin_hotkey,
+            &destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            alpha_amount,
+            Some(limit_price),
+            Some(allow_partial),
+            false,
+        )?;
+
+        log::debug!(
+            "StakeMoved(coldkey:{coldkey:?}, origin_hotkey:{origin_hotkey:?}, origin_netuid:{origin_netuid:?}, destination_hotkey:{destination_hotkey:?}, destination_netuid:{destination_netuid:?}, amount:{tao_moved:?})"
+        );
+        Self::deposit_event(Event::StakeMoved(
+            coldkey,
+            origin_hotkey,
+            origin_netuid,
+            destination_hotkey,
+            destination_netuid,
+            tao_moved,
+        ));
+
+        Ok(())
+    }
+
+    /// `AlphaBalance::MAX` means "the live origin position", on every call that debits a
+    /// position: `move_stake*`, `transfer_stake*` and `swap_stake*`.
+    ///
+    /// A client can batch `claim_root_with_hotkey` then `move_stake`. The claim
+    /// first flushes pending basket deposits and restakes a payout that did not
+    /// exist when the extrinsic was built, so a pre-execution quote cannot size
+    /// the follow-up. Likewise a position is stored as pool shares, and reading it back
+    /// truncates, so the alpha a `StakeAdded` event reports can read one rao above what the
+    /// position returns; a client that replays that figure into `transfer_stake` would fail
+    /// (spec 469, v468 defect 1). The sentinel resolves the whole position against live
+    /// state at execution instead. Other oversize amounts still fail
+    /// `NotEnoughStakeToWithdraw`.
+    fn cap_move_all_to_live_origin(
+        origin_hotkey: &T::AccountId,
+        origin_coldkey: &T::AccountId,
+        origin_netuid: NetUid,
+        alpha_amount: AlphaBalance,
+    ) -> AlphaBalance {
+        if alpha_amount != AlphaBalance::MAX {
+            return alpha_amount;
+        }
+        Self::get_stake_for_hotkey_and_coldkey_on_subnet(
+            origin_hotkey,
+            origin_coldkey,
+            origin_netuid,
+        )
     }
 
     /// Toggles the atomic alpha transfers for a specific subnet.
@@ -127,6 +209,8 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // Ensure the extrinsic is signed by the origin_coldkey.
         let coldkey = ensure_signed(origin)?;
+        let alpha_amount =
+            Self::cap_move_all_to_live_origin(&hotkey, &coldkey, origin_netuid, alpha_amount);
 
         // Validate input and move stake
         let tao_moved = Self::transition_stake_internal(
@@ -156,6 +240,87 @@ impl<T: Config> Pallet<T> {
         ));
 
         // 10. Return success.
+        Ok(())
+    }
+
+    /// Transfers stake from one coldkey to another, landing it on a different hotkey,
+    /// optionally moving from one subnet to another.
+    ///
+    /// This is `do_transfer_stake` generalized to a destination hotkey: it transfers
+    /// ownership of the position (like `transfer_stake`) and re-delegates it (like
+    /// `move_stake`) in one atomic operation.
+    ///
+    /// # Arguments
+    /// * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`.
+    /// * `destination_coldkey`: The account ID of the coldkey to which the stake is being transferred.
+    /// * `origin_hotkey`: The account ID of the hotkey the stake currently sits on.
+    /// * `destination_hotkey`: The account ID of the hotkey the stake lands on.
+    /// * `origin_netuid`: The network ID (subnet) from which the stake is being transferred.
+    /// * `destination_netuid`: The network ID (subnet) to which the stake is being transferred.
+    /// * `alpha_amount`: The amount of stake to transfer.
+    ///
+    /// # Returns
+    /// * `DispatchResult`: Indicates success or failure.
+    ///
+    /// # Errors
+    /// This function will return an error if:
+    /// * The transaction is not signed by the `origin_coldkey`.
+    /// * The subnet (`origin_netuid` or `destination_netuid`) does not exist.
+    /// * The `origin_hotkey` or `destination_hotkey` does not exist.
+    /// * The `(origin_coldkey, origin_hotkey, origin_netuid)` does not have enough stake for `alpha_amount`.
+    /// * The amount to be transferred is below the minimum stake requirement.
+    /// * Transfers are disabled on the origin or destination subnet.
+    /// * There is a failure in staking or unstaking logic.
+    ///
+    /// # Events
+    /// Emits a `StakeAndHotkeyTransferred` event upon successful completion of the transfer.
+    pub fn do_transfer_stake_and_hotkey(
+        origin: OriginFor<T>,
+        destination_coldkey: T::AccountId,
+        origin_hotkey: T::AccountId,
+        destination_hotkey: T::AccountId,
+        origin_netuid: NetUid,
+        destination_netuid: NetUid,
+        alpha_amount: AlphaBalance,
+    ) -> dispatch::DispatchResult {
+        // Ensure the extrinsic is signed by the origin_coldkey.
+        let coldkey = ensure_signed(origin)?;
+        let alpha_amount = Self::cap_move_all_to_live_origin(
+            &origin_hotkey,
+            &coldkey,
+            origin_netuid,
+            alpha_amount,
+        );
+
+        // Validate input and move stake
+        let tao_moved = Self::transition_stake_internal(
+            &coldkey,
+            &destination_coldkey,
+            &origin_hotkey,
+            &destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            alpha_amount,
+            None,
+            None,
+            true,
+        )?;
+
+        // Emit an event for logging/monitoring.
+        log::debug!(
+            "StakeAndHotkeyTransferred(origin_coldkey: {coldkey:?}, destination_coldkey: {destination_coldkey:?}, origin_hotkey: {origin_hotkey:?}, destination_hotkey: {destination_hotkey:?}, origin_netuid: {origin_netuid:?}, destination_netuid: {destination_netuid:?}, amount: {tao_moved:?})"
+        );
+        Self::deposit_event(Event::StakeAndHotkeyTransferred {
+            origin_coldkey: coldkey,
+            destination_coldkey,
+            origin_hotkey,
+            destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            amount: tao_moved,
+        });
+
+        // Return success.
         Ok(())
     }
 
@@ -191,6 +356,8 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // Ensure the extrinsic is signed by the coldkey.
         let coldkey = ensure_signed(origin)?;
+        let alpha_amount =
+            Self::cap_move_all_to_live_origin(&hotkey, &coldkey, origin_netuid, alpha_amount);
 
         // Validate input and move stake
         let tao_moved = Self::transition_stake_internal(
@@ -258,6 +425,8 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // Ensure the extrinsic is signed by the coldkey.
         let coldkey = ensure_signed(origin)?;
+        let alpha_amount =
+            Self::cap_move_all_to_live_origin(&hotkey, &coldkey, origin_netuid, alpha_amount);
 
         // Validate input and move stake
         let tao_moved = Self::transition_stake_internal(
@@ -303,15 +472,6 @@ impl<T: Config> Pallet<T> {
         maybe_allow_partial: Option<bool>,
         check_transfer_toggle: bool,
     ) -> Result<TaoBalance, DispatchError> {
-        // Cap the alpha_amount at available Alpha because user might be paying transaxtion fees
-        // in Alpha and their total is already reduced by now.
-        let alpha_available = Self::get_stake_for_hotkey_and_coldkey_on_subnet(
-            origin_hotkey,
-            origin_coldkey,
-            origin_netuid,
-        );
-        let alpha_amount = alpha_amount.min(alpha_available);
-
         // Calculate the maximum amount that can be executed
         let max_amount = if origin_netuid != destination_netuid {
             if let Some(limit_price) = maybe_limit_price {
@@ -344,31 +504,35 @@ impl<T: Config> Pallet<T> {
             max_amount
         };
 
-        if origin_netuid != destination_netuid {
+        let moved = if origin_netuid != destination_netuid {
             // Any way to charge fees that works
             let drop_fee_origin = origin_netuid == NetUid::ROOT;
             let drop_fee_destination = !drop_fee_origin;
 
-            // do not pay remove fees to avoid double fees in moves transactions
+            // do not pay remove fees to avoid double fees in moves transactions.
+            // The unstaked TAO is credited straight to the destination coldkey. Routing it
+            // through the origin coldkey would create and then drain (reap) a TAO-less
+            // signer's account inside its own extrinsic.
             let tao_unstaked = Self::unstake_from_subnet(
                 origin_hotkey,
                 origin_coldkey,
-                origin_coldkey,
+                destination_coldkey,
                 origin_netuid,
                 move_amount,
                 T::SwapInterface::min_price(),
                 drop_fee_origin,
+                true,
             )?;
-
-            // Transfer unstaked TAO from origin_coldkey to destination_coldkey
-            if origin_coldkey != destination_coldkey {
-                Self::transfer_tao(origin_coldkey, destination_coldkey, tao_unstaked)?;
-            }
 
             // Stake the unstaked amount into the destination.
             // Because of the fee, the tao_unstaked may be too low if initial stake is low. In that case,
             // do not restake.
-            if tao_unstaked >= DefaultMinStake::<T>::get() {
+            let restake_min = if check_transfer_toggle {
+                DefaultMinTransfer::<T>::get()
+            } else {
+                DefaultMinStake::<T>::get()
+            };
+            if tao_unstaked >= restake_min {
                 // If the coldkey is not the owner, make the hotkey a delegate.
                 if Self::get_owning_coldkey_for_hotkey(destination_hotkey) != *destination_coldkey {
                     Self::maybe_become_delegate(destination_hotkey);
@@ -394,7 +558,14 @@ impl<T: Config> Pallet<T> {
                 origin_netuid,
                 move_amount,
             )
+        }?;
+
+        // Stake left the origin hotkey: queue its child relations for the threshold re-check.
+        if origin_hotkey != destination_hotkey {
+            Self::queue_childkey_threshold_check(origin_hotkey);
         }
+
+        Ok(moved)
     }
 
     /// Returns the maximum amount of origin netuid Alpha that can be executed before we cross

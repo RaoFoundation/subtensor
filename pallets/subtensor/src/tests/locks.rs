@@ -1480,6 +1480,84 @@ fn test_lock_stake_topup_exceeds_total() {
 // =========================================================================
 
 #[test]
+fn test_aggregate_roll_forward_matches_members_with_staggered_updates() {
+    for owner in [false, true] {
+        for perpetual in [false, true] {
+            for (unlock_rate, maturity_rate) in [(1_000, 1_000), (1_000, 2_000)] {
+                let member = |mass: u64| LockState {
+                    locked_mass: mass.into(),
+                    conviction: U64F64::from_num(if owner { mass } else { 0 }),
+                    last_update: 0,
+                };
+                let first = member(1_000_000_000);
+                let second = member(2_000_000_000);
+                let aggregate = member(3_000_000_000);
+                let model = |individual, aggregate: LockState| {
+                    let empty = member(0);
+                    let bucket = |is_owner, is_perpetual| {
+                        if owner == is_owner && perpetual == is_perpetual {
+                            aggregate.clone()
+                        } else {
+                            empty.clone()
+                        }
+                    };
+                    ConvictionModel::new(
+                        owner,
+                        perpetual,
+                        individual,
+                        bucket(false, true),
+                        bucket(false, false),
+                        bucket(true, true),
+                        bucket(true, false),
+                    )
+                };
+                let roll = |lock| {
+                    ConvictionModel::roll_forward_lock(
+                        lock,
+                        2_000,
+                        unlock_rate,
+                        maturity_rate,
+                        owner,
+                        perpetual,
+                    )
+                    .0
+                };
+
+                // Advance the bucket while both individual records stay stale.
+                let mut first_model = model(first.clone(), aggregate);
+                first_model.roll_forward_aggregate(1_000, unlock_rate, maturity_rate);
+                first_model.roll_forward(2_000, unlock_rate, maturity_rate);
+                let expected_first = roll(first);
+                let expected_second = roll(second.clone());
+                assert_eq!(first_model.individual_lock(), &expected_first);
+                let actual = first_model.aggregate_lock().clone();
+                assert_eq!(actual.last_update, 2_000);
+                // Integer mass rounding can differ between one roll and two.
+                assert_abs_diff_eq!(
+                    actual.locked_mass.to_u64() as f64,
+                    (expected_first.locked_mass.to_u64() + expected_second.locked_mass.to_u64())
+                        as f64,
+                    epsilon = 3.0
+                );
+                assert_abs_diff_eq!(
+                    actual.conviction.to_num::<f64>(),
+                    (expected_first.conviction + expected_second.conviction).to_num::<f64>(),
+                    epsilon = 3.0
+                );
+
+                // Touching another stale member must not change an up-to-date bucket.
+                let mut second_model = model(second, actual.clone());
+                second_model.roll_forward(2_000, unlock_rate, maturity_rate);
+                assert_eq!(second_model.individual_lock(), &expected_second);
+                assert_eq!(second_model.aggregate_lock(), &actual);
+                second_model.roll_forward(2_000, unlock_rate, maturity_rate);
+                assert_eq!(second_model.aggregate_lock(), &actual);
+            }
+        }
+    }
+}
+
+#[test]
 fn test_exp_decay_zero_dt() {
     new_test_ext(1).execute_with(|| {
         let result = ConvictionModel::exp_decay(0, 216000);
@@ -2097,9 +2175,15 @@ fn test_unstake_roll_forward_collects_decaying_lock_dust_from_hotkey_aggregate()
             DecayingHotkeyLock::<Test>::get(netuid, hotkey_2)
                 .expect("decaying aggregate should remain")
                 .locked_mass,
-            rolled_large_lock
-                .locked_mass
-                .saturating_add(AlphaBalance::from(DUST_ALPHA))
+            roll_forward_decaying_hotkey_lock(
+                LockState {
+                    locked_mass: (ONE_ALPHA + DUST_ALPHA).into(),
+                    conviction: U64F64::from_num(0),
+                    last_update: lock_block,
+                },
+                now,
+            )
+            .locked_mass
         );
 
         assert_ok!(SubtensorModule::do_remove_stake(
@@ -2108,11 +2192,19 @@ fn test_unstake_roll_forward_collects_decaying_lock_dust_from_hotkey_aggregate()
             netuid,
             ONE_ALPHA.into(),
         ));
-        assert_eq!(
-            DecayingHotkeyLock::<Test>::get(netuid, hotkey_2)
-                .expect("decaying aggregate should remain")
-                .locked_mass,
-            rolled_large_lock.locked_mass
+        let aggregate = DecayingHotkeyLock::<Test>::get(netuid, hotkey_2)
+            .expect("decaying aggregate should remain");
+        // The bucket decays as a whole; removing the small member's rolled
+        // residual leaves the large member, within integer rounding.
+        assert_abs_diff_eq!(
+            aggregate.locked_mass.to_u64() as f64,
+            rolled_large_lock.locked_mass.to_u64() as f64,
+            epsilon = 1.0
+        );
+        assert_abs_diff_eq!(
+            aggregate.conviction.to_num::<f64>(),
+            rolled_large_lock.conviction.to_num::<f64>(),
+            epsilon = 1.0
         );
     });
 }
@@ -2218,6 +2310,9 @@ fn test_do_transfer_stake_same_subnet_transfers_lock_to_destination_coldkey() {
             transfer_amount,
         ));
 
+        assert!(!StakingHotkeys::<Test>::contains_key(coldkey_sender));
+        assert_eq!(StakingHotkeys::<Test>::get(coldkey_receiver), vec![hotkey]);
+
         let expected_sender_lock = roll_forward_lock(
             sender_lock_before,
             SubtensorModule::get_current_block_as_u64(),
@@ -2244,6 +2339,252 @@ fn test_do_transfer_stake_same_subnet_transfers_lock_to_destination_coldkey() {
         assert_eq!(
             hotkey_lock_after.locked_mass,
             expected_hotkey_lock.locked_mass
+        );
+    });
+}
+
+// Regression test: a same-subnet transfer that changes the hotkey must move the
+// individual lock and the aggregate lock to the destination hotkey. Before the
+// fix the recipient's lock (and aggregate conviction) stayed on the origin
+// hotkey while the stake landed on the destination hotkey.
+#[test]
+fn test_do_transfer_stake_and_hotkey_same_subnet_moves_lock_to_destination_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey_sender = U256::from(1);
+        let coldkey_receiver = U256::from(5);
+        let origin_hotkey = U256::from(2);
+        let destination_hotkey = U256::from(6);
+        let netuid = setup_subnet_with_stake(coldkey_sender, origin_hotkey, 100_000_000_000);
+
+        // The destination hotkey is owned by the receiving coldkey, so origin and
+        // destination hotkeys have different owners.
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey_receiver,
+            &destination_hotkey
+        ));
+        DecayingLock::<Test>::insert(coldkey_receiver, netuid, false);
+        assert_ok!(SubtensorModule::set_reject_locked_alpha(
+            RuntimeOrigin::signed(coldkey_receiver),
+            false,
+        ));
+
+        let total = SubtensorModule::total_coldkey_alpha_on_subnet(&coldkey_sender, netuid);
+        let lock_half = total / 2.into();
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &coldkey_sender,
+            netuid,
+            &origin_hotkey,
+            lock_half,
+        ));
+
+        let sender_lock_before = Lock::<Test>::get((coldkey_sender, netuid, origin_hotkey))
+            .expect("sender lock should exist");
+
+        step_block(1);
+
+        // Transfer the whole position (unlocked and locked halves) to the
+        // destination coldkey and hotkey.
+        assert_ok!(SubtensorModule::do_transfer_stake_and_hotkey(
+            RuntimeOrigin::signed(coldkey_sender),
+            coldkey_receiver,
+            origin_hotkey,
+            destination_hotkey,
+            netuid,
+            netuid,
+            total,
+        ));
+
+        let expected_sender_lock = roll_forward_lock(
+            sender_lock_before,
+            SubtensorModule::get_current_block_as_u64(),
+            false,
+            true,
+        );
+
+        // The sender's lock is fully transferred away.
+        assert!(Lock::<Test>::get((coldkey_sender, netuid, origin_hotkey)).is_none());
+
+        // The receiver's lock follows the stake to the destination hotkey and
+        // does not stay stranded on the origin hotkey.
+        assert!(Lock::<Test>::get((coldkey_receiver, netuid, origin_hotkey)).is_none());
+        let receiver_lock = Lock::<Test>::get((coldkey_receiver, netuid, destination_hotkey))
+            .expect("receiver lock should exist on the destination hotkey");
+        assert_eq!(receiver_lock.locked_mass, expected_sender_lock.locked_mass);
+
+        // The hotkeys are owned by different coldkeys, so the transferred
+        // conviction is forfeited, mirroring do_move_lock.
+        assert_eq!(receiver_lock.conviction, U64F64::from_num(0));
+
+        // The aggregate lock moves off the origin hotkey and onto the destination hotkey.
+        assert!(
+            HotkeyLock::<Test>::get(netuid, origin_hotkey)
+                .map(|lock| lock.locked_mass)
+                .unwrap_or(AlphaBalance::ZERO)
+                .is_zero()
+        );
+        let destination_hotkey_lock = HotkeyLock::<Test>::get(netuid, destination_hotkey)
+            .expect("destination hotkey aggregate lock should exist");
+        assert_eq!(
+            destination_hotkey_lock.locked_mass,
+            expected_sender_lock.locked_mass
+        );
+    });
+}
+
+// When origin and destination hotkeys share an owning coldkey, the transferred
+// conviction follows the lock to the destination hotkey instead of being forfeited.
+#[test]
+fn test_do_transfer_stake_and_hotkey_same_owner_preserves_conviction() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey_sender = U256::from(1);
+        let coldkey_receiver = U256::from(5);
+        let origin_hotkey = U256::from(2);
+        let destination_hotkey = U256::from(6);
+        let netuid = setup_subnet_with_stake(coldkey_sender, origin_hotkey, 100_000_000_000);
+
+        // Both hotkeys are owned by the sending coldkey.
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey_sender,
+            &destination_hotkey
+        ));
+        DecayingLock::<Test>::insert(coldkey_receiver, netuid, false);
+        assert_ok!(SubtensorModule::set_reject_locked_alpha(
+            RuntimeOrigin::signed(coldkey_receiver),
+            false,
+        ));
+
+        let total = SubtensorModule::total_coldkey_alpha_on_subnet(&coldkey_sender, netuid);
+        let lock_half = total / 2.into();
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &coldkey_sender,
+            netuid,
+            &origin_hotkey,
+            lock_half,
+        ));
+
+        let sender_lock_before = Lock::<Test>::get((coldkey_sender, netuid, origin_hotkey))
+            .expect("sender lock should exist");
+
+        step_block(1);
+
+        assert_ok!(SubtensorModule::do_transfer_stake_and_hotkey(
+            RuntimeOrigin::signed(coldkey_sender),
+            coldkey_receiver,
+            origin_hotkey,
+            destination_hotkey,
+            netuid,
+            netuid,
+            total,
+        ));
+
+        let expected_sender_lock = roll_forward_lock(
+            sender_lock_before,
+            SubtensorModule::get_current_block_as_u64(),
+            false,
+            true,
+        );
+
+        let receiver_lock = Lock::<Test>::get((coldkey_receiver, netuid, destination_hotkey))
+            .expect("receiver lock should exist on the destination hotkey");
+        assert_eq!(receiver_lock.locked_mass, expected_sender_lock.locked_mass);
+
+        // Same-owner hotkey change: the conviction moved with the lock.
+        assert!(receiver_lock.conviction > U64F64::from_num(0));
+        assert!(receiver_lock.conviction <= expected_sender_lock.conviction);
+    });
+}
+
+// The LockHotkeyMismatch guard is checked against the hotkey the stake lands on:
+// a recipient with an existing lock can only receive locked alpha onto that same
+// hotkey, and transfers targeting any other hotkey are rejected.
+#[test]
+fn test_do_transfer_stake_and_hotkey_locked_requires_destination_match_receiver_lock() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey_sender = U256::from(1);
+        let coldkey_receiver = U256::from(5);
+        let origin_hotkey = U256::from(2);
+        let receiver_lock_hotkey = U256::from(6);
+        let other_hotkey = U256::from(7);
+        let netuid = setup_subnet_with_stake(coldkey_sender, origin_hotkey, 100_000_000_000);
+
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey_receiver,
+            &receiver_lock_hotkey
+        ));
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey_receiver,
+            &other_hotkey
+        ));
+        DecayingLock::<Test>::insert(coldkey_receiver, netuid, false);
+        assert_ok!(SubtensorModule::set_reject_locked_alpha(
+            RuntimeOrigin::signed(coldkey_receiver),
+            false,
+        ));
+
+        // The receiver already has an active lock on receiver_lock_hotkey.
+        let receiver_locked = AlphaBalance::from(1_000_000u64);
+        SubtensorModule::insert_lock_state(
+            &coldkey_receiver,
+            netuid,
+            &receiver_lock_hotkey,
+            LockState {
+                locked_mass: receiver_locked,
+                conviction: U64F64::from_num(0),
+                last_update: SubtensorModule::get_current_block_as_u64(),
+            },
+        );
+
+        let total = SubtensorModule::total_coldkey_alpha_on_subnet(&coldkey_sender, netuid);
+        let lock_half = total / 2.into();
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &coldkey_sender,
+            netuid,
+            &origin_hotkey,
+            lock_half,
+        ));
+        let sender_lock_before = Lock::<Test>::get((coldkey_sender, netuid, origin_hotkey))
+            .expect("sender lock should exist");
+
+        step_block(1);
+
+        // Locked alpha targeting a hotkey other than the receiver's lock hotkey fails.
+        assert_noop!(
+            SubtensorModule::do_transfer_stake_and_hotkey(
+                RuntimeOrigin::signed(coldkey_sender),
+                coldkey_receiver,
+                origin_hotkey,
+                other_hotkey,
+                netuid,
+                netuid,
+                total,
+            ),
+            Error::<Test>::LockHotkeyMismatch
+        );
+
+        // Targeting the receiver's lock hotkey succeeds even though it differs
+        // from the origin hotkey (the pre-fix check compared against the origin
+        // hotkey and would have rejected this).
+        assert_ok!(SubtensorModule::do_transfer_stake_and_hotkey(
+            RuntimeOrigin::signed(coldkey_sender),
+            coldkey_receiver,
+            origin_hotkey,
+            receiver_lock_hotkey,
+            netuid,
+            netuid,
+            total,
+        ));
+
+        let expected_sender_lock = roll_forward_lock(
+            sender_lock_before,
+            SubtensorModule::get_current_block_as_u64(),
+            false,
+            true,
+        );
+        let receiver_lock = Lock::<Test>::get((coldkey_receiver, netuid, receiver_lock_hotkey))
+            .expect("receiver lock should exist on its lock hotkey");
+        assert_eq!(
+            receiver_lock.locked_mass,
+            receiver_locked.saturating_add(expected_sender_lock.locked_mass)
         );
     });
 }
@@ -2909,20 +3250,23 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
             &king_hotkey
         ));
 
-        // Make the subnet old enough and set alpha out so 1_000 conviction is exactly
-        // the 10% minimum required to trigger reassignment.
+        // Make the subnet old enough. Of 10_000 alpha out, 2_000 is protocol-owned and
+        // 1_000 is burned, so eligible alpha is 7_000. 18% of that is 1_260, so 1_400
+        // conviction on the king hotkey alone clears the takeover threshold.
         let now = crate::staking::lock::ONE_YEAR + 1;
         System::set_block_number(now);
         NetworkRegisteredAt::<Test>::insert(netuid, 1);
         SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+        SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::from(2_000u64));
+        pallet_alpha_assets::AlphaBurned::<Test>::insert(netuid, AlphaBalance::from(1_000u64));
 
         // Seed matching individual and aggregate lock rows for the future king.
-        let locked_mass = AlphaBalance::from(1_000u64);
+        let locked_mass = AlphaBalance::from(1_400u64);
         Lock::<Test>::insert(
             (new_owner_coldkey, netuid, king_hotkey),
             LockState {
                 locked_mass,
-                conviction: U64F64::from_num(1_000),
+                conviction: U64F64::from_num(1_400),
                 last_update: now,
             },
         );
@@ -2931,7 +3275,7 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
             king_hotkey,
             LockState {
                 locked_mass,
-                conviction: U64F64::from_num(1_000),
+                conviction: U64F64::from_num(1_400),
                 last_update: now,
             },
         );
@@ -2944,10 +3288,10 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
 
         // The new owner's aggregate conviction is progressed to locked mass.
         let owner_lock = Lock::<Test>::get((new_owner_coldkey, netuid, king_hotkey)).unwrap();
-        assert_eq!(owner_lock.conviction, U64F64::from_num(1_000));
+        assert_eq!(owner_lock.conviction, U64F64::from_num(1_400));
 
         let king_lock = OwnerLock::<Test>::get(netuid).unwrap();
-        assert_eq!(king_lock.conviction, U64F64::from_num(1_000));
+        assert_eq!(king_lock.conviction, U64F64::from_num(1_400));
     });
 }
 
@@ -2970,17 +3314,19 @@ fn test_run_coinbase_reassigns_subnet_owner_by_conviction_on_epoch() {
         let now = crate::staking::lock::ONE_YEAR + 1;
         System::set_block_number(now);
         NetworkRegisteredAt::<Test>::insert(netuid, 1);
+        // eligible alpha is 10_000; 18% of that is 1_800, so 2_000 on the king hotkey
+        // clears the takeover threshold.
         SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
         SubtensorModule::set_tempo_unchecked(netuid, 1);
         LastEpochBlock::<Test>::insert(netuid, now.saturating_sub(1));
         PendingEpochAt::<Test>::insert(netuid, 0);
 
-        let locked_mass = AlphaBalance::from(1_000u64);
+        let locked_mass = AlphaBalance::from(2_000u64);
         Lock::<Test>::insert(
             (new_owner_coldkey, netuid, king_hotkey),
             LockState {
                 locked_mass,
-                conviction: U64F64::from_num(1_000),
+                conviction: U64F64::from_num(2_000),
                 last_update: now,
             },
         );
@@ -2989,7 +3335,7 @@ fn test_run_coinbase_reassigns_subnet_owner_by_conviction_on_epoch() {
             king_hotkey,
             LockState {
                 locked_mass,
-                conviction: U64F64::from_num(1_000),
+                conviction: U64F64::from_num(2_000),
                 last_update: now,
             },
         );
@@ -3062,11 +3408,13 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
                 last_update: now,
             },
         );
+        // eligible alpha is 10_000; 18% is 1_800, so the king needs more than that on
+        // its own hotkey to take over.
         Lock::<Test>::insert(
             (king_coldkey, netuid, king_hotkey),
             LockState {
-                locked_mass: 1_000u64.into(),
-                conviction: U64F64::from_num(1_000),
+                locked_mass: 2_000u64.into(),
+                conviction: U64F64::from_num(2_000),
                 last_update: now,
             },
         );
@@ -3074,8 +3422,8 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
             netuid,
             king_hotkey,
             LockState {
-                locked_mass: 1_000u64.into(),
-                conviction: U64F64::from_num(1_000),
+                locked_mass: 2_000u64.into(),
+                conviction: U64F64::from_num(2_000),
                 last_update: now,
             },
         );
@@ -3097,7 +3445,7 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
         );
         assert_eq!(
             OwnerLock::<Test>::get(netuid).unwrap().locked_mass,
-            1_000u64.into()
+            2_000u64.into()
         );
     });
 }
@@ -3211,14 +3559,266 @@ fn test_change_subnet_owner_if_needed_does_not_reassign_when_required_condition_
             });
         };
 
-    // Missing condition 1: total conviction is below 10% of SubnetAlphaOut.
+    // Missing condition 1: the king hotkey's own conviction is below 18% of eligible
+    // alpha (1_000 of 30_000 is 3.3%, well under the 5_400 bar).
     assert_owner_unchanged(30_000, 1, 500, 1_000);
 
     // Missing condition 2: subnet is younger than one year.
     assert_owner_unchanged(20_000, crate::staking::lock::ONE_YEAR, 500, 1_000);
 
-    // Missing condition 3: challenger is not the subnet king because owner's conviction is higher.
+    // Missing condition 3: the owner hotkey is the conviction leader, so no challenger
+    // is crowned. Its 2_000 is also under 18% of 20_000 (3_600), so the gate fails too.
     assert_owner_unchanged(20_000, 1, 2_000, 1_000);
+}
+
+/// The 18% gate is a strict `>` on the king hotkey's own conviction versus eligible
+/// alpha. Exactly 18% is not enough; one unit over crosses the line.
+#[test]
+fn test_change_subnet_owner_if_needed_gate_is_strict_18_percent_of_eligible() {
+    let king_takes_over = |king_conviction: u64| -> bool {
+        new_test_ext(1).execute_with(|| {
+            let old_owner_coldkey = U256::from(1);
+            let old_owner_hotkey = U256::from(2);
+            let netuid =
+                setup_subnet_with_stake(old_owner_coldkey, old_owner_hotkey, 100_000_000_000);
+            SubnetOwner::<Test>::insert(netuid, old_owner_coldkey);
+            SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+
+            let king_coldkey = U256::from(5);
+            let king_hotkey = U256::from(6);
+            assert_ok!(SubtensorModule::create_account_if_non_existent(
+                &king_coldkey,
+                &king_hotkey
+            ));
+
+            let now = crate::staking::lock::ONE_YEAR + 1;
+            System::set_block_number(now);
+            NetworkRegisteredAt::<Test>::insert(netuid, 1);
+            // No protocol or burned alpha, so eligible alpha equals 10_000 and 18% is 1_800.
+            SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+
+            let locked_mass = AlphaBalance::from(king_conviction);
+            Lock::<Test>::insert(
+                (king_coldkey, netuid, king_hotkey),
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(king_conviction),
+                    last_update: now,
+                },
+            );
+            HotkeyLock::<Test>::insert(
+                netuid,
+                king_hotkey,
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(king_conviction),
+                    last_update: now,
+                },
+            );
+
+            SubtensorModule::change_subnet_owner_if_needed(netuid);
+            SubnetOwnerHotkey::<Test>::get(netuid) == king_hotkey
+        })
+    };
+
+    assert!(!king_takes_over(1_799));
+    assert!(!king_takes_over(1_800)); // exactly 18% is not enough
+    assert!(king_takes_over(1_801)); // just over 18% takes the subnet
+}
+
+/// Regression: the gate must stay exact when eligible alpha is near u64::MAX. The
+/// previous U64F64 form saturated both sides of the comparison (`MAX <= MAX`) and
+/// rejected every takeover in that range regardless of conviction.
+#[test]
+fn test_change_subnet_owner_if_needed_gate_is_exact_near_u64_max() {
+    let king_takes_over = |king_conviction: u64| -> bool {
+        new_test_ext(1).execute_with(|| {
+            let old_owner_coldkey = U256::from(1);
+            let old_owner_hotkey = U256::from(2);
+            let netuid =
+                setup_subnet_with_stake(old_owner_coldkey, old_owner_hotkey, 100_000_000_000);
+            SubnetOwner::<Test>::insert(netuid, old_owner_coldkey);
+            SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+
+            let king_coldkey = U256::from(5);
+            let king_hotkey = U256::from(6);
+            assert_ok!(SubtensorModule::create_account_if_non_existent(
+                &king_coldkey,
+                &king_hotkey
+            ));
+
+            let now = crate::staking::lock::ONE_YEAR + 1;
+            System::set_block_number(now);
+            NetworkRegisteredAt::<Test>::insert(netuid, 1);
+            SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(u64::MAX));
+
+            let locked_mass = AlphaBalance::from(king_conviction);
+            Lock::<Test>::insert(
+                (king_coldkey, netuid, king_hotkey),
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(king_conviction),
+                    last_update: now,
+                },
+            );
+            HotkeyLock::<Test>::insert(
+                netuid,
+                king_hotkey,
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(king_conviction),
+                    last_update: now,
+                },
+            );
+
+            SubtensorModule::change_subnet_owner_if_needed(netuid);
+            SubnetOwnerHotkey::<Test>::get(netuid) == king_hotkey
+        })
+    };
+
+    // 18% of u64::MAX is 3_320_413_933_267_719_290.7; the gate is strict, so the
+    // integer floor stays below the bar and the next rao above it clears.
+    assert!(!king_takes_over(3_000_000_000_000_000_000)); // clearly below 18%
+    assert!(!king_takes_over(3_320_413_933_267_719_290)); // floor of the exact bar
+    assert!(king_takes_over(3_320_413_933_267_719_291)); // first conviction above it
+}
+
+/// Regression: a challenger below 18% on its own hotkey must not win even when the
+/// subnet-wide total conviction (challenger plus owner plus unrelated lockers) is far
+/// past 18%. This is the sum-versus-max hole that flipped SN72 under the old gate.
+#[test]
+fn test_change_subnet_owner_if_needed_ignores_other_lockers_conviction() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1);
+        let owner_hotkey = U256::from(2);
+        let netuid = setup_subnet_with_stake(owner_coldkey, owner_hotkey, 100_000_000_000);
+        SubnetOwner::<Test>::insert(netuid, owner_coldkey);
+        SubnetOwnerHotkey::<Test>::insert(netuid, owner_hotkey);
+
+        let king_coldkey = U256::from(5);
+        let king_hotkey = U256::from(6);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &king_coldkey,
+            &king_hotkey
+        ));
+        let bystander_coldkey = U256::from(7);
+        let bystander_hotkey = U256::from(8);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &bystander_coldkey,
+            &bystander_hotkey
+        ));
+
+        let now = crate::staking::lock::ONE_YEAR + 1;
+        System::set_block_number(now);
+        NetworkRegisteredAt::<Test>::insert(netuid, 1);
+        // eligible alpha 10_000; 18% is 1_800.
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+
+        let seed = |hotkey: U256, coldkey: U256, conviction: u64| {
+            let locked_mass = AlphaBalance::from(conviction);
+            Lock::<Test>::insert(
+                (coldkey, netuid, hotkey),
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(conviction),
+                    last_update: now,
+                },
+            );
+            HotkeyLock::<Test>::insert(
+                netuid,
+                hotkey,
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(conviction),
+                    last_update: now,
+                },
+            );
+        };
+        // Challenger leads on conviction but holds only 1_700 (< 1_800) on its own hotkey.
+        seed(king_hotkey, king_coldkey, 1_700);
+        seed(bystander_hotkey, bystander_coldkey, 1_500);
+        // Owner's instant-maturing defensive lock.
+        OwnerLock::<Test>::insert(
+            netuid,
+            LockState {
+                locked_mass: 1_500u64.into(),
+                conviction: U64F64::from_num(1_500),
+                last_update: now,
+            },
+        );
+
+        // The subnet-wide total (1_700 + 1_500 + 1_500 = 4_700) is well over 18%, which
+        // the old sum gate would have admitted.
+        assert!(
+            SubtensorModule::get_total_conviction(netuid)
+                .saturating_mul(U64F64::saturating_from_num(100))
+                > U64F64::saturating_from_num(10_000u64).saturating_mul(U64F64::from_num(18))
+        );
+
+        SubtensorModule::change_subnet_owner_if_needed(netuid);
+
+        // Ownership stays put: the leader's own conviction did not clear 18%.
+        assert_eq!(SubnetOwner::<Test>::get(netuid), owner_coldkey);
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), owner_hotkey);
+    });
+}
+
+/// The gate denominator is eligible alpha (`SubnetAlphaOut - SubnetProtocolAlpha -
+/// AlphaBurned`), not raw alpha out. Shrinking eligible alpha lets the same conviction
+/// clear the bar.
+#[test]
+fn test_change_subnet_owner_if_needed_uses_eligible_alpha_denominator() {
+    let king_takes_over = |protocol: u64, burned: u64| -> bool {
+        new_test_ext(1).execute_with(|| {
+            let old_owner_coldkey = U256::from(1);
+            let old_owner_hotkey = U256::from(2);
+            let netuid =
+                setup_subnet_with_stake(old_owner_coldkey, old_owner_hotkey, 100_000_000_000);
+            SubnetOwner::<Test>::insert(netuid, old_owner_coldkey);
+            SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+
+            let king_coldkey = U256::from(5);
+            let king_hotkey = U256::from(6);
+            assert_ok!(SubtensorModule::create_account_if_non_existent(
+                &king_coldkey,
+                &king_hotkey
+            ));
+
+            let now = crate::staking::lock::ONE_YEAR + 1;
+            System::set_block_number(now);
+            NetworkRegisteredAt::<Test>::insert(netuid, 1);
+            SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+            SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::from(protocol));
+            pallet_alpha_assets::AlphaBurned::<Test>::insert(netuid, AlphaBalance::from(burned));
+
+            let locked_mass = AlphaBalance::from(1_000u64);
+            Lock::<Test>::insert(
+                (king_coldkey, netuid, king_hotkey),
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(1_000),
+                    last_update: now,
+                },
+            );
+            HotkeyLock::<Test>::insert(
+                netuid,
+                king_hotkey,
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(1_000),
+                    last_update: now,
+                },
+            );
+
+            SubtensorModule::change_subnet_owner_if_needed(netuid);
+            SubnetOwnerHotkey::<Test>::get(netuid) == king_hotkey
+        })
+    };
+
+    // Against raw alpha out (10_000), 1_000 conviction is only 10% and fails.
+    assert!(!king_takes_over(0, 0));
+    // Protocol 3_000 + burned 2_000 shrinks eligible to 5_000, so 1_000 is 20% and passes.
+    assert!(king_takes_over(3_000, 2_000));
 }
 
 // =========================================================================
@@ -3537,7 +4137,7 @@ fn test_coldkey_swap_lock_blocks_unstake() {
 
 #[test]
 // Conviction-only destination lock state is not active, so direct coldkey lock transfer is allowed.
-fn test_coldkey_swap_allows_destination_conviction_only_lock() {
+fn test_coldkey_swap_rejects_destination_conviction_only_lock() {
     new_test_ext(1).execute_with(|| {
         let old_coldkey = U256::from(1);
         let new_coldkey = U256::from(10);
@@ -3570,25 +4170,85 @@ fn test_coldkey_swap_allows_destination_conviction_only_lock() {
             },
         );
 
+        // Residual destination conviction blocks the merge until a path can
+        // preserve it; zero mass alone is not enough to clear the row.
+        assert_noop!(
+            SubtensorModule::swap_coldkey_locks(&old_coldkey, &new_coldkey),
+            Error::<Test>::ActiveLockExists
+        );
+        assert!(Lock::<Test>::get((new_coldkey, netuid, new_hotkey)).is_some());
+        assert_eq!(
+            Lock::<Test>::get((new_coldkey, netuid, new_hotkey))
+                .expect("dest conviction-only lock preserved")
+                .conviction,
+            new_conviction
+        );
+        assert!(Lock::<Test>::get((old_coldkey, netuid, old_hotkey)).is_some());
+    });
+}
+
+#[test]
+// Fully exhausted (dust) destination lock rows that sort before an incoming
+// active source lock must be purged on merge; otherwise get_current_locked can
+// report zero and alpha covered by the active lock becomes withdrawable.
+fn test_coldkey_swap_purges_exhausted_destination_lock_before_active_merge() {
+    new_test_ext(1).execute_with(|| {
+        let old_coldkey = U256::from(1);
+        let new_coldkey = U256::from(10);
+        // Destination hotkey sorts before the source hotkey under the mock
+        // AccountId encoding so the exhausted row would be discovered first.
+        let dest_hotkey = U256::from(2);
+        let source_hotkey = U256::from(20);
+        let netuid = subtensor_runtime_common::NetUid::from(1);
+
+        let active_locked = AlphaBalance::from(5_000_000u64);
+        let active_conviction = U64F64::from_num(55);
+
+        // Destination must accept locked alpha to receive the source active lock.
+        SubtensorModule::set_accept_locked_alpha(&new_coldkey, true);
+
+        SubtensorModule::insert_lock_state(
+            &old_coldkey,
+            netuid,
+            &source_hotkey,
+            LockState {
+                locked_mass: active_locked,
+                conviction: active_conviction,
+                last_update: SubtensorModule::get_current_block_as_u64(),
+            },
+        );
+        // Seed a fully exhausted dust row directly (insert_lock_state would
+        // remove is_zero state).
+        Lock::<Test>::insert(
+            (new_coldkey, netuid, dest_hotkey),
+            LockState {
+                locked_mass: AlphaBalance::ZERO,
+                conviction: U64F64::from_num(0),
+                last_update: SubtensorModule::get_current_block_as_u64(),
+            },
+        );
+        LockingColdkeys::<Test>::insert((netuid, dest_hotkey, new_coldkey), ());
+
+        // Precondition: exhausted dest row is the first discoverable lock.
+        let (first_hotkey, _) = Lock::<Test>::iter_prefix((new_coldkey, netuid))
+            .next()
+            .expect("destination exhausted lock present");
+        assert_eq!(first_hotkey, dest_hotkey);
+
         assert_ok!(SubtensorModule::swap_coldkey_locks(
             &old_coldkey,
             &new_coldkey
         ));
 
-        assert!(
-            Lock::<Test>::iter_prefix((old_coldkey, netuid))
-                .next()
-                .is_none()
+        assert!(Lock::<Test>::get((new_coldkey, netuid, dest_hotkey)).is_none());
+        assert_eq!(Lock::<Test>::iter_prefix((new_coldkey, netuid)).count(), 1);
+        let merged = Lock::<Test>::get((new_coldkey, netuid, source_hotkey))
+            .expect("active source lock transferred");
+        assert_eq!(merged.locked_mass, active_locked);
+        assert_eq!(
+            SubtensorModule::get_current_locked(&new_coldkey, netuid),
+            active_locked
         );
-        assert!(Lock::<Test>::get((new_coldkey, netuid, new_hotkey)).is_some());
-
-        let swapped_lock = Lock::<Test>::get((new_coldkey, netuid, old_hotkey))
-            .expect("source lock should be transferred");
-        assert_eq!(swapped_lock.locked_mass, AlphaBalance::ZERO);
-        assert_eq!(swapped_lock.conviction, old_conviction);
-        assert_eq!(Lock::<Test>::iter_prefix((new_coldkey, netuid)).count(), 2);
-        assert!(DecayingLock::<Test>::get(old_coldkey, netuid).is_none());
-        assert_eq!(DecayingLock::<Test>::get(new_coldkey, netuid), Some(false));
     });
 }
 
@@ -3735,7 +4395,7 @@ fn test_failed_coldkey_swap_extrinsic_rolls_back_state_changes() {
             },
         );
 
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::swap_coldkey(
                 RuntimeOrigin::root(),
                 old_coldkey,
@@ -4276,7 +4936,7 @@ fn test_epoch_distribution_auto_locks_owner_cut() {
         SubtensorModule::set_weights_set_rate_limit(netuid, 0);
         SubtensorModule::set_max_allowed_validators(netuid, 1);
         step_block(subnet_tempo);
-        SubnetOwnerCut::<Test>::set(u16::MAX / 10);
+        set_subnet_owner_cut_for_test(netuid, u16::MAX / 10);
         OwnerCutAutoLockEnabled::<Test>::insert(netuid, true);
 
         let owner_uid =

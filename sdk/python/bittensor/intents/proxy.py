@@ -37,6 +37,9 @@ PROXY_TYPES = (
     "SwapHotkey",
     "SubnetLeaseBeneficiary",
     "RootClaim",
+    "BasketTrading",
+    "Validate",
+    "Weights",
 )
 
 
@@ -51,6 +54,17 @@ def check_proxy_type(proxy_type: str) -> str:
             f"unknown proxy type {proxy_type!r}; expected one of: {', '.join(PROXY_TYPES)}"
         )
     return proxy_type
+
+
+# Proxy types whose calls are hotkey-signed (weights, serving, commitments, EVM
+# association), so the real account is the validator hotkey, not the coldkey. A
+# coldkey grant of these types could dispatch nothing useful.
+HOTKEY_PROXY_TYPES = ("Validate", "Weights")
+
+
+def proxy_grant_signer(proxy_type: str) -> str:
+    """Key that signs add/remove for ``proxy_type``: the hotkey for hotkey-scoped types."""
+    return "hotkey" if proxy_type in HOTKEY_PROXY_TYPES else "coldkey"
 
 
 PROXY_TYPE_HELP = (
@@ -78,7 +92,9 @@ class AddProxy(Intent):
     ``proxy_for=<this account>``. The chain reserves a small deposit from the
     signer per delegation (returned on removal). The delegate can act within
     ``proxy_type`` immediately (or after announcing, if ``delay`` > 0) — grant
-    only to keys you control or fully trust.
+    only to keys you control or fully trust. ``Validate`` and ``Weights`` cover
+    hotkey-signed calls, so the wallet's hotkey signs those grants and must hold
+    the deposit and fee.
     """
 
     op = "add_proxy"
@@ -93,6 +109,8 @@ class AddProxy(Intent):
 
     def __post_init__(self):
         check_proxy_type(self.proxy_type)
+        # Instance attribute shadowing the ClassVar default.
+        self.signer = proxy_grant_signer(self.proxy_type)
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -111,6 +129,11 @@ class AddProxy(Intent):
                 "an Any proxy can do everything this account can, including transfers; "
                 "prefer a narrower proxy type"
             )
+        if self.signer == "hotkey":
+            out.append(
+                f"{self.proxy_type} acts for the hotkey: the hotkey signs this grant "
+                "and needs free TAO for the deposit and fee"
+            )
         return out
 
 
@@ -122,7 +145,9 @@ class RemoveProxy(Intent):
     The (delegate, proxy_type, delay) triple must match the original
     ``add_proxy`` exactly — a mismatch fails with NotFound rather than removing
     a different delegation. The proxy deposit reserved at add time is returned
-    to the signer. Check current delegations with ``btcli query proxies``.
+    to the signer. ``Validate`` and ``Weights`` grants are revoked by the
+    hotkey that granted them. Check current delegations with
+    ``btcli query proxies``.
     """
 
     op = "remove_proxy"
@@ -141,6 +166,7 @@ class RemoveProxy(Intent):
 
     def __post_init__(self):
         check_proxy_type(self.proxy_type)
+        self.signer = proxy_grant_signer(self.proxy_type)
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -161,18 +187,29 @@ class RemoveProxies(Intent):
     A cleanup/panic switch: all delegates lose access in one call and all proxy
     deposits are returned. Careful if this account spawned pure proxies — they
     are controlled *through* delegations, so removing everything can strand them
-    permanently (there is no key to recover a pure proxy with).
+    permanently (there is no key to recover a pure proxy with). ``Validate`` and
+    ``Weights`` grants are keyed by the hotkey, so revoking those needs a second
+    call with ``from_hotkey`` set.
     """
 
     op = "remove_proxies"
     signer = "coldkey"
     wraps = (("Proxy", "remove_proxies"),)
 
+    from_hotkey: bool = field(
+        default=False,
+        metadata={"help": "Sign with the hotkey to revoke its Validate/Weights grants."},
+    )
+
+    def __post_init__(self):
+        # Instance attribute shadowing the ClassVar default.
+        self.signer = "hotkey" if self.from_hotkey else "coldkey"
+
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(calls.Proxy.remove_proxies())
 
     def summary(self) -> str:
-        return "remove ALL proxies for the signer"
+        return f"remove ALL proxies for the {self.signer}"
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         return ["revokes every delegate at once; pure-proxy accounts would become inaccessible"]

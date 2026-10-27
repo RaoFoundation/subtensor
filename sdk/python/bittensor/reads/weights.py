@@ -6,7 +6,7 @@ from .. import timelock
 from .._generated import storage as st
 from ..hyperparams import ratio_fraction
 from ..settings import GLOBAL_MAX_SUBNET_COUNT
-from .base import read
+from .base import Grouped, Matrix, read
 
 
 def _mechanism_index(netuid: int, mechid: int) -> int:
@@ -27,6 +27,7 @@ _MECHID_DOC = "Mechanism index within the subnet; 0 (the default) on ordinary su
         "netuid": "Subnet whose weight matrix to fetch.",
         "mechid": _MECHID_DOC,
     },
+    render=Matrix("validator", "miner", "weight"),
 )
 async def weights(view, netuid: int, mechid: int = 0) -> dict[int, dict[int, float]]:
     """Validator weight rows as ``{validator_uid: {miner_uid: fraction}}``, each row summing to 1.
@@ -53,6 +54,7 @@ async def weights(view, netuid: int, mechid: int = 0) -> dict[int, dict[int, flo
         "netuid": "Subnet whose bond matrix to fetch.",
         "mechid": _MECHID_DOC,
     },
+    render=Matrix("validator", "miner", "bond"),
 )
 async def bonds(view, netuid: int, mechid: int = 0) -> dict[int, dict[int, float]]:
     """Validator bond rows as ``{validator_uid: {miner_uid: bond}}``, scaled to 0..1.
@@ -82,6 +84,7 @@ async def bonds(view, netuid: int, mechid: int = 0) -> dict[int, dict[int, float
         "netuid": "Subnet whose pending weight commits to list.",
         "mechid": _MECHID_DOC,
     },
+    render=Grouped("epoch"),
 )
 async def timelocked_weight_commits(view, netuid: int, mechid: int = 0) -> dict[int, list[dict]]:
     """Pending (still-encrypted) commit-reveal weight commits, grouped by epoch.

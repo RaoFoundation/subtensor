@@ -1,4 +1,5 @@
 use crate::{Error, pallet::PrecompileEnable};
+use codec::Encode;
 use frame_support::{
     assert_err, assert_noop, assert_ok,
     dispatch::{DispatchClass, GetDispatchInfo, Pays},
@@ -9,7 +10,9 @@ use frame_system::Config;
 use pallet_subtensor::{
     Error as SubtensorError, Event, MaxRegistrationsPerBlock, SubnetOwner,
     TargetRegistrationsPerInterval, Tempo, WeightsVersionKeyRateLimit,
-    subnets::mechanism::MAX_MECHANISM_COUNT_PER_SUBNET, utils::rate_limiting::TransactionType, *,
+    subnets::mechanism::MAX_MECHANISM_COUNT_PER_SUBNET,
+    utils::rate_limiting::{Hyperparameter, TransactionType},
+    *,
 };
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{Get, Pair, U256, ed25519};
@@ -17,6 +20,8 @@ use sp_runtime::PerU16;
 use substrate_fixed::types::I96F32;
 use subtensor_runtime_common::{MechId, NetUid, TaoBalance, Token};
 pub mod mock;
+mod pow_difficulty;
+mod swap_basket_liquidity_cap;
 use mock::*;
 
 #[test]
@@ -371,23 +376,21 @@ fn test_sudo_set_adjustment_alpha() {
 }
 
 #[test]
-fn test_sudo_subnet_owner_cut() {
+fn test_sudo_subnet_owner_cut_is_deprecated() {
     new_test_ext().execute_with(|| {
-        let to_be_set: u16 = 10;
         let init_value: u16 = SubtensorModule::get_subnet_owner_cut();
-        assert_eq!(
+        assert_noop!(
             AdminUtils::sudo_set_subnet_owner_cut(
                 <<Test as Config>::RuntimeOrigin>::signed(U256::from(0)),
-                to_be_set
+                10
             ),
-            Err(DispatchError::BadOrigin)
+            Error::<Test>::Deprecated
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_owner_cut(<<Test as Config>::RuntimeOrigin>::root(), 10),
+            Error::<Test>::Deprecated
         );
         assert_eq!(SubtensorModule::get_subnet_owner_cut(), init_value);
-        assert_ok!(AdminUtils::sudo_set_subnet_owner_cut(
-            <<Test as Config>::RuntimeOrigin>::root(),
-            to_be_set
-        ));
-        assert_eq!(SubtensorModule::get_subnet_owner_cut(), to_be_set);
     });
 }
 
@@ -686,6 +689,138 @@ fn test_sudo_set_activity_cutoff() {
 }
 
 #[test]
+fn test_sudo_set_activity_cutoff_factor() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10);
+        let owner = U256::from(5);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_admin_freeze_window(0);
+
+        // A non-owner signed origin is rejected.
+        assert_eq!(
+            AdminUtils::sudo_set_activity_cutoff_factor(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                netuid,
+                5_000
+            ),
+            Err(DispatchError::BadOrigin)
+        );
+
+        // Out-of-bounds factors are rejected for owner and root alike.
+        assert_noop!(
+            AdminUtils::sudo_set_activity_cutoff_factor(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid,
+                MAX_ACTIVITY_CUTOFF_FACTOR_MILLI + 1
+            ),
+            SubtensorError::<Test>::ActivityCutoffFactorMilliOutOfBounds
+        );
+
+        // The owner can set a factor within bounds.
+        assert_ok!(AdminUtils::sudo_set_activity_cutoff_factor(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            5_000
+        ));
+        assert_eq!(ActivityCutoffFactorMilli::<Test>::get(netuid), 5_000);
+
+        // A second owner change within the rate limit is rejected; root bypasses it.
+        assert_noop!(
+            AdminUtils::sudo_set_activity_cutoff_factor(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                6_000
+            ),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+        assert_ok!(AdminUtils::sudo_set_activity_cutoff_factor(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            6_000
+        ));
+        assert_eq!(ActivityCutoffFactorMilli::<Test>::get(netuid), 6_000);
+    });
+}
+
+#[test]
+fn test_sudo_set_tempo_owner_and_root() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10);
+        let owner = U256::from(5);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_admin_freeze_window(0);
+
+        // A non-owner signed origin is rejected.
+        assert_eq!(
+            AdminUtils::sudo_set_tempo(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                netuid,
+                MIN_TEMPO
+            ),
+            Err(DispatchError::BadOrigin)
+        );
+
+        // A nonexistent subnet is rejected for root.
+        assert_noop!(
+            AdminUtils::sudo_set_tempo(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid.next(),
+                MIN_TEMPO
+            ),
+            SubtensorError::<Test>::SubnetNotExists
+        );
+
+        // The owner is bounded to [MIN_TEMPO, MAX_TEMPO].
+        assert_noop!(
+            AdminUtils::sudo_set_tempo(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                MIN_TEMPO - 1
+            ),
+            SubtensorError::<Test>::TempoOutOfBounds
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_tempo(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                MAX_TEMPO + 1
+            ),
+            SubtensorError::<Test>::TempoOutOfBounds
+        );
+
+        // Within bounds the owner change lands and resets the cycle.
+        assert_ok!(AdminUtils::sudo_set_tempo(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            MIN_TEMPO
+        ));
+        assert_eq!(Tempo::<Test>::get(netuid), MIN_TEMPO);
+        let now = SubtensorModule::get_current_block_as_u64();
+        assert_eq!(LastEpochBlock::<Test>::get(netuid), now);
+
+        // A second owner change within the MIN_TEMPO cooldown is rate-limited.
+        assert_noop!(
+            AdminUtils::sudo_set_tempo(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                MIN_TEMPO + 1
+            ),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+
+        // Root bypasses the bounds and the rate limit.
+        assert_ok!(AdminUtils::sudo_set_tempo(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            10
+        ));
+        assert_eq!(Tempo::<Test>::get(netuid), 10);
+    });
+}
+
+#[test]
 fn test_sudo_set_target_registrations_per_interval() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
@@ -755,17 +890,13 @@ fn test_sudo_set_difficulty() {
         ));
         assert_eq!(SubtensorModule::get_difficulty_as_u64(netuid), to_be_set);
 
-        // Test that SN owner can't set difficulty
         pallet_subtensor::SubnetOwner::<Test>::insert(netuid, U256::from(1));
-        assert_eq!(
-            AdminUtils::sudo_set_difficulty(
-                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
-                netuid,
-                init_value
-            ),
-            Err(DispatchError::BadOrigin)
-        );
-        assert_eq!(SubtensorModule::get_difficulty_as_u64(netuid), to_be_set); // no change
+        assert_ok!(AdminUtils::sudo_set_difficulty(
+            RuntimeOrigin::signed(U256::from(1)),
+            netuid,
+            init_value
+        ));
+        assert_eq!(SubtensorModule::get_difficulty_as_u64(netuid), init_value);
     });
 }
 
@@ -991,17 +1122,34 @@ fn test_sudo_set_network_lock_reduction_interval() {
 fn test_sudo_set_network_pow_registration_allowed() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
-        let to_be_set: bool = true;
         add_network(netuid, 10);
-
-        assert_eq!(
+        assert!(!SubtensorModule::get_network_pow_registration_allowed(
+            netuid
+        ));
+        assert_err!(
             AdminUtils::sudo_set_network_pow_registration_allowed(
-                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                RuntimeOrigin::signed(U256::from(1)),
                 netuid,
-                to_be_set
+                true
             ),
-            Err(Error::<Test>::POWRegistrationDisabled.into())
+            DispatchError::BadOrigin
         );
+        assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
+            RuntimeOrigin::root(),
+            netuid,
+            true
+        ));
+        assert!(SubtensorModule::get_network_pow_registration_allowed(
+            netuid
+        ));
+        assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
+            RuntimeOrigin::root(),
+            netuid,
+            false
+        ));
+        assert!(!SubtensorModule::get_network_pow_registration_allowed(
+            netuid
+        ));
     });
 }
 
@@ -1217,6 +1365,150 @@ fn test_sudo_set_liquid_alpha_enabled() {
 }
 
 #[test]
+fn test_sudo_set_liquid_alpha_consensus_mode() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        NetworksAdded::<Test>::insert(netuid, true);
+        assert_eq!(
+            SubtensorModule::get_liquid_alpha_consensus_mode(netuid),
+            ConsensusMode::Auto
+        );
+
+        assert_err!(
+            AdminUtils::sudo_set_liquid_alpha_consensus_mode(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                netuid,
+                ConsensusMode::Previous,
+            ),
+            DispatchError::BadOrigin
+        );
+
+        for mode in [
+            ConsensusMode::Current,
+            ConsensusMode::Previous,
+            ConsensusMode::Auto,
+        ] {
+            assert_ok!(AdminUtils::sudo_set_liquid_alpha_consensus_mode(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid,
+                mode,
+            ));
+            assert_eq!(
+                SubtensorModule::get_liquid_alpha_consensus_mode(netuid),
+                mode
+            );
+            frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::SubtensorModule(
+                Event::LiquidAlphaConsensusModeSet(netuid, mode),
+            ));
+        }
+    });
+}
+
+#[test]
+fn test_subnet_owner_can_set_liquid_alpha_consensus_mode() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(10);
+        add_network(netuid, 10);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_admin_freeze_window(0);
+
+        assert_ok!(AdminUtils::sudo_set_liquid_alpha_consensus_mode(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            ConsensusMode::Previous,
+        ));
+        assert_eq!(
+            SubtensorModule::get_liquid_alpha_consensus_mode(netuid),
+            ConsensusMode::Previous
+        );
+    });
+}
+
+#[test]
+fn regression_liquid_alpha_consensus_mode_call_index() {
+    let call = crate::Call::<Test>::sudo_set_liquid_alpha_consensus_mode {
+        netuid: NetUid::from(1),
+        mode: ConsensusMode::Auto,
+    };
+
+    assert_eq!(call.encode().first(), Some(&104));
+}
+
+#[test]
+fn test_epoch_consensus_owner_root_and_unauthorized() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(10);
+        add_network(netuid, 10);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_admin_freeze_window(0);
+        assert_eq!(
+            SubtensorModule::get_epoch_consensus(netuid),
+            EpochConsensus::Yuma
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_epoch_consensus(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(11)),
+                netuid,
+                EpochConsensus::Null,
+            ),
+            DispatchError::BadOrigin,
+        );
+        assert_ok!(AdminUtils::sudo_set_epoch_consensus(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            EpochConsensus::Null,
+        ));
+        assert_eq!(
+            SubtensorModule::get_epoch_consensus(netuid),
+            EpochConsensus::Null
+        );
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::SubtensorModule(
+            Event::EpochConsensusSet(netuid, EpochConsensus::Null),
+        ));
+        assert_ok!(AdminUtils::sudo_set_epoch_consensus(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            EpochConsensus::Yuma,
+        ));
+        assert_eq!(
+            SubtensorModule::get_epoch_consensus(netuid),
+            EpochConsensus::Yuma
+        );
+    });
+}
+
+#[test]
+fn regression_epoch_consensus_wire_indices() {
+    let call = crate::Call::<Test>::sudo_set_epoch_consensus {
+        netuid: NetUid::from(1),
+        mode: EpochConsensus::Null,
+    };
+    assert_eq!(call.encode().first(), Some(&111));
+    assert_eq!(EpochConsensus::Yuma.encode(), vec![0]);
+    assert_eq!(EpochConsensus::Null.encode(), vec![1]);
+}
+
+#[test]
+fn test_epoch_consensus_rejects_missing_subnet() {
+    new_test_ext().execute_with(|| {
+        assert_noop!(
+            AdminUtils::sudo_set_epoch_consensus(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                NetUid::from(123),
+                EpochConsensus::Null,
+            ),
+            SubtensorError::<Test>::SubnetNotExists,
+        );
+        assert_eq!(
+            SubtensorModule::get_epoch_consensus(NetUid::from(123)),
+            EpochConsensus::Yuma
+        );
+    });
+}
+
+#[test]
 fn test_sudo_set_alpha_sigmoid_steepness() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
@@ -1279,7 +1571,7 @@ fn test_sudo_set_alpha_sigmoid_steepness() {
 fn test_set_alpha_values_dispatch_info_ok() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
-        let alpha_low: u16 = 1638_u16;
+        let alpha_low = MIN_ALPHA_LOW;
         let alpha_high: u16 = u16::MAX - 10;
         let call = RuntimeCall::AdminUtils(crate::Call::sudo_set_alpha_values {
             netuid,
@@ -1298,7 +1590,7 @@ fn test_set_alpha_values_dispatch_info_ok() {
 fn test_sudo_get_set_alpha() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
-        let alpha_low: u16 = 1638_u16;
+        let alpha_low = MIN_ALPHA_LOW;
         let alpha_high: u16 = u16::MAX - 10;
 
         let hotkey: U256 = U256::from(1);
@@ -1377,7 +1669,7 @@ fn test_sudo_get_set_alpha() {
         ));
 
         // 2. Alpha high too low
-        let alpha_high_too_low = (u16::MAX as u32 / 40) as u16 - 1; // One less than the minimum acceptable value
+        let alpha_high_too_low = MIN_ALPHA_LOW - 1;
         assert_err!(
             AdminUtils::sudo_set_alpha_values(
                 signer.clone(),
@@ -1396,7 +1688,7 @@ fn test_sudo_get_set_alpha() {
         ));
 
         // 3. Alpha low too low or too high
-        let alpha_low_too_low = 0_u16;
+        let alpha_low_too_low = MIN_ALPHA_LOW - 1;
         assert_err!(
             AdminUtils::sudo_set_alpha_values(
                 signer.clone(),
@@ -1683,21 +1975,60 @@ fn test_sudo_non_root_cannot_set_evm_chain_id() {
 fn test_schedule_grandpa_change() {
     new_test_ext().execute_with(|| {
         assert_eq!(Grandpa::grandpa_authorities(), vec![]);
+        pallet_grandpa::CurrentSetId::<Test>::put(3);
 
         let bob: GrandpaId = ed25519::Pair::from_legacy_string("//Bob", None)
             .public()
             .into();
 
+        assert_noop!(
+            AdminUtils::schedule_grandpa_change(
+                RuntimeOrigin::root(),
+                vec![(bob.clone(), 1)],
+                41,
+                None
+            ),
+            crate::Error::<Test>::GrandpaChangeDelayMustBeZero
+        );
+        assert_eq!(Grandpa::current_set_id(), 3);
+
         assert_ok!(AdminUtils::schedule_grandpa_change(
             RuntimeOrigin::root(),
             vec![(bob.clone(), 1)],
-            41,
+            0,
             None
         ));
 
-        Grandpa::on_finalize(42);
+        assert_eq!(Grandpa::current_set_id(), 4);
+        assert_noop!(
+            AdminUtils::schedule_grandpa_change(
+                RuntimeOrigin::root(),
+                vec![(bob.clone(), 1)],
+                0,
+                None
+            ),
+            pallet_grandpa::Error::<Test>::ChangePending
+        );
+        assert_eq!(Grandpa::current_set_id(), 4);
+
+        Grandpa::on_finalize(System::block_number());
 
         assert_eq!(Grandpa::grandpa_authorities(), vec![(bob, 1)]);
+        assert_eq!(Grandpa::current_set_id(), 4);
+    });
+}
+
+#[test]
+fn grandpa_set_id_overflow_does_not_schedule_change() {
+    new_test_ext().execute_with(|| {
+        pallet_grandpa::CurrentSetId::<Test>::put(u64::MAX);
+
+        assert_noop!(
+            AdminUtils::schedule_grandpa_change(RuntimeOrigin::root(), Vec::new(), 0, None),
+            sp_runtime::ArithmeticError::Overflow
+        );
+        assert!(!pallet_grandpa::PendingChange::<Test>::exists());
+        assert_eq!(Grandpa::current_set_id(), u64::MAX);
     });
 }
 
@@ -2505,39 +2836,42 @@ fn test_sudo_set_mechanism_count() {
 }
 
 #[test]
-fn test_sudo_set_owner_cut_enabled() {
+fn test_sudo_set_owner_cut_enabled_is_deprecated() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(11);
         let owner = U256::from(1234);
-        let call = RuntimeCall::AdminUtils(crate::Call::sudo_set_owner_cut_enabled {
-            netuid,
-            enabled: false,
-        });
 
         add_network(netuid, 10);
         SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_subnet_emission_weights_unchecked(
+            netuid,
+            SubtensorModule::emission_weights_with_owner(pallet_subtensor::emission_fraction(
+                10, 100,
+            )),
+        );
 
         assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
             <<Test as Config>::RuntimeOrigin>::root(),
             0
         ));
 
-        let dispatch_info = call.get_dispatch_info();
-        assert_eq!(dispatch_info.pays_fee, Pays::Yes);
-
         assert!(SubtensorModule::get_owner_cut_enabled(netuid));
-        assert_ok!(AdminUtils::sudo_set_owner_cut_enabled(
-            <<Test as Config>::RuntimeOrigin>::signed(owner),
-            netuid,
-            false
-        ));
-        assert!(!SubtensorModule::get_owner_cut_enabled(netuid));
-
-        assert_ok!(AdminUtils::sudo_set_owner_cut_enabled(
-            <<Test as Config>::RuntimeOrigin>::root(),
-            netuid,
-            true
-        ));
+        assert_noop!(
+            AdminUtils::sudo_set_owner_cut_enabled(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                false
+            ),
+            Error::<Test>::Deprecated
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_owner_cut_enabled(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid,
+                false
+            ),
+            Error::<Test>::Deprecated
+        );
         assert!(SubtensorModule::get_owner_cut_enabled(netuid));
     });
 }
@@ -3248,6 +3582,943 @@ fn test_sudo_set_start_call_delay_permissions_and_zero_delay() {
                 netuid
             ),
             pallet_subtensor::Error::<Test>::FirstEmissionBlockNumberAlreadySet
+        );
+    });
+}
+
+#[test]
+fn test_sudo_set_basket_concentration_cap() {
+    new_test_ext().execute_with(|| {
+        // Launch default: 1/16 of fund NAV per holding.
+        assert_eq!(
+            pallet_subtensor::BasketConcentrationCap::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_CONCENTRATION_CAP
+        );
+
+        // Only root may set the cap.
+        assert_noop!(
+            AdminUtils::sudo_set_basket_concentration_cap(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                21846
+            ),
+            DispatchError::BadOrigin
+        );
+
+        // Zero would make every buy unsatisfiable once enforced.
+        assert_noop!(
+            AdminUtils::sudo_set_basket_concentration_cap(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                0
+            ),
+            Error::<Test>::ValueNotInBounds
+        );
+
+        // Root sets a looser cap (~1/3) and the storage + event reflect it.
+        assert_ok!(AdminUtils::sudo_set_basket_concentration_cap(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            21846
+        ));
+        assert_eq!(
+            pallet_subtensor::BasketConcentrationCap::<Test>::get(),
+            21846
+        );
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketConcentrationCapSet { cap: 21846 },
+        ));
+    });
+}
+
+#[test]
+fn test_sudo_set_basket_trading_enabled() {
+    new_test_ext().execute_with(|| {
+        // Launch default: trading is off.
+        assert!(!pallet_subtensor::BasketTradingEnabled::<Test>::get());
+
+        // Only root may flip the switch.
+        assert_noop!(
+            AdminUtils::sudo_set_basket_trading_enabled(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                true
+            ),
+            DispatchError::BadOrigin
+        );
+        assert!(!pallet_subtensor::BasketTradingEnabled::<Test>::get());
+
+        assert_ok!(AdminUtils::sudo_set_basket_trading_enabled(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            true
+        ));
+        assert!(pallet_subtensor::BasketTradingEnabled::<Test>::get());
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradingToggled { enabled: true },
+        ));
+
+        assert_ok!(AdminUtils::sudo_set_basket_trading_enabled(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            false
+        ));
+        assert!(!pallet_subtensor::BasketTradingEnabled::<Test>::get());
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradingToggled { enabled: false },
+        ));
+    });
+}
+
+#[test]
+fn test_sudo_set_basket_trading_frozen() {
+    new_test_ext().execute_with(|| {
+        let hotkey = U256::from(42);
+        let other = U256::from(43);
+        assert!(!pallet_subtensor::BasketTradingFrozen::<Test>::contains_key(hotkey));
+
+        // Only root may freeze.
+        assert_noop!(
+            AdminUtils::sudo_set_basket_trading_frozen(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                hotkey,
+                true
+            ),
+            DispatchError::BadOrigin
+        );
+
+        // Freeze one hotkey: only that hotkey is marked.
+        assert_ok!(AdminUtils::sudo_set_basket_trading_frozen(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            hotkey,
+            true
+        ));
+        assert!(pallet_subtensor::BasketTradingFrozen::<Test>::contains_key(
+            hotkey
+        ));
+        assert!(!pallet_subtensor::BasketTradingFrozen::<Test>::contains_key(other));
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradingFrozenSet {
+                hotkey,
+                frozen: true,
+            },
+        ));
+
+        // Freezing twice is idempotent; unfreezing removes the row and emits.
+        assert_ok!(AdminUtils::sudo_set_basket_trading_frozen(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            hotkey,
+            true
+        ));
+        assert_ok!(AdminUtils::sudo_set_basket_trading_frozen(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            hotkey,
+            false
+        ));
+        assert!(!pallet_subtensor::BasketTradingFrozen::<Test>::contains_key(hotkey));
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradingFrozenSet {
+                hotkey,
+                frozen: false,
+            },
+        ));
+        // Unfreezing a never-frozen hotkey is a harmless no-op.
+        assert_ok!(AdminUtils::sudo_set_basket_trading_frozen(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            other,
+            false
+        ));
+    });
+}
+
+#[test]
+fn test_sudo_set_basket_daily_turnover_cap() {
+    new_test_ext().execute_with(|| {
+        // Launch default: 10% of fund NAV per window.
+        assert_eq!(
+            pallet_subtensor::BasketDailyTurnoverCap::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_DAILY_TURNOVER_CAP
+        );
+
+        // Only root may set the cap.
+        assert_noop!(
+            AdminUtils::sudo_set_basket_daily_turnover_cap(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                1000
+            ),
+            DispatchError::BadOrigin
+        );
+
+        // Zero would refuse every trade; rejected.
+        assert_noop!(
+            AdminUtils::sudo_set_basket_daily_turnover_cap(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                0
+            ),
+            Error::<Test>::ValueNotInBounds
+        );
+        assert_eq!(
+            pallet_subtensor::BasketDailyTurnoverCap::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_DAILY_TURNOVER_CAP
+        );
+
+        // Root sets a new cap (100%) and the storage + event reflect it.
+        assert_ok!(AdminUtils::sudo_set_basket_daily_turnover_cap(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            u16::MAX
+        ));
+        assert_eq!(
+            pallet_subtensor::BasketDailyTurnoverCap::<Test>::get(),
+            u16::MAX
+        );
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketDailyTurnoverCapSet { cap: u16::MAX },
+        ));
+    });
+}
+
+#[test]
+fn test_sudo_set_basket_claim_dust() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(
+            pallet_subtensor::BasketClaimRowDustCapTao::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO
+        );
+        assert_eq!(
+            pallet_subtensor::BasketClaimRowDustBps::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_ROW_DUST_BPS
+        );
+        assert_eq!(
+            pallet_subtensor::BasketClaimSliceDustTao::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO
+        );
+        assert_eq!(
+            pallet_subtensor::BasketClaimForfeitCapTao::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO
+        );
+        assert_eq!(
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO,
+            1_000_000_000
+        );
+        assert_eq!(pallet_subtensor::DEFAULT_BASKET_CLAIM_ROW_DUST_BPS, 10);
+        assert_eq!(
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO,
+            100_000
+        );
+        assert_eq!(
+            pallet_subtensor::DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO,
+            10_000_000
+        );
+
+        assert_noop!(
+            AdminUtils::sudo_set_basket_claim_dust(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                5_000_000_000,
+                20,
+                1_000_000,
+                20_000_000
+            ),
+            DispatchError::BadOrigin
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_basket_claim_dust(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                5_000_000_000,
+                10_001,
+                1_000_000,
+                20_000_000
+            ),
+            Error::<Test>::ValueNotInBounds
+        );
+
+        assert_ok!(AdminUtils::sudo_set_basket_claim_dust(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            5_000_000_000,
+            20,
+            1_000_000,
+            20_000_000
+        ));
+        assert_eq!(
+            pallet_subtensor::BasketClaimRowDustCapTao::<Test>::get(),
+            5_000_000_000
+        );
+        assert_eq!(pallet_subtensor::BasketClaimRowDustBps::<Test>::get(), 20);
+        assert_eq!(
+            pallet_subtensor::BasketClaimSliceDustTao::<Test>::get(),
+            1_000_000
+        );
+        assert_eq!(
+            pallet_subtensor::BasketClaimForfeitCapTao::<Test>::get(),
+            20_000_000
+        );
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketClaimDustSet {
+                row_cap_rao: 5_000_000_000,
+                row_bps: 20,
+                slice_rao: 1_000_000,
+                forfeit_cap_rao: 20_000_000,
+            },
+        ));
+
+        // Zeros are allowed: they turn the skips off (every priced row is redeemed).
+        assert_ok!(AdminUtils::sudo_set_basket_claim_dust(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            0,
+            0,
+            0,
+            0
+        ));
+        assert_eq!(pallet_subtensor::BasketClaimRowDustCapTao::<Test>::get(), 0);
+        assert_eq!(pallet_subtensor::BasketClaimRowDustBps::<Test>::get(), 0);
+        assert_eq!(pallet_subtensor::BasketClaimSliceDustTao::<Test>::get(), 0);
+        assert_eq!(pallet_subtensor::BasketClaimForfeitCapTao::<Test>::get(), 0);
+    });
+}
+
+#[test]
+fn null_consensus_rejects_root_subnet() {
+    new_test_ext().execute_with(|| {
+        add_network(NetUid::ROOT, 10);
+        SubtensorModule::set_admin_freeze_window(0);
+        assert_noop!(
+            AdminUtils::sudo_set_epoch_consensus(
+                RuntimeOrigin::root(),
+                NetUid::ROOT,
+                EpochConsensus::Null
+            ),
+            pallet_subtensor::Error::<Test>::InvalidValue
+        );
+        assert_eq!(
+            SubtensorModule::get_epoch_consensus(NetUid::ROOT),
+            EpochConsensus::Yuma
+        );
+    });
+}
+
+#[test]
+fn null_consensus_capacity_and_switch_boundaries() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10);
+        SubtensorModule::set_admin_freeze_window(0);
+        assert_ok!(AdminUtils::sudo_set_epoch_consensus(
+            RuntimeOrigin::root(),
+            netuid,
+            EpochConsensus::Null
+        ));
+        assert_ok!(AdminUtils::sudo_set_max_allowed_uids(
+            RuntimeOrigin::root(),
+            netuid,
+            2_500
+        ));
+        assert_noop!(
+            AdminUtils::sudo_set_max_allowed_uids(RuntimeOrigin::root(), netuid, 2_501),
+            Error::<Test>::MaxAllowedUidsGreaterThanDefaultMaxAllowedUids
+        );
+        assert_noop!(
+            SubtensorModule::do_set_mechanism_count(netuid, MechId::from(2)),
+            pallet_subtensor::Error::<Test>::TooManyUIDsPerMechanism
+        );
+        assert_ok!(AdminUtils::sudo_set_max_allowed_uids(
+            RuntimeOrigin::root(),
+            netuid,
+            1_250
+        ));
+        assert_ok!(SubtensorModule::do_set_mechanism_count(
+            netuid,
+            MechId::from(2)
+        ));
+        assert_noop!(
+            AdminUtils::sudo_set_max_allowed_uids(RuntimeOrigin::root(), netuid, 1_251),
+            pallet_subtensor::Error::<Test>::TooManyUIDsPerMechanism
+        );
+        pallet_subtensor::SubnetworkN::<Test>::insert(netuid, 129);
+        assert_noop!(
+            AdminUtils::sudo_set_epoch_consensus(
+                RuntimeOrigin::root(),
+                netuid,
+                EpochConsensus::Yuma
+            ),
+            pallet_subtensor::Error::<Test>::TooManyUIDsPerMechanism
+        );
+        assert_eq!(SubtensorModule::get_max_allowed_uids(netuid), 1_250);
+        assert_eq!(
+            SubtensorModule::get_epoch_consensus(netuid),
+            EpochConsensus::Null
+        );
+        pallet_subtensor::SubnetworkN::<Test>::insert(netuid, 128);
+        assert_ok!(AdminUtils::sudo_set_epoch_consensus(
+            RuntimeOrigin::root(),
+            netuid,
+            EpochConsensus::Yuma
+        ));
+        assert_eq!(SubtensorModule::get_max_allowed_uids(netuid), 128);
+        assert_noop!(
+            AdminUtils::sudo_set_max_allowed_uids(RuntimeOrigin::root(), netuid, 129),
+            pallet_subtensor::Error::<Test>::TooManyUIDsPerMechanism
+        );
+    });
+}
+
+#[test]
+fn null_consensus_owner_switch_trim_and_emission_vector() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(9_999);
+        add_network(netuid, u16::MAX - 1);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_admin_freeze_window(0);
+        pallet_subtensor::OwnerHyperparamRateLimit::<Test>::put(0);
+        SubtensorModule::set_immunity_period(netuid, 0);
+        SubtensorModule::set_weights_set_rate_limit(netuid, 0);
+        SubtensorModule::set_commit_reveal_weights_enabled(netuid, false);
+        let origin = || RuntimeOrigin::signed(owner);
+        assert_ok!(AdminUtils::sudo_set_epoch_consensus(
+            origin(),
+            netuid,
+            EpochConsensus::Null
+        ));
+        assert_ok!(AdminUtils::sudo_set_max_allowed_uids(origin(), netuid, 300));
+        for uid in 0..300u16 {
+            SubtensorModule::append_neuron(netuid, &U256::from(uid), 0);
+        }
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &U256::from(0),
+            &U256::from(0),
+            netuid,
+            1_000_000_000u64.into(),
+        );
+        SubtensorModule::set_max_allowed_validators(netuid, 1);
+        SubtensorModule::set_validator_permit_for_uid(netuid, 0, true);
+        System::set_block_number(1);
+        assert_ok!(SubtensorModule::set_weights(
+            RuntimeOrigin::signed(U256::from(0)),
+            netuid,
+            vec![2, 3],
+            vec![3, 1],
+            0
+        ));
+        let null_output = SubtensorModule::epoch(netuid, 1_000_001u64.into());
+        assert_eq!(null_output.len(), 300);
+        let total: u128 = null_output
+            .iter()
+            .map(|(_, miner, validator)| {
+                u128::from(u64::from(*miner)) + u128::from(u64::from(*validator))
+            })
+            .sum();
+        assert_eq!(total, 1_000_001);
+        assert_noop!(
+            AdminUtils::sudo_set_epoch_consensus(origin(), netuid, EpochConsensus::Yuma),
+            pallet_subtensor::Error::<Test>::TooManyUIDsPerMechanism
+        );
+        assert_ok!(AdminUtils::sudo_trim_to_max_allowed_uids(
+            origin(),
+            netuid,
+            256
+        ));
+        assert_eq!(SubtensorModule::get_subnetwork_n(netuid), 256);
+        assert_ok!(AdminUtils::sudo_set_epoch_consensus(
+            origin(),
+            netuid,
+            EpochConsensus::Yuma
+        ));
+        assert_eq!(SubtensorModule::get_max_allowed_uids(netuid), 256);
+        let yuma_output = SubtensorModule::epoch(netuid, 1_000_001u64.into());
+        assert_eq!(yuma_output.len(), 256);
+        assert!(
+            yuma_output
+                .iter()
+                .map(|(_, miner, validator)| u128::from(u64::from(*miner))
+                    + u128::from(u64::from(*validator)))
+                .sum::<u128>()
+                <= 1_000_001
+        );
+        assert_ok!(AdminUtils::sudo_set_epoch_consensus(
+            origin(),
+            netuid,
+            EpochConsensus::Null
+        ));
+        assert_eq!(
+            SubtensorModule::epoch(netuid, 1_000_001u64.into()).len(),
+            256
+        );
+    });
+}
+
+#[test]
+fn null_pruning_continuation_preserves_owner_auth_and_original_cooldown() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(9_999);
+        add_network(netuid, u16::MAX - 1);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_admin_freeze_window(0);
+        SubtensorModule::set_immunity_period(netuid, 0);
+        SubtensorModule::set_max_allowed_uids(netuid, 192);
+        for uid in 0..192u16 {
+            SubtensorModule::append_neuron(netuid, &U256::from(uid), 0);
+        }
+        SubtensorModule::set_max_allowed_validators(netuid, 123);
+        assert_ok!(AdminUtils::sudo_set_epoch_consensus(
+            RuntimeOrigin::root(),
+            netuid,
+            EpochConsensus::Null,
+        ));
+        assert_eq!(
+            SavedYumaMaxAllowedValidators::<Test>::get(netuid),
+            Some(123)
+        );
+        System::set_block_number(100);
+        assert_ok!(AdminUtils::sudo_trim_null_uids_batch(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            64,
+        ));
+        assert_eq!(SubnetworkN::<Test>::get(netuid), 128);
+        assert_eq!(NullPruningTarget::<Test>::get(netuid), Some(64));
+        assert!(
+            AdminUtils::sudo_trim_null_uids_batch(
+                RuntimeOrigin::signed(U256::from(55_555)),
+                netuid,
+                64,
+            )
+            .is_err()
+        );
+        assert_noop!(
+            AdminUtils::sudo_trim_null_uids_batch(RuntimeOrigin::signed(owner), netuid, 65,),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+        assert_eq!(SubnetworkN::<Test>::get(netuid), 128);
+        assert_ok!(AdminUtils::sudo_trim_null_uids_batch(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            64,
+        ));
+        assert_eq!(SubnetworkN::<Test>::get(netuid), 64);
+        assert_eq!(NullPruningTarget::<Test>::get(netuid), None);
+        assert_noop!(
+            AdminUtils::sudo_trim_null_uids_batch(RuntimeOrigin::signed(owner), netuid, 64,),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+        assert_ok!(AdminUtils::sudo_set_epoch_consensus(
+            RuntimeOrigin::root(),
+            netuid,
+            EpochConsensus::Yuma,
+        ));
+        assert_eq!(SavedYumaMaxAllowedValidators::<Test>::get(netuid), None);
+        assert_eq!(SubtensorModule::get_max_allowed_validators(netuid), 64);
+    });
+}
+
+#[test]
+fn null_repeated_mode_setting_preserves_saved_yuma_validator_limit() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, u16::MAX - 1);
+        SubtensorModule::set_admin_freeze_window(0);
+        SubtensorModule::set_max_allowed_validators(netuid, 123);
+        assert_ok!(AdminUtils::sudo_set_epoch_consensus(
+            RuntimeOrigin::root(),
+            netuid,
+            EpochConsensus::Null
+        ));
+        assert_ok!(AdminUtils::sudo_set_epoch_consensus(
+            RuntimeOrigin::root(),
+            netuid,
+            EpochConsensus::Null
+        ));
+        assert_eq!(
+            SavedYumaMaxAllowedValidators::<Test>::get(netuid),
+            Some(123)
+        );
+        assert_ok!(AdminUtils::sudo_set_epoch_consensus(
+            RuntimeOrigin::root(),
+            netuid,
+            EpochConsensus::Yuma
+        ));
+        assert_eq!(SubtensorModule::get_max_allowed_validators(netuid), 123);
+        assert_eq!(SavedYumaMaxAllowedValidators::<Test>::get(netuid), None);
+    });
+}
+
+#[test]
+fn pow_toggle_obeys_owner_cooldown_freeze_and_root_exclusion() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10);
+        let owner = U256::from(9);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        pallet_subtensor::OwnerHyperparamRateLimit::<Test>::put(5);
+        assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            true
+        ));
+        assert!(
+            AdminUtils::sudo_set_network_pow_registration_allowed(
+                RuntimeOrigin::signed(owner),
+                netuid,
+                false
+            )
+            .is_err()
+        );
+        assert!(SubtensorModule::get_network_pow_registration_allowed(
+            netuid
+        ));
+        pallet_subtensor::LastEpochBlock::<Test>::insert(netuid, 0);
+        assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
+            RuntimeOrigin::root(),
+            3
+        ));
+        run_to_block(8);
+        assert_noop!(
+            AdminUtils::sudo_set_network_pow_registration_allowed(
+                RuntimeOrigin::root(),
+                netuid,
+                false
+            ),
+            SubtensorError::<Test>::AdminActionProhibitedDuringWeightsWindow
+        );
+        assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
+            RuntimeOrigin::root(),
+            0
+        ));
+        add_network(NetUid::ROOT, 10);
+        assert_err!(
+            AdminUtils::sudo_set_network_pow_registration_allowed(
+                RuntimeOrigin::root(),
+                NetUid::ROOT,
+                true
+            ),
+            Error::<Test>::NotPermittedOnRootSubnet
+        );
+    });
+}
+
+#[test]
+fn owner_registration_routes_are_independent_and_cannot_both_be_disabled() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10);
+        let owner = U256::from(9);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        pallet_subtensor::OwnerHyperparamRateLimit::<Test>::put(0);
+        SubtensorModule::set_admin_freeze_window(0);
+        assert_noop!(
+            AdminUtils::sudo_set_network_registration_allowed(
+                RuntimeOrigin::signed(U256::from(10)),
+                netuid,
+                false
+            ),
+            DispatchError::BadOrigin
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_network_registration_allowed(
+                RuntimeOrigin::signed(owner),
+                netuid,
+                false
+            ),
+            Error::<Test>::InvalidValue
+        );
+        assert!(SubtensorModule::get_network_registration_allowed(netuid));
+        assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            true
+        ));
+        assert_ok!(AdminUtils::sudo_set_network_registration_allowed(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            false
+        ));
+        assert!(!SubtensorModule::get_network_registration_allowed(netuid));
+        assert_noop!(
+            AdminUtils::sudo_set_network_pow_registration_allowed(
+                RuntimeOrigin::signed(owner),
+                netuid,
+                false
+            ),
+            Error::<Test>::InvalidValue
+        );
+        assert!(SubtensorModule::get_network_pow_registration_allowed(
+            netuid
+        ));
+        assert_ok!(AdminUtils::sudo_set_network_registration_allowed(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            true
+        ));
+        assert_ok!(AdminUtils::sudo_set_network_pow_registration_allowed(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            false
+        ));
+        assert_noop!(
+            AdminUtils::sudo_set_network_registration_allowed(RuntimeOrigin::root(), netuid, false),
+            Error::<Test>::InvalidValue
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_network_registration_allowed(
+                RuntimeOrigin::signed(owner),
+                NetUid::ROOT,
+                false
+            ),
+            DispatchError::BadOrigin
+        );
+        assert_ok!(AdminUtils::sudo_set_network_registration_allowed(
+            RuntimeOrigin::root(),
+            NetUid::ROOT,
+            false
+        ));
+    });
+}
+
+#[test]
+fn burn_toggle_obeys_owner_cooldown_and_freeze() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10);
+        let owner = U256::from(9);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        pallet_subtensor::OwnerHyperparamRateLimit::<Test>::put(5);
+        SubtensorModule::set_admin_freeze_window(0);
+        SubtensorModule::set_network_pow_registration_allowed(netuid, true);
+        assert_ok!(AdminUtils::sudo_set_network_registration_allowed(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            false
+        ));
+        assert!(
+            AdminUtils::sudo_set_network_registration_allowed(
+                RuntimeOrigin::signed(owner),
+                netuid,
+                true
+            )
+            .is_err()
+        );
+        assert!(!SubtensorModule::get_network_registration_allowed(netuid));
+        pallet_subtensor::LastEpochBlock::<Test>::insert(netuid, 0);
+        SubtensorModule::set_admin_freeze_window(3);
+        run_to_block(8);
+        assert_noop!(
+            AdminUtils::sudo_set_network_registration_allowed(RuntimeOrigin::root(), netuid, true),
+            SubtensorError::<Test>::AdminActionProhibitedDuringWeightsWindow
+        );
+    });
+}
+
+#[test]
+fn test_sudo_set_basket_min_trade_tao() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(BasketMinTradeTao::<Test>::get(), 500_000_000);
+        assert_noop!(
+            AdminUtils::sudo_set_basket_min_trade_tao(RuntimeOrigin::signed(U256::from(1)), 0),
+            DispatchError::BadOrigin
+        );
+        for min_trade_rao in [100_000_000, 1_000_000_000, 0, u64::MAX] {
+            assert_ok!(AdminUtils::sudo_set_basket_min_trade_tao(
+                RuntimeOrigin::root(),
+                min_trade_rao
+            ));
+            assert_eq!(BasketMinTradeTao::<Test>::get(), min_trade_rao);
+            System::assert_last_event(RuntimeEvent::AdminUtils(
+                crate::Event::BasketMinTradeTaoSet { min_trade_rao },
+            ));
+        }
+    });
+}
+
+// =============================================================================
+// Emission weight vector (etao)
+// =============================================================================
+
+fn emission_weights_call_setup(netuid: NetUid, owner: U256) {
+    add_network(netuid, 10);
+    SubnetOwner::<Test>::insert(netuid, owner);
+    assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
+        <<Test as Config>::RuntimeOrigin>::root(),
+        0
+    ));
+}
+
+/// `[0, 0, owner, validator, rest]` as the sparse `(uids, values)` pair.
+fn emission_weights_full(owner: u64, validator: u64) -> (Vec<u16>, Vec<u64>) {
+    let miner = EMISSION_WEIGHT_ONE
+        .saturating_sub(owner)
+        .saturating_sub(validator);
+    (vec![0, 1, 2, 3, 4], vec![0, 0, owner, validator, miner])
+}
+
+#[test]
+fn test_sudo_set_subnet_emission_weights_owner_and_rate_limit() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(1324);
+        let stranger = U256::from(99);
+        emission_weights_call_setup(netuid, owner);
+
+        let (uids, values) =
+            emission_weights_full(emission_fraction(10, 100), emission_fraction(40, 100));
+
+        // Only the owner or root may call.
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::signed(stranger),
+                netuid,
+                uids.clone(),
+                values.clone()
+            ),
+            DispatchError::BadOrigin
+        );
+
+        // First owner call is never rate limited.
+        assert_ok!(AdminUtils::sudo_set_subnet_emission_weights(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            uids.clone(),
+            values.clone()
+        ));
+        assert_eq!(
+            SubtensorModule::get_subnet_emission_weights(netuid).to_vec(),
+            values
+        );
+        let limit_tx = TransactionType::from(Hyperparameter::EmissionWeights);
+        assert_eq!(
+            limit_tx.rate_limit_on_subnet::<Test>(netuid),
+            SubnetEmissionWeightsRateLimit::<Test>::get()
+        );
+
+        // An immediate second owner call is blocked by the weekly limit...
+        let (uids2, values2) = emission_weights_full(0, emission_fraction(45, 100));
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                uids2.clone(),
+                values2.clone()
+            ),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+        // ...root is not.
+        assert_ok!(AdminUtils::sudo_set_subnet_emission_weights(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            uids2.clone(),
+            values2.clone()
+        ));
+        assert_eq!(
+            SubtensorModule::get_subnet_emission_weights(netuid).to_vec(),
+            values2
+        );
+
+        // The limit is keyed per subnet, not per owner coldkey: a new owner is still
+        // bound by the previous owner's call.
+        let new_owner = U256::from(1325);
+        SubnetOwner::<Test>::insert(netuid, new_owner);
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::signed(new_owner),
+                netuid,
+                uids.clone(),
+                values.clone()
+            ),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+
+        // Once the window has passed the owner may call again.
+        let limit = SubnetEmissionWeightsRateLimit::<Test>::get();
+        limit_tx.set_last_block_on_subnet::<Test>(
+            &new_owner,
+            netuid,
+            SubtensorModule::get_current_block_as_u64().saturating_sub(limit),
+        );
+        assert_ok!(AdminUtils::sudo_set_subnet_emission_weights(
+            <<Test as Config>::RuntimeOrigin>::signed(new_owner),
+            netuid,
+            uids,
+            values.clone()
+        ));
+        assert_eq!(
+            SubtensorModule::get_subnet_emission_weights(netuid).to_vec(),
+            values
+        );
+
+        // Dissolution clears the per-subnet key, so a reused netuid starts fresh.
+        assert!(limit_tx.last_block_on_subnet::<Test>(&new_owner, netuid) > 0);
+        let mut meter = frame_support::weights::WeightMeter::new();
+        assert!(SubtensorModule::remove_network_parameters(
+            netuid, &mut meter
+        ));
+        assert_eq!(limit_tx.last_block_on_subnet::<Test>(&new_owner, netuid), 0);
+    });
+}
+
+#[test]
+fn test_sudo_set_subnet_emission_weights_root_obeys_rules() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        emission_weights_call_setup(netuid, U256::from(1));
+        let (uids, values) = emission_weights_full(
+            MAX_OWNER_EMISSION.saturating_add(1),
+            emission_fraction(34, 100),
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid,
+                uids,
+                values
+            ),
+            SubtensorError::<Test>::OwnerEmissionAboveMaximum
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid,
+                vec![3],
+                vec![emission_fraction(40, 100)]
+            ),
+            SubtensorError::<Test>::EmissionWeightsDoNotSumToOne
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                NetUid::from(7),
+                vec![3],
+                vec![emission_fraction(40, 100)]
+            ),
+            SubtensorError::<Test>::SubnetNotExists
+        );
+    });
+}
+
+#[test]
+fn test_sudo_set_subnet_emission_weights_respects_freeze_window() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(9);
+        let tempo: u16 = 10;
+        add_network(netuid, tempo);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            3
+        ));
+        pallet_subtensor::LastEpochBlock::<Test>::insert(netuid, 0);
+        run_to_block(tempo as u64 - 2);
+
+        let (uids, values) = emission_weights_full(0, emission_fraction(45, 100));
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                uids.clone(),
+                values.clone()
+            ),
+            SubtensorError::<Test>::AdminActionProhibitedDuringWeightsWindow
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid,
+                uids,
+                values
+            ),
+            SubtensorError::<Test>::AdminActionProhibitedDuringWeightsWindow
         );
     });
 }

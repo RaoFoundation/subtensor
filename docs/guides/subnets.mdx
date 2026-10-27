@@ -21,7 +21,7 @@ btcli tx register-subnet -w my_coldkey
 
 The cost **doubles** each time anyone registers a subnet, then decays linearly
 back over the lock-reduction interval (100,800 blocks, ~2 weeks), floored at
-`NetworkMinLockCost` — 1,000 TAO by default. It is only known at execution
+[`NetworkMinLockCost`](/code/pallets/subtensor/src/lib.rs#L1765) — 1,000 TAO by default. It is only known at execution
 time, so a `Policy` spend cap blocks this call until raised; read the live
 price with [`subnet-registration-cost`](/docs/query/subnet-registration-cost).
 Subnet registrations are also chain-rate-limited to one per 7,200 blocks
@@ -34,12 +34,42 @@ price equals the median alpha price across subnets. Nothing is recycled at
 registration. You get it back only by owning a subnet that earns.
 
 Identity can be set atomically at registration: the chain's
-`register_network_with_identity` extrinsic takes an optional identity record.
-`register-subnet` wraps plain `register_network`, so the identity variant
+[`register_network_with_identity`](/code/pallets/subtensor/src/macros/dispatches.rs#L1198-L1204) extrinsic takes an optional identity record.
+`register-subnet` wraps plain [`register_network`](/code/pallets/subtensor/src/macros/dispatches.rs#L1016-L1018), so the identity variant
 needs the [raw-call escape hatch](/docs/concepts/advanced).
 
 A new subnet is a two-step commitment: register, then activate with
 [`start-call`](/docs/tx/start-call) — until then it earns nothing.
+
+## Secure the owner account
+
+A subnet owner's coldkey controls the subnet's identity and owner-settable
+hyperparameters — authority that should never live in a single coldkey on an
+operational machine. The standard layering: make the owner account a
+[**multisig**](/docs/guides/multisig) from registration, and from it grant a
+dedicated operations key the narrow **Owner**
+[proxy type](/docs/guides/proxies#proxy-types) for routine changes. The ops
+key can manage subnet identity and hyperparameters but cannot transfer funds
+or rotate the owner; the multisig convenes only to manage that proxy, veto
+delayed calls, and act outside the **Owner** scope. Both guides walk through
+the setup — see
+[Subnet owners specifically](/docs/guides/proxies#subnet-owners-specifically)
+in the proxy guide for this exact pattern.
+
+For a new crowd-funded subnet, a
+[crowdloan lease](#financing-leases-and-crowdloans) provides a different secure
+ownership model: the chain creates the lease owner account and grants the
+beneficiary a scoped `SubnetLeaseBeneficiary` proxy.
+
+If the subnet is already owned by a single coldkey, adopting this setup is a
+one-time ownership migration via the announced **coldkey swap**. Sending TAO to
+the multisig address is not enough: balance, stake, conviction locks, and
+subnet ownership are separate on-chain state, and a plain
+[`transfer`](/docs/tx/transfer) moves only the first. The full procedure —
+verifying the derived address, what the swap moves, and the delay — is in
+[Migrate an existing account to a multisig](/docs/guides/multisig#migrate-an-existing-account-to-a-multisig);
+[Wallet key rotation](/docs/concepts/wallets#key-rotation-and-recovery) covers
+what a coldkey swap does and doesn't move.
 
 ## Activate
 
@@ -53,11 +83,30 @@ btcli tx start-call --netuid 42 -w my_coldkey
 Check the schedule with
 [`subnet-start-schedule`](/docs/query/subnet-start-schedule).
 
-`start-call` enables the subnet's token and starts its epochs, but the
-subnet's share of network TAO emission is a separate root-controlled switch:
-new subnets register with emission disabled, and only root (via
-`sudo_set_subnet_emission_enabled`) turns it on. Until then the subnet earns
-no TAO emission share.
+### Turning a subnet on: active vs emission-enabled
+
+"On" is two independent flags, held by two different parties:
+
+- **Want the subnet live — staking, alpha trading, epochs?** That is the
+  owner's one-shot [`start-call`](/docs/tx/start-call) (btcli's `sudo start`),
+  tracked by
+  [`subnet_is_active`](/docs/hyperparameters/subnet-is-active).
+- **Want the subnet to receive its TAO emission share — pool injections and
+  chain buys?** That is root's switch,
+  [`subnet_emission_enabled`](/docs/hyperparameters/subnet-emission-enabled),
+  flipped with `btcli tx set-subnet-emission-enabled`. New subnets register
+  with it **on**; owners cannot flip it, but root can still disable specific
+  subnets.
+
+A subnet can be fully active with emissions off if root disables the flag:
+trading and epochs run, but no TAO flows into its pool. Fresh registrations
+only need the owner's `start_call` after the activation delay. Verify both
+flags:
+
+```bash
+btcli sudo get --netuid 42 --name subnet_is_active
+btcli query subnet-emission-enabled --netuid 42
+```
 
 ## The subnet economy
 
@@ -71,17 +120,21 @@ with their TAO — so a subnet's income is set by market demand for its token,
 not by governance. See [emissions](/docs/concepts/emissions) for the full
 mechanics.
 
-Each tempo the subnet's alpha emission splits three ways: 18% to the owner,
-~41% to miners (incentive), ~41% to validators and their stakers (dividends).
+Each tempo the subnet's alpha emission splits three ways — by default 18% to
+the owner, ~41% to miners (incentive), ~41% to validators and their stakers
+(dividends). Since [Etao](/docs/guides/etao) the owner sets that split with
+`btcli subnets emission` (owner ≤ 33%, validator ≤ 50%, miner ≥ 33%, once a
+week); root TAO stakers keep their baseline payout whatever is chosen — see
+[emission weights](/docs/concepts/emission-weights).
 The owner cut can be auto-locked into a conviction position via the
 `owner_cut_auto_lock_enabled` hyperparameter instead of arriving as free
 stake; conviction locking and its unlock schedule are covered in the
 [staking guide](/docs/guides/staking).
 
 Three owner habits worth adopting. Decide your `registration_allowed` policy
-before activation — owners pause registration during mechanism upgrades so
-participants can update without eviction risk, and the toggle is root-gated
-here, so plan ahead. Run a validator on the owner hotkey: the owner cut and
+before activation. Burn and PoW have separate owner-settable toggles; keep at
+least one method enabled and configure prices and per-block limits to control
+registration pressure. Run a validator on the owner hotkey: the owner cut and
 validation rewards land on the same key, and the 18% cut can be staked behind
 it. Do **not** mine on the owner hotkey — miner emission directed at owner
 hotkeys is burned or recycled, never paid.
@@ -102,13 +155,15 @@ The important owner-settable parameters, with chain defaults:
 
 | Parameter | Default | What it does |
 | --- | --- | --- |
-| `tempo` * | 360 | Blocks per epoch. Owner changes bounded 360–50,400. |
+| `tempo` | 360 | Blocks per epoch. Owner changes bounded 360–50,400 and reset the epoch cycle. |
 | `immunity_period` | 4,096 | Blocks a fresh UID is protected from pruning and trimming. |
 | `min_burn` / `max_burn` | 0.0005 τ / 100 τ | Clamp on the neuron registration price. Read the live price with [`burn`](/docs/query/burn). |
-| `burn_half_life` | 360 | Blocks for the registration price to decay halfway toward `min_burn` when nobody registers. |
-| `burn_increase_mult` | 1.26 | Multiplier applied to the registration price after each successful registration. |
-| `max_allowed_uids` | 256 | UID slots. Floor 64; times mechanism count must stay ≤ 256. |
-| `activity_cutoff_factor` * | 13,889 | Per-mille of tempo; effective cutoff = factor × tempo / 1000 blocks (5,000 at tempo 360; bounds 1,000–50,000). A validator that hasn't set weights within the cutoff sits out until next epoch. Replaces the deprecated `activity_cutoff` (5,000). |
+| `burn_half_life` | 360 | Shared decay half-life; burn price and PoW difficulty each decay toward their own minimum. |
+| `burn_increase_mult` | 1.26 | Shared multiplier; each successful registration raises only the price of its own method. |
+| `max_allowed_uids` | 256 | UID slots. Floor 64; shared budget is 256 under Yuma or 2,500 under Null, divided by mechanism count. |
+| `registration_allowed` | true | Enables burn registration independently of PoW. Owners keep at least one method enabled. |
+| `network_pow_registration_allowed` | false | Enables fee-free proof-of-work registration on non-root subnets, independently of burn. |
+| `activity_cutoff_factor` | 13,889 | Per-mille of tempo; effective cutoff = factor × tempo / 1000 blocks (5,000 at tempo 360; bounds 1,000–50,000). A validator that hasn't set weights within the cutoff sits out until next epoch. Replaces the deprecated `activity_cutoff` (5,000). |
 | `serving_rate_limit` | 50 | Minimum blocks between `serve-axon` / `serve-prometheus` calls per key. |
 | `commit_reveal_weights_enabled` | true | Weights are committed hashed, revealed later. |
 | `commit_reveal_period` | 1 | Tempos between commit and reveal. |
@@ -125,26 +180,31 @@ Parameters marked * have their own extrinsics on chain rather than a name in
 `set-hyperparameter`; if the SDK doesn't expose one, use the
 [raw-call escape hatch](/docs/concepts/advanced).
 
-Chain reads also return `rho`, `difficulty`, `adjustment_interval`,
-`adjustment_alpha`, and `target_regs_per_interval` — legacy registration and
-consensus parameters that still exist as storage but no longer drive neuron
-admission; the burn price decay/bump mechanism replaced the old PoW and
-adjustment-interval machinery. (`max_registrations_per_block` is still
-enforced.)
+Owners may enable [proof-of-work registration](/docs/hyperparameters/network-pow-registration-allowed)
+so miners can join without upfront TAO. Use `btcli subnets register --netuid 42 --pow`;
+burn registration remains available when its own toggle is enabled. `difficulty` controls the proof threshold,
+while the old `adjustment_interval`, `adjustment_alpha` and
+`target_regs_per_interval` controller remains inactive. Both registration paths
+share `max_registrations_per_block`, `burn_increase_mult` and `burn_half_life`.
+Successful burn registration increases only burn cost; successful PoW increases
+only PoW difficulty. Each price decays toward its own minimum each block. PoW
+has its own `min_difficulty` (team/root controlled) and `max_difficulty` bounds.
+Owners can select burn-only, PoW-only or both; enable the other route before
+disabling the last enabled route.
 
 Two chain-side constraints on owner changes:
 
 - **Rate limit** — each hyperparameter can be changed roughly once per two
-  tempos (default `OwnerHyperparamRateLimit` = 2), tracked independently per
+  tempos (default [`OwnerHyperparamRateLimit`](/code/pallets/subtensor/src/lib.rs#L1160) = 2), tracked independently per
   parameter, so you can change several different parameters in one tempo but
   not the same one twice.
 - **Freeze window** — owner admin calls are rejected during the last ~10
-  blocks of each tempo (`AdminFreezeWindow`), so parameters can't change while
+  blocks of each tempo ([`AdminFreezeWindow`](/code/pallets/subtensor/src/lib.rs#L1155)), so parameters can't change while
   an epoch is being computed.
 
 Root-only parameters — `kappa` (default 32,767 ≈ 0.5),
 `max_allowed_validators` (128), `weights_set_rate_limit` (100 blocks between
-weight submissions), tempo outside the owner bounds, `registration_allowed`,
+weight submissions), tempo outside the owner bounds, `min_difficulty`,
 and others — need root privileges and the
 [raw-call escape hatch](/docs/concepts/advanced).
 
@@ -166,11 +226,11 @@ excess neurons. Rules:
 ## Mechanisms
 
 A subnet can run multiple scoring mechanisms, each with its own weights.
-[`set-mechanism-count`](/docs/tx/set-mechanism-count) and
-[`set-mechanism-emission-split`](/docs/tx/set-mechanism-emission-split)
-configure them; validators target one via the `mechid` field on
-[`set-weights`](/docs/tx/set-weights). Read the current count with
-[`mechanism-count`](/docs/query/mechanism-count).
+[`set-mechanism-count`](/docs/tx/set-mechanism-count) configures how many;
+validators target one via the `mechid` field on
+[`set-weights`](/docs/tx/set-weights). Read the current count and split with
+[`mechanism-count`](/docs/query/mechanism-count) and
+[`mechanism-emission-split`](/docs/query/mechanism-emission-split).
 
 - The chain currently caps subnets at **2** mechanisms.
 - Each mechanism runs Yuma Consensus independently, with its own weight matrix
@@ -186,8 +246,7 @@ configure them; validators target one via the `mechid` field on
 - The emission split is a vector of u16 weights summing to 65,535 (e.g.
   `[13107, 52428]` is 20%/80%); unset means an even split. Changing the
   mechanism count resets the split to even.
-- Count and split changes are each rate-limited to once per 7,200 blocks
-  (~24 hours).
+- Count changes are rate-limited to once per 7,200 blocks (~24 hours).
 
 ## Deregistration
 

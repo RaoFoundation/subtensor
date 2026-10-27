@@ -11,7 +11,7 @@ use substrate_fixed::types::I96F32;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, MechId, NetUid, NetUidStorageIndex, TaoBalance};
 
-#[freeze_struct("1cf7fcca1e524974")]
+#[freeze_struct("93460b9b3cbf6d4e")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     // Subnet index
@@ -109,9 +109,14 @@ pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     // Dividend break down.
     tao_dividends_per_hotkey: Vec<(AccountId, Compact<TaoBalance>)>, // List of dividend payouts in tao via root.
     alpha_dividends_per_hotkey: Vec<(AccountId, Compact<AlphaBalance>)>, // List of dividend payout in alpha via subnet.
+
+    // Miner collateral (per UID; zero when the hotkey has no collateral entry).
+    collateral_locked: Vec<Compact<AlphaBalance>>, // Locked collateral per UID
+    collateral_min: Vec<Compact<AlphaBalance>>,    // Miner-set collateral floor per UID
+    collateral_earned: Vec<Compact<AlphaBalance>>, // Lifetime emission earned per UID (since collateral existed)
 }
 
-#[freeze_struct("666efae6644473f8")]
+#[freeze_struct("bb7420226d39c0eb")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct SelectiveMetagraph<AccountId: TypeInfo + Encode + Decode + Clone> {
     // Subnet index
@@ -214,6 +219,11 @@ pub struct SelectiveMetagraph<AccountId: TypeInfo + Encode + Decode + Clone> {
     validators: Option<Vec<Compact<u16>>>, // List of validators
     // commitments
     commitments: Option<Vec<(AccountId, Vec<Compact<u8>>)>>, // List of commitments
+
+    // Miner collateral (per UID; zero when the hotkey has no collateral entry).
+    collateral_locked: Option<Vec<Compact<AlphaBalance>>>, // Locked collateral per UID
+    collateral_min: Option<Vec<Compact<AlphaBalance>>>,    // Miner-set collateral floor per UID
+    collateral_earned: Option<Vec<Compact<AlphaBalance>>>, // Lifetime emission earned per UID
 }
 
 impl<AccountId> SelectiveMetagraph<AccountId>
@@ -374,6 +384,15 @@ where
             Some(SelectiveMetagraphIndex::Commitments) => {
                 self.commitments = other.commitments.clone()
             }
+            Some(SelectiveMetagraphIndex::CollateralLocked) => {
+                self.collateral_locked = other.collateral_locked.clone()
+            }
+            Some(SelectiveMetagraphIndex::CollateralMin) => {
+                self.collateral_min = other.collateral_min.clone()
+            }
+            Some(SelectiveMetagraphIndex::CollateralEarned) => {
+                self.collateral_earned = other.collateral_earned.clone()
+            }
             None => {}
         };
     }
@@ -459,6 +478,9 @@ where
             alpha_dividends_per_hotkey: None,
             validators: None,
             commitments: None,
+            collateral_locked: None,
+            collateral_min: None,
+            collateral_earned: None,
         }
     }
 }
@@ -538,6 +560,9 @@ pub enum SelectiveMetagraphIndex {
     AlphaDividendsPerHotkey,
     Validators,
     Commitments,
+    CollateralLocked,
+    CollateralMin,
+    CollateralEarned,
 }
 
 impl SelectiveMetagraphIndex {
@@ -617,13 +642,16 @@ impl SelectiveMetagraphIndex {
             71 => Some(SelectiveMetagraphIndex::AlphaDividendsPerHotkey),
             72 => Some(SelectiveMetagraphIndex::Validators),
             73 => Some(SelectiveMetagraphIndex::Commitments),
+            74 => Some(SelectiveMetagraphIndex::CollateralLocked),
+            75 => Some(SelectiveMetagraphIndex::CollateralMin),
+            76 => Some(SelectiveMetagraphIndex::CollateralEarned),
             _ => None,
         }
     }
 }
 impl<T: Config> Pallet<T> {
     pub fn get_metagraph(netuid: NetUid) -> Option<Metagraph<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::is_subnet_reportable(netuid) {
             return None;
         }
 
@@ -658,9 +686,11 @@ impl<T: Config> Pallet<T> {
             Vec<I64F64>,
             Vec<I64F64>,
             Vec<I64F64>,
-        ) = Self::get_stake_weights_for_network(netuid);
+        ) = Self::get_reported_stake_weights_for_network(netuid);
 
         let subnet_volume = SubnetVolume::<T>::get(netuid);
+        let (collateral_locked, collateral_min, collateral_earned) =
+            Self::collateral_vectors(netuid);
         Some(Metagraph {
             // Subnet index
             netuid: netuid.into(), // subnet index.
@@ -789,10 +819,15 @@ impl<T: Config> Pallet<T> {
             // Dividend break down.
             tao_dividends_per_hotkey,
             alpha_dividends_per_hotkey,
+
+            // Miner collateral.
+            collateral_locked,
+            collateral_min,
+            collateral_earned,
         })
     }
     pub fn get_all_metagraphs() -> Vec<Option<Metagraph<T::AccountId>>> {
-        let netuids = Self::get_all_subnet_netuids();
+        let netuids = Self::get_all_reportable_subnet_netuids();
         let mut metagraphs = Vec::<Option<Metagraph<T::AccountId>>>::new();
         for netuid in netuids.clone().iter() {
             metagraphs.push(Self::get_metagraph(*netuid));
@@ -801,7 +836,9 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_mechagraph(netuid: NetUid, mecid: MechId) -> Option<Metagraph<T::AccountId>> {
-        if Self::ensure_mechanism_exists(netuid, mecid).is_err() {
+        // This is a reporting wrapper, so do not use `ensure_mechanism_exists`: that helper is
+        // intentionally operational and rejects a subnet as soon as `NetworksAdded` is cleared.
+        if !Self::is_subnet_reportable(netuid) || MechanismCountCurrent::<T>::get(netuid) <= mecid {
             return None;
         }
 
@@ -828,7 +865,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_all_mechagraphs() -> Vec<Option<Metagraph<T::AccountId>>> {
-        let netuids = Self::get_all_subnet_netuids();
+        let netuids = Self::get_all_reportable_subnet_netuids();
         let mut metagraphs = Vec::<Option<Metagraph<T::AccountId>>>::new();
         for netuid in netuids.clone().iter() {
             let mechanism_count = u8::from(MechanismCountCurrent::<T>::get(netuid));
@@ -843,7 +880,7 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         metagraph_indexes: Vec<u16>,
     ) -> Option<SelectiveMetagraph<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::is_subnet_reportable(netuid) {
             None
         } else {
             let mut result = SelectiveMetagraph::default();
@@ -860,7 +897,7 @@ impl<T: Config> Pallet<T> {
         mecid: MechId,
         metagraph_indexes: Vec<u16>,
     ) -> Option<SelectiveMetagraph<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::is_subnet_reportable(netuid) {
             None
         } else {
             let mut result = SelectiveMetagraph::default();
@@ -1337,7 +1374,7 @@ impl<T: Config> Pallet<T> {
             }
             Some(SelectiveMetagraphIndex::AlphaStake) => {
                 let (_, alpha_stake_fl, _): (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) =
-                    Self::get_stake_weights_for_network(netuid);
+                    Self::get_reported_stake_weights_for_network(netuid);
                 SelectiveMetagraph {
                     netuid: netuid.into(),
                     alpha_stake: Some(
@@ -1351,7 +1388,7 @@ impl<T: Config> Pallet<T> {
             }
             Some(SelectiveMetagraphIndex::TaoStake) => {
                 let (_, _, tao_stake_fl): (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) =
-                    Self::get_stake_weights_for_network(netuid);
+                    Self::get_reported_stake_weights_for_network(netuid);
                 SelectiveMetagraph {
                     netuid: netuid.into(),
                     tao_stake: Some(
@@ -1365,7 +1402,7 @@ impl<T: Config> Pallet<T> {
             }
             Some(SelectiveMetagraphIndex::TotalStake) => {
                 let (total_stake_fl, _, _): (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) =
-                    Self::get_stake_weights_for_network(netuid);
+                    Self::get_reported_stake_weights_for_network(netuid);
                 SelectiveMetagraph {
                     netuid: netuid.into(),
                     total_stake: Some(
@@ -1421,12 +1458,63 @@ impl<T: Config> Pallet<T> {
             }
             Some(SelectiveMetagraphIndex::Validators) => Self::get_validators(netuid),
             Some(SelectiveMetagraphIndex::Commitments) => Self::get_commitments(netuid),
+            Some(SelectiveMetagraphIndex::CollateralLocked) => {
+                let (locked, _, _) = Self::collateral_vectors(netuid);
+                SelectiveMetagraph {
+                    netuid: netuid.into(),
+                    collateral_locked: Some(locked),
+                    ..Default::default()
+                }
+            }
+            Some(SelectiveMetagraphIndex::CollateralMin) => {
+                let (_, min, _) = Self::collateral_vectors(netuid);
+                SelectiveMetagraph {
+                    netuid: netuid.into(),
+                    collateral_min: Some(min),
+                    ..Default::default()
+                }
+            }
+            Some(SelectiveMetagraphIndex::CollateralEarned) => {
+                let (_, _, earned) = Self::collateral_vectors(netuid);
+                SelectiveMetagraph {
+                    netuid: netuid.into(),
+                    collateral_earned: Some(earned),
+                    ..Default::default()
+                }
+            }
             None => SelectiveMetagraph {
                 // Subnet index
                 netuid: netuid.into(),
                 ..Default::default()
             },
         }
+    }
+
+    /// Per-UID miner-collateral vectors: (locked, floor, lifetime earned).
+    /// Zero entries for hotkeys without a collateral entry.
+    fn collateral_vectors(
+        netuid: NetUid,
+    ) -> (
+        Vec<Compact<AlphaBalance>>,
+        Vec<Compact<AlphaBalance>>,
+        Vec<Compact<AlphaBalance>>,
+    ) {
+        let n: u16 = Self::get_subnetwork_n(netuid);
+        let mut locked_vec: Vec<Compact<AlphaBalance>> = Vec::with_capacity(n as usize);
+        let mut min_vec: Vec<Compact<AlphaBalance>> = Vec::with_capacity(n as usize);
+        let mut earned_vec: Vec<Compact<AlphaBalance>> = Vec::with_capacity(n as usize);
+        for uid in 0..n {
+            let hotkey = Keys::<T>::get(netuid, uid);
+            let coldkey = Owner::<T>::get(&hotkey);
+            let (locked, min_locked, earned) =
+                MinerCollateral::<T>::get((netuid, &hotkey, &coldkey))
+                    .map(|s| (s.locked, s.min_locked, s.earned))
+                    .unwrap_or((AlphaBalance::ZERO, AlphaBalance::ZERO, AlphaBalance::ZERO));
+            locked_vec.push(locked.into());
+            min_vec.push(min_locked.into());
+            earned_vec.push(earned.into());
+        }
+        (locked_vec, min_vec, earned_vec)
     }
 
     fn get_single_selective_mechagraph(
@@ -1606,6 +1694,9 @@ fn test_selective_metagraph() {
         alpha_dividends_per_hotkey: None,
         validators: None,
         commitments: None,
+        collateral_locked: None,
+        collateral_min: None,
+        collateral_earned: None,
     };
 
     // test init value

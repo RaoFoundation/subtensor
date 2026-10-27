@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from ._transport.codec import is_valid_ss58_address
 from .keyfiles import Keypair, WrongPasswordError, resolve_key_password
@@ -140,25 +142,20 @@ def signing_keypair(
     try:
         return wallet.get_coldkey(password=pwd)
     except WrongPasswordError as error:
-        if macos_prompt and not keychain:
-            hint = (
-                f" The password entered for wallet {wallet.name!r} did not decrypt its "
-                "coldkey. `--macos-password` only prompts — it does not set or change the "
-                "wallet password. Use the password from when the coldkey was created. After "
-                f"a successful unlock, run `btcli wallet keychain save -w {wallet.name}` "
-                "and use `--keychain-password`."
-            )
-        elif keychain:
-            hint = (
-                f" Keychain entry for wallet {wallet.name!r} did not decrypt its coldkey. "
-                f"Re-save with `btcli wallet keychain save -w {wallet.name}`."
-            )
-        else:
-            hint = (
-                " Set BT_WALLET_PASSWORD, use --keychain-password / --macos-password, "
-                "or run via `doppler run -- btcli ...`."
-            )
-        raise ValueError(f"Wrong password for decryption.{hint}") from error
+        # Keep the message short — CLI layers add `help:` remediation. A long
+        # Doppler/keychain essay here becomes an ugly traceback body when a
+        # command forgets to catch ValueError (e.g. `wallet sign`).
+        if keychain:
+            raise ValueError(
+                f"wrong password (keychain entry for wallet {wallet.name!r} "
+                "did not decrypt the coldkey)"
+            ) from error
+        if macos_prompt and pwd is not None:
+            raise ValueError(
+                f"wrong password for wallet {wallet.name!r} "
+                "(--macos-password does not change the wallet password)"
+            ) from error
+        raise ValueError("wrong password") from error
     except OSError as error:
         raise ValueError(f"could not unlock coldkey: {error}") from error
 
@@ -175,10 +172,12 @@ def sign_message(
     macos_prompt: bool = False,
     keychain: bool = False,
 ) -> dict[str, str]:
-    """Sign a message with a wallet key; returns the signer address and 0x-hex signature.
+    """Sign a message with a wallet key; returns the signer address and bare-hex signature.
 
     ``use`` selects the key: "coldkey" (unlocks if encrypted) or "hotkey".
-    Signs the exact utf-8 bytes of ``message``.
+    Signs the exact utf-8 bytes of ``message``. The signature is lowercase hex
+    without a ``0x`` prefix — the same framing classic ``btcli wallet sign``
+    printed — so paste-into-verifier flows keep working.
     """
     wallet = Wallet(name=name, hotkey=hotkey, path=path)
     keypair = signing_keypair(
@@ -190,7 +189,7 @@ def sign_message(
         keychain=keychain,
     )
     signature = keypair.sign(message.encode())
-    return {"ss58": keypair.ss58_address, "signature": "0x" + bytes(signature).hex()}
+    return {"ss58": keypair.ss58_address, "signature": bytes(signature).hex()}
 
 
 def verify_message(message: str, signature: str, ss58_address: str) -> bool:
@@ -222,20 +221,27 @@ def create(
     overwrite: bool = False,
     coldkey_crypto_type: int = DEFAULT_CRYPTO_TYPE,
     hotkey_crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    on_mnemonic: Callable[[str, str], None] | None = None,
 ) -> Wallet:
-    """Create a new coldkey and hotkey for ``name``/``hotkey``."""
+    """Create a new coldkey and hotkey for ``name``/``hotkey``.
+
+    ``on_mnemonic`` receives ``("coldkey" | "hotkey", mnemonic)`` for each new
+    key and replaces the default plain-stdout echo of the mnemonics.
+    """
     wallet = Wallet(name=name, hotkey=hotkey, path=path)
     wallet.create_new_coldkey(
         n_words=n_words,
         use_password=use_password,
         overwrite=overwrite,
         crypto_type=coldkey_crypto_type,
+        on_mnemonic=(lambda m: on_mnemonic("coldkey", m)) if on_mnemonic else None,
     )
     wallet.create_new_hotkey(
         n_words=n_words,
         use_password=False,
         overwrite=overwrite,
         crypto_type=hotkey_crypto_type,
+        on_mnemonic=(lambda m: on_mnemonic("hotkey", m)) if on_mnemonic else None,
     )
     return wallet
 
@@ -246,18 +252,20 @@ def regen_coldkey(
     path: str = DEFAULT_WALLET_PATH,
     *,
     seed: str | None = None,
+    private_key: str | None = None,
     json: tuple[str, str] | None = None,
     use_password: bool = True,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
 ) -> Wallet:
-    """Regenerate a coldkey from a mnemonic, 32-byte hex seed, or encrypted JSON."""
+    """Regenerate a coldkey from a mnemonic, seed, private key, or encrypted JSON."""
     wallet = Wallet(name=name, path=path)
     # suppress=True stops the wallet lib from echoing the mnemonic back to stdout;
     # the caller already supplied it, so reprinting only widens secret exposure.
     wallet.regenerate_coldkey(
         mnemonic=mnemonic,
         seed=seed,
+        private_key=private_key,
         json=json,
         use_password=use_password,
         overwrite=overwrite,
@@ -274,14 +282,16 @@ def regen_hotkey(
     path: str = DEFAULT_WALLET_PATH,
     *,
     seed: str | None = None,
+    private_key: str | None = None,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
 ) -> Wallet:
-    """Regenerate a hotkey from a mnemonic or a 32-byte hex seed (exactly one)."""
+    """Regenerate a hotkey from a mnemonic, 32-byte hex seed, or 64-byte private key."""
     wallet = Wallet(name=name, hotkey=hotkey, path=path)
     wallet.regenerate_hotkey(
         mnemonic=mnemonic,
         seed=seed,
+        private_key=private_key,
         use_password=False,
         overwrite=overwrite,
         suppress=True,
@@ -298,6 +308,7 @@ def new_coldkey(
     use_password: bool = True,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    on_mnemonic: Callable[[str], None] | None = None,
 ) -> Wallet:
     """Create a new coldkey only (does not create a hotkey)."""
     wallet = Wallet(name=name, path=path)
@@ -306,6 +317,7 @@ def new_coldkey(
         use_password=use_password,
         overwrite=overwrite,
         crypto_type=crypto_type,
+        on_mnemonic=on_mnemonic,
     )
     return wallet
 
@@ -318,6 +330,7 @@ def new_hotkey(
     n_words: int = 12,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    on_mnemonic: Callable[[str], None] | None = None,
 ) -> Wallet:
     """Create a new hotkey in an existing wallet."""
     wallet = Wallet(name=name, hotkey=hotkey, path=path)
@@ -326,6 +339,7 @@ def new_hotkey(
         use_password=False,
         overwrite=overwrite,
         crypto_type=crypto_type,
+        on_mnemonic=on_mnemonic,
     )
     return wallet
 
@@ -424,21 +438,45 @@ def _is_hotkey_companion_file(name: str) -> bool:
     return name.endswith(".lock") or name.endswith("pub.txt")
 
 
+_NATURAL_NAME_SPLIT = re.compile(r"(\d+)")
+
+
+def natural_name_key(name: str) -> tuple[tuple[int, int | str], ...]:
+    """Sort key for wallet / hotkey names with embedded numbers.
+
+    Digit runs compare as integers (``coldkey2`` before ``coldkey10``); text
+    runs compare case-insensitively. Each chunk is tagged so int and str
+    chunks never raise ``TypeError`` when compared.
+    """
+    pieces: list[tuple[int, int | str]] = []
+    for part in _NATURAL_NAME_SPLIT.split(name):
+        if not part:
+            continue
+        if part.isdigit():
+            pieces.append((0, int(part)))
+        else:
+            pieces.append((1, part.casefold()))
+    return tuple(pieces)
+
+
 def list_wallets(path: str = DEFAULT_WALLET_PATH) -> dict[str, list[str]]:
     """Map coldkey wallet name -> list of its hotkey names on disk."""
     root = Path(path).expanduser()
     if not root.is_dir():
         return {}
     out: dict[str, list[str]] = {}
-    for coldkey_dir in sorted(root.iterdir()):
+    for coldkey_dir in sorted(root.iterdir(), key=lambda p: natural_name_key(p.name)):
         if not coldkey_dir.is_dir():
             continue
         hotkeys_dir = coldkey_dir / "hotkeys"
         hotkeys = (
             sorted(
-                hk.name
-                for hk in hotkeys_dir.iterdir()
-                if hk.is_file() and not _is_hotkey_companion_file(hk.name)
+                (
+                    hk.name
+                    for hk in hotkeys_dir.iterdir()
+                    if hk.is_file() and not _is_hotkey_companion_file(hk.name)
+                ),
+                key=natural_name_key,
             )
             if hotkeys_dir.is_dir()
             else []
@@ -487,14 +525,14 @@ def list_wallets_detailed(path: str = DEFAULT_WALLET_PATH) -> list[ColdkeyInfo]:
     if not root.is_dir():
         return []
     coldkeys: list[ColdkeyInfo] = []
-    for coldkey_dir in sorted(root.iterdir()):
+    for coldkey_dir in sorted(root.iterdir(), key=lambda p: natural_name_key(p.name)):
         if not coldkey_dir.is_dir():
             continue
         ss58, crypto_type = _read_keyfile(coldkey_dir / "coldkeypub.txt")
         info = ColdkeyInfo(name=coldkey_dir.name, ss58=ss58, crypto_type=crypto_type)
         hotkeys_dir = coldkey_dir / "hotkeys"
         if hotkeys_dir.is_dir():
-            for hk in sorted(hotkeys_dir.iterdir(), key=lambda p: p.name):
+            for hk in sorted(hotkeys_dir.iterdir(), key=lambda p: natural_name_key(p.name)):
                 if hk.is_file() and not _is_hotkey_companion_file(hk.name):
                     hk_ss58, hk_crypto = _read_keyfile(hk)
                     info.hotkeys.append(

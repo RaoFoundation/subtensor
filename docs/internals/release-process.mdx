@@ -31,7 +31,7 @@ by running `scripts/srtool/build-srtool-image.sh` followed by
 
 ### The ship lever: `spec_version`
 
-Every deploy job first compares the built runtime's `spec_version`
+Every deploy job first compares the built runtime's [`spec_version`](/code/runtime/src/lib.rs#L238)
 (`runtime/src/lib.rs`) with what the target chain is running, and **no-ops
 unless the build is newer**. Consequences:
 
@@ -48,20 +48,28 @@ Human approval lives in GitHub **environment settings**, not workflow code:
 | Stage | Environment | Gate |
 |-------|-------------|------|
 | devnet | `devnet` | none — deploys automatically, then runs the devnet smoke suite |
-| testnet | `testnet` | environment reviewers (one-click approval), then smoke suite + SDK release candidate to PyPI |
+| testnet | `testnet` | environment reviewers (one-click approval), then smoke suite; the SDK release candidate to PyPI asks for its own `testnet` approval |
 | mainnet | `mainnet` | environment reviewers **plus** the multisig ceremony below |
+| release | `mainnet-release` | none — the executed multisig is the approval; see [the release watcher](#the-release-watcher) |
 
 Deploys to devnet and testnet are direct `setCode` transactions via the CI
-deploy key; each is followed by an on-chain `spec_version` verification and a
-smoke suite.
+deploy key. After the on-chain `spec_version` is verified, the train moves the
+corresponding network mirror branch. That branch push triggers both Docker
+publishers from the exact deployed commit, updating the matching `:devnet` or
+`:testnet` tag in `ghcr.io/raofoundation/subtensor` and
+`ghcr.io/raofoundation/subtensor-localnet`. It does not move either package's
+`:latest` tag. The smoke suite then validates the live network while the
+independent image builds run.
 
 ### The mainnet multisig ceremony
 
-CI never upgrades mainnet directly. The train's final job submits a **multisig
-proposal**: the CI key is one half of a 2-of-2 deployment multisig that holds
-a `SudoUncheckedSetCode` proxy on the sudo key. The triumvirate then approves
-the proposal 2-of-3 **out-of-band** — no GitHub credential can unilaterally
-change the mainnet runtime. Until they sign, nothing happens on chain.
+CI never upgrades mainnet directly. Before any on-chain action, the train
+reserves the immutable `v<spec_version>` tag at the exact source commit. Its
+final job then submits a **multisig proposal**: the CI key is one half of a
+2-of-2 deployment multisig that holds a `SudoUncheckedSetCode` proxy on the
+sudo key. The triumvirate then approves the proposal 2-of-3 **out-of-band** —
+no GitHub credential can unilaterally change the mainnet runtime. Until they
+sign, nothing happens on chain.
 
 For rehearsal, the `mainnet-clone` PR label spins up a live clone of mainnet
 running your runtime with a public endpoint
@@ -69,32 +77,65 @@ running your runtime with a public endpoint
 
 ## The release watcher
 
-`watch-mainnet-release.yml` polls mainnet every 10 minutes. When the on-chain
-`spec_version` matches the `main` branch and no GitHub release exists for it
-yet, it cuts the release train's artifacts:
+`watch-mainnet-release.yml` polls mainnet every 10 minutes. When an upgrade
+executes, it resolves the release-train artifact whose commit matches the
+immutable tag and whose runtime hash matches the finalized on-chain `:code`.
+The triumvirate's signatures already approved that exact runtime, so the
+watcher publishes the release without waiting for anyone:
 
-1. **GitHub release** `v<spec_version>`
-2. **Python SDK + bittensor-core wheels** to PyPI (trusted publishing)
-3. **Publishable Rust crates** to crates.io (auto-discovered; workspace crates
-   are `publish = false` while they depend on the patched polkadot-sdk fork)
+1. **`mainnet` mirror** moved to the release commit. The push publishes the
+   production Docker images `:mainnet`, `:v<spec_version>`, and `:latest`
+   and the localnet images `:mainnet` and `:v<spec_version>`.
+2. **GitHub release** `v<spec_version>`: the release train's proposal
+   pre-release becomes the final, latest release with the verified runtime
+   assets attached.
+
+This job runs in the `mainnet-release` environment, which admits only `main`,
+has no reviewers, and holds only the mirror deploy key. It rechecks the
+finalized runtime before touching the mirror and never rewrites a final
+release.
+
+The same run then requests two publications that still wait for a `mainnet`
+environment approval, because the PyPI trusted publisher and the production
+Vercel token are bound to that environment:
+
+3. **Python SDK + bittensor-core wheels** to PyPI (trusted publishing, with
+   PEP 740 provenance attestations)
 4. **Production website/docs** to Vercel
+
+They are requested once per release and never block steps 1 and 2. Each
+rechecks the finalized runtime after approval, so a late approval cannot
+publish packages or docs for a runtime mainnet has already replaced.
 
 This ordering means the release always reflects what is *actually running on
 mainnet*, not what was merged.
 
-### Known gap: Docker images don't publish on release
+PyPI is the terminal state for stable Python publication. The watcher requires
+the SDK wheel and source distribution plus the full `bittensor-core` Linux and
+macOS wheel matrix and source distribution. Every file must carry a PEP 740
+attestation from this repository's mainnet release workflow. Dispatch the
+watcher to retry a failed, partial, or unapproved upload, even if the GitHub
+release already exists or the release-train artifact has expired. Retries
+require the release target, immutable tag, protected `mainnet` mirror, and
+finalized runtime bytes to agree. The SDK's committed `X.Y.Z.dev0` version is
+stamped to `X.Y.Z` for this build. The release train rejects a base SDK or
+core version that already exists on PyPI before publishing release candidates.
+Releases through v432 predate automated stable Python publication and are
+handled as historical state. A missed website deployment can be redeployed
+with `deploy-docs.yml` (production).
 
-`docker.yml` and `docker-localnet.yml` trigger on `release: published` and are
-what tag `ghcr.io` images (including `:latest`) for a mainnet release. However,
-the watcher creates the release with the default `GITHUB_TOKEN`, and **GitHub
-does not trigger workflows from events created by the default token** (a
-recursion guard). So the production node image is currently *not* published
-when a release is cut. Until fixed (use a PAT/app token for `gh release
-create`, or have the watcher call `gh workflow run docker.yml -f
-branch-or-tag=v<spec>`), publish manually via `docker.yml`'s
-`workflow_dispatch` with the release tag. Note the release also carries no
-attached artifacts — the srtool wasm/digest live only as 90-day workflow
-artifacts on the train run.
+### Docker images
+
+Every mirror branch publishes its own moving tag from the exact commit it
+points at: `:devnet`, `:testnet`, and `:mainnet`. Only the `mainnet` build
+also publishes the immutable `:v<spec_version>` tag, after checking that the
+commit is still the mirror head and carries that release tag. Production
+`:latest` moves only with it, so `:latest` is always the node running on
+mainnet. Every merge to `main` publishes the moving `:main` tag, so
+developers can prepare against merged features before they reach mainnet.
+Localnet `:latest` remains an alias for its `:main` image. To republish the
+current mainnet images, dispatch `docker.yml` with `tag=mainnet` and
+`docker-localnet.yml` with `branch-or-tag=mainnet`.
 
 ## Hotfixes
 

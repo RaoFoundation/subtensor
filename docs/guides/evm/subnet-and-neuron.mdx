@@ -29,7 +29,7 @@ mirror as the hotkey.
 Start a localnet and fund an EVM key (via Alice, who is pre-funded):
 
 ```bash
-btcli evm key new -w alice --no-password
+btcli evm key new -w alice
 btcli evm fund --amount-tao 500 -w alice --network local -y
 btcli evm balance -w alice --rpc-url http://127.0.0.1:9945
 ```

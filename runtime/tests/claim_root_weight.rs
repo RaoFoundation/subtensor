@@ -1,0 +1,183 @@
+#![allow(clippy::expect_used, clippy::panic)]
+
+use frame_support::dispatch::{DispatchClass, GetDispatchInfo};
+use node_subtensor_runtime::{
+    BlockWeights, BuildStorage, Runtime, RuntimeCall, RuntimeGenesisConfig, System, TxExtension,
+    check_mortality, check_nonce, check_nonzero_sender, sudo_wrapper,
+    transaction_payment_wrapper::ChargeTransactionPaymentWrapper,
+};
+use pallet_subtensor::weights::WeightInfo;
+use sp_runtime::{generic::Era, traits::TransactionExtension};
+use sp_std::collections::btree_set::BTreeSet;
+use subtensor_runtime_common::{AccountId, NetUid, TaoBalance};
+
+fn new_test_ext() -> sp_io::TestExternalities {
+    let mut ext: sp_io::TestExternalities = RuntimeGenesisConfig::default()
+        .build_storage()
+        .expect("runtime genesis storage builds")
+        .into();
+    ext.execute_with(|| System::set_block_number(1));
+    ext
+}
+
+fn expected_root_claim_weight(limit: u32) -> frame_support::weights::Weight {
+    pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root(limit)
+        .saturating_add(
+            pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root_scan(limit),
+        )
+        // Flat allowance for flushing the validator's queued dividend credits first; shared
+        // by every basket extrinsic that flushes.
+        .saturating_add(pallet_subtensor::Pallet::<Runtime>::basket_flush_weight_bound())
+        // FRAME folds the runtime's dispatch-extension weight into `call_weight`.
+        .saturating_add(
+            pallet_subtensor::weights::SubstrateWeight::<Runtime>::check_coldkey_swap_extension(),
+        )
+}
+
+fn assert_call_fits_normal_limit(call: RuntimeCall) {
+    let extensions: TxExtension = (
+        (
+            check_nonzero_sender::CheckNonZeroSender::<Runtime>::new(),
+            frame_system::CheckSpecVersion::<Runtime>::new(),
+            frame_system::CheckTxVersion::<Runtime>::new(),
+            frame_system::CheckGenesis::<Runtime>::new(),
+            check_mortality::CheckMortality::<Runtime>::from(Era::Immortal),
+            check_nonce::CheckNonce::<Runtime>::from(0),
+            frame_system::CheckWeight::<Runtime>::new(),
+        ),
+        (
+            ChargeTransactionPaymentWrapper::<Runtime>::new(TaoBalance::new(0)),
+            sudo_wrapper::SudoTransactionExtension::<Runtime>::new(),
+            pallet_shield::CheckShieldedTxValidity::<Runtime>::new(),
+            pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new(),
+            pallet_drand::drand_priority::DrandPriority::<Runtime>::new(),
+        ),
+        frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(true),
+    );
+
+    let mut dispatch_info = call.get_dispatch_info();
+    dispatch_info.extension_weight = extensions.weight(&call);
+    let Some(max_extrinsic) = BlockWeights::get().get(DispatchClass::Normal).max_extrinsic else {
+        panic!("normal extrinsics have a configured maximum");
+    };
+
+    assert!(
+        dispatch_info.total_weight().all_lte(max_extrinsic),
+        "call total weight {:?} exceeds normal max extrinsic {max_extrinsic:?}",
+        dispatch_info.total_weight()
+    );
+}
+
+#[test]
+#[allow(deprecated)]
+fn legacy_hotkey_swap_with_extensions_fits_normal_extrinsic_limit() {
+    new_test_ext().execute_with(|| {
+        for netuid in [None, Some(NetUid::ROOT), Some(NetUid::from(1))] {
+            let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_hotkey {
+                hotkey: AccountId::new([1u8; 32]),
+                new_hotkey: AccountId::new([2u8; 32]),
+                netuid,
+            });
+            assert_call_fits_normal_limit(call);
+        }
+    });
+}
+
+#[test]
+fn hotkey_swap_v2_with_extensions_fits_normal_extrinsic_limit() {
+    new_test_ext().execute_with(|| {
+        for netuid in [None, Some(NetUid::ROOT), Some(NetUid::from(1))] {
+            for keep_stake in [false, true] {
+                let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_hotkey_v2 {
+                    hotkey: AccountId::new([1u8; 32]),
+                    new_hotkey: AccountId::new([2u8; 32]),
+                    netuid,
+                    keep_stake,
+                });
+                assert_call_fits_normal_limit(call);
+            }
+        }
+    });
+}
+
+#[test]
+fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
+    new_test_ext().execute_with(|| {
+        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root {
+            subnets: BTreeSet::from([NetUid::ROOT]),
+        });
+        assert_eq!(
+            call.get_dispatch_info().call_weight,
+            expected_root_claim_weight(pallet_subtensor::MAX_ROOT_CLAIM_WORK)
+        );
+        assert_call_fits_normal_limit(call);
+    });
+}
+
+#[test]
+fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
+    new_test_ext().execute_with(|| {
+        let hotkey = AccountId::new([1u8; 32]);
+        let call =
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root_with_hotkey { hotkey });
+        assert_eq!(
+            call.get_dispatch_info().call_weight,
+            expected_root_claim_weight(pallet_subtensor::MAX_ROOT_CLAIM_HOTKEY_WORK)
+        );
+        assert_call_fits_normal_limit(call);
+    });
+}
+
+#[test]
+fn testnet_claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
+    new_test_ext().execute_with(|| {
+        frame_system::BlockHash::<Runtime>::insert(
+            0_u32,
+            "8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+                .parse::<sp_core::H256>()
+                .expect("valid testnet genesis hash"),
+        );
+        // The old testnet-only reservation failed even for an empty basket.
+        let oversized = expected_root_claim_weight(1_025);
+        let max = BlockWeights::get()
+            .get(DispatchClass::Normal)
+            .max_extrinsic
+            .expect("normal extrinsic limit exists");
+        assert!(!oversized.all_lte(max));
+
+        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root_with_hotkey {
+            hotkey: AccountId::new([1u8; 32]),
+        });
+        assert_call_fits_normal_limit(call);
+    });
+}
+
+#[test]
+fn swap_basket_many_at_leg_cap_fits_normal_extrinsic_limit() {
+    new_test_ext().execute_with(|| {
+        let hotkey = AccountId::new([1u8; 32]);
+        let leg = (
+            NetUid::from(1),
+            NetUid::from(2),
+            subtensor_runtime_common::AlphaBalance::from(1),
+            0,
+        );
+        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_basket_many {
+            hotkey,
+            legs: vec![leg; pallet_subtensor::MAX_BASKET_SWAP_LEGS as usize]
+                .try_into()
+                .expect("leg cap is bounded"),
+        });
+        assert_eq!(
+            call.get_dispatch_info().call_weight,
+            pallet_subtensor::Pallet::<Runtime>::swap_basket_many_declared_weight(
+                pallet_subtensor::MAX_BASKET_SWAP_LEGS
+            )
+            .saturating_add(
+                pallet_subtensor::weights::SubstrateWeight::<Runtime>::check_coldkey_swap_extension(
+                )
+            )
+        );
+        assert_call_fits_normal_limit(call);
+    });
+}

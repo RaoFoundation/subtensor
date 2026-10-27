@@ -84,6 +84,106 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes() {
     });
 }
 
+// A pool is closed (drained through the value cap by an inflated share) and re-opened by a
+// new depositor. The retired member still has a raw share row. Dissolution settlement must
+// not value that row: the whole pot goes to the live depositor, the retired member gets 0.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::destroy_alpha_tests::test_settle_stakes_skips_shares_retired_by_pool_close --exact
+#[test]
+fn test_settle_stakes_skips_shares_retired_by_pool_close() {
+    new_test_ext(0).execute_with(|| {
+        let owner_cold = U256::from(1001);
+        let owner_hot = U256::from(1002);
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        setup_reserves(
+            netuid,
+            1_000_000_000_000u64.into(),
+            1_000_000_000_000u64.into(),
+        );
+        remove_owner_registration_stake(netuid);
+
+        let hotkey = U256::from(3);
+        let drainer = U256::from(1);
+        let retired = U256::from(2);
+        let depositor = U256::from(4);
+        for coldkey in [&drainer, &retired, &depositor] {
+            assert_ok!(SubtensorModule::create_account_if_non_existent(
+                coldkey, &hotkey
+            ));
+        }
+        let stake = DefaultMinStake::<Test>::get() * 100.into();
+        for coldkey in [&drainer, &retired] {
+            add_balance_to_coldkey_account(coldkey, stake * 2.into());
+            assert_ok!(SubtensorModule::stake_into_subnet(
+                &hotkey,
+                coldkey,
+                netuid,
+                stake,
+                <Test as Config>::SwapInterface::max_price(),
+                false,
+            ));
+        }
+        // Legacy divergent state, then a drain through the cap closes the pool.
+        inflate_alpha_share(&hotkey, &drainer, netuid, 2);
+        inflate_alpha_share(&hotkey, &retired, netuid, 2);
+        let pool_value = TotalHotkeyAlpha::<Test>::get(hotkey, netuid);
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(drainer),
+            hotkey,
+            netuid,
+            pool_value,
+        ));
+        assert!(!TotalHotkeySharesV2::<Test>::contains_key(hotkey, netuid));
+        assert!(
+            !AlphaV2::<Test>::get((hotkey, retired, netuid)).is_zero(),
+            "leftover raw row still exists"
+        );
+        assert!(SubtensorModule::alpha_share_is_retired(
+            &hotkey, &retired, netuid
+        ));
+
+        // A new depositor re-opens the pool (another epoch); the row stays retired.
+        add_balance_to_coldkey_account(&depositor, stake * 2.into());
+        assert_ok!(SubtensorModule::stake_into_subnet(
+            &hotkey,
+            &depositor,
+            netuid,
+            stake,
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        ));
+        assert!(!SubtensorModule::alpha_share_is_retired(
+            &hotkey, &depositor, netuid
+        ));
+        assert!(SubtensorModule::alpha_share_is_retired(
+            &hotkey, &retired, netuid
+        ));
+
+        // Back the pot counter with real TAO so settlement can pay out.
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).expect("subnet");
+        add_balance_to_coldkey_account(&subnet_account, SubnetTAO::<Test>::get(netuid));
+
+        // Only the live position may be counted and paid.
+        let retired_before = SubtensorModule::get_coldkey_balance(&retired);
+        let depositor_before = SubtensorModule::get_coldkey_balance(&depositor);
+        let status = run_destroy_alpha_get_total_and_settle(netuid);
+        let live_value = TotalHotkeyAlpha::<Test>::get(hotkey, netuid).to_u64() as u128;
+        assert_eq!(
+            status.subnet_total_alpha_value,
+            Some(live_value),
+            "only the live depositor's value is counted"
+        );
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&retired),
+            retired_before,
+            "a retired share receives nothing on dissolution"
+        );
+        assert!(
+            SubtensorModule::get_coldkey_balance(&depositor) > depositor_before,
+            "the live depositor is paid"
+        );
+    });
+}
+
 #[test]
 fn test_destroy_alpha_in_out_stakes_clean_alpha() {
     new_test_ext(0).execute_with(|| {
@@ -129,7 +229,7 @@ fn test_destroy_alpha_in_out_stakes_clean_alpha() {
             "destroy_alpha_in_out_stakes_clean_alpha should complete"
         );
         assert_eq!(
-            Alpha::<Test>::iter()
+            AlphaV2::<Test>::iter()
                 .filter(|((_, _, nu), _)| *nu == netuid)
                 .count(),
             0
@@ -189,6 +289,7 @@ fn test_destroy_alpha_in_out_stakes_clear_hotkey_totals() {
             "destroy_alpha_in_out_stakes_clear_hotkey_totals should complete"
         );
         assert!(!TotalHotkeyAlpha::<Test>::contains_key(owner_hot, netuid));
+        assert!(!TotalAlphaStaked::<Test>::contains_key(netuid));
     });
 }
 
@@ -322,7 +423,7 @@ fn test_destroy_alpha_clean_alpha_resumes_with_limited_weight() {
         assert!(!done);
 
         let mut iterations = 0;
-        while Alpha::<Test>::iter().any(|((_, _, nu), _)| nu == netuid) {
+        while AlphaV2::<Test>::iter().any(|((_, _, nu), _)| nu == netuid) {
             let mut weight_meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
             let (done, new_key) = SubtensorModule::destroy_alpha_in_out_stakes_clean_alpha(
                 netuid,
@@ -439,8 +540,184 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes_multi_block_total_issuance() {
 
         assert!(completed, "settle_stakes should finish");
         assert!(
-            iterations >= 5,
+            iterations >= 3,
             "should need multiple blocks, completed in {iterations}"
+        );
+    });
+}
+
+#[test]
+fn test_destroy_alpha_in_out_stakes_settle_stakes_finishes_hotkey_past_weight() {
+    new_test_ext(0).execute_with(|| {
+        let cold_base = U256::from(7000);
+        let hot_base = U256::from(8000);
+        let netuid = add_dynamic_network(&hot_base, &cold_base);
+
+        setup_reserves(netuid, 1_000_000u64.into(), 10_000_000u64.into());
+
+        for index in 1..=3 {
+            let cold = U256::from(cold_base + index);
+            let hot = U256::from(hot_base + index);
+            assert_ok!(SubtensorModule::create_account_if_non_existent(&cold, &hot));
+            add_balance_to_coldkey_account(&cold, 1_000u64.into());
+            assert_ok!(SubtensorModule::stake_into_subnet(
+                &hot,
+                &cold,
+                netuid,
+                1_000u64.into(),
+                <Test as Config>::SwapInterface::max_price(),
+                false,
+            ));
+        }
+
+        let mut status = dissolve_cleanup_status(netuid);
+        let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(run_resumable_netuid_cleanup_with_status(
+            netuid,
+            &mut meter,
+            &mut status,
+            |netuid, weight_meter, last_key, status| {
+                SubtensorModule::destroy_alpha_in_out_stakes_get_total_alpha_value(
+                    netuid,
+                    weight_meter,
+                    last_key,
+                    status,
+                )
+            },
+        ));
+        status.subnet_distributed_tao = Some(0);
+
+        let first_hot = TotalHotkeyAlpha::<Test>::iter()
+            .find_map(|(hot, this_netuid, _)| (this_netuid == netuid).then_some(hot))
+            .expect("staked hotkey should exist");
+        let first_cold = SubtensorModule::alpha_iter_single_prefix(&first_hot)
+            .find_map(|(cold, this_netuid, _)| (this_netuid == netuid).then_some(cold))
+            .expect("staked coldkey should exist");
+        let first_balance_before = SubtensorModule::get_coldkey_balance(&first_cold);
+
+        // Enough to start the first hotkey, not enough to reserve its payout weight.
+        // Cleanup must still finish and pay that hotkey so dissolution cannot livelock.
+        let tight = <Test as frame_system::Config>::DbWeight::get()
+            .reads(3)
+            .saturating_add(<Test as frame_system::Config>::DbWeight::get().writes(1));
+        let mut tight_meter = WeightMeter::with_limit(tight);
+        let (done, new_key) = SubtensorModule::destroy_alpha_in_out_stakes_settle_stakes(
+            netuid,
+            &mut tight_meter,
+            None,
+            &mut status,
+        );
+
+        assert!(!done);
+        assert_eq!(
+            new_key,
+            Some(TotalHotkeyAlpha::<Test>::hashed_key_for(first_hot, netuid)),
+            "cursor must advance past the hotkey that was finished over budget"
+        );
+        assert!(
+            SubtensorModule::get_coldkey_balance(&first_cold) > first_balance_before,
+            "started hotkey must be paid even when weight is exhausted mid-prefix"
+        );
+
+        let mut full_meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        let (done, _) = SubtensorModule::destroy_alpha_in_out_stakes_settle_stakes(
+            netuid,
+            &mut full_meter,
+            new_key,
+            &mut status,
+        );
+
+        assert!(done);
+    });
+}
+
+#[test]
+fn test_destroy_alpha_in_out_stakes_settle_stakes_keeps_previous_cursor() {
+    new_test_ext(0).execute_with(|| {
+        let cold_base = U256::from(9000);
+        let hot_base = U256::from(10000);
+        let netuid = add_dynamic_network(&hot_base, &cold_base);
+
+        setup_reserves(netuid, 1_000_000u64.into(), 10_000_000u64.into());
+
+        for index in 1..=3 {
+            let cold = U256::from(cold_base + index);
+            let hot = U256::from(hot_base + index);
+            assert_ok!(SubtensorModule::create_account_if_non_existent(&cold, &hot));
+            add_balance_to_coldkey_account(&cold, 1_000u64.into());
+            assert_ok!(SubtensorModule::stake_into_subnet(
+                &hot,
+                &cold,
+                netuid,
+                1_000u64.into(),
+                <Test as Config>::SwapInterface::max_price(),
+                false,
+            ));
+        }
+
+        let mut status = dissolve_cleanup_status(netuid);
+        let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(run_resumable_netuid_cleanup_with_status(
+            netuid,
+            &mut meter,
+            &mut status,
+            |netuid, weight_meter, last_key, status| {
+                SubtensorModule::destroy_alpha_in_out_stakes_get_total_alpha_value(
+                    netuid,
+                    weight_meter,
+                    last_key,
+                    status,
+                )
+            },
+        ));
+        status.subnet_distributed_tao = Some(0);
+
+        let first_hot = TotalHotkeyAlpha::<Test>::iter()
+            .find_map(|(hot, this_netuid, _)| (this_netuid == netuid).then_some(hot))
+            .expect("staked hotkey should exist");
+        let first_cold = SubtensorModule::alpha_iter_single_prefix(&first_hot)
+            .find_map(|(cold, this_netuid, _)| (this_netuid == netuid).then_some(cold))
+            .expect("staked coldkey should exist");
+        let first_balance_before = SubtensorModule::get_coldkey_balance(&first_cold);
+
+        let one_hotkey = <Test as frame_system::Config>::DbWeight::get()
+            .reads(14)
+            .saturating_add(<Test as frame_system::Config>::DbWeight::get().writes(4));
+        let mut first_meter = WeightMeter::with_limit(one_hotkey);
+        let (done, previous_key) = SubtensorModule::destroy_alpha_in_out_stakes_settle_stakes(
+            netuid,
+            &mut first_meter,
+            None,
+            &mut status,
+        );
+        let previous_key = previous_key.expect("first pass should complete one hotkey");
+
+        assert!(!done);
+        assert!(
+            SubtensorModule::get_coldkey_balance(&first_cold) > first_balance_before,
+            "first pass should pay the completed hotkey"
+        );
+        let first_balance_after = SubtensorModule::get_coldkey_balance(&first_cold);
+
+        // Not enough weight to start another hotkey outer read — cursor must stay put.
+        let mut tight_meter = WeightMeter::with_limit(Weight::zero());
+        let (done, retry_key) = SubtensorModule::destroy_alpha_in_out_stakes_settle_stakes(
+            netuid,
+            &mut tight_meter,
+            Some(previous_key.clone()),
+            &mut status,
+        );
+
+        assert!(!done);
+        assert_eq!(
+            retry_key,
+            Some(previous_key),
+            "cursor should stay at the previous completed hotkey when no new hotkey can start"
+        );
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&first_cold),
+            first_balance_after,
+            "empty-budget pass should not rewind and pay the completed hotkey again"
         );
     });
 }

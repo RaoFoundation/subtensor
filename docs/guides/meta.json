@@ -1,4 +1,26 @@
 {
   "title": "Guides",
-  "pages": ["staking", "conviction", "mining", "validating", "subnets", "signed-requests", "extension-signing", "ledger", "evm", "local-development", "running-a-node", "timelock"]
+  "pages": [
+    "staking",
+    "root-reborn",
+    "basket-trading",
+    "basket-trading-governance",
+    "basket-trading-for-stakers",
+    "conviction",
+    "mining",
+    "validating",
+    "null-consensus",
+    "etao",
+    "subnets",
+    "multisig",
+    "proxies",
+    "signed-requests",
+    "extension-signing",
+    "ledger",
+    "vault",
+    "evm",
+    "local-development",
+    "running-a-node",
+    "timelock"
+  ]
 }

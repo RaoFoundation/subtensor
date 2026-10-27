@@ -21,9 +21,37 @@ generated CLI ``query`` command, and a typed namespace method
 
 from __future__ import annotations
 
+import functools
 import inspect
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, Union
+
+from ..settings import query_docs_url
+from ..signing import coerce_address, is_address_param
+
+
+@dataclass(frozen=True)
+class Grouped:
+    """Render hint for ``{group: [record, ...]}`` results: flatten to a table
+    with ``key`` as the leading column (e.g. epoch for weight commits)."""
+
+    key: str
+
+
+@dataclass(frozen=True)
+class Matrix:
+    """Render hint for ``{row: {col: value}}`` results: flatten to a long-form
+    three-column table with these column names."""
+
+    row: str
+    col: str
+    value: str
+
+
+# A read whose result isn't naturally a flat record/list declares its shape
+# here, and the generated `query` command renders it as a table instead of
+# falling back to a key/value dump of the raw mapping.
+RenderHint = Union[Grouped, Matrix]
 
 
 @dataclass
@@ -34,6 +62,7 @@ class ReadSpec:
     fetch: Callable[..., Awaitable[Any]]
     category: str  # topical grouping, rendered as a help panel by `query --help`
     param_docs: dict[str, str]  # param name -> meaning, for --help and the catalog
+    render: Optional[RenderHint] = None  # table shape for non-record results
 
     @property
     def summary(self) -> str:
@@ -49,12 +78,15 @@ def read(
     *,
     category: str,
     param_docs: Optional[dict[str, str]] = None,
+    render: Optional[RenderHint] = None,
 ):
     """Register a read under a stable machine name.
 
     ``param_docs`` documents what each param means; it feeds the generated
     ``query`` command's option help and the agent catalog. Address params
     (``*_ss58``) get their accepted-input-shapes note appended automatically.
+    ``render`` declares the table shape for results that aren't flat records
+    (see :data:`RenderHint`).
     """
 
     def decorate(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
@@ -64,10 +96,36 @@ def read(
         unknown = set(param_docs or {}) - set(params or {})
         if unknown:
             raise ValueError(f"param_docs for unknown params of read {name!r}: {sorted(unknown)}")
-        REGISTRY[name] = ReadSpec(name, doc, params or {}, fn, category, param_docs or {})
-        return fn
+        registered = _coercing(fn, params or {})
+        REGISTRY[name] = ReadSpec(
+            name, doc, params or {}, registered, category, param_docs or {}, render
+        )
+        return registered
 
     return decorate
+
+
+def _coercing(fn: Callable[..., Awaitable[Any]], params: dict[str, str]):
+    """Wrap a read so its ``*_ss58`` parameters also accept key-bearing objects
+    (a ``Wallet``, keypair, or signer — normalized by
+    :func:`~bittensor.signing.coerce_address`, the same seam intents use).
+    Reads without address parameters are registered untouched."""
+    ss58_params = [p for p in params if is_address_param(p)]
+    if not ss58_params:
+        return fn
+    sig = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    async def wrapped(*args, **kwargs):
+        bound = sig.bind_partial(*args, **kwargs)
+        for p in ss58_params:
+            value = bound.arguments.get(p)
+            if value is None or isinstance(value, str):
+                continue
+            bound.arguments[p] = coerce_address(value, p)
+        return await fn(*bound.args, **bound.kwargs)
+
+    return wrapped
 
 
 async def dispatch(view, name: str, params: dict[str, Any]) -> Any:
@@ -89,6 +147,7 @@ def list_reads() -> list[dict[str, Any]]:
             "params": s.params,
             "param_docs": s.param_docs,
             "category": s.category,
+            "docs_url": query_docs_url(s.name),
         }
         for s in sorted(REGISTRY.values(), key=lambda s: s.name)
     ]
@@ -108,9 +167,16 @@ def scalar_read(name: str, item, *, per_netuid: bool, doc: str, category: str):
 
 
 def utf8_text(value: Any) -> Any:
-    """Decode chain byte-strings (hex or bytes) to text where possible."""
+    """Decode chain byte-strings (hex, bytes, or byte-value lists) to text
+    where possible. Compact-u16 vectors (e.g. the metagraph's ``name`` and
+    ``symbol``) arrive as lists of ints carrying utf-8 bytes."""
     if isinstance(value, str) and value.startswith("0x"):
         value = bytes.fromhex(value[2:])
+    if isinstance(value, (list, tuple)):
+        try:
+            value = bytes(int(b) for b in value)
+        except (TypeError, ValueError):
+            return value
     if isinstance(value, (bytes, bytearray)):
         try:
             return value.decode("utf-8")

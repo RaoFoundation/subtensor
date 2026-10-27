@@ -1,0 +1,14 @@
+chain-extensions
+common
+node
+pallets
+precompiles
+primitives
+runtime
+sdk/bittensor-core
+sdk/bittensor-core-py
+sdk/bittensor-core-wasm
+sdk/bittensor-ts
+src
+support
+vendor

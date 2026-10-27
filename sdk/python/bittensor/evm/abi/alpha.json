@@ -326,5 +326,327 @@
     ],
     "stateMutability": "view",
     "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "burnHalfLife",
+        "type": "uint16"
+      }
+    ],
+    "name": "setBurnHalfLife",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint128",
+        "name": "rawMultiplier",
+        "type": "uint128"
+      }
+    ],
+    "name": "setBurnIncreaseMultiplier",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint8",
+        "name": "mode",
+        "type": "uint8"
+      }
+    ],
+    "name": "setRecycleOrBurn",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+{
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getEmissionAccounting",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "alphaDividends",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "rootAlphaDividends",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "lastHotkeyEmission",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "pendingServerEmission",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "pendingValidatorEmission",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "pendingRootAlphaDividends",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "pendingOwnerCut",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint128",
+        "name": "minerBurned",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint64",
+        "name": "raoRecycledForRegistration",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getEmissionGateConfig",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "blockEmission",
+        "type": "uint64"
+      },
+      {
+        "internalType": "int128",
+        "name": "movingAlpha",
+        "type": "int128"
+      },
+      {
+        "internalType": "bool",
+        "name": "netTaoFlowEnabled",
+        "type": "bool"
+      },
+      {
+        "internalType": "int128",
+        "name": "taoFlowCutoff",
+        "type": "int128"
+      },
+      {
+        "internalType": "uint128",
+        "name": "flowNormExponent",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint128",
+        "name": "emissionBarQuantile",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint128",
+        "name": "emissionGateExponent",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint128",
+        "name": "emissionGateBar",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint64",
+        "name": "flowEmaSmoothingFactor",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getSubnetEconomicState",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "emissionEnabled",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint128",
+        "name": "rootProportion",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint64",
+        "name": "excessTao",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "rootSellTao",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "protocolAlpha",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getSubnetFlowState",
+    "outputs": [
+      {
+        "internalType": "int64",
+        "name": "taoFlow",
+        "type": "int64"
+      },
+      {
+        "internalType": "bool",
+        "name": "hasTaoFlowEma",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint64",
+        "name": "taoFlowEmaBlock",
+        "type": "uint64"
+      },
+      {
+        "internalType": "int128",
+        "name": "taoFlowEma",
+        "type": "int128"
+      },
+      {
+        "internalType": "int64",
+        "name": "protocolFlow",
+        "type": "int64"
+      },
+      {
+        "internalType": "bool",
+        "name": "hasProtocolFlowEma",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint64",
+        "name": "protocolFlowEmaBlock",
+        "type": "uint64"
+      },
+      {
+        "internalType": "int128",
+        "name": "protocolFlowEma",
+        "type": "int128"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getSwapState",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "feeRate",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bool",
+        "name": "initialized",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint64",
+        "name": "quoteWeight",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "taoReservoir",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "alphaReservoir",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "migrationName",
+        "type": "bytes"
+      }
+    ],
+    "name": "hasSwapMigrationRun",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   }
 ]

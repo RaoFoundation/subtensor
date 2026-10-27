@@ -5,7 +5,7 @@ use safe_math::*;
 use sp_core::Get;
 use sp_core::U256;
 use sp_runtime::{PerU16, Saturating};
-use substrate_fixed::types::{I32F32, I64F64, U64F64, U96F32};
+use substrate_fixed::types::{I32F32, I64F64, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance};
 
 impl<T: Config> Pallet<T> {
@@ -108,9 +108,9 @@ impl<T: Config> Pallet<T> {
     // ==== Global Setters ====
     // ========================
     /// Unchecked tempo write used by tests, precompiles, and internal helpers.
-    /// Does NOT reset `LastEpochBlock` — that is the responsibility of the owner-side
-    /// `set_tempo` extrinsic and `sudo_set_tempo` (root), both of which perform the cycle
-    /// reset explicitly.
+    /// Does NOT reset `LastEpochBlock` — that is the responsibility of
+    /// `AdminUtils::sudo_set_tempo` (owner-or-root), which performs the cycle
+    /// reset explicitly via `apply_tempo_with_cycle_reset`.
     pub fn set_tempo_unchecked(netuid: NetUid, tempo: u16) {
         Tempo::<T>::insert(netuid, tempo);
         Self::deposit_event(Event::TempoSet(netuid, tempo));
@@ -595,6 +595,7 @@ impl<T: Config> Pallet<T> {
     pub fn set_max_allowed_uids(netuid: NetUid, max_allowed: u16) {
         MaxAllowedUids::<T>::insert(netuid, max_allowed);
         Self::deposit_event(Event::MaxAllowedUidsSet(netuid, max_allowed));
+        NullPruningTarget::<T>::remove(netuid);
     }
 
     pub fn get_kappa(netuid: NetUid) -> u16 {
@@ -723,6 +724,11 @@ impl<T: Config> Pallet<T> {
         MaxAllowedValidators::<T>::get(netuid)
     }
     pub fn set_max_allowed_validators(netuid: NetUid, max_allowed_validators: u16) {
+        let max_allowed_validators = if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
+            1
+        } else {
+            max_allowed_validators
+        };
         MaxAllowedValidators::<T>::insert(netuid, max_allowed_validators);
         Self::deposit_event(Event::MaxAllowedValidatorsSet(
             netuid,
@@ -768,16 +774,11 @@ impl<T: Config> Pallet<T> {
     pub fn get_subnet_owner(netuid: NetUid) -> T::AccountId {
         SubnetOwner::<T>::get(netuid)
     }
+    /// Deprecated legacy global owner cut (`u16 / u16::MAX`). Emission reads the per-subnet
+    /// owner slot via `get_subnet_owner_emission_cut`; this remains only for legacy views and
+    /// the emission-weights migration seed.
     pub fn get_subnet_owner_cut() -> u16 {
         SubnetOwnerCut::<T>::get()
-    }
-    pub fn get_float_subnet_owner_cut() -> U96F32 {
-        U96F32::saturating_from_num(SubnetOwnerCut::<T>::get())
-            .safe_div(U96F32::saturating_from_num(u16::MAX))
-    }
-    pub fn set_subnet_owner_cut(subnet_owner_cut: u16) {
-        SubnetOwnerCut::<T>::set(subnet_owner_cut);
-        Self::deposit_event(Event::SubnetOwnerCutSet(subnet_owner_cut));
     }
 
     pub fn get_owned_hotkeys(coldkey: &T::AccountId) -> Vec<T::AccountId> {
@@ -830,6 +831,24 @@ impl<T: Config> Pallet<T> {
 
     pub fn get_alpha_values(netuid: NetUid) -> (u16, u16) {
         AlphaValues::<T>::get(netuid)
+    }
+
+    pub fn get_liquid_alpha_consensus_mode(netuid: NetUid) -> ConsensusMode {
+        LiquidAlphaConsensusMode::<T>::get(netuid)
+    }
+
+    pub fn get_epoch_consensus(netuid: NetUid) -> EpochConsensus {
+        SubnetEpochConsensus::<T>::get(netuid)
+    }
+
+    pub fn set_epoch_consensus(netuid: NetUid, mode: EpochConsensus) {
+        SubnetEpochConsensus::<T>::insert(netuid, mode);
+        Self::deposit_event(Event::EpochConsensusSet(netuid, mode));
+    }
+
+    pub fn set_liquid_alpha_consensus_mode(netuid: NetUid, mode: ConsensusMode) {
+        LiquidAlphaConsensusMode::<T>::insert(netuid, mode);
+        Self::deposit_event(Event::LiquidAlphaConsensusModeSet(netuid, mode));
     }
 
     pub fn set_alpha_values_32(netuid: NetUid, low: I32F32, high: I32F32) {
@@ -925,7 +944,9 @@ impl<T: Config> Pallet<T> {
             Error::<T>::CannotUseSystemAccount
         );
 
+        let old_hotkey = SubnetOwnerHotkey::<T>::get(netuid);
         SubnetOwnerHotkey::<T>::insert(netuid, hotkey.clone());
+        Self::retarget_auto_parent_on_owner_change(netuid, &old_hotkey, hotkey);
         Self::deposit_event(Event::SubnetOwnerHotkeySet(netuid, hotkey.clone()));
         Ok(())
     }
@@ -986,6 +1007,25 @@ impl<T: Config> Pallet<T> {
     /// Sets TAO flow normalization exponent (p)
     pub fn set_tao_flow_normalization_exponent(exponent: U64F64) {
         FlowNormExponent::<T>::set(exponent);
+    }
+
+    /// Sets the emission bar quantile (q)
+    pub fn set_emission_bar_quantile(quantile: U64F64) {
+        EmissionBarQuantile::<T>::set(quantile);
+        // Force a bar recompute with the new quantile on the next block.
+        EmissionGateBar::<T>::kill();
+    }
+
+    /// Sets the emission bar rank (N). 0 restores q-mass (quantile) mode.
+    pub fn set_emission_bar_rank(rank: u16) {
+        EmissionBarRank::<T>::set(rank);
+        // Force a bar recompute with the new rank on the next block.
+        EmissionGateBar::<T>::kill();
+    }
+
+    /// Sets the emission gate Hill exponent (h)
+    pub fn set_emission_gate_exponent(exponent: U64F64) {
+        EmissionGateExponent::<T>::set(exponent);
     }
 
     /// Sets TAO flow smoothing factor (alpha)

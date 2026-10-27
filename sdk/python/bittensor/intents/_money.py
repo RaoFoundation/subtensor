@@ -89,13 +89,25 @@ def alpha_amount(value: Money, netuid: int, *, allow_all: bool = False) -> "Bala
 _FALLBACK_AMOUNT_UNITS: dict[tuple[str, str, str], str] = {
     ("SubtensorModule", "add_stake", "amount_staked"): "TAO",
     ("SubtensorModule", "add_stake_limit", "amount_staked"): "TAO",
+    ("SubtensorModule", "stake_into_basket", "amount_staked"): "TAO",
+    # Origin-subnet alpha; on a root origin (netuid 0) alpha is TAO 1:1, so the
+    # netuid-0 tag `call_amount` derives is the right unit there too.
+    ("SubtensorModule", "swap_basket", "amount"): "ALPHA",
+    # Destination-subnet alpha (a bare u64 on chain); on a root destination the
+    # unit is TAO 1:1, which the netuid-0 tag `call_amount` derives expresses.
+    ("SubtensorModule", "swap_basket", "min_amount_out"): "ALPHA",
     ("SubtensorModule", "add_stake_limit", "limit_price"): "TAO",
     ("SubtensorModule", "remove_stake", "amount_unstaked"): "ALPHA",
     ("SubtensorModule", "remove_stake_limit", "amount_unstaked"): "ALPHA",
     ("SubtensorModule", "remove_stake_limit", "limit_price"): "TAO",
     ("SubtensorModule", "move_stake", "alpha_amount"): "ALPHA",
+    ("SubtensorModule", "move_stake_limit", "alpha_amount"): "ALPHA",
+    ("SubtensorModule", "move_stake_limit", "limit_price"): "TAO",
     ("SubtensorModule", "transfer_stake", "alpha_amount"): "ALPHA",
+    ("SubtensorModule", "transfer_stake_and_hotkey", "alpha_amount"): "ALPHA",
     ("SubtensorModule", "swap_stake", "alpha_amount"): "ALPHA",
+    ("SubtensorModule", "add_collateral", "alpha"): "ALPHA",
+    ("SubtensorModule", "add_collateral", "limit_price"): "TAO",
 }
 
 # Call-arg type identities that name a money unit.

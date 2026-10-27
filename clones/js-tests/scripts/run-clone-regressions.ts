@@ -9,6 +9,14 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const testsDir = path.join(__dirname, "..", "tests");
 
+// IMPORTANT CI POLICY — MANUAL DIAGNOSTIC:
+// test-alpha-deprecated-stake-histogram.ts intentionally remains available as
+// `npm run test:alpha-deprecated-stake-histogram`, but is not a required clone
+// regression. It scans the complete legacy Alpha map and reports observational
+// distribution data without comparing it to a pass/fail baseline. Run it
+// manually against an upgraded clone when that data is needed; do not silently
+// add its full-state scan back to per-PR CI without defining a useful invariant.
+
 // Per-test ceiling; override with CLONE_REGRESSION_TIMEOUT_MS. Healthy tests
 // finish in 2-10 min, so 15 min is a hang, not a slow pass — failing fast
 // beats burning half an hour of runner time per stuck test.
@@ -29,7 +37,6 @@ const CLONE_REGRESSIONS = [
   { name: "test-proxy-filter-security-regressions.ts", phase: "remaining" },
   { name: "test-hotkey-swap-and-proxy-stake.ts", phase: "remaining" },
   { name: "test-net-tao-flow-emission-allocation.ts", phase: "remaining" },
-  { name: "test-alpha-deprecated-stake-histogram.ts", phase: "remaining" },
 ] as const satisfies ReadonlyArray<{ name: string; phase: CloneRegressionPhase }>;
 
 const regressionNames = new Set<string>(CLONE_REGRESSIONS.map(({ name }) => name));

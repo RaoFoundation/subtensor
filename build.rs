@@ -24,7 +24,9 @@ fn main() {
 
     // Collect all Rust source files in the workspace
     let rust_files = collect_rust_files(workspace_root);
-
+    for error in RequireExtrinsicBenchmarks::lint_workspace(workspace_root) {
+        println!("cargo:warning={error}");
+    }
     // Channel used to communicate errors back to the main thread from the parallel processing
     // as we process each Rust file
     let (tx, rx) = channel();

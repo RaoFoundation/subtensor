@@ -3,15 +3,19 @@
   "pages": [
     "index",
     "quickstart",
+    "sdk",
     "agents",
     "cli",
     "concepts",
     "guides",
     "migration",
+    "[Releases](/releases)",
+    "[Code](/code)",
     "---Reference---",
     "tx",
     "query",
     "errors",
+    "hyperparameters",
     "---Contributing---",
     "internals"
   ]

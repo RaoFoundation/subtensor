@@ -4,6 +4,10 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use codec::Compact;
 use pallet_subtensor::rpc_info::{
+    basket_info::{
+        BasketClaimPreview, BasketPosition, BasketSummary, BasketTradingStatus, BetaPosition,
+        BetaPricing, BetaPricingPage,
+    },
     delegate_info::DelegateInfo,
     dynamic_info::DynamicInfo,
     metagraph::{Metagraph, SelectiveMetagraph},
@@ -11,7 +15,8 @@ use pallet_subtensor::rpc_info::{
     show_subnet::SubnetState,
     stake_info::{StakeAvailability, StakeInfo},
     subnet_info::{
-        SubnetHyperparams, SubnetHyperparamsV2, SubnetHyperparamsV3, SubnetInfo, SubnetInfov2,
+        SubnetEmissionWeightsInfo, SubnetHyperparams, SubnetHyperparamsV2, SubnetHyperparamsV3,
+        SubnetInfo, SubnetInfov2,
     },
 };
 use pallet_subtensor::staking::lock::LockState;
@@ -62,6 +67,12 @@ sp_api::decl_runtime_apis! {
         fn get_subnet_account_id(netuid: NetUid) -> Option<AccountId32>;
         fn get_next_epoch_start_block(netuid: NetUid) -> Option<u64>;
         fn get_block_emission() -> TaoBalance;
+        /// The subnet's `[burn, recycle, owner, validator, miner]` emission weight
+        /// vector plus root's baseline share and the share root is paid off the
+        /// top of the validator slot this block. `None` when the subnet does not
+        /// exist.
+        #[api_version(3)]
+        fn get_subnet_emission_weights(netuid: NetUid) -> Option<SubnetEmissionWeightsInfo>;
     }
 
     pub trait StakeInfoRuntimeApi {
@@ -82,5 +93,75 @@ sp_api::decl_runtime_apis! {
     pub trait ProxyFilterRuntimeApi {
         fn get_proxy_types() -> Vec<ProxyTypeInfo>;
         fn get_proxy_filters(proxy_types: Option<Vec<u8>>) -> Vec<ProxyFilterInfo>;
+    }
+
+    pub trait BetaBasketRuntimeApi {
+        /// Total TAO a coldkey would realize by redeeming all its root beta baskets (marked).
+        fn get_root_basket_owed(coldkey: AccountId32) -> TaoBalance;
+        /// TAO a coldkey would realize by redeeming its owed shares on one validator (marked).
+        fn get_basket_payout(hotkey: AccountId32, coldkey: AccountId32) -> TaoBalance;
+        /// A validator's beta basket net asset value, in TAO (marked).
+        fn get_validator_basket_nav(hotkey: AccountId32) -> TaoBalance;
+        /// A validator's basket breakdown: (subnet, alpha held, TAO value) per subnet.
+        fn get_validator_basket(hotkey: AccountId32) -> Vec<(NetUid, AlphaBalance, TaoBalance)>;
+        /// Network-wide total beta basket NAV across all validators, in TAO (marked).
+        fn get_root_basket_total_nav() -> TaoBalance;
+        /// Full explorer-facing summary of one validator's basket: NAV (realizable and spot),
+        /// shares, lifetime deposit/redemption counters, and per-subnet holdings.
+        fn get_validator_basket_summary(hotkey: AccountId32) -> BasketSummary<AccountId32>;
+        /// Summaries for every validator with an active basket (network-wide leaderboard).
+        fn get_all_validator_baskets() -> Vec<BasketSummary<AccountId32>>;
+        /// A staker's positions across all its validators: (hotkey, owed shares, payout TAO).
+        fn get_root_basket_positions(coldkey: AccountId32) -> Vec<(AccountId32, u64, TaoBalance)>;
+        /// One staker's share-denominated position on one validator: owed shares, outstanding
+        /// supply, fund NAV, and the position's realizable and spot TAO values. `None` when
+        /// the staker has no owed shares there.
+        #[api_version(2)]
+        fn get_basket_position(hotkey: AccountId32, coldkey: AccountId32) -> Option<BasketPosition<AccountId32>>;
+        /// A coldkey's full basket portfolio: one share-denominated position per validator
+        /// on which it has owed shares.
+        #[api_version(2)]
+        fn get_root_basket_portfolio(coldkey: AccountId32) -> Vec<BasketPosition<AccountId32>>;
+        /// One fund's standardized pricing snapshot (index-spliced display price,
+        /// total-return stake price, staker yield, published index levels), or `None`
+        /// when the hotkey has no outstanding shares. The single source of truth every
+        /// consumer should display. Reads the published index snapshot in O(1) and
+        /// scans only this fund's holdings.
+        #[api_version(3)]
+        fn get_beta_pricing(hotkey: AccountId32) -> Option<BetaPricing<AccountId32>>;
+        /// One bounded page of pricing snapshots for funds with outstanding shares, all
+        /// marked against the same published index snapshot. `limit` is clamped to a
+        /// hard per-call cap (0 = full page); the returned `next` cursor resumes the
+        /// enumeration (`None` when complete), so the full leaderboard is a short loop
+        /// of bounded calls instead of one unbounded scan.
+        #[api_version(3)]
+        fn get_all_beta_pricing(start_after: Option<AccountId32>, limit: u32) -> BetaPricingPage<AccountId32>;
+        /// The published `(bag index, stake index)` levels: the chained NAV-weighted
+        /// display-price index (mix performance, flow-neutral) and the chained
+        /// total-return stake index (what τ1 staked in the average fund became),
+        /// maintained by the background sweep at realizable marks.
+        #[api_version(3)]
+        fn get_beta_index() -> (U64F64, U64F64);
+        /// One staker's display-denominated β position on one validator
+        /// (`display_beta * display_price` = spot value; `value_tao` = what a claim
+        /// pays), or `None` when the staker has no owed β there.
+        #[api_version(3)]
+        fn get_beta_position(hotkey: AccountId32, coldkey: AccountId32) -> Option<BetaPosition<AccountId32>>;
+        /// A coldkey's full display-denominated β portfolio, one position per validator
+        /// with owed β, all marked against the same published index snapshot.
+        #[api_version(3)]
+        fn get_beta_portfolio(coldkey: AccountId32) -> Vec<BetaPosition<AccountId32>>;
+        /// One fund's `swap_basket` trading status: the network-wide and per-hotkey gates
+        /// plus the turnover window a trade at the current block would be charged to.
+        #[api_version(4)]
+        fn get_basket_trading_status(hotkey: AccountId32) -> BasketTradingStatus;
+        /// What `claim_root_with_hotkey` would do now for this staker with the dust rules
+        /// applied: full entitlement, the part a claim pays, rows sold vs skipped. `None`
+        /// when the staker has no owed shares on the validator.
+        #[api_version(5)]
+        fn get_basket_claim_preview(hotkey: AccountId32, coldkey: AccountId32) -> Option<BasketClaimPreview<AccountId32>>;
+        /// The same for every validator a coldkey-wide `claim_root` would touch.
+        #[api_version(5)]
+        fn get_root_basket_claim_previews(coldkey: AccountId32) -> Vec<BasketClaimPreview<AccountId32>>;
     }
 }

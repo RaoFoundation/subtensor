@@ -15,6 +15,7 @@ from .coldkey import (
     DisputeColdkeySwap,
     SwapColdkeyAnnounced,
 )
+from .collateral import AddCollateral, SetMinCollateral
 from .crowdloan import (
     ContributeCrowdloan,
     CreateCrowdloan,
@@ -27,18 +28,19 @@ from .crowdloan import (
     UpdateCrowdloanMinContribution,
     WithdrawCrowdloan,
 )
+from .emission_weights import SetSubnetEmissionWeights
 from .evm import EvmWithdraw, FundEvmKey
 from .governance import (
     SetMechanismCount,
-    SetMechanismEmissionSplit,
     StakeBurn,
+    TrimNullSubnetBatch,
     TrimSubnet,
     UpdateSymbol,
 )
 from .hyperparameters import OWNER_HYPERPARAMETERS, SetHyperparameter
 from .identity import SetIdentity, SetSubnetIdentity
 from .leasing import RegisterLeasedNetwork, TerminateLease
-from .lock import LockStake, MoveLock, SetPerpetualLock
+from .lock import LockStake, MoveLock, SetPerpetualLock, SetRejectLockedAlpha
 from .multisig import (
     MultisigApprove,
     MultisigCancel,
@@ -58,21 +60,28 @@ from .proxy import (
 from .registration import (
     BurnedRegister,
     ClaimRoot,
+    ClaimRootWithHotkey,
+    PowRegister,
     RegisterSubnet,
     RootRegister,
-    SetRootClaimType,
     StartCall,
     SwapHotkey,
 )
 from .registry import REGISTRY, build, list_tools, register
+from .root import SetRootClaimThreshold, SetSubnetEmissionEnabled
 from .serving import ResetAxon, ServeAxon, ServeAxonTls, ServePrometheus
 from .staking import (
     AddStake,
     AddStakeLimit,
     MoveStake,
+    MoveSwapStake,
     RemoveStake,
     RemoveStakeLimit,
     SetAutoStake,
+    SetRejectStakingHotkeyGrowth,
+    StakeIntoBasket,
+    SwapBasket,
+    SwapBasketMany,
     SwapStake,
     TransferStake,
     UnstakeAll,
@@ -87,6 +96,7 @@ __all__ = [
     "PROXY_TYPES",
     "REGISTRY",
     "UNBOUNDED",
+    "AddCollateral",
     "AddProxy",
     "AddStake",
     "AddStakeLimit",
@@ -96,6 +106,7 @@ __all__ = [
     "Batch",
     "BurnedRegister",
     "ClaimRoot",
+    "ClaimRootWithHotkey",
     "ClearColdkeySwapAnnouncement",
     "CommitWeights",
     "ContributeCrowdloan",
@@ -117,12 +128,14 @@ __all__ = [
     "Money",
     "MoveLock",
     "MoveStake",
+    "MoveSwapStake",
     "MultisigApprove",
     "MultisigCancel",
     "MultisigExecute",
     "MultisigThreshold1",
     "Plan",
     "Policy",
+    "PowRegister",
     "RefundCrowdloan",
     "RegisterLeasedNetwork",
     "RegisterSubnet",
@@ -143,15 +156,22 @@ __all__ = [
     "SetHyperparameter",
     "SetIdentity",
     "SetMechanismCount",
-    "SetMechanismEmissionSplit",
+    "SetMinCollateral",
     "SetPerpetualLock",
-    "SetRootClaimType",
+    "SetRejectLockedAlpha",
+    "SetRejectStakingHotkeyGrowth",
+    "SetRootClaimThreshold",
+    "SetSubnetEmissionEnabled",
+    "SetSubnetEmissionWeights",
     "SetSubnetIdentity",
     "SetTake",
     "SetWeights",
     "Spend",
     "StakeBurn",
+    "StakeIntoBasket",
     "StartCall",
+    "SwapBasket",
+    "SwapBasketMany",
     "SwapColdkeyAnnounced",
     "SwapHotkey",
     "SwapStake",
@@ -159,6 +179,7 @@ __all__ = [
     "Transfer",
     "TransferAll",
     "TransferStake",
+    "TrimNullSubnetBatch",
     "TrimSubnet",
     "UnstakeAll",
     "UnstakeAllAlpha",

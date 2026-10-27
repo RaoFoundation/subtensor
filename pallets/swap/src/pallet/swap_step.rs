@@ -28,6 +28,10 @@ where
 
     // Result values
     delta_in: PaidIn,
+    /// Output for swapping the full `requested_delta_in`, computed once at construction.
+    /// `convert_deltas` runs a 256-bit bignum pow, by far the most expensive part of a
+    /// swap, so the full-fill execution reuses this instead of recomputing it.
+    requested_delta_out: PaidOut,
     final_price: U64F64,
     fee: PaidIn,
 
@@ -51,8 +55,12 @@ where
         let fee = Pallet::<T>::calculate_fee_amount(netuid, amount_remaining, drop_fees);
         let requested_delta_in = amount_remaining.saturating_sub(fee);
 
+        // Full-fill output amount (one bignum pow), shared by the target-price
+        // computation here and the execution in `process_swap`.
+        let requested_delta_out = Self::convert_deltas(netuid, requested_delta_in);
+
         // Target and current prices
-        let target_price = Self::price_target(netuid, requested_delta_in);
+        let target_price = Self::price_target(netuid, requested_delta_in, requested_delta_out);
         let current_price = Pallet::<T>::current_price(netuid);
 
         Self {
@@ -63,6 +71,7 @@ where
             target_price,
             current_price,
             delta_in: PaidIn::ZERO,
+            requested_delta_out,
             final_price: target_price,
             fee,
             _phantom: PhantomData,
@@ -116,8 +125,14 @@ where
 
     /// Process a single step of a swap
     fn process_swap(&self) -> Result<SwapStepResult<PaidIn, PaidOut>, Error<T>> {
-        // Convert amounts, actual swap happens here
-        let delta_out = Self::convert_deltas(self.netuid, self.delta_in);
+        // Convert amounts, actual swap happens here. The full-fill case (limit price not
+        // hit) reuses the output computed at construction; only a limit-clamped partial
+        // fill pays for a second conversion.
+        let delta_out = if self.delta_in == self.requested_delta_in {
+            self.requested_delta_out
+        } else {
+            Self::convert_deltas(self.netuid, self.delta_in)
+        };
         log::trace!("\tDelta Out        : {delta_out}");
         let mut fee_to_block_author = 0.into();
         if !self.delta_in.is_zero() {
@@ -149,12 +164,12 @@ impl<T: Config> SwapStep<T, TaoBalance, AlphaBalance>
         ))
     }
 
-    fn price_target(netuid: NetUid, delta_in: TaoBalance) -> U64F64 {
+    fn price_target(netuid: NetUid, delta_in: TaoBalance, delta_out: AlphaBalance) -> U64F64 {
         let tao_reserve = T::TaoReserve::reserve(netuid.into());
         let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
         let balancer = SwapBalancer::<T>::get(netuid);
         let dy = delta_in;
-        let dx = Self::convert_deltas(netuid, dy);
+        let dx = delta_out;
         balancer.calculate_price(
             u64::from(alpha_reserve.saturating_sub(dx)),
             u64::from(tao_reserve.saturating_add(dy)),
@@ -193,12 +208,12 @@ impl<T: Config> SwapStep<T, AlphaBalance, TaoBalance>
         ))
     }
 
-    fn price_target(netuid: NetUid, delta_in: AlphaBalance) -> U64F64 {
+    fn price_target(netuid: NetUid, delta_in: AlphaBalance, delta_out: TaoBalance) -> U64F64 {
         let tao_reserve = T::TaoReserve::reserve(netuid.into());
         let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
         let balancer = SwapBalancer::<T>::get(netuid);
         let dx = delta_in;
-        let dy = Self::convert_deltas(netuid, dx);
+        let dy = delta_out;
         balancer.calculate_price(
             u64::from(alpha_reserve.saturating_add(dx)),
             u64::from(tao_reserve.saturating_sub(dy)),
@@ -233,8 +248,10 @@ where
     /// Get the input amount needed to reach the target price
     fn delta_in(netuid: NetUid, price_curr: U64F64, price_target: U64F64) -> PaidIn;
 
-    /// Get the target price based on the input amount
-    fn price_target(netuid: NetUid, delta_in: PaidIn) -> U64F64;
+    /// Get the target price based on the input amount and its precomputed output
+    /// (`delta_out` must be `Self::convert_deltas(netuid, delta_in)`; it is passed in so
+    /// the expensive conversion is computed once and shared with swap execution)
+    fn price_target(netuid: NetUid, delta_in: PaidIn, delta_out: PaidOut) -> U64F64;
 
     /// Returns True if price1 is closer to the current price than price2
     ///    For buying:  price1 <= price2

@@ -113,6 +113,8 @@ selected=$(select_fixture)
 grep -qx 'artifact-id=12' <<<"$selected"
 grep -qx 'run-id=102' <<<"$selected"
 grep -qx 'producer-sha=0000000000000000000000000000000000000066' <<<"$selected"
+grep -qx 'artifact-size-bytes=1234' <<<"$selected"
+grep -qx 'artifact-digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' <<<"$selected"
 
 # Exactly 72 hours is accepted, one second older fails, and optional lookup
 # reports a miss. An artifact older than 36 hours remains usable with a warning.

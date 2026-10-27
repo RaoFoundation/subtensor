@@ -23,11 +23,13 @@ import typer
 
 from ..intents import REGISTRY
 from ..intents.base import Intent, is_money
-from ..intents.proxy import ProxyTypeChoice
+from ..settings import tx_docs_url
 from . import globals as g
+from .call_names import resolve_intent_args
 from .context import AppContext, address_cli_name, ctx_of, ss58_param_help
+from .intent_prompts import apply_intent_prompt_policy, validate_intent_prompt_policy
 from .prompt import PromptSpec, fill_missing, interactive, signer_specs
-from .stake_picker import STAKE_SOURCE_FIELDS, stake_source_spec
+from .stake_picker import required_address_spec
 
 # Field annotation (as a string, under PEP 563) -> the Python type Typer should
 # parse the option as. List/complex fields are taken as strings and parsed in the
@@ -84,6 +86,48 @@ def _coerce(field_annotation: str, value: Any) -> Any:
 
 _TRUE = {"y", "yes", "true", "1"}
 _FALSE = {"n", "no", "false", "0"}
+
+
+def resolve_all_amount(
+    app_ctx: AppContext,
+    amount: Optional[str],
+    all_amount: bool,
+    *,
+    flag: str,
+) -> str:
+    """Resolve ``--all`` vs an explicit amount for hand-written money commands."""
+    if all_amount:
+        if amount is not None and str(amount).strip().lower() not in ("", "all"):
+            app_ctx.output.error(f"pass `{flag}` or `--all`, not both")
+            raise typer.Exit(2)
+        return "all"
+    if amount is None:
+        if interactive(app_ctx):
+            prompted: dict[str, Any] = {"amount": None}
+            fill_missing(
+                app_ctx,
+                [
+                    PromptSpec(
+                        field="amount",
+                        flag=flag,
+                        help="Amount, or `all` for the entire available amount.",
+                        parse=lambda _ctx, raw: _parse_money(raw, True),
+                        placeholder="number or all",
+                    )
+                ],
+                prompted,
+            )
+            return str(prompted["amount"])
+        app_ctx.output.error(
+            f"missing required option: `{flag}` or `--all`",
+            help="pass an amount, pass `--all`, or run on a terminal to be prompted",
+        )
+        raise typer.Exit(2)
+    try:
+        return _parse_money(amount, True)
+    except ValueError as error:
+        app_ctx.output.error(f"invalid value for `{flag}`: {error}")
+        raise typer.Exit(2)
 
 
 def _parse_money(raw: Any, allow_all: bool) -> str:
@@ -155,6 +199,17 @@ def _placeholder(annotation: str) -> Optional[str]:
     return None
 
 
+def _list_note(annotation: str) -> Optional[str]:
+    """Input-shape cue for typed list options (e.g. ``list[int]`` netuids).
+
+    Bare ``list`` fields (pairs like set_children) document their own JSON
+    shape in the field help, so they carry no generic note.
+    """
+    if _base_annotation(annotation).startswith("list["):
+        return "Comma-separated values (e.g. 1,2) or a JSON list."
+    return None
+
+
 def _unit_help(field_name: str) -> Optional[str]:
     """Spell out the unit for money-typed intent fields (``*_tao``/``*_alpha``/``*_rao``)."""
     if field_name.endswith("_tao"):
@@ -169,33 +224,70 @@ def _unit_help(field_name: str) -> Optional[str]:
     return None
 
 
+def _privilege_note(intent_cls: type[Intent]) -> Optional[str]:
+    """The "Requires:" doc line for privileged intents (root / subnet owner)."""
+    if intent_cls.origin == "root":
+        return (
+            "Requires: the chain sudo key. The call is submitted wrapped in "
+            "Sudo.sudo; if root is a multisig, use the multisig flow "
+            "(btcli multisig) to dispatch the built call."
+        )
+    if intent_cls.origin == "subnet_owner":
+        return "Requires: the subnet's owner coldkey."
+    return None
+
+
+def _command_doc(intent_cls: type[Intent]) -> str:
+    """The intent's docstring plus generated privilege / verify / docs footers,
+    so the required key, the post-submission check, and the docs page (which
+    carries the on-chain implementation with source links) are visible on
+    --help."""
+    parts = [intent_cls.describe()]
+    note = _privilege_note(intent_cls)
+    if note:
+        parts.append(note)
+    if intent_cls.verify:
+        parts.append(f"Verify afterwards: btcli query {intent_cls.verify.replace('_', '-')}")
+    parts.append(f"Docs: {tx_docs_url(intent_cls.op)}")
+    return "\n\n".join(part for part in parts if part)
+
+
 def _make_command(intent_cls: type[Intent]):
     """Build a Typer command callback whose signature mirrors the intent's fields."""
     specs = list(fields(intent_cls))
     intent_names = {f.name for f in specs}
-    # Global --proxy-for / --force-proxy-type wrap any intent in Proxy.proxy. Skip
-    # them when the intent already owns a field with the same name (e.g.
-    # ExecuteProxyAnnounced.force_proxy_type is the chain param, not the wrapper).
-    global_proxy_type = "force_proxy_type" not in intent_names
+    # Intents with a single amount field also take a bare --amount, so the
+    # unit-suffixed canonical flag never has to be guessed on the command line.
+    amount_fields = intent_names & {"amount_alpha", "amount_tao"}
+    amount_alias = next(iter(amount_fields)) if len(amount_fields) == 1 else None
+    # Origin/destination ops are usually same-subnet; --netuid fills both so
+    # `--origin-netuid 51 --dest-netuid 51` collapses to `--netuid 51`.
+    # Ops whose point is that the netuids differ stay excluded.
+    shared_netuid = (
+        {"origin_netuid", "dest_netuid"} <= intent_names
+        and "netuid" not in intent_names
+        and intent_cls.op not in {"swap_stake", "move_swap_stake"}
+    )
 
     def command(ctx: typer.Context, **kwargs: Any) -> None:
-        g.apply(ctx, kwargs)
+        g.apply(ctx, kwargs, skip=intent_names)
         app_ctx = ctx_of(ctx)
+        if kwargs.pop("all_amount", False):
+            for name in intent_cls.all_amount_fields:
+                current = kwargs.get(name)
+                if current is not None and str(current).strip().lower() not in ("", "all"):
+                    flag = "--" + name.replace("_", "-")
+                    app_ctx.output.error(f"pass `{flag}` or `--all`, not both")
+                    raise typer.Exit(2)
+                kwargs[name] = "all"
+        if shared_netuid:
+            netuid = kwargs.pop("netuid", None)
+            if netuid is not None:
+                for netuid_field in ("origin_netuid", "dest_netuid"):
+                    if kwargs.get(netuid_field) is None:
+                        kwargs[netuid_field] = netuid
         missing = [spec for spec in prompt_specs if kwargs.get(spec.field) is None]
-        # Unstake-style ops pick their source hotkey from the coldkey's live
-        # stake positions instead of a bare text prompt (or, worse, a silent
-        # fallback to the wallet's own hotkey, which rarely holds the stake).
-        source = STAKE_SOURCE_FIELDS.get(intent_cls.op)
-        if (
-            source is not None
-            and kwargs.get(source[0]) is None
-            and not app_ctx.assume_yes
-            and not app_ctx.uses_extension_signer()
-            and interactive(app_ctx)
-        ):
-            hotkey_field, netuid_field = source
-            missing = [spec for spec in missing if spec.field != hotkey_field]
-            missing.insert(0, stake_source_spec(hotkey_field, netuid_field))
+        missing = apply_intent_prompt_policy(app_ctx, intent_cls.op, missing, kwargs)
         # The signing wallet is confirmed too (Enter accepts the configured
         # default); --yes and the extension signer keep the flag-only flow.
         if not app_ctx.assume_yes and not app_ctx.uses_extension_signer():
@@ -210,17 +302,7 @@ def _make_command(intent_cls: type[Intent]):
             )
         if missing:
             fill_missing(app_ctx, missing, kwargs)
-        # `self` is a sentinel (bypass the configured proxy_for default, see
-        # AppContext.submit), so it must reach submit unresolved.
-        raw_proxy_for = kwargs.pop("proxy_for", None)
-        proxy_for = (
-            raw_proxy_for
-            if raw_proxy_for in (None, "self")
-            else app_ctx.resolve_address("proxy_for", raw_proxy_for)
-        )
-        force_proxy_type = kwargs.pop("force_proxy_type", None) if global_proxy_type else None
-        if force_proxy_type is not None:
-            force_proxy_type = str(getattr(force_proxy_type, "value", force_proxy_type))
+        validate_intent_prompt_policy(app_ctx, intent_cls.op, kwargs)
         for f in specs:
             if f.name.endswith("_ss58"):
                 kwargs[f.name] = app_ctx.resolve_address(f.name, kwargs.get(f.name))
@@ -242,9 +324,11 @@ def _make_command(intent_cls: type[Intent]):
             for f in specs
             if kwargs.get(f.name) is not None
         }
-        app_ctx.submit(
-            intent_cls.from_args(args), proxy_for=proxy_for, force_proxy_type=force_proxy_type
-        )
+        # Flag-level resolution above only covers top-level *_ss58 options;
+        # this pass reaches names inside JSON-shaped fields too (signatory
+        # lists, a multisig inner --call, batch children).
+        args = resolve_intent_args(app_ctx, args)
+        app_ctx.submit(intent_cls.from_args(args))
 
     # Synthesize the signature Typer introspects: ctx first, then one keyword
     # option per intent field, typed and defaulted from the dataclass.
@@ -267,7 +351,11 @@ def _make_command(intent_cls: type[Intent]):
         # The field's declared help (metadata["help"], shared with the JSON
         # schema) says what the parameter *means*; the suffix heuristics add
         # what shapes it *accepts* (ss58/name resolution, money units).
-        input_note = ss58_param_help(f.name) if f.name.endswith("_ss58") else _unit_help(f.name)
+        input_note = (
+            ss58_param_help(f.name)
+            if f.name.endswith("_ss58")
+            else _unit_help(f.name) or _list_note(str(f.type))
+        )
         declared = intent_cls.field_help(f.name)
         help_text = " ".join(part for part in (declared, input_note) if part) or None
         if allows_all:
@@ -276,8 +364,13 @@ def _make_command(intent_cls: type[Intent]):
         if required:
             # Required options parse as optional so a missing one reaches the
             # command body, which prompts for it interactively (see prompt.py).
+            # Destination-style addresses get a picker (address book / local
+            # keys) instead of a blank text box.
+            richer = required_address_spec(f.name)
             prompt_specs.append(
-                PromptSpec(
+                richer
+                if richer is not None
+                else PromptSpec(
                     field=f.name,
                     flag=cli_name,
                     help=help_text,
@@ -287,7 +380,9 @@ def _make_command(intent_cls: type[Intent]):
             )
             # "(required)" not "[required]": rich help parses square brackets as markup.
             help_text = f"{help_text} (required)" if help_text else "(required)"
-        default = None if required or wallet_defaulted else f.default
+        # Factory-backed fields have no concrete default. Leave them out of args
+        # when omitted so the intent constructor runs the factory per invocation.
+        default = None if f.default is MISSING or wallet_defaulted else f.default
         # Bool options get a negated twin (--flag/--no-flag) so default-True
         # fields (e.g. keep_alive) can be turned off.
         flag_name = (
@@ -295,7 +390,14 @@ def _make_command(intent_cls: type[Intent]):
             if _base_annotation(str(f.type)) == "bool"
             else cli_name
         )
-        option = typer.Option(default, flag_name, help=help_text)
+        decls = [flag_name]
+        if f.name == amount_alias:
+            decls.append("--amount")
+        elif f.name == "dest_coldkey_ss58" and "dest_ss58" not in intent_names:
+            # Match wallet transfer's --dest so the destination flag is the
+            # same whether TAO or a stake position is being handed over.
+            decls.append("--dest")
+        option = typer.Option(default, *decls, help=help_text)
         # Money options parse as strings so amounts stay exact and the `all`
         # sentinel survives typer; the command body validates them (_parse_money).
         opt_type = str if is_money(str(f.type)) else _option_type(str(f.type))
@@ -309,36 +411,44 @@ def _make_command(intent_cls: type[Intent]):
             )
         )
 
-    # Proxy signing mode, available on every mutation (see Executor.plan).
-    proxy_params = [
-        inspect.Parameter(
-            "proxy_for",
-            inspect.Parameter.KEYWORD_ONLY,
-            default=typer.Option(
-                None,
-                "--proxy-for",
-                help="Dispatch as this account (ss58, proxy-book/address-book name, or "
-                "local wallet name) via Proxy.proxy; your wallet key signs as its "
-                "registered proxy. Pass `self` to bypass a configured default.",
-                rich_help_panel=g.PANEL_EXECUTION,
-            ),
-            annotation=Optional[str],
-        ),
-        inspect.Parameter(
-            "force_proxy_type",
-            inspect.Parameter.KEYWORD_ONLY,
-            default=typer.Option(
-                None,
-                "--force-proxy-type",
-                help="Require this exact proxy type to be used (with --proxy-for).",
-                rich_help_panel=g.PANEL_EXECUTION,
-            ),
-            annotation=Optional[ProxyTypeChoice],
-        ),
-    ]
-    # Globals go first so the help panels lead with network & wallet; the proxy
-    # options join the execution panel wherever they land in the signature.
-    for p in g.parameters("tx") + proxy_params:
+    if shared_netuid:
+        annotations["netuid"] = Optional[int]
+        params.append(
+            inspect.Parameter(
+                "netuid",
+                inspect.Parameter.KEYWORD_ONLY,
+                default=typer.Option(
+                    None,
+                    "--netuid",
+                    help="Shortcut for same-subnet operations: use this subnet as "
+                    "both --origin-netuid and --dest-netuid (either can still be "
+                    "overridden explicitly).",
+                ),
+                annotation=Optional[int],
+            )
+        )
+
+    if intent_cls.all_amount_fields:
+        annotations["all_amount"] = bool
+        params.append(
+            inspect.Parameter(
+                "all_amount",
+                inspect.Parameter.KEYWORD_ONLY,
+                default=typer.Option(
+                    False,
+                    "--all",
+                    help="Use the entire available amount (same as passing `all` "
+                    "to the amount option). The concrete value is read from "
+                    "chain state at build time, so you do not guess fees.",
+                ),
+                annotation=bool,
+            )
+        )
+
+    # Globals go first so the help panels lead with network & wallet. Skip a
+    # global when the intent already owns that field (e.g.
+    # ExecuteProxyAnnounced.force_proxy_type is the chain param, not the wrapper).
+    for p in g.parameters("tx"):
         if p.name in intent_names:
             continue
         annotations[p.name] = p.annotation
@@ -347,7 +457,9 @@ def _make_command(intent_cls: type[Intent]):
     command.__annotations__ = annotations
     # Full docstring: typer shows the first line in command listings and the
     # whole text on the command's own --help, so implications aren't lost.
-    command.__doc__ = intent_cls.describe()
+    # Privileged intents also carry a generated "Requires:" footer, and intents
+    # with a paired verify read a "Verify afterwards:" one.
+    command.__doc__ = _command_doc(intent_cls)
     return command
 
 
@@ -363,12 +475,26 @@ def _pallet(intent_cls: type[Intent]) -> str:
     return intent_cls.wraps[0][0] if intent_cls.wraps else "Other"
 
 
+def _help_panel(intent_cls: type[Intent]) -> str:
+    """The --help panel an intent lists under: pallet for plain signed intents,
+    with the required privilege made explicit for the others (root intents get
+    their own panel; subnet-owner intents keep the pallet with a marker)."""
+    if intent_cls.origin == "root":
+        return "Root (chain sudo)"
+    if intent_cls.origin == "subnet_owner":
+        return f"{_pallet(intent_cls)} — subnet owner"
+    return _pallet(intent_cls)
+
+
 def build_tx_app() -> typer.Typer:
     """Assemble the `tx` group with one generated subcommand per registered intent,
-    grouped in --help by the pallet each intent dispatches to."""
+    grouped in --help by the pallet each intent dispatches to (privileged intents
+    are grouped by the origin the chain demands instead)."""
     app = typer.Typer(no_args_is_help=True, help="Submit transactions (generated from intents).")
-    for op, intent_cls in sorted(REGISTRY.items(), key=lambda item: (_pallet(item[1]), item[0])):
-        app.command(op.replace("_", "-"), rich_help_panel=_pallet(intent_cls))(
+    for op, intent_cls in sorted(
+        REGISTRY.items(), key=lambda item: (_help_panel(item[1]), item[0])
+    ):
+        app.command(op.replace("_", "-"), rich_help_panel=_help_panel(intent_cls))(
             _make_command(intent_cls)
         )
     return app

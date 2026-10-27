@@ -1,14 +1,18 @@
-"""`btcli axon`: neuron serving endpoints."""
+"""`btcli misc axon`: neuron serving endpoints."""
 
 from __future__ import annotations
 
 import typer
 
 from ...intents import ResetAxon, ServeAxon, ServeAxonTls
+from ...settings import guide_docs_url
 from ..context import AppContext, ctx_of
 from ..globals import with_tx_globals
 
-app = typer.Typer(no_args_is_help=True, help="Axon serving commands.")
+app = typer.Typer(
+    no_args_is_help=True,
+    help=f"Axon serving commands.\n\nGuide: {guide_docs_url('mining')}",
+)
 
 
 @app.command("set")

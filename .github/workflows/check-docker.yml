@@ -7,30 +7,56 @@ name: Docker Build Check
 on:
   pull_request:
     paths:
-      # Anything the Dockerfile's cargo build consumes.
-      - "common/**"
+      # Only inputs that can change what this check proves: the production
+      # node binary's native code and build configuration, and the image
+      # packaging. Runtime logic (pallets, runtime, precompiles, chain
+      # extensions, primitives) ships as the on-chain wasm, which Runtime
+      # Checks builds with the production profile; Check Rust and the release
+      # node builds compile the node against every such change. The node
+      # runs only the pallet RPC and runtime-API crates natively.
       - "node/**"
-      - "pallets/**"
-      - "precompiles/**"
-      - "primitives/**"
-      - "runtime/**"
-      - "sdk/bittensor-core/**"
-      - "sdk/bittensor-core-py/**"
-      - "sdk/bittensor-core-wasm/**"
+      - "common/**"
       - "support/**"
-      - "chain-extensions/**"
+      - "pallets/*/rpc/**"
+      - "pallets/*/runtime-api/**"
       - "src/**"
       - "vendor/**"
+      # Manifests carry dependency, feature, and profile changes for every
+      # crate linked into the node, including the runtime-side ones.
+      # The bittensor-core SDK crates are not in node-subtensor's dependency
+      # graph. Their shared dependency movement still enters through Cargo.lock.
       - "Cargo.toml"
       - "Cargo.lock"
+      - "pallets/**/Cargo.toml"
+      - "runtime/Cargo.toml"
+      - "precompiles/Cargo.toml"
+      - "chain-extensions/Cargo.toml"
+      - "primitives/**/Cargo.toml"
       - "build.rs"
+      - "runtime/build.rs"
       - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".dockerignore"
+      - "*.json"
+      - "chainspecs/**"
+      - "scripts/docker_entrypoint.sh"
       - "Dockerfile"
       - "Dockerfile.prebuilt"
       - "Cross.toml"
       - ".github/actions/build-production-binary/**"
       - ".github/actions/rust-setup/**"
+      - ".github/actions/sccache-setup/**"
+      - ".github/scripts/rust-setup-preflight.sh"
+      - ".github/scripts/install-rust-toolchain.sh"
+      - ".github/scripts/sccache-configure.sh"
+      - ".github/scripts/sccache-config.py"
+      - ".github/scripts/sccache-report.sh"
       - ".github/workflows/check-docker.yml"
+      # These modules are compiled only by Rust tests. Check Rust owns them;
+      # they cannot change the production binary copied into the image.
+      - "!node/tests/**"
+      - "!support/*/tests/**"
+      - "!support/procedural-fork/src/pallet/parse/tests/**"
 
 concurrency:
   group: check-docker-${{ github.ref }}
@@ -40,19 +66,17 @@ permissions:
   contents: read
 
 jobs:
-  trusted-pr:
-    name: Trusted PR source (non-fork)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
-
-  binary:
-    name: production binary (amd64)
-    needs: trusted-pr
+  image:
+    name: production binary + docker image (amd64, no push)
+    # Job-level gating is evaluated before a self-hosted runner is assigned.
+    # Keep untrusted fork code off persistent organization infrastructure
+    # without serializing the production build behind a hosted guard job.
+    if: github.event.pull_request.head.repo.fork == false
     runs-on: [self-hosted, fireactions-turbo-16]
+    # PR HEAD executes here, including the local build action; never attach
+    # sccache-writer or pass R2 write keys. Pull requests are always readers.
     environment:
-      name: sccache-writer
+      name: sccache-reader
       deployment: false
     timeout-minutes: 90
     steps:
@@ -62,42 +86,20 @@ jobs:
         with:
           arch: amd64
           target: x86_64-unknown-linux-gnu
-          cache-key: docker-production-amd64
-          sccache-credential-mode: auto
-          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
-          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: production-node-amd64
-          path: build/ci_target/amd64/node-subtensor
-          if-no-files-found: error
-
-  image:
-    name: docker image (amd64, no push)
-    needs: [trusted-pr, binary]
-    runs-on: [self-hosted, fireactions-turbo-8]
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v5
-        with:
-          name: production-node-amd64
-          path: build/ci_target/amd64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+          sccache-credential-mode: reader
 
       - name: Build Docker image without publishing
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.prebuilt
-          platforms: linux/amd64
-          tags: subtensor-ci:amd64
-          load: true
-          push: false
+        # Buildx is part of the pinned Fireactions image contract. Using its
+        # default local Docker builder avoids a second runner plus artifact
+        # handoff and does not need a per-job builder installation.
+        run: |
+          docker buildx version
+          docker buildx build \
+            --file Dockerfile.prebuilt \
+            --platform linux/amd64 \
+            --tag subtensor-ci:amd64 \
+            --load \
+            .
 
       - name: Verify image architecture and executable
         shell: bash

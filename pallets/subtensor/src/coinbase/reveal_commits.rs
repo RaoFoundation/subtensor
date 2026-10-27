@@ -51,7 +51,7 @@ impl<T: Config> Pallet<T> {
             let netuid_index = Self::get_mechanism_storage_index(netuid, mecid.into());
 
             // Clean expired commits
-            for (epoch, _) in TimelockedWeightCommits::<T>::iter_prefix(netuid_index) {
+            for epoch in TimelockedWeightCommits::<T>::iter_key_prefix(netuid_index) {
                 if epoch < reveal_epoch {
                     TimelockedWeightCommits::<T>::remove(netuid_index, epoch);
                 }
@@ -116,6 +116,13 @@ impl<T: Config> Pallet<T> {
                         continue;
                     }
                 };
+
+                if commit.header.v.len() != 32 || commit.header.w.len() != 32 {
+                    log::trace!(
+                        "Failed to reveal commit for mechanism {netuid_index} submitted by {who:?} due to invalid ciphertext header"
+                    );
+                    continue;
+                }
 
                 let decrypted_bytes: Vec<u8> = match tld::<TinyBLS381, AESGCMStreamCipherProvider>(
                     commit, sig,

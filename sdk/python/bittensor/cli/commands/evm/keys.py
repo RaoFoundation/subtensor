@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +13,8 @@ from ....evm import keys as evm_keys
 from ....evm.keys import write_keystore_file
 from ...context import ctx_of
 from ...globals import with_globals, with_unlock_globals
+from ...prompt import interactive
+from ...secrets import copy_secret_to_clipboard, warn_argv_secrets
 from ._shared import (
     EVM_KEY_HELP,
     _key_fields,
@@ -21,6 +25,8 @@ from ._shared import (
     _unlock,
     key_app,
 )
+
+_PRIVATE_KEY_RE = re.compile(r"(0x)?[0-9a-fA-F]{64}")
 
 
 @key_app.command("new")
@@ -63,7 +69,11 @@ def key_import(
     ctx: typer.Context,
     name: str = typer.Option("default", "--name", help="Name to store the key under."),
     private_key: Optional[str] = typer.Option(
-        None, "--private-key", help="Raw 0x-hex private key (prompted for if flag given empty)."
+        None,
+        "--private-key",
+        help="Raw 0x-hex private key. Prompted for securely if no source is given; "
+        "avoid passing on the command line (it leaks to shell history and the "
+        "process list).",
     ),
     keystore: Optional[str] = typer.Option(
         None, "--keystore", help="Path to a keystore V3 JSON file (e.g. a MetaMask export)."
@@ -81,8 +91,36 @@ def key_import(
     ),
     overwrite: bool = typer.Option(False, "--overwrite", help="Replace an existing key."),
 ):
-    """Import an EVM key from a private key, keystore file, or mnemonic."""
+    """Import an EVM key from a private key, keystore file, or mnemonic.
+
+    Pass one of --private-key, --keystore, or --mnemonic; if none are given
+    you are prompted securely on the terminal (a 64-hex-char answer is taken
+    as a private key, anything else as a mnemonic).
+    """
     app_ctx = ctx_of(ctx)
+    warn_argv_secrets(
+        app_ctx.output,
+        {
+            "--private-key": private_key,
+            "--mnemonic": mnemonic,
+            "--keystore-password": keystore_password,
+        },
+    )
+    # An empty flag value (the old "prompt me" convention) counts as omitted.
+    private_key = private_key or None
+    mnemonic = mnemonic or None
+    if not private_key and not keystore and not mnemonic:
+        if not interactive(app_ctx):
+            app_ctx.output.error(
+                "missing key source: `--private-key`, `--keystore`, or `--mnemonic`",
+                help="pass one explicitly, or run on a terminal to be prompted",
+            )
+            raise typer.Exit(2)
+        answer = typer.prompt("EVM private key or mnemonic", hide_input=True).strip()
+        if _PRIVATE_KEY_RE.fullmatch(answer):
+            private_key = answer
+        else:
+            mnemonic = answer
     keystore_json = None
     if keystore is not None:
         try:
@@ -120,16 +158,24 @@ def key_export(
     private_key: bool = typer.Option(
         False,
         "--private-key",
-        help="Decrypt and print the raw 0x-hex private key (for ETH_PRIVATE_KEY "
-        "in Hardhat/Foundry). Prefer the encrypted keystore where the tool "
-        "supports it.",
+        help="Decrypt the raw 0x-hex private key (for ETH_PRIVATE_KEY in "
+        "Hardhat/Foundry). Copied to the clipboard on a terminal; printed when "
+        "piped, in --json mode, or with --show. Prefer the encrypted keystore "
+        "where the tool supports it.",
+    ),
+    show: bool = typer.Option(
+        False,
+        "--show",
+        help="With --private-key: print the raw key to the terminal instead of "
+        "copying it to the clipboard.",
     ),
 ):
     """Export a key's keystore V3 JSON (still encrypted) for MetaMask/geth/ethers.
 
-    With `--private-key`, decrypts and prints the raw key instead — the shape
-    JS toolchains want in an environment variable:
-    `export ETH_PRIVATE_KEY=$(btcli evm key export --private-key)`.
+    With `--private-key`, decrypts the raw key instead. On a terminal it goes
+    to the clipboard (pass --show to print); piped output still prints, so
+    `export ETH_PRIVATE_KEY=$(btcli evm key export --private-key)` keeps
+    working.
     """
     app_ctx = ctx_of(ctx)
     info = _key_info(app_ctx, key)
@@ -141,11 +187,19 @@ def key_export(
             )
             raise typer.Exit(2)
         account = _unlock(app_ctx, key)
+        raw = "0x" + account.key.hex().removeprefix("0x")
+        # Piped stdout and JSON mode are data flows (agents, `$(...)`); a real
+        # terminal defaults to the clipboard so the key stays out of scrollback.
+        to_terminal = show or app_ctx.output.json_mode or not sys.stdout.isatty()
+        if not to_terminal and copy_secret_to_clipboard(
+            app_ctx.output, raw, f"private key for {info.name} ({info.address})"
+        ):
+            return
         app_ctx.output.message(
             f"raw private key for {info.name} ({info.address}) — anyone with this "
             "controls the account; it never expires and cannot be revoked"
         )
-        app_ctx.output.value("0x" + account.key.hex().removeprefix("0x"))
+        app_ctx.output.value(raw)
         return
     keystore = evm_keys.export_evm_key(info.name, _key_ref(app_ctx, key)[0], app_ctx.wallet_path)
     if out:

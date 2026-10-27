@@ -49,7 +49,7 @@ pub use self::{
 	storage_oog::{handle_storage_oog, set_storage_oog},
 	validation::{
 		CheckEvmTransaction, CheckEvmTransactionConfig, CheckEvmTransactionInput,
-		TransactionValidationError,
+		TransactionValidationError, MAX_AUTHORIZATION_LIST_SIZE,
 	},
 };
 

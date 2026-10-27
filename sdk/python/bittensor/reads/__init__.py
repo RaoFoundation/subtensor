@@ -16,6 +16,7 @@ that inherits dispatch + catalog + the generated CLI ``query`` command.
 from . import (  # noqa: F401  (imported for registration side effects)
     accounts,
     chain,
+    collateral,
     delegation,
     epochs,
     hyperparameters,
@@ -24,29 +25,33 @@ from . import (  # noqa: F401  (imported for registration side effects)
     locks,
     neurons,
     prices,
+    root,
     staking,
     subnets,
     weights,
 )
 from .accounts import balance, balances, existential_deposit
-from .base import REGISTRY, ReadSpec, dispatch, list_reads, read
+from .base import REGISTRY, Grouped, Matrix, ReadSpec, dispatch, list_reads, read
 from .delegation import DelegatedStake, DelegateInfo
 from .identity import Commitment
 from .neurons import Neuron
 from .prices import SwapQuote
 from .staking import StakePosition, StakeValuation, stake, stake_for_coldkey
-from .subnets import SubnetInfo, token_symbols
+from .subnets import SubnetInfo, SubnetLifecycleState, token_symbols
 
 __all__ = [
     "REGISTRY",
     "Commitment",
     "DelegateInfo",
     "DelegatedStake",
+    "Grouped",
+    "Matrix",
     "Neuron",
     "ReadSpec",
     "StakePosition",
     "StakeValuation",
     "SubnetInfo",
+    "SubnetLifecycleState",
     "SwapQuote",
     "balance",
     "balances",

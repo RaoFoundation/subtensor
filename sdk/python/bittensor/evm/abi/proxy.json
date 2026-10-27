@@ -173,5 +173,200 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "real",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "callHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "announce",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "delegate",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "callHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "rejectAnnouncement",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "real",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "callHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "removeAnnouncement",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "delegate",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bool",
+        "name": "paysFee",
+        "type": "bool"
+      }
+    ],
+    "name": "setRealPaysFee",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+{
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "account",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getAnnouncements",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "real",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "callHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint64",
+            "name": "height",
+            "type": "uint64"
+          }
+        ],
+        "internalType": "struct IProxy.AnnouncementInfo[]",
+        "name": "",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deposit",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "account",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getLastCallResult",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "succeeded",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint8",
+        "name": "errorKind",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint8",
+        "name": "palletIndex",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "errorData",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "account",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getProxyDeposit",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "real",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "delegate",
+        "type": "bytes32"
+      }
+    ],
+    "name": "isRealPaysFee",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   }
 ]

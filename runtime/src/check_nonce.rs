@@ -5,6 +5,7 @@ use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
     RuntimeDebugNoBound,
     dispatch::{DispatchInfo, Pays},
+    traits::Get,
 };
 use frame_system::Config;
 use scale_info::TypeInfo;
@@ -46,6 +47,26 @@ impl<T: Config> CheckNonce<T> {
     }
 }
 
+impl<T: Config + pallet_subtensor::Config> CheckNonce<T> {
+    /// Whether `who` holds alpha stake on any hotkey.
+    ///
+    /// A coldkey that received stake (e.g. via `transfer_stake`) but never held
+    /// TAO has no provider or sufficient reference, yet the transaction-fee
+    /// handler can charge its fee by unstaking alpha (`fees_in_alpha`). Without
+    /// this escape hatch such an account is stuck: every signed extrinsic —
+    /// including the `remove_stake` that would give it TAO — dies here with
+    /// `Payment` before fee logic even runs.
+    ///
+    /// `StakingHotkeys` may retain hotkeys whose stake has since dropped to
+    /// zero, so this can over-approximate. That is safe: passing this guard
+    /// only admits the transaction to fee validation, where an account that
+    /// cannot actually pay (in TAO or alpha) is still rejected before any
+    /// nonce storage is written.
+    fn holds_alpha_stake(who: &<T as Config>::AccountId) -> bool {
+        pallet_subtensor::StakingHotkeys::<T>::decode_len(who).unwrap_or(0) > 0
+    }
+}
+
 impl<T: Config> sp_std::fmt::Debug for CheckNonce<T> {
     #[cfg(feature = "std")]
     fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
@@ -77,31 +98,38 @@ pub enum Pre {
     Refund(Weight),
 }
 
-impl<T: Config> TransactionExtension<T::RuntimeCall> for CheckNonce<T>
+impl<T: Config + pallet_subtensor::Config> TransactionExtension<<T as Config>::RuntimeCall>
+    for CheckNonce<T>
 where
-    T::RuntimeCall: Dispatchable<Info = DispatchInfo>,
-    <T::RuntimeCall as Dispatchable>::RuntimeOrigin: AsSystemOriginSigner<T::AccountId> + Clone,
+    <T as Config>::RuntimeCall: Dispatchable<Info = DispatchInfo>,
+    <<T as Config>::RuntimeCall as Dispatchable>::RuntimeOrigin:
+        AsSystemOriginSigner<<T as Config>::AccountId> + Clone,
 {
     const IDENTIFIER: &'static str = "CheckNonce";
     type Implicit = ();
     type Val = Val<T>;
     type Pre = Pre;
 
-    fn weight(&self, _: &T::RuntimeCall) -> Weight {
-        // TODO: benchmark transaction extension
-        Weight::zero()
+    fn weight(&self, _: &<T as Config>::RuntimeCall) -> Weight {
+        // Account for the account-nonce storage ops the extension performs on
+        // signed transactions: one `Account::get` read in `validate`, plus one
+        // `Account::mutate` (read + write) in `prepare` to bump the nonce, plus
+        // the worst-case `StakingHotkeys` length read for reference-less
+        // signers. Non-signed calls refund this weight in full via
+        // `Val::Refund`.
+        <T as Config>::DbWeight::get().reads_writes(3, 1)
     }
 
     fn validate(
         &self,
         origin: <T as Config>::RuntimeOrigin,
-        call: &T::RuntimeCall,
-        info: &DispatchInfoOf<T::RuntimeCall>,
+        call: &<T as Config>::RuntimeCall,
+        info: &DispatchInfoOf<<T as Config>::RuntimeCall>,
         _len: usize,
         _self_implicit: Self::Implicit,
         _inherited_implication: &impl Encode,
         _source: TransactionSource,
-    ) -> ValidateResult<Self::Val, T::RuntimeCall> {
+    ) -> ValidateResult<Self::Val, <T as Config>::RuntimeCall> {
         let Some(who) = origin.as_system_origin_signer() else {
             return Ok((Default::default(), Val::Refund(self.weight(call)), origin));
         };
@@ -109,6 +137,7 @@ where
         if info.pays_fee == Pays::Yes
             && account.providers.is_zero()
             && account.sufficients.is_zero()
+            && !Self::holds_alpha_stake(who)
         {
             // Nonce storage not paid for
             return Err(InvalidTransaction::Payment.into());
@@ -142,9 +171,9 @@ where
     fn prepare(
         self,
         val: Self::Val,
-        _origin: &T::RuntimeOrigin,
-        _call: &T::RuntimeCall,
-        _info: &DispatchInfoOf<T::RuntimeCall>,
+        _origin: &<T as Config>::RuntimeOrigin,
+        _call: &<T as Config>::RuntimeCall,
+        _info: &DispatchInfoOf<<T as Config>::RuntimeCall>,
         _len: usize,
     ) -> Result<Self::Pre, TransactionValidityError> {
         let (who, mut nonce) = match val {
@@ -156,15 +185,26 @@ where
         if self.0 > nonce {
             return Err(InvalidTransaction::Future.into());
         }
-        nonce += T::Nonce::one();
-        frame_system::Account::<T>::mutate(who, |account| account.nonce = nonce);
+        nonce += <T as Config>::Nonce::one();
+        frame_system::Account::<T>::mutate(&who, |account| {
+            if account.providers.is_zero() && account.sufficients.is_zero() {
+                // A signer admitted without a provider reference (`Pays::No` call or
+                // alpha-paid fee) would otherwise hold its nonce in an account that any
+                // balance write can remove, resetting the nonce and making its earlier
+                // signed extrinsics valid again. Hold a self-sufficient reference so the
+                // account, and with it the nonce, survives every balance change.
+                account.sufficients = One::one();
+                frame_system::Pallet::<T>::on_created_account(who.clone(), account);
+            }
+            account.nonce = nonce;
+        });
         Ok(Pre::NonceChecked)
     }
 
     fn post_dispatch_details(
         pre: Self::Pre,
         _info: &DispatchInfo,
-        _post_info: &PostDispatchInfoOf<T::RuntimeCall>,
+        _post_info: &PostDispatchInfoOf<<T as Config>::RuntimeCall>,
         _len: usize,
         _result: &DispatchResult,
     ) -> Result<Weight, TransactionValidityError> {
@@ -172,5 +212,121 @@ where
             Pre::NonceChecked => Ok(Weight::zero()),
             Pre::Refund(weight) => Ok(weight),
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::{Balances, BuildStorage, Runtime, RuntimeCall, RuntimeGenesisConfig};
+    use frame_support::assert_ok;
+    use frame_support::dispatch::GetDispatchInfo;
+    use frame_support::traits::fungible::Mutate;
+    use frame_support::traits::tokens::Preservation;
+    use frame_system::RawOrigin;
+    use sp_runtime::traits::{DispatchTransaction, Zero};
+    use subtensor_runtime_common::{AccountId, TaoBalance, Token};
+
+    fn new_test_ext() -> sp_io::TestExternalities {
+        let mut ext: sp_io::TestExternalities = RuntimeGenesisConfig::default()
+            .build_storage()
+            .unwrap()
+            .into();
+        ext.execute_with(|| frame_system::Pallet::<Runtime>::set_block_number(1));
+        ext
+    }
+
+    fn account_state(who: &AccountId) -> (bool, u32, u32, u32) {
+        let exists = frame_system::Account::<Runtime>::contains_key(who);
+        let account = frame_system::Account::<Runtime>::get(who);
+        (
+            exists,
+            account.nonce,
+            account.providers,
+            account.sufficients,
+        )
+    }
+
+    fn validate_and_prepare(
+        who: &AccountId,
+        nonce: u32,
+        call: &RuntimeCall,
+        info: &DispatchInfo,
+    ) -> Result<(), TransactionValidityError> {
+        CheckNonce::<Runtime>::from(nonce)
+            .validate_and_prepare(RawOrigin::Signed(who.clone()).into(), call, info, 0, 0)
+            .map(|_| ())
+    }
+
+    #[test]
+    fn reference_less_signer_keeps_its_nonce_through_a_full_balance_drain() {
+        new_test_ext().execute_with(|| {
+            let signer = AccountId::from([7_u8; 32]);
+            let sink = AccountId::from([8_u8; 32]);
+            let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+            let mut info = call.get_dispatch_info();
+            info.pays_fee = Pays::No;
+            assert_eq!(account_state(&signer), (false, 0, 0, 0));
+
+            // A `Pays::No` call from a key with no references is admitted; the nonce
+            // write must leave the account with a reference of its own.
+            assert_ok!(validate_and_prepare(&signer, 0, &call, &info));
+            assert_eq!(account_state(&signer), (true, 1, 0, 1));
+
+            // Receiving TAO and then moving all of it out (the shape of a dispatch that
+            // credits and drains the signer) no longer removes the account.
+            let ed = <Runtime as pallet_balances::Config>::ExistentialDeposit::get();
+            let amount = TaoBalance::from(ed.to_u64() * 10);
+            assert_ok!(Balances::mint_into(&signer, amount));
+            assert_eq!(account_state(&signer), (true, 1, 1, 1));
+            assert_ok!(Balances::transfer(
+                &signer,
+                &sink,
+                amount,
+                Preservation::Expendable
+            ));
+            assert_eq!(Balances::free_balance(&signer), TaoBalance::ZERO);
+            assert_eq!(account_state(&signer), (true, 1, 0, 1));
+
+            // The identical signed extrinsic is stale.
+            assert_eq!(
+                validate_and_prepare(&signer, 0, &call, &info),
+                Err(InvalidTransaction::Stale.into())
+            );
+            assert_ok!(validate_and_prepare(&signer, 1, &call, &info));
+            assert_eq!(account_state(&signer), (true, 2, 0, 1));
+        });
+    }
+
+    #[test]
+    fn funded_signer_does_not_gain_an_extra_reference() {
+        new_test_ext().execute_with(|| {
+            let signer = AccountId::from([9_u8; 32]);
+            let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+            let info = call.get_dispatch_info();
+            let ed = <Runtime as pallet_balances::Config>::ExistentialDeposit::get();
+            assert_ok!(Balances::mint_into(
+                &signer,
+                TaoBalance::from(ed.to_u64() * 10)
+            ));
+            assert_eq!(account_state(&signer), (true, 0, 1, 0));
+
+            assert_ok!(validate_and_prepare(&signer, 0, &call, &info));
+            assert_eq!(account_state(&signer), (true, 1, 1, 0));
+        });
+    }
+
+    #[test]
+    fn check_nonce_weight_accounts_for_account_storage_ops() {
+        let ext = CheckNonce::<Runtime>::from(<<Runtime as frame_system::Config>::Nonce>::zero());
+        let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+        // validate performs one `Account::get` read plus, for reference-less
+        // signers, one `StakingHotkeys` length read; prepare performs one
+        // `Account::mutate` (read + write). The declared extension weight must
+        // reflect those ops, not zero.
+        let expected = <Runtime as frame_system::Config>::DbWeight::get().reads_writes(3, 1);
+        assert_eq!(ext.weight(&call), expected);
+        assert!(!ext.weight(&call).is_zero());
     }
 }

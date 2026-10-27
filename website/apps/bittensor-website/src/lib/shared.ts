@@ -11,3 +11,7 @@ export const gitConfig = {
   repo: 'bittensor',
   branch: 'main',
 };
+
+// The chain repository the /code viewer mirrors (this monorepo's own origin).
+export const chainRepoUrl = 'https://github.com/RaoFoundation/subtensor';
+export const codeRoute = '/code';

@@ -5,7 +5,6 @@
 //! and event emission are all verified. SwapInterface calls are handled by
 //! `MockSwap`, which records calls and maintains in-memory balance ledgers.
 
-use codec::Encode;
 use frame_support::{BoundedVec, assert_noop, assert_ok};
 use sp_core::Pair;
 use sp_keyring::Sr25519Keyring as AccountKeyring;
@@ -33,6 +32,64 @@ fn assert_event(event: Event<Test>) {
 // ─────────────────────────────────────────────────────────────────────────────
 // cancel_order
 // ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn frozen_signer_orders_cannot_be_executed_by_an_unfrozen_relayer() {
+    for batched in [false, true] {
+        for order_type in [OrderType::LimitBuy, OrderType::TakeProfit] {
+            new_test_ext().execute_with(|| {
+                MockTime::set(1_000_000);
+                MockSwap::set_price(1.0);
+                MockSwap::set_buy_alpha_return(500);
+                MockSwap::set_sell_tao_return(500);
+                MockSwap::set_tao_balance(alice(), 1_000);
+                MockSwap::set_alpha_balance(alice(), bob(), netuid(), 1_000);
+                let signed = make_signed_order(
+                    AccountKeyring::Alice,
+                    bob(),
+                    netuid(),
+                    order_type,
+                    500,
+                    1_000_000_000,
+                    FAR_FUTURE,
+                    Perbill::zero(),
+                    fee_recipient(),
+                    None,
+                );
+                let id = order_id(&signed.order);
+                let execute = |signed| {
+                    if batched {
+                        LimitOrders::execute_batched_orders(
+                            RuntimeOrigin::signed(charlie()),
+                            netuid(),
+                            bounded(vec![signed]),
+                        )
+                    } else {
+                        LimitOrders::execute_orders(
+                            RuntimeOrigin::signed(charlie()),
+                            bounded(vec![signed]),
+                            true,
+                        )
+                    }
+                };
+                FrozenOrderSigner::set(Some(alice()));
+                let calls = MockSwap::log();
+                let events = System::events();
+                assert_noop!(execute(signed.clone()), Error::<Test>::OrderSignerFrozen);
+                assert_eq!(Orders::<Test>::get(id), None);
+                assert_eq!(MockSwap::log(), calls);
+                assert_eq!(MockSwap::tao_balance(&alice()), 1_000);
+                assert_eq!(MockSwap::alpha_balance(&alice(), &bob(), netuid()), 1_000);
+                assert_eq!(System::events(), events);
+
+                // The same signed order remains executable once recovery is cleared.
+                FrozenOrderSigner::set(None);
+                assert_ok!(execute(signed));
+                assert_eq!(Orders::<Test>::get(id), Some(OrderStatus::Fulfilled));
+            });
+        }
+    }
+}
 
 #[test]
 fn cancel_order_signer_can_cancel() {
@@ -2182,7 +2239,7 @@ fn make_signed_order_with_slippage(
         chain_id: 945,
         partial_fills_enabled: false,
     });
-    let sig = keyring.pair().sign(&order.encode());
+    let sig = keyring.pair().sign(&order_signing_payload(&order));
     crate::SignedOrder {
         order,
         signature: sp_runtime::MultiSignature::Sr25519(sig),
@@ -2983,7 +3040,9 @@ fn execute_orders_partial_fill_without_relayer_skipped() {
             partial_fills_enabled: true,
         };
         let versioned = VersionedOrder::V1(inner);
-        let sig = AccountKeyring::Alice.pair().sign(&versioned.encode());
+        let sig = AccountKeyring::Alice
+            .pair()
+            .sign(&order_signing_payload(&versioned));
         let signed = crate::SignedOrder {
             order: versioned,
             signature: sp_runtime::MultiSignature::Sr25519(sig),

@@ -25,17 +25,25 @@ btcli query hotkey-conviction --hotkey <ss58|name> --netuid <integer> --json
 
 ## Python
 
-Typed namespace method (autocomplete, signature help):
+Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await client.locks.hotkey_conviction(hotkey_ss58="5F...", netuid=1)
+sub = bt.Subtensor()
+result = sub.locks.hotkey_conviction(hotkey_ss58="5F...", netuid=1)
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await client.read("hotkey_conviction", hotkey_ss58="5F...", netuid=1)
+result = sub.read("hotkey_conviction", hotkey_ss58="5F...", netuid=1)
 ```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Runtime API [`StakeInfoRuntimeApi.get_hotkey_conviction`](/code/runtime/src/lib.rs#L2613-L2615)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

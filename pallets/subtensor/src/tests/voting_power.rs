@@ -354,6 +354,42 @@ fn test_voting_power_ema_calculation() {
     });
 }
 
+#[test]
+fn test_total_voting_power_tracks_updates_removals_and_swaps() {
+    new_test_ext(1).execute_with(|| {
+        let f = VotingPowerTestFixture::new();
+        f.setup_full();
+        f.run_epochs(1);
+
+        let voting_power = f.get_voting_power();
+        assert!(voting_power > 0);
+        assert_eq!(TotalVotingPower::<Test>::get(f.netuid), voting_power);
+
+        let replacement = U256::from(99);
+        SubtensorModule::swap_voting_power_for_hotkey(&f.hotkey, &replacement, f.netuid);
+        assert_eq!(
+            VotingPower::<Test>::get(f.netuid, replacement),
+            voting_power
+        );
+        assert_eq!(TotalVotingPower::<Test>::get(f.netuid), voting_power);
+
+        ValidatorPermit::<Test>::insert(f.netuid, vec![false]);
+        let mut output = BTreeMap::new();
+        output.insert(
+            replacement,
+            EpochTerms {
+                uid: 0,
+                new_validator_permit: false,
+                ..Default::default()
+            },
+        );
+        SubtensorModule::update_voting_power_for_subnet(f.netuid, &output);
+
+        assert_eq!(VotingPower::<Test>::get(f.netuid, replacement), 0);
+        assert_eq!(TotalVotingPower::<Test>::get(f.netuid), 0);
+    });
+}
+
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::voting_power::test_voting_power_cleared_when_deregistered --exact --nocapture
 #[test]
 fn test_voting_power_cleared_when_deregistered() {

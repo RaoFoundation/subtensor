@@ -166,11 +166,23 @@ class SubstrateConnection:
     async def genesis_hash(self) -> str:
         return await self._runtimes.genesis_hash()
 
+    async def runtime_spec_version(self) -> int:
+        """The connected runtime's ``spec_version`` at the chain head.
+
+        Served from the head codec, which re-validates against
+        ``state_getRuntimeVersion`` on a short TTL — so a runtime upgrade
+        mid-session is reflected within about a block.
+        """
+        return (await self._runtimes.codec_at(None)).spec_version
+
     async def get_chain_head(self) -> str:
         return await self._session.request("chain_getHead", [])
 
     async def get_chain_finalised_head(self) -> str:
         return await self._session.request("chain_getFinalizedHead", [])
+
+    async def get_finalized_block_number(self) -> int:
+        return await self.get_block_number(await self.get_chain_finalised_head())
 
     async def get_block_hash(self, block_id: Optional[int]) -> str:
         if block_id is None:
@@ -264,6 +276,23 @@ class SubstrateConnection:
                 by_key[key_hex] = bytes.fromhex(value_hex[2:]) if value_hex is not None else None
         raws = [by_key.get(key_hex) for key_hex in key_hexes]
         return decode_storage_values(codec, entry, raws)
+
+    async def map_has_entries(
+        self,
+        module: str,
+        storage_function: str,
+        params: list,
+        block_hash: Optional[str] = None,
+    ) -> bool:
+        """Probe one map key without downloading or decoding its value."""
+        block_hash = block_hash or await self.get_chain_head()
+        codec = await self._runtimes.codec_at(block_hash)
+        entry = codec.storage_entry(module, storage_function)
+        if not entry.param_types or len(params) >= len(entry.param_types):
+            raise ValueError("map prefix must leave at least one key unspecified")
+        prefix = "0x" + codec.storage_key(entry, params).hex()
+        keys = await self._session.request("state_getKeysPaged", [prefix, 1, prefix, block_hash])
+        return bool(keys)
 
     async def query_map(
         self,
@@ -463,7 +492,7 @@ class SubstrateConnection:
         if isinstance(era, dict):
             if "current" not in era and "phase" not in era:
                 era = dict(era)
-                era["current"] = await self.get_block_number(await self.get_chain_finalised_head())
+                era["current"] = await self.get_finalized_block_number()
             codec = await self._runtimes.codec_at(None)
             birth = codec.era_birth(era, era.get("current"))
             return era, await self.get_block_hash(birth)
@@ -632,6 +661,18 @@ class SubstrateConnection:
                 "reaching the awaited state"
             )
         return await self._resolve_inclusion(extrinsic.extrinsic_hash, block_hash, finalized)
+
+    async def resolve_extrinsic(
+        self, extrinsic_hash: str, block_hash: str, *, finalized: bool = False
+    ) -> InclusionReport:
+        """Resolve the outcome of an extrinsic already included in ``block_hash``.
+
+        Used to follow a MEV-shielded submission to its decrypted inner
+        extrinsic, which the block author includes separately from the carrier
+        that was watched. Raises ``ExtrinsicNotFound`` when the block does not
+        carry the extrinsic.
+        """
+        return await self._resolve_inclusion(extrinsic_hash, block_hash, finalized)
 
     async def _resolve_inclusion(
         self, extrinsic_hash: str, block_hash: str, finalized: bool

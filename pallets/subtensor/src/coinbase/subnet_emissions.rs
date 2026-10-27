@@ -347,17 +347,25 @@ impl<T: Config> Pallet<T> {
         offset_flows
     }
 
-    // Price-based emission shares: each subnet's share is its EMA price normalized
-    // by the sum of EMA prices. Emit-disabled subnets are zeroed and their share
-    // redistributed to enabled subnets in `get_subnet_block_emissions`, so the
-    // effective emission is e_i = p_i / sum(p_j) over emit-enabled subnets.
+    // Price-based emission shares: normalize EMA prices, reweight each share by
+    // (1 - MinerBurned), renormalize, then pass the result through the emission
+    // gate. Emit-disabled subnets are zeroed and their share redistributed to
+    // enabled subnets in `get_subnet_block_emissions`.
     pub(crate) fn get_shares(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
         let price_shares = Self::get_shares_price_ema(subnets_to_emit_to);
+        let mut shares = Self::scale_price_shares_by_miner_burn(price_shares);
 
-        // Weight each subnet's price share by (1 - miner_burned), then
-        // renormalize. The effective emission is proportional to
-        // price_i * (1 - miner_burned_i).
-        // - (1 - miner_burned) reallocates away from subnets that withhold miner emission.
+        Self::maybe_update_emission_gate_bar(&shares);
+        Self::apply_emission_gate(&mut shares);
+        shares
+    }
+
+    /// Scales normalized EMA-price shares by `(1 - MinerBurned)` and
+    /// renormalizes them. If every resulting weight is zero, returns the
+    /// original price shares so emission is not stranded.
+    fn scale_price_shares_by_miner_burn(
+        price_shares: BTreeMap<NetUid, U64F64>,
+    ) -> BTreeMap<NetUid, U64F64> {
         let zero = U64F64::saturating_from_num(0);
         let one = U64F64::saturating_from_num(1);
         let weighted: BTreeMap<NetUid, U64F64> = price_shares
@@ -373,18 +381,130 @@ impl<T: Config> Pallet<T> {
         let total_weight = weighted
             .values()
             .copied()
-            .fold(zero, |acc, w| acc.saturating_add(w));
+            .fold(zero, |acc, weight| acc.saturating_add(weight));
 
         if total_weight > zero {
             weighted
                 .into_iter()
-                .map(|(netuid, w)| (netuid, w.safe_div(total_weight)))
+                .map(|(netuid, weight)| (netuid, weight.safe_div(total_weight)))
                 .collect()
         } else {
-            // The combined weight zeroes out for every subnet (e.g. no root stake, or
-            // every subnet burning all of its miner emission); fall back to the
-            // unweighted price shares so the block's emission is not stranded.
             price_shares
+        }
+    }
+
+    /// Blocks between emission gate bar recomputations. Matching the standard
+    /// tempo keeps the bar steady between epochs so per-block price wiggles
+    /// cannot flap emission at the boundary.
+    pub const EMISSION_BAR_UPDATE_INTERVAL: u64 = 360;
+
+    /// Recomputes the emission gate bar (theta) when due.
+    ///
+    /// Two selection modes, both properties of the demand distribution over
+    /// *positive* shares, so registering empty subnets does not move the bar:
+    ///
+    /// * Rank mode (`EmissionBarRank` N > 0): theta is the Nth-largest demand
+    ///   share, so exactly the top N subnets sit at or above the gate midpoint
+    ///   regardless of how the distribution shifts. If fewer than N subnets
+    ///   have demand, theta is the smallest positive share (everyone passes).
+    ///
+    /// * q-mass mode (N == 0): sort demand shares descending and accumulate
+    ///   until the running total crosses `EmissionBarQuantile` (q); the share
+    ///   at the crossing is the bar. Subnets above the bar collectively carry
+    ///   q of demand.
+    fn maybe_update_emission_gate_bar(shares: &BTreeMap<NetUid, U64F64>) {
+        let zero = U64F64::saturating_from_num(0);
+        let current_bar = EmissionGateBar::<T>::get();
+        let block = Self::get_current_block_as_u64();
+        let update_due = block
+            .checked_rem(Self::EMISSION_BAR_UPDATE_INTERVAL)
+            .unwrap_or_default()
+            == 0;
+        if current_bar > zero && !update_due {
+            return;
+        }
+
+        let mut sorted: Vec<U64F64> = shares.values().copied().collect();
+        sorted.sort_unstable_by(|a, b| b.cmp(a));
+
+        let rank = EmissionBarRank::<T>::get();
+        let theta = if rank > 0 {
+            sorted
+                .iter()
+                .filter(|share| **share > zero)
+                .nth(usize::from(rank).saturating_sub(1))
+                .or_else(|| sorted.iter().filter(|share| **share > zero).next_back())
+                .copied()
+                .unwrap_or(zero)
+        } else {
+            let q = EmissionBarQuantile::<T>::get();
+            let mut cumulative = zero;
+            let mut crossing = zero;
+            for share in sorted {
+                cumulative = cumulative.saturating_add(share);
+                crossing = share;
+                if cumulative >= q {
+                    break;
+                }
+            }
+            crossing
+        };
+
+        if theta > zero {
+            EmissionGateBar::<T>::put(theta);
+            log::debug!("Emission gate bar updated: theta = {theta:?} (rank = {rank:?})");
+        }
+    }
+
+    /// Applies the Hill emission gate in place and renormalizes.
+    ///
+    /// gate(s) = s^h / (s^h + theta^h), computed as 1 / (1 + (theta/s)^h) so
+    /// that `safe_pow` operates on the well-conditioned ratio theta/s instead
+    /// of s^h itself, which underflows I32F32 precision for deep-tail shares.
+    /// The gate passes exactly 1/2 at the bar, ~1 well above it, and ~0 well
+    /// below it. A zero bar (never computed) disables the gate.
+    ///
+    /// When every gated share underflows to zero (e.g. a stale `theta` far above
+    /// all shares with a steep `h`), the ungated shares are restored so the
+    /// block's emission cannot be stranded.
+    pub(crate) fn apply_emission_gate(shares: &mut BTreeMap<NetUid, U64F64>) {
+        let zero = U64F64::saturating_from_num(0);
+        let one = U64F64::saturating_from_num(1);
+
+        let theta = EmissionGateBar::<T>::get();
+        if theta <= zero {
+            return;
+        }
+        let h = EmissionGateExponent::<T>::get();
+
+        let ungated = shares.clone();
+
+        for share in shares.values_mut() {
+            if *share <= zero {
+                continue;
+            }
+            let ratio = theta.safe_div(*share);
+            // For s << theta, safe_pow saturates and the gate goes to ~0;
+            // for s >> theta, the ratio underflows ln and safe_pow returns 0,
+            // so the gate goes to 1. Both limits are the intended behavior.
+            let gate = one.safe_div(one.saturating_add(Self::safe_pow(ratio, h)));
+            *share = share.saturating_mul(gate);
+        }
+
+        let total = shares
+            .values()
+            .copied()
+            .fold(zero, |acc, s| acc.saturating_add(s));
+        if total > zero {
+            for share in shares.values_mut() {
+                *share = share.safe_div(total);
+            }
+        } else {
+            // Fixed-point underflow can zero every gated product (stale
+            // theta ≫ share with large h). Restore the pre-gate distribution
+            // rather than emit zero everywhere.
+            *shares = ungated;
+            log::warn!("Emission gate underflowed to zero total; restoring ungated shares");
         }
     }
 

@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::arithmetic_side_effects)]
 
+use crate::migrations::migrate_alpha_v2::retired::{Alpha, TotalHotkeyShares};
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, Pays};
 use frame_support::sp_runtime::DispatchError;
@@ -17,6 +18,7 @@ use subtensor_swap_interface::{Order, SwapHandler};
 
 use super::mock;
 use super::mock::*;
+use crate::weights::WeightInfo;
 use crate::*;
 
 /***********************************************************
@@ -126,10 +128,11 @@ fn test_add_stake_ok_no_emission() {
             1.into()
         );
 
-        // Check if total stake has increased accordingly.
+        // Check if total stake has increased accordingly (the swap fee goes to the block
+        // author and is not stake).
         assert_eq!(
             SubtensorModule::get_total_stake(),
-            SubtensorModule::get_network_min_lock() + amount.into()
+            SubtensorModule::get_network_min_lock() + amount.into() - fee.into()
         );
     });
 }
@@ -349,6 +352,655 @@ fn test_add_stake_total_issuance_no_change() {
     });
 }
 
+// Regression: a divergent share pool (S/D > 1) must not let a coldkey withdraw more alpha
+// than the hotkey pool really holds.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_remove_stake_cannot_exceed_real_pool_value --exact
+#[test]
+fn test_remove_stake_cannot_exceed_real_pool_value() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let stake_amount = DefaultMinStake::<Test>::get() * 10.into();
+
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
+        add_balance_to_coldkey_account(&coldkey, stake_amount);
+        SubtensorModule::stake_into_subnet(
+            &hotkey,
+            &coldkey,
+            netuid,
+            stake_amount,
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+
+        // The hotkey pool holds exactly this much alpha in total (V).
+        let real_alpha = TotalHotkeyAlpha::<Test>::get(hotkey, netuid);
+        assert!(!real_alpha.is_zero());
+
+        // Drive the coldkey's share to S = 3D, so the raw quote V * S / D = 3V.
+        inflate_alpha_share(&hotkey, &coldkey, netuid, 3);
+
+        // FIX 1: the quote is capped at the pool value.
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
+            real_alpha
+        );
+
+        let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
+        let balance_before = SubtensorModule::get_coldkey_balance(&coldkey);
+
+        // Ask for three times the pool. `remove_stake` caps the request at the (capped)
+        // quote, so only the real pool value can leave.
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            netuid,
+            real_alpha.saturating_mul(3.into()),
+        ));
+
+        let tao_received = SubtensorModule::get_coldkey_balance(&coldkey) - balance_before;
+        assert!(!tao_received.is_zero());
+        assert!(
+            tao_received < stake_amount,
+            "unstaking cannot return more TAO than was staked: {tao_received} >= {stake_amount}"
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(
+            TotalHotkeyAlpha::<Test>::get(hotkey, netuid),
+            AlphaBalance::ZERO
+        );
+        assert!(
+            alpha_out_before.saturating_sub(SubnetAlphaOut::<Test>::get(netuid)) <= real_alpha,
+            "no more alpha may leave circulation than the pool held"
+        );
+
+        // Nothing is left to withdraw, even though the stale share entry may still exist.
+        assert!(
+            SubtensorModule::remove_stake(RuntimeOrigin::signed(coldkey), hotkey, netuid, 1.into())
+                .is_err()
+        );
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&coldkey) - balance_before,
+            tao_received
+        );
+        assert_total_alpha_staked_invariant(netuid);
+    });
+}
+
+// Regression for the two-member PoC: even when every member's raw quote exceeds the pool,
+// the total that can leave the hotkey pool is bounded by what the pool really holds.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_two_inflated_members_cannot_extract_more_than_pool --exact
+#[test]
+fn test_two_inflated_members_cannot_extract_more_than_pool() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+        let coldkey_a = U256::from(1);
+        let coldkey_b = U256::from(2);
+        let hotkey = U256::from(3);
+        let stake_amount = DefaultMinStake::<Test>::get() * 10.into();
+
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey_a, &hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey_b, &hotkey);
+        let mut tao_in = TaoBalance::ZERO;
+        for coldkey in [&coldkey_a, &coldkey_b] {
+            add_balance_to_coldkey_account(coldkey, stake_amount);
+            SubtensorModule::stake_into_subnet(
+                &hotkey,
+                coldkey,
+                netuid,
+                stake_amount,
+                <Test as Config>::SwapInterface::max_price(),
+                false,
+            )
+            .unwrap();
+            tao_in += stake_amount;
+        }
+
+        let real_alpha = TotalHotkeyAlpha::<Test>::get(hotkey, netuid);
+        assert!(!real_alpha.is_zero());
+
+        // Both members' shares are driven to S = 2D: each raw quote is 2V, capped to V.
+        inflate_alpha_share(&hotkey, &coldkey_a, netuid, 2);
+        inflate_alpha_share(&hotkey, &coldkey_b, netuid, 2);
+        for coldkey in [&coldkey_a, &coldkey_b] {
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey, coldkey, netuid
+                ),
+                real_alpha
+            );
+        }
+
+        let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
+        let balance_a_before = SubtensorModule::get_coldkey_balance(&coldkey_a);
+        let balance_b_before = SubtensorModule::get_coldkey_balance(&coldkey_b);
+
+        // Each member tries to take the whole pool.
+        let result_a = SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(coldkey_a),
+            hotkey,
+            netuid,
+            real_alpha,
+        );
+        let result_b = SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(coldkey_b),
+            hotkey,
+            netuid,
+            real_alpha,
+        );
+        assert!(result_a.is_ok() || result_b.is_ok());
+
+        let tao_out = (SubtensorModule::get_coldkey_balance(&coldkey_a) - balance_a_before)
+            + (SubtensorModule::get_coldkey_balance(&coldkey_b) - balance_b_before);
+        assert!(
+            tao_out < tao_in,
+            "unstaking cannot return more TAO than was staked: {tao_out} >= {tao_in}"
+        );
+        assert!(
+            alpha_out_before.saturating_sub(SubnetAlphaOut::<Test>::get(netuid)) <= real_alpha,
+            "no more alpha may leave circulation than the pool held"
+        );
+        // The pool is fully drained and quotes nothing further to anyone.
+        assert_eq!(
+            TotalHotkeyAlpha::<Test>::get(hotkey, netuid),
+            AlphaBalance::ZERO
+        );
+        for coldkey in [&coldkey_a, &coldkey_b] {
+            assert_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey, coldkey, netuid
+                ),
+                AlphaBalance::ZERO
+            );
+        }
+        assert_total_alpha_staked_invariant(netuid);
+    });
+}
+
+// The debit reports the alpha it really removed: zero when the position cannot cover the
+// request, the full amount otherwise.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_decrease_stake_reports_actual_alpha_removed --exact
+#[test]
+fn test_decrease_stake_reports_actual_alpha_removed() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let amount: AlphaBalance = 1_000_000_000.into();
+
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
+
+        // No position yet: nothing can be removed.
+        assert_eq!(
+            SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &coldkey, netuid, amount
+            ),
+            AlphaBalance::ZERO
+        );
+
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &coldkey, netuid, amount,
+        );
+
+        // Over-ask: no-op, reported as zero, position untouched.
+        assert_eq!(
+            SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                netuid,
+                amount.saturating_add(1.into())
+            ),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
+            amount
+        );
+
+        // Partial and then full debit report exactly what left the pool.
+        let half: AlphaBalance = (amount.to_u64() / 2).into();
+        assert_eq!(
+            SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &coldkey, netuid, half
+            ),
+            half
+        );
+        let remaining =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
+        assert_eq!(
+            SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &coldkey, netuid, remaining
+            ),
+            remaining
+        );
+        assert_eq!(
+            TotalHotkeyAlpha::<Test>::get(hotkey, netuid),
+            AlphaBalance::ZERO
+        );
+    });
+}
+
+/// Raw (uncapped) `S / D` of a coldkey's stored share against the pool denominator.
+fn raw_share_ratio(hotkey: &U256, coldkey: &U256, netuid: NetUid) -> f64 {
+    let share = AlphaV2::<Test>::get((hotkey, coldkey, netuid));
+    let denominator = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
+    if denominator.is_zero() {
+        return 0.0;
+    }
+    share
+        .div(&denominator)
+        .map(f64::from)
+        .unwrap_or(f64::INFINITY)
+}
+
+// Root-cause regression for the share-pool drift: pool-wide dividends interleaved with tiny
+// member deposits and partial withdrawals used to push a member's raw S/D above 1 without
+// bound (audit measurement: 1458x in 299 ops), which the value cap then turned into a claim
+// on the whole pool. With the denominator-derived share update the raw ratio never exceeds
+// 1 and the members are never quoted more than the pool holds.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_share_pool_grind_keeps_member_share_within_denominator --exact
+#[test]
+fn test_share_pool_grind_keeps_member_share_within_denominator() {
+    new_test_ext(1).execute_with(|| {
+        const RAO: u64 = 1_000_000_000;
+        let owner_coldkey = U256::from(9001);
+        let owner_hotkey = U256::from(9002);
+        let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        mock::setup_reserves(netuid, (100_000 * RAO).into(), (100_000 * RAO).into());
+        let hotkey = U256::from(3);
+        let members = [U256::from(1), U256::from(2)];
+        for coldkey in &members {
+            let _ = SubtensorModule::create_account_if_non_existent(coldkey, &hotkey);
+        }
+
+        let mut peak_ratio = 0.0_f64;
+        for seed in 0..40_u64 {
+            // Fresh pool per seed, tiny genuine seeds as in the audit.
+            TotalHotkeyAlpha::<Test>::remove(hotkey, netuid);
+            TotalHotkeySharesV2::<Test>::remove(hotkey, netuid);
+            for coldkey in &members {
+                AlphaV2::<Test>::remove((hotkey, coldkey, netuid));
+                SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey,
+                    coldkey,
+                    netuid,
+                    AlphaBalance::from(6 * RAO / 1000),
+                );
+            }
+
+            let mut state = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let mut next = || {
+                state = state
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                state
+            };
+            for _ in 0..1500 {
+                let who = if next() % 2 == 0 {
+                    members[0]
+                } else {
+                    members[1]
+                };
+                match next() % 3 {
+                    0 => SubtensorModule::increase_stake_for_hotkey_on_subnet(
+                        &hotkey,
+                        netuid,
+                        AlphaBalance::from(1 + next() % (100 * RAO)),
+                    ),
+                    1 => SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                        &hotkey,
+                        &who,
+                        netuid,
+                        AlphaBalance::from(1 + next() % (RAO / 1000)),
+                    ),
+                    _ => {
+                        let quote = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                            &hotkey, &who, netuid,
+                        )
+                        .to_u64();
+                        if quote > 0 {
+                            SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                                &hotkey,
+                                &who,
+                                netuid,
+                                AlphaBalance::from(1 + next() % quote),
+                            );
+                        }
+                    }
+                }
+                let pool_value = TotalHotkeyAlpha::<Test>::get(hotkey, netuid).to_u64();
+                let denominator = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
+                let mut quoted = 0_u128;
+                for coldkey in &members {
+                    peak_ratio = peak_ratio.max(raw_share_ratio(&hotkey, coldkey, netuid));
+                    quoted += SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &hotkey, coldkey, netuid,
+                    )
+                    .to_u64() as u128;
+                    // The uncapped quote is already within the pool; the value cap is a
+                    // backstop that a reachable state never needs.
+                    let uncapped: u64 = SafeFloat::from(pool_value)
+                        .mul_div(
+                            &AlphaV2::<Test>::get((hotkey, coldkey, netuid)),
+                            &denominator,
+                        )
+                        .map(u64::from)
+                        .unwrap_or_default();
+                    assert!(
+                        uncapped <= pool_value,
+                        "seed {seed}: uncapped quote {uncapped} exceeds pool value {pool_value}"
+                    );
+                }
+                assert!(
+                    quoted <= pool_value as u128,
+                    "seed {seed}: members quoted {quoted} but pool holds {pool_value}"
+                );
+            }
+        }
+        assert!(
+            peak_ratio <= 1.0,
+            "raw S/D must stay bounded by 1, got {peak_ratio}"
+        );
+    });
+}
+
+// A pool that was left with inflated stored shares (S = 2D for two coldkeys, the state the
+// old drift produced) is drained by one of them through the value cap. That closes the pool,
+// so the other inflated share is retired: an innocent later depositor owns the whole pool,
+// the stale share is quoted zero and cannot withdraw, and the depositor recovers its stake.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_later_depositor_recovers_stake_after_pool_drained_through_cap --exact
+#[test]
+fn test_later_depositor_recovers_stake_after_pool_drained_through_cap() {
+    new_test_ext(1).execute_with(|| {
+        const RAO: u64 = 1_000_000_000;
+        let owner_coldkey = U256::from(9001);
+        let owner_hotkey = U256::from(9002);
+        let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        mock::setup_reserves(netuid, (1_000_000 * RAO).into(), (1_000_000 * RAO).into());
+
+        let hotkey = U256::from(3);
+        let coldkey_a = U256::from(1);
+        let coldkey_b = U256::from(2);
+        let coldkey_c = U256::from(4);
+        for coldkey in [&coldkey_a, &coldkey_b, &coldkey_c] {
+            let _ = SubtensorModule::create_account_if_non_existent(coldkey, &hotkey);
+        }
+        let stake = DefaultMinStake::<Test>::get() * 100.into();
+        for coldkey in [&coldkey_a, &coldkey_b] {
+            add_balance_to_coldkey_account(coldkey, stake * 2.into());
+            SubtensorModule::stake_into_subnet(
+                &hotkey,
+                coldkey,
+                netuid,
+                stake,
+                <Test as Config>::SwapInterface::max_price(),
+                false,
+            )
+            .unwrap();
+        }
+        let pool_before = TotalHotkeyAlpha::<Test>::get(hotkey, netuid);
+        assert!(!pool_before.is_zero());
+        inflate_alpha_share(&hotkey, &coldkey_a, netuid, 2);
+        inflate_alpha_share(&hotkey, &coldkey_b, netuid, 2);
+        let epoch_before = AlphaSharePoolEpoch::<Test>::get(hotkey, netuid);
+
+        // A drains the whole pool through the cap.
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(coldkey_a),
+            hotkey,
+            netuid,
+            pool_before,
+        ));
+        assert_eq!(
+            TotalHotkeyAlpha::<Test>::get(hotkey, netuid),
+            AlphaBalance::ZERO
+        );
+        assert!(!TotalHotkeySharesV2::<Test>::contains_key(hotkey, netuid));
+        assert_eq!(
+            AlphaSharePoolEpoch::<Test>::get(hotkey, netuid),
+            epoch_before + 1,
+            "closing the pool moves it to a new epoch"
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &coldkey_b, netuid
+            ),
+            AlphaBalance::ZERO,
+            "stale share is retired"
+        );
+        // A dividend landing on the closed pool must not revive the leftover row.
+        SubtensorModule::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, 1_000.into());
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &coldkey_b, netuid
+            ),
+            AlphaBalance::ZERO
+        );
+        assert!(SubtensorModule::alpha_share_is_retired(
+            &hotkey, &coldkey_b, netuid
+        ));
+
+        // Innocent C stakes fresh TAO into the same hotkey.
+        let c_tao_in = DefaultMinStake::<Test>::get() * 50.into();
+        add_balance_to_coldkey_account(&coldkey_c, c_tao_in * 2.into());
+        let c_balance_before = SubtensorModule::get_coldkey_balance(&coldkey_c);
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(coldkey_c),
+            hotkey,
+            netuid,
+            c_tao_in,
+        ));
+        let c_paid = c_balance_before - SubtensorModule::get_coldkey_balance(&coldkey_c);
+        assert_eq!(
+            AlphaSharePoolEpoch::<Test>::get(hotkey, netuid),
+            epoch_before + 2,
+            "re-opening the pool moves it to a new epoch again"
+        );
+        let pool_after_c = TotalHotkeyAlpha::<Test>::get(hotkey, netuid);
+        let quote_c = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &coldkey_c, netuid,
+        );
+        let quote_b = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &coldkey_b, netuid,
+        );
+        assert_eq!(
+            quote_c, pool_after_c,
+            "the new depositor owns the whole pool"
+        );
+        assert_eq!(quote_b, AlphaBalance::ZERO);
+        assert_eq!(
+            TotalHotkeySharesV2::<Test>::get(hotkey, netuid),
+            AlphaV2::<Test>::get((hotkey, coldkey_c, netuid)),
+            "denominator equals the only live share"
+        );
+
+        // The dormant share cannot take anything.
+        let b_balance_before = SubtensorModule::get_coldkey_balance(&coldkey_b);
+        assert!(
+            SubtensorModule::remove_stake(
+                RuntimeOrigin::signed(coldkey_b),
+                hotkey,
+                netuid,
+                1.into()
+            )
+            .is_err()
+        );
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&coldkey_b),
+            b_balance_before
+        );
+
+        // C recovers its stake (less swap fees).
+        let c_balance_before_exit = SubtensorModule::get_coldkey_balance(&coldkey_c);
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(coldkey_c),
+            hotkey,
+            netuid,
+            quote_c,
+        ));
+        let c_recovered = SubtensorModule::get_coldkey_balance(&coldkey_c) - c_balance_before_exit;
+        assert!(
+            c_recovered.to_u64() as u128 * 100 >= c_paid.to_u64() as u128 * 99,
+            "depositor must recover its stake: paid {c_paid}, recovered {c_recovered}"
+        );
+        assert_eq!(
+            TotalHotkeyAlpha::<Test>::get(hotkey, netuid),
+            AlphaBalance::ZERO
+        );
+
+        // The former stale member can stake again and gets exactly its new position.
+        add_balance_to_coldkey_account(&coldkey_b, c_tao_in * 2.into());
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(coldkey_b),
+            hotkey,
+            netuid,
+            c_tao_in,
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &coldkey_b, netuid
+            ),
+            TotalHotkeyAlpha::<Test>::get(hotkey, netuid)
+        );
+        assert_total_alpha_staked_invariant(netuid);
+    });
+}
+
+// A pool with recorded shares but no value cannot price a deposit. Instead of handing the
+// depositor nothing (and the dormant shares everything), the deposit re-opens the pool.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_deposit_into_valueless_pool_with_dormant_shares --exact
+#[test]
+fn test_deposit_into_valueless_pool_with_dormant_shares() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(9001);
+        let owner_hotkey = U256::from(9002);
+        let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let hotkey = U256::from(3);
+        let dormant = U256::from(1);
+        let depositor = U256::from(2);
+        let _ = SubtensorModule::create_account_if_non_existent(&dormant, &hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&depositor, &hotkey);
+
+        // Legacy state: shares without value.
+        TotalHotkeySharesV2::<Test>::insert(hotkey, netuid, SafeFloat::from(1_000_u64));
+        AlphaV2::<Test>::insert((hotkey, dormant, netuid), SafeFloat::from(3_000_u64));
+        assert_eq!(
+            TotalHotkeyAlpha::<Test>::get(hotkey, netuid),
+            AlphaBalance::ZERO
+        );
+
+        let amount: AlphaBalance = 5_000_000_000_u64.into();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &depositor, netuid, amount,
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &depositor, netuid
+            ),
+            amount
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &dormant, netuid),
+            AlphaBalance::ZERO
+        );
+        // Closed (shares without value) and re-opened: two transitions.
+        assert_eq!(AlphaSharePoolEpoch::<Test>::get(hotkey, netuid), 2);
+        assert_eq!(
+            AlphaShareEpoch::<Test>::get((hotkey, depositor, netuid)),
+            2,
+            "the live row is stamped with the new epoch"
+        );
+
+        // Dividends go to the live member only.
+        SubtensorModule::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, amount);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &depositor, netuid
+            ),
+            amount * 2.into()
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &dormant, netuid),
+            AlphaBalance::ZERO
+        );
+    });
+}
+
+// Pre-upgrade state: a pool drained through the cap under the old code left inflated rows
+// behind with no denominator and no epoch stamps. Re-opening it must retire those rows.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_legacy_leftover_rows_cannot_claim_reopened_pool --exact
+#[test]
+fn test_legacy_leftover_rows_cannot_claim_reopened_pool() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(9001);
+        let owner_hotkey = U256::from(9002);
+        let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let hotkey = U256::from(3);
+        let leftover = U256::from(1);
+        let depositor = U256::from(2);
+        let _ = SubtensorModule::create_account_if_non_existent(&leftover, &hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&depositor, &hotkey);
+
+        // Legacy drained pool: no denominator, no value, an inflated row, no epoch rows.
+        AlphaV2::<Test>::insert(
+            (hotkey, leftover, netuid),
+            SafeFloat::from(10_000_000_000_u64),
+        );
+        assert!(!TotalHotkeySharesV2::<Test>::contains_key(hotkey, netuid));
+        assert_eq!(AlphaSharePoolEpoch::<Test>::get(hotkey, netuid), 0);
+
+        let amount: AlphaBalance = 5_000_000_000_u64.into();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &depositor, netuid, amount,
+        );
+        assert_eq!(AlphaSharePoolEpoch::<Test>::get(hotkey, netuid), 1);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &depositor, netuid
+            ),
+            amount,
+            "the depositor owns the whole re-opened pool"
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &leftover, netuid),
+            AlphaBalance::ZERO,
+            "pre-epoch leftover row is retired"
+        );
+        assert_eq!(
+            SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &leftover,
+                netuid,
+                1.into()
+            ),
+            AlphaBalance::ZERO
+        );
+        // Dividends go to the live member only.
+        SubtensorModule::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, amount);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &depositor, netuid
+            ),
+            amount * 2.into()
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &leftover, netuid),
+            AlphaBalance::ZERO
+        );
+    });
+}
+
 #[test]
 fn test_remove_stake_ok_no_emission() {
     new_test_ext(1).execute_with(|| {
@@ -477,7 +1129,7 @@ fn test_remove_stake_amount_too_low() {
         );
 
         // Removing zero should fail
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::remove_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
@@ -527,7 +1179,7 @@ fn test_remove_stake_below_min_stake() {
         );
 
         // Unstake less than full stake -> leaves a non-zero remainder below min -> errors
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::remove_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
@@ -667,7 +1319,7 @@ fn test_remove_stake_no_enough_stake() {
             TaoBalance::ZERO
         );
 
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::remove_stake(
                 RuntimeOrigin::signed(coldkey_id),
                 hotkey_id,
@@ -894,7 +1546,7 @@ fn test_remove_stake_insufficient_liquidity() {
         mock::setup_reserves(netuid, reserve.into(), reserve.into());
 
         // Check the error
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::remove_stake(RuntimeOrigin::signed(coldkey), hotkey, netuid, alpha),
             Error::<Test>::InsufficientLiquidity
         );
@@ -1435,7 +2087,7 @@ fn test_remove_balance_from_coldkey_account_failed() {
         // as there is no balance, nor does the account exist
         let result =
             SubtensorModule::transfer_tao_to_subnet(netuid, &coldkey_account_id, amount.into());
-        assert_eq!(result, Err(Error::<Test>::InsufficientBalance.into()));
+        assert_eq!(result, Err(Error::<Test>::InsufficientTaoBalance.into()));
     });
 }
 
@@ -1799,6 +2451,34 @@ fn test_clear_small_nominations() {
             epsilon = 1.into()
         );
         assert!(TotalStake::<Test>::get() < total_stake_before);
+    });
+}
+
+#[test]
+fn test_clear_small_nomination_removes_staking_hotkey_after_failed_unstake() {
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(1);
+        let hotkey = U256::from(2);
+        let coldkey = U256::from(3);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        // Keep a nonzero price but force the dust swap to fail with ReservesTooLow.
+        mock::setup_reserves(netuid, 1.into(), 1.into());
+        SubtensorModule::set_nominator_min_required_stake(10);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            netuid,
+            1.into(),
+        );
+        assert!(StakingHotkeys::<Test>::get(coldkey).contains(&hotkey));
+
+        SubtensorModule::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
+
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
+            AlphaBalance::ZERO
+        );
+        assert!(!StakingHotkeys::<Test>::contains_key(coldkey));
     });
 }
 
@@ -2492,7 +3172,7 @@ fn test_mining_emission_distribution_validator_valiminer_miner() {
         add_balance_to_coldkey_account(&miner_coldkey, stake + ExistentialDeposit::get());
         SubtensorModule::set_weights_set_rate_limit(netuid, 0);
         step_block(subnet_tempo);
-        SubnetOwnerCut::<Test>::set(0);
+        set_subnet_owner_cut_for_test(netuid, 0);
         // There are two validators and three neurons
         MaxAllowedUids::<Test>::set(netuid, 3);
         SubtensorModule::set_max_allowed_validators(netuid, 2);
@@ -2775,7 +3455,7 @@ fn test_stake_overflow() {
         let total_stake_before = SubtensorModule::get_total_stake();
 
         // Stake and check if the result is ok
-        let (expected_alpha, _) = mock::swap_tao_to_alpha(netuid, amount.into());
+        let (expected_alpha, fee) = mock::swap_tao_to_alpha(netuid, amount.into());
         assert_ok!(SubtensorModule::add_stake(
             RuntimeOrigin::signed(coldkey_account_id),
             hotkey_account_id,
@@ -2790,10 +3470,10 @@ fn test_stake_overflow() {
             epsilon = 1.into()
         );
 
-        // Check if total stake has increased accordingly.
+        // Check if total stake has increased accordingly (net of the swap fee).
         assert_abs_diff_eq!(
             SubtensorModule::get_total_stake(),
-            total_stake_before + amount.into(),
+            total_stake_before + amount.into() - fee.into(),
             epsilon = 1.into()
         );
     });
@@ -4088,7 +4768,7 @@ fn test_remove_stake_limit_fill_or_kill() {
         let limit_price = TaoBalance::from(1_350_000_000);
 
         // Remove stake with slippage safety - fails
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::remove_stake_limit(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
@@ -4147,7 +4827,11 @@ fn test_add_stake_specific_stake_into_subnet_fail() {
         hotkey_pool.update_value_for_one(&hotkey_owner_account_id, 1234); // Doesn't matter, will be overridden
 
         // Adjust the total hotkey stake and shares to match the existing values
-        TotalHotkeyShares::<Test>::insert(hotkey_account_id, netuid, existing_shares);
+        TotalHotkeySharesV2::<Test>::insert(
+            hotkey_account_id,
+            netuid,
+            SafeFloat::from(existing_shares),
+        );
         TotalHotkeyAlpha::<Test>::insert(hotkey_account_id, netuid, existing_stake);
 
         // Make the hotkey a delegate
@@ -4429,6 +5113,143 @@ fn test_move_stake_limit_partial() {
     });
 }
 
+struct MoveStakeLimitFixture {
+    coldkey: U256,
+    origin_hotkey: U256,
+    destination_hotkey: U256,
+    origin_netuid: NetUid,
+    destination_netuid: NetUid,
+    stake_amount: AlphaBalance,
+    move_amount: AlphaBalance,
+    limit_price: TaoBalance,
+}
+
+fn setup_move_stake_limit_fixture() -> MoveStakeLimitFixture {
+    let subnet_owner_coldkey = U256::from(1001);
+    let subnet_owner_hotkey = U256::from(1002);
+    let coldkey = U256::from(1);
+    let origin_hotkey = U256::from(2);
+    let destination_hotkey = U256::from(3);
+    let stake_amount = AlphaBalance::from(150_000_000_000_u64);
+    let move_amount = AlphaBalance::from(150_000_000_000_u64);
+
+    let origin_netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+    let destination_netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+    register_ok_neuron(origin_netuid, origin_hotkey, coldkey, 192213123);
+    register_ok_neuron(destination_netuid, destination_hotkey, coldkey, 192213124);
+
+    SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        &origin_hotkey,
+        &coldkey,
+        origin_netuid,
+        stake_amount,
+    );
+
+    // Registration initializes swap V3 state. Clear it so these reserves
+    // deterministically control both prices and the amount executable at the limit.
+    for netuid in [origin_netuid, destination_netuid] {
+        let mut weight_meter =
+            frame_support::weights::WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(
+            <Test as pallet::Config>::SwapInterface::clear_protocol_liquidity(
+                netuid,
+                &mut weight_meter,
+            )
+        );
+    }
+
+    let tao_reserve = TaoBalance::from(150_000_000_000_u64);
+    let alpha_in = AlphaBalance::from(100_000_000_000_u64);
+    SubnetTAO::<Test>::insert(origin_netuid, tao_reserve);
+    SubnetAlphaIn::<Test>::insert(origin_netuid, alpha_in);
+    SubnetTAO::<Test>::insert(destination_netuid, tao_reserve * 100_000.into());
+    SubnetAlphaIn::<Test>::insert(destination_netuid, alpha_in * 100_000.into());
+
+    MoveStakeLimitFixture {
+        coldkey,
+        origin_hotkey,
+        destination_hotkey,
+        origin_netuid,
+        destination_netuid,
+        stake_amount,
+        move_amount,
+        limit_price: TaoBalance::from(990_000_000_u64),
+    }
+}
+
+#[test]
+fn test_move_stake_limit_fill_or_kill_preserves_stake_when_limit_is_exceeded() {
+    new_test_ext(1).execute_with(|| {
+        let fixture = setup_move_stake_limit_fixture();
+
+        frame_support::assert_err_ignore_postinfo!(
+            SubtensorModule::move_stake_limit(
+                RuntimeOrigin::signed(fixture.coldkey),
+                fixture.origin_hotkey,
+                fixture.destination_hotkey,
+                fixture.origin_netuid,
+                fixture.destination_netuid,
+                fixture.move_amount,
+                fixture.limit_price,
+                false,
+            ),
+            Error::<Test>::SlippageTooHigh
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &fixture.origin_hotkey,
+                &fixture.coldkey,
+                fixture.origin_netuid,
+            ),
+            fixture.stake_amount
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &fixture.destination_hotkey,
+                &fixture.coldkey,
+                fixture.destination_netuid,
+            ),
+            AlphaBalance::ZERO
+        );
+    });
+}
+
+#[test]
+fn test_move_stake_limit_partial_moves_stake_to_distinct_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        let fixture = setup_move_stake_limit_fixture();
+
+        assert_ok!(SubtensorModule::move_stake_limit(
+            RuntimeOrigin::signed(fixture.coldkey),
+            fixture.origin_hotkey,
+            fixture.destination_hotkey,
+            fixture.origin_netuid,
+            fixture.destination_netuid,
+            fixture.move_amount,
+            fixture.limit_price,
+            true,
+        ));
+
+        let origin_alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &fixture.origin_hotkey,
+            &fixture.coldkey,
+            fixture.origin_netuid,
+        );
+        let destination_alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &fixture.destination_hotkey,
+            &fixture.coldkey,
+            fixture.destination_netuid,
+        );
+
+        assert_abs_diff_eq!(
+            origin_alpha,
+            AlphaBalance::from(149_000_000_000_u64),
+            epsilon = 100_000_000.into()
+        );
+        assert!(destination_alpha > AlphaBalance::ZERO);
+    });
+}
+
 /// cargo test --package pallet-subtensor --lib -- tests::staking::test_unstake_all_hits_liquidity_min --exact --show-output
 #[test]
 fn test_unstake_all_hits_liquidity_min() {
@@ -4509,7 +5330,7 @@ fn test_unstake_all_alpha_hits_liquidity_min() {
 
         // Try to unstake, but we reduce liquidity too far
 
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::unstake_all_alpha(RuntimeOrigin::signed(coldkey), hotkey),
             Error::<Test>::AmountTooLow
         );
@@ -4607,6 +5428,210 @@ fn test_unstake_all_works() {
         assert_abs_diff_eq!(new_alpha, AlphaBalance::ZERO, epsilon = 1_000.into());
         let new_balance = SubtensorModule::get_coldkey_balance(&coldkey);
         assert!(new_balance > 100_000.into());
+    });
+}
+
+// `unstake_all` runs one `remove_stake` worth of work per subnet the coldkey has a
+// position on, plus a quote on every other subnet, up to `MAX_UNSTAKE_ALL_LEGS`.
+// Declared weight must cover that envelope and stay under the normal-class
+// `max_extrinsic`. Post-dispatch weight scales with the legs it really ran.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_unstake_all_weight_covers_every_subnet --exact
+#[test]
+fn test_unstake_all_weight_covers_every_subnet() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let stake_amount = TaoBalance::from(10_000_000_000_u64); // 10 TAO per subnet
+        let staked_subnets: u32 = 3;
+        let unstaked_subnets: u32 = 2;
+
+        let mut netuids = Vec::new();
+        for _ in 0..(staked_subnets + unstaked_subnets) {
+            let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+            mock::setup_reserves(
+                netuid,
+                stake_amount * 100.into(),
+                u64::from(stake_amount * 1000.into()).into(),
+            );
+            netuids.push(netuid);
+        }
+        register_ok_neuron(*netuids.first().unwrap(), hotkey, coldkey, 192213123);
+        add_balance_to_coldkey_account(
+            &coldkey,
+            stake_amount * u64::from(staked_subnets).into() + ExistentialDeposit::get(),
+        );
+        for netuid in netuids.iter().take(staked_subnets as usize) {
+            assert_ok!(SubtensorModule::add_stake(
+                RuntimeOrigin::signed(coldkey),
+                hotkey,
+                *netuid,
+                stake_amount
+            ));
+        }
+
+        let remove_stake_unit = <Test as crate::Config>::WeightInfo::remove_stake();
+        let total_subnets = u64::from(TotalNetworks::<Test>::get());
+        assert!(total_subnets >= u64::from(staked_subnets + unstaked_subnets));
+
+        // Declared: one full leg per envelope slot (capped so it fits the block).
+        let call = RuntimeCall::SubtensorModule(crate::Call::unstake_all { hotkey });
+        let declared = call.get_dispatch_info().call_weight;
+        let envelope_legs = total_subnets.min(u64::from(MAX_UNSTAKE_ALL_LEGS));
+        let worst_case_legs = remove_stake_unit.saturating_mul(envelope_legs);
+        assert!(
+            declared.all_gte(worst_case_legs),
+            "declared {declared:?} must cover {envelope_legs} legs of {remove_stake_unit:?}"
+        );
+        let max_extrinsic = BlockWeights::get()
+            .get(DispatchClass::Normal)
+            .max_extrinsic
+            .unwrap();
+        assert!(
+            declared.all_lte(max_extrinsic),
+            "declared {declared:?} exceeds max extrinsic {max_extrinsic:?}"
+        );
+        let alpha_declared =
+            RuntimeCall::SubtensorModule(crate::Call::unstake_all_alpha { hotkey })
+                .get_dispatch_info()
+                .call_weight;
+        assert!(
+            alpha_declared.all_lte(max_extrinsic),
+            "unstake_all_alpha declared {alpha_declared:?} exceeds max extrinsic {max_extrinsic:?}"
+        );
+
+        // Actual: the legs really run, never more than declared, never less than their work.
+        let post_info =
+            SubtensorModule::unstake_all(RuntimeOrigin::signed(coldkey), hotkey).unwrap();
+        let actual = post_info.actual_weight.unwrap();
+        let legs_run = remove_stake_unit.saturating_mul(u64::from(staked_subnets));
+        assert!(
+            actual.all_gte(legs_run),
+            "actual {actual:?} must cover the {staked_subnets} legs run ({legs_run:?})"
+        );
+        assert!(
+            declared.all_gte(actual),
+            "actual {actual:?} must not exceed declared {declared:?}"
+        );
+        // Subnets without a position are charged their quote reads, not a full leg.
+        let one_more_leg = legs_run.saturating_add(remove_stake_unit);
+        assert!(
+            !actual.all_gte(one_more_leg),
+            "actual {actual:?} must not charge a full leg for a subnet without stake"
+        );
+        for netuid in netuids.iter().take(staked_subnets as usize) {
+            assert_abs_diff_eq!(
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey, &coldkey, *netuid
+                ),
+                AlphaBalance::ZERO,
+                epsilon = 1_000.into()
+            );
+        }
+    });
+}
+
+// Every unstake-side call walks the signer's `StakingHotkeys` (lock and collateral
+// availability). The list is capped, the declared weight covers a list at the cap, and the
+// post-dispatch weight is refunded to the signer's real list length.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::staking::test_staking_hotkeys_cap_and_remove_stake_weight --exact
+#[test]
+fn test_staking_hotkeys_cap_and_remove_stake_weight() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let stake_amount = TaoBalance::from(10_000_000_000_u64);
+
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+        mock::setup_reserves(
+            netuid,
+            stake_amount * 100.into(),
+            u64::from(stake_amount * 1000.into()).into(),
+        );
+        register_ok_neuron(netuid, hotkey, coldkey, 192213123);
+        add_balance_to_coldkey_account(&coldkey, stake_amount * 4.into());
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            netuid,
+            stake_amount
+        ));
+
+        // Fill the list to the cap with phantom entries; staking to a listed hotkey still
+        // works, staking to a new one is refused before any transfer.
+        let mut filled = StakingHotkeys::<Test>::get(coldkey);
+        let mut next = 10_000_u64;
+        while filled.len() < MAX_STAKING_HOTKEYS as usize {
+            filled.push(U256::from(next));
+            next += 1;
+        }
+        StakingHotkeys::<Test>::insert(coldkey, filled.clone());
+        // Nominating another coldkey's hotkey would append a new entry: refused at the cap.
+        let balance_before = SubtensorModule::get_coldkey_balance(&coldkey);
+        assert_err!(
+            SubtensorModule::add_stake(
+                RuntimeOrigin::signed(coldkey),
+                subnet_owner_hotkey,
+                netuid,
+                stake_amount
+            ),
+            Error::<Test>::TooManyStakingHotkeys
+        );
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&coldkey),
+            balance_before
+        );
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            netuid,
+            stake_amount
+        ));
+
+        // Declared weight covers a list at the cap; actual is refunded to the real length.
+        let unit = <Test as crate::Config>::WeightInfo::remove_stake();
+        let call = RuntimeCall::SubtensorModule(crate::Call::remove_stake {
+            hotkey,
+            netuid,
+            amount_unstaked: 100_000_000_u64.into(),
+        });
+        let declared = call.get_dispatch_info().call_weight;
+        assert!(
+            declared.all_gte(unit.saturating_add(SubtensorModule::staking_hotkeys_walk_bound()))
+        );
+
+        let post_info = SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            netuid,
+            100_000_000_u64.into(),
+        )
+        .unwrap();
+        let actual_full = post_info.actual_weight.unwrap();
+        assert!(declared.all_gte(actual_full));
+        assert!(
+            actual_full.all_gte(
+                unit.saturating_add(SubtensorModule::staking_hotkeys_walk_actual(&coldkey))
+            )
+        );
+
+        // A shorter list refunds more.
+        StakingHotkeys::<Test>::insert(coldkey, vec![hotkey]);
+        let post_info = SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            netuid,
+            100_000_000_u64.into(),
+        )
+        .unwrap();
+        let actual_short = post_info.actual_weight.unwrap();
+        assert!(
+            actual_full.ref_time() > actual_short.ref_time(),
+            "weight must scale with the list length: {actual_full:?} vs {actual_short:?}"
+        );
     });
 }
 
@@ -4769,6 +5794,7 @@ fn test_unstake_from_subnet_low_amount() {
             alpha,
             TaoBalance::ZERO,
             false,
+            true,
         ));
 
         // Check if stake is zero
@@ -4776,6 +5802,7 @@ fn test_unstake_from_subnet_low_amount() {
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
             AlphaBalance::ZERO,
         );
+        assert!(!StakingHotkeys::<Test>::contains_key(coldkey));
     });
 }
 
@@ -4883,7 +5910,7 @@ fn test_unstake_from_subnet_prohibitive_limit() {
             &coldkey,
             netuid,
         );
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::remove_stake_limit(
                 RuntimeOrigin::signed(coldkey),
                 owner_hotkey,
@@ -5131,6 +6158,79 @@ fn test_increase_stake_for_hotkey_and_coldkey_on_subnet_adds_to_staking_hotkeys_
 }
 
 #[test]
+fn test_maybe_remove_staking_hotkey_only_removes_empty_relationships() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let other_hotkey = U256::from(3);
+        let first_netuid = NetUid::from(1);
+        let second_netuid = NetUid::from(2);
+        let stake = AlphaBalance::from(100_000_u64);
+
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            first_netuid,
+            stake,
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            second_netuid,
+            stake,
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &other_hotkey,
+            &coldkey,
+            first_netuid,
+            stake,
+        );
+
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            first_netuid,
+            stake,
+        );
+        SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+        assert!(StakingHotkeys::<Test>::get(coldkey).contains(&hotkey));
+
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            second_netuid,
+            stake,
+        );
+        SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+        assert_eq!(StakingHotkeys::<Test>::get(coldkey), vec![other_hotkey]);
+
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &other_hotkey,
+            &coldkey,
+            first_netuid,
+            stake,
+        );
+        SubtensorModule::maybe_remove_staking_hotkey(&other_hotkey, &coldkey);
+        assert!(!StakingHotkeys::<Test>::contains_key(coldkey));
+    });
+}
+
+#[test]
+fn test_maybe_remove_staking_hotkey_preserves_basket_claimant() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+
+        StakingHotkeys::<Test>::insert(coldkey, vec![hotkey]);
+        BasketClaimed::<Test>::insert(hotkey, coldkey, -1);
+
+        SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+
+        assert_eq!(StakingHotkeys::<Test>::get(coldkey), vec![hotkey]);
+    });
+}
+
+#[test]
 fn test_remove_stake_full_limit_ok() {
     new_test_ext(1).execute_with(|| {
         let hotkey_account_id = U256::from(1);
@@ -5209,7 +6309,7 @@ fn test_remove_stake_full_limit_fails_slippage_too_high() {
         let invalid_limit_price = TaoBalance::from(910_000_000_u64);
 
         // Remove stake with slippage safety
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::remove_stake_full_limit(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
@@ -5368,10 +6468,7 @@ fn test_add_root_updates_counters() {
         let hotkey_account_id = U256::from(561337);
         let coldkey_account_id = U256::from(61337);
         add_network(NetUid::ROOT, 10, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(coldkey_account_id).clone(),
-            hotkey_account_id,
-        ));
+        root_register_ok(hotkey_account_id, coldkey_account_id);
         let stake_amount = TaoBalance::from(1_000_000_000_u64);
 
         // Give it some $$$ in his coldkey balance
@@ -5423,10 +6520,7 @@ fn test_remove_root_updates_counters() {
         let hotkey_account_id = U256::from(561337);
         let coldkey_account_id = U256::from(61337);
         add_network(NetUid::ROOT, 10, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(coldkey_account_id).clone(),
-            hotkey_account_id,
-        ));
+        root_register_ok(hotkey_account_id, coldkey_account_id);
         let stake_amount = TaoBalance::from(1_000_000_000);
 
         // Give it some $$$ in his coldkey balance
@@ -5541,6 +6635,7 @@ fn test_staking_records_flow() {
             alpha,
             TaoBalance::ZERO,
             false,
+            true,
         ));
 
         // Check that outflow has been recorded (less unstaking fees)
@@ -5571,6 +6666,7 @@ fn test_lazy_sharepool_migration_get_stake_reads_from_deprecated_alpha_map() {
         Alpha::<Test>::insert((hotkey, coldkey, netuid), U64F64::from(1_u64));
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         assert_eq!(
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
@@ -5614,6 +6710,7 @@ fn test_lazy_sharepool_migration_get_stake_reads_from_cross_alpha_maps() {
         // but total shares are in TotalHotkeySharesV2 map (already migrated)
         TotalHotkeySharesV2::<Test>::insert(hotkey, netuid, SafeFloat::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         assert_eq!(
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
@@ -5635,6 +6732,7 @@ fn test_lazy_sharepool_migration_staking_causes_migration() {
         Alpha::<Test>::insert((hotkey, coldkey, netuid), U64F64::from(1_u64));
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Stake more via stake_into_subnet
         increase_stake_on_coldkey_hotkey_account(&coldkey, &hotkey, stake.into(), netuid);
@@ -5668,6 +6766,7 @@ fn test_sharepool_dataops_get_value_v1() {
         Alpha::<Test>::insert((hotkey, coldkey, netuid), U64F64::from(1_u64));
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and read get_value
         let share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -5714,6 +6813,7 @@ fn test_sharepool_dataops_get_value_mixed_v1_v2() {
         Alpha::<Test>::insert((hotkey, coldkey, netuid), U64F64::from(1_u64));
         TotalHotkeySharesV2::<Test>::insert(hotkey, netuid, share);
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and read get_value
         let share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -5737,6 +6837,7 @@ fn test_sharepool_dataops_get_value_mixed_v2_v1() {
         AlphaV2::<Test>::insert((hotkey, coldkey, netuid), share);
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and read get_value
         let share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -5758,6 +6859,7 @@ fn test_sharepool_dataops_get_value_from_shares_v1() {
         // add stake to deprecated THS map
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and read get_value_from_shares
         let share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -5831,6 +6933,7 @@ fn test_sharepool_dataops_update_value_for_one_v1_with_migration() {
         Alpha::<Test>::insert((hotkey, coldkey, netuid), U64F64::from(1_u64));
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and call update_value_for_one
         let mut share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -5881,6 +6984,7 @@ fn test_sharepool_dataops_update_value_for_one_mixed_v1_v2() {
         Alpha::<Test>::insert((hotkey, coldkey, netuid), U64F64::from(1_u64));
         TotalHotkeySharesV2::<Test>::insert(hotkey, netuid, share);
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and call update_value_for_one
         let mut share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -5907,6 +7011,7 @@ fn test_sharepool_dataops_update_value_for_one_mixed_v2_v1() {
         AlphaV2::<Test>::insert((hotkey, coldkey, netuid), share);
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and call update_value_for_one
         let mut share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -5932,6 +7037,7 @@ fn test_sharepool_dataops_get_value_returns_zero_on_non_existing_v1() {
         // add to deprecated THS map, but no value in Alpha map
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and read get_value
         let share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -5975,6 +7081,7 @@ fn test_sharepool_dataops_try_get_value_returns_err_on_non_existing_v1() {
         // add to deprecated THS map, but no value in Alpha map
         TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from(1_u64));
         TotalHotkeyAlpha::<Test>::insert(hotkey, netuid, AlphaBalance::from(stake));
+        crate::migrations::migrate_alpha_v2::convert_for_test::<Test>();
 
         // Get real share pool and read get_value
         let share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
@@ -6002,5 +7109,299 @@ fn test_sharepool_dataops_try_get_value_returns_err_on_non_existing_v2() {
         let share_pool = SubtensorModule::get_alpha_share_pool(hotkey, netuid);
         let maybe_actual_value = share_pool.try_get_value(&coldkey);
         assert!(maybe_actual_value.is_err());
+    });
+}
+
+#[test]
+fn null_miner_credit_keeps_sole_owner_shares_and_total_stake_in_sync() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, u16::MAX - 1, 0);
+        SubtensorModule::set_epoch_consensus(netuid, EpochConsensus::Null);
+        let hotkey = U256::from(80_001);
+        let owner = U256::from(80_002);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner,
+            netuid,
+            1_000_000u64.into(),
+        );
+        let shares = AlphaV2::<Test>::get((hotkey, owner, netuid));
+        let denominator = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
+        let stamp = AlphaShareEpoch::<Test>::get((hotkey, owner, netuid));
+        let subnet_total = TotalAlphaStaked::<Test>::get(netuid);
+        SubtensorModule::credit_epoch_owner_emission(&hotkey, &owner, netuid, 137u64.into());
+        assert_eq!(AlphaV2::<Test>::get((hotkey, owner, netuid)), shares);
+        assert_eq!(
+            TotalHotkeySharesV2::<Test>::get(hotkey, netuid),
+            denominator
+        );
+        assert_eq!(AlphaShareEpoch::<Test>::get((hotkey, owner, netuid)), stamp);
+        assert_eq!(
+            TotalAlphaStaked::<Test>::get(netuid),
+            subnet_total.saturating_add(137u64.into())
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &owner, netuid),
+            1_000_137u64.into()
+        );
+        assert_eq!(
+            SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &owner,
+                netuid,
+                1_000_137u64.into()
+            ),
+            1_000_137u64.into()
+        );
+        assert!(TotalHotkeySharesV2::<Test>::get(hotkey, netuid).is_zero());
+        let newcomer = U256::from(80_003);
+        SubtensorModule::credit_epoch_owner_emission(&hotkey, &newcomer, netuid, 17u64.into());
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &owner, netuid),
+            0u64.into()
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &newcomer, netuid),
+            17u64.into()
+        );
+        assert!(StakingHotkeys::<Test>::get(newcomer).contains(&hotkey));
+    });
+}
+
+#[test]
+fn null_miner_credit_shared_pool_does_not_pay_nominators() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, u16::MAX - 1, 0);
+        SubtensorModule::set_epoch_consensus(netuid, EpochConsensus::Null);
+        let hotkey = U256::from(81_001);
+        let owner = U256::from(81_002);
+        let nominator = U256::from(81_003);
+        for coldkey in [owner, nominator] {
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                netuid,
+                1_000_000u64.into(),
+            );
+        }
+        let previous_denominator = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
+        SubtensorModule::credit_epoch_owner_emission(&hotkey, &owner, netuid, 137u64.into());
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &nominator, netuid
+            ),
+            1_000_000u64.into()
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &owner, netuid),
+            1_000_137u64.into()
+        );
+        assert_ne!(
+            TotalHotkeySharesV2::<Test>::get(hotkey, netuid),
+            previous_denominator
+        );
+    });
+}
+
+#[test]
+fn null_miner_credit_preserves_collateral_capture_and_release() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, u16::MAX - 1, 0);
+        SubtensorModule::set_epoch_consensus(netuid, EpochConsensus::Null);
+        let hotkey = U256::from(82_001);
+        let owner = U256::from(82_002);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner,
+            netuid,
+            1_000_000u64.into(),
+        );
+        let denominator = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
+        MinerCollateral::<Test>::insert(
+            (netuid, hotkey, owner),
+            MinerCollateralState {
+                locked: 100u64.into(),
+                min_locked: 200u64.into(),
+                drain_ratio: U64F64::from_num(1),
+                earned: 0u64.into(),
+            },
+        );
+        ColdkeyMinerCollateral::<Test>::insert(netuid, owner, AlphaBalance::from(100u64));
+        let captured = SubtensorModule::settle_miner_collateral(
+            netuid,
+            &hotkey,
+            &owner,
+            50u64.into(),
+            50u64.into(),
+        );
+        assert_eq!(captured, 50u64.into());
+        assert_eq!(
+            TotalHotkeySharesV2::<Test>::get(hotkey, netuid),
+            denominator
+        );
+        let state = MinerCollateral::<Test>::get((netuid, hotkey, owner)).unwrap();
+        assert_eq!(state.locked, 150u64.into());
+        assert_eq!(state.earned, 50u64.into());
+        assert_eq!(
+            ColdkeyMinerCollateral::<Test>::get(netuid, owner),
+            150u64.into()
+        );
+        assert!(ColdkeyCollateralHotkeys::<Test>::get(netuid, owner).contains(&hotkey));
+        MinerCollateral::<Test>::mutate((netuid, hotkey, owner), |state| {
+            state.as_mut().unwrap().min_locked = 100u64.into()
+        });
+        assert_eq!(
+            SubtensorModule::settle_miner_collateral(
+                netuid,
+                &hotkey,
+                &owner,
+                17u64.into(),
+                17u64.into()
+            ),
+            0u64.into()
+        );
+        let state = MinerCollateral::<Test>::get((netuid, hotkey, owner)).unwrap();
+        assert_eq!(state.locked, 133u64.into());
+        assert_eq!(state.earned, 67u64.into());
+        assert_eq!(
+            ColdkeyMinerCollateral::<Test>::get(netuid, owner),
+            133u64.into()
+        );
+    });
+}
+
+#[test]
+fn null_miner_credit_legacy_positions_still_migrate_on_deposit() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, u16::MAX - 1, 0);
+        SubtensorModule::set_epoch_consensus(netuid, EpochConsensus::Null);
+        let hotkey = U256::from(83_001);
+        let owner = U256::from(83_002);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner,
+            netuid,
+            1_000_000u64.into(),
+        );
+        AlphaV2::<Test>::remove((hotkey, owner, netuid));
+        TotalHotkeySharesV2::<Test>::remove(hotkey, netuid);
+        Alpha::<Test>::insert((hotkey, owner, netuid), U64F64::from_num(1_000_000));
+        TotalHotkeyShares::<Test>::insert(hotkey, netuid, U64F64::from_num(1_000_000));
+        SubtensorModule::credit_epoch_owner_emission(&hotkey, &owner, netuid, 137u64.into());
+        assert!(!Alpha::<Test>::contains_key((hotkey, owner, netuid)));
+        assert!(!TotalHotkeyShares::<Test>::contains_key(hotkey, netuid));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &owner, netuid),
+            1_000_137u64.into()
+        );
+        assert_eq!(
+            TotalHotkeySharesV2::<Test>::get(hotkey, netuid),
+            AlphaV2::<Test>::get((hotkey, owner, netuid))
+        );
+    });
+}
+
+#[test]
+fn null_miner_credit_with_dividends_retains_shares_and_full_budget() {
+    use std::collections::BTreeMap;
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, u16::MAX - 1, 0);
+        SubtensorModule::set_epoch_consensus(netuid, EpochConsensus::Null);
+        let hotkey = U256::from(84_001);
+        let owner = U256::from(84_002);
+        Owner::<Test>::insert(hotkey, owner);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner,
+            netuid,
+            1_000_000u64.into(),
+        );
+        let shares = AlphaV2::<Test>::get((hotkey, owner, netuid));
+        let denominator = TotalHotkeySharesV2::<Test>::get(hotkey, netuid);
+        let stamp = AlphaShareEpoch::<Test>::get((hotkey, owner, netuid));
+        let subnet_total = TotalAlphaStaked::<Test>::get(netuid);
+        // Both the owner take and the remaining pool-wide dividends belong to
+        // this sole member, while their ordinary reporting remains intact.
+        Delegates::<Test>::insert(hotkey, PerU16::from_parts(u16::MAX));
+        SubtensorModule::distribute_dividends_and_incentives(
+            netuid,
+            0u64.into(),
+            BTreeMap::from([(hotkey, 101u64.into())]),
+            BTreeMap::from([(hotkey, U96F32::from_num(137u64))]),
+            BTreeMap::new(),
+        );
+        assert_eq!(AlphaV2::<Test>::get((hotkey, owner, netuid)), shares);
+        assert_eq!(
+            TotalHotkeySharesV2::<Test>::get(hotkey, netuid),
+            denominator
+        );
+        assert_eq!(AlphaShareEpoch::<Test>::get((hotkey, owner, netuid)), stamp);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &owner, netuid),
+            1_000_238u64.into()
+        );
+        assert_eq!(
+            TotalAlphaStaked::<Test>::get(netuid),
+            subnet_total.saturating_add(238u64.into())
+        );
+        assert_eq!(
+            TotalHotkeyAlphaLastEpoch::<Test>::get(hotkey, netuid),
+            1_000_238u64.into()
+        );
+    });
+}
+
+#[test]
+fn null_miner_credit_without_collateral_repairs_only_stale_index_membership() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, u16::MAX - 1, 0);
+        SubtensorModule::set_epoch_consensus(netuid, EpochConsensus::Null);
+        let hotkey = U256::from(85_001);
+        let other_hotkey = U256::from(85_003);
+        let owner = U256::from(85_002);
+        ColdkeyCollateralHotkeys::<Test>::mutate(netuid, owner, |hotkeys| {
+            hotkeys.try_push(hotkey).unwrap();
+            hotkeys.try_push(other_hotkey).unwrap();
+        });
+        assert_eq!(
+            SubtensorModule::settle_miner_collateral(
+                netuid,
+                &hotkey,
+                &owner,
+                17u64.into(),
+                17u64.into()
+            ),
+            0u64.into()
+        );
+        assert!(!MinerCollateral::<Test>::contains_key((
+            netuid, hotkey, owner
+        )));
+        assert_eq!(
+            ColdkeyCollateralHotkeys::<Test>::get(netuid, owner).as_slice(),
+            &[other_hotkey]
+        );
+        assert_eq!(
+            ColdkeyMinerCollateral::<Test>::get(netuid, owner),
+            0u64.into()
+        );
+        assert_eq!(
+            SubtensorModule::settle_miner_collateral(
+                netuid,
+                &other_hotkey,
+                &owner,
+                17u64.into(),
+                17u64.into()
+            ),
+            0u64.into()
+        );
+        assert!(!ColdkeyCollateralHotkeys::<Test>::contains_key(
+            netuid, owner
+        ));
     });
 }

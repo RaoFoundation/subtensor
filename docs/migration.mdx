@@ -6,7 +6,7 @@ description: Complete mapping from the legacy bittensor SDK (v10) and bittensor-
 Bittensor 11 replaces two packages — the `bittensor` SDK (v10.x) and the
 separate `bittensor-cli` (v9.x, the old `btcli`) — with one package that
 contains both. The API is not a rename of the old one: the `Subtensor` class
-and its ~165 methods are gone, replaced by a small `Client` with typed reads
+and its ~165 methods are gone, replaced by a small client with typed reads
 and a catalog of **intents** executed through one `plan`/`execute` pipeline.
 This page maps every commonly scripted old call and CLI command to its v11
 equivalent.
@@ -18,11 +18,12 @@ equivalent.
    [CLI mappings](#cli-migration) mechanically; where a row says "no direct
    equivalent", use the listed escape hatch.
 3. Watch the semantic traps in [Money](#money-and-balance),
-   [Weights and take](#weights-children-and-take), and
-   [Results and errors](#results-and-errors) — these change behavior, not
-   just names.
+   [Weights and take](#weights-children-and-take),
+   [Results and errors](#results-and-errors), and
+   [Chain and runtime changes](#chain-and-runtime-changes) — these change
+   behavior, not just names.
 4. Verify against the live catalogs rather than guessing:
-   `sub.intents.list_tools()` and `sub.reads.list_reads()` in Python,
+   `bt.intents.list_tools()` and `bt.reads.list_reads()` in Python,
    `btcli tools` and `btcli query --help` on the CLI, or the generated
    references under [Transactions](/docs/tx) and [Queries](/docs/query).
 5. Preview every rewritten mutation with `client.plan(...)` or `--dry-run`
@@ -35,7 +36,7 @@ equivalent.
 | SDK | `bittensor` 10.x | `bittensor` 11.x |
 | CLI | `bittensor-cli` 9.x (separate package) | included in `bittensor` |
 | Wallet | `bittensor_wallet` (separate package) | included: `bittensor.wallet` |
-| Python | 3.10+ | 3.10–3.13 |
+| Python | 3.10+ | 3.10–3.14 |
 
 ```bash
 uv pip install bittensor          # library + btcli, one package
@@ -69,18 +70,14 @@ pip install --force-reinstall --no-deps bittensor
 While a stale `bittensor-cli` is still installed, the v11 `btcli` prints a
 warning with this fix on every run.
 
-Two version pitfalls that fail *silently*:
+One version pitfall fails *silently*:
 
-- **Python 3.14**: v10 allowed it, v11 supports 3.10–3.13. On a 3.14
-  interpreter `pip install -U bittensor` quietly keeps 10.x (pip picks the
-  newest release whose `requires-python` matches). If `btcli --version`
-  still says 9.x/10.x after upgrading, check `python --version` first.
 - **Pinned requirements**: anything pinning `bittensor<11` or
   `bittensor~=10` keeps working against v10 untouched — the new
   package changes nothing until you move the pin.
 
 Platform support: wheels ship for Linux (x86_64, aarch64) and macOS
-(Apple Silicon and Intel), Python 3.10–3.13 — the same coverage as the old
+(Apple Silicon and Intel), Python 3.10–3.14 — the same coverage as the old
 stack. Windows is unsupported natively (as before); use WSL. On any other
 platform pip falls back to a source build, which requires a Rust toolchain.
 
@@ -105,36 +102,34 @@ if not response.success:
 New (v11):
 
 ```python
-import asyncio
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
-async def main():
-    wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-    async with sub.Client("finney") as client:
-        balance = await client.balances.get("5F...")
-        result = await client.execute(
-            sub.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=10),
-            wallet,
-        )
-        if not result.success:
-            print(result.error.code, result.error.remediation)
+wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
+sub = bt.Subtensor()          # defaults to finney; no close() needed
 
-asyncio.run(main())
+balance = sub.balances.get("5F...")
+result = sub.execute(
+    bt.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=10),
+    wallet,
+)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
 The three structural changes:
 
-1. **One client, no method zoo.** `Subtensor` / `AsyncSubtensor` become
-   `sub.Client` (async) or `sub.SyncClient` (blocking, same surface). Every
-   read is a typed method on a category namespace (`client.subnets`,
-   `client.staking`, `client.delegation`, `client.prices`, ... — with
-   autocomplete and signature help), is also dispatchable by name
-   (`client.read("uid", hotkey_ss58=..., netuid=...)`), and anything else is
-   reachable through generic accessors (`client.query(sub.storage...)`). See
+1. **One client, no method zoo.** `bt.Subtensor` keeps its name but is a new
+   class: one entry point that is blocking when used directly and async when
+   awaited (`async with bt.Subtensor() as client:`) — `AsyncSubtensor` is
+   gone. The ~165 v10 methods are replaced by typed reads on category
+   namespaces (`sub.subnets`, `sub.staking`, `sub.delegation`, `sub.prices`,
+   ... — with autocomplete and signature help), dispatchable by name too
+   (`sub.read("uid", hotkey_ss58=..., netuid=...)`), and anything else is
+   reachable through generic accessors (`sub.query(bt.storage...)`). See
    [The client](/docs/concepts/client).
 2. **Transactions are intents.** Every mutation is a small dataclass
-   (`sub.Transfer`, `sub.AddStake`, `sub.SetWeights`, ...) executed through
+   (`bt.Transfer`, `bt.AddStake`, `bt.SetWeights`, ...) executed through
    `client.plan(intent, wallet)` / `client.execute(intent, wallet)`. See
    [The transaction model](/docs/concepts/transactions).
 3. **Results are data.** `ExtrinsicResponse` becomes `ExtrinsicResult` with a
@@ -144,13 +139,13 @@ The three structural changes:
 
 | v10 | v11 |
 | --- | --- |
-| `bt.Subtensor(network="finney")` | `sub.SyncClient("finney")` (blocking) |
-| `bt.AsyncSubtensor(...)` + `await sub.initialize()` | `async with sub.Client("finney") as client:` |
-| `get_async_subtensor(network=...)` | `await sub.Client(...).connect()` |
+| `bt.Subtensor(network="finney")` | `bt.Subtensor()` (blocking, finney is the default) |
+| `bt.AsyncSubtensor(...)` + `await bt.initialize()` | `async with bt.Subtensor() as client:` |
+| `get_async_subtensor(network=...)` | `await bt.Subtensor(...)` |
 | `Subtensor(config=config)` | gone — pass arguments directly |
 | `Subtensor(..., mock=True)` / `MockSubtensor` | gone — test against a [local node](/docs/guides/local-development) |
-| `fallback_endpoints=`, `archive_endpoints=`, `retry_forever=` | same names on `Client` / `SyncClient` |
-| `subtensor.close()` | `client.close()` / context manager |
+| `fallback_endpoints=`, `archive_endpoints=`, `retry_forever=` | same names on `Subtensor` |
+| `subtensor.close()` | optional — automatic on garbage collection / process exit |
 
 Network names `finney`, `test`, `archive`, `local` resolve to the same
 endpoints as before, and any `ws://` / `wss://` URL is accepted directly. The
@@ -201,9 +196,9 @@ parameter names the old methods used. Results that used to be raw u16/u64
 integers come back normalized (weights and bonds as 0..1 floats, balances as
 `Balance`).
 Anything without a named read is reachable through the generic accessors —
-`client.query(sub.storage.Pallet.Item, [params])`,
-`client.query_map(...)`, `client.constant(sub.constants...)`,
-`client.runtime(sub.runtime_api...)` — which cover the entire runtime
+`client.query(bt.storage.Pallet.Item, [params])`,
+`client.query_map(...)`, `client.constant(bt.constants...)`,
+`client.runtime(bt.runtime_api...)` — which cover the entire runtime
 surface, replacing `query_subtensor`, `query_module`, `query_map`,
 `query_map_subtensor`, `query_constant`, `query_runtime_api`, and
 `state_call`.
@@ -278,18 +273,18 @@ surface, replacing `query_subtensor`, `query_module`, `query_map`,
 
 | v10 | v11 |
 | --- | --- |
-| `subtensor.block` / `get_current_block()` | `await client.block()` |
+| `subtensor.block` / `get_current_block()` | `sub.block` (blocking) / `await client.block()` |
 | `get_block_info(block)` / `get_block_hash` | `await client.block_info(block)` |
 | `get_timestamp(block)` | `await client.timestamp(block)` |
 | `wait_for_block(block)` | `await client.wait_for_block(block)` (plus `wait_for_timestamp`, `wait_for_epoch`) |
 | `tx_rate_limit()` / `is_fast_blocks()` | `client.chain.tx_rate_limit()` / `client.is_fast_blocks()` |
-| `last_drand_round()` | `sub.timelock.current_round()` |
+| `last_drand_round()` | `bt.timelock.current_round()` |
 | `get_proxies_for_real_account(ss58)` | `client.balances.proxies(coldkey_ss58=...)` |
 | `get_coldkey_swap_announcement(ss58)` | `client.balances.coldkey_swap_announcement(coldkey_ss58=...)` |
 | `get_crowdloans()` / `get_crowdloan_by_id` / `get_crowdloan_contributions` | `client.leasing.crowdloans()` / `crowdloan(...)` / `crowdloan_contributors(...)` |
 | `get_mev_shield_next_key()` | `client.chain.mev_shield_next_key()` |
-| `get_root_claim_type(ss58)` | `client.staking.root_claim_type(coldkey_ss58=...)` |
-| other `get_root_claim*` reads | no named read — generic storage query |
+| `get_root_claim_type(ss58)` | removed (retired on chain in v441; claims are always TAO to root stake) |
+| other `get_root_claim*` reads | `client.staking.root_basket_owed(coldkey_ss58=...)` and the other [basket reads](/docs/guides/root-reborn) |
 | `get_liquidity_list(...)` | removed (feature retired on chain) |
 
 ## The metagraph
@@ -321,6 +316,16 @@ mg.neuron(5), mg.by_hotkey("5F...")
 | `mg.save()` / `mg.load()` | gone — persist `mg.raw` yourself if needed |
 | `bt.Metagraph(netuid, network=...)` | always fetched through a client |
 
+The metagraph record returned by the `metagraph` read (`client.read("metagraph", netuid=...)`,
+`btcli query metagraph --netuid N --json`) carries `name` and `symbol` decoded to text; on
+the wire they are compact-u16 vectors of utf-8 bytes, unlike every other text
+field on the record. If you need the undecoded wire record, call the runtime
+API directly:
+
+```python
+await client.runtime(bt.runtime_api.SubnetInfoRuntimeApi.get_metagraph, [netuid])
+```
+
 ## Transactions
 
 Every old transaction method maps to an intent class executed with
@@ -335,50 +340,51 @@ a limit price).
 
 | v10 method | v11 intent |
 | --- | --- |
-| `transfer(wallet, destination_ss58, amount)` | `sub.Transfer(dest_ss58=..., amount_tao=...)` |
-| `transfer(..., transfer_all=True)` | `sub.TransferAll(dest_ss58=...)` |
-| `add_stake(wallet, netuid, hotkey_ss58, amount)` | `sub.AddStake(hotkey_ss58=..., netuid=..., amount_tao=...)` |
-| `add_stake(..., safe_staking=True, rate_tolerance=...)` | `sub.AddStakeLimit(..., limit_price_rao=..., allow_partial=...)` |
-| `unstake(wallet, netuid, hotkey_ss58, amount)` | `sub.RemoveStake(hotkey_ss58=..., netuid=..., amount_alpha=...)` (accepts `"all"`) |
-| `unstake(..., safe_unstaking=True)` | `sub.RemoveStakeLimit(...)` |
-| `unstake_all(wallet, netuid, hotkey_ss58)` | `sub.UnstakeAll(hotkey_ss58=...)` / `sub.UnstakeAllAlpha(...)` |
-| `add_stake_multiple` / `unstake_multiple` | `sub.Batch(intents=[...])` |
-| `move_stake(...)` | `sub.MoveStake(origin_hotkey_ss58, origin_netuid, dest_hotkey_ss58, dest_netuid, amount_alpha)` |
-| `swap_stake(...)` | `sub.SwapStake(hotkey_ss58, origin_netuid, dest_netuid, amount_alpha)` |
-| `transfer_stake(...)` | `sub.TransferStake(dest_coldkey_ss58, hotkey_ss58, origin_netuid, dest_netuid, amount_alpha)` |
-| `set_auto_stake(...)` | `sub.SetAutoStake(netuid=..., hotkey_ss58=...)` |
-| `lock_stake` / `move_lock` / `set_perpetual_lock` | `sub.LockStake` / `sub.MoveLock` / `sub.SetPerpetualLock` |
-| `burned_register(wallet, netuid)` / `register(...)` | `sub.BurnedRegister(netuid=..., hotkey_ss58=None)` |
-| `register_subnet(wallet)` | `sub.RegisterSubnet()` |
-| `root_register(wallet)` | `sub.RootRegister()` |
-| `start_call(wallet, netuid)` | `sub.StartCall(netuid=...)` |
-| `serve_axon(netuid, axon: Axon)` | `sub.ServeAxon(netuid=..., ip=..., port=...)` — no `Axon` object; TLS via `sub.ServeAxonTls` |
-| `set_weights(wallet, netuid, uids, weights, mechid)` | `sub.SetWeights(netuid=..., weights={uid: w} or uids=[...], weights=[...], mechid=0)` |
-| `commit_weights` / `reveal_weights` | `sub.CommitWeights` / `sub.RevealWeights` (reveal only for legacy salt commits) |
-| `set_delegate_take(wallet, hotkey_ss58, take)` | `sub.SetTake(take=...)` — **unit change, see below** |
-| `set_children(wallet, netuid, hotkey_ss58, children)` | `sub.SetChildren(netuid=..., children=[...])` — **unit change, see below** |
-| `set_subnet_identity(...)` | `sub.SetSubnetIdentity(netuid=..., subnet_name=..., ...)` (flattened fields) |
-| identity via extrinsics | `sub.SetIdentity(name=..., url=..., ...)` |
-| `claim_root(wallet, netuids)` | `sub.ClaimRoot(subnets=[...])` |
-| `set_root_claim_type(wallet, type)` | `sub.SetRootClaimType(claim_type="Swap"/"Keep"/"KeepSubnets")` |
-| `add_proxy` / `remove_proxy` / `remove_proxies` / `create_pure_proxy` / `kill_pure_proxy` | same-name intents (`sub.AddProxy(delegate_ss58=..., proxy_type=..., delay=...)`, ...) |
+| `transfer(wallet, destination_ss58, amount)` | `bt.Transfer(dest_ss58=..., amount_tao=...)` |
+| `transfer(..., transfer_all=True)` | `bt.TransferAll(dest_ss58=...)` |
+| `add_stake(wallet, netuid, hotkey_ss58, amount)` | `bt.AddStake(hotkey_ss58=..., netuid=..., amount_tao=...)` |
+| `add_stake(..., safe_staking=True, rate_tolerance=...)` | `bt.AddStakeLimit(..., limit_price_rao=..., allow_partial=...)` |
+| `unstake(wallet, netuid, hotkey_ss58, amount)` | `bt.RemoveStake(hotkey_ss58=..., netuid=..., amount_alpha=...)` (accepts `"all"`) |
+| `unstake(..., safe_unstaking=True)` | `bt.RemoveStakeLimit(...)` |
+| `unstake_all(wallet, netuid, hotkey_ss58)` | `bt.UnstakeAll(hotkey_ss58=...)` / `bt.UnstakeAllAlpha(...)` |
+| `add_stake_multiple` / `unstake_multiple` | `bt.Batch(intents=[...])` |
+| `move_stake(...)` | `bt.MoveStake(origin_hotkey_ss58, origin_netuid, dest_hotkey_ss58, dest_netuid, amount_alpha)` |
+| `swap_stake(...)` | `bt.SwapStake(hotkey_ss58, origin_netuid, dest_netuid, amount_alpha)` |
+| `transfer_stake(...)` | `bt.TransferStake(dest_coldkey_ss58, hotkey_ss58, origin_netuid, dest_netuid, amount_alpha)` |
+| `set_auto_stake(...)` | `bt.SetAutoStake(netuid=..., hotkey_ss58=...)` |
+| `lock_stake` / `move_lock` / `set_perpetual_lock` | `bt.LockStake` / `bt.MoveLock` / `bt.SetPerpetualLock` |
+| `burned_register(wallet, netuid)` / `register(...)` | `bt.BurnedRegister(netuid=..., hotkey_ss58=None)` |
+| `register_subnet(wallet)` | `bt.RegisterSubnet()` |
+| `root_register(wallet)` | `bt.RootRegister()` |
+| `start_call(wallet, netuid)` | `bt.StartCall(netuid=...)` |
+| `serve_axon(netuid, axon: Axon)` | `bt.ServeAxon(netuid=..., ip=..., port=...)` — no `Axon` object; TLS via `bt.ServeAxonTls` |
+| `set_weights(wallet, netuid, uids, weights, mechid)` | `bt.SetWeights(netuid=..., weights={uid: w} or uids=[...], weights=[...], mechid=0)` |
+| `commit_weights` / `reveal_weights` | `bt.CommitWeights` / `bt.RevealWeights` (reveal only for legacy salt commits) |
+| `set_delegate_take(wallet, hotkey_ss58, take)` | `bt.SetTake(take=...)` — **unit change, see below** |
+| `set_children(wallet, netuid, hotkey_ss58, children)` | `bt.SetChildren(netuid=..., children=[...])` — **unit change, see below** |
+| `set_subnet_identity(...)` | `bt.SetSubnetIdentity(netuid=..., subnet_name=..., ...)` (flattened fields) |
+| identity via extrinsics | `bt.SetIdentity(name=..., url=..., ...)` |
+| `claim_root(wallet, netuids)` | `bt.ClaimRoot(subnets=...)` still decodes (subnets ignored; coldkey-wide). Prefer `bt.ClaimRootWithHotkey(hotkey_ss58=...)` ([baskets](/docs/guides/root-reborn)) |
+| `set_root_claim_type(wallet, type)` | removed (retired on chain in v441; claims are always TAO to root stake) |
+| `add_proxy` / `remove_proxy` / `remove_proxies` / `create_pure_proxy` / `kill_pure_proxy` | same-name intents (`bt.AddProxy(delegate_ss58=..., proxy_type=..., delay=...)`, ...) |
 | `proxy(wallet, real_ss58, type, call)` | `client.execute(intent, wallet, proxy_for=real_ss58)` |
 | `announce_coldkey_swap` / `swap_coldkey_announced` / `dispute_coldkey_swap` / `clear_coldkey_swap_announcement` | same-name intents |
-| crowdloan methods | same-name intents (`sub.CreateCrowdloan`, `sub.ContributeCrowdloan`, ...) |
-| `set_commitment(wallet, netuid, data)` | no intent — raw call: `client.submit_call(sub.calls.Commitments.set_commitment(...), wallet)` |
-| hyperparameters (was CLI-only `sudo set`) | `sub.SetHyperparameter(netuid=..., name=..., value=...)` |
+| crowdloan methods | same-name intents (`bt.CreateCrowdloan`, `bt.ContributeCrowdloan`, ...) |
+| `set_commitment(wallet, netuid, data)` | no intent — raw call: `client.submit_call(bt.calls.Commitments.set_commitment(...), wallet)` |
+| hyperparameters (was CLI-only `sudo set`) | `bt.SetHyperparameter(netuid=..., name=..., value=...)` (includes `collateral_lock_share` / `collateral_drain_ratio`) |
+| *(new)* miner collateral top-up / floor | `bt.AddCollateral(netuid=..., amount_alpha=...)` / `bt.SetMinCollateral(netuid=..., min_alpha=...)`; reads via `client.collateral.*` |
 | `add_liquidity` / `modify_liquidity` / `remove_liquidity` | removed (feature retired on chain) |
 | `mev_submit_encrypted(wallet, call)` | `client.submit_shielded(intent, wallet)`, or the default shielding on stake intents |
-| `compose_call(...)` + `sign_and_send_extrinsic(...)` | `client.submit_call(sub.calls.Pallet.function(...), wallet, signer="coldkey"/"hotkey")` |
+| `compose_call(...)` + `sign_and_send_extrinsic(...)` | `client.submit_call(bt.calls.Pallet.function(...), wallet, signer="coldkey"/"hotkey")` |
 | `bittensor.core.extrinsics.*` functions | gone — intents or `submit_call` |
 
 Dynamic dispatch (the old pattern of calling methods by name) becomes
-`sub.intents.build(op, args_dict)` or
+`bt.intents.build(op, args_dict)` or
 `client.execute_tool(op, args_dict, wallet)` — see [For agents](/docs/agents).
 
 New in v11, worth adopting during migration: `client.plan(intent, wallet)`
 previews fee, effects, and warnings without submitting, and a
-`sub.Policy(max_spend_tao=..., allowed_netuids=[...])` on the client
+`bt.Policy(max_spend_tao=..., allowed_netuids=[...])` on the client
 hard-bounds what any execution may do.
 
 ## Weights, children, and take
@@ -386,7 +392,7 @@ hard-bounds what any execution may do.
 Three call families changed **units**, not just names:
 
 - **Weights** are easier: pass floats (any scale — only proportions matter)
-  or a `{uid: weight}` dict to `sub.SetWeights`; clipping, normalization, and
+  or a `{uid: weight}` dict to `bt.SetWeights`; clipping, normalization, and
   u16 quantization happen internally
   (`bittensor.intents.normalize` is the canonical implementation).
   `bittensor.utils.weight_utils` (`process_weights_for_netuid`,
@@ -399,8 +405,8 @@ Three call families changed **units**, not just names:
 - **Take** still accepts the float 0–1 form (`take=0.18`); a plain integer
   is the raw u16 proportion (`take=11796`), following the hyperparameter
   value rules (a decimal point marks the human form). `set_delegate_take`'s
-  auto-direction behavior is preserved by `sub.SetTake`; `sub.IncreaseTake` /
-  `sub.DecreaseTake` pin the direction.
+  auto-direction behavior is preserved by `bt.SetTake`; `bt.IncreaseTake` /
+  `bt.DecreaseTake` pin the direction.
 - **Children proportions** likewise accept floats 0–1
   (`children=[[0.5, "5F...child"]]`); a plain integer is the raw u64 share
   of `u64::MAX`.
@@ -411,7 +417,7 @@ Three call families changed **units**, not just names:
 v11 ([Money](/docs/concepts/money)):
 
 - Every `Balance` carries a `netuid` (0 = TAO). Arithmetic or comparison
-  across units raises `sub.UnitMismatchError` (was
+  across units raises `bt.UnitMismatchError` (was
   `BalanceUnitMismatchError`); comparing with a bare `float` raises
   `TypeError`.
 - `.tao` on an alpha balance **raises** instead of returning a number. Use
@@ -419,7 +425,7 @@ v11 ([Money](/docs/concepts/money)):
   `stake-value-for-coldkey` read to value alpha in TAO.
 - `Balance.from_tao(amount)` no longer takes a netuid;
   `Balance.from_alpha(amount, netuid=...)` is the alpha constructor.
-  Shorthands: `sub.tao(1.5)`, `sub.alpha(2.5, 42)`, `sub.rao(1_500_000_000)`.
+  Shorthands: `bt.tao(1.5)`, `bt.alpha(2.5, 42)`, `bt.rao(1_500_000_000)`.
 - Intent amount fields are unit-named (`amount_tao`, `amount_alpha`,
   `limit_price_rao`) and accept `int | float | str | Decimal | Balance` —
   the strict "must be a Balance object" rule from v10 is relaxed because the
@@ -441,7 +447,7 @@ wallet.create_new_coldkey(...), wallet.regenerate_coldkey(...)
 Differences: `bt.Wallet(config=...)` and `Wallet.add_args` are gone (pass
 name/hotkey/path directly); `bt.Keypair` / `bt.Keyfile` are no longer
 top-level exports (`bittensor.keyfiles.Keyfile` exists; keypairs come from
-the wallet). Convenience helpers live in `sub.wallets`
+the wallet). Convenience helpers live in `bt.wallets`
 (`create`, `regen_coldkey`, `list_wallets`, `sign_message`,
 `verify_message`, ...). Non-interactive unlock: `BT_WALLET_PASSWORD` or
 `BT_WALLET_PASSWORD_FILE` ([wallets](/docs/concepts/wallets#non-interactive-unlock)).
@@ -455,7 +461,7 @@ three layers, and each has a v11 answer:
 
 | Old stack | v11 |
 | --- | --- |
-| hotkey signing + verification (`dendrite.preprocess_synapse_for_request`, `axon.default_verify`) | `sub.http_auth.sign` / `sub.http_auth.verify` — [Signed requests](/docs/guides/signed-requests) |
+| hotkey signing + verification (`dendrite.preprocess_synapse_for_request`, `axon.default_verify`) | `bt.http_auth.sign` / `bt.http_auth.verify` — [Signed requests](/docs/guides/signed-requests) |
 | `Axon` (FastAPI server, lifecycle, middleware) | your own server; FastAPI recipe in the guide |
 | `Dendrite` (aiohttp client, fan-out) | your own client; httpx recipe in the guide |
 | `Synapse` subclasses (shared request schema) | your own request/response models — signing covers raw bytes, so any schema works |
@@ -464,8 +470,8 @@ three layers, and each has a v11 answer:
 | `StreamingSynapse` | SSE / websockets in your framework |
 | `Tensor` | serialize with your ML library's own tools |
 
-The chain-side operations remain — publish your endpoint with `sub.ServeAxon`
-(see [Mining](/docs/guides/mining)), set weights with `sub.SetWeights` (see
+The chain-side operations remain — publish your endpoint with `bt.ServeAxon`
+(see [Mining](/docs/guides/mining)), set weights with `bt.SetWeights` (see
 [Validating](/docs/guides/validating)). The identity layer —
 hotkey-signed HTTP requests, replacing the old `bt_header_*` scheme with a
 cleaner cross-language wire format (btauth/1) — ships in the SDK as pure
@@ -481,19 +487,160 @@ the legacy v10 header format (recipe in the guide).
 | `.extrinsic_fee` | `.fee` |
 | `.extrinsic_receipt` | `.block_hash`, `.extrinsic_id`, `.events`, `.explorer_url` |
 | `.data` (uid, reveal_round, ...) | `.data` (same idea) |
-| `.error` (a Python exception) | `.error` — `ChainError` with `.name`, `.code` (`sub.ErrorCode`), `.remediation` |
+| `.error` (a Python exception) | `.error` — `ChainError` with `.name`, `.code` (`bt.ErrorCode`), `.remediation`, plus `.description` / `.docs_url` when the name is classified |
 | `raise_error=True` kwarg | `result.raise_for_failure()` |
 | typed exceptions (`StakeError`, `NotRegisteredError`, `TxRateLimitExceeded`, ...) | branch on `result.error.code`: `ErrorCode.INSUFFICIENT_BALANCE`, `RATE_LIMITED`, `NOT_REGISTERED`, `SUBNET_NOT_EXISTS`, ... ([Errors](/docs/errors)) |
-| `BalanceTypeError` / `BalanceUnitMismatchError` | `TypeError` / `sub.UnitMismatchError` |
+| `BalanceTypeError` / `BalanceUnitMismatchError` | `TypeError` / `bt.UnitMismatchError` |
+
+Prefer `.code` over matching `.name` or message strings. SubtensorModule renamed
+`InsufficientBalance` → [`InsufficientTaoBalance`](/code/pallets/subtensor/src/macros/errors.rs#L218) (same error index) and added
+[`InsufficientAlphaBalance`](/code/pallets/subtensor/src/macros/errors.rs#L334); both still classify as
+`ErrorCode.INSUFFICIENT_BALANCE`. Other pallets (Balances, Crowdloan, Swap)
+may still emit `InsufficientBalance`. `btcli explain <Name>` and
+`result.error.description` give the per-name trigger text.
 
 ```python
 result = await client.execute(intent, wallet)
 if not result.success:
     match result.error.code:
-        case sub.ErrorCode.RATE_LIMITED: ...        # wait and retry
-        case sub.ErrorCode.INSUFFICIENT_BALANCE: ...
+        case bt.ErrorCode.RATE_LIMITED: ...        # wait and retry
+        case bt.ErrorCode.INSUFFICIENT_BALANCE: ...
         case _: log(result.error.remediation)
 ```
+
+## Chain and runtime changes
+
+The v11 package ships against a runtime that also changed behavior. These are
+not rename mappings — scripts that still "work" can fail or mis-account after
+the upgrade. See the release notes for
+[V431](/releases/v431-upgrade), [V445](/releases/v445-upgrade), and
+[V446](/releases/v446-upgrade), plus the [V448 upgrade](/releases/v448-upgrade).
+
+### Ownership and emissions
+
+- **Subnet ownership.** For subnets at least one year old, ownership transfers
+  to the highest-conviction hotkey when that hotkey's own conviction exceeds
+  18% of eligible alpha: `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned`,
+  with saturating subtraction. A zero eligible balance cannot trigger a
+  transfer. Only conviction locked to the winning hotkey counts toward its
+  threshold. See [Conviction](/docs/guides/conviction).
+- **Cross-subnet emissions.** Allocation continues to use each subnet's EMA
+  price scaled by `1 − MinerBurned`, followed by the emission gate.
+  [`root_proportion`](/code/pallets/subtensor/src/coinbase/block_step.rs#L74-L84)
+  is not part of the inter-subnet split; it still applies inside each subnet
+  for injection caps and root dividends. See [Emissions](/docs/concepts/emissions).
+
+### Proxies and coldkeys
+
+- **Deny-by-default allowlists.** Proxy types only permit listed call groups.
+  Audit every existing grant. Triumvirate / Senate / Governance / RootWeights
+  proxies deny all calls. A Staking proxy cannot wrap `Utility.batch_all` —
+  batched staking needs NonTransfer. See [Proxies](/docs/guides/proxies).
+- **Coldkey-swap and dissolve scope.** NonTransfer, NonFungible, and
+  NonCritical proxies can no longer call `reset_coldkey_swap`, `swap_coldkey`,
+  or `schedule_swap_coldkey`. NonCritical can no longer call
+  `root_dissolve_network`. Owner proxies are limited to owner-settable subnet
+  configuration and identity calls (not owner-key rotation).
+- **Reject locked alpha.** Coldkeys that should accept locked-alpha transfers
+  must opt in with `btcli conviction accept --allow` (the
+  `set_reject_locked_alpha` call, also available as the
+  `SetRejectLockedAlpha` intent). Default is to reject.
+
+### Staking and fees
+
+- **Default slippage protection.** `AddStake`, `RemoveStake`, `SwapStake`,
+  and cross-subnet `MoveStake` / `MoveSwapStake` (and the matching CLI
+  commands) apply a 5% price bound by default. Old any-price scripts fail
+  with [`SlippageTooHigh`](/code/pallets/subtensor/src/macros/errors.rs#L192) unless you pass
+  `slippage_protection=False` / `--no-slippage-protection`, or set an explicit
+  `rate_tolerance` / limit price. Runtime v448 adds `move_stake_limit` for a
+  single protected hotkey-and-subnet move. Its relative limit is the minimum
+  acceptable destination-alpha per origin-alpha ratio. The SDK and btcli use
+  fill-or-kill; direct runtime, EVM, and WASM callers can set `allow_partial`.
+- **Strict stake moves.** `move_stake` / `transfer_stake` / `swap_stake` no
+  longer silently cap the alpha amount to what remains after an alpha-paid
+  fee. Submitting the full stake balance can fail with
+  `NotEnoughStakeToWithdraw` — leave dust or query the post-fee balance first.
+- **Limit-stake TAO refund.** When a price limit stops a stake-in swap before
+  the full TAO is consumed, the unswapped remainder is refunded to the coldkey
+  (it used to sit on the subnet pallet account). Prefer post-state balances
+  over summing `StakeAdded` amounts for partial fills — the event can still
+  report the pre-refund TAO, and `SubnetVolume` may overstate the same way.
+- **Take changes pay fees.** `increase_take` and `decrease_take` are
+  `Pays::Yes`. Preview with `client.plan(...)` / `--dry-run`.
+- **Hotkey-swap alpha fees.** `swap_hotkey` / `swap_hotkey_v2` can take the
+  transaction fee in alpha across the hotkey's stake subnets — same
+  "don't submit the entire balance" footgun as stake moves when paying in
+  alpha.
+- **Stake move/transfer/swap extrinsics** also pay the ordinary transaction
+  fee (`Pays::Yes`). Same-subnet `move_stake` is not a pool swap, but it is
+  not fee-free.
+- **Miner collateral.** `add_collateral` takes **alpha** (`amount_alpha` /
+  `AlphaBalance`), not TAO — free stake covers the lock first; only a
+  shortfall is bought with TAO under `limit_price`. Bonded
+  `swap_hotkey` / `swap_hotkey_v2` with `keep_stake=true` fails with
+  [`KeepStakeBlockedByCollateral`](/docs/errors/chain/KeepStakeBlockedByCollateral);
+  use `keep_stake=false` so the bond migrates (lineage maps track the
+  rename). Coldkey swap migrates `MinerCollateral` with the stake.
+- **Key lineage (runtime 437).** Hotkey swaps write per-subnet
+  `HotkeySuccessor` / `HotkeyRoot`; coldkey swaps write global
+  `ColdkeySuccessor` / `ColdkeyRoot`. Prefer `hotkey_root` /
+  `coldkey_root` (and `same_*_lineage`) for bans and owner attribution;
+  `*_lineage_tip` is best-effort. See
+  [The V437 Upgrade](/releases/v436-upgrade).
+
+### Registration, hyperparameters, and randomness
+
+- **Queued subnet registration.** When capacity is full or cleanup is pending,
+  `register_network` may emit [`NetworkRegistrationQueued`](/code/pallets/subtensor/src/macros/events.rs#L681) without creating the
+  subnet. `client.execute(RegisterSubnet(...))` and `btcli subnets create` wait
+  for the matching [`NetworkAdded`](/code/pallets/subtensor/src/macros/events.rs#L13) by default and return the assigned `netuid`;
+  raw-call clients must do the same before treating the registration as live.
+- **Tempo and activity cutoff.** Owner (and root) set these through
+  `AdminUtils::sudo_set_tempo` and `AdminUtils::sudo_set_activity_cutoff_factor`.
+  `SubtensorModule` call indices 139 (`set_tempo`) and 140
+  (`set_activity_cutoff_factor`) remain as deprecated no-op compatibility entry
+  points: they charge a fee and return success without changing state. Use the
+  AdminUtils calls to update these values. The live inactivity window is
+  `activity_cutoff_factor` (per-mille of tempo); absolute `activity_cutoff` is
+  derived / legacy. Set via `bt.SetHyperparameter` /
+  `btcli sudo set --name activity_cutoff_factor|tempo`.
+- **Hyperparams read API.** Prefer `get_subnet_hyperparams_v3` (name→value);
+  v1/v2 are deprecated. The SDK read already uses v3.
+- **Liquid Alpha consensus mode.** `LiquidAlphaConsensusMode` selects current,
+  previous, or automatic consensus for the bonds EMA. `Auto` is the default:
+  it selects previous consensus only when `bonds_penalty == u16::MAX`. Set it
+  with the raw owner/root call
+  `AdminUtils.sudo_set_liquid_alpha_consensus_mode`; owner calls are limited to
+  the admin window and normal per-hyperparameter rate limit.
+- **Drand submissions.** After the initial pulse, only `last_stored_round + 1`
+  is accepted. Missing rounds must be backfilled sequentially or commit-reveal
+  / timelock consumers stall.
+- **Terminal timelock failures.** A reveal that cannot succeed is retained in
+  `CommitmentOf` as `TimelockRevealFailed`, emits `CommitmentRevealFailed`
+  once, and is removed from the retry index. Indexers should distinguish this
+  terminal audit state from a `TimelockEncrypted` field still waiting for its
+  pulse.
+
+### Runtime API, metadata, and catalogs
+
+- **`get_proxy_filter` → `get_proxy_filters`.** Regenerate any client that
+  called the singular API.
+- **Typed metadata.** TAO/Alpha balances, `NetUid`, and related fields use
+  distinct TypeInfo paths (SCALE bytes unchanged). Regenerate static bindings.
+- **Error catalog shape.** `/catalog/errors.json` `chain_errors` values are
+  now `{code, description, docs_url}` objects, not bare code strings. Update
+  parsers that assumed a string.
+- **Contract / EVM ABI.** Chain-extension output still collapses both
+  Subtensor insufficient-balance variants to the ABI `InsufficientBalance`
+  code — contracts cannot distinguish TAO vs Alpha from that code alone.
+
+### Dissolution (operators / indexers)
+
+- **Settlement cursor.** Multi-block dissolution stake settlement keeps the
+  cursor on the last *completed* hotkey and retries an unpaid one on the next
+  pass instead of skipping it. Cleanup progress that assumed "cursor always
+  advances" needs a re-check.
 
 ## CLI migration
 
@@ -536,7 +683,8 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `wallet list` / `create` / `new-coldkey` / `new-hotkey` / `regen-*` | same names under `wallet` |
 | `wallet balance [--all]` | `wallet balance [--all]` or `btcli query balance --coldkey NAME --json` |
 | `wallet transfer --dest --amount` | `wallet transfer --dest --amount` or `btcli tx transfer --dest --amount-tao` |
-| `wallet overview` / `inspect` / `sign` / `verify` / `encrypt` / `decrypt` | same names |
+| `wallet overview` | `wallet overview` (stake portfolio) and `wallet registrations` (every hotkey UID, including zero stake) |
+| `wallet inspect` / `sign` / `verify` / `encrypt` / `decrypt` | same names |
 | `wallet swap-hotkey DEST` | `wallet swap-hotkey --new-hotkey ...` / `tx swap-hotkey` |
 | `wallet swap-coldkey announce/execute/...` | `wallet announce-coldkey-swap`, `wallet swap-coldkey`, `wallet swap-check`, `tx dispute-coldkey-swap`, `tx clear-coldkey-swap-announcement` |
 | `wallet set-identity` / `get-identity` / `associate-hotkey` | same names |
@@ -544,8 +692,10 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `stake add --amount` | `stake add` / `tx add-stake --amount-tao` |
 | `stake remove --amount` | `stake remove` / `tx remove-stake --amount-alpha` (accepts `all`) |
 | `stake remove --all` | `tx unstake-all` / `tx unstake-all-alpha` |
-| `stake list` / `move` / `transfer` / `swap` | same names (single hotkey per call; `--include-hotkeys`/`--exclude-hotkeys`/`--all-hotkeys` batching is gone — loop in your script) |
-| `stake auto` / `set-auto` / `set-claim` / `process-claim` | same names |
+| `stake remove --all --all-hotkeys` | `stake unstake-all --all-hotkeys` |
+| `stake list` / `move` / `transfer` / `swap` | same names (single hotkey per call; multi-hotkey selectors remain unavailable for these operations) |
+| `stake auto` / `set-auto` | same names |
+| `stake set-claim` / `process-claim` | `btcli root claim` / `btcli tx claim-root-with-hotkey --hotkey ...` (per-validator; `claim_root(subnets)` kept for old clients — see [Root Reborn](/docs/guides/root-reborn)) |
 | `stake child get/set/revoke/take` | same names (`child set` takes `--children` as JSON pairs) |
 | `sudo set --param NAME --value V` | `sudo set --name NAME --value V` / `tx set-hyperparameter` |
 | `sudo get` / `subnets hyperparameters` | `sudo get` / `subnets hyperparameters NETUID` / `query subnet-hyperparameters` |
@@ -554,7 +704,7 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `sudo senate` / `proposals` / `senate-vote` | **removed** — the senate is gone from the runtime ([Governance](/docs/guides/governance)) |
 | `subnets list` / `show` / `create` / `register` / `burn-cost` / `price` | same names (`show`/`burn-cost` take netuid positionally) |
 | `subnets metagraph` | `subnets metagraph NETUID` / `query metagraph --netuid N --json` |
-| `subnets register --netuid 0` | `tx root-register` |
+| `subnets register --netuid 0` | `subnets register --netuid 0` — unchanged; registration is now burn-based (wraps `root_register`) |
 | `subnets start` / `check-start` | `sudo start` / `sudo check-start` |
 | `subnets set-identity` / `get-identity` / `set-symbol` | `sudo set-identity` / `sudo get-identity` / `sudo set-symbol` |
 | `subnets mechanisms ...` | `sudo mechanisms ...` |
@@ -566,9 +716,21 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `liquidity add/list/modify/remove` | **removed** (chain feature retired) |
 | `view dashboard` | **removed** |
 | `utils convert` / `latency` | same names |
-| `deriv quote/positions/market/open/topup/close` | same names |
+| `deriv quote/positions/market/open/topup/close` | **removed** — chain feature not available on current runtime |
 | any other chain read | `btcli query <name>` — `btcli query --help` lists all of them |
 | any other mutation | `btcli tx <name>` — `btcli tx --help`, or `btcli call Pallet.function --args '{...}'` for raw extrinsics |
+
+Spec 448 shipped two `btcli root` names that no longer exist. Do not keep
+them as aliases: the later spellings do different work.
+
+| Spec 448 command | Current command |
+| --- | --- |
+| `root subscribe --hotkey X --amount N` (added root stake) | `stake add --netuid 0 --hotkey X --amount N` |
+| `root show --hotkey X` (one fund in detail) | `root list X` |
+| `root show` with no args (pick from your positions) | `root list --mine`, then `root list X` |
+
+Buying basket shares (β) is `root allocate`, not `subscribe`. The
+network-wide fund leaderboard is bare `root list`.
 
 Two new commands help automated migration directly: `btcli tools` dumps the
 full transaction catalog with JSON schemas, and `btcli explain <code>`
@@ -580,15 +742,21 @@ explains any error code.
    pinned `bittensor>=11` (the CLI is included). In live environments,
    uninstall the old packages *before* upgrading
    ([why](#upgrading-an-existing-environment)).
-2. Swap `bt.Subtensor` / `bt.AsyncSubtensor` for `sub.SyncClient` /
-   `sub.Client`; move `block=`-pinned reads onto `client.at(block)`.
+2. Keep `bt.Subtensor(...)` — the name survives, blocking as before (async
+   when awaited; `bt.AsyncSubtensor` is gone) — but every method on it
+   changed; move `block=`-pinned reads onto `sub.at(block)`.
 3. Rewrite reads using the tables above; anything unmapped goes through
-   `client.query(sub.storage...)`.
+   `client.query(bt.storage...)`. Prefer hyperparams v3 for custom RPC
+   clients.
 4. Rewrite each transaction as an intent + `client.execute`; take values and
    child proportions keep working as 0–1 floats (plain integers mean the raw
-   u16/u64 wire values); replace safe-staking flags with `*Limit` intents.
+   u16/u64 wire values); replace safe-staking flags with `*Limit` intents or
+   the default 5% slippage protection (`--no-slippage-protection` to opt out).
 5. Update result handling: `.success` still works, but branch on
-   `result.error.code` instead of exception types or message strings.
+   `result.error.code` instead of exception types or message strings. Treat
+   SubtensorModule `InsufficientTaoBalance` /
+   `InsufficientAlphaBalance` as the old `InsufficientBalance` (other pallets
+   may still emit that name).
 6. Fix Balance usage: no `.tao` on alpha, no cross-unit arithmetic,
    `from_alpha` for subnet currency.
 7. Delete `bt.config`/argparse plumbing, `bt.logging` calls (use standard
@@ -598,8 +766,14 @@ explains any error code.
    (`--wallet.name` → `-w`, `--json-output` → `--json`,
    `--no-prompt` → `--yes`).
 9. If the script served an axon or queried miners with a dendrite, rebuild
-   that layer on your own HTTP stack with `sub.http_auth` for the hotkey
+   that layer on your own HTTP stack with `bt.http_auth` for the hotkey
    signing ([Signed requests](/docs/guides/signed-requests)); only its chain
    calls move to this SDK's client.
-10. Dry-run everything: `client.plan(...)` in Python, `--dry-run` on the
+10. Apply the [chain and runtime changes](#chain-and-runtime-changes): audit
+    proxies; retarget owner tempo / `activity_cutoff_factor` calls to
+    AdminUtils; never submit a full alpha balance when fees are alpha-paid;
+    let the SDK wait for `NetworkAdded` on queued registrations (or do so in
+    raw-call clients); regenerate metadata
+    bindings and any `errors.json` / `get_proxy_filter` consumers.
+11. Dry-run everything: `client.plan(...)` in Python, `--dry-run` on the
     CLI, ideally against `test` or a local node first.

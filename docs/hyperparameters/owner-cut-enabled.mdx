@@ -1,0 +1,50 @@
+---
+title: owner_cut_enabled
+description: Derived flag — whether the subnet owner takes any share of alpha emission (true iff the owner emission slot is non-zero).
+---
+
+Read-only since the per-subnet [emission weight
+vector](/docs/concepts/emission-weights) replaced the global owner cut. The
+flag is `true` exactly when the subnet's
+[`owner_emission`](/docs/hyperparameters/owner-emission) slot is greater than
+zero. Owners care because the cut is their revenue; stakers and miners care
+because whatever the owner does not take is redistributed to them.
+
+## How it works
+
+Every block, the chain accrues `alpha_out × owner_emission` to a pending
+owner bucket; at the next epoch that alpha is staked directly to the subnet
+owner's hotkey and coldkey, while the validator and miner slots go through
+Yuma Consensus (see [the per-tempo
+split](/docs/concepts/emissions#the-per-tempo-split)). With the owner slot at
+zero no deduction happens: the full `alpha_out` flows to participants and the
+owner receives nothing — the forgone cut is not stashed or paid
+retroactively. Blocks are settled as they accrue, so changing the slot
+mid-tempo affects only the blocks after the change.
+
+Subnets that never set a vector keep the historical 18% default
+(`11796/65535`). Lease-created subnets may not drop the owner slot below
+that default, so on those subnets this flag cannot become `false`.
+
+<HyperparamOwnerCut focus="owner_cut_enabled" />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid 12 --name owner_cut_enabled
+btcli subnets emission set-value --netuid 12 --slot owner --value 0      # disable
+btcli subnets emission set-value --netuid 12 --slot owner --value 0.18   # restore
+```
+
+The former `sudo_set_owner_cut_enabled` and `sudo_set_subnet_owner_cut`
+calls are deprecated and always fail with `Deprecated`; set the owner slot
+through [`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights)
+instead (subnet owner, once per week per subnet, or root). Not permitted on
+the root subnet.
+
+## Related
+
+- [`owner_emission`](/docs/hyperparameters/owner-emission) — the share itself
+- [`owner_cut_auto_lock_enabled`](/docs/hyperparameters/owner-cut-auto-lock-enabled)
+  — lock the cut as it arrives
+- [Emission weights](/docs/concepts/emission-weights)

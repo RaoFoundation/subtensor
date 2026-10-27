@@ -1,3 +1,5 @@
+'use client';
+
 import SyntaxHighlighter from 'react-syntax-highlighter';
 import syntaxStyles from './syntaxStyles';
 import {Icon} from '@raofoundation/ui';

@@ -1,0 +1,460 @@
+---
+title: Precompile design and lifecycle
+description: How Bittensor precompiles preserve compatibility and how projects relay selected Substrate events to EVM contracts.
+---
+
+Bittensor precompiles are fixed-address EVM contracts implemented by the
+Subtensor runtime. They give Solidity callers typed access to chain operations
+and durable chain values without requiring contracts to understand Substrate
+storage.
+
+This page defines the compatibility model that new and existing precompiles
+should follow. The deployed registry currently reports whole-precompile
+availability. Function-level lifecycle metadata remains a future extension of
+that interface.
+
+<Callout type="warning">
+  A deployed contract may be immutable. Treat every released precompile address,
+  function signature, and selector as a permanent public API.
+</Callout>
+
+## Design goals
+
+The precompile layer is designed around five goals:
+
+1. **Contracts at rest keep working.** Runtime upgrades must not silently break
+   deployed contracts.
+2. **Interfaces evolve additively.** Existing selectors remain reserved, and
+   richer behavior is introduced through new function versions.
+3. **Deprecation is normally soft.** An old function continues to preserve its
+   original behavior whenever that behavior can still be represented safely.
+4. **Status is discoverable.** The registry reports whether a precompile is
+   disabled. Solidity interfaces document the supported selectors; typed
+   function-level lifecycle metadata is a future extension.
+5. **The signed, deterministic Substrate API has typed parity.** Storage and
+   runtime API results have bounded typed views, and extrinsics that accept a
+   non-Root signed origin have typed operations.
+
+## Fixed addresses and function selectors
+
+A precompile has a fixed EVM address for a domain such as staking, metagraph
+data, or subnet operations. Solidity dispatches a call using the first four
+bytes of the Keccak-256 hash of its canonical function signature.
+
+For example:
+
+```solidity
+function getStake(uint16 netuid, uint16 uid) external view returns (uint64);
+```
+
+The selector belongs to that signature permanently once released. It must not
+later be assigned different semantics, even if the original function is
+hard-deprecated. Reusing a selector could make an old contract decode a
+successful but unrelated result.
+
+The source-of-truth Solidity interfaces and generated ABIs live in
+[`precompiles/src/solidity/`](https://github.com/RaoFoundation/subtensor/tree/main/precompiles/src/solidity).
+
+## Compatibility rules
+
+### Preserve released interfaces
+
+Do not remove or change a released function signature. A runtime implementation
+may change internally to follow a new storage layout or computation, but the
+observable result must retain the function's documented meaning.
+
+Changing any of these creates a different EVM interface:
+
+- function name or version suffix;
+- parameter types or order;
+- return types or order;
+- mutability where it affects permitted calls;
+- precompile address.
+
+### Version functions, not whole domains
+
+When a breaking return-type or parameter change is necessary, add a versioned
+function at the same precompile address:
+
+```solidity
+interface IMetagraph {
+    // Original selector remains supported.
+    function getStake(
+        uint16 netuid,
+        uint16 uid
+    ) external view returns (uint64);
+
+    // New selector exposes the richer representation.
+    function getStakeV2(
+        uint16 netuid,
+        uint16 uid
+    ) external view returns (StakeInfo memory);
+}
+```
+
+Use `functionName` for the initial version, followed by `functionNameV2`,
+`functionNameV3`, and so on. Both selectors route independently, so adding a
+version does not alter calls made by existing contracts.
+
+Creating a new domain address may still be appropriate when the functionality
+is genuinely a different precompile, but it should not be the default
+versioning mechanism.
+
+New Bittensor domain addresses are assigned sequentially from the next unused
+Bittensor address. The latest deployed domains are:
+
+| Address | Domain |
+|---|---|
+| `0x000000000000000000000000000000000000080f` | Scheduler |
+| `0x0000000000000000000000000000000000000810` | Drand |
+| `0x0000000000000000000000000000000000000811` | Timestamp |
+| `0x0000000000000000000000000000000000000812` | Runtime configuration |
+| `0x0000000000000000000000000000000000000813` | Precompile registry |
+
+Documenting an address reservation does not make a proposed precompile
+callable. When an implementation is added, routing and tests must lock the
+address and every implemented selector before release.
+
+### Keep old semantics when possible
+
+Suppose `getStake` originally returned total stake, while a later runtime stores
+self-stake and delegated stake separately. The original function can continue
+returning their sum, while `getStakeV2` returns the breakdown.
+
+This is a soft deprecation: the old selector remains correct for callers that
+depend on its original meaning.
+
+## Replace raw storage access with typed views
+
+Raw storage access couples a contract to pallet names, storage item names,
+hashers, key shapes, and SCALE encodings. Any internal refactor can then make
+the contract read an empty value or decode the wrong bytes without a useful
+error.
+
+A typed view instead owns the encoding and decoding:
+
+```solidity
+uint64 weight = IMetagraph(METAGRAPH_ADDRESS).getWeight(netuid, uid);
+```
+
+If the underlying storage map, key format, hasher, or value encoding changes,
+the precompile implementation adapts while the Solidity interface remains
+stable. A resulting Rust compilation failure provides a safety net that raw
+storage queries do not.
+
+### Bound collection views
+
+Runtime APIs and storage collections that grow with chain state must not be
+copied into a single Solidity function returning an unbounded array. Expose an
+indexed item with a bounded count, or use a cursor and a caller-supplied limit
+that is capped by a fixed runtime maximum. A fixed-size batch of explicit keys
+is also suitable when callers already know which records they need.
+
+The bound must apply before storage is scanned or results are constructed.
+Calling an unbounded runtime helper and truncating its result afterward does
+not make the precompile bounded. Paginated views should return a next cursor or
+completion indicator and define stable ordering, missing-item behavior, and
+the maximum page size.
+
+### Preserve runtime authorization
+
+A state-changing precompile dispatches the highest-level pallet extrinsic with
+the mapped EVM caller as a signed origin. The pallet then enforces the same
+ownership, role, rate-limit, freeze-window, and validation checks that apply to
+an ordinary signed Substrate transaction.
+
+An extrinsic that permits either Root or a non-Root signer, such as a subnet
+owner, may expose its signed path. Root-only and `None`-only extrinsics are not
+exposed through typed EVM functions. A precompile must never substitute Root,
+invoke an internal state-changing helper, or reproduce the extrinsic logic to
+bypass the top-level checks.
+
+### Read-only infrastructure views
+
+Read-only precompiles let contracts inspect deterministic consensus state
+without receiving any authority to change it:
+
+- Scheduler views expose bounded task metadata so contracts can verify whether
+  and when runtime work is scheduled.
+- Drand views expose beacon configuration, stored pulses, and round ranges for
+  contract logic that depends on the runtime's randomness state.
+- Timestamp views replace raw reads of timestamp storage; `getTimestamp`
+  corresponds to the same underlying time represented by `block.timestamp`.
+- The registry lets contracts and tooling discover whether a whole precompile
+  is currently disabled. Canonical interfaces and ABIs define its selectors.
+
+These views replace raw storage decoding or off-chain RPC composition. They do
+not execute privileged extrinsics and do not provide a path to Root.
+
+### Phasing out raw storage reads
+
+`StorageQueryPrecompile` at `0x…0807` exposes raw Substrate storage and is
+inherently brittle. The intended migration is:
+
+1. Add a bounded typed view for every storage item in the currently authorized pallets:
+   SubtensorModule, Balances, Proxy, Scheduler, Drand, Crowdloan, Sudo,
+   Multisig, Timestamp, and Swap.
+2. Soft-deprecate raw storage access after that typed coverage exists.
+3. Hard-deprecate it after a documented migration window.
+4. Eventually disable it through an explicit root decision.
+
+Whether this 1:1 coverage should extend beyond the authorized pallets remains
+an open design question.
+
+## Project-scoped event relays
+
+Substrate events are already recorded in chain data. Reproducing the complete
+event stream through protocol-level EVM callbacks would add another on-chain
+copy together with subscription storage, delivery queues, and callback
+execution. It would also force the runtime to support broad event delivery even
+when an application needs only a small, highly filtered set of signals.
+
+Bittensor therefore does not propose event-reporting precompiles. A project
+that needs proactive notifications in its EVM contracts should run an
+off-chain relay tailored to that project's use cases. The relay watches
+finalized Substrate events, performs application-specific filtering,
+aggregation, and enrichment off chain, and submits only the reports that the
+project's contracts can act on.
+
+Typed precompile views remain the authoritative way for contracts to read
+current runtime state. Relayed reports are notifications under the trust and
+availability model chosen by the project.
+
+### Relay flow
+
+A typical relay operates as follows:
+
+1. Relay nodes read finalized blocks and events from Substrate RPC endpoints or
+   an indexer.
+2. Each node applies the project's filters and derives a canonical typed
+   report.
+3. A configured signer quorum attests to the report.
+4. A relayer submits the report and its authorization proof in an ordinary EVM
+   transaction.
+5. The reporting contract verifies the report, rejects duplicates, and either
+   emits a typed EVM log, invokes a bounded set of subscribed receivers, or
+   records data for receivers to pull.
+
+A report should identify at least the source chain, finalized block hash and
+number, source event position or another unique event identifier, schema
+version, payload, and relay sequence or nonce. The signed message must be
+domain-separated by chain ID, reporting-contract address, and schema version so
+that it cannot be replayed on another chain, contract, or report type.
+
+Filtering belongs primarily in the relay. A subnet application might publish
+only completed tempo summaries, material configuration changes, or aggregate
+emission results instead of reproducing every underlying pallet event.
+
+### Subscription-capable reporting contracts
+
+A project can deploy a reporting contract that lets users or other contracts
+register subscriptions and lets authorized relayers submit observed reports.
+A subscription can select typed report kinds, project-specific filters, a
+receiver, and a callback gas limit. The contract should make its payment,
+retry, ordering, and removal rules explicit.
+
+Neither report submission nor callback delivery should iterate an unbounded
+subscriber set. Limit each transaction to a fixed-size batch, let relayers
+target matching subscribers explicitly, or let subscribers pull verified
+reports. Catch callback failures so one receiver cannot revert delivery to
+others, and require receiver callbacks to be idempotent.
+
+Every successful relay submission has an EVM transaction and receipt. Projects
+must decide whether relayers fund these transactions, subscribers prepay for
+delivery, or another project account subsidizes them.
+
+### Relayer trust and security
+
+A single relay signer is the simplest design but makes that signer a trusted
+oracle. Projects that need stronger guarantees can use an independently
+operated committee with an explicit `M-of-N` multisignature, a threshold
+signature scheme, or another auditable quorum mechanism. The reporting
+contract must define signer enrollment, quorum, key rotation, emergency
+revocation, and version upgrades.
+
+Relay implementations should also:
+
+- wait for the documented source-chain finality condition;
+- use deterministic report encoding and reject duplicate event identifiers;
+- expose sequences or source positions so receivers can detect gaps;
+- tolerate delayed, reordered, and repeated submissions;
+- bound report size, callback gas, batch size, and retained on-chain history;
+- separate observation from submission so any permitted party can submit a
+  valid quorum-authorized report; and
+- provide a reconciliation path through typed precompile views when a report is
+  missing or disputed.
+
+Contracts must not treat relayed events as consensus-authenticated merely
+because they describe on-chain activity. Their integrity depends on the relay
+committee and verification rules, while their availability depends on relay
+operators continuing to observe and submit reports.
+
+## Function lifecycle
+
+Deprecation and disablement are different dimensions:
+
+- **Deprecation** communicates API evolution. It normally points callers toward
+  a replacement and is expected to remain part of the function's history.
+- **Disablement** is an operational switch for an entire precompile. Root can
+  disable and later re-enable it through
+  `AdminUtils.sudo_toggle_evm_precompile`.
+
+| Lifecycle condition | Call behavior |
+|---|---|
+| Active and enabled | Executes normally |
+| Soft-deprecated and enabled | Preserves its documented behavior |
+| Hard-deprecated and enabled | Returns a descriptive precompile error |
+| Disabled | Returns a precompile-disabled error regardless of function lifecycle |
+
+Soft deprecation is the default. Hard deprecation is reserved for cases where
+the original behavior cannot be represented honestly or safely—for example,
+when the underlying concept has been removed without a replacement.
+
+Disablement does not erase deprecation metadata. A soft-deprecated function can
+also be disabled, and re-enabling its precompile restores its soft-deprecated
+behavior.
+
+## Discovering status
+
+The standalone registry precompile gives tooling and contracts one place to
+inspect whether a whole precompile is operationally disabled:
+
+```solidity
+interface IPrecompileRegistry {
+    struct PrecompileStatus {
+        bool isDeprecated;
+        bool isDisabled;
+        address newPrecompile;
+        bytes4 newSelector;
+        string message;
+    }
+
+    function getPrecompileStatus(
+        address precompile,
+        bytes4 selector
+    ) external view returns (PrecompileStatus memory);
+}
+```
+
+In v445, the fields have the following behavior:
+
+| Field | Meaning |
+|---|---|
+| `isDeprecated` | Reserved; always `false`. |
+| `isDisabled` | The containing precompile is currently disabled by Root; Root can re-enable it. |
+| `newPrecompile` | Reserved; always the zero address. |
+| `newSelector` | Reserved; always `0x00000000`. |
+| `message` | Reserved; always empty. |
+
+The `selector` parameter is also reserved and is not interpreted in v445. A
+response therefore does not prove that a selector exists or describe its
+lifecycle. Tooling must use the canonical Solidity interfaces and JSON ABIs to
+discover supported selectors.
+
+Function-level deprecation and replacement metadata may populate the reserved
+fields in a future runtime. Until then, use NatSpec annotations and release
+documentation for migration guidance.
+
+Solidity interfaces should also carry NatSpec annotations:
+
+```solidity
+interface IMetagraph {
+    /// @deprecated Use getStakeV2 instead.
+    function getStake(
+        uint16 netuid,
+        uint16 uid
+    ) external view returns (uint64);
+
+    function getStakeV2(
+        uint16 netuid,
+        uint16 uid
+    ) external view returns (StakeInfo memory);
+}
+```
+
+## Handling runtime changes
+
+### Additive representation changes
+
+Keep the original function returning the original subset, add a versioned
+function for the extended result, and soft-deprecate the original if callers
+should migrate.
+
+### Semantic refinements
+
+Adapt the original implementation to preserve its documented meaning. Add a new
+version only when callers need a representation that the original return type
+cannot express.
+
+### Storage and computation changes
+
+Change the precompile implementation without changing its interface. This
+includes changing:
+
+- storage names, key shapes, or hashers;
+- the number of storage items used;
+- intermediate representations;
+- the computation used to produce the exposed value.
+
+### Complete removal
+
+Keep the selector reserved and make the function return a descriptive error.
+Mark it hard-deprecated and explain whether an alternative exists. Do not
+delete the signature and do not reuse its selector.
+
+### Emergency disablement
+
+Root may disable a precompile with:
+
+```text
+AdminUtils.sudo_toggle_evm_precompile(precompile_id, false)
+```
+
+and re-enable it with:
+
+```text
+AdminUtils.sudo_toggle_evm_precompile(precompile_id, true)
+```
+
+This switch is reversible and applies to the precompile as a whole. It is not a
+substitute for function-level lifecycle metadata or a normal deprecation
+process.
+
+## Maintenance and testing requirements
+
+Every precompile change should verify:
+
+- all previously released selectors remain routed;
+- existing function signatures and return encodings are unchanged;
+- old semantics are preserved or explicitly hard-deprecated;
+- new behavior uses a new versioned selector when necessary;
+- Solidity interfaces, generated ABIs, SDK copies, and runtime implementations
+  agree;
+- any implemented lifecycle registry metadata and NatSpec annotations agree;
+- disable and re-enable behavior is covered for the affected precompile;
+- state-changing functions dispatch the highest-level extrinsic as the mapped
+  signed caller and do not bypass its authorization checks;
+- bulk views are bounded before they read or construct results;
+- new domain addresses follow the documented sequential reservation and are
+  locked by routing tests;
+- no selector is reused.
+
+Typed views provide a compile-time safety advantage: when runtime types or
+storage APIs change, the Rust implementation is more likely to stop compiling,
+forcing maintainers to make an explicit compatibility decision. Coverage checks
+should ensure that every storage item in the authorized pallets has a
+corresponding view.
+
+Macro or code-generation support may eventually reduce boilerplate and validate
+selector coverage, ABI synchronization, and registry entries. The compatibility
+rules should remain explicit even if their enforcement becomes automated.
+
+## Summary
+
+Precompiles are a long-lived contract between Subtensor and deployed EVM code.
+Keep addresses and released selectors stable, version functions additively,
+preserve old semantics whenever possible, and replace raw storage access with
+typed views that insulate callers from storage layouts. Use deprecation to guide
+migration and reversible disablement to handle operational risk. The v445
+registry reports whole-precompile disablement; function-level lifecycle status
+remains a future extension.

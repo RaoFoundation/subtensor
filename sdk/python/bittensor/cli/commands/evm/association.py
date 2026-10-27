@@ -32,42 +32,29 @@ def associate(
     block number is SCALE-encoded (u64 little-endian). This command produces
     that proof from the stored key, then submits ``associate_evm_key`` signed
     by the hotkey. Block height comes from the substrate connection, not EVM RPC.
+    With ``--proxy-for`` (a ``Validate`` delegate), the proof covers that real
+    hotkey instead of the local one.
     """
     app_ctx = ctx_of(ctx)
     info = _key_info(app_ctx, key)
-    hotkey = app_ctx.resolve_address("hotkey_ss58", None)
+    # The proof must name the hotkey the call dispatches as.
+    real = app_ctx.resolve_dispatch_proxy()
+    hotkey = real or app_ctx.resolve_address("hotkey_ss58", None)
     assert hotkey is not None
     summary = f"associate EVM key {info.address} with the hotkey on netuid {netuid}"
 
-    if app_ctx.dry_run:
-        block_number = app_ctx.run(lambda client: client.block())
-        account = _unlock(app_ctx, key)
-        signature, block_number = evm_transactions.association_proof(account, hotkey, block_number)
-        app_ctx.submit(
-            AssociateEvmKey(
-                netuid=netuid,
-                evm_key=info.address,
-                block_number=block_number,
-                signature=signature,
-            )
-        )
-        return
-
-    app_ctx.confirm(f"{summary}?")
+    # Unlock and build the proof first — the intent cannot be composed
+    # without the signature. submit then shows the universal review card.
     block_number = app_ctx.run(lambda client: client.block())
     account = _unlock(app_ctx, key)
     signature, block_number = evm_transactions.association_proof(account, hotkey, block_number)
-
-    previous_assume_yes = app_ctx.assume_yes
-    app_ctx.assume_yes = True
-    try:
-        app_ctx.submit(
-            AssociateEvmKey(
-                netuid=netuid,
-                evm_key=info.address,
-                block_number=block_number,
-                signature=signature,
-            )
-        )
-    finally:
-        app_ctx.assume_yes = previous_assume_yes
+    app_ctx.submit(
+        AssociateEvmKey(
+            netuid=netuid,
+            evm_key=info.address,
+            block_number=block_number,
+            signature=signature,
+        ),
+        proxy_for=real or "self",
+        summary=summary,
+    )

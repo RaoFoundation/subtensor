@@ -104,3 +104,12 @@ export async function devExecuteOrders(
 ): Promise<void> {
     await context.createBlock([await polkadotJs.tx.limitOrders.executeOrders(orders, shouldFail).signAsync(alice)]);
 }
+
+export async function devPruneLinkedOutput(
+    polkadotJs: ApiPromise,
+    context: any,
+    caller: KeyringPair,
+    orderId: `0x${string}`
+): Promise<void> {
+    await context.createBlock([await polkadotJs.tx.limitOrders.pruneLinkedOutput(orderId).signAsync(caller)]);
+}

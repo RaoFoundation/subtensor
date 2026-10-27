@@ -76,15 +76,11 @@ RAW_ONLY: dict[str, set[str]] = {
         # sudo/admin/root-origin operations — deliberately not agent-executable
         "sudo_set_max_childkey_take",
         "sudo_set_min_childkey_take",
-        "sudo_set_num_root_claims",
-        "sudo_set_root_claim_threshold",
         "sudo_set_tx_childkey_take_rate_limit",
         "sudo_set_voting_power_ema_alpha",
-        "set_tempo",
         "trigger_epoch",
         "dissolve_network",
         "root_dissolve_network",
-        "set_activity_cutoff_factor",
         # legacy / superseded weight paths (mechanism variants are wrapped;
         # reveal_weights is wrapped by the RevealWeights intent for salt commits)
         "set_weights",
@@ -96,23 +92,23 @@ RAW_ONLY: dict[str, set[str]] = {
         "batch_set_weights",
         "batch_commit_weights",
         "batch_reveal_weights",
-        # PoW registration — out of scope by design (faucet is testnet-only and
-        # absent from the finney metadata this layer is generated against)
+        # PoW registration — out of scope by design
         "register",
-        # coldkey swap: announce/execute/clear/dispute are wrapped by intents; these
-        # remain raw — deprecated (schedule) or root-only (reset, arbitrary swap)
+        # coldkey swap: V2 announce/execute/clear/dispute/release are wrapped by
+        # intents; these remain raw — legacy hash announce, deprecated schedule,
+        # or root-only (reset, arbitrary swap)
+        "announce_coldkey_swap",
         "reset_coldkey_swap",
+        "reset_coldkey_swap_keep_locked",
         "schedule_swap_coldkey",
         "swap_coldkey",
         "swap_hotkey_v2",
-        # locks / liquidity-adjacent (lock_stake, move_lock, set_perpetual_lock
-        # are wrapped by lock intents)
-        "set_reject_locked_alpha",
+        # locks / liquidity-adjacent (lock_stake, move_lock, set_perpetual_lock,
+        # set_reject_locked_alpha are wrapped by lock intents)
         # alpha burn/recycle + buyback variants (add_stake_burn is wrapped)
         "burn_alpha",
         "recycle_alpha",
         "remove_stake_full_limit",
-        "swap_stake_limit",
         "register_limit",
         # identity / metadata / misc (set_identity / set_subnet_identity /
         # update_symbol are wrapped)
@@ -121,6 +117,10 @@ RAW_ONLY: dict[str, set[str]] = {
         "set_pending_childkey_cooldown",
         "enable_voting_power_tracking",
         "disable_voting_power_tracking",
+        # Deprecated no-op compatibility stubs (call indices 139/140). Functional
+        # updates go through AdminUtils.sudo_set_tempo / sudo_set_activity_cutoff_factor.
+        "set_tempo",
+        "set_activity_cutoff_factor",
     },
     "Balances": {
         # force_* are root-origin; burn/upgrade are niche
@@ -164,6 +164,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "execute_orders",
         "execute_batched_orders",
         "set_pallet_status",
+        "prune_linked_output",
     },
     "MevShield": {
         # submit_encrypted is exposed via client.submit_shielded (a submission mode,
@@ -216,12 +217,12 @@ RAW_ONLY: dict[str, set[str]] = {
         # Enumerated explicitly (not computed) so a newly added unwrapped call is
         # flagged as missing and requires a deliberate wrap-or-raw-only decision.
         "schedule_grandpa_change",
-        "sudo_set_adjustment_alpha",
+        # legacy absolute-blocks cutoff — superseded by the owner-settable
+        # `sudo_set_activity_cutoff_factor` (per-mille of tempo), which the
+        # SetHyperparameter intent wraps as `activity_cutoff_factor`
+        "sudo_set_activity_cutoff",
         "sudo_set_adjustment_interval",
         "sudo_set_admin_freeze_window",
-        "sudo_set_alpha_sigmoid_steepness",
-        "sudo_set_alpha_values",
-        "sudo_set_bonds_penalty",
         "sudo_set_ck_burn",
         "sudo_set_coldkey_swap_announcement_delay",
         "sudo_set_coldkey_swap_reannouncement_delay",
@@ -230,17 +231,22 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_difficulty",
         "sudo_set_dissolve_network_schedule_duration",
         "sudo_set_ema_price_halving_period",
+        # emission gate tuning (v440/v441) — root-only, no semantic wrapper
+        "sudo_set_emission_bar_quantile",
+        "sudo_set_emission_bar_rank",
+        "sudo_set_emission_gate_exponent",
         "sudo_set_evm_chain_id",
         "sudo_set_kappa",
+        "sudo_set_liquid_alpha_consensus_mode",
         "sudo_set_lock_reduction_interval",
         "sudo_set_max_allowed_validators",
-        "sudo_set_max_burn",
-        "sudo_set_max_difficulty",
         "sudo_set_max_epochs_per_block",
         "sudo_set_max_mechanism_count",
+        # unused uneven-split setter — removed from the intent/CLI surface;
+        # still reachable via `btcli call` if needed
+        "sudo_set_mechanism_emission_split",
         "sudo_set_max_registrations_per_block",
         "sudo_set_min_allowed_uids",
-        "sudo_set_min_childkey_take_per_subnet",
         "sudo_set_min_delegate_take",
         "sudo_set_min_difficulty",
         "sudo_set_min_non_immune_uids",
@@ -248,26 +254,33 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_network_immunity_period",
         "sudo_set_network_min_lock_cost",
         "sudo_set_network_rate_limit",
-        "sudo_set_network_registration_allowed",
         "sudo_set_nominator_min_required_stake",
         "sudo_set_owner_hparam_rate_limit",
-        "sudo_set_owner_immune_neuron_limit",
         "sudo_set_rao_recycled",
         "sudo_set_recycle_or_burn",
-        "sudo_set_rho",
+        # basket concentration cap (swap_basket guardrail) — root-only, no semantic wrapper
+        "sudo_set_basket_concentration_cap",
+        # validator basket trading gates and budget — root-only governance toggles
+        "sudo_set_basket_trading_enabled",
+        "sudo_set_basket_trading_frozen",
+        "sudo_set_basket_daily_turnover_cap",
+        "sudo_set_basket_liquidity_cap",
+        "sudo_set_basket_min_trade_tao",
+        "sudo_set_basket_claim_dust",
         "sudo_set_sn_owner_hotkey",
         "sudo_set_stake_threshold",
         "sudo_set_start_call_delay",
-        "sudo_set_subnet_emission_enabled",
         "sudo_set_subnet_limit",
         "sudo_set_subnet_moving_alpha",
+        # owner-cut setters deprecated by the emission weight vector (both always
+        # fail with Error::Deprecated; use SetSubnetEmissionWeights)
         "sudo_set_subnet_owner_cut",
+        "sudo_set_owner_cut_enabled",
         "sudo_set_subtoken_enabled",
         "sudo_set_tao_flow_cutoff",
         "sudo_set_tao_flow_normalization_exponent",
         "sudo_set_tao_flow_smoothing_factor",
         "sudo_set_target_registrations_per_interval",
-        "sudo_set_tempo",
         "sudo_set_total_issuance",
         "sudo_set_tx_delegate_take_rate_limit",
         "sudo_set_tx_rate_limit",
@@ -296,6 +309,7 @@ RAW_ONLY: dict[str, set[str]] = {
 def check_coverage() -> int:
     from bittensor._generated import calls as generated_calls
     from bittensor.intents import REGISTRY
+    from bittensor.reads import REGISTRY as READS
 
     wrapped = {pair for cls in REGISTRY.values() for pair in cls.wraps}
     problems: list[str] = []
@@ -314,6 +328,16 @@ def check_coverage() -> int:
         if both:
             problems.append(f"{pallet}: listed raw-only but also wrapped: {both}")
 
+    # Verify integrity: a declared verify must name a registered read, and a
+    # root-origin write with no paired verify read is a docs bug.
+    for op, intent_cls in sorted(REGISTRY.items()):
+        if intent_cls.verify is not None and intent_cls.verify not in READS:
+            problems.append(
+                f"{op}: verify names {intent_cls.verify!r}, which is not a registered read"
+            )
+        if intent_cls.origin == "root" and intent_cls.verify is None:
+            problems.append(f"{op}: origin is 'root' but no verify read is declared")
+
     if problems:
         for p in problems:
             print(f"COVERAGE: {p}")
@@ -328,26 +352,111 @@ def check_coverage() -> int:
     return 0
 
 
+# u8 codes from common/src/transaction_error.rs (CustomTransactionError).
+# Keep in lockstep when Rust adds/removes variants.
+_RUST_CUSTOM_TRANSACTION_CODES = frozenset(range(28)) | {255}
+
+
 def check_names() -> int:
     from bittensor._generated.errors import ERRORS
-    from bittensor.error_map import NAME_TO_CODE, ErrorCode
-    from bittensor.result import classify_error
+    from bittensor.error_descriptions import DESCRIPTIONS
+    from bittensor.error_map import (
+        CUSTOM_TRANSACTION_ERRORS,
+        DISPATCH_ERRORS,
+        INVALID_TRANSACTION_ERRORS,
+        NAME_TO_CODE,
+        ErrorCode,
+    )
+    from bittensor.result import EXPLANATIONS, REMEDIATION, classify_error
 
     catalog = {info.name for info in ERRORS.values()}
     stale = sorted(name for name in NAME_TO_CODE if name not in catalog)
     unclassified = sorted(name for name in catalog if classify_error("", name) is ErrorCode.UNKNOWN)
+    undescribed = sorted(name for name in NAME_TO_CODE if name not in DESCRIPTIONS)
+    orphan_descriptions = sorted(name for name in DESCRIPTIONS if name not in NAME_TO_CODE)
+    empty = sorted(name for name, text in DESCRIPTIONS.items() if not text.strip())
+
+    custom_codes = set(CUSTOM_TRANSACTION_ERRORS)
+    missing_custom = sorted(_RUST_CUSTOM_TRANSACTION_CODES - custom_codes)
+    extra_custom = sorted(custom_codes - _RUST_CUSTOM_TRANSACTION_CODES)
+    custom_unclassified = sorted(
+        name
+        for name in CUSTOM_TRANSACTION_ERRORS.values()
+        if name not in NAME_TO_CODE and name not in DISPATCH_ERRORS
+    )
+    invalid_unclassified = sorted(
+        name
+        for _, name in INVALID_TRANSACTION_ERRORS
+        if name not in NAME_TO_CODE and name not in DISPATCH_ERRORS
+    )
+    empty_dispatch = sorted(
+        name for name, (_code, prose) in DISPATCH_ERRORS.items() if not (prose or "").strip()
+    )
+    missing_explanations = sorted(code for code in ErrorCode if code not in EXPLANATIONS)
+    missing_remediation = sorted(code for code in ErrorCode if code not in REMEDIATION)
+
+    failed = False
     if stale:
         print(f"STALE: error names classified by the SDK but absent from chain: {stale}")
+        failed = True
     if unclassified:
         print(
             "UNCLASSIFIED: chain error names with no semantic code "
             f"(add them to bittensor/error_map.py): {unclassified}"
         )
-    if stale or unclassified:
+        failed = True
+    if undescribed:
+        print(
+            "UNDESCRIBED: classified error names with no description "
+            f"(add them under bittensor/error_descriptions/<pallet>.py): {undescribed}"
+        )
+        failed = True
+    if orphan_descriptions:
+        print(
+            "ORPHANED: described error names no longer classified "
+            f"(remove them from bittensor/error_descriptions/<pallet>.py): {orphan_descriptions}"
+        )
+        failed = True
+    if empty:
+        print(
+            "EMPTY: described error names with blank prose "
+            f"(fill them in bittensor/error_descriptions/<pallet>.py): {empty}"
+        )
+        failed = True
+    if missing_custom or extra_custom:
+        print(
+            "CUSTOM_CODES: SDK CUSTOM_TRANSACTION_ERRORS drifted from "
+            f"common/src/transaction_error.rs — missing={missing_custom} extra={extra_custom}"
+        )
+        failed = True
+    if custom_unclassified:
+        print(
+            "CUSTOM_UNCLASSIFIED: custom-transaction names not in NAME_TO_CODE or "
+            f"DISPATCH_ERRORS: {custom_unclassified}"
+        )
+        failed = True
+    if invalid_unclassified:
+        print(
+            "INVALID_UNCLASSIFIED: InvalidTransaction names not in NAME_TO_CODE or "
+            f"DISPATCH_ERRORS: {invalid_unclassified}"
+        )
+        failed = True
+    if empty_dispatch:
+        print(f"EMPTY_DISPATCH: DISPATCH_ERRORS entries with blank prose: {empty_dispatch}")
+        failed = True
+    if missing_explanations:
+        print(f"MISSING_EXPLANATIONS: ErrorCodes without EXPLANATIONS: {missing_explanations}")
+        failed = True
+    if missing_remediation:
+        print(f"MISSING_REMEDIATION: ErrorCodes without REMEDIATION: {missing_remediation}")
+        failed = True
+    if failed:
         return 1
     print(
-        f"names ok: all {len(catalog)} chain error names classify to a semantic code "
-        "and no mapped name is stale"
+        f"names ok: all {len(catalog)} chain error names classify to a semantic code, "
+        "every classified name is described (non-empty), no mapped name is stale, "
+        f"{len(CUSTOM_TRANSACTION_ERRORS)} custom codes sync with Rust, "
+        f"{len(DISPATCH_ERRORS)} dispatch errors and all ErrorCodes have prose/remediation"
     )
     return 0
 
@@ -372,6 +481,13 @@ def check_units() -> int:
     problems: list[str] = []
     derived = 0
     for name, meta in hyperparams.HYPERPARAMS.items():
+        if not meta.short:
+            problems.append(f"{name}: no short description (the listing's blurb column)")
+        elif len(meta.short) > hyperparams.SHORT_MAX:
+            problems.append(
+                f"{name}: short description is {len(meta.short)} chars "
+                f"(max {hyperparams.SHORT_MAX}): {meta.short!r}"
+            )
         metadata_kind = hyperparams.metadata_kind(name)
         if metadata_kind is None:
             # No dedicated storage value, or the (pre-newtype) metadata
@@ -391,7 +507,8 @@ def check_units() -> int:
         return 1
     print(
         f"units ok: {derived} metadata-derived hyperparameter kinds agree with the hand "
-        f"table ({len(hyperparams.HYPERPARAMS) - derived} carry no unit-bearing identity)"
+        f"table ({len(hyperparams.HYPERPARAMS) - derived} carry no unit-bearing identity), "
+        f"and all {len(hyperparams.HYPERPARAMS)} carry a short description"
     )
     return 0
 

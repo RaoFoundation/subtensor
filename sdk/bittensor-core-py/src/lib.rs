@@ -11,6 +11,7 @@ mod errors;
 mod keys;
 #[cfg(feature = "ledger")]
 mod ledger;
+mod pow;
 mod runtime;
 mod timelock;
 mod values;
@@ -27,6 +28,7 @@ fn bittensor_core(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> 
     module.add("LedgerError", py.get_type::<errors::LedgerError>())?;
     digest::register(module)?;
     keys::register(module)?;
+    pow::register(module)?;
     runtime::register(module)?;
     #[cfg(feature = "ledger")]
     ledger::register(module)?;

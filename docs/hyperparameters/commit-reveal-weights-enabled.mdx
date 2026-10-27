@@ -1,0 +1,58 @@
+---
+title: commit_reveal_weights_enabled
+description: Whether validators must submit weights through commit-reveal, hiding them from copiers until the reveal.
+---
+
+`commit_reveal_weights_enabled` decides how weights reach the chain. When on
+(the default for new subnets), validators must commit a hidden form of their
+weights first and the actual values only become public an epoch or more later
+— so weight-copying validators cannot free-ride on others' scoring work by
+mirroring their submissions in the same epoch.
+
+## How it works
+
+The flag flips the accepted submission path. With it **on**, the plain
+[`set_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L70-L82)
+extrinsic is rejected outright with
+[`CommitRevealEnabled`](/code/pallets/subtensor/src/macros/errors.rs#L130)
+(`pallets/subtensor/src/macros/dispatches.rs`); validators must instead
+commit — either a salted hash (revealed later by a matching
+[`reveal_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L281-L290)
+call) or a timelock-encrypted payload that the chain
+auto-decrypts at a drand round, no reveal transaction needed. With it
+**off**, commits are rejected with
+[`CommitRevealDisabled`](/code/pallets/subtensor/src/macros/errors.rs#L132)
+and plain
+`set_weights` is the only path.
+
+The reveal delay is governed by
+[`commit_reveal_period`](/docs/hyperparameters/commit-reveal-period), and the
+[`weights_rate_limit`](/docs/hyperparameters/weights-rate-limit) cooldown
+applies at commit time rather than set time. Revealed weights pass through
+the full `set_weights` validation (length, cap, version key) when they land.
+
+Validators do not need to branch on this flag themselves: `btcli tx
+set-weights` (the `set_weights` intent) reads it and automatically dispatches
+to plaintext `set_weights` or a timelocked commit, so the same command works
+in either regime.
+
+<HyperparamWeightsRules focus="commit_reveal_weights_enabled" />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid N --name commit_reveal_weights_enabled
+```
+
+Owner-settable; the value is a flag (`true`/`false` or `1`/`0`):
+
+```bash
+btcli sudo set --netuid N --name commit_reveal_weights_enabled --value true
+```
+
+## Related
+
+- [`commit_reveal_period`](/docs/hyperparameters/commit-reveal-period) — how long weights stay hidden
+- [`weights_rate_limit`](/docs/hyperparameters/weights-rate-limit) — cooldown applied at commit time
+- [`weights_version`](/docs/hyperparameters/weights-version) — version gate on revealed weights
+- [`min_allowed_weights`](/docs/hyperparameters/min-allowed-weights) — floor on submission size in either mode

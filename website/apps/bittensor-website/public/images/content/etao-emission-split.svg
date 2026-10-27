@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 560" width="1100" height="560" font-family="Helvetica, Arial, sans-serif" role="img" aria-label="Two pie charts of a subnet's alpha emission. Today every subnet pays 18% to the owner, 41% to validators (of which root TAO stakers take 5.4% of emission) and 41% to miners. In the Etao example the owner lowers the validator slot to 20% and raises miners to 62%; root's slice stays 5.4% because it is paid off the top of the validator slot every block from the chain's live baseline.">
+<rect width="1100" height="560" fill="#fff"/>
+<text x="297.0" y="104" text-anchor="middle" font-size="20" font-weight="600" fill="#292929">Before Etao: every subnet</text>
+<text x="297.0" y="126" text-anchor="middle" font-size="14" fill="rgba(41,41,41,0.55)">fixed 18 / 41 / 41 · root paid from the validator slot</text>
+<text x="803.0" y="104" text-anchor="middle" font-size="20" font-weight="600" fill="#292929">With Etao: one subnet's choice</text>
+<text x="803.0" y="126" text-anchor="middle" font-size="14" fill="rgba(41,41,41,0.55)">validators 41% → 20% · root still paid first, off the top</text>
+<path d="M297.0,300.0 L297.0,150.0 A150,150 0 0,1 432.7,236.1 Z" fill="#b9b9b9" stroke="#fff" stroke-width="2"/>
+<text x="346.8" y="221.5" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#292929">owner 18%</text>
+<path d="M297.0,300.0 L432.7,236.1 A150,150 0 0,1 263.4,446.2 Z" fill="#292929" stroke="#fff" stroke-width="2"/>
+<text x="369.4" y="358.4" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#fff">validators 35.6%</text>
+<path d="M297.0,300.0 L263.4,446.2 A150,150 0 0,1 216.6,426.6 Z" fill="#d15168" stroke="#fff" stroke-width="2"/>
+<text x="226.4" y="468.9" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#d15168" font-weight="600">root 5.4%</text>
+<path d="M297.0,300.0 L216.6,426.6 A150,150 0 0,1 297.0,150.0 Z" fill="#e9e9e9" stroke="#fff" stroke-width="2"/>
+<text x="207.7" y="274.1" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#292929">miners 41%</text>
+<path d="M803.0,300.0 L803.0,150.0 A150,150 0 0,1 938.7,236.1 Z" fill="#b9b9b9" stroke="#fff" stroke-width="2"/>
+<text x="852.8" y="221.5" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#292929">owner 18%</text>
+<path d="M803.0,300.0 L938.7,236.1 A150,150 0 0,1 936.2,368.9 Z" fill="#292929" stroke="#fff" stroke-width="2"/>
+<text x="896.0" y="301.7" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#fff">validators 14.6%</text>
+<path d="M803.0,300.0 L936.2,368.9 A150,150 0 0,1 905.7,409.3 Z" fill="#d15168" stroke="#fff" stroke-width="2"/>
+<text x="949.0" y="410.3" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#d15168" font-weight="600">root 5.4%</text>
+<path d="M803.0,300.0 L905.7,409.3 A150,150 0 1,1 803.0,150.0 Z" fill="#e9e9e9" stroke="#fff" stroke-width="2"/>
+<text x="716.5" y="334.2" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#292929">miners 62.0%</text>
+<line x1="477.0" y1="300" x2="611.0" y2="300" stroke="#292929" stroke-width="2"/><polygon points="623.0,300 609.0,293 609.0,307" fill="#292929"/>
+<text x="550.0" y="286" text-anchor="middle" font-size="13" fill="#d15168" font-weight="600">root slice unchanged</text>
+<text x="550.0" y="512" text-anchor="middle" font-size="13" fill="rgba(41,41,41,0.55)">Illustrative, SN4-style numbers: 5.44M TAO on root, 6.46M alpha issued, global TaoWeight 18%. Root's baseline = 0.41 × x / (x + A), x = root TAO × TaoWeight, recomputed every block.</text>
+</svg>

@@ -58,6 +58,39 @@ fn recycle_alpha_reduces_total_issuance_saturating_at_zero() {
 }
 
 #[test]
+fn clear_alpha_counters_removes_previous_generation_state() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(6u16);
+
+        AlphaAssets::mint_alpha(netuid, 100u64.into());
+        AlphaAssets::burn_alpha(netuid, 30u64.into());
+        AlphaAssets::recycle_alpha(netuid, 20u64.into());
+        AlphaAssets::clear_alpha_counters(netuid);
+
+        assert!(!TotalAlphaIssuance::<Test>::contains_key(netuid));
+        assert!(!AlphaBurned::<Test>::contains_key(netuid));
+        assert!(!AlphaRecycled::<Test>::contains_key(netuid));
+    });
+}
+
+#[test]
+fn rebase_alpha_counters_preserves_current_generation_deltas() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(7u16);
+
+        TotalAlphaIssuance::<Test>::insert(netuid, AlphaBalance::from(125u64));
+        AlphaBurned::<Test>::insert(netuid, AlphaBalance::from(47u64));
+        AlphaRecycled::<Test>::insert(netuid, AlphaBalance::from(31u64));
+
+        AlphaAssets::rebase_alpha_counters(netuid, 100u64.into(), 40u64.into(), 30u64.into());
+
+        assert_eq!(TotalAlphaIssuance::<Test>::get(netuid), 25u64.into());
+        assert_eq!(AlphaBurned::<Test>::get(netuid), 7u64.into());
+        assert_eq!(AlphaRecycled::<Test>::get(netuid), 1u64.into());
+    });
+}
+
+#[test]
 fn positive_imbalance_only_merges_with_same_netuid() {
     new_test_ext().execute_with(|| {
         let netuid_a = NetUid::from(1u16);

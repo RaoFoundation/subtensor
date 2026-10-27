@@ -27,7 +27,7 @@
 //   - [x] Incentives are per mechanism
 //   - [x] Per-mechanism incentives are distributed proportionally to miner weights
 //   - [x] Mechanism limit can be set up to 8 (with admin pallet)
-//   - [x] When reduction of mechanism limit occurs, Weights, Incentive, LastUpdate, Bonds, and WeightCommits are cleared
+//   - [x] When reduction of mechanism limit occurs, mechanism epoch state and weight data are cleared
 //   - [x] Epoch terms of subnet are weighted sum (or logical OR) of all mechanism epoch terms
 //   - [x] Subnet epoch terms persist in state
 //   - [x] Mechanism epoch terms persist in state
@@ -304,6 +304,7 @@ fn update_mechanism_counts_decreases_and_cleans() {
 
         Weights::<Test>::insert(idx_keep, 0u16, vec![(1u16, 1u16)]);
         Incentive::<Test>::insert(idx_keep, vec![PerU16::from_parts(1)]);
+        ConsensusByMechanism::<Test>::insert(idx_keep, vec![PerU16::from_parts(3)]);
         LastUpdate::<Test>::insert(idx_keep, vec![123u64]);
         Bonds::<Test>::insert(idx_keep, 0u16, vec![(1u16, 2u16)]);
         WeightCommits::<Test>::insert(
@@ -319,6 +320,7 @@ fn update_mechanism_counts_decreases_and_cleans() {
 
         Weights::<Test>::insert(idx_rm3, 0u16, vec![(9u16, 9u16)]);
         Incentive::<Test>::insert(idx_rm3, vec![PerU16::from_parts(9)]);
+        ConsensusByMechanism::<Test>::insert(idx_rm3, vec![PerU16::from_parts(8)]);
         LastUpdate::<Test>::insert(idx_rm3, vec![999u64]);
         Bonds::<Test>::insert(idx_rm3, 0u16, vec![(9u16, 9u16)]);
         WeightCommits::<Test>::insert(
@@ -343,6 +345,10 @@ fn update_mechanism_counts_decreases_and_cleans() {
             Incentive::<Test>::get(idx_keep),
             vec![PerU16::from_parts(1)]
         );
+        assert_eq!(
+            ConsensusByMechanism::<Test>::get(idx_keep),
+            vec![PerU16::from_parts(3)]
+        );
         assert!(Weights::<Test>::iter_prefix(idx_keep).next().is_some());
         assert!(LastUpdate::<Test>::contains_key(idx_keep));
         assert!(Bonds::<Test>::iter_prefix(idx_keep).next().is_some());
@@ -354,6 +360,7 @@ fn update_mechanism_counts_decreases_and_cleans() {
         // Removed prefix (mecid 3) cleared
         assert!(Weights::<Test>::iter_prefix(idx_rm3).next().is_none());
         assert_eq!(Incentive::<Test>::get(idx_rm3), Vec::<PerU16>::new());
+        assert!(!ConsensusByMechanism::<Test>::contains_key(idx_rm3));
         assert!(!LastUpdate::<Test>::contains_key(idx_rm3));
         assert!(Bonds::<Test>::iter_prefix(idx_rm3).next().is_none());
         assert!(!WeightCommits::<Test>::contains_key(idx_rm3, hotkey));
@@ -393,12 +400,58 @@ fn update_mechanism_counts_increases() {
 }
 
 #[test]
+fn emission_split_requires_one_entry_per_mechanism() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(42u16);
+        NetworksAdded::<Test>::insert(netuid, true);
+        MechanismCountCurrent::<Test>::insert(netuid, MechId::from(2u8));
+
+        assert_noop!(
+            SubtensorModule::do_set_emission_split(netuid, Some(vec![u16::MAX])),
+            Error::<Test>::InvalidValue
+        );
+        assert!(MechanismEmissionSplit::<Test>::get(netuid).is_none());
+
+        let split = vec![u16::MAX / 2, u16::MAX - u16::MAX / 2];
+        assert_ok!(SubtensorModule::do_set_emission_split(
+            netuid,
+            Some(split.clone())
+        ));
+        assert_eq!(MechanismEmissionSplit::<Test>::get(netuid), Some(split));
+    });
+}
+
+#[test]
 fn split_emissions_even_division() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(5u16);
         MechanismCountCurrent::<Test>::insert(netuid, MechId::from(5u8)); // 5 sub-subnets
         let out = SubtensorModule::split_emissions(netuid, AlphaBalance::from(25u64));
         assert_eq!(out, vec![AlphaBalance::from(5u64); 5]);
+    });
+}
+
+#[test]
+fn split_emissions_treats_legacy_malformed_split_as_unset() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(5u16);
+        MechanismCountCurrent::<Test>::insert(netuid, MechId::from(3u8));
+
+        for split in [vec![u16::MAX], vec![u16::MAX, 0, 0, 0]] {
+            MechanismEmissionSplit::<Test>::insert(netuid, split.clone());
+
+            let out = SubtensorModule::split_emissions(netuid, AlphaBalance::from(10u64));
+
+            assert_eq!(
+                out,
+                vec![
+                    AlphaBalance::from(4u64),
+                    AlphaBalance::from(3u64),
+                    AlphaBalance::from(3u64),
+                ]
+            );
+            assert_eq!(MechanismEmissionSplit::<Test>::get(netuid), Some(split));
+        }
     });
 }
 
@@ -703,6 +756,8 @@ fn epoch_with_mechanisms_persists_and_aggregates_all_terms() {
         // Persisted per-mechanism Incentive vectors match per-sub terms
         let inc0 = Incentive::<Test>::get(idx0);
         let inc1 = Incentive::<Test>::get(idx1);
+        let consensus0 = ConsensusByMechanism::<Test>::get(idx0);
+        let consensus1 = ConsensusByMechanism::<Test>::get(idx1);
         let exp_inc0 = {
             let mut v = vec![0u16; 3];
             v[terms0(&hk0).uid] = terms0(&hk0).incentive;
@@ -722,6 +777,11 @@ fn epoch_with_mechanisms_persists_and_aggregates_all_terms() {
         }
         for (a, e) in inc1.iter().zip(exp_inc1.iter()) {
             assert_abs_diff_eq!(a.deconstruct(), *e, epsilon = 1);
+        }
+        for (stored, terms) in [(&consensus0, &out0), (&consensus1, &out1)] {
+            for epoch_terms in terms.0.values() {
+                assert_eq!(stored[epoch_terms.uid].deconstruct(), epoch_terms.consensus);
+            }
         }
 
         // Persisted Bonds for validator (uid0) exist and mirror per-sub terms
@@ -888,6 +948,14 @@ fn neuron_dereg_cleans_weights_across_subids() {
                     PerU16::from_parts(30),
                 ],
             );
+            ConsensusByMechanism::<Test>::insert(
+                idx,
+                vec![
+                    PerU16::from_parts(11),
+                    PerU16::from_parts(22),
+                    PerU16::from_parts(33),
+                ],
+            );
 
             // Row set BY neuron_uid (to be removed)
             Weights::<Test>::insert(idx, neuron_uid, vec![(0u16, 5u16)]);
@@ -939,6 +1007,14 @@ fn neuron_dereg_cleans_weights_across_subids() {
                     PerU16::from_parts(10),
                     PerU16::zero(),
                     PerU16::from_parts(30)
+                ]
+            );
+            assert_eq!(
+                ConsensusByMechanism::<Test>::get(idx),
+                vec![
+                    PerU16::from_parts(11),
+                    PerU16::zero(),
+                    PerU16::from_parts(33)
                 ]
             );
 

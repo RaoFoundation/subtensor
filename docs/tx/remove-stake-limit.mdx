@@ -14,9 +14,13 @@ the entire position (the build fails if nothing is staked there). Like
 least 0.002 TAO at the simulated pool price (`AmountTooLow`). Prefer
 this over plain `remove_stake` when exiting large positions.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.remove_stake_limit` |
+On root (netuid 0), pass `claim=True` to redeem this validator's whole
+basket entitlement first, then unstake. That is not a proportional
+payout: the claim pays 100% of the basket.
+
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1563-L1591), [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L591-L610), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2190-L2219), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -27,6 +31,7 @@ this over plain `remove_stake` when exiting large positions.
 | `amount_alpha` | number \| `"all"` | yes | How much to unstake from this position, or ``all``. |
 | `limit_price_rao` | integer | yes | Worst pool price you will accept for the swap. The call fails (or fills partially when allow-partial is set) instead of executing beyond this price. |
 | `allow_partial` | boolean | no | Execute whatever portion fits within the limit price and drop the remainder, instead of failing the whole call when the limit would be breached. |
+| `claim` | boolean | no | Also redeem this validator's whole basket entitlement before unstaking, in one atomic batch. Root only (netuid 0). This is not a proportional payout: unstaking 40% still claims 100% of the basket. The chain has no proportional-claim call. Claimed yield is restaked on root, then the unstake runs — pass `all` to take principal and yield out together. Unavailable while RootStakeUnlockInterval is nonzero, because the claim starts a new hold window; claim first, wait, then unstake in that mode. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -52,21 +57,34 @@ btcli tx remove-stake-limit \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.RemoveStakeLimit(hotkey_ss58="5F...", netuid=1, amount_alpha=1.0, limit_price_rao=0)
+intent = bt.RemoveStakeLimit(hotkey_ss58="5F...", netuid=1, amount_alpha=1.0, limit_price_rao=0)
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("remove_stake_limit", {...}, wallet)
+result = sub.execute_tool("remove_stake_limit", {...}, wallet)
 ```
+
+## On-chain implementation
+
+| Chain call | Source |
+| --- | --- |
+| `SubtensorModule.remove_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1570`](/code/pallets/subtensor/src/macros/dispatches.rs#L1563-L1591) |
+| `SubtensorModule.remove_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L598`](/code/pallets/subtensor/src/macros/dispatches.rs#L591-L610) |
+| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L2194`](/code/pallets/subtensor/src/macros/dispatches.rs#L2190-L2219) |
+| `Utility.batch_all` | [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362) |
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

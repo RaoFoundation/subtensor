@@ -3,6 +3,11 @@ title: Yuma Consensus
 description: The consensus mechanism, its game-theoretic framework, Monte Carlo simulations, and consensus guarantees.
 ---
 
+<Callout type="note">
+  For blockchain consensus, see [Chain
+  consensus](/docs/concepts/chain-consensus).
+</Callout>
+
 Bittensor uses a subjective utility consensus mechanism called Yuma Consensus which rewards subnet validators with scoring incentive for producing evaluations of miner-value which are in agreement with the subjective evaluations produced by other subnet validators weighted by stake. Subnet servers receive incentive for their share of the utility according to the subnet validator consensus. Yuma Consensus pertains to subnet validation, instead of blockchain validation (substrate), so this writing will always refer to subnet validators and servers.
 
 ### Problem definition
@@ -118,7 +123,7 @@ Validation reward $D_i = \sum_j B_{ij} \cdot I_j$ is the subnet validator's EMA 
 
 
 #### Subtensor epoch
-Subtensor blockchain nodes calculate consensus and rewards during each subnet [`epoch`](https://github.com/RaoFoundation/subtensor/blob/main/pallets/subtensor/src/epoch/run_epoch.rs) with associated code excerpts as follows. Production runs the sparse variant (`epoch_mechanism`, invoked per mechanism from coinbase); the dense excerpt below is the test-only analogue with identical math. The EMA-bond lines show the legacy branch — subnets with `Yuma3On` enabled compute bonds through the liquid-alpha path (`compute_bonds`) instead.
+Subtensor blockchain nodes calculate consensus and rewards during each subnet [`epoch`](/code/pallets/subtensor/src/epoch/run_epoch.rs) with associated code excerpts as follows. Production runs the sparse variant ([`epoch_mechanism`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L599-L1109), invoked per mechanism from coinbase); the dense excerpt below is the test-only analogue with identical math. The EMA-bond lines show the legacy branch — subnets with [`Yuma3On`](/code/pallets/subtensor/src/lib.rs#L2204) enabled compute bonds through the liquid-alpha path ([`compute_bonds`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1333-L1360)) instead.
 ```rust
 let mut weights: Vec<Vec<I32F32>> = Self::get_weights(netuid_index);  // Weight
 let consensus: Vec<I32F32> = weighted_median_col(&active_stake, &weights, kappa);  // Server consensus weight

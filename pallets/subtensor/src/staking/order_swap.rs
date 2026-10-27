@@ -92,6 +92,7 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
             alpha_amount,
             amm_limit,
             false,
+            true,
         )?;
         Ok(tao_out)
     }
@@ -131,6 +132,7 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
                 Error::<T>::AmountTooLow
             );
             Self::ensure_available_to_unstake(from_coldkey, netuid, amount)?;
+            Self::ensure_hotkey_covers_collateral(from_coldkey, from_hotkey, netuid, amount)?;
         }
 
         if validate_receiver {
@@ -143,20 +145,19 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
         let available =
             Self::get_stake_for_hotkey_and_coldkey_on_subnet(from_hotkey, from_coldkey, netuid);
         ensure!(available >= amount, Error::<T>::NotEnoughStakeToWithdraw);
-        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+        let removed = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
             from_hotkey,
             from_coldkey,
             netuid,
             amount,
         );
+        ensure!(removed == amount, Error::<T>::NotEnoughStakeToWithdraw);
         Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            to_hotkey, to_coldkey, netuid, amount,
+            to_hotkey, to_coldkey, netuid, removed,
         );
-        LastColdkeyHotkeyStakeBlock::<T>::insert(
-            to_coldkey,
-            to_hotkey,
-            Self::get_current_block_as_u64(),
-        );
+        if netuid.is_root() {
+            Self::touch_root_stake_age(to_coldkey, to_hotkey);
+        }
         Ok(())
     }
 

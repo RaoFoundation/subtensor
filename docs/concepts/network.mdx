@@ -29,7 +29,7 @@ Mainnet also has a public **lite** node at
 state; to query state older than roughly 300 blocks (block-pinned reads,
 historical snapshots) you need the archive endpoint or your own archive
 node. Any `ws://` / `wss://` endpoint can be passed to
-[`Client`](/docs/concepts/client) directly. For heavy workloads,
+[`Subtensor`](/docs/concepts/client) client directly. For heavy workloads,
 [run your own node](/docs/guides/running-a-node).
 
 ## Subnets
@@ -48,14 +48,19 @@ A subnet is an independent incentive market, identified by an integer
 Netuid 0 is the **root network**: it has no miners, no alpha token, and no
 validation work — it is the pool where TAO is staked directly. Root TAO
 stake counts toward validator stake weight on every subnet (see below) and
-earns a share of each subnet's dividends. Registration there is stake-based
-rather than burn-based. By convention, root (TAO) is priced at 1.0 wherever
-subnet prices are summed.
+earns a share of each subnet's dividends. Registration there is burn-based
+like subnet registration (a full root network prunes its lowest-staked
+member). By convention, root (TAO) is priced at 1.0 wherever subnet prices
+are summed.
 
 Subnet slots are limited: a subnet holds at most `max_allowed_uids` neurons
 (default 256, and no lower than 64). Registering on a full subnet
 ([`burned-register`](/docs/tx/burned-register)) evicts the lowest-ranked
-non-immune neuron; a freshly registered neuron is protected for an immunity
+non-immune neuron
+([`get_neuron_to_prune`](/code/pallets/subtensor/src/subnets/registration.rs#L280-L356));
+a freshly registered neuron
+([`append_neuron`](/code/pallets/subtensor/src/subnets/uids.rs#L117-L145))
+is protected for an immunity
 period, then competes like everyone else.
 
 A neuron's **stake weight** on a subnet is

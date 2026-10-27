@@ -1,0 +1,40 @@
+---
+title: Scheduler
+description: Typed EVM interface for Scheduler metadata.
+---
+
+| Property | Value |
+|---|---|
+| Implementation | `SchedulerPrecompile` |
+| Solidity interface | `IScheduler` |
+| Address | `0x000000000000000000000000000000000000080f` |
+| Status | Deployed |
+
+This precompile replaces raw reads of Scheduler storage with a stable EVM
+interface. It lets contracts inspect whether and when runtime work is
+scheduled without decoding Scheduler storage or acquiring permission to modify
+the schedule.
+
+## Views
+
+| Function | Replaces |
+|---|---|
+| `getIncompleteSince()` | `Scheduler.IncompleteSince` |
+| `getScheduledCall(uint64 when,uint32 index)` | One entry of `Scheduler.Agenda` |
+| `getScheduledCallCount(uint64 when)` | The bounded agenda length for a block |
+| `getRetry(uint64 when,uint32 index)` | `Scheduler.Retries` |
+| `getTaskAddress(bytes32 taskId)` | `Scheduler.Lookup` |
+
+Returning one agenda entry at a time keeps execution bounded and avoids an
+unbounded array result.
+
+## State-changing operations
+
+The runtime configures `Scheduler.ScheduleOrigin` as Root. Scheduler extrinsics
+therefore have no typed EVM operation: a precompile must not manufacture Root
+or bypass the top-level Scheduler authorization check.
+
+The returned agenda entry contains stable metadata rather than a SCALE-encoded
+runtime call or origin.
+
+Source: [`scheduler.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/scheduler.sol)

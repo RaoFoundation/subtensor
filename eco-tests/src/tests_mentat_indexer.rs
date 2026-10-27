@@ -160,11 +160,11 @@ fn indexer_mechanism_emission() {
 }
 
 #[test]
-fn indexer_root_claim_type() {
+fn indexer_basket_rate() {
     new_test_ext(1).execute_with(|| {
-        let coldkey = U256::from(1);
+        let hotkey = U256::from(1);
 
-        let _: RootClaimTypeEnum = RootClaimType::<Test>::get(coldkey);
+        let _: I96F32 = BasketRate::<Test>::get(hotkey);
     });
 }
 
@@ -340,6 +340,28 @@ fn indexer_extrinsic_move_stake() {
 }
 
 #[test]
+fn indexer_extrinsic_move_stake_limit() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let origin_hotkey = U256::from(2);
+        let destination_hotkey = U256::from(3);
+        let origin_netuid = NetUid::from(1u16);
+        let destination_netuid = NetUid::from(2u16);
+
+        let _ = SubtensorModule::move_stake_limit(
+            RuntimeOrigin::signed(coldkey),
+            origin_hotkey,
+            destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            AlphaBalance::from(1_000_000_000u64),
+            TaoBalance::from(1_000_000_000u64),
+            false,
+        );
+    });
+}
+
+#[test]
 fn indexer_extrinsic_set_children() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
@@ -365,14 +387,12 @@ fn indexer_extrinsic_decrease_take() {
 }
 
 #[test]
-fn indexer_extrinsic_set_root_claim_type() {
+fn indexer_extrinsic_claim_root() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
 
-        let _ = SubtensorModule::set_root_claim_type(
-            RuntimeOrigin::signed(coldkey),
-            RootClaimTypeEnum::Swap,
-        );
+        let _ = SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey);
     });
 }
 

@@ -1,0 +1,325 @@
+use core::marker::PhantomData;
+
+use alloc::vec::Vec;
+use frame_support::{
+    dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo},
+    traits::{ConstU32, IsSubType},
+};
+use frame_system::RawOrigin;
+use pallet_evm::{AddressMapping, PrecompileHandle};
+use precompile_utils::{EvmResult, prelude::BoundedVec};
+use sp_core::{H256, U256};
+use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable};
+
+use crate::PrecompileExt;
+use crate::PrecompileHandleExt;
+
+pub struct BalancePrecompile<R>(PhantomData<R>);
+
+impl<R> PrecompileExt<R::AccountId> for BalancePrecompile<R>
+where
+    R: frame_system::Config
+        + pallet_balances::Config
+        + pallet_evm::Config
+        + pallet_subtensor::Config
+        + pallet_shield::Config
+        + pallet_subtensor_proxy::Config
+        + Send
+        + Sync
+        + scale_info::TypeInfo,
+    R::AccountId: From<[u8; 32]>,
+    <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
+    <R as frame_system::Config>::RuntimeCall: From<pallet_balances::Call<R>>
+        + GetDispatchInfo
+        + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + IsSubType<pallet_balances::Call<R>>
+        + IsSubType<pallet_subtensor::Call<R>>
+        + IsSubType<pallet_shield::Call<R>>
+        + IsSubType<pallet_subtensor_proxy::Call<R>>,
+    <R as pallet_balances::Config>::Balance: Into<U256>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
+{
+    const INDEX: u64 = 2062;
+}
+
+#[precompile_utils::precompile]
+impl<R> BalancePrecompile<R>
+where
+    R: frame_system::Config
+        + pallet_balances::Config
+        + pallet_evm::Config
+        + pallet_subtensor::Config
+        + pallet_shield::Config
+        + pallet_subtensor_proxy::Config
+        + Send
+        + Sync
+        + scale_info::TypeInfo,
+    R::AccountId: From<[u8; 32]>,
+    <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
+    <R as frame_system::Config>::RuntimeCall: From<pallet_balances::Call<R>>
+        + GetDispatchInfo
+        + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + IsSubType<pallet_balances::Call<R>>
+        + IsSubType<pallet_subtensor::Call<R>>
+        + IsSubType<pallet_shield::Call<R>>
+        + IsSubType<pallet_subtensor_proxy::Call<R>>,
+    <R as pallet_balances::Config>::Balance: Into<U256>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
+{
+    #[precompile::public("getFreeBalance(bytes32)")]
+    #[precompile::view]
+    fn get_free_balance(handle: &mut impl PrecompileHandle, coldkey: H256) -> EvmResult<U256> {
+        handle.record_db_reads::<R>(1)?;
+        let coldkey = R::AccountId::from(coldkey.0);
+        Ok(pallet_balances::Pallet::<R>::free_balance(&coldkey).into())
+    }
+
+    #[precompile::public("getTotalIssuance()")]
+    #[precompile::view]
+    fn get_total_issuance(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_balances::Pallet::<R>::total_issuance().into())
+    }
+
+    #[precompile::public("upgradeAccounts(bytes32[])")]
+    fn upgrade_accounts(
+        handle: &mut impl PrecompileHandle,
+        accounts: BoundedVec<H256, ConstU32<64>>,
+    ) -> EvmResult<()> {
+        let caller = handle.caller_account_id::<R>();
+        let who = Vec::<H256>::from(accounts)
+            .into_iter()
+            .map(|account| R::AccountId::from(account.0))
+            .collect();
+        let call = pallet_balances::Call::<R>::upgrade_accounts { who };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
+
+    use super::*;
+    use crate::Precompiles;
+    use crate::mock::{
+        AccountId, Runtime, TestBalanceStatus, abi_word, addr_from_index, execute_precompile,
+        fund_account, new_test_ext, precompiles, selector_u32,
+    };
+    use frame_support::{
+        dispatch::DispatchResult,
+        traits::{
+            ReservableCurrency,
+            tokens::{
+                Fortitude, Preservation,
+                fungible::{Inspect, InspectFreeze, InspectHold, MutateFreeze, MutateHold},
+            },
+        },
+    };
+    use pallet_admin_utils::{PrecompileEnable, PrecompileEnum};
+    use precompile_utils::prelude::RuntimeHelper;
+    use precompile_utils::solidity::encode_with_selector;
+    use precompile_utils::testing::PrecompileTesterExt;
+
+    fn coldkey(byte: u8) -> AccountId {
+        AccountId::from([byte; 32])
+    }
+
+    fn balance_call_input(coldkey: &AccountId) -> Vec<u8> {
+        encode_with_selector(
+            selector_u32("getFreeBalance(bytes32)"),
+            (H256::from_slice(coldkey.as_ref()),),
+        )
+    }
+
+    #[test]
+    fn balance_precompile_does_not_expose_unsynchronized_native_burn() {
+        assert!(
+            !BalancePrecompileCall::<Runtime>::supports_selector(selector_u32(
+                "burnBalance(uint256,bool)"
+            )),
+            "Balances.burn does not update Subtensor TotalIssuance"
+        );
+    }
+
+    #[test]
+    fn balance_precompile_returns_free_balance_for_coldkey() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x7001);
+            let target = coldkey(0x11);
+            let amount = 123_456_789_u64;
+            fund_account(&target, amount);
+
+            precompiles::<BalancePrecompile<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(BalancePrecompile::<Runtime>::INDEX),
+                    balance_call_input(&target),
+                )
+                .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
+                .execute_returns_raw(abi_word(U256::from(amount)));
+
+            let total_issuance: U256 = pallet_balances::Pallet::<Runtime>::total_issuance().into();
+            precompiles::<BalancePrecompile<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(BalancePrecompile::<Runtime>::INDEX),
+                    selector_u32("getTotalIssuance()").to_be_bytes().to_vec(),
+                )
+                .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
+                .execute_returns(total_issuance);
+        });
+    }
+
+    #[test]
+    fn balance_precompile_returns_zero_for_unfunded_coldkey() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x7001);
+            let target = coldkey(0x22);
+
+            precompiles::<BalancePrecompile<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(BalancePrecompile::<Runtime>::INDEX),
+                    balance_call_input(&target),
+                )
+                .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
+                .execute_returns_raw(abi_word(U256::zero()));
+        });
+    }
+
+    #[test]
+    fn balance_precompile_returns_free_not_total_or_reducible_balance() -> DispatchResult {
+        new_test_ext().execute_with(|| -> DispatchResult {
+            let caller = addr_from_index(0x7001);
+            let target = coldkey(0x33);
+            let initial = 1_000_u64;
+            let reserved = 100_u64;
+            let held = 200_u64;
+            let frozen = 650_u64;
+            let expected_free = initial - reserved - held;
+
+            fund_account(&target, initial);
+            pallet_balances::Pallet::<Runtime>::reserve(&target, reserved.into())?;
+            <pallet_balances::Pallet<Runtime> as MutateHold<AccountId>>::hold(
+                &TestBalanceStatus::Test,
+                &target,
+                held.into(),
+            )?;
+            <pallet_balances::Pallet<Runtime> as MutateFreeze<AccountId>>::set_freeze(
+                &TestBalanceStatus::Test,
+                &target,
+                frozen.into(),
+            )?;
+
+            assert_eq!(
+                pallet_balances::Pallet::<Runtime>::reserved_balance(&target),
+                (reserved + held).into()
+            );
+            assert_eq!(
+                <pallet_balances::Pallet<Runtime> as InspectHold<AccountId>>::balance_on_hold(
+                    &TestBalanceStatus::Test,
+                    &target,
+                ),
+                held.into()
+            );
+            assert_eq!(
+                <pallet_balances::Pallet<Runtime> as InspectFreeze<AccountId>>::balance_frozen(
+                    &TestBalanceStatus::Test,
+                    &target,
+                ),
+                frozen.into()
+            );
+            assert_eq!(
+                pallet_balances::Pallet::<Runtime>::total_balance(&target),
+                initial.into()
+            );
+            assert_eq!(
+                <pallet_balances::Pallet<Runtime> as Inspect<AccountId>>::reducible_balance(
+                    &target,
+                    Preservation::Expendable,
+                    Fortitude::Polite,
+                ),
+                350_u64.into()
+            );
+            assert_eq!(
+                pallet_balances::Pallet::<Runtime>::free_balance(&target),
+                expected_free.into()
+            );
+
+            precompiles::<BalancePrecompile<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(BalancePrecompile::<Runtime>::INDEX),
+                    balance_call_input(&target),
+                )
+                .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
+                .execute_returns_raw(abi_word(U256::from(expected_free)));
+
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn balance_precompile_rejects_malformed_calldata() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x7001);
+            let precompile_addr = addr_from_index(BalancePrecompile::<Runtime>::INDEX);
+            let mut malformed = selector_u32("getFreeBalance(bytes32)")
+                .to_be_bytes()
+                .to_vec();
+            malformed.extend_from_slice(&[0u8; 31]);
+
+            let result = execute_precompile(
+                &precompiles::<BalancePrecompile<Runtime>>(),
+                precompile_addr,
+                caller,
+                malformed,
+                U256::zero(),
+            );
+
+            assert!(
+                matches!(result, Some(Err(_))),
+                "malformed calldata must not return a balance"
+            );
+        });
+    }
+
+    #[test]
+    fn balance_precompile_respects_enable_disable_administration() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x7001);
+            let target = coldkey(0x44);
+            let amount = 42_u64;
+            let precompile_addr = addr_from_index(BalancePrecompile::<Runtime>::INDEX);
+            let input = balance_call_input(&target);
+            let precompiles = Precompiles::<Runtime>::new();
+
+            fund_account(&target, amount);
+
+            PrecompileEnable::<Runtime>::insert(PrecompileEnum::AccountBalance, false);
+            let disabled = execute_precompile(
+                &precompiles,
+                precompile_addr,
+                caller,
+                input.clone(),
+                U256::zero(),
+            );
+            assert!(
+                matches!(disabled, Some(Err(_))),
+                "disabled account-balance precompile must reject calls"
+            );
+
+            PrecompileEnable::<Runtime>::insert(PrecompileEnum::AccountBalance, true);
+            precompiles
+                .prepare_test(caller, precompile_addr, input)
+                .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
+                .execute_returns_raw(abi_word(U256::from(amount)));
+        });
+    }
+}

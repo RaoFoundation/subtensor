@@ -1,0 +1,53 @@
+---
+title: kappa
+description: Majority-stake threshold at which a weight counts as consensus-supported in Yuma Consensus.
+---
+
+`kappa` is the majority-stake threshold of Yuma Consensus: the fraction of
+active stake that must support a weight level for it to count as consensus.
+It shapes how much a stake majority can discipline outlier validators, so
+validators and subnet designers both care — but only root governance can
+change it.
+
+## How it works
+
+Each epoch, the chain computes a per-miner consensus score as a stake-weighted
+median ([`weighted_median_col`](/code/pallets/subtensor/src/epoch/math.rs#L1053-L1118)
+in `pallets/subtensor/src/epoch/math.rs`,
+called from `epoch/run_epoch.rs` with `kappa` as the majority ratio): the
+highest weight level such that validators holding at least `kappa` of active
+stake set a weight at or above it. Every weight above that consensus value is
+clipped down to it
+([`inplace_col_clip`](/code/pallets/subtensor/src/epoch/math.rs#L905-L918)),
+and the clipped matrix drives ranks,
+incentive, and validator trust. In the classic sigmoid formulation, `kappa`
+is also the midpoint of the trust curve that
+[`rho`](/docs/hyperparameters/rho) steepens.
+
+Stored as u16 where 65535 = 1.0; the default 32767 means 0.5 — a simple
+stake majority. Raising it demands broader agreement before a weight
+survives clipping; lowering it lets smaller stake coalitions set consensus.
+The full pipeline is described in
+[Yuma Consensus](/docs/concepts/emissions#yuma-consensus).
+
+<HyperparamConsensusSigmoid focus="kappa" />
+
+## Reading and setting
+
+Inspect with:
+
+```
+btcli sudo get --netuid N --name kappa
+```
+
+Not settable by the subnet owner — root/governance only
+([`sudo_set_kappa`](/code/pallets/admin-utils/src/lib.rs#L575-L584) in the
+AdminUtils pallet requires the root origin). When
+set, the raw value is a u16: 32767 ≈ 0.5.
+
+## Related
+
+[`rho`](/docs/hyperparameters/rho) ·
+[`tempo`](/docs/hyperparameters/tempo) ·
+[`activity_cutoff`](/docs/hyperparameters/activity-cutoff) ·
+[`max_validators`](/docs/hyperparameters/max-validators)

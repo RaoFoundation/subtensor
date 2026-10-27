@@ -37,6 +37,11 @@ use core::marker::PhantomData;
 /// Weight functions needed for `pallet_subtensor_swap`.
 pub trait WeightInfo {
 	fn set_fee_rate() -> Weight;
+	fn toggle_user_liquidity() -> Weight;
+	fn add_liquidity() -> Weight;
+	fn remove_liquidity() -> Weight;
+	fn modify_position() -> Weight;
+	fn disable_lp() -> Weight;
 }
 
 /// Weights for `pallet_subtensor_swap` using the Substrate node and recommended hardware.
@@ -55,6 +60,41 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(1_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
+	fn toggle_user_liquidity() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_782_000 picoseconds.
+		Weight::from_parts(1_913_000, 0)
+	}
+	fn add_liquidity() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_763_000 picoseconds.
+		Weight::from_parts(1_892_000, 0)
+	}
+	fn remove_liquidity() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_803_000 picoseconds.
+		Weight::from_parts(1_943_000, 0)
+	}
+	fn modify_position() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_662_000 picoseconds.
+		Weight::from_parts(1_863_000, 0)
+	}
+	fn disable_lp() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_652_000 picoseconds.
+		Weight::from_parts(1_923_000, 0)
+	}
 }
 
 // For backwards compatibility and tests.
@@ -71,5 +111,40 @@ impl WeightInfo for () {
 		Weight::from_parts(15_063_000, 3994)
 			.saturating_add(RocksDbWeight::get().reads(1_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	fn toggle_user_liquidity() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_782_000 picoseconds.
+		Weight::from_parts(1_913_000, 0)
+	}
+	fn add_liquidity() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_763_000 picoseconds.
+		Weight::from_parts(1_892_000, 0)
+	}
+	fn remove_liquidity() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_803_000 picoseconds.
+		Weight::from_parts(1_943_000, 0)
+	}
+	fn modify_position() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_662_000 picoseconds.
+		Weight::from_parts(1_863_000, 0)
+	}
+	fn disable_lp() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_652_000 picoseconds.
+		Weight::from_parts(1_923_000, 0)
 	}
 }

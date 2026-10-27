@@ -52,11 +52,15 @@ describeSuite({
         let alice: KeyringPair;
         let bob: KeyringPair;
         let charlie: KeyringPair;
+        let t03Sender: KeyringPair;
+        let t03Recipient: KeyringPair;
 
         beforeAll(async () => {
             alice = keyringPairFromUri("//Alice");
             bob = keyringPairFromUri("//Bob");
             charlie = keyringPairFromUri("//Charlie");
+            t03Sender = keyringPairFromUri("//Dave");
+            t03Recipient = keyringPairFromUri("//Eve");
 
             client = context.papi("Node");
             api = client.getTypedApi(subtensor);
@@ -65,6 +69,11 @@ describeSuite({
 
             await checkRuntime(api);
         }, 120000);
+
+        // This shard runs all six read/write cases concurrently. T03 uses
+        // Dave/Eve while T04 uses Alice/Bob/Charlie, so the writers never
+        // share a nonce or a recipient balance. The key and topology cases
+        // are read-only.
 
         it({
             id: "T01",
@@ -100,18 +109,19 @@ describeSuite({
                 const nextKey = await getNextKey(api);
                 expect(nextKey).toBeDefined();
 
-                const balanceBefore = await getBalance(api, bob.address);
+                const amount = 5_000_000_000n;
+                const balanceBefore = await getBalance(api, t03Recipient.address);
 
-                const nonce = await getAccountNonce(api, alice.address);
+                const nonce = await getAccountNonce(api, t03Sender.address);
                 const innerTxHex = await api.tx.Balances.transfer_keep_alive({
-                    dest: MultiAddress.Id(bob.address),
-                    value: 5_000_000_000n,
-                }).sign(getSignerFromKeypair(alice), { nonce: nonce + 1 });
+                    dest: MultiAddress.Id(t03Recipient.address),
+                    value: amount,
+                }).sign(getSignerFromKeypair(t03Sender), { nonce: nonce + 1 });
 
-                await submitEncrypted(api, alice, hexToU8a(innerTxHex), nextKey, nonce);
+                await submitEncrypted(api, t03Sender, hexToU8a(innerTxHex), nextKey, nonce);
 
-                const balanceAfter = await getBalance(api, bob.address);
-                expect(balanceAfter).toBeGreaterThan(balanceBefore);
+                const balanceAfter = await getBalance(api, t03Recipient.address);
+                expect(balanceAfter).toBe(balanceBefore + amount);
 
                 // The state-oriented suites run one immediately-finalized node,
                 // so retain explicit GRANDPA propagation and Frontier indexing
@@ -120,13 +130,15 @@ describeSuite({
                 // advancing latest-state views.
                 const finalizedHash = (await client._request("chain_getFinalizedHead", [])) as string;
                 const finalizedNumber = await api.query.System.Number.getValue({ at: finalizedHash });
-                const authorityAccount = await api.query.System.Account.getValue(bob.address, { at: finalizedHash });
+                const authorityAccount = await api.query.System.Account.getValue(t03Recipient.address, {
+                    at: finalizedHash,
+                });
                 expect(authorityAccount.data.free).toBe(balanceAfter);
                 const deadline = Date.now() + 60_000;
                 let fullNodeBalance: bigint | undefined;
                 while (Date.now() < deadline) {
                     try {
-                        const fullAccount = await apiFull.query.System.Account.getValue(bob.address, {
+                        const fullAccount = await apiFull.query.System.Account.getValue(t03Recipient.address, {
                             at: finalizedHash,
                         });
                         fullNodeBalance = fullAccount.data.free;
@@ -165,7 +177,7 @@ describeSuite({
                     const innerTxHex = await api.tx.Balances.transfer_keep_alive({
                         dest: MultiAddress.Id(charlie.address),
                         value: amount,
-                    }).sign(getSignerFromKeypair(alice), { nonce: nonce + 1 });
+                    }).sign(getSignerFromKeypair(sender), { nonce: nonce + 1 });
 
                     txPromises.push(submitEncrypted(api, sender, hexToU8a(innerTxHex), nextKey, nonce));
                 }
@@ -173,7 +185,7 @@ describeSuite({
                 await Promise.all(txPromises);
 
                 const balanceAfter = await getBalance(api, charlie.address);
-                expect(balanceAfter).toBeGreaterThan(balanceBefore);
+                expect(balanceAfter).toBe(balanceBefore + BigInt(senders.length) * amount);
             },
         });
     },

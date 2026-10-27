@@ -1,0 +1,43 @@
+---
+title: registration_allowed
+description: Enable burn registration independently of proof-of-work registration on a subnet.
+---
+
+`registration_allowed` controls burn registration. It defaults to true and is
+independent of [`network_pow_registration_allowed`](/docs/hyperparameters/network-pow-registration-allowed).
+Subnet owners can allow burn, PoW or both. An owner cannot disable the last enabled
+route: enable the other method before switching this one off.
+
+## How it works
+
+The `NetworkRegistrationAllowed` storage flag gates `burned_register` and the
+legacy `register` entry point, which retains its burn-based behavior. Those calls
+fail with `SubNetRegistrationDisabled` when burn registration is off. The actual
+`pow_register` call uses its separate PoW flag.
+
+Burn registrations increase only burn price. PoW registrations increase only
+PoW difficulty; both share the multiplier and decay settings. Per-block
+registration limits and existing pruning and immunity rules apply to both routes.
+The toggle affects new registrations; it does not remove existing participants.
+Root registration keeps its separate admission path.
+
+## Reading and setting
+
+```bash
+btcli hparams get --netuid N --name registration_allowed
+btcli hparams set --netuid N --name network_pow_registration_allowed --value true
+btcli hparams set --netuid N --name registration_allowed --value false
+```
+
+The last two commands switch to PoW-only registration. To switch back, enable
+burn registration before disabling PoW. Owner changes use the normal admin
+window and per-hyperparameter cooldown. Root/governance can also administer the
+registration settings.
+
+## Related
+
+[`network_pow_registration_allowed`](/docs/hyperparameters/network-pow-registration-allowed) ·
+[`max_regs_per_block`](/docs/hyperparameters/max-regs-per-block) ·
+[`min_burn`](/docs/hyperparameters/min-burn) ·
+[`max_burn`](/docs/hyperparameters/max-burn) ·
+[`immunity_period`](/docs/hyperparameters/immunity-period)

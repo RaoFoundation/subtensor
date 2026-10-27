@@ -1,4 +1,4 @@
-"""`btcli crowd`: crowdloan commands."""
+"""`btcli misc crowd`: crowdloan commands."""
 
 from __future__ import annotations
 

@@ -17,17 +17,30 @@ from ...intents import (
     RemoveProxy,
 )
 from ...intents.proxy import DELAY_HELP, PROXY_TYPE_HELP, ProxyTypeChoice
+from ...settings import guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..helpers import list_coldkeys
-from ..prompt import interactive
+from ..prompt import PromptSpec, fill_missing, interactive
+from ..stake_picker import dest_account_spec
 
-app = typer.Typer(no_args_is_help=True, help="On-chain proxy management and the local proxy book.")
+app = typer.Typer(
+    no_args_is_help=True,
+    help="On-chain proxy management and the local proxy book."
+    f"\n\nGuide: {guide_docs_url('proxies')}",
+)
 
 book_app = typer.Typer(
     no_args_is_help=True,
     help="Local proxy address book (named pure/delegate proxies).",
 )
+
+
+def _parse_int(_app_ctx: AppContext, raw: str) -> int:
+    try:
+        return int(raw)
+    except ValueError:
+        raise ValueError(f"expected an integer, got {raw!r}")
 
 
 def _proxy_type_option() -> Any:
@@ -129,7 +142,11 @@ def remove_proxy(
     ),
     proxy_type: ProxyTypeChoice = _proxy_type_option(),
     delay: int = typer.Option(0, "--delay", help=DELAY_HELP),
-    all_proxies: bool = typer.Option(False, "--all", help="Remove every proxy at once."),
+    all_proxies: bool = typer.Option(
+        False,
+        "--all",
+        help="Remove every proxy at once, including the hotkey's Validate/Weights grants.",
+    ),
 ):
     """Remove a proxy delegate."""
     app_ctx: AppContext = ctx_of(ctx)
@@ -146,16 +163,40 @@ def remove_proxy(
             if answer.strip().lower() != "remove all":
                 app_ctx.output.message("aborted.")
                 raise typer.Exit(1)
-        app_ctx.submit(RemoveProxies())
+        # Resolve once: when acting for another account (--proxy-for or the
+        # proxy_for config), only that account's proxies are in scope.
+        dispatch_as = app_ctx.resolve_dispatch_proxy()
+        app_ctx.submit(RemoveProxies(), proxy_for=dispatch_as or "self")
+        if dispatch_as is not None:
+            return
+        # Validate/Weights grants are keyed by the hotkey, which the coldkey
+        # call cannot revoke.
+        hotkey_ss58 = _local_hotkey_ss58(app_ctx)
+        if (
+            hotkey_ss58 is not None
+            and app_ctx.run(lambda c: c.read("proxies", coldkey_ss58=hotkey_ss58))["proxies"]
+        ):
+            app_ctx.submit(RemoveProxies(from_hotkey=True), proxy_for="self")
         return
     if delegate_ss58 is None:
-        app_ctx.output.error(
-            "missing required option: `--delegate`",
-            help="pass the delegate to revoke, or `--all` to remove every proxy",
-        )
-        raise typer.Exit(2)
+        answers: dict[str, Any] = {"delegate_ss58": None}
+        fill_missing(app_ctx, [dest_account_spec("delegate_ss58")], answers)
+        delegate_ss58 = answers["delegate_ss58"]
     delegate = app_ctx.resolve_address("coldkey_ss58", delegate_ss58)
     app_ctx.submit(RemoveProxy(delegate_ss58=delegate, proxy_type=proxy_type.value, delay=delay))
+
+
+def _local_hotkey_ss58(app_ctx: AppContext) -> Optional[str]:
+    """Address of the wallet's hotkey, or None when no local hotkey is available."""
+    if app_ctx.uses_external_signer():
+        return None
+    wallet = app_ctx.wallet()
+    for attr in ("hotkeypub", "hotkey"):
+        try:
+            return getattr(wallet, attr).ss58_address
+        except Exception:
+            continue
+    return None
 
 
 @app.command("kill")
@@ -182,12 +223,6 @@ def kill_proxy(
     ext_index: Optional[int] = typer.Option(
         None, "--ext-index", help="Extrinsic index of the creating call within that block."
     ),
-    proxy_for: Optional[str] = typer.Option(
-        None,
-        "--proxy-for",
-        help="Pure proxy account to dispatch the kill through (the chain requires the "
-        "pure account itself as origin). Defaults to the book entry's address.",
-    ),
 ):
     """Kill a pure proxy account.
 
@@ -209,33 +244,53 @@ def kill_proxy(
     def from_entry(key: str) -> Any:
         return entry.get(key) if entry else None
 
-    spawner_value = spawner_ss58 or from_entry("spawner")
-    if not spawner_value:
-        app_ctx.output.error(
-            "no spawner account given",
-            help="pass `--spawner`, or use a proxy book entry that records one",
+    answers: dict[str, Any] = {
+        "spawner_ss58": spawner_ss58 or from_entry("spawner"),
+        "height": height if height is not None else from_entry("height"),
+        "ext_index": ext_index if ext_index is not None else from_entry("ext_index"),
+    }
+    specs: list[PromptSpec] = []
+    if answers["spawner_ss58"] is None:
+        specs.append(dest_account_spec("spawner_ss58"))
+    if answers["height"] is None:
+        specs.append(
+            PromptSpec(
+                field="height",
+                flag="--height",
+                help="Block number of the creating create_pure_proxy call.",
+                parse=_parse_int,
+                placeholder="integer",
+            )
         )
-        raise typer.Exit(2)
-    spawner = app_ctx.resolve_address("coldkey_ss58", spawner_value)
+    if answers["ext_index"] is None:
+        specs.append(
+            PromptSpec(
+                field="ext_index",
+                flag="--ext-index",
+                help="Extrinsic index of the creating call within that block.",
+                parse=_parse_int,
+                placeholder="integer",
+            )
+        )
+    if specs:
+        fill_missing(app_ctx, specs, answers)
+    spawner = app_ctx.resolve_address("coldkey_ss58", answers["spawner_ss58"])
 
     type_value = proxy_type.value if proxy_type else (from_entry("proxy_type") or "Staking")
     index_value = index if index is not None else int(from_entry("index") or 0)
-    height_value = height if height is not None else from_entry("height")
-    ext_value = ext_index if ext_index is not None else from_entry("ext_index")
-    if height_value is None or ext_value is None:
-        app_ctx.output.error(
-            "the creation block height and extrinsic index are required",
-            note="the chain identifies a pure proxy by the exact create_pure call that spawned it",
-            help="create with `btcli proxy create --name NAME` to record them, or "
-            "find the create_pure extrinsic in an explorer and pass "
-            "`--height`/`--ext-index`",
-        )
-        raise typer.Exit(2)
+    height_value = answers["height"]
+    ext_value = answers["ext_index"]
 
-    target = proxy_for or from_entry("address")
-    if target:
-        target = app_ctx.resolve_address("proxy_for", target)
+    raw_proxy = app_ctx.proxy_for
+    if raw_proxy == "self":
+        target = None
+    elif raw_proxy:
+        target = app_ctx.resolve_address("proxy_for", raw_proxy)
     else:
+        target = from_entry("address")
+        if target:
+            target = app_ctx.resolve_address("proxy_for", target)
+    if not target:
         app_ctx.output.message(
             "[dim]note: kill_pure must be dispatched by the pure account itself; "
             "without `--proxy-for` the call is signed directly and will likely "

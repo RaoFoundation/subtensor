@@ -253,13 +253,32 @@ def setup_localnet(
         ("disable the contract deployment whitelist", calls.EVM.disable_whitelist(disabled=True))
     )
 
+    step_rows = [(f"step {i + 1}", desc) for i, (desc, _) in enumerate(plan)]
+    stages = [
+        (
+            "Setup",
+            [
+                ("summary", f"submit {len(plan)} sudo extrinsic(s)"),
+                ("wallet", app_ctx.wallet_name),
+                *step_rows,
+            ],
+        ),
+        ("Fees", [("estimated fee", "unavailable")]),
+        ("Signer", [("signer", app_ctx.wallet_name)]),
+        ("Transaction", [("operation", "Sudo.sudo"), *step_rows]),
+    ]
     if app_ctx.dry_run:
+        app_ctx.output.transaction_card(stages)
         app_ctx.output.detail(
             "setup-localnet plan (each submitted as Sudo.sudo, signed by the wallet coldkey)",
             {f"step {i + 1}": desc for i, (desc, _) in enumerate(plan)},
         )
         return
-    app_ctx.confirm(f"submit {len(plan)} sudo extrinsic(s) with wallet {app_ctx.wallet_name!r}?")
+    app_ctx.show_review(
+        stages,
+        question=f"submit {len(plan)} sudo extrinsic(s) with wallet {app_ctx.wallet_name!r}",
+        confirm_facts=[("signing as", app_ctx.wallet_name)],
+    )
 
     async def _op(client):
         results = []

@@ -2,21 +2,23 @@
 
 Quick start:
 
+    import bittensor as bt
+
+    sub = bt.Subtensor()                 # defaults to finney; connects lazily
+    print(sub.balances.get("5F...coldkey"))
+
+No ``close()`` needed — the connection is cleaned up automatically. The same
+class is the async client when awaited:
+
     import asyncio
-    import bittensor as sub
+    import bittensor as bt
 
     async def main():
-        async with sub.Client("finney") as client:
+        async with bt.Subtensor() as client:      # or: client = await bt.Subtensor()
             bal = await client.balances.get("5F...coldkey")
             print(bal)
 
     asyncio.run(main())
-
-Synchronous:
-
-    client = sub.SyncClient("finney")
-    print(client.balances.get("5F...coldkey"))
-    client.close()
 
 Logging:
 
@@ -38,6 +40,7 @@ from . import evm, http_auth, intents, reads, timelock, wallets
 from ._generated import calls, constants, storage
 from ._generated import runtime_apis as runtime_api
 from ._substrate import RpcSubstrate, Substrate
+from ._subtensor import Subtensor, close_shared_clients, set_weights
 from ._transport.contract import SigningContext, UnsignedExtrinsic
 from .balance import Balance, UnitMismatchError, alpha, rao, tao
 from .client import BlockHeader, BlockInfo, Client, EpochEvent
@@ -65,6 +68,7 @@ from .reads import (
     StakePosition,
     StakeValuation,
     SubnetInfo,
+    SubnetLifecycleState,
     SwapQuote,
 )
 from .result import (
@@ -74,6 +78,8 @@ from .result import (
     ErrorCode,
     ExtrinsicResult,
     PolicyError,
+    RpcConnectionError,
+    RpcPolicyError,
 )
 from .signing import (
     KeyedWallet,
@@ -86,6 +92,7 @@ from .signing import (
 from .snapshot import Snapshot
 from .sync import SyncClient
 from .timelock import Timelocked, TimelockError, TimelockNotReady
+from .vault import VaultError, VaultSigner
 from .wallet import Wallet
 from .wallets import (
     CRYPTO_ED25519,
@@ -106,7 +113,18 @@ _logging.getLogger(__name__).addHandler(_logging.NullHandler())
 _INTENT_EXPORTS = {cls.__name__: cls for cls in _INTENT_REGISTRY.values()}
 globals().update(_INTENT_EXPORTS)
 
+# Lowercase v10-style aliases: ``bt.subtensor()`` and ``bt.wallet()`` are the
+# same classes as ``bt.Subtensor`` / ``bt.Wallet``. The ``wallet`` binding
+# shadows the submodule of the same name in the package namespace on purpose;
+# ``import bittensor.wallet`` still resolves to the module via ``sys.modules``.
+subtensor = Subtensor
+wallet = Wallet
+
 __all__ = [
+    "Subtensor",
+    "subtensor",  # lowercase alias for Subtensor
+    "set_weights",
+    "close_shared_clients",
     "Client",
     "SyncClient",
     # The chain-access contract and its production (websocket RPC) backend.
@@ -122,6 +140,7 @@ __all__ = [
     "MetagraphNeuron",
     "NeuronCommitment",
     "SubnetInfo",
+    "SubnetLifecycleState",
     "Balance",
     "UnitMismatchError",
     "tao",
@@ -141,7 +160,10 @@ __all__ = [
     "ConnectionNotReady",
     "ErrorCode",
     "PolicyError",
+    "RpcConnectionError",
+    "RpcPolicyError",
     "Wallet",
+    "wallet",  # lowercase alias for Wallet
     "wallets",
     # EVM support: h160<->ss58 address math, EVM key storage, precompiles
     "evm",
@@ -187,6 +209,9 @@ __all__ = [
     # Ledger hardware signing (Polkadot generic app, RFC-0078 clear-signing)
     "LedgerSigner",
     "LedgerError",
+    # Polkadot Vault air-gapped signing (UOS QR round-trip)
+    "VaultSigner",
+    "VaultError",
     "CRYPTO_ED25519",
     "CRYPTO_SR25519",
     "DEFAULT_CRYPTO_TYPE",
@@ -213,11 +238,12 @@ _NO_NEURON_STACK = (
 )
 
 _REMOVED_V10_HINTS = {
-    "Subtensor": "use bittensor.SyncClient (blocking) or bittensor.Client (async)",
-    "subtensor": "use bittensor.SyncClient (blocking) or bittensor.Client (async)",
-    "AsyncSubtensor": "use `async with bittensor.Client(network) as client:`",
-    "async_subtensor": "use `async with bittensor.Client(network) as client:`",
-    "get_async_subtensor": "use `await bittensor.Client(network).connect()`",
+    "AsyncSubtensor": (
+        "use `async with bittensor.Subtensor(network) as client:` "
+        "or `await bittensor.Subtensor(network)`"
+    ),
+    "async_subtensor": "use `async with bittensor.Subtensor(network) as client:`",
+    "get_async_subtensor": "use `await bittensor.Subtensor(network)`",
     "MockSubtensor": "removed — test against a local node instead",
     "axon": _NO_NEURON_STACK,
     "Axon": _NO_NEURON_STACK,
@@ -236,8 +262,7 @@ _REMOVED_V10_HINTS = {
     # argparse Config class — only the class name can get a hint here.
     "Config": "removed — the SDK no longer parses CLI args; pass arguments directly",
     "Keypair": (
-        "keypairs come from bittensor.wallet.Wallet; the low-level type is "
-        "bittensor.sp_core.Keypair"
+        "keypairs come from bittensor.Wallet; the low-level type is bittensor.sp_core.Keypair"
     ),
     "Keyfile": "use bittensor.keyfiles.Keyfile",
 }
@@ -248,6 +273,6 @@ def __getattr__(name: str):
     if hint is not None:
         raise AttributeError(
             f"bittensor.{name} was removed in v11 — {hint}. "
-            "Migration guide: /docs/migration in the Bittensor docs."
+            "Migration guide: https://www.bittensor.com/docs/migration"
         )
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

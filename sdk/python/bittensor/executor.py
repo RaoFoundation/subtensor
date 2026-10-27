@@ -9,6 +9,9 @@ adds the submission (and refuses if policy is violated).
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import inspect
+from dataclasses import fields as dataclass_fields
 from dataclasses import replace
 from typing import Any, Optional
 
@@ -19,14 +22,29 @@ import bittensor_core as _core
 from ._generated import calls as generated_calls
 from ._substrate import Substrate
 from ._transport.contract import UnsignedExtrinsic
+from ._transport.utils.receipt import nested_dispatch_error
+from .balance import Balance
 from .fee_filters import COLDKEY_FEE_WARNING, charges_coldkey_fee
 from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
-from .intents.base import BuiltCall
+from .intents.base import BuiltCall, IntentPreflight
 from .intents.proxy import check_proxy_type
-from .result import ChainError, ExtrinsicResult, PolicyError, chain_error_from_dispatch
+from .result import (
+    ChainError,
+    ExtrinsicResult,
+    PolicyError,
+    chain_error_from_dispatch,
+)
 from .settings import DEFAULT_ERA_PERIOD, MEV_SHIELD_ERA_PERIOD
-from .signing import WalletLike, public_view, resolve_signer
+from .signing import (
+    WalletLike,
+    as_wallet,
+    coerce_address,
+    is_address_param,
+    public_view,
+    resolve_signer,
+)
+from .sp_core import ss58_decode
 
 # Transaction-pool rejections that resolve themselves within a block or so (a
 # competing extrinsic at the same nonce, or a race against pool state). Worth
@@ -37,10 +55,211 @@ _TRANSIENT_SUBSTRINGS = (
     "stale",
 )
 
+# Runtime metadata bounds MevShield.submit_encrypted ciphertexts to 8192 bytes.
+# Pricing the bound is conservative by only the length-fee delta and avoids
+# asking a signer for the inner signature merely to learn the carrier size.
+_MAX_SHIELDED_CIPHERTEXT_BYTES = 8192
+
+# Allow transient RPC/head lag while keeping both shielded-receipt polling
+# phases bounded by the inner extrinsic's mortal era.
+_SHIELDED_POLL_ATTEMPTS_PER_BLOCK = 4
+_SHIELDED_FINALITY_RPC_RETRIES = 4
+
+
+class _FeeAddressView:
+    """Public-only keypair shape for fee estimation (zeroed signature)."""
+
+    crypto_type = 1  # sr25519
+
+    def __init__(self, address: str):
+        self.ss58_address = address
+        self.public_key = bytes(ss58_decode(address))
+
+
+async def estimate_shielded_carrier_fee(substrate: Substrate, fee_payer: str) -> Balance:
+    """Conservatively estimate the outer MevShield carrier's TAO fee."""
+    outer = await substrate.compose(
+        generated_calls.MevShield.submit_encrypted(ciphertext=bytes(_MAX_SHIELDED_CIPHERTEXT_BYTES))
+    )
+    return await substrate.estimate_fee(outer, _FeeAddressView(fee_payer))
+
 
 def _is_transient(result: ExtrinsicResult) -> bool:
     message = (result.message or "").lower()
     return any(needle in message for needle in _TRANSIENT_SUBSTRINGS)
+
+
+def _is_sudo_call(call: Any) -> bool:
+    """Whether ``call`` is already a composed ``Sudo.sudo`` wrapper."""
+    module = getattr(call, "module", None) or getattr(call, "call_module", None)
+    function = getattr(call, "function", None) or getattr(call, "call_function", None)
+    return module == "Sudo" and function == "sudo"
+
+
+async def nest_origin_wrappers(
+    substrate: Substrate,
+    call: Any,
+    *,
+    sudo: bool = False,
+    proxy_for: Optional[str] = None,
+    proxy_type: Optional[str] = None,
+) -> Any:
+    """Wrap a call in Sudo, then Proxy. Same order for intents and raw ``btcli call``.
+
+    Each layer composes its inner call first so the outer builder receives
+    chain-ready SCALE. The returned value is a generated builder when a wrap
+    was applied, or the original call when neither wrap is set.
+    """
+    if sudo and not _is_sudo_call(call):
+        inner = call if hasattr(call, "data") else await substrate.compose(call)
+        call = generated_calls.Sudo.sudo(call=inner)
+    if proxy_for is not None:
+        if proxy_type is not None:
+            check_proxy_type(proxy_type)
+        inner = call if hasattr(call, "data") else await substrate.compose(call)
+        call = generated_calls.Proxy.proxy(real=proxy_for, force_proxy_type=proxy_type, call=inner)
+    return call
+
+
+async def _prepare_shielded_signer(keypair) -> None:
+    """Label two-stage signers and warm up Vault before the 8-block era starts.
+
+    Vault and the extension set ``two_stage`` so their UI can say "1 of 2".
+    Vault's ``warm_up`` opens the page and camera before the first QR, so the
+    mortal era does not start while the user is still unlocking the phone.
+    Ledger has no extra hook — it just prompts twice.
+    """
+    if hasattr(keypair, "two_stage"):
+        keypair.two_stage = True
+    warm_up = getattr(keypair, "warm_up", None)
+    if not callable(warm_up):
+        return
+    result = warm_up()
+    if inspect.isawaitable(result):
+        await result
+
+
+def _coerce_addresses(intent: Intent) -> Intent:
+    """Normalize the intent's ``*_ss58`` / ``*_ss58s`` fields: a ``Wallet``,
+    keypair, or signer passed where an address string is expected becomes its
+    ss58 address (hotkey fields take the wallet's hotkey, others its coldkey).
+    Returns a new intent only when something needed coercing."""
+    changes = {}
+    for field in dataclass_fields(intent):
+        if not is_address_param(field.name):
+            continue
+        value = getattr(intent, field.name)
+        if value is None or isinstance(value, str):
+            continue
+        coerced = coerce_address(value, field.name)
+        if coerced is not value:
+            changes[field.name] = coerced
+    return replace(intent, **changes) if changes else intent
+
+
+class _OriginView:
+    """Public-only account view so semantic build sees the dispatch origin.
+
+    Used when ``proxy_for`` is set: ``add_stake(all)`` and similar origin
+    lookups must read the proxied account, not the delegate or a multisig
+    member. ``public_view`` / ``coldkey_address`` only need ``ss58_address``.
+    """
+
+    crypto_type = 1
+
+    def __init__(self, address: str):
+        self.ss58_address = address
+        self.public_key = bytes(ss58_decode(address))
+
+
+async def _compose_intent_call(
+    substrate: Substrate,
+    intent: Intent,
+    wallet: WalletLike,
+    *,
+    proxy_for: Optional[str] = None,
+    proxy_type: Optional[str] = None,
+) -> tuple[Any, dict]:
+    """Compose semantic call -> sudo -> proxy -> execution adapter."""
+    extras: dict = {"proxy_for": proxy_for} if proxy_for is not None else {}
+    pinned = getattr(intent, "inner_call_data", None)
+    if pinned:
+        # Later multisig rounds approve round 1's exact bytes. Rebuilds are
+        # not always stable (timelock commits, ``--all`` balances) and would
+        # throw before wrap_call can apply the pin.
+        wrapped = await intent.wrap_call(substrate, wallet, None)
+        if isinstance(wrapped, BuiltCall):
+            return wrapped.call, {**extras, **wrapped.extras}
+        return wrapped, extras
+
+    semantic = _coerce_addresses(intent.semantic_intent())
+    # Proxy is the dispatch origin of the inner call. The multisig adapter's
+    # origin_view is the multisig itself — correct only when there is no
+    # proxy wrap. With both, build against the proxied account.
+    origin = _intent_origin_view(substrate, intent, wallet, proxy_for)
+    built = await semantic.build(substrate, origin)
+    if isinstance(built, BuiltCall):
+        call, extras = built.call, {**extras, **built.extras}
+    else:
+        call = built
+
+    wrapped = await nest_origin_wrappers(
+        substrate,
+        call,
+        sudo=semantic.origin == "root",
+        proxy_for=proxy_for,
+        proxy_type=proxy_type,
+    )
+    if wrapped is not call:
+        call = wrapped if hasattr(wrapped, "data") else await substrate.compose(wrapped)
+
+    wrapped = await intent.wrap_call(substrate, wallet, call)
+    if isinstance(wrapped, BuiltCall):
+        return wrapped.call, {**extras, **wrapped.extras}
+    return wrapped, extras
+
+
+def _intent_origin_view(
+    substrate: Substrate,
+    intent: Intent,
+    wallet: WalletLike,
+    proxy_for: Optional[str] = None,
+) -> Any:
+    """Account view whose origin dispatches the semantic intent."""
+    return (
+        _OriginView(proxy_for) if proxy_for is not None else intent.origin_view(substrate, wallet)
+    )
+
+
+def _intent_accounts(
+    substrate: Substrate,
+    intent: Intent,
+    wallet: WalletLike,
+    proxy_for: Optional[str] = None,
+) -> tuple[str, str]:
+    """Return ``(dispatch_origin, fee_payer)`` for a fully wrapped intent."""
+    fee_payer = public_view(wallet, intent.signer).ss58_address
+    if proxy_for is not None:
+        return proxy_for, fee_payer
+    origin_view = _intent_origin_view(substrate, intent, wallet, proxy_for)
+    dispatch_origin = public_view(origin_view, intent.semantic_intent().signer).ss58_address
+    return dispatch_origin, fee_payer
+
+
+def _with_nested_dispatch_failure(result: ExtrinsicResult) -> ExtrinsicResult:
+    """Mark a successful outer dispatch failed when a nested Sudo/Proxy/Multisig Result is Err."""
+    if not result.success:
+        return result
+    inner_error = nested_dispatch_error(result.events)
+    if inner_error is None:
+        return result
+    error = chain_error_from_dispatch(inner_error)
+    return replace(
+        result,
+        success=False,
+        message=f"nested call failed: {error.message}",
+        error=error,
+    )
 
 
 def _find_event(events: list, module_id: str, event_id: str) -> Optional[Any]:
@@ -53,19 +272,300 @@ def _find_event(events: list, module_id: str, event_id: str) -> Optional[Any]:
     return None
 
 
-def _proxy_inner_error(events: list) -> Optional[Any]:
-    """The ``Err`` payload of a ``Proxy.ProxyExecuted`` event, or None.
+def _event_parts(entry: Any) -> tuple[Optional[str], Optional[str], Any, Optional[int]]:
+    """Normalize one decoded event record across transport and test shapes."""
+    record = entry.value if hasattr(entry, "value") else entry
+    if not isinstance(record, dict):
+        return None, None, None, None
+    event = record.get("event", record)
+    if not isinstance(event, dict):
+        return None, None, None, None
+    index = record.get("extrinsic_idx")
+    try:
+        index = int(index) if index is not None else None
+    except (TypeError, ValueError):
+        index = None
+    return event.get("module_id"), event.get("event_id"), event.get("attributes"), index
 
-    A proxied extrinsic *succeeds* even when the wrapped call fails — the inner
-    outcome is only reported through this event, so it must be checked.
-    """
-    attributes = _find_event(events, "Proxy", "ProxyExecuted")
-    if attributes is None:
+
+def _event_netuid(attributes: Any) -> Optional[int]:
+    """Read the netuid from named or tuple-style Subtensor events."""
+    value = attributes.get("netuid") if isinstance(attributes, dict) else attributes
+    if isinstance(value, (list, tuple)):
+        value = value[0] if value else None
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
         return None
-    result = attributes.get("result") if isinstance(attributes, dict) else attributes
-    if isinstance(result, dict) and "Err" in result:
-        return result["Err"]
+
+
+def _result_block(result: ExtrinsicResult) -> Optional[int]:
+    if not result.extrinsic_id:
+        return None
+    height, _, _ = result.extrinsic_id.partition("-")
+    try:
+        return int(height)
+    except ValueError:
+        return None
+
+
+async def _notify_progress(callback: Any, **progress: Any) -> None:
+    if callback is None:
+        return
+    outcome = callback(progress)
+    if inspect.isawaitable(outcome):
+        await outcome
+
+
+async def _cleanup_netuid(substrate: Substrate, block_hash: str) -> Optional[int]:
+    """The subnet currently being cleaned, or the next queued for cleanup."""
+    status = await substrate.query(
+        "SubtensorModule", "CurrentDissolveCleanupStatus", block_hash=block_hash
+    )
+    if isinstance(status, dict) and status.get("netuid") is not None:
+        return int(status["netuid"])
+    queue = await substrate.query("SubtensorModule", "DissolveCleanupQueue", block_hash=block_hash)
+    if isinstance(queue, (list, tuple)) and queue:
+        return int(queue[0])
     return None
+
+
+async def _complete_subnet_registration(
+    substrate: Substrate,
+    result: ExtrinsicResult,
+    *,
+    owner: str,
+    hotkey: str,
+    on_progress: Any = None,
+    timeout: Optional[float] = None,
+    deferred_dispatch: bool = False,
+) -> ExtrinsicResult:
+    """Resolve immediate or queued ``register_network`` to its ``NetworkAdded``.
+
+    A successful register extrinsic can now mean either "created" or merely
+    "queued behind subnet dissolution". The receipt decides the fast path. On
+    the queued path we follow blocks and only accept a ``NetworkAdded`` whose
+    owner and owner-hotkey match this request at that exact block.
+    """
+    included_at = _result_block(result)
+    queued = False
+    queued_at: Optional[int] = None
+    registration_block: Optional[int] = None
+    registration_price_rao: Optional[int] = None
+    deregistered_netuid: Optional[int] = None
+    cleanup_netuid: Optional[int] = None
+
+    for entry in result.events:
+        module, event, attributes, _ = _event_parts(entry)
+        if module != "SubtensorModule":
+            continue
+        if event == "NetworkAdded":
+            netuid = _event_netuid(attributes)
+            if netuid is not None:
+                event_hash = result.block_hash
+                if event_hash is None and included_at is not None:
+                    event_hash = await substrate.block_hash(included_at)
+                locked = await substrate.query(
+                    "SubtensorModule", "SubnetLocked", [netuid], block_hash=event_hash
+                )
+                data = {
+                    **result.data,
+                    "netuid": netuid,
+                    "registration_mode": "immediate",
+                    "registered_at_block": included_at,
+                }
+                if locked is not None:
+                    data["registration_price_rao"] = int(locked)
+                await _notify_progress(
+                    on_progress,
+                    stage="registered",
+                    mode="immediate",
+                    netuid=netuid,
+                    block=included_at,
+                )
+                return replace(result, message=f"Subnet {netuid} registered.", data=data)
+        elif event == "NetworkRegistrationQueued":
+            queued = True
+            queued_at = included_at
+            if isinstance(attributes, dict) and attributes.get("registration_block") is not None:
+                registration_block = int(attributes["registration_block"])
+            if isinstance(attributes, dict) and attributes.get("lock_amount") is not None:
+                registration_price_rao = int(attributes["lock_amount"])
+        elif event == "NetworkRemoved":
+            deregistered_netuid = _event_netuid(attributes)
+
+    # Without the queued event, a normal included register call has no deferred
+    # work to follow (e.g. a multisig approval that did not execute the call).
+    if not queued and not deferred_dispatch:
+        return result
+
+    async def wait() -> ExtrinsicResult:
+        nonlocal cleanup_netuid, deregistered_netuid, queued, queued_at
+        nonlocal registration_block, registration_price_rao
+
+        # Scan the inclusion block too: on_idle events are not part of the
+        # extrinsic receipt, and may follow the register call in that same block.
+        first = included_at if included_at is not None else await substrate.block_number()
+        last_scanned = first - 1
+
+        async def scan(block: int) -> Optional[ExtrinsicResult]:
+            nonlocal cleanup_netuid, deregistered_netuid, queued, queued_at
+            nonlocal registration_block, registration_price_rao
+            block_hash = await substrate.block_hash(block)
+            events = await substrate.events(block_hash)
+            target_queue_indices: set[Optional[int]] = set()
+            removed_by_index: dict[Optional[int], int] = {}
+
+            for entry in events:
+                module, event, attributes, index = _event_parts(entry)
+                if module != "SubtensorModule":
+                    continue
+                if event == "NetworkRegistrationQueued" and isinstance(attributes, dict):
+                    if (
+                        str(attributes.get("coldkey")) == owner
+                        and str(attributes.get("hotkey")) == hotkey
+                    ):
+                        target_queue_indices.add(index)
+                        queued_at = queued_at or block
+                        if attributes.get("registration_block") is not None:
+                            registration_block = int(attributes["registration_block"])
+                        if attributes.get("lock_amount") is not None:
+                            registration_price_rao = int(attributes["lock_amount"])
+                elif event == "NetworkRemoved":
+                    netuid = _event_netuid(attributes)
+                    if netuid is not None:
+                        removed_by_index[index] = netuid
+
+            if deregistered_netuid is None:
+                for index in target_queue_indices:
+                    if index in removed_by_index:
+                        deregistered_netuid = removed_by_index[index]
+                        break
+
+            if target_queue_indices:
+                newly_queued = not queued
+                queued = True
+                if cleanup_netuid is None:
+                    cleanup_netuid = deregistered_netuid or await _cleanup_netuid(
+                        substrate, block_hash
+                    )
+                if newly_queued:
+                    await _notify_progress(
+                        on_progress,
+                        stage="queued",
+                        block=queued_at,
+                        cleanup_netuid=cleanup_netuid,
+                        deregistered_netuid=deregistered_netuid,
+                    )
+
+            for entry in events:
+                module, event, attributes, _ = _event_parts(entry)
+                if module != "SubtensorModule" or event != "NetworkAdded":
+                    continue
+                netuid = _event_netuid(attributes)
+                if netuid is None:
+                    continue
+                actual_owner, actual_hotkey, pending_registrations, locked = await asyncio.gather(
+                    substrate.query(
+                        "SubtensorModule", "SubnetOwner", [netuid], block_hash=block_hash
+                    ),
+                    substrate.query(
+                        "SubtensorModule", "SubnetOwnerHotkey", [netuid], block_hash=block_hash
+                    ),
+                    substrate.query(
+                        "SubtensorModule", "NetworkRegistrationQueue", block_hash=block_hash
+                    ),
+                    substrate.query(
+                        "SubtensorModule", "SubnetLocked", [netuid], block_hash=block_hash
+                    ),
+                )
+                if str(actual_owner) != owner or str(actual_hotkey) != hotkey:
+                    continue
+                # Queue processing may skip a failed entry and register a later
+                # request. Do not mistake that later subnet for this one merely
+                # because it has the same owner/hotkey pair.
+                if (
+                    queued
+                    and registration_block is not None
+                    and isinstance(pending_registrations, (list, tuple))
+                ):
+                    still_pending = any(
+                        isinstance(entry, dict)
+                        and str(entry.get("coldkey")) == owner
+                        and str(entry.get("hotkey")) == hotkey
+                        and int(entry.get("registration_block", -1)) == registration_block
+                        for entry in pending_registrations
+                    )
+                    if still_pending:
+                        continue
+                mode = "after_deregistration" if queued else "immediate"
+                data = {
+                    **result.data,
+                    "netuid": netuid,
+                    "registration_mode": mode,
+                    "registered_at_block": block,
+                }
+                if queued_at is not None:
+                    data["queued_at_block"] = queued_at
+                if queued and cleanup_netuid is not None:
+                    data["cleanup_netuid"] = cleanup_netuid
+                if queued and deregistered_netuid is not None:
+                    data["deregistered_netuid"] = deregistered_netuid
+                exact_price = locked if locked is not None else registration_price_rao
+                if exact_price is not None:
+                    data["registration_price_rao"] = int(exact_price)
+                await _notify_progress(
+                    on_progress,
+                    stage="registered",
+                    mode=mode,
+                    netuid=netuid,
+                    block=block,
+                    cleanup_netuid=cleanup_netuid,
+                    deregistered_netuid=deregistered_netuid,
+                )
+                return replace(result, message=f"Subnet {netuid} registered.", data=data)
+            return None
+
+        if queued:
+            inclusion_hash = await substrate.block_hash(first)
+            cleanup_netuid = deregistered_netuid or await _cleanup_netuid(substrate, inclusion_hash)
+            await _notify_progress(
+                on_progress,
+                stage="queued",
+                block=queued_at,
+                cleanup_netuid=cleanup_netuid,
+                deregistered_netuid=deregistered_netuid,
+            )
+
+        # Cover blocks produced while the receipt was finalizing before opening
+        # the live subscription. Each live head then closes any subscription race
+        # by scanning every height since the last one observed.
+        head = await substrate.block_number()
+        for block in range(first, head + 1):
+            completed = await scan(block)
+            last_scanned = block
+            if completed is not None:
+                return completed
+
+        async for update in substrate.blocks():
+            header = update.get("header") or {}
+            block = int(header["number"])
+            for height in range(last_scanned + 1, block + 1):
+                completed = await scan(height)
+                last_scanned = height
+                if completed is not None:
+                    return completed
+            await _notify_progress(
+                on_progress,
+                stage="waiting",
+                block=block,
+                blocks_since_call=max(0, block - (queued_at if queued_at is not None else first)),
+                cleanup_netuid=cleanup_netuid,
+                deregistered_netuid=deregistered_netuid,
+            )
+        raise ChainError("block subscription ended before the queued subnet was registered")
+
+    return await asyncio.wait_for(wait(), timeout) if timeout else await wait()
 
 
 def _pure_created_data(result: ExtrinsicResult) -> dict[str, Any]:
@@ -117,8 +617,15 @@ class Executor:
         active = self._active_policy(policy)
         return active.check(intent, fee) if active else []
 
-    def _enforce(self, intent: Intent, fee: Any, policy: Optional[Policy]) -> None:
+    def _enforce(
+        self,
+        intent: Intent,
+        fee: Any,
+        policy: Optional[Policy],
+        blocks: Optional[list[str]] = None,
+    ) -> None:
         violations = self._violations(intent, fee, policy)
+        violations.extend(blocks or [])
         if violations:
             raise PolicyError(violations)
 
@@ -127,6 +634,77 @@ class Executor:
         violations = active.check_raw_call() if active else []
         if violations:
             raise PolicyError(violations)
+
+    async def preflight(
+        self,
+        intent: Intent,
+        wallet: WalletLike,
+        *,
+        proxy_for: Optional[str] = None,
+        proxy_type: Optional[str] = None,
+    ) -> IntentPreflight:
+        """Preview intent state against its actual dispatch origin and fee payer.
+
+        ``estimated_fee`` is always filled in when possible: intents with their
+        own fee model (root claim, registration) supply it from their preflight;
+        for everything else the composed call is priced via payment info
+        (best-effort — a failed estimate leaves the field None).
+        """
+        wallet = as_wallet(wallet)
+        intent = _coerce_addresses(intent)
+        call, _extras = await _compose_intent_call(
+            self.substrate,
+            intent,
+            wallet,
+            proxy_for=proxy_for,
+            proxy_type=proxy_type,
+        )
+        preview = await self._preflight(
+            intent,
+            wallet,
+            proxy_for=proxy_for,
+            proxy_type=proxy_type,
+            call=call,
+        )
+        if preview.estimated_fee is None:
+            # Fee estimation is best-effort; the preview stands without it.
+            with contextlib.suppress(Exception):
+                preview.estimated_fee = await self.substrate.estimate_fee(
+                    call, self._public_keypair(wallet, intent.signer)
+                )
+        return preview
+
+    async def _preflight(
+        self,
+        intent: Intent,
+        wallet: WalletLike,
+        *,
+        proxy_for: Optional[str] = None,
+        proxy_type: Optional[str] = None,
+        call: Any = None,
+    ) -> IntentPreflight:
+        wallet = as_wallet(wallet)
+        intent = _coerce_addresses(intent)
+        if call is None:
+            call, _extras = await _compose_intent_call(
+                self.substrate,
+                intent,
+                wallet,
+                proxy_for=proxy_for,
+                proxy_type=proxy_type,
+            )
+        dispatch_origin, fee_payer = _intent_accounts(
+            self.substrate,
+            intent,
+            wallet,
+            proxy_for,
+        )
+        return await intent.preflight(
+            self.substrate,
+            dispatch_origin,
+            fee_payer,
+            call=call,
+        )
 
     async def plan(
         self,
@@ -141,41 +719,42 @@ class Executor:
 
         ``proxy_for`` switches to proxy signing: the call is wrapped in
         ``Proxy.proxy(real=proxy_for)`` so it dispatches with that account's
-        origin, while the *local* wallet key (which must be a registered proxy of
-        ``proxy_for``) signs. ``proxy_type`` optionally forces the exact proxy
-        type to match (``force_proxy_type``).
+        origin. The effective dispatch account (the direct signer or saved
+        multisig) must be a registered proxy of ``proxy_for``. ``proxy_type``
+        optionally forces the exact proxy type to match (``force_proxy_type``).
         """
-        built = await intent.build(self.substrate, wallet)
-        if isinstance(built, BuiltCall):
-            call, extras = built.call, built.extras
-        else:
-            call, extras = built, {}
+        wallet = as_wallet(wallet)
+        intent = _coerce_addresses(intent)
+        call, extras = await _compose_intent_call(
+            self.substrate,
+            intent,
+            wallet,
+            proxy_for=proxy_for,
+            proxy_type=proxy_type,
+        )
         pub = self._public_keypair(wallet, intent.signer)
-        signer_address = pub.ss58_address
-        # The account whose state the call actually touches.
-        origin = proxy_for or signer_address
-
-        if proxy_for is not None:
-            if proxy_type is not None:
-                check_proxy_type(proxy_type)
-            call = await self.substrate.compose(
-                generated_calls.Proxy.proxy(real=proxy_for, force_proxy_type=proxy_type, call=call)
-            )
-            extras = {**extras, "proxy_for": proxy_for}
-
-        warnings: list[str] = list(await intent.warnings(self.substrate, origin))
+        _origin, signer_address = _intent_accounts(self.substrate, intent, wallet, proxy_for)
+        preflight = await self._preflight(
+            intent,
+            wallet,
+            proxy_for=proxy_for,
+            call=call,
+        )
+        warnings: list[str] = list(preflight.warnings)
         if intent.signer == "hotkey" and proxy_for is None and charges_coldkey_fee(call):
             warnings.append(COLDKEY_FEE_WARNING)
-        fee = None
-        try:
-            fee = await self.substrate.estimate_fee(call, pub)
-        except Exception as error:  # fee estimation is best-effort
-            warnings.append(f"could not estimate fee: {error}")
+        fee = preflight.estimated_fee
+        if fee is None:
+            try:
+                fee = await self.substrate.estimate_fee(call, pub)
+            except Exception as error:  # fee estimation is best-effort
+                warnings.append(f"could not estimate fee: {error}")
 
-        effects = list(await intent.effects(self.substrate, origin))
+        effects = list(preflight.effects)
         if proxy_for is not None:
             effects.append(f"dispatched via proxy as {proxy_for} (signed by {signer_address})")
         violations = self._violations(intent, fee, policy)
+        violations.extend(preflight.blocks)
 
         return Plan(
             op=intent.op,
@@ -188,6 +767,9 @@ class Executor:
             violations=violations,
             call=call,
             extras=extras,
+            spend=intent.semantic_intent().spend(),
+            args={k: v for k, v in intent.to_dict().items() if k != "op"},
+            preview=dict(preflight.preview),
         )
 
     async def execute(
@@ -202,19 +784,45 @@ class Executor:
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = True,
         retries: int = 0,
+        wait_for_registration: bool = True,
+        registration_timeout: Optional[float] = None,
+        on_progress: Any = None,
     ) -> ExtrinsicResult:
         """Plan, then sign and submit. Raises ``PolicyError`` if the plan violates
         policy. (To preview without submitting, call ``plan`` instead.)
 
-        With ``proxy_for``, the local wallet key signs a ``Proxy.proxy`` wrapper
-        and the call dispatches as ``proxy_for`` — the real account's key never
+        With ``proxy_for``, the direct signer or saved multisig dispatches a
+        ``Proxy.proxy`` wrapper as ``proxy_for`` — the real account's key never
         touches this machine (see ``plan``).
 
         ``retries`` resubmits (up to that many extra times, one block apart) when
         the transaction pool rejects with a transient error such as a nonce race
         or "priority is too low". Chain-side dispatch failures are never retried —
         they would fail identically.
+
+        Intents with ``mev_shield_required`` (collateral AMM buys) are redirected
+        to :meth:`submit_shielded`; they cannot be submitted in the clear.
+
+        ``register_subnet`` has a second completion boundary: when subnet
+        capacity is full the successful extrinsic queues behind multi-block
+        dissolution. By default execute waits for the matching ``NetworkAdded``
+        event and returns its netuid. Set ``wait_for_registration=False`` to
+        return the queue receipt instead. ``registration_timeout`` and the
+        optional ``on_progress(dict)`` callback apply only to that wait.
         """
+        if intent.semantic_intent().mev_shield_required:
+            return await self.submit_shielded(
+                intent,
+                wallet,
+                policy=policy,
+                proxy_for=proxy_for,
+                proxy_type=proxy_type,
+                wait_for_inclusion=wait_for_inclusion,
+                wait_for_finalization=wait_for_finalization,
+                wait_for_registration=wait_for_registration,
+                registration_timeout=registration_timeout,
+                on_progress=on_progress,
+            )
         plan = await self.plan(
             intent, wallet, policy=policy, proxy_for=proxy_for, proxy_type=proxy_type
         )
@@ -235,23 +843,50 @@ class Executor:
                 break
             # One block, as the chain measures it (0.25s on fast-blocks localnets).
             await asyncio.sleep(await self.substrate.block_time())
-        if proxy_for is not None and result.success:
-            inner_error = _proxy_inner_error(result.events)
-            if inner_error is not None:
-                error = chain_error_from_dispatch(inner_error)
-                result = replace(
-                    result,
-                    success=False,
-                    message=f"proxied call failed: {error.message}",
-                    error=error,
-                )
+        # Defense for backends that mark ExtrinsicSuccess without decoding
+        # nested Sudo/Proxy/Multisig Results (e.g. in-memory fakes). The RPC
+        # path already fails these in resolve_outcome.
+        result = _with_nested_dispatch_failure(result)
         if result.success:
             data = dict(result.data)
-            if intent.op == "create_pure_proxy":
+            semantic_intent = _coerce_addresses(intent.semantic_intent())
+            if semantic_intent.op == "create_pure_proxy":
                 data.update(_pure_created_data(result))
             data.update(plan.extras)
             if data != result.data:
                 result = replace(result, data=data)
+        if (
+            result.success
+            and semantic_intent.op == "register_subnet"
+            and wait_for_registration
+            and (wait_for_inclusion or wait_for_finalization)
+        ):
+            resolved_intent = _coerce_addresses(intent)
+            semantic_intent = _coerce_addresses(resolved_intent.semantic_intent())
+            resolved_wallet = as_wallet(wallet)
+            owner, _fee_payer = _intent_accounts(
+                self.substrate,
+                resolved_intent,
+                resolved_wallet,
+                proxy_for,
+            )
+            origin_view = _intent_origin_view(
+                self.substrate,
+                resolved_intent,
+                resolved_wallet,
+                proxy_for,
+            )
+            hotkey = semantic_intent.hotkey_address(
+                origin_view, getattr(semantic_intent, "hotkey_ss58", None)
+            )
+            result = await _complete_subnet_registration(
+                self.substrate,
+                result,
+                owner=owner,
+                hotkey=hotkey,
+                on_progress=on_progress,
+                timeout=registration_timeout,
+            )
         return result
 
     async def execute_tool(
@@ -266,9 +901,14 @@ class Executor:
         wallet: WalletLike,
         *,
         policy: Optional[Policy] = None,
+        proxy_for: Optional[str] = None,
+        proxy_type: Optional[str] = None,
         period: int = MEV_SHIELD_ERA_PERIOD,
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = False,
+        wait_for_registration: bool = True,
+        registration_timeout: Optional[float] = None,
+        on_progress: Any = None,
     ) -> ExtrinsicResult:
         """Submit an intent MEV-shielded via the MevShield pallet.
 
@@ -279,12 +919,28 @@ class Executor:
         front-run it. Policy is enforced on the intent before anything is signed;
         ``max_fee_tao`` is checked against the inner call's estimated fee (the
         outer carrier extrinsic pays its own small fee on top).
+
+        ``proxy_for`` / ``proxy_type`` are the same as on :meth:`plan` and
+        :meth:`execute`: the inner signed extrinsic is the already-composed
+        call (semantic → sudo → proxy → adapter). Shield wraps that; it does
+        not replace the proxy wrap.
         """
-        built = await intent.build(self.substrate, wallet)
-        call = built.call if isinstance(built, BuiltCall) else built
-        fee = None
+        wallet = as_wallet(wallet)
+        intent = _coerce_addresses(intent)
+        semantic_intent = _coerce_addresses(intent.semantic_intent())
+        call, extras = await _compose_intent_call(
+            self.substrate, intent, wallet, proxy_for=proxy_for, proxy_type=proxy_type
+        )
+        dispatch_origin, fee_payer = _intent_accounts(self.substrate, intent, wallet, proxy_for)
+        preflight = await self._preflight(
+            intent,
+            wallet,
+            proxy_for=proxy_for,
+            call=call,
+        )
+        fee = preflight.estimated_fee
         active = self._active_policy(policy)
-        if active is not None and active.max_fee_tao is not None:
+        if active is not None and active.max_fee_tao is not None and fee is None:
             # A fee guardrail must not fail open: if the estimate is
             # unavailable the submission is blocked, unlike ``plan`` where a
             # failed estimate only warns.
@@ -296,12 +952,79 @@ class Executor:
                 raise PolicyError(
                     [f"could not estimate fee to enforce max_fee_tao: {error}"]
                 ) from error
-        self._enforce(intent, fee, policy)
+        blocks = list(preflight.blocks)
+        if preflight.required_free is not None:
+            try:
+                if preflight.available_free is None:
+                    account = await self.substrate.query("System", "Account", [fee_payer])
+                    free_rao = int(((account or {}).get("data") or {}).get("free") or 0)
+                else:
+                    free_rao = preflight.available_free.rao
+                carrier_fee = await estimate_shielded_carrier_fee(
+                    self.substrate,
+                    fee_payer,
+                )
+            except Exception as error:
+                blocks.append(
+                    "could not verify free TAO for the shielded call plus its carrier fee; "
+                    f"refusing to risk a post-carrier reserve shortfall ({error})"
+                )
+            else:
+                combined_rao = preflight.required_free.rao + carrier_fee.rao
+                if preflight.required_free.rao <= free_rao < combined_rao:
+                    blocks.append(
+                        f"free TAO ({Balance.from_rao(free_rao)}) covers the inner claim "
+                        f"reserve ({preflight.required_free}) but not that reserve plus the "
+                        f"MEV-shield carrier fee (~{Balance.from_rao(combined_rao)})"
+                    )
+        self._enforce(intent, fee, policy, blocks)
 
-        # NextKey rotates every block and is legitimately absent for a beat
-        # when an upcoming author hasn't announced its key yet (always the
-        # case in a chain's first blocks). Wait it out for a couple of
-        # blocks before concluding the pallet is inactive.
+        keypair = resolve_signer(wallet, intent.signer)
+        result = await self._submit_encrypted_call(
+            call,
+            keypair,
+            extras,
+            period=period,
+            wait_for_inclusion=wait_for_inclusion,
+            wait_for_finalization=wait_for_finalization,
+        )
+        if (
+            result.success
+            and semantic_intent.op == "register_subnet"
+            and wait_for_registration
+            and (wait_for_inclusion or wait_for_finalization)
+        ):
+            origin_view = _intent_origin_view(
+                self.substrate,
+                intent,
+                wallet,
+                proxy_for,
+            )
+            hotkey = semantic_intent.hotkey_address(
+                origin_view, getattr(semantic_intent, "hotkey_ss58", None)
+            )
+            result = await _complete_subnet_registration(
+                self.substrate,
+                result,
+                owner=dispatch_origin,
+                hotkey=hotkey,
+                on_progress=on_progress,
+                timeout=registration_timeout,
+                deferred_dispatch=True,
+            )
+        return result
+
+    async def _submit_encrypted_call(
+        self,
+        call,
+        keypair,
+        extras: dict,
+        *,
+        period: int,
+        wait_for_inclusion: bool,
+        wait_for_finalization: bool,
+    ) -> ExtrinsicResult:
+        """Encrypt ``call`` as a shielded inner extrinsic and submit the carrier."""
         pubkey = await self.substrate.mev_next_key()
         for _ in range(2):
             if pubkey:
@@ -311,7 +1034,7 @@ class Executor:
         if not pubkey:
             raise ChainError("MEV Shield NextKey not available; is the MevShield pallet active?")
 
-        keypair = resolve_signer(wallet, intent.signer)
+        await _prepare_shielded_signer(keypair)
         nonce = await self.substrate.account_next_index(keypair.ss58_address)
         inner_bytes, inner_hash = await self.substrate.sign_extrinsic(
             call, keypair, nonce=nonce + 1, period=period
@@ -331,9 +1054,165 @@ class Executor:
         if result.success:
             result = replace(
                 result,
-                data={**result.data, "shielded": True, "inner_extrinsic_hash": inner_hash},
+                data={
+                    **result.data,
+                    **extras,
+                    "shielded": True,
+                    "inner_extrinsic_hash": inner_hash,
+                },
             )
+        if result.success and (wait_for_inclusion or wait_for_finalization):
+            result = await self._resolve_shielded_inner(
+                result,
+                inner_hash,
+                period,
+                wait_for_finalization=wait_for_finalization,
+            )
+            result = _with_nested_dispatch_failure(result)
         return result
+
+    async def _resolve_shielded_inner(
+        self,
+        outer: ExtrinsicResult,
+        inner_hash: str,
+        period: int,
+        *,
+        wait_for_finalization: bool = False,
+    ) -> ExtrinsicResult:
+        """Follow a shielded carrier to the decrypted inner extrinsic's receipt.
+
+        The block author decrypts ``submit_encrypted`` and includes the inner
+        extrinsic as a regular extrinsic — normally in the carrier's own block.
+        Scan from the carrier's block until the inner hash is found and return
+        its receipt (success flag, block, extrinsic id, error) merged with the
+        carrier's shield metadata. If the inner extrinsic has not appeared by
+        the end of its mortal era, report the submission failed rather than
+        letting the carrier's success stand in for it.
+        """
+        included_at = _result_block(outer)
+        if included_at is None:
+            return outer  # inclusion was not awaited; nothing to follow
+        # The inner extrinsic's era opened at signing, one or two blocks before
+        # the carrier's inclusion; past included_at + period it cannot land.
+        deadline = included_at + max(1, int(period))
+        block = included_at
+        # Bounded so a wedged node (block_hash never resolving) cannot hang the
+        # follow-up forever: ~4 block-times of slack per remaining block.
+        waits_left = _SHIELDED_POLL_ATTEMPTS_PER_BLOCK * (deadline - included_at + 1)
+        while block <= deadline:
+            try:
+                block_hash = await self.substrate.block_hash(block)
+            except Exception:
+                block_hash = None
+            if not block_hash:
+                # Chain head has not reached this height yet.
+                waits_left -= 1
+                if waits_left <= 0:
+                    break
+                await asyncio.sleep(await self.substrate.block_time())
+                continue
+            inner = await self.substrate.find_extrinsic(inner_hash, block_hash)
+            if inner is not None:
+                if wait_for_finalization:
+                    max_finalization_polls = _SHIELDED_POLL_ATTEMPTS_PER_BLOCK * (
+                        deadline - included_at + 1
+                    )
+                    finalization_polls_left = max_finalization_polls
+                    finalization_rpc_failures = 0
+                    poll_interval = await self.substrate.block_time()
+                    while finalization_polls_left > 0:
+                        try:
+                            finalized = await asyncio.wait_for(
+                                self.substrate.finalized_block_number(),
+                                timeout=max(1.0, poll_interval),
+                            )
+                        except Exception as error:
+                            finalization_rpc_failures += 1
+                            if finalization_rpc_failures >= _SHIELDED_FINALITY_RPC_RETRIES:
+                                message = (
+                                    "could not verify shielded inner extrinsic finalization "
+                                    f"after {_SHIELDED_FINALITY_RPC_RETRIES} consecutive "
+                                    f"finalized-head RPC attempts ({error})"
+                                )
+                                raise ChainError(message) from error
+                        else:
+                            finalization_rpc_failures = 0
+                            if finalized >= block:
+                                break
+                        finalization_polls_left -= 1
+                        if finalization_polls_left <= 0:
+                            message = (
+                                f"shielded inner extrinsic at block {block} did not finalize "
+                                f"after {max_finalization_polls} polls"
+                            )
+                            raise ChainError(message)
+                        await asyncio.sleep(poll_interval)
+
+                    # Finality applies to the canonical block at this height.
+                    # Re-resolve after a reorg instead of returning a receipt
+                    # observed on a fork before the finalized head caught up.
+                    canonical_hash = None
+                    canonical_hash_error: Optional[Exception] = None
+                    rpc_timeout = max(0.1, poll_interval)
+                    for attempt in range(_SHIELDED_FINALITY_RPC_RETRIES):
+                        try:
+                            canonical_hash = await asyncio.wait_for(
+                                self.substrate.block_hash(block),
+                                timeout=rpc_timeout,
+                            )
+                        except Exception as error:
+                            canonical_hash_error = error
+                            if attempt + 1 < _SHIELDED_FINALITY_RPC_RETRIES:
+                                await asyncio.sleep(poll_interval)
+                        else:
+                            if canonical_hash:
+                                break
+                            canonical_hash_error = ChainError(
+                                f"canonical block hash unavailable at finalized block {block}"
+                            )
+                    if not canonical_hash:
+                        message = (
+                            "could not verify shielded inner extrinsic finalization "
+                            f"after {_SHIELDED_FINALITY_RPC_RETRIES} canonical block-hash "
+                            "RPC attempts"
+                        )
+                        raise ChainError(message) from canonical_hash_error
+                    if canonical_hash != block_hash:
+                        canonical_receipt_error: Optional[Exception] = None
+                        for attempt in range(_SHIELDED_FINALITY_RPC_RETRIES):
+                            try:
+                                inner = await asyncio.wait_for(
+                                    self.substrate.find_extrinsic(inner_hash, canonical_hash),
+                                    timeout=rpc_timeout,
+                                )
+                            except Exception as error:
+                                canonical_receipt_error = error
+                                if attempt + 1 < _SHIELDED_FINALITY_RPC_RETRIES:
+                                    await asyncio.sleep(poll_interval)
+                            else:
+                                break
+                        else:
+                            message = (
+                                "could not verify shielded inner extrinsic finalization "
+                                f"after {_SHIELDED_FINALITY_RPC_RETRIES} canonical receipt "
+                                "RPC attempts"
+                            )
+                            raise ChainError(message) from canonical_receipt_error
+                        if inner is None:
+                            block += 1
+                            continue
+                return replace(inner, data={**inner.data, **outer.data})
+            block += 1
+        message = (
+            "the MEV shield accepted the encrypted submission, but the decrypted "
+            f"extrinsic ({inner_hash}) was not included before its era expired"
+        )
+        return replace(
+            outer,
+            success=False,
+            message=message,
+            error=ChainError(message),
+        )
 
     async def submit_call(
         self,
@@ -345,6 +1224,7 @@ class Executor:
         period: Optional[int] = DEFAULT_ERA_PERIOD,
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = True,
+        shielded: bool = False,
     ) -> ExtrinsicResult:
         """Escape hatch: sign and submit a generated raw call with no intent wrapper.
 
@@ -352,11 +1232,22 @@ class Executor:
         exposes, including ones no intent wraps). There is no plan/preview, so an
         active policy cannot bound the spend — raw calls are refused unless the
         policy sets ``allow_raw_calls=True``. No policy means no restriction,
-        exactly as for intents.
+        exactly as for intents. ``shielded=True`` encrypts the composed call
+        the same way :meth:`submit_shielded` does for intents.
         """
         self._enforce_raw_call(policy)
         composed = await self.substrate.compose(call)
         keypair = resolve_signer(wallet, signer)
+        if shielded:
+            era = MEV_SHIELD_ERA_PERIOD if period in (None, DEFAULT_ERA_PERIOD) else int(period)
+            return await self._submit_encrypted_call(
+                composed,
+                keypair,
+                {},
+                period=era,
+                wait_for_inclusion=wait_for_inclusion,
+                wait_for_finalization=wait_for_finalization,
+            )
         return await self.substrate.submit(
             composed,
             keypair,

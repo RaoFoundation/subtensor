@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_stake_into_basket
+expression: fee
+---
+5370018

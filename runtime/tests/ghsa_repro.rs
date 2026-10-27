@@ -150,3 +150,133 @@ fn ghsa_2026_003_owner_proxy_set_owner_hotkey_alias_bypass() {
         "precondition: Owner correctly excepts sudo_set_sn_owner_hotkey (call 67)"
     );
 }
+
+/// Registration collateral must remain payable when composed with the real
+/// runtime's refundable preimage deposit and a subsequent balance drain.
+#[test]
+fn subnet_registration_preimage_hold_cannot_short_fund_settlement() {
+    use frame_support::{
+        assert_ok,
+        traits::{
+            fungible::{Inspect, InspectHold, Mutate},
+            tokens::{Fortitude, Preservation},
+        },
+    };
+    use node_subtensor_runtime::{
+        Balances, BuildStorage, Preimage, Runtime, RuntimeGenesisConfig, RuntimeHoldReason,
+        RuntimeOrigin, SubtensorModule, System,
+    };
+    use sp_runtime::{Saturating, traits::Hash};
+    use subtensor_runtime_common::Token;
+    for legacy in [false, true] {
+        let mut ext: sp_io::TestExternalities = RuntimeGenesisConfig::default()
+            .build_storage()
+            .unwrap()
+            .into();
+        ext.execute_with(|| {
+            System::set_block_number(1);
+            let cold = AccountId::new([41; 32]);
+            let hot = AccountId::new([42; 32]);
+            let recipient = AccountId::new([43; 32]);
+            pallet_subtensor::NetworkRegistrationStartBlock::<Runtime>::put(0);
+            // Runtime genesis already contains non-root subnet 1.
+            pallet_subtensor::SubnetLimit::<Runtime>::put(2);
+            pallet_subtensor::NetworkMinLockCost::<Runtime>::put(TaoBalance::from(1_000_000_000));
+            pallet_subtensor::NetworkLastLockCost::<Runtime>::put(TaoBalance::from(1_000_000_000));
+            SubtensorModule::set_network_rate_limit(0);
+            let cost = SubtensorModule::get_network_lock_cost();
+            assert_ok!(<Balances as Mutate<AccountId>>::mint_into(
+                &cold,
+                cost.saturating_mul(4.into())
+            ));
+            if legacy {
+                assert_ok!(SubtensorModule::lock_network_registration_cost(
+                    &cold, cost, 0
+                ));
+                pallet_subtensor::NetworkRegistrationQueue::<Runtime>::put(vec![
+                    pallet_subtensor::subnets::subnet::NetworkRegistrationInfo {
+                        coldkey: cold.clone(),
+                        hotkey: hot.clone(),
+                        mechid: 1,
+                        identity: None,
+                        lock_amount: cost,
+                        median_subnet_alpha_price: SubtensorModule::get_median_subnet_alpha_price(),
+                        registration_block: 1,
+                        lock_id: 0,
+                    },
+                ]);
+            } else {
+                pallet_subtensor::DissolveCleanupQueue::<Runtime>::put(vec![NetUid::from(2)]);
+                assert_ok!(SubtensorModule::register_network(
+                    RuntimeOrigin::signed(cold.clone()),
+                    hot.clone()
+                ));
+                assert_eq!(
+                    pallet_subtensor::NetworkRegistrationEscrow::<Runtime>::get(0),
+                    Some((cold.clone(), cost))
+                );
+            }
+            // Runtime storage pricing is 104M rao base + 1M rao per byte.
+            let bytes = cost
+                .to_u64()
+                .saturating_sub(104_000_000)
+                .div_ceil(1_000_000) as usize;
+            let preimage = vec![7u8; bytes];
+            let hash = <Runtime as frame_system::Config>::Hashing::hash(&preimage);
+            assert_ok!(Preimage::note_preimage(
+                RuntimeOrigin::signed(cold.clone()),
+                preimage
+            ));
+            let reason = RuntimeHoldReason::Preimage(pallet_preimage::HoldReason::Preimage);
+            assert!(<Balances as InspectHold<AccountId>>::balance_on_hold(&reason, &cold) >= cost);
+            let keep = <Balances as Inspect<AccountId>>::minimum_balance().saturating_mul(2.into());
+            let drain = Balances::free_balance(&cold).saturating_sub(keep);
+            assert_ok!(<Balances as Mutate<AccountId>>::transfer(
+                &cold,
+                &recipient,
+                drain,
+                Preservation::Preserve
+            ));
+            assert!(
+                <Balances as Inspect<AccountId>>::reducible_balance(
+                    &cold,
+                    Preservation::Preserve,
+                    Fortitude::Polite
+                ) < cost
+            );
+            pallet_subtensor::DissolveCleanupQueue::<Runtime>::kill();
+            let netuid = SubtensorModule::get_next_netuid();
+            SubtensorModule::process_network_registration_queue();
+            assert!(
+                pallet_subtensor::NetworkRegistrationQueue::<Runtime>::get().is_empty(),
+                "legacy={legacy}, events={:?}",
+                System::events()
+            );
+            if legacy {
+                assert!(!pallet_subtensor::NetworksAdded::<Runtime>::contains_key(
+                    netuid
+                ));
+                assert!(!pallet_subtensor::SubnetTAO::<Runtime>::contains_key(
+                    netuid
+                ));
+            } else {
+                assert_eq!(pallet_subtensor::SubnetTAO::<Runtime>::get(netuid), cost);
+                assert_eq!(pallet_subtensor::SubnetLocked::<Runtime>::get(netuid), cost);
+                assert_eq!(
+                    Balances::free_balance(SubtensorModule::get_subnet_account_id(netuid).unwrap()),
+                    cost
+                );
+                assert!(!pallet_subtensor::NetworkRegistrationEscrow::<Runtime>::contains_key(0));
+            }
+            assert_eq!(Balances::free_balance(&cold), keep);
+            assert_ok!(Preimage::unnote_preimage(
+                RuntimeOrigin::signed(cold.clone()),
+                hash
+            ));
+            assert_eq!(
+                <Balances as InspectHold<AccountId>>::balance_on_hold(&reason, &cold),
+                TaoBalance::ZERO
+            );
+        });
+    }
+}

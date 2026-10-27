@@ -1,5 +1,31 @@
 [
   {
+    "name": "accepts_locked_alpha",
+    "summary": "Whether a coldkey accepts incoming locked alpha transfers.",
+    "description": "Whether a coldkey accepts incoming locked alpha transfers.\n\nColdkeys reject locked alpha by default; the pallet's\n`set_reject_locked_alpha(false)` sets bit 0 of the coldkey's\n`AccountFlags` to opt in.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose locked-alpha acceptance flag to read."
+    },
+    "category": "Locks & conviction",
+    "docs_url": "/docs/query/accepts-locked-alpha",
+    "markdown_url": "/llms.mdx/docs/query/accepts-locked-alpha/content.md",
+    "python": "sub.locks.accepts_locked_alpha(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "AccountFlags",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1671,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1671",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "alpha_price",
     "summary": "Current spot alpha price for a subnet, as TAO per alpha.",
     "description": "Current spot alpha price for a subnet, as TAO per alpha.",
@@ -11,7 +37,20 @@
     },
     "category": "Prices & swaps",
     "docs_url": "/docs/query/alpha-price",
-    "python": "client.prices.alpha_price(...)"
+    "markdown_url": "/llms.mdx/docs/query/alpha-price/content.md",
+    "python": "sub.prices.alpha_price(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "SwapRuntimeApi",
+        "name": "current_alpha_price",
+        "path": "pallets/subtensor/src/staking/order_swap.rs",
+        "line": 100,
+        "end_line": 102,
+        "url": "/code/pallets/subtensor/src/staking/order_swap.rs#L100-L102",
+        "raw_url": "/code/raw/pallets/subtensor/src/staking/order_swap.rs"
+      }
+    ]
   },
   {
     "name": "alpha_prices",
@@ -21,7 +60,20 @@
     "param_docs": {},
     "category": "Prices & swaps",
     "docs_url": "/docs/query/alpha-prices",
-    "python": "client.prices.alpha_prices(...)"
+    "markdown_url": "/llms.mdx/docs/query/alpha-prices/content.md",
+    "python": "sub.prices.alpha_prices(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "SwapRuntimeApi",
+        "name": "current_alpha_price_all",
+        "path": "runtime/src/lib.rs",
+        "line": 2758,
+        "end_line": 2768,
+        "url": "/code/runtime/src/lib.rs#L2758-L2768",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "associated_evm_key",
@@ -37,7 +89,19 @@
     },
     "category": "Neurons & registration",
     "docs_url": "/docs/query/associated-evm-key",
-    "python": "client.neurons.associated_evm_key(...)"
+    "markdown_url": "/llms.mdx/docs/query/associated-evm-key/content.md",
+    "python": "sub.neurons.associated_evm_key(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "AssociatedEvmAddress",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3610,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3610",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "auto_stake",
@@ -53,7 +117,19 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/auto-stake",
-    "python": "client.staking.auto_stake(...)"
+    "markdown_url": "/llms.mdx/docs/query/auto-stake/content.md",
+    "python": "sub.staking.auto_stake(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "AutoStakeDestination",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1955,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1955",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "auto_stake_all",
@@ -67,7 +143,19 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/auto-stake-all",
-    "python": "client.staking.auto_stake_all(...)"
+    "markdown_url": "/llms.mdx/docs/query/auto-stake-all/content.md",
+    "python": "sub.staking.auto_stake_all(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "AutoStakeDestination",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1955,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1955",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "balance",
@@ -81,7 +169,15 @@
     },
     "category": "Accounts & keys",
     "docs_url": "/docs/query/balance",
-    "python": "client.balances.balance(...)"
+    "markdown_url": "/llms.mdx/docs/query/balance/content.md",
+    "python": "sub.balances.balance(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "System",
+        "name": "Account"
+      }
+    ]
   },
   {
     "name": "balances",
@@ -95,7 +191,47 @@
     },
     "category": "Accounts & keys",
     "docs_url": "/docs/query/balances",
-    "python": "client.balances.balances(...)"
+    "markdown_url": "/llms.mdx/docs/query/balances/content.md",
+    "python": "sub.balances.balances(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "System",
+        "name": "Account"
+      }
+    ]
+  },
+  {
+    "name": "basket_position",
+    "summary": "A staker's beta token position in one validator's basket.",
+    "description": "A staker's beta token position in one validator's basket.\n\n`beta` is the staker's beta token balance \u2014 the product-facing number:\nit never moves with market prices, only grows as root dividends accrue\nand shrinks when you claim. One beta is 10^9 raw chain units and had a\npar value of \u03c41 at fund inception, so `beta_price_tao` (fund NAV over\noutstanding beta) tracks the fund's performance from 1.0. `value_tao`\nis the realizable TAO a claim would pay right now \u2014 exactly what\n`claim_root_with_hotkey` would redeem; `spot_value_tao` marks the\nsame slice at spot prices (display only). Returns `None` when the\nstaker holds no beta there.",
+    "params": {
+      "hotkey_ss58": "string",
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Validator whose basket the position is in.",
+      "coldkey_ss58": "Staker whose position to read."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/basket-position",
+    "markdown_url": "/llms.mdx/docs/query/basket-position/content.md",
+    "python": "sub.staking.basket_position(...)"
+  },
+  {
+    "name": "basket_trading_status",
+    "summary": "A validator's `swap_basket` trading status: gates and the turnover bucket.",
+    "description": "A validator's `swap_basket` trading status: gates and the turnover bucket.\n\n`enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.\nThe turnover budget is a token bucket: `budget_tao` is its capacity\n(`BasketDailyTurnoverCap` share of the fund's guarded NAV \u2014 each holding at\nthe lower of its realizable value and its slow-moving-price value, so a\npumped pool cannot enlarge it), `remaining_tao` what a trade right\nnow could push through the fund, `used_tao` the difference, and the bucket\nrefills by `refill_per_block_tao` every block (`budget_tao / refill_blocks`,\na full refill over `refill_blocks` = 7200 blocks).",
+    "params": {
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Validator hotkey whose basket trading status to read."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/basket-trading-status",
+    "markdown_url": "/llms.mdx/docs/query/basket-trading-status/content.md",
+    "python": "sub.staking.basket_trading_status(...)"
   },
   {
     "name": "block_info",
@@ -109,7 +245,8 @@
     },
     "category": "Chain",
     "docs_url": "/docs/query/block-info",
-    "python": "client.chain.block_info(...)"
+    "markdown_url": "/llms.mdx/docs/query/block-info/content.md",
+    "python": "sub.chain.block_info(...)"
   },
   {
     "name": "block_time",
@@ -119,7 +256,8 @@
     "param_docs": {},
     "category": "Chain",
     "docs_url": "/docs/query/block-time",
-    "python": "client.chain.block_time(...)"
+    "markdown_url": "/llms.mdx/docs/query/block-time/content.md",
+    "python": "sub.chain.block_time(...)"
   },
   {
     "name": "blocks_since_last_step",
@@ -133,7 +271,19 @@
     },
     "category": "Epochs & timing",
     "docs_url": "/docs/query/blocks-since-last-step",
-    "python": "client.epochs.blocks_since_last_step(...)"
+    "markdown_url": "/llms.mdx/docs/query/blocks-since-last-step/content.md",
+    "python": "sub.epochs.blocks_since_last_step(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "BlocksSinceLastStep",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2606,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2606",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "blocks_since_last_update",
@@ -149,7 +299,19 @@
     },
     "category": "Epochs & timing",
     "docs_url": "/docs/query/blocks-since-last-update",
-    "python": "client.epochs.blocks_since_last_update(...)"
+    "markdown_url": "/llms.mdx/docs/query/blocks-since-last-update/content.md",
+    "python": "sub.epochs.blocks_since_last_update(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "LastUpdate",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3027,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3027",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "blocks_until_next_epoch",
@@ -163,7 +325,20 @@
     },
     "category": "Epochs & timing",
     "docs_url": "/docs/query/blocks-until-next-epoch",
-    "python": "client.epochs.blocks_until_next_epoch(...)"
+    "markdown_url": "/llms.mdx/docs/query/blocks-until-next-epoch/content.md",
+    "python": "sub.epochs.blocks_until_next_epoch(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "SubnetInfoRuntimeApi",
+        "name": "get_next_epoch_start_block",
+        "path": "pallets/subtensor/src/coinbase/run_coinbase.rs",
+        "line": 1292,
+        "end_line": 1306,
+        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1292-L1306",
+        "raw_url": "/code/raw/pallets/subtensor/src/coinbase/run_coinbase.rs"
+      }
+    ]
   },
   {
     "name": "bonds",
@@ -179,7 +354,19 @@
     },
     "category": "Weights & bonds",
     "docs_url": "/docs/query/bonds",
-    "python": "client.weights.bonds(...)"
+    "markdown_url": "/llms.mdx/docs/query/bonds/content.md",
+    "python": "sub.weights.bonds(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Bonds",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3055,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3055",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "burn",
@@ -193,12 +380,50 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/burn",
-    "python": "client.subnets.burn(...)"
+    "markdown_url": "/llms.mdx/docs/query/burn/content.md",
+    "python": "sub.subnets.burn(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Burn",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2772,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2772",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "childkey_threshold_suspended",
+    "summary": "Whether a parent hotkey's child relations are currently inert.",
+    "description": "Whether a parent hotkey's child relations are currently inert.\n\nThe chain re-checks a parent's total stake against the childkey stake\nthreshold (`StakeThreshold`) whenever that stake changes. A parent that\nhas dropped below it is flagged here: its `children` and `parents` rows\nstay stored, but stake inheritance and dividend routing ignore them on\nevery subnet the parent does not own. The flag clears on its own once the\nparent's stake meets the threshold again.",
+    "params": {
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Parent hotkey to check."
+    },
+    "category": "Delegation",
+    "docs_url": "/docs/query/childkey-threshold-suspended",
+    "markdown_url": "/llms.mdx/docs/query/childkey-threshold-suspended/content.md",
+    "python": "sub.delegation.childkey_threshold_suspended(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "ChildkeyThresholdSuspended",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1716,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1716",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "children",
     "summary": "Child hotkeys of a parent on a subnet, as (proportion, child_ss58) pairs.",
-    "description": "Child hotkeys of a parent on a subnet, as (proportion, child_ss58) pairs.\n\nProportions are u64-normalized fractions of the parent's stake, where\nu64::MAX means 100%.",
+    "description": "Child hotkeys of a parent on a subnet, as (proportion, child_ss58) pairs.\n\nProportions are u64-normalized fractions of the parent's stake, where\nu64::MAX means 100%. This is the stored relation set; while the parent is\nbelow the childkey stake threshold (see `childkey_threshold_suspended`)\nthe chain treats these edges as inert on every subnet the parent does\nnot own.",
     "params": {
       "hotkey_ss58": "string",
       "netuid": "integer"
@@ -209,7 +434,19 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/children",
-    "python": "client.delegation.children(...)"
+    "markdown_url": "/llms.mdx/docs/query/children/content.md",
+    "python": "sub.delegation.children(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "ChildKeys",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1734,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1734",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "coldkey_lock",
@@ -225,12 +462,24 @@
     },
     "category": "Locks & conviction",
     "docs_url": "/docs/query/coldkey-lock",
-    "python": "client.locks.coldkey_lock(...)"
+    "markdown_url": "/llms.mdx/docs/query/coldkey-lock/content.md",
+    "python": "sub.locks.coldkey_lock(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Lock",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2104,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2104",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "coldkey_swap_announcement",
-    "summary": "A coldkey's pending swap announcement (execute block, new-key hash, disputed), or None.",
-    "description": "A coldkey's pending swap announcement (execute block, new-key hash, disputed), or None.\n\nThis is the `swap-check` status: `ColdkeySwapAnnouncements` stores the block\nat which the swap becomes executable and the BlakeTwo256 hash committed to.",
+    "summary": "A coldkey's swap state (execute block, new-key hash, dispute, recovery lock), or None.",
+    "description": "A coldkey's swap state (execute block, new-key hash, dispute, recovery lock), or None.\n\nThis is the `swap-check` status: `ColdkeySwapAnnouncements` stores the block\nat which the swap becomes executable and the BlakeTwo256 hash committed to.\n`recovery_locked` is true after root `reset_coldkey_swap_keep_locked` (stored\ndispute block 0): the coldkey can only make swap calls until a successful swap or\na full reset, even when no announcement is pending.",
     "params": {
       "coldkey_ss58": "string"
     },
@@ -239,7 +488,43 @@
     },
     "category": "Accounts & keys",
     "docs_url": "/docs/query/coldkey-swap-announcement",
-    "python": "client.balances.coldkey_swap_announcement(...)"
+    "markdown_url": "/llms.mdx/docs/query/coldkey-swap-announcement/content.md",
+    "python": "sub.balances.coldkey_swap_announcement(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "ColdkeySwapAnnouncements",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1990,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1990",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "ColdkeySwapDisputes",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2014,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2014",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "collateral_policy",
+    "summary": "A subnet's collateral configuration.",
+    "description": "A subnet's collateral configuration.\n\n`lock_share` is the fraction of the registration price locked as\ncollateral instead of burned (0 disables collateral); `drain_ratio` is\nthe alpha released per alpha of hotkey emission earned, snapshot per\nminer at registration.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Mining & collateral",
+    "docs_url": "/docs/query/collateral-policy",
+    "markdown_url": "/llms.mdx/docs/query/collateral-policy/content.md",
+    "python": "sub.collateral.collateral_policy(...)"
   },
   {
     "name": "commit_reveal_enabled",
@@ -253,7 +538,19 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/commit-reveal-enabled",
-    "python": "client.subnets.commit_reveal_enabled(...)"
+    "markdown_url": "/llms.mdx/docs/query/commit-reveal-enabled/content.md",
+    "python": "sub.subnets.commit_reveal_enabled(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "CommitRevealWeightsEnabled",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2767,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2767",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "commitment",
@@ -269,12 +566,24 @@
     },
     "category": "Identity & commitments",
     "docs_url": "/docs/query/commitment",
-    "python": "client.identity.commitment(...)"
+    "markdown_url": "/llms.mdx/docs/query/commitment/content.md",
+    "python": "sub.identity.commitment(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Commitments",
+        "name": "CommitmentOf",
+        "path": "pallets/commitments/src/lib.rs",
+        "line": 157,
+        "url": "/code/pallets/commitments/src/lib.rs#L157",
+        "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "commitments",
     "summary": "Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state.",
-    "description": "Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state.\n\nOne row per hotkey that has (or had) a commitment \u2014 including sealed\ntimelocked payloads waiting on drand (`is_revealed` false, `reveals_at`\nset) and fully-revealed ones whose live storage entry the chain already\ndropped. `commitment` is the currently visible content: the plaintext, or\nthe latest chain-decrypted payload; null while still sealed.",
+    "description": "Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state.\n\nOne row per hotkey that has (or had) a commitment \u2014 including sealed\ntimelocked payloads waiting on drand (`status` `sealed`), terminal\non-chain reveal failures retained for audit (`status` `failed`), and\nfully-revealed ones whose live storage entry the chain already dropped.\n`commitment` is the currently visible content: the plaintext, or the\nlatest chain-decrypted payload; null while sealed or failed.",
     "params": {
       "netuid": "integer"
     },
@@ -283,7 +592,8 @@
     },
     "category": "Identity & commitments",
     "docs_url": "/docs/query/commitments",
-    "python": "client.identity.commitments(...)"
+    "markdown_url": "/llms.mdx/docs/query/commitments/content.md",
+    "python": "sub.identity.commitments(...)"
   },
   {
     "name": "crowdloan",
@@ -297,7 +607,19 @@
     },
     "category": "Leases & crowdloans",
     "docs_url": "/docs/query/crowdloan",
-    "python": "client.leasing.crowdloan(...)"
+    "markdown_url": "/llms.mdx/docs/query/crowdloan/content.md",
+    "python": "sub.leasing.crowdloan(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Crowdloan",
+        "name": "Crowdloans",
+        "path": "pallets/crowdloan/src/lib.rs",
+        "line": 152,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L152",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "crowdloan_contributors",
@@ -311,7 +633,19 @@
     },
     "category": "Leases & crowdloans",
     "docs_url": "/docs/query/crowdloan-contributors",
-    "python": "client.leasing.crowdloan_contributors(...)"
+    "markdown_url": "/llms.mdx/docs/query/crowdloan-contributors/content.md",
+    "python": "sub.leasing.crowdloan_contributors(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Crowdloan",
+        "name": "Contributions",
+        "path": "pallets/crowdloan/src/lib.rs",
+        "line": 161,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L161",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "crowdloans",
@@ -321,7 +655,19 @@
     "param_docs": {},
     "category": "Leases & crowdloans",
     "docs_url": "/docs/query/crowdloans",
-    "python": "client.leasing.crowdloans(...)"
+    "markdown_url": "/llms.mdx/docs/query/crowdloans/content.md",
+    "python": "sub.leasing.crowdloans(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Crowdloan",
+        "name": "Crowdloans",
+        "path": "pallets/crowdloan/src/lib.rs",
+        "line": 152,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L152",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "delegate",
@@ -335,7 +681,20 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/delegate",
-    "python": "client.delegation.delegate(...)"
+    "markdown_url": "/llms.mdx/docs/query/delegate/content.md",
+    "python": "sub.delegation.delegate(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "DelegateInfoRuntimeApi",
+        "name": "get_delegate",
+        "path": "pallets/subtensor/src/rpc_info/delegate_info.rs",
+        "line": 135,
+        "end_line": 143,
+        "url": "/code/pallets/subtensor/src/rpc_info/delegate_info.rs#L135-L143",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/delegate_info.rs"
+      }
+    ]
   },
   {
     "name": "delegate_take",
@@ -349,7 +708,37 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/delegate-take",
-    "python": "client.delegation.delegate_take(...)"
+    "markdown_url": "/llms.mdx/docs/query/delegate-take/content.md",
+    "python": "sub.delegation.delegate_take(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Delegates",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1690,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1690",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "MinDelegateTake",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1649,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1649",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "MaxDelegateTake",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1645,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1645",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "delegated",
@@ -363,7 +752,20 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/delegated",
-    "python": "client.delegation.delegated(...)"
+    "markdown_url": "/llms.mdx/docs/query/delegated/content.md",
+    "python": "sub.delegation.delegated(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "DelegateInfoRuntimeApi",
+        "name": "get_delegated",
+        "path": "pallets/subtensor/src/rpc_info/delegate_info.rs",
+        "line": 159,
+        "end_line": 190,
+        "url": "/code/pallets/subtensor/src/rpc_info/delegate_info.rs#L159-L190",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/delegate_info.rs"
+      }
+    ]
   },
   {
     "name": "delegates",
@@ -373,7 +775,20 @@
     "param_docs": {},
     "category": "Delegation",
     "docs_url": "/docs/query/delegates",
-    "python": "client.delegation.delegates(...)"
+    "markdown_url": "/llms.mdx/docs/query/delegates/content.md",
+    "python": "sub.delegation.delegates(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "DelegateInfoRuntimeApi",
+        "name": "get_delegates",
+        "path": "pallets/subtensor/src/rpc_info/delegate_info.rs",
+        "line": 147,
+        "end_line": 155,
+        "url": "/code/pallets/subtensor/src/rpc_info/delegate_info.rs#L147-L155",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/delegate_info.rs"
+      }
+    ]
   },
   {
     "name": "difficulty",
@@ -387,7 +802,19 @@
     },
     "category": "Hyperparameters",
     "docs_url": "/docs/query/difficulty",
-    "python": "client.hyperparameters.difficulty(...)"
+    "markdown_url": "/llms.mdx/docs/query/difficulty/content.md",
+    "python": "sub.hyperparameters.difficulty(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Difficulty",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2776,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2776",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "epoch_status",
@@ -401,7 +828,65 @@
     },
     "category": "Epochs & timing",
     "docs_url": "/docs/query/epoch-status",
-    "python": "client.epochs.epoch_status(...)"
+    "markdown_url": "/llms.mdx/docs/query/epoch-status/content.md",
+    "python": "sub.epochs.epoch_status(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Tempo",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2440,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2440",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "LastEpochBlock",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2465,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2465",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "BlocksSinceLastStep",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2606,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2606",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "PendingEpochAt",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2471,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2471",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetEpochIndex",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2477,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2477",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "runtime",
+        "container": "SubnetInfoRuntimeApi",
+        "name": "get_next_epoch_start_block",
+        "path": "pallets/subtensor/src/coinbase/run_coinbase.rs",
+        "line": 1292,
+        "end_line": 1306,
+        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1292-L1306",
+        "raw_url": "/code/raw/pallets/subtensor/src/coinbase/run_coinbase.rs"
+      }
+    ]
   },
   {
     "name": "existential_deposit",
@@ -411,7 +896,19 @@
     "param_docs": {},
     "category": "Accounts & keys",
     "docs_url": "/docs/query/existential-deposit",
-    "python": "client.balances.existential_deposit(...)"
+    "markdown_url": "/llms.mdx/docs/query/existential-deposit/content.md",
+    "python": "sub.balances.existential_deposit(...)",
+    "hits": [
+      {
+        "kind": "constant",
+        "container": "Balances",
+        "name": "ExistentialDeposit",
+        "path": "runtime/src/lib.rs",
+        "line": 480,
+        "url": "/code/runtime/src/lib.rs#L480",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "hotkey_conviction",
@@ -427,7 +924,20 @@
     },
     "category": "Locks & conviction",
     "docs_url": "/docs/query/hotkey-conviction",
-    "python": "client.locks.hotkey_conviction(...)"
+    "markdown_url": "/llms.mdx/docs/query/hotkey-conviction/content.md",
+    "python": "sub.locks.hotkey_conviction(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "StakeInfoRuntimeApi",
+        "name": "get_hotkey_conviction",
+        "path": "runtime/src/lib.rs",
+        "line": 2613,
+        "end_line": 2615,
+        "url": "/code/runtime/src/lib.rs#L2613-L2615",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "hotkey_identities",
@@ -441,7 +951,28 @@
     },
     "category": "Identity & commitments",
     "docs_url": "/docs/query/hotkey-identities",
-    "python": "client.identity.hotkey_identities(...)"
+    "markdown_url": "/llms.mdx/docs/query/hotkey-identities/content.md",
+    "python": "sub.identity.hotkey_identities(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Owner",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1666,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1666",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "IdentitiesV2",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3117,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3117",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "hotkey_owner",
@@ -455,7 +986,19 @@
     },
     "category": "Neurons & registration",
     "docs_url": "/docs/query/hotkey-owner",
-    "python": "client.neurons.hotkey_owner(...)"
+    "markdown_url": "/llms.mdx/docs/query/hotkey-owner/content.md",
+    "python": "sub.neurons.hotkey_owner(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Owner",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1666,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1666",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "identity",
@@ -469,7 +1012,19 @@
     },
     "category": "Identity & commitments",
     "docs_url": "/docs/query/identity",
-    "python": "client.identity.identity(...)"
+    "markdown_url": "/llms.mdx/docs/query/identity/content.md",
+    "python": "sub.identity.identity(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "IdentitiesV2",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3117,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3117",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "immunity_period",
@@ -483,7 +1038,19 @@
     },
     "category": "Hyperparameters",
     "docs_url": "/docs/query/immunity-period",
-    "python": "client.hyperparameters.immunity_period(...)"
+    "markdown_url": "/llms.mdx/docs/query/immunity-period/content.md",
+    "python": "sub.hyperparameters.immunity_period(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "ImmunityPeriod",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2686,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2686",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "is_delegate",
@@ -497,7 +1064,20 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/is-delegate",
-    "python": "client.delegation.is_delegate(...)"
+    "markdown_url": "/llms.mdx/docs/query/is-delegate/content.md",
+    "python": "sub.delegation.is_delegate(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "DelegateInfoRuntimeApi",
+        "name": "get_delegate",
+        "path": "pallets/subtensor/src/rpc_info/delegate_info.rs",
+        "line": 135,
+        "end_line": 143,
+        "url": "/code/pallets/subtensor/src/rpc_info/delegate_info.rs#L135-L143",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/delegate_info.rs"
+      }
+    ]
   },
   {
     "name": "is_fast_blocks",
@@ -507,7 +1087,8 @@
     "param_docs": {},
     "category": "Chain",
     "docs_url": "/docs/query/is-fast-blocks",
-    "python": "client.chain.is_fast_blocks(...)"
+    "markdown_url": "/llms.mdx/docs/query/is-fast-blocks/content.md",
+    "python": "sub.chain.is_fast_blocks(...)"
   },
   {
     "name": "lease",
@@ -521,7 +1102,19 @@
     },
     "category": "Leases & crowdloans",
     "docs_url": "/docs/query/lease",
-    "python": "client.leasing.lease(...)"
+    "markdown_url": "/llms.mdx/docs/query/lease/content.md",
+    "python": "sub.leasing.lease(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetLeases",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3628,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3628",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "leases",
@@ -531,7 +1124,19 @@
     "param_docs": {},
     "category": "Leases & crowdloans",
     "docs_url": "/docs/query/leases",
-    "python": "client.leasing.leases(...)"
+    "markdown_url": "/llms.mdx/docs/query/leases/content.md",
+    "python": "sub.leasing.leases(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetLeases",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3628,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3628",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "locks_for_coldkey",
@@ -545,7 +1150,47 @@
     },
     "category": "Locks & conviction",
     "docs_url": "/docs/query/locks-for-coldkey",
-    "python": "client.locks.locks_for_coldkey(...)"
+    "markdown_url": "/llms.mdx/docs/query/locks-for-coldkey/content.md",
+    "python": "sub.locks.locks_for_coldkey(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Lock",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2104,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2104",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "locks_for_hotkey",
+    "summary": "Every coldkey's lock targeting a hotkey on a subnet, rolled forward to now.",
+    "description": "Every coldkey's lock targeting a hotkey on a subnet, rolled forward to now.\n\nThe reverse of `locks_for_coldkey`: scans the `LockingColdkeys`\nreverse index for the coldkeys with a non-zero lock pointed at the\nhotkey, then loads each lock record. This is the target-side view \u2014 a\nsubnet owner can see which coldkeys are building conviction toward a\nhotkey, not just the locks their own coldkey created.",
+    "params": {
+      "hotkey_ss58": "string",
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Hotkey the locks target.",
+      "netuid": "Subnet to query."
+    },
+    "category": "Locks & conviction",
+    "docs_url": "/docs/query/locks-for-hotkey",
+    "markdown_url": "/llms.mdx/docs/query/locks-for-hotkey/content.md",
+    "python": "sub.locks.locks_for_hotkey(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "LockingColdkeys",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2117,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2117",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "max_weight_limit",
@@ -559,7 +1204,19 @@
     },
     "category": "Hyperparameters",
     "docs_url": "/docs/query/max-weight-limit",
-    "python": "client.hyperparameters.max_weight_limit(...)"
+    "markdown_url": "/llms.mdx/docs/query/max-weight-limit/content.md",
+    "python": "sub.hyperparameters.max_weight_limit(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "MaxWeightsLimit",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2702,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2702",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "mechanism_count",
@@ -573,7 +1230,19 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/mechanism-count",
-    "python": "client.subnets.mechanism_count(...)"
+    "markdown_url": "/llms.mdx/docs/query/mechanism-count/content.md",
+    "python": "sub.subnets.mechanism_count(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "MechanismCountCurrent",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3725,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3725",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "mechanism_emission_split",
@@ -587,12 +1256,24 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/mechanism-emission-split",
-    "python": "client.subnets.mechanism_emission_split(...)"
+    "markdown_url": "/llms.mdx/docs/query/mechanism-emission-split/content.md",
+    "python": "sub.subnets.mechanism_emission_split(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "MechanismEmissionSplit",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3730,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3730",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "metagraph",
     "summary": "The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...).",
-    "description": "The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...).",
+    "description": "The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...).\n\n`name` and `symbol` are decoded to text (the wire carries them as\ncompact-u16 vectors of utf-8 bytes, unlike every other text field).\nOn runtimes with miner collateral (spec >= 435), each neuron also carries\n`collateral_locked`, `collateral_min`, and `collateral_earned` (alpha\nbalances; `None` on older nodes).",
     "params": {
       "netuid": "integer"
     },
@@ -600,7 +1281,20 @@
       "netuid": "Subnet whose metagraph to fetch."
     },
     "category": "Subnets",
-    "docs_url": "/docs/query/metagraph"
+    "docs_url": "/docs/query/metagraph",
+    "markdown_url": "/llms.mdx/docs/query/metagraph/content.md",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "SubnetInfoRuntimeApi",
+        "name": "get_metagraph",
+        "path": "pallets/subtensor/src/rpc_info/metagraph.rs",
+        "line": 653,
+        "end_line": 828,
+        "url": "/code/pallets/subtensor/src/rpc_info/metagraph.rs#L653-L828",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/metagraph.rs"
+      }
+    ]
   },
   {
     "name": "mev_shield_next_key",
@@ -610,7 +1304,19 @@
     "param_docs": {},
     "category": "Chain",
     "docs_url": "/docs/query/mev-shield-next-key",
-    "python": "client.chain.mev_shield_next_key(...)"
+    "markdown_url": "/llms.mdx/docs/query/mev-shield-next-key/content.md",
+    "python": "sub.chain.mev_shield_next_key(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "MevShield",
+        "name": "NextKey",
+        "path": "pallets/shield/src/lib.rs",
+        "line": 115,
+        "url": "/code/pallets/shield/src/lib.rs#L115",
+        "raw_url": "/code/raw/pallets/shield/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "min_allowed_weights",
@@ -624,7 +1330,49 @@
     },
     "category": "Hyperparameters",
     "docs_url": "/docs/query/min-allowed-weights",
-    "python": "client.hyperparameters.min_allowed_weights(...)"
+    "markdown_url": "/llms.mdx/docs/query/min-allowed-weights/content.md",
+    "python": "sub.hyperparameters.min_allowed_weights(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "MinAllowedWeights",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2712,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2712",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "miner_collateral",
+    "summary": "A `(hotkey, coldkey)` stake position's standing collateral, or None.",
+    "description": "A `(hotkey, coldkey)` stake position's standing collateral, or None.\n\nCollateral is keyed by hotkey + coldkey so nominators on the same hotkey are\nnever charged for the owner's bond. When `coldkey_ss58` is omitted, the\nhotkey owner is used.\n\n`locked_alpha` is non-withdrawable stake released through earned emission\n(miner incentive and validator dividends) at `drain_ratio` alpha per alpha\nearned; `min_locked_alpha` is the miner-set floor the lock self-maintains\naround (the drain stops at it and emission fills any shortfall);\n`earned_alpha` is lifetime emission since the collateral entry existed.\nDerived: `headroom_alpha` (draining portion above the floor),\n`shortfall_alpha` (capture in progress below the floor), and\n`releasable_work_alpha` (emission still needed to release the headroom).\nThe lock survives deregistration and is credited on re-registration.",
+    "params": {
+      "netuid": "integer",
+      "hotkey_ss58": "string",
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query.",
+      "hotkey_ss58": "Miner hotkey of the bonded stake position.",
+      "coldkey_ss58": "Coldkey of the bonded stake position. Defaults to the hotkey owner."
+    },
+    "category": "Mining & collateral",
+    "docs_url": "/docs/query/miner-collateral",
+    "markdown_url": "/llms.mdx/docs/query/miner-collateral/content.md",
+    "python": "sub.collateral.miner_collateral(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Owner",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1666,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1666",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "most_convicted_hotkey",
@@ -638,7 +1386,20 @@
     },
     "category": "Locks & conviction",
     "docs_url": "/docs/query/most-convicted-hotkey",
-    "python": "client.locks.most_convicted_hotkey(...)"
+    "markdown_url": "/llms.mdx/docs/query/most-convicted-hotkey/content.md",
+    "python": "sub.locks.most_convicted_hotkey(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "StakeInfoRuntimeApi",
+        "name": "get_most_convicted_hotkey_on_subnet",
+        "path": "runtime/src/lib.rs",
+        "line": 2617,
+        "end_line": 2619,
+        "url": "/code/runtime/src/lib.rs#L2617-L2619",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "multisig",
@@ -654,7 +1415,15 @@
     },
     "category": "Accounts & keys",
     "docs_url": "/docs/query/multisig",
-    "python": "client.balances.multisig(...)"
+    "markdown_url": "/llms.mdx/docs/query/multisig/content.md",
+    "python": "sub.balances.multisig(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Multisig",
+        "name": "Multisigs"
+      }
+    ]
   },
   {
     "name": "netuids_for_hotkey",
@@ -668,7 +1437,19 @@
     },
     "category": "Neurons & registration",
     "docs_url": "/docs/query/netuids-for-hotkey",
-    "python": "client.neurons.netuids_for_hotkey(...)"
+    "markdown_url": "/llms.mdx/docs/query/netuids-for-hotkey/content.md",
+    "python": "sub.neurons.netuids_for_hotkey(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "IsNetworkMember",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2516,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2516",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "neurons",
@@ -684,7 +1465,30 @@
     },
     "category": "Neurons & registration",
     "docs_url": "/docs/query/neurons",
-    "python": "client.neurons.neurons(...)"
+    "markdown_url": "/llms.mdx/docs/query/neurons/content.md",
+    "python": "sub.neurons.neurons(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "NeuronInfoRuntimeApi",
+        "name": "get_neurons_lite",
+        "path": "pallets/subtensor/src/rpc_info/neuron_info.rs",
+        "line": 209,
+        "end_line": 225,
+        "url": "/code/pallets/subtensor/src/rpc_info/neuron_info.rs#L209-L225",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/neuron_info.rs"
+      },
+      {
+        "kind": "runtime",
+        "container": "NeuronInfoRuntimeApi",
+        "name": "get_neurons",
+        "path": "pallets/subtensor/src/rpc_info/neuron_info.rs",
+        "line": 58,
+        "end_line": 74,
+        "url": "/code/pallets/subtensor/src/rpc_info/neuron_info.rs#L58-L74",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/neuron_info.rs"
+      }
+    ]
   },
   {
     "name": "next_epoch_start_block",
@@ -698,7 +1502,20 @@
     },
     "category": "Epochs & timing",
     "docs_url": "/docs/query/next-epoch-start-block",
-    "python": "client.epochs.next_epoch_start_block(...)"
+    "markdown_url": "/llms.mdx/docs/query/next-epoch-start-block/content.md",
+    "python": "sub.epochs.next_epoch_start_block(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "SubnetInfoRuntimeApi",
+        "name": "get_next_epoch_start_block",
+        "path": "pallets/subtensor/src/coinbase/run_coinbase.rs",
+        "line": 1292,
+        "end_line": 1306,
+        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1292-L1306",
+        "raw_url": "/code/raw/pallets/subtensor/src/coinbase/run_coinbase.rs"
+      }
+    ]
   },
   {
     "name": "owned_hotkeys",
@@ -712,12 +1529,24 @@
     },
     "category": "Neurons & registration",
     "docs_url": "/docs/query/owned-hotkeys",
-    "python": "client.neurons.owned_hotkeys(...)"
+    "markdown_url": "/llms.mdx/docs/query/owned-hotkeys/content.md",
+    "python": "sub.neurons.owned_hotkeys(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "OwnedHotkeys",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1950,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1950",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "parents",
     "summary": "Parent hotkeys of a child on a subnet, as (proportion, parent_ss58) pairs.",
-    "description": "Parent hotkeys of a child on a subnet, as (proportion, parent_ss58) pairs.\n\nProportions are u64-normalized fractions of the parent's stake, where\nu64::MAX means 100%.",
+    "description": "Parent hotkeys of a child on a subnet, as (proportion, parent_ss58) pairs.\n\nProportions are u64-normalized fractions of the parent's stake, where\nu64::MAX means 100%. This is the stored relation set; a parent that is\nbelow the childkey stake threshold (see `childkey_threshold_suspended`)\ncontributes nothing to the child until it qualifies again, unless it\nowns the subnet.",
     "params": {
       "hotkey_ss58": "string",
       "netuid": "integer"
@@ -728,7 +1557,19 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/parents",
-    "python": "client.delegation.parents(...)"
+    "markdown_url": "/llms.mdx/docs/query/parents/content.md",
+    "python": "sub.delegation.parents(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "ParentKeys",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1747,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1747",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "pending_children",
@@ -744,7 +1585,19 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/pending-children",
-    "python": "client.delegation.pending_children(...)"
+    "markdown_url": "/llms.mdx/docs/query/pending-children/content.md",
+    "python": "sub.delegation.pending_children(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "PendingChildKeys",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1721,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1721",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "proxies",
@@ -758,7 +1611,19 @@
     },
     "category": "Accounts & keys",
     "docs_url": "/docs/query/proxies",
-    "python": "client.balances.proxies(...)"
+    "markdown_url": "/llms.mdx/docs/query/proxies/content.md",
+    "python": "sub.balances.proxies(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Proxy",
+        "name": "Proxies",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 830,
+        "url": "/code/pallets/proxy/src/lib.rs#L830",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "quote_stake",
@@ -774,7 +1639,20 @@
     },
     "category": "Prices & swaps",
     "docs_url": "/docs/query/quote-stake",
-    "python": "client.prices.quote_stake(...)"
+    "markdown_url": "/llms.mdx/docs/query/quote-stake/content.md",
+    "python": "sub.prices.quote_stake(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "SwapRuntimeApi",
+        "name": "sim_swap_tao_for_alpha",
+        "path": "runtime/src/lib.rs",
+        "line": 2770,
+        "end_line": 2798,
+        "url": "/code/runtime/src/lib.rs#L2770-L2798",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "quote_unstake",
@@ -790,7 +1668,20 @@
     },
     "category": "Prices & swaps",
     "docs_url": "/docs/query/quote-unstake",
-    "python": "client.prices.quote_unstake(...)"
+    "markdown_url": "/llms.mdx/docs/query/quote-unstake/content.md",
+    "python": "sub.prices.quote_unstake(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "SwapRuntimeApi",
+        "name": "sim_swap_alpha_for_tao",
+        "path": "runtime/src/lib.rs",
+        "line": 2800,
+        "end_line": 2828,
+        "url": "/code/runtime/src/lib.rs#L2800-L2828",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "reveal_period",
@@ -804,7 +1695,19 @@
     },
     "category": "Hyperparameters",
     "docs_url": "/docs/query/reveal-period",
-    "python": "client.hyperparameters.reveal_period(...)"
+    "markdown_url": "/llms.mdx/docs/query/reveal-period/content.md",
+    "python": "sub.hyperparameters.reveal_period(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "RevealPeriodEpochs",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3230,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3230",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "revealed_commitment",
@@ -820,21 +1723,154 @@
     },
     "category": "Identity & commitments",
     "docs_url": "/docs/query/revealed-commitment",
-    "python": "client.identity.revealed_commitment(...)"
+    "markdown_url": "/llms.mdx/docs/query/revealed-commitment/content.md",
+    "python": "sub.identity.revealed_commitment(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Commitments",
+        "name": "RevealedCommitments",
+        "path": "pallets/commitments/src/lib.rs",
+        "line": 193,
+        "url": "/code/pallets/commitments/src/lib.rs#L193",
+        "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+      }
+    ]
   },
   {
-    "name": "root_claim_type",
-    "summary": "How a coldkey claims root alpha emission: Swap, Keep, or KeepSubnets(+subnets).",
-    "description": "How a coldkey claims root alpha emission: Swap, Keep, or KeepSubnets(+subnets).",
+    "name": "root_basket_owed",
+    "summary": "Total TAO a coldkey would realize by claiming its root dividends now.",
+    "description": "Total TAO a coldkey would realize by claiming its root dividends now.\n\nMarks the coldkey's accrued basket entitlement across every validator it\nroot-stakes to at current pool prices (the same slippage-aware valuation\nthe chain uses to size redemptions). This is the \"pending TAO\" figure\nbehind coldkey-wide `claim_root`; for a per-validator breakdown use\n`root_basket_owed_breakdown` before `claim_root_with_hotkey`.\nPer-validator amounts below the claim threshold are still included here\neven though a claim would skip them.",
     "params": {
       "coldkey_ss58": "string"
     },
     "param_docs": {
-      "coldkey_ss58": "Coldkey whose root-claim setting to read."
+      "coldkey_ss58": "Coldkey whose pending root dividends to value."
     },
     "category": "Staking",
-    "docs_url": "/docs/query/root-claim-type",
-    "python": "client.staking.root_claim_type(...)"
+    "docs_url": "/docs/query/root-basket-owed",
+    "markdown_url": "/llms.mdx/docs/query/root-basket-owed/content.md",
+    "python": "sub.staking.root_basket_owed(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "BetaBasketRuntimeApi",
+        "name": "get_root_basket_owed",
+        "path": "runtime/src/lib.rs",
+        "line": 2630,
+        "end_line": 2632,
+        "url": "/code/runtime/src/lib.rs#L2630-L2632",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "root_basket_owed_breakdown",
+    "summary": "A coldkey's pending root dividends, itemized per validator hotkey.",
+    "description": "A coldkey's pending root dividends, itemized per validator hotkey.\n\nFor each hotkey the coldkey stakes to: the TAO its accrued entitlement\nwould realize if claimed now with `claim_root_with_hotkey`. Zero-owed\nvalidators are omitted. Use this to pick a validator before claiming.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose pending root dividends to break down."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/root-basket-owed-breakdown",
+    "markdown_url": "/llms.mdx/docs/query/root-basket-owed-breakdown/content.md",
+    "python": "sub.staking.root_basket_owed_breakdown(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "BetaBasketRuntimeApi",
+        "name": "get_root_basket_positions",
+        "path": "pallets/subtensor/src/rpc_info/basket_info.rs",
+        "line": 262,
+        "end_line": 277,
+        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L262-L277",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/basket_info.rs"
+      }
+    ]
+  },
+  {
+    "name": "root_basket_portfolio",
+    "summary": "A coldkey's basket portfolio: beta tokens held per validator, with values.",
+    "description": "A coldkey's basket portfolio: beta tokens held per validator, with values.\n\nOne `basket_position` record per validator on which the coldkey holds\nbeta, sorted by `value_tao` descending. `beta` is the stable holding\ncount (grows with accruals, shrinks with claims), and `value_tao` is\nwhat claiming would realize right now at current pool depth. Multiply\n`value_tao` by an off-chain TAO/USD price for fiat value \u2014 the chain\nhas no USD oracle.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose basket portfolio to list."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/root-basket-portfolio",
+    "markdown_url": "/llms.mdx/docs/query/root-basket-portfolio/content.md",
+    "python": "sub.staking.root_basket_portfolio(...)"
+  },
+  {
+    "name": "root_basket_total_nav",
+    "summary": "Network-wide total basket NAV across all validators, in TAO.",
+    "description": "Network-wide total basket NAV across all validators, in TAO.\n\nSampling this over time yields the TAO/day flowing to root stakers.",
+    "params": {},
+    "param_docs": {},
+    "category": "Staking",
+    "docs_url": "/docs/query/root-basket-total-nav",
+    "markdown_url": "/llms.mdx/docs/query/root-basket-total-nav/content.md",
+    "python": "sub.staking.root_basket_total_nav(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "BetaBasketRuntimeApi",
+        "name": "get_root_basket_total_nav",
+        "path": "runtime/src/lib.rs",
+        "line": 2642,
+        "end_line": 2644,
+        "url": "/code/runtime/src/lib.rs#L2642-L2644",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "root_baskets",
+    "summary": "Basket summaries for every validator with an active basket.",
+    "description": "Basket summaries for every validator with an active basket.\n\nThe network-wide leaderboard: one `validator_basket_summary` record per\nvalidator with an active fund, sorted by NAV descending, each including\nits `basket_rate` (the cumulative entitlement accumulator: \u03b2 raw units\nminted per rao of root stake, migration-seeded history included).\nCompare `lifetime_return` across validators to rank basket performance;\nfor staker returns use `chain_pricing` (`staker_twr` / `stake_price`).",
+    "params": {},
+    "param_docs": {},
+    "category": "Staking",
+    "docs_url": "/docs/query/root-baskets",
+    "markdown_url": "/llms.mdx/docs/query/root-baskets/content.md",
+    "python": "sub.staking.root_baskets(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "BasketRate",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3490,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3490",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "runtime",
+        "container": "BetaBasketRuntimeApi",
+        "name": "get_all_validator_baskets",
+        "path": "pallets/subtensor/src/rpc_info/basket_info.rs",
+        "line": 211,
+        "end_line": 215,
+        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L211-L215",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/basket_info.rs"
+      }
+    ]
+  },
+  {
+    "name": "root_claim_threshold",
+    "summary": "The minimum TAO payout for a root dividend claim.",
+    "description": "The minimum TAO payout for a root dividend claim.\n\n`claim_root` and `claim_root_with_hotkey` silently skip any per-validator\nbasket redemption whose estimated payout falls below this threshold; the\nentitlement keeps accruing and pays out once it clears. Set by root via\n`set_root_claim_threshold`.",
+    "params": {},
+    "param_docs": {},
+    "category": "Staking",
+    "docs_url": "/docs/query/root-claim-threshold",
+    "markdown_url": "/llms.mdx/docs/query/root-claim-threshold/content.md",
+    "python": "sub.staking.root_claim_threshold(...)"
   },
   {
     "name": "stake",
@@ -852,7 +1888,78 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/stake",
-    "python": "client.staking.stake(...)"
+    "markdown_url": "/llms.mdx/docs/query/stake/content.md",
+    "python": "sub.staking.stake(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "StakeInfoRuntimeApi",
+        "name": "get_stake_info_for_hotkey_coldkey_netuid",
+        "path": "pallets/subtensor/src/rpc_info/stake_info.rs",
+        "line": 121,
+        "end_line": 151,
+        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L121-L151",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/stake_info.rs"
+      }
+    ]
+  },
+  {
+    "name": "stake_availability",
+    "summary": "Free vs locked stake for a coldkey on one subnet.",
+    "description": "Free vs locked stake for a coldkey on one subnet.\n\n`locked` is conviction-locked mass (plus any miner collateral reserved\nagainst the coldkey on that subnet). `available` is what can still be\nunstaked or transferred without moving lock mass. Both are denominated in\nthe subnet's own currency (TAO on netuid 0).",
+    "params": {
+      "coldkey_ss58": "string",
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose free/locked stake to read.",
+      "netuid": "Subnet to query."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/stake-availability",
+    "markdown_url": "/llms.mdx/docs/query/stake-availability/content.md",
+    "python": "sub.staking.stake_availability(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "StakeInfoRuntimeApi",
+        "name": "get_stake_availability_for_coldkeys",
+        "path": "pallets/subtensor/src/rpc_info/stake_info.rs",
+        "line": 160,
+        "end_line": 228,
+        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L160-L228",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/stake_info.rs"
+      }
+    ]
+  },
+  {
+    "name": "stake_availability_for_coldkey",
+    "summary": "Free vs locked stake for a coldkey across many subnets (one runtime call).",
+    "description": "Free vs locked stake for a coldkey across many subnets (one runtime call).",
+    "params": {
+      "coldkey_ss58": "string",
+      "netuids": "array"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose free/locked stake to read.",
+      "netuids": "Subnets to query (empty list returns no rows)."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/stake-availability-for-coldkey",
+    "markdown_url": "/llms.mdx/docs/query/stake-availability-for-coldkey/content.md",
+    "python": "sub.staking.stake_availability_for_coldkey(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "StakeInfoRuntimeApi",
+        "name": "get_stake_availability_for_coldkeys",
+        "path": "pallets/subtensor/src/rpc_info/stake_info.rs",
+        "line": 160,
+        "end_line": 228,
+        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L160-L228",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/stake_info.rs"
+      }
+    ]
   },
   {
     "name": "stake_for_coldkey",
@@ -866,7 +1973,20 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/stake-for-coldkey",
-    "python": "client.staking.stake_for_coldkey(...)"
+    "markdown_url": "/llms.mdx/docs/query/stake-for-coldkey/content.md",
+    "python": "sub.staking.stake_for_coldkey(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "StakeInfoRuntimeApi",
+        "name": "get_stake_info_for_coldkey",
+        "path": "pallets/subtensor/src/rpc_info/stake_info.rs",
+        "line": 105,
+        "end_line": 119,
+        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L105-L119",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/stake_info.rs"
+      }
+    ]
   },
   {
     "name": "stake_for_coldkeys",
@@ -880,7 +2000,20 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/stake-for-coldkeys",
-    "python": "client.staking.stake_for_coldkeys(...)"
+    "markdown_url": "/llms.mdx/docs/query/stake-for-coldkeys/content.md",
+    "python": "sub.staking.stake_for_coldkeys(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "StakeInfoRuntimeApi",
+        "name": "get_stake_info_for_coldkeys",
+        "path": "pallets/subtensor/src/rpc_info/stake_info.rs",
+        "line": 95,
+        "end_line": 103,
+        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L95-L103",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/stake_info.rs"
+      }
+    ]
   },
   {
     "name": "stake_value_for_coldkey",
@@ -894,7 +2027,20 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/stake-value-for-coldkey",
-    "python": "client.staking.stake_value_for_coldkey(...)"
+    "markdown_url": "/llms.mdx/docs/query/stake-value-for-coldkey/content.md",
+    "python": "sub.staking.stake_value_for_coldkey(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "StakeInfoRuntimeApi",
+        "name": "get_stake_info_for_coldkey",
+        "path": "pallets/subtensor/src/rpc_info/stake_info.rs",
+        "line": 105,
+        "end_line": 119,
+        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L105-L119",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/stake_info.rs"
+      }
+    ]
   },
   {
     "name": "stake_value_for_coldkeys",
@@ -908,21 +2054,46 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/stake-value-for-coldkeys",
-    "python": "client.staking.stake_value_for_coldkeys(...)"
+    "markdown_url": "/llms.mdx/docs/query/stake-value-for-coldkeys/content.md",
+    "python": "sub.staking.stake_value_for_coldkeys(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "StakeInfoRuntimeApi",
+        "name": "get_stake_info_for_coldkeys",
+        "path": "pallets/subtensor/src/rpc_info/stake_info.rs",
+        "line": 95,
+        "end_line": 103,
+        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L95-L103",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/stake_info.rs"
+      }
+    ]
   },
   {
     "name": "staking_hotkeys",
-    "summary": "Every hotkey a coldkey has stake with, owned or nominated.",
-    "description": "Every hotkey a coldkey has stake with, owned or nominated.\n\nUnlike `owned_hotkeys` this includes delegates the coldkey has nominated.\nUse `stake_for_coldkey` for the per-subnet amounts behind each entry.",
+    "summary": "Every hotkey associated with a coldkey's staking or root-basket state.",
+    "description": "Every hotkey associated with a coldkey's staking or root-basket state.\n\nUnlike `owned_hotkeys` this includes delegates the coldkey has nominated.\nA hotkey may remain listed with no current stake when a root-basket claim\nwatermark still requires the relationship to be discoverable. During the\nv448 bounded cleanup, unrelated stale relationships may also remain until\nthe cleanup cursor reaches them. Use `stake_for_coldkey` for the\nper-subnet amounts behind each entry.",
     "params": {
       "coldkey_ss58": "string"
     },
     "param_docs": {
-      "coldkey_ss58": "Coldkey whose staked-to hotkeys to list."
+      "coldkey_ss58": "Coldkey whose staking and root-basket hotkeys to list."
     },
     "category": "Staking",
     "docs_url": "/docs/query/staking-hotkeys",
-    "python": "client.staking.staking_hotkeys(...)"
+    "markdown_url": "/llms.mdx/docs/query/staking-hotkeys/content.md",
+    "python": "sub.staking.staking_hotkeys(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "StakingHotkeys",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1945,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1945",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "subnet",
@@ -936,12 +2107,77 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/subnet",
-    "python": "client.subnets.subnet(...)"
+    "markdown_url": "/llms.mdx/docs/query/subnet/content.md",
+    "python": "sub.subnets.subnet(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Tempo",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2440,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2440",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Burn",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2772,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2772",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetworkN",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2499,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2499",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetEmissionEnabled",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1906,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1906",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "subnet_collateral",
+    "summary": "Every `(hotkey, coldkey)` position with standing collateral on a subnet.",
+    "description": "Every `(hotkey, coldkey)` position with standing collateral on a subnet.\n\nThe list validator code reads to enforce a per-machine collateral\nrequirement: each record carries the locked amount, the miner's\nself-maintained floor, the drain-ratio snapshot, and the hotkey's current\n`uid` (None when the hotkey is deregistered but its collateral persists) \u2014\nready to join against the metagraph when scoring.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Mining & collateral",
+    "docs_url": "/docs/query/subnet-collateral",
+    "markdown_url": "/llms.mdx/docs/query/subnet-collateral/content.md",
+    "python": "sub.collateral.subnet_collateral(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Uids",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2975,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2975",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "subnet_convictions",
     "summary": "Every hotkey with locked stake on a subnet, rolled forward to now.",
-    "description": "Every hotkey with locked stake on a subnet, rolled forward to now.\n\nPer hotkey: locked mass, conviction, and the estimated blocks until its\nconviction reaches 10% of the subnet's outstanding alpha. That per-hotkey\nfigure is a projection heuristic, not a takeover trigger: the ownership\ntakeover in `change_subnet_owner_if_needed` requires the subnet to be\nat least ~1 year old (2,629,800 blocks) and the total aggregate\nconviction across all lockers to reach 10% of `SubnetAlphaOut`, at\nwhich point the highest-conviction hotkey's coldkey becomes the subnet\nowner. Projections assume the lock rates and alpha out stay constant.",
+    "description": "Every hotkey with locked stake on a subnet, rolled forward to now.\n\nPer hotkey: locked mass, conviction, and the estimated blocks until its\nown conviction strictly exceeds 18% of the subnet's eligible alpha.\nEligible alpha is `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned`\n(saturating at zero). `change_subnet_owner_if_needed` reassigns\nownership when the subnet is at least ~1 year old (2,629,800 blocks) and\nthe highest-conviction hotkey holds more than 18% of eligible alpha on\nits own, at which point that hotkey's coldkey becomes the subnet owner.\nThe gate measures a single hotkey \u2014 exactly 18% is not enough \u2014 so\n`leader_hotkey` and `leader_blocks_to_threshold` describe the current\nconviction leader's standing against the gate, while the subnet-wide\n`total_conviction_alpha` is reported for context only and never gates\nthe takeover. Projections assume the lock rates and alpha accounting\nstay constant.",
     "params": {
       "netuid": "integer"
     },
@@ -950,12 +2186,172 @@
     },
     "category": "Locks & conviction",
     "docs_url": "/docs/query/subnet-convictions",
-    "python": "client.locks.subnet_convictions(...)"
+    "markdown_url": "/llms.mdx/docs/query/subnet-convictions/content.md",
+    "python": "sub.locks.subnet_convictions(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "HotkeyLock",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2130,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2130",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "DecayingHotkeyLock",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2142,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2142",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "OwnerLock",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2154,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2154",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "DecayingOwnerLock",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2158,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2158",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetOwnerHotkey",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2633,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2633",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetAlphaOut",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1936,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1936",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetProtocolAlpha",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1940,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1940",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "AlphaAssets",
+        "name": "AlphaBurned"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "UnlockRate",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2196,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2196",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "MaturityRate",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2192,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2192",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "NetworkRegisteredAt",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2545,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2545",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "subnet_emission_enabled",
+    "summary": "Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). New registrations start enabled. When 0, the subnet earns no TAO emission share even while subnet_is_active is true; only root can flip it (see the set_subnet_emission_enabled intent).",
+    "description": "Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). New registrations start enabled. When 0, the subnet earns no TAO emission share even while subnet_is_active is true; only root can flip it (see the set_subnet_emission_enabled intent).",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Hyperparameters",
+    "docs_url": "/docs/query/subnet-emission-enabled",
+    "markdown_url": "/llms.mdx/docs/query/subnet-emission-enabled/content.md",
+    "python": "sub.hyperparameters.subnet_emission_enabled(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetEmissionEnabled",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1906,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1906",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "subnet_emission_weights",
+    "summary": "The subnet's emission weight vector `[burn, recycle, owner, validator,",
+    "description": "The subnet's emission weight vector `[burn, recycle, owner, validator,\nminer]` with the bounds that apply to it, or None if the subnet does not\nexist (the root subnet has no vector).\n\nPair with the `set_subnet_emission_weights` intent: `min_validator`\nand `created_via_lease` are the per-subnet inputs the chain uses to\naccept or reject a change (`min_validator` moves with root stake, alpha\nissuance and the global TAO weight, so it is a snapshot of this block).",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose emission weight vector to read."
+    },
+    "category": "Subnets",
+    "docs_url": "/docs/query/subnet-emission-weights",
+    "markdown_url": "/llms.mdx/docs/query/subnet-emission-weights/content.md",
+    "python": "sub.subnets.subnet_emission_weights(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "LastRateLimitedBlock",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2418,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2418",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "runtime",
+        "container": "SubnetInfoRuntimeApi",
+        "name": "get_subnet_emission_weights",
+        "path": "pallets/subtensor/src/subnets/emission_weights.rs",
+        "line": 234,
+        "end_line": 241,
+        "url": "/code/pallets/subtensor/src/subnets/emission_weights.rs#L234-L241",
+        "raw_url": "/code/raw/pallets/subtensor/src/subnets/emission_weights.rs"
+      }
+    ]
   },
   {
     "name": "subnet_hyperparameters",
-    "summary": "All hyperparameters for a subnet (named fields; version-dependent set).",
-    "description": "All hyperparameters for a subnet (named fields; version-dependent set).",
+    "summary": "All hyperparameters for a subnet, as a flat name -> raw value mapping.",
+    "description": "All hyperparameters for a subnet, as a flat name -> raw value mapping.\n\nThe set of names is version-dependent; None if the subnet does not exist.\nUses the forward-compatible `get_subnet_hyperparams_v3` runtime API, so\nnewly added chain hyperparameters (e.g. `burn_half_life`) show up\nwithout a client update.",
     "params": {
       "netuid": "integer"
     },
@@ -964,7 +2360,20 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/subnet-hyperparameters",
-    "python": "client.subnets.subnet_hyperparameters(...)"
+    "markdown_url": "/llms.mdx/docs/query/subnet-hyperparameters/content.md",
+    "python": "sub.subnets.subnet_hyperparameters(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "SubnetInfoRuntimeApi",
+        "name": "get_subnet_hyperparams_v3",
+        "path": "pallets/subtensor/src/rpc_info/subnet_info.rs",
+        "line": 520,
+        "end_line": 716,
+        "url": "/code/pallets/subtensor/src/rpc_info/subnet_info.rs#L520-L716",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/subnet_info.rs"
+      }
+    ]
   },
   {
     "name": "subnet_identity",
@@ -978,7 +2387,19 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/subnet-identity",
-    "python": "client.subnets.subnet_identity(...)"
+    "markdown_url": "/llms.mdx/docs/query/subnet-identity/content.md",
+    "python": "sub.subnets.subnet_identity(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetIdentitiesV3",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3122,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3122",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "subnet_names",
@@ -988,7 +2409,19 @@
     "param_docs": {},
     "category": "Subnets",
     "docs_url": "/docs/query/subnet-names",
-    "python": "client.subnets.subnet_names(...)"
+    "markdown_url": "/llms.mdx/docs/query/subnet-names/content.md",
+    "python": "sub.subnets.subnet_names(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetIdentitiesV3",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3122,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3122",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "subnet_registration_cost",
@@ -998,7 +2431,20 @@
     "param_docs": {},
     "category": "Subnets",
     "docs_url": "/docs/query/subnet-registration-cost",
-    "python": "client.subnets.subnet_registration_cost(...)"
+    "markdown_url": "/llms.mdx/docs/query/subnet-registration-cost/content.md",
+    "python": "sub.subnets.subnet_registration_cost(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "SubnetRegistrationRuntimeApi",
+        "name": "get_network_registration_cost",
+        "path": "runtime/src/lib.rs",
+        "line": 2623,
+        "end_line": 2625,
+        "url": "/code/runtime/src/lib.rs#L2623-L2625",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "subnet_start_schedule",
@@ -1012,7 +2458,125 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/subnet-start-schedule",
-    "python": "client.subnets.subnet_start_schedule(...)"
+    "markdown_url": "/llms.mdx/docs/query/subnet-start-schedule/content.md",
+    "python": "sub.subnets.subnet_start_schedule(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "NetworkRegisteredAt",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2545,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2545",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "constant",
+        "container": "SubtensorModule",
+        "name": "InitialStartCallDelay",
+        "path": "runtime/src/lib.rs",
+        "line": 986,
+        "url": "/code/runtime/src/lib.rs#L986",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "subnet_state",
+    "summary": "Reporting lifecycle for one subnet, or None after cleanup/nonexistence.",
+    "description": "Reporting lifecycle for one subnet, or None after cleanup/nonexistence.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose reporting lifecycle to query."
+    },
+    "category": "Subnets",
+    "docs_url": "/docs/query/subnet-state",
+    "markdown_url": "/llms.mdx/docs/query/subnet-state/content.md",
+    "python": "sub.subnets.subnet_state(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetState",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2511,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2511",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "subnet_states",
+    "summary": "Reporting lifecycle for every active or dissolving subnet.",
+    "description": "Reporting lifecycle for every active or dissolving subnet.",
+    "params": {},
+    "param_docs": {},
+    "category": "Subnets",
+    "docs_url": "/docs/query/subnet-states",
+    "markdown_url": "/llms.mdx/docs/query/subnet-states/content.md",
+    "python": "sub.subnets.subnet_states(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetState",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2511,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2511",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "NetworksAdded",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2503,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2503",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "DissolveCleanupQueue",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2873,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2873",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "CurrentDissolveCleanupStatus",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2877,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2877",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "subnet_tao_flows",
+    "summary": "Per-subnet EMA of net TAO flow, in rao per block.",
+    "description": "Per-subnet EMA of net TAO flow, in rao per block.\n\nTAO flow is the chain's running measure of user stake activity on a\nsubnet: every stake adds to the accumulator and every unstake subtracts,\nso a positive value means TAO is (on average) flowing into the subnet\nand a negative value means it is flowing out. The chain smooths the\nper-block accumulator (`SubnetTaoFlow`) into an exponential moving\naverage (`SubnetEmaTaoFlow`); this read returns that EMA per netuid.\nSubnets with no recorded flow are omitted.",
+    "params": {},
+    "param_docs": {},
+    "category": "Subnets",
+    "docs_url": "/docs/query/subnet-tao-flows",
+    "markdown_url": "/llms.mdx/docs/query/subnet-tao-flows/content.md",
+    "python": "sub.subnets.subnet_tao_flows(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetEmaTaoFlow",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2215,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2215",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "subnets",
@@ -1022,7 +2586,46 @@
     "param_docs": {},
     "category": "Subnets",
     "docs_url": "/docs/query/subnets",
-    "python": "client.subnets.subnets(...)"
+    "markdown_url": "/llms.mdx/docs/query/subnets/content.md",
+    "python": "sub.subnets.subnets(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Tempo",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2440,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2440",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Burn",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2772,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2772",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetworkN",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2499,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2499",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetEmissionEnabled",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1906,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1906",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "timelocked_weight_commits",
@@ -1038,7 +2641,19 @@
     },
     "category": "Weights & bonds",
     "docs_url": "/docs/query/timelocked-weight-commits",
-    "python": "client.weights.timelocked_weight_commits(...)"
+    "markdown_url": "/llms.mdx/docs/query/timelocked-weight-commits/content.md",
+    "python": "sub.weights.timelocked_weight_commits(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "TimelockedWeightCommits",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3178,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3178",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "timestamp",
@@ -1048,17 +2663,56 @@
     "param_docs": {},
     "category": "Chain",
     "docs_url": "/docs/query/timestamp",
-    "python": "client.chain.timestamp(...)"
+    "markdown_url": "/llms.mdx/docs/query/timestamp/content.md",
+    "python": "sub.chain.timestamp(...)"
   },
   {
     "name": "token_symbols",
     "summary": "Chain-registered token symbol of every subnet, keyed by netuid.",
-    "description": "Chain-registered token symbol of every subnet, keyed by netuid.\n\n`Client.connect` runs this automatically (through a disk cache) and\ninstalls the result as the connection's display symbols, so balances\ndecoded by that client render with each subnet's real symbol.",
+    "description": "Chain-registered token symbol of every subnet, keyed by netuid.\n\nConnecting runs this automatically (through a disk cache) and\ninstalls the result as the connection's display symbols, so balances\ndecoded by that client render with each subnet's real symbol.",
     "params": {},
     "param_docs": {},
     "category": "Subnets",
     "docs_url": "/docs/query/token-symbols",
-    "python": "client.subnets.token_symbols(...)"
+    "markdown_url": "/llms.mdx/docs/query/token-symbols/content.md",
+    "python": "sub.subnets.token_symbols(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "TokenSymbol",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2205,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2205",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "total_alpha_staked",
+    "summary": "Total alpha currently staked on a subnet, across all hotkeys (TAO when netuid is 0).",
+    "description": "Total alpha currently staked on a subnet, across all hotkeys (TAO when netuid is 0).\n\nThis is the chain-maintained O(1) aggregate: it equals the sum of\n`TotalHotkeyAlpha` for the subnet. Use this instead of walking every\nposition. After the v448 upgrade, the historical total is backfilled over\notherwise-idle blocks. Until the bounded migration finishes, keys ahead of\nits cursor are omitted; concurrent stake changes are reconciled by\ncompletion but are not necessarily visible in this aggregate immediately.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/total-alpha-staked",
+    "markdown_url": "/llms.mdx/docs/query/total-alpha-staked/content.md",
+    "python": "sub.staking.total_alpha_staked(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "TotalAlphaStaked",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2032,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2032",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "tx_rate_limit",
@@ -1068,7 +2722,19 @@
     "param_docs": {},
     "category": "Chain",
     "docs_url": "/docs/query/tx-rate-limit",
-    "python": "client.chain.tx_rate_limit(...)"
+    "markdown_url": "/llms.mdx/docs/query/tx-rate-limit/content.md",
+    "python": "sub.chain.tx_rate_limit(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "TxRateLimit",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2830,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2830",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "uid",
@@ -1084,7 +2750,109 @@
     },
     "category": "Neurons & registration",
     "docs_url": "/docs/query/uid",
-    "python": "client.neurons.uid(...)"
+    "markdown_url": "/llms.mdx/docs/query/uid/content.md",
+    "python": "sub.neurons.uid(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Uids",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2975,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2975",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "validator_basket",
+    "summary": "A validator's basket holdings: per subnet, the alpha held and its TAO value.",
+    "description": "A validator's basket holdings: per subnet, the alpha held and its TAO value.\n\nThe netuid-0 entry is the basket's TAO cash slot (held as root stake, so\nalpha and value coincide). Values are realizable quotes \u2014 what selling\nthe holding would actually fetch at current pool depth \u2014 not spot marks.",
+    "params": {
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Validator hotkey whose basket to list."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/validator-basket",
+    "markdown_url": "/llms.mdx/docs/query/validator-basket/content.md",
+    "python": "sub.staking.validator_basket(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "BetaBasketRuntimeApi",
+        "name": "get_validator_basket",
+        "path": "pallets/subtensor/src/staking/basket_views.rs",
+        "line": 167,
+        "end_line": 175,
+        "url": "/code/pallets/subtensor/src/staking/basket_views.rs#L167-L175",
+        "raw_url": "/code/raw/pallets/subtensor/src/staking/basket_views.rs"
+      }
+    ]
+  },
+  {
+    "name": "validator_basket_nav",
+    "summary": "A validator's basket net asset value in TAO (realizable quote).",
+    "description": "A validator's basket net asset value in TAO (realizable quote).",
+    "params": {
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Validator hotkey whose basket to value."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/validator-basket-nav",
+    "markdown_url": "/llms.mdx/docs/query/validator-basket-nav/content.md",
+    "python": "sub.staking.validator_basket_nav(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "BetaBasketRuntimeApi",
+        "name": "get_validator_basket_nav",
+        "path": "runtime/src/lib.rs",
+        "line": 2636,
+        "end_line": 2638,
+        "url": "/code/runtime/src/lib.rs#L2636-L2638",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "validator_basket_summary",
+    "summary": "Everything about one validator's basket, in a single call.",
+    "description": "Everything about one validator's basket, in a single call.\n\nValuation (realizable NAV and spot NAV), lifetime deposited/redeemed TAO\nand the lifetime return multiple `(nav + redeemed) / deposited`, the\nvalidator's root weight vector, the per-subnet alpha holdings each\nvalued at spot and at realizable depth, and `basket_rate` \u2014 the\ncumulative \u03b2 raw units minted per rao of root stake (a lifetime\naccumulator that includes migration-seeded history). For staker returns\nuse `chain_pricing` (`staker_twr` / `stake_price` ratios), not rate\ndeltas. All figures are TAO (or alpha for the holdings themselves).",
+    "params": {
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Validator hotkey whose basket to summarize."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/validator-basket-summary",
+    "markdown_url": "/llms.mdx/docs/query/validator-basket-summary/content.md",
+    "python": "sub.staking.validator_basket_summary(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "BasketRate",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3490,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3490",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "runtime",
+        "container": "BetaBasketRuntimeApi",
+        "name": "get_validator_basket_summary",
+        "path": "pallets/subtensor/src/rpc_info/basket_info.rs",
+        "line": 179,
+        "end_line": 207,
+        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L179-L207",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/basket_info.rs"
+      }
+    ]
   },
   {
     "name": "weights",
@@ -1100,7 +2868,19 @@
     },
     "category": "Weights & bonds",
     "docs_url": "/docs/query/weights",
-    "python": "client.weights.weights(...)"
+    "markdown_url": "/llms.mdx/docs/query/weights/content.md",
+    "python": "sub.weights.weights(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "Weights",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3042,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3042",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "weights_rate_limit",
@@ -1114,6 +2894,18 @@
     },
     "category": "Hyperparameters",
     "docs_url": "/docs/query/weights-rate-limit",
-    "python": "client.hyperparameters.weights_rate_limit(...)"
+    "markdown_url": "/llms.mdx/docs/query/weights-rate-limit/content.md",
+    "python": "sub.hyperparameters.weights_rate_limit(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "WeightsSetRateLimit",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 2742,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2742",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
   }
 ]

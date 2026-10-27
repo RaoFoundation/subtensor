@@ -23,6 +23,12 @@ _BRIDGE_HTML = _STATIC_DIR / "bridge.html"
 
 logger = logging.getLogger(__name__)
 
+# Browsers speculatively open (and silently drop) TCP connections to the page's
+# port, which the websockets server logs as a full InvalidMessage traceback.
+# Route its logging to a muted logger: handshake noise is meaningless here.
+_WS_LOGGER = logging.getLogger(__name__ + ".ws")
+_WS_LOGGER.setLevel(logging.CRITICAL)
+
 
 @dataclass
 class _BridgeState:
@@ -57,6 +63,7 @@ class BridgeServer:
                 self.host,
                 self.port,
                 process_request=self._process_request,
+                logger=_WS_LOGGER,
             )
             logger.debug(f"Bridge server listening on {self.http_url}")
         if open_browser:

@@ -9,7 +9,7 @@ import {
     devRegisterSubnet,
     devSudoSetLockReductionInterval,
 } from "../../../../utils/dev-helpers.js";
-import { buildSignedOrder, FAR_FUTURE, registerLimitOrderTypes } from "../../../../utils/limit-orders.js";
+import { asV1, buildSignedOrder, FAR_FUTURE, registerLimitOrderTypes } from "../../../../utils/limit-orders.js";
 
 // Hard-fail cases for execute_batched_orders — no pool interaction needed,
 // all batches fail before reaching the swap step.  Single subnet is fine.
@@ -70,7 +70,7 @@ describeSuite({
                 // Tamper after signing — signature now covers different bytes
                 const tampered = {
                     ...badSig,
-                    order: { V1: { ...badSig.order.V1, amount: tao(999) } },
+                    order: { V1: { ...asV1(badSig.order), amount: tao(999) } },
                 };
 
                 const {

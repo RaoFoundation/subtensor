@@ -1,5 +1,8 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
+mod grandpa_warp_sync;
+mod warp_sync_checkpoint;
+
 use crate::consensus::ConsensusMechanism;
 use futures::{FutureExt, StreamExt as _, channel::mpsc};
 use node_subtensor_runtime::{RuntimeApi, TransactionConverter, opaque::Block};
@@ -48,6 +51,32 @@ pub type FullSelectChain = sc_consensus::LongestChain<FullBackend, Block>;
 pub type GrandpaBlockImport =
     sc_consensus_grandpa::GrandpaBlockImport<FullBackend, Block, FullClient, FullSelectChain>;
 type GrandpaLinkHalf = sc_consensus_grandpa::LinkHalf<Block, FullClient, FullSelectChain>;
+
+fn warp_sync_provider(
+    genesis_hash: H256,
+    chain_type: sc_chain_spec::ChainType,
+    backend: Arc<FullBackend>,
+    authority_set: sc_consensus_grandpa::SharedAuthoritySet<H256, NumberFor<Block>>,
+    trusted_checkpoint: Option<sc_consensus_grandpa::AuthoritySetHardFork<Block>>,
+) -> WarpSyncConfig<Block> {
+    let warp_sync_config = grandpa_warp_sync::config(genesis_hash, chain_type);
+    log::warn!("{}", warp_sync_config.log_message());
+    let initial_set_id = warp_sync_config.one_time_initial_set_id(trusted_checkpoint.is_some());
+    let inner = sc_consensus_grandpa::warp_proof::NetworkProvider::new(
+        backend,
+        authority_set,
+        warp_sync_config.into_hard_forks(trusted_checkpoint),
+    );
+    let provider: Arc<dyn WarpSyncProvider<Block>> = match initial_set_id {
+        Some(initial_set_id) => Arc::new(grandpa_warp_sync::InitialSetIdProvider::new(
+            inner,
+            initial_set_id,
+        )),
+        None => Arc::new(inner),
+    };
+
+    WarpSyncConfig::WithProvider(provider)
+}
 #[allow(clippy::upper_case_acronyms)]
 pub type BIQ<'a> = Box<
     dyn FnOnce(
@@ -262,6 +291,7 @@ pub async fn new_full<NB, CM>(
     sealing: Option<Sealing>,
     custom_service_signal: Option<Arc<AtomicBool>>,
     skip_history_backfill: bool,
+    enable_warp_sync_checkpoint_rpc: bool,
 ) -> Result<TaskManager, ServiceError>
 where
     NumberFor<Block>: BlockNumberOps,
@@ -305,10 +335,9 @@ where
     let peer_store_handle = net_config.peer_store_handle();
     let metrics = NB::register_notification_metrics(maybe_registry);
 
-    let grandpa_protocol_name = sc_consensus_grandpa::protocol_standard_name(
-        &client.block_hash(0u32)?.expect("Genesis block exists; qed"),
-        &config.chain_spec,
-    );
+    let genesis_hash = client.block_hash(0u32)?.expect("Genesis block exists; qed");
+    let grandpa_protocol_name =
+        sc_consensus_grandpa::protocol_standard_name(&genesis_hash, &config.chain_spec);
 
     let (grandpa_protocol_config, grandpa_notification_service) =
         sc_consensus_grandpa::grandpa_peers_set_config::<_, NB>(
@@ -320,27 +349,25 @@ where
     let warp_sync_config = if sealing.is_some() {
         None
     } else {
-        let set_id = match config.chain_spec.chain_type() {
-            // Finney patch
-            ChainType::Live => 3,
-            // Testnet patch
-            ChainType::Development => 2,
-            // All others (e.g. localnet)
-            _ => 0,
-        };
-        log::warn!(
-            "Grandpa warp sync patch enabled. Chain type = {:?}. Set ID = {set_id}",
-            config.chain_spec.chain_type()
-        );
         net_config.add_notification_protocol(grandpa_protocol_config);
-        let warp_sync: Arc<dyn WarpSyncProvider<Block>> =
-            Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
-                backend.clone(),
-                grandpa_link.shared_authority_set().clone(),
-                sc_consensus_grandpa::warp_proof::HardForks::new_initial_set_id(set_id),
-            ));
-
-        Some(WarpSyncConfig::WithProvider(warp_sync))
+        let trusted_checkpoint =
+            warp_sync_checkpoint::trusted_checkpoint(config.chain_spec.as_ref())?;
+        if let Some(checkpoint) = trusted_checkpoint.as_ref() {
+            log::info!(
+                target: LOG_TARGET,
+                "Using trusted GRANDPA authority checkpoint at #{} ({:?}), set ID {}",
+                checkpoint.block.1,
+                checkpoint.block.0,
+                checkpoint.set_id,
+            );
+        }
+        Some(warp_sync_provider(
+            genesis_hash,
+            config.chain_spec.chain_type(),
+            backend.clone(),
+            grandpa_link.shared_authority_set().clone(),
+            trusted_checkpoint,
+        ))
     };
 
     let (network, system_rpc_tx, tx_handler_controller, sync_service) =
@@ -463,11 +490,18 @@ where
             async move { CM::pending_create_inherent_data_providers(slot_duration, keystore) }
         };
 
-        let rpc_methods = consensus_mechanism.rpc_methods(
+        let mut rpc_methods = consensus_mechanism.rpc_methods(
             client.clone(),
             keystore_container.keystore(),
             select_chain.clone(),
         )?;
+        if enable_warp_sync_checkpoint_rpc {
+            rpc_methods.push(warp_sync_checkpoint::rpc_methods(
+                config.chain_spec.cloned_box(),
+                client.clone(),
+                grandpa_link.shared_authority_set().clone(),
+            )?);
+        }
         Box::new(move |subscription_task_executor| {
             let eth_deps = crate::rpc::EthDeps {
                 client: client.clone(),
@@ -670,6 +704,7 @@ pub async fn build_full<CM: ConsensusMechanism>(
     sealing: Option<Sealing>,
     custom_service_signal: Option<Arc<AtomicBool>>,
     skip_history_backfill: bool,
+    enable_warp_sync_checkpoint_rpc: bool,
 ) -> Result<TaskManager, ServiceError> {
     match config.network.network_backend {
         sc_network::config::NetworkBackendType::Libp2p => {
@@ -679,6 +714,7 @@ pub async fn build_full<CM: ConsensusMechanism>(
                 sealing,
                 custom_service_signal,
                 skip_history_backfill,
+                enable_warp_sync_checkpoint_rpc,
             )
             .await
         }
@@ -689,6 +725,7 @@ pub async fn build_full<CM: ConsensusMechanism>(
                 sealing,
                 custom_service_signal,
                 skip_history_backfill,
+                enable_warp_sync_checkpoint_rpc,
             )
             .await
         }

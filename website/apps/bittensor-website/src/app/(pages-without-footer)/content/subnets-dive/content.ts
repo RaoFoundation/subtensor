@@ -61,13 +61,13 @@ The root network also doubles as the network senate. This senate is the top 12 k
 
 #### How can I become a root network member?
 
-Like other subnetworks on Bittensor, a key must register by calling an extrinsic through the bittensor cli. However, unlike other subnetworks registering on the root network does not require a TAO burn or POW. Instead, entrance is based on the stake quantity.
+Like other subnetworks on Bittensor, a key must register by calling an extrinsic through the bittensor cli. Registration is burn-based: the coldkey pays the root network's demand-priced burn cost, and no prior stake is required.
 
-To become a member of the root network your hotkey must have a stake in the top 64 accounts. When a key registers to the root network the chain either blocks the registration based on your stake amount or kicks another key if your stake exceeds another.
+Root seats are limited to 64. When the network is full, a new registration prunes the member with the least stake — so a seat is only held by keeping stake behind the hotkey.
 
 To register onto the chain's root network using the cli call the following btcli command.
 \`\`\`
-btcli root register
+btcli subnets register --netuid 0
 \`\`\`
 
 
