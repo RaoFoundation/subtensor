@@ -56,7 +56,8 @@ Prefer the narrowest type that covers the job:
   **SmallTransfer** is the same but caps each transfer below 0.5 TAO
   (0.5 alpha for stake transfers).
 * **Staking** — stake add / remove / move / swap / unstake-all and their
-  limit variants, plus [`set_root_claim_type`](/code/pallets/subtensor/src/macros/dispatches.rs#L1937-L1951). Its allowlist does *not*
+  limit variants, plus [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1905-L1939)
+  and [`claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1941-L1970). Its allowlist does *not*
   include [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L314-L362), so batched staking through a Staking proxy
   fails with `CallFiltered` — use NonTransfer for batched staking.
 * **Lock** — full authority over the stake conviction-lock lifecycle through
@@ -73,12 +74,10 @@ Prefer the narrowest type that covers the job:
 * **Registration** — neuron registration ([`burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L832), [`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814),
   [`register_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L2242-L2249)).
 * **ChildKeys** — [`set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093-L1101) and [`set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L935-L945);
-  **RootClaim** — [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1905-L1939) and [`claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1941-L1970).
-  A staking service that also needs to claim root dividends grants both
-  `Staking` and `RootClaim` to the same delegate. Set `Proxy.proxy`'s
-  `force_proxy_type` to `Staking` for staking calls and `RootClaim` for root
-  claims; omitting it selects the first matching delegation, not whichever
-  grant covers the call.
+  **RootClaim** — only [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1905-L1939)
+  and [`claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1941-L1970).
+  It remains the narrowest grant for a service that claims root dividends but
+  does not manage stake; `Staking` already includes both calls.
 * **BasketTrading** — `swap_basket` and `swap_basket_many` only: rebalance a
   root validator's basket without being able to deposit, withdraw, or claim.
 * **Validate** — run a validator *hotkey* from an operations key:
