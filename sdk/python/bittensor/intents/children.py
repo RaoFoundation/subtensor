@@ -51,7 +51,11 @@ class SetChildren(Intent):
     bipartite); and the parent hotkey needs a minimum own stake
     (StakeThreshold) unless it is the subnet-owner hotkey. Changes take
     effect after a chain-defined cooldown, except on subnets whose subtoken
-    is not yet enabled, where they apply immediately.
+    is not yet enabled, where they apply immediately. A reassignment also
+    applies immediately when it only redirects stake weight freed from
+    existing children that are unregistered, no longer validator-permitted,
+    or inactive on every subnet mechanism. Reducing any active child's
+    allocation keeps the normal cooldown.
     """
 
     op = "set_children"
