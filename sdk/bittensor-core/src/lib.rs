@@ -18,6 +18,8 @@ pub mod keys;
 pub mod mlkem;
 #[cfg(feature = "host")]
 pub mod pow;
+/// Transport-independent JSON-RPC requests and SCALE response decoding.
+pub mod protocol;
 pub mod runtime;
 pub mod signers;
 pub mod timelock;
