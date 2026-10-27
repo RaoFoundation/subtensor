@@ -7,7 +7,7 @@ name = "bittensor"
 version = "11.3.1.dev0"
 description = "A lean Python SDK (import bittensor) and CLI (btcli) for the Bittensor chain."
 readme = "README.md"
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.10,<3.16"
 license = { text = "Apache-2.0" }
 authors = [{ name = "RaoFoundation" }]
 dependencies = [
