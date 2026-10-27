@@ -32,6 +32,7 @@ pub enum ProxyType {
     NonFungible, // Nothing involving moving TAO
     Triumvirate,
     Governance,
+    /// Manage stake positions and claim accumulated root dividends.
     Staking,
     Registration,
     Transfer,

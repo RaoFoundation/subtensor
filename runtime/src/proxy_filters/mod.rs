@@ -30,8 +30,8 @@ type AdminAll = (SubnetManagementCalls, RootConfigCalls);
 /// `Transfer`: liquid value movement.
 type TransferAllowed = (BalanceTransferCalls, StakeTransferCalls);
 
-/// `Staking`: stake position management.
-type StakingAllowed = StakeManagementCalls;
+/// `Staking`: stake position management and accumulated root-dividend claims.
+type StakingAllowed = (StakeManagementCalls, RootClaimCalls);
 
 /// `Registration`: acquire a slot (POW or by burn).
 type RegistrationAllowed = (PowRegistrationCalls, BurnedRegistrationCalls);
@@ -194,6 +194,7 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                 | ProxyType::Weights,
             ) => true,
             (ProxyType::Transfer, ProxyType::SmallTransfer) => true,
+            (ProxyType::Staking, ProxyType::RootClaim) => true,
             (ProxyType::Validate, ProxyType::Weights) => true,
             _ => false,
         }
@@ -761,6 +762,16 @@ mod tests {
     }
 
     #[test]
+    fn staking_is_a_strict_superset_of_root_claim() {
+        assert!(ProxyType::Staking.is_superset(&ProxyType::RootClaim));
+        assert!(!ProxyType::RootClaim.is_superset(&ProxyType::Staking));
+        assert!(allowed_calls(ProxyType::RootClaim).is_subset(&allowed_calls(ProxyType::Staking)));
+        assert!(
+            allowed_calls(ProxyType::Staking).len() > allowed_calls(ProxyType::RootClaim).len()
+        );
+    }
+
+    #[test]
     fn owner_allows_only_owner_settable_config() {
         let owner = allowed_calls(ProxyType::Owner);
         // Owner-settable subnet params + subnet identity.
@@ -841,6 +852,8 @@ mod tests {
                 "SubtensorModule::stake_into_basket",
                 "SubtensorModule::swap_stake",
                 "SubtensorModule::swap_stake_limit",
+                "SubtensorModule::claim_root",
+                "SubtensorModule::claim_root_with_hotkey",
             ])
         );
         assert_eq!(
