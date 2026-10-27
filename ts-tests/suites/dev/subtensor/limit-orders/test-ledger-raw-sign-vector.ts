@@ -452,7 +452,9 @@ describeSuite({
                     signer: "5CD9UfFv3FLd9BRP8tK7BumpEYvu2y3KZMuhUnDAhuzPbdtC",
                     amount: {
                         LinkedPercentage: {
-                            provider: "0Xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                            // Exercise normalization of a noncanonical prefix at the input boundary.
+                            provider:
+                                "0Xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" as `0x${string}`,
                             pct: 1_000_000_000,
                         },
                     },

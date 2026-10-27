@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from .._generated import calls
 from .._generated import storage as st
+from .._pinned import approved_function, compose_staking_call
 from ..hyperparams import U64_MAX, proportion_to_raw
 from ..result import BittensorError
 from ..settings import U16_MAX
@@ -162,8 +163,8 @@ class IncreaseTake(Intent):
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        return await substrate.compose(
-            calls.SubtensorModule.increase_take(hotkey=hotkey, take=self.take)
+        return await compose_staking_call(
+            substrate, "increase_take", dict(hotkey=hotkey, take=self.take)
         )
 
     def summary(self) -> str:
@@ -195,8 +196,8 @@ class DecreaseTake(Intent):
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        return await substrate.compose(
-            calls.SubtensorModule.decrease_take(hotkey=hotkey, take=self.take)
+        return await compose_staking_call(
+            substrate, "decrease_take", dict(hotkey=hotkey, take=self.take)
         )
 
     def summary(self) -> str:
@@ -232,16 +233,16 @@ class SetTake(Intent):
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        item = st.SubtensorModule.Delegates
-        current = int(await substrate.query(item[0], item[1], [hotkey]) or 0)
-        if self.take == current:
-            raise BittensorError(f"delegate take is already {current}/{U16_MAX}; nothing to change")
-        call = (
-            calls.SubtensorModule.decrease_take(hotkey=hotkey, take=self.take)
-            if self.take < current
-            else calls.SubtensorModule.increase_take(hotkey=hotkey, take=self.take)
-        )
-        return await substrate.compose(call)
+        function = await approved_function("SubtensorModule", ("increase_take", "decrease_take"))
+        if function is None:
+            item = st.SubtensorModule.Delegates
+            current = int(await substrate.query(item[0], item[1], [hotkey]) or 0)
+            if self.take == current:
+                raise BittensorError(
+                    f"delegate take is already {current}/{U16_MAX}; nothing to change"
+                )
+            function = "decrease_take" if self.take < current else "increase_take"
+        return await compose_staking_call(substrate, function, dict(hotkey=hotkey, take=self.take))
 
     def summary(self) -> str:
         return f"set delegate take to {self.take / U16_MAX:.2%} ({self.take} as u16)"

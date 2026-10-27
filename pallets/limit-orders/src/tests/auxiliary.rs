@@ -440,7 +440,7 @@ fn validate_and_classify_stores_effective_swap_limit_for_buy() {
             .sign(&order_signing_payload(&versioned));
         let signed_with_slippage = crate::SignedOrder {
             order: versioned,
-            signature: sp_runtime::MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: None,
         };
 
@@ -485,7 +485,7 @@ fn validate_and_classify_stores_effective_swap_limit_for_sell() {
             .sign(&order_signing_payload(&versioned));
         let signed = crate::SignedOrder {
             order: versioned,
-            signature: sp_runtime::MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: None,
         };
 
@@ -675,9 +675,79 @@ fn bounded_buy_entries(
 }
 
 fn bounded_sell_entries(
-    v: Vec<OrderEntry<AccountId>>,
+    mut v: Vec<OrderEntry<AccountId>>,
 ) -> BoundedVec<OrderEntry<AccountId>, ConstU32<64>> {
+    for entry in &mut v {
+        entry.side = OrderType::TakeProfit;
+        entry.effective_swap_limit = 0; // an unconstrained seller has no floor
+    }
     BoundedVec::try_from(v).unwrap()
+}
+
+#[test]
+fn rounded_allocations_enforce_each_price_limit_before_fees_and_partial_fill_bookkeeping() {
+    for buy in [false, true] {
+        for below_limit in [false, true] {
+            new_test_ext().execute_with(|| {
+                let pallet_acct = PalletHotkeyAccount::get();
+                let mut entry = make_buy_entry(
+                    H256::repeat_byte(90),
+                    alice(),
+                    bob(),
+                    10_000,
+                    if buy { 9_900 } else { 10_000 },
+                    Perbill::from_percent(1),
+                    fee_recipient(),
+                );
+                entry.order_amount = 20_000;
+                entry.partial_fill = Some(10_000);
+                entry.effective_swap_limit = if buy { 1_000_000_000 } else { 990_000_000 };
+                if !buy {
+                    entry.side = OrderType::StopLoss;
+                }
+                let id = entry.order_id;
+                let entries = bounded_buy_entries(vec![entry]);
+                let output = if below_limit { 9_899 } else { 9_900 };
+                let result = if buy {
+                    LimitOrders::<Test>::distribute_alpha_pro_rata(
+                        &entries,
+                        output,
+                        9_900,
+                        0,
+                        &OrderSide::Buy,
+                        U64F64::from_num(1),
+                        &pallet_acct,
+                        &pallet_acct,
+                        netuid(),
+                    )
+                } else {
+                    LimitOrders::<Test>::distribute_tao_pro_rata(
+                        &entries,
+                        output,
+                        0,
+                        10_000,
+                        &OrderSide::Sell,
+                        U64F64::from_num(1),
+                        &pallet_acct,
+                        netuid(),
+                    )
+                    .map(|fees| assert_eq!(fees, vec![(fee_recipient(), 99)]))
+                };
+                if below_limit {
+                    assert_eq!(
+                        result,
+                        Err(crate::Error::<Test>::PriceConditionNotMet.into())
+                    );
+                    assert!(MockSwap::alpha_transfers().is_empty());
+                    assert!(MockSwap::tao_transfers().is_empty());
+                    assert!(!Orders::<Test>::contains_key(id));
+                } else {
+                    assert_ok!(result);
+                    assert!(Orders::<Test>::contains_key(id));
+                }
+            });
+        }
+    }
 }
 
 #[test]
@@ -1415,7 +1485,6 @@ fn collect_fees_no_transfer_when_zero_fees() {
 use crate::Error;
 use codec::Encode;
 use sp_core::Pair;
-use sp_runtime::MultiSignature;
 use subtensor_swap_interface::OrderSwapInterface;
 
 fn make_valid_signed_order() -> (crate::SignedOrder<AccountId>, sp_core::H256) {
@@ -1439,7 +1508,7 @@ fn make_valid_signed_order() -> (crate::SignedOrder<AccountId>, sp_core::H256) {
     let sig = keyring.pair().sign(&order_signing_payload(&order));
     let signed = crate::SignedOrder {
         order,
-        signature: MultiSignature::Sr25519(sig),
+        signature: crate::OrderSignature::Sr25519(sig),
         partial_fill: None,
     };
     (signed, id)
@@ -1472,7 +1541,7 @@ fn is_order_valid_invalid_signature_returns_error() {
         let wrong_sig = AccountKeyring::Bob
             .pair()
             .sign(&order_signing_payload(&signed.order));
-        signed.signature = MultiSignature::Sr25519(wrong_sig);
+        signed.signature = crate::OrderSignature::Sr25519(wrong_sig);
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
             LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
@@ -1511,7 +1580,7 @@ fn is_order_valid_accepts_ed25519_signature() {
         let ed_sig = ed_pair.sign(&order_signing_payload(&order));
         let signed = crate::SignedOrder {
             order,
-            signature: MultiSignature::Ed25519(ed_sig),
+            signature: crate::OrderSignature::Ed25519(ed_sig),
             partial_fill: None,
         };
 
@@ -1542,7 +1611,7 @@ fn is_order_valid_rejects_ecdsa_signature() {
         let ecdsa_sig = ecdsa_pair.sign(&order_signing_payload(&order));
         let signed = crate::SignedOrder {
             order,
-            signature: MultiSignature::Ecdsa(ecdsa_sig),
+            signature: crate::OrderSignature::Ecdsa(ecdsa_sig),
             partial_fill: None,
         };
 
@@ -1585,7 +1654,7 @@ fn is_order_valid_expired_order_returns_error() {
         let sig = keyring.pair().sign(&order_signing_payload(&order));
         let signed2 = crate::SignedOrder {
             order,
-            signature: MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: None,
         };
         let price = MockSwap::current_alpha_price(netuid());
@@ -1622,7 +1691,7 @@ fn is_order_valid_price_condition_not_met_returns_error() {
         let sig = keyring.pair().sign(&order_signing_payload(&order));
         let signed = crate::SignedOrder {
             order,
-            signature: MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: None,
         };
         let price = MockSwap::current_alpha_price(netuid());
@@ -1648,7 +1717,7 @@ fn is_order_valid_wrong_chain_id_returns_error() {
         let sig = keyring.pair().sign(&order_signing_payload(&order));
         let signed = crate::SignedOrder {
             order,
-            signature: MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: None,
         };
         let price = MockSwap::current_alpha_price(netuid());
@@ -1689,7 +1758,7 @@ fn is_order_valid_accepts_raw_sr25519_signature() {
         let sig = keyring.pair().sign(&order.encode());
         let signed = crate::SignedOrder {
             order,
-            signature: MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: None,
         };
 
@@ -1735,7 +1804,7 @@ fn is_order_valid_accepts_raw_ed25519_signature() {
         let ed_sig = ed_pair.sign(&order.encode());
         let signed = crate::SignedOrder {
             order,
-            signature: MultiSignature::Ed25519(ed_sig),
+            signature: crate::OrderSignature::Ed25519(ed_sig),
             partial_fill: None,
         };
 
@@ -1776,7 +1845,7 @@ fn verify_order_and_verify_wrapped_unit() {
         let raw_sig = keyring.pair().sign(&order.encode());
         let raw_signed = crate::SignedOrder {
             order: order.clone(),
-            signature: MultiSignature::Sr25519(raw_sig),
+            signature: crate::OrderSignature::Sr25519(raw_sig),
             partial_fill: None,
         };
         assert!(
@@ -1793,7 +1862,7 @@ fn verify_order_and_verify_wrapped_unit() {
         let wrapped_sig = keyring.pair().sign(&order_signing_payload(&order));
         let wrapped_signed = crate::SignedOrder {
             order,
-            signature: MultiSignature::Sr25519(wrapped_sig),
+            signature: crate::OrderSignature::Sr25519(wrapped_sig),
             partial_fill: None,
         };
         assert!(

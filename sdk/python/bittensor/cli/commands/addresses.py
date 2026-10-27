@@ -1,4 +1,4 @@
-"""`btcli addr`: local ss58 address book for named contacts."""
+"""`btcli addr`: local receiving-address book for named contacts."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import typer
 
 from ... import config as cfg
 from ...extension import BridgeError, ensure_bridge, select_extension_account
+from ...receiving import is_receiving_address, parse_recipient
 from ...settings import FINNEY_GENESIS_HASH
 from ...vault import VaultPageError, scan_vault_address
 from ...wallets import is_bittensor_address
@@ -19,7 +20,7 @@ from ..prompt import PromptSpec, fill_missing, interactive
 
 app = typer.Typer(
     no_args_is_help=True,
-    help="Save and reuse named ss58 addresses (for multisig signers, destinations, etc.).",
+    help="Save and reuse named receiving addresses and ss58 accounts.",
 )
 
 _CONTACT_SIGNERS = ("vault", "ledger", "extension")
@@ -33,8 +34,10 @@ def _save(
     *,
     signer: Optional[str] = None,
 ) -> None:
-    if not is_bittensor_address(ss58):
-        app_ctx.output.error(f"invalid ss58 address {ss58!r}")
+    try:
+        ss58 = _parse_ss58(app_ctx, ss58)
+    except ValueError as error:
+        app_ctx.output.error(str(error))
         raise typer.Exit(1)
     entry: dict[str, Any] = {"name": name, "address": ss58, "note": note}
     if not signer:
@@ -42,6 +45,11 @@ def _save(
         if previous:
             signer = previous.get("signer")
     if signer:
+        if is_receiving_address(ss58):
+            app_ctx.output.error(
+                "hashed receiving contacts cannot use vault, ledger or extension signer tags"
+            )
+            raise typer.Exit(1)
         entry["signer"] = signer
     try:
         saved = cfg.add_address(entry)
@@ -52,6 +60,8 @@ def _save(
 
 
 def _parse_ss58(_app_ctx: AppContext, raw: str) -> str:
+    if is_receiving_address(raw):
+        return parse_recipient(raw).address
     if not is_bittensor_address(raw):
         raise ValueError(f"invalid ss58 address {raw!r}")
     return raw
@@ -62,7 +72,7 @@ def _prompt_for_ss58(app_ctx: AppContext) -> str:
     if not interactive(app_ctx):
         app_ctx.output.error(
             "missing address",
-            help="pass the ss58, --vault to scan it from your phone, or "
+            help="pass the receiving address, --vault to scan it from your phone, or "
             "--extension to pick it from your browser extension",
         )
         raise typer.Exit(2)
@@ -73,7 +83,7 @@ def _prompt_for_ss58(app_ctx: AppContext) -> str:
             PromptSpec(
                 field="ss58",
                 flag="ss58",
-                help="ss58 address for that name (or re-run with --vault to scan it).",
+                help="Receiving address or ss58 for that name (or re-run with --vault to scan it).",
                 parse=_parse_ss58,
                 positional=True,
             )
@@ -148,7 +158,7 @@ def add_address(
     name: str = typer.Argument(..., help="Contact name to save."),
     ss58: Optional[str] = typer.Argument(
         None,
-        help="ss58 address for that name (omit with --vault/--extension, or to "
+        help="Receiving address or ss58 for that name (omit with --vault/--extension, or to "
         "retag an existing contact).",
     ),
     from_vault: bool = typer.Option(
@@ -229,7 +239,7 @@ def add_address(
 def save(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="Contact name to save."),
-    ss58: str = typer.Argument(..., help="ss58 address for that name."),
+    ss58: str = typer.Argument(..., help="Receiving address or ss58 for that name."),
     note: str = typer.Option("", "--note", help="Optional note stored with the entry."),
 ):
     """Alias for `add`: `btcli addr save triumph-a 5FHne...`."""

@@ -15,6 +15,14 @@ pub mod check_nonce;
 pub mod check_nonzero_sender;
 pub mod evm_origin;
 mod fee_filters;
+pub mod hashed_auth;
+mod hashed_evm_runner;
+pub mod hashed_extrinsic;
+mod hashed_owner;
+#[cfg(test)]
+mod hashed_tests;
+#[cfg(test)]
+mod mldsa_test_weights;
 mod proxy_filters;
 pub mod small_order;
 pub mod staking_fee;
@@ -67,7 +75,7 @@ use sp_runtime::{
     AccountId32, ApplyExtrinsicResult, ConsensusEngineId, Cow, Percent, generic, impl_opaque_keys,
     traits::{
         AccountIdConversion, AccountIdLookup, BlakeTwo256, Block as BlockT, DispatchInfoOf,
-        Dispatchable, One, PostDispatchInfoOf, UniqueSaturatedInto, Verify,
+        Dispatchable, ExtrinsicCall, One, PostDispatchInfoOf, UniqueSaturatedInto, Verify,
     },
     transaction_validity::{
         TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
@@ -160,7 +168,39 @@ impl pallet_shield::Config for Runtime {
     type FindAuthors = FindAuraAuthors;
     type RuntimeCall = RuntimeCall;
     type ExtrinsicDecryptor = ();
+    #[cfg(not(test))]
     type WeightInfo = pallet_shield::weights::SubstrateWeight<Runtime>;
+    #[cfg(test)]
+    type WeightInfo = mldsa_test_weights::Shield;
+}
+
+parameter_types! {
+    /// Flat permanent reserve for each new descriptor-based or protected derived
+    /// account: 0.2 TAO. Transaction fees are charged separately.
+    pub const AccountRegistrationDeposit: Balance = TaoBalance::new(200_000_000);
+}
+
+// Preserve the existing runtime names and pallet metadata constants while every
+// account registration uses the same configured amount. Existing reserves stay put.
+pub type HashedRegistrationDeposit = AccountRegistrationDeposit;
+pub type MlDsaRegistrationDeposit = AccountRegistrationDeposit;
+pub type DerivedRegistrationDeposit = AccountRegistrationDeposit;
+
+parameter_types! {
+    pub HashedEnabled: bool = pallet_admin_utils::HashedAccountsEnabled::<Runtime>::get();
+}
+
+impl pallet_hashed_accounts::Config for Runtime {
+    type Enabled = HashedEnabled;
+    type Currency = Balances;
+    type RegistrationDeposit = HashedRegistrationDeposit;
+    type MlDsaRegistrationDeposit = MlDsaRegistrationDeposit;
+    type DerivedRegistrationDeposit = DerivedRegistrationDeposit;
+    #[cfg(not(test))]
+    type WeightInfo = pallet_hashed_accounts::weights::SubstrateWeight<Runtime>;
+    #[cfg(test)]
+    type WeightInfo = hashed_auth::TestWeights;
+    type OnRegister = hashed_auth::OnHashedRegistered;
 }
 
 parameter_types! {
@@ -420,8 +460,13 @@ impl pallet_timestamp::Config for Runtime {
 
 impl pallet_utility::Config for Runtime {
     type RuntimeCall = RuntimeCall;
+    type DerivedAccountPolicy = hashed_auth::HashedDerivedPolicy;
+    type SafeDerivationWeight = SafeDerivationWeight;
     type PalletsOrigin = OriginCaller;
+    #[cfg(not(test))]
     type WeightInfo = pallet_utility::weights::SubstrateWeight<Runtime>;
+    #[cfg(test)]
+    type WeightInfo = mldsa_test_weights::Utility;
 }
 
 parameter_types! {
@@ -561,7 +606,7 @@ parameter_types! {
     pub const DepositBase: Balance = deposit(1, 112);
     // Additional storage item size of 32 bytes.
     pub const DepositFactor: Balance = deposit(0, 32);
-    pub const MaxSignatories: u32 = 100;
+    pub const MaxSignatories: u32 = subtensor_hashed::safe::MAX_MULTISIG_SIGNATORIES;
 }
 
 impl pallet_multisig::Config for Runtime {
@@ -573,6 +618,22 @@ impl pallet_multisig::Config for Runtime {
     type MaxSignatories = MaxSignatories;
     type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
     type BlockNumberProvider = System;
+    type SafeDerivationWeight = SafeDerivationWeight;
+}
+
+/// Weight for bounded off-curve composite account derivation.
+pub struct SafeDerivationWeight;
+impl Get<Weight> for SafeDerivationWeight {
+    fn get() -> Weight {
+        #[cfg(test)]
+        {
+            hashed_auth::TestVerificationWeight::get()
+        }
+        #[cfg(not(test))]
+        {
+            Weight::from_parts(298_264_000, 0)
+        }
+    }
 }
 
 // Proxy Pallet config
@@ -592,11 +653,16 @@ parameter_types! {
 impl pallet_proxy::Config for Runtime {
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
+    type AccountPolicy = hashed_auth::HashedProxyPolicy;
+    type SafeDerivationWeight = SafeDerivationWeight;
     type ProxyType = ProxyType;
     type ProxyDepositBase = ProxyDepositBase;
     type ProxyDepositFactor = ProxyDepositFactor;
     type MaxProxies = MaxProxies;
+    #[cfg(not(test))]
     type WeightInfo = pallet_proxy::weights::SubstrateWeight<Runtime>;
+    #[cfg(test)]
+    type WeightInfo = mldsa_test_weights::Proxy;
     type MaxPending = MaxPending;
     type CallHasher = BlakeTwo256;
     type AnnouncementDepositBase = AnnouncementDepositBase;
@@ -995,6 +1061,7 @@ parameter_types! {
 }
 
 impl pallet_subtensor::Config for Runtime {
+    type HotkeyOwnerPolicy = hashed_owner::HashedHotkeyOwnerPolicy;
     type RuntimeCall = RuntimeCall;
     type SudoRuntimeCall = RuntimeCall;
     type Currency = Balances;
@@ -1202,7 +1269,7 @@ fn weight_per_gas() -> Weight {
 parameter_types! {
     pub BlockGasLimit: U256 = U256::from(BLOCK_GAS_LIMIT);
     pub const GasLimitPovSizeRatio: u64 = 0;
-    pub PrecompilesValue: Precompiles<Runtime> = Precompiles::<_>::new();
+    pub PrecompilesValue: Precompiles<Runtime> = Precompiles::<Runtime>::new();
     pub WeightPerGas: Weight = weight_per_gas();
 }
 
@@ -1266,19 +1333,19 @@ impl pallet_evm::Config for Runtime {
     type BlockHashMapping = pallet_ethereum::EthereumBlockHashMapping<Self>;
     type CallOrigin = evm_origin::EnsureAddressTruncatedNonZero;
     type WithdrawOrigin = evm_origin::EnsureAddressTruncatedNonZero;
-    type AddressMapping = pallet_evm::HashedAddressMapping<BlakeTwo256>;
+    type AddressMapping = evm_origin::HashedAddressMapping;
     type Currency = Balances;
-    type PrecompilesType = Precompiles<Self>;
+    type PrecompilesType = Precompiles<Runtime>;
     type PrecompilesValue = PrecompilesValue;
     type ChainId = ConfigurableChainId;
     type BlockGasLimit = BlockGasLimit;
-    type Runner = pallet_evm::runner::stack::Runner<Self>;
+    type Runner = hashed_evm_runner::HashedEvmRunner;
     type OnChargeTransaction = SubtensorEvmFeeHandler<Balances, TransactionFeeHandler<Runtime>>;
     type OnCreate = ();
     type FindAuthor = FindAuthorTruncated<Aura>;
     type GasLimitPovSizeRatio = GasLimitPovSizeRatio;
     type Timestamp = Timestamp;
-    type WeightInfo = pallet_evm::weights::SubstrateWeight<Self>;
+    type WeightInfo = evm_origin::EvmWeights;
     type BalanceConverter = SubtensorEvmBalanceConverter;
     type AccountProvider = pallet_evm::NoncePreservingAccountProvider<Self>;
     type GasLimitStorageGrowthRatio = ();
@@ -1403,11 +1470,11 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
         info: Self::SignedInfo,
     ) -> Option<sp_runtime::DispatchResultWithInfo<PostDispatchInfoOf<Self>>> {
         match self {
-            call @ RuntimeCall::Ethereum(pallet_ethereum::Call::transact { .. }) => {
-                Some(call.dispatch(RuntimeOrigin::from(
-                    pallet_ethereum::RawOrigin::EthereumTransaction(info),
-                )))
-            }
+            RuntimeCall::Ethereum(pallet_ethereum::Call::transact { transaction }) => Some(
+                RuntimeCall::Ethereum(pallet_ethereum::Call::transact { transaction }).dispatch(
+                    RuntimeOrigin::from(pallet_ethereum::RawOrigin::EthereumTransaction(info)),
+                ),
+            ),
             _ => None,
         }
     }
@@ -1466,9 +1533,20 @@ impl frame_support::traits::UnixTime for LimitOrdersUnixTime {
 }
 
 pub struct LimitOrderSignerFilter;
-impl frame_support::traits::Contains<AccountId> for LimitOrderSignerFilter {
+pub struct AuthenticatedLimitOrderSignerFilter;
+impl frame_support::traits::Contains<AccountId> for AuthenticatedLimitOrderSignerFilter {
     fn contains(signer: &AccountId) -> bool {
         !pallet_subtensor::ColdkeySwapAnnouncements::<Runtime>::contains_key(signer)
+            && !pallet_subtensor::ColdkeySwapDisputes::<Runtime>::contains_key(signer)
+    }
+}
+
+impl frame_support::traits::Contains<AccountId> for LimitOrderSignerFilter {
+    fn contains(signer: &AccountId) -> bool {
+        // The current order envelope only supports classical signatures. Never let
+        // that separate authorization path bypass a registered Hashed's policy.
+        !HashedAccounts::is_protected(signer)
+            && !pallet_subtensor::ColdkeySwapAnnouncements::<Runtime>::contains_key(signer)
             && !pallet_subtensor::ColdkeySwapDisputes::<Runtime>::contains_key(signer)
     }
 }
@@ -1503,6 +1581,7 @@ fn limit_order_signers_are_blocked_during_recovery_or_dispute() {
 impl pallet_limit_orders::Config for Runtime {
     type SwapInterface = SubtensorModule;
     type OrderSignerFilter = LimitOrderSignerFilter;
+    type AuthenticatedOrderSignerFilter = AuthenticatedLimitOrderSignerFilter;
     #[cfg(feature = "runtime-benchmarks")]
     type TimeProvider = LimitOrdersUnixTime;
     #[cfg(not(feature = "runtime-benchmarks"))]
@@ -1510,7 +1589,10 @@ impl pallet_limit_orders::Config for Runtime {
     type MaxOrdersPerBatch = LimitOrdersMaxOrdersPerBatch;
     type PalletId = LimitOrdersPalletId;
     type PalletHotkey = LimitOrdersPalletHotkey;
+    #[cfg(not(test))]
     type WeightInfo = pallet_limit_orders::weights::SubstrateWeight<Runtime>;
+    #[cfg(test)]
+    type WeightInfo = mldsa_test_weights::Orders;
     type ChainId = ConfigurableChainId;
     type LinkedOutputTtl = LimitOrdersLinkedOutputTtl;
 }
@@ -1648,6 +1730,7 @@ construct_runtime!(
         MevShield: pallet_shield = 30,
         AlphaAssets: pallet_alpha_assets = 31,
         LimitOrders: pallet_limit_orders = 32,
+        HashedAccounts: pallet_hashed_accounts = 33,
     }
 );
 
@@ -1667,16 +1750,16 @@ pub type SystemTxExtension = (
     check_nonce::CheckNonce<Runtime>,
     frame_system::CheckWeight<Runtime>,
 );
-pub type CustomTxExtension = (
-    ChargeTransactionPaymentWrapper<Runtime>,
+pub type CustomTxExtension<const AUTHORIZED: bool = false> = (
+    ChargeTransactionPaymentWrapper<Runtime, AUTHORIZED>,
     SudoTransactionExtension<Runtime>,
     pallet_shield::CheckShieldedTxValidity<Runtime>,
     pallet_subtensor::SubtensorTransactionExtension<Runtime>,
     pallet_drand::drand_priority::DrandPriority<Runtime>,
 );
-pub type TxExtension = (
+pub type TxExtension<const AUTHORIZED: bool = false> = (
     SystemTxExtension,
-    CustomTxExtension,
+    CustomTxExtension<AUTHORIZED>,
     frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
 );
 
@@ -1766,12 +1849,10 @@ type Migrations = (
 );
 
 // Unchecked extrinsic type as expected by this runtime.
-pub type UncheckedExtrinsic =
-    fp_self_contained::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
+pub use hashed_extrinsic::UncheckedExtrinsic;
 
 /// Extrinsic type that has already been checked.
-pub type CheckedExtrinsic =
-    fp_self_contained::CheckedExtrinsic<AccountId, RuntimeCall, TxExtension, H160>;
+pub use hashed_extrinsic::CheckedExtrinsic;
 
 // The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
@@ -1810,6 +1891,7 @@ mod benches {
         [pallet_subtensor_proxy, Proxy]
         [pallet_subtensor_utility, Utility]
         [pallet_limit_orders, LimitOrders]
+        [pallet_hashed_accounts, HashedAccounts]
     );
 }
 
@@ -1875,7 +1957,7 @@ impl_runtime_apis! {
         }
 
         fn metadata_at_version(version: u32) -> Option<OpaqueMetadata> {
-            Runtime::metadata_at_version(version)
+            hashed_extrinsic::metadata_at_version(version)
         }
 
         fn metadata_versions() -> sp_std::vec::Vec<u32> {
@@ -2019,7 +2101,7 @@ impl_runtime_apis! {
         ) -> pallet_transaction_payment_rpc_runtime_api::RuntimeDispatchInfo<Balance> {
             use frame_support::dispatch::GetDispatchInfo;
             use sp_runtime::traits::ExtrinsicLike;
-            staking_fee::query_info(&uxt.0.function, &uxt.get_dispatch_info(), len, uxt.is_bare())
+            staking_fee::query_info(uxt.call(), &uxt.get_dispatch_info(), len, uxt.is_bare())
         }
         fn query_fee_details(
             uxt: <Block as BlockT>::Extrinsic,
@@ -2027,7 +2109,7 @@ impl_runtime_apis! {
         ) -> pallet_transaction_payment::FeeDetails<Balance> {
             use frame_support::dispatch::GetDispatchInfo;
             use sp_runtime::traits::ExtrinsicLike;
-            staking_fee::query_fee_details(&uxt.0.function, &uxt.get_dispatch_info(), len, uxt.is_bare())
+            staking_fee::query_fee_details(uxt.call(), &uxt.get_dispatch_info(), len, uxt.is_bare())
         }
         fn query_weight_to_fee(weight: Weight) -> Balance {
             TransactionPayment::weight_to_fee(weight)
@@ -2283,7 +2365,7 @@ impl_runtime_apis! {
         fn extrinsic_filter(
             xts: Vec<<Block as BlockT>::Extrinsic>,
         ) -> Vec<EthereumTransaction> {
-            xts.into_iter().filter_map(|xt| match xt.0.function {
+            xts.into_iter().filter_map(|xt| match xt.into_call() {
                 RuntimeCall::Ethereum(transact { transaction }) => Some(transaction),
                 _ => None
             }).collect::<Vec<EthereumTransaction>>()
@@ -2835,7 +2917,7 @@ impl_runtime_apis! {
 
     impl stp_shield::ShieldApi<Block> for Runtime {
         fn try_decode_shielded_tx(uxt: <Block as BlockT>::Extrinsic) -> Option<ShieldedTransaction> {
-            MevShield::try_decode_shielded_tx::<Block, ChainContext>(uxt)
+            hashed_extrinsic::shielded_transaction(uxt)
         }
 
         fn is_shielded_using_current_key(key_hash: &[u8; 16]) -> bool {
@@ -2942,3 +3024,6 @@ fn test_into_evm_balance_overflow() {
     let result = SubtensorEvmBalanceConverter::into_evm_balance(substrate_balance);
     assert_eq!(result, Some(expected_evm_balance)); // Should return the scaled value
 }
+
+#[cfg(test)]
+mod evm_mapping_meter_tests;

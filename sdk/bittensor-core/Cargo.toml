@@ -32,6 +32,8 @@ fernet = { version = "=0.2.1", optional = true }
 openssl = { version = "0.10", features = ["vendored"], optional = true }
 hex = "0.4.3"
 libc = { version = "0.2", optional = true }
+hkdf = "0.12.4"
+subtensor-hashed = { path = "../../primitives/hashed", default-features = false, features = ["signing"] }
 # OpenCL is loaded only when GPU mining is requested; wheels need no GPU SDK.
 libloading = { version = "0.8.9", optional = true }
 pbkdf2 = { version = "0.12.2", optional = true }
@@ -123,6 +125,7 @@ host = [
     "dep:scrypt",
     "dep:sodiumoxide",
     "sp-core/std",
+    "subtensor-hashed/std",
 ]
 ledger = ["dep:ledger-apdu", "dep:hidapi"]
 

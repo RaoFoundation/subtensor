@@ -13,22 +13,41 @@ import contextlib
 import inspect
 from dataclasses import fields as dataclass_fields
 from dataclasses import replace
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 # Module import + attribute access (not `from bittensor_core import ...`):
 # ty cannot see into the compiled extension, so named imports fail its check.
 import bittensor_core as _core
 
 from ._generated import calls as generated_calls
+from ._pinned import pinned_inputs
 from ._substrate import Substrate
 from ._transport.contract import UnsignedExtrinsic
+from ._transport.extrinsics import MAX_SHIELDED_CIPHERTEXT_BYTES
 from ._transport.utils.receipt import nested_dispatch_error
 from .balance import Balance
 from .fee_filters import COLDKEY_FEE_WARNING, charges_coldkey_fee
+from .hashed import (
+    descriptor_bytes,
+    has_receiving_setup_inputs,
+    hashed_accounts_enabled,
+    prepare_recipient_intent,
+    protected_account_record,
+    with_recipient_registration,
+)
 from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
+from .intents._money import UNBOUNDED
 from .intents.base import BuiltCall, IntentPreflight
 from .intents.proxy import check_proxy_type
+from .multisig import merge_approval_metadata, multisig_deposit_rao
+from .receiving import account_for_read, coerce_payment_address
+from .registration_sponsorship import (
+    RegistrationSponsorshipCallback,
+    authorize_registration_sponsorship,
+    registration_sponsorship_quote,
+    validate_registration_deposit_limit,
+)
 from .result import (
     ChainError,
     ExtrinsicResult,
@@ -36,15 +55,15 @@ from .result import (
     chain_error_from_dispatch,
 )
 from .settings import DEFAULT_ERA_PERIOD, MEV_SHIELD_ERA_PERIOD
+from .shielding import contains_account_registration, registration_shield_default
 from .signing import (
     WalletLike,
     as_wallet,
-    coerce_address,
     is_address_param,
     public_view,
     resolve_signer,
 )
-from .sp_core import ss58_decode
+from .sp_core import REGISTERED_CRYPTO_TYPES, Keypair, is_stateless_pq, ss58_decode
 
 # Transaction-pool rejections that resolve themselves within a block or so (a
 # competing extrinsic at the same nonce, or a race against pool state). Worth
@@ -54,11 +73,6 @@ _TRANSIENT_SUBSTRINGS = (
     "transaction is outdated",
     "stale",
 )
-
-# Runtime metadata bounds MevShield.submit_encrypted ciphertexts to 8192 bytes.
-# Pricing the bound is conservative by only the length-fee delta and avoids
-# asking a signer for the inner signature merely to learn the carrier size.
-_MAX_SHIELDED_CIPHERTEXT_BYTES = 8192
 
 # Allow transient RPC/head lag while keeping both shielded-receipt polling
 # phases bounded by the inner extrinsic's mortal era.
@@ -76,15 +90,50 @@ class _FeeAddressView:
         self.public_key = bytes(ss58_decode(address))
 
 
-async def estimate_shielded_carrier_fee(substrate: Substrate, fee_payer: str) -> Balance:
-    """Conservatively estimate the outer MevShield carrier's TAO fee."""
-    outer = await substrate.compose(
-        generated_calls.MevShield.submit_encrypted(ciphertext=bytes(_MAX_SHIELDED_CIPHERTEXT_BYTES))
+class _FeePeriodView:
+    """Keep intent-specific reserve quotes on the actual signer and signing era."""
+
+    def __init__(self, substrate: Substrate, period: Optional[int], signer):
+        self.substrate = substrate
+        self.period = period
+        self.signer = signer
+
+    def __getattr__(self, name):
+        return getattr(self.substrate, name)
+
+    async def estimate_fee(self, call, keypair) -> Balance:
+        # Address-only intent previews cannot infer an MS or hashed proof shape.
+        # Preserve a different payer rather than substituting this wallet for it.
+        if bytes(ss58_decode(keypair.ss58_address)) == bytes(ss58_decode(self.signer.ss58_address)):
+            keypair = self.signer
+        return await self.substrate.estimate_fee(call, keypair, period=self.period)
+
+
+async def estimate_shielded_carrier_fee(
+    substrate: Substrate, fee_payer: Any, call: Any, *, period: int = MEV_SHIELD_ERA_PERIOD
+) -> Balance:
+    """Estimate the outer fee from the actual inner call, without private-key access."""
+    public = (
+        _FeeAddressView(fee_payer)
+        if isinstance(fee_payer, str)
+        else public_view(fee_payer, "coldkey")
     )
-    return await substrate.estimate_fee(outer, _FeeAddressView(fee_payer))
+    if isinstance(fee_payer, str) and (
+        await hashed_accounts_enabled(substrate) is True
+        or await substrate.constant("HashedAccounts", "MlDsaRegistrationDeposit") is not None
+    ):
+        kind, record = await protected_account_record(substrate, fee_payer)
+        if kind in ("v1", "mldsa"):
+            public = Keypair.from_hashed_descriptor(descriptor_bytes(record["descriptor"]))
+            if public.ss58_address != fee_payer:
+                raise ValueError("registered hashed descriptor does not match the fee payer")
+    call = await substrate.compose(call)
+    return await substrate.estimate_shielded_carrier_fee(call, public, period=period)
 
 
 def _is_transient(result: ExtrinsicResult) -> bool:
+    if result.data.get("submission_outcome_unknown", False):
+        return False
     message = (result.message or "").lower()
     return any(needle in message for needle in _TRANSIENT_SUBSTRINGS)
 
@@ -139,19 +188,20 @@ async def _prepare_shielded_signer(keypair) -> None:
         await result
 
 
-def _coerce_addresses(intent: Intent) -> Intent:
+async def _coerce_addresses(substrate: Substrate, intent: Intent) -> Intent:
     """Normalize the intent's ``*_ss58`` / ``*_ss58s`` fields: a ``Wallet``,
     keypair, or signer passed where an address string is expected becomes its
-    ss58 address (hotkey fields take the wallet's hotkey, others its coldkey).
+    receiving address (hotkey fields take the wallet's hotkey, others its
+    coldkey). Hashed inputs retain their complete descriptor until construction.
     Returns a new intent only when something needed coercing."""
     changes = {}
     for field in dataclass_fields(intent):
         if not is_address_param(field.name):
             continue
         value = getattr(intent, field.name)
-        if value is None or isinstance(value, str):
+        if value is None:
             continue
-        coerced = coerce_address(value, field.name)
+        coerced = await coerce_payment_address(substrate, value, field.name)
         if coerced is not value:
             changes[field.name] = coerced
     return replace(intent, **changes) if changes else intent
@@ -167,9 +217,26 @@ class _OriginView:
 
     crypto_type = 1
 
-    def __init__(self, address: str):
+    def __init__(self, address: str, *, wallet: Any = None):
         self.ss58_address = address
         self.public_key = bytes(ss58_decode(address))
+        # Keep public recipient discovery separate from the dispatch identity.
+        self._wallet = getattr(wallet, "_wallet", wallet)
+
+
+async def _compose_nested_intent_call(substrate, intent, wallet, *, wrapper: str):
+    """Return the guarded call and safety metadata for its enclosing dispatch.
+
+    Dispatch wrappers must propagate the metadata: an outer atomic batch must
+    reject an inner guarded batch before a proxy or multisig consumes approval.
+    """
+    call, extras = await _compose_intent_call(substrate, intent, wallet)
+    if extras.get("hashed_registration"):
+        raise ValueError(
+            "register the hashed recipient first using a direct sponsor wallet; "
+            f"initial registration cannot be wrapped in {wrapper}"
+        )
+    return call, extras
 
 
 async def _compose_intent_call(
@@ -181,27 +248,52 @@ async def _compose_intent_call(
     proxy_type: Optional[str] = None,
 ) -> tuple[Any, dict]:
     """Compose semantic call -> sudo -> proxy -> execution adapter."""
+    proxy_for = await account_for_read(substrate, proxy_for)
     extras: dict = {"proxy_for": proxy_for} if proxy_for is not None else {}
+    semantic = await _coerce_addresses(substrate, intent.semantic_intent())
+    prepared, recipients = await prepare_recipient_intent(substrate, semantic)
     pinned = getattr(intent, "inner_call_data", None)
-    if pinned:
+    # Reconstruct recipient guards and origin wrappers, retaining approved
+    # dynamic inputs instead of deriving fresh prices/amounts for later rounds.
+    verify_pinned = bool(pinned) and (
+        semantic.requires_build_for_policy()
+        or await has_receiving_setup_inputs(substrate, wallet, semantic)
+    )
+    if pinned and not verify_pinned:
         # Later multisig rounds approve round 1's exact bytes. Rebuilds are
         # not always stable (timelock commits, ``--all`` balances) and would
         # throw before wrap_call can apply the pin.
         wrapped = await intent.wrap_call(substrate, wallet, None)
         if isinstance(wrapped, BuiltCall):
-            return wrapped.call, {**extras, **wrapped.extras}
+            return wrapped.call, merge_approval_metadata(extras, wrapped.extras)
         return wrapped, extras
 
-    semantic = _coerce_addresses(intent.semantic_intent())
     # Proxy is the dispatch origin of the inner call. The multisig adapter's
     # origin_view is the multisig itself — correct only when there is no
     # proxy wrap. With both, build against the proxied account.
     origin = _intent_origin_view(substrate, intent, wallet, proxy_for)
-    built = await semantic.build(substrate, origin)
+    with (
+        pinned_inputs(substrate, bytes.fromhex(pinned.removeprefix("0x")))
+        if verify_pinned
+        else contextlib.nullcontext()
+    ):
+        built = await prepared.build(substrate, origin)
     if isinstance(built, BuiltCall):
-        call, extras = built.call, {**extras, **built.extras}
+        call, extras = built.call, merge_approval_metadata(extras, built.extras)
     else:
         call = built
+
+    call, registration = await with_recipient_registration(
+        substrate, wallet, prepared, call, recipients=recipients, origin=origin
+    )
+    if (registration.get("hashed_registration") or extras.get("hashed_registration")) and (
+        proxy_for is not None or intent.semantic_intent() is not intent or semantic.origin == "root"
+    ):
+        raise ValueError(
+            "register the hashed recipient first using a direct sponsor wallet; "
+            "initial registration cannot be wrapped in proxy, multisig or sudo"
+        )
+    extras.update(registration)
 
     wrapped = await nest_origin_wrappers(
         substrate,
@@ -213,9 +305,15 @@ async def _compose_intent_call(
     if wrapped is not call:
         call = wrapped if hasattr(wrapped, "data") else await substrate.compose(wrapped)
 
+    if verify_pinned and bytes(call.data) != bytes.fromhex(pinned.removeprefix("0x")):
+        raise ValueError(
+            "imported multisig call bytes do not match the verified recipient payment and guards "
+            "or account creation; "
+            "use the same receiving address, amount and origin as the opening approval"
+        )
     wrapped = await intent.wrap_call(substrate, wallet, call)
     if isinstance(wrapped, BuiltCall):
-        return wrapped.call, {**extras, **wrapped.extras}
+        return wrapped.call, merge_approval_metadata(extras, wrapped.extras)
     return wrapped, extras
 
 
@@ -226,9 +324,9 @@ def _intent_origin_view(
     proxy_for: Optional[str] = None,
 ) -> Any:
     """Account view whose origin dispatches the semantic intent."""
-    return (
-        _OriginView(proxy_for) if proxy_for is not None else intent.origin_view(substrate, wallet)
-    )
+    if proxy_for is None:
+        return intent.origin_view(substrate, wallet)
+    return _OriginView(proxy_for, wallet=wallet)
 
 
 def _intent_accounts(
@@ -613,9 +711,96 @@ class Executor:
         """The call-level override, else the client-wide policy."""
         return policy or self.policy
 
-    def _violations(self, intent: Intent, fee: Any, policy: Optional[Policy]) -> list[str]:
+    @staticmethod
+    def _setup_reserve(extras: Optional[dict]) -> Balance:
+        extras = extras or {}
+        return Balance.from_rao(
+            int(extras.get("hashed_registration_max_deposit_rao", 0))
+            + int(extras.get("protected_pure_registration_deposit_rao", 0))
+        )
+
+    async def _use_shield(self, intent, call, shielded: bool | None) -> bool:
+        if intent.semantic_intent().mev_shield_required or shielded is True:
+            return True
+        return shielded is None and await registration_shield_default(self.substrate, call)
+
+    async def _quote_submission(self, preview, intent, wallet, call, *, shielded, period):
+        """Price both signed transactions before approval, without opening keys."""
+        inner_fee = preview.estimated_fee
+        if inner_fee is None:
+            try:
+                inner_fee = await self.substrate.estimate_fee(
+                    call, self._public_keypair(wallet, intent.signer), period=period
+                )
+            except Exception as error:
+                preview.warnings.append(f"could not estimate fee: {error}")
+        carrier_fee = None
+        if shielded:
+            try:
+                carrier_fee = await estimate_shielded_carrier_fee(
+                    self.substrate,
+                    self._public_keypair(wallet, intent.signer),
+                    call,
+                    period=period,
+                )
+            except Exception as error:
+                preview.warnings.append(f"could not estimate MEV-shield carrier fee: {error}")
+                if preview.required_free is not None:
+                    preview.blocks.append(
+                        "could not verify free TAO for the shielded call plus its carrier fee; "
+                        f"refusing to risk a post-carrier reserve shortfall ({error})"
+                    )
+            else:
+                if preview.required_free is not None:
+                    if preview.available_free is None:
+                        payer = self._public_keypair(wallet, intent.signer).ss58_address
+                        account = await self.substrate.query("System", "Account", [payer])
+                        preview.available_free = Balance.from_rao(
+                            int(((account or {}).get("data") or {}).get("free") or 0)
+                        )
+                    combined = preview.required_free + carrier_fee
+                    if preview.required_free <= preview.available_free < combined:
+                        preview.blocks.append(
+                            f"free TAO ({preview.available_free}) covers the inner call "
+                            f"reserve ({preview.required_free}) but not that reserve plus the "
+                            f"MEV-shield carrier fee (~{combined})"
+                        )
+                    preview.required_free = combined
+            preview.estimated_fee = (
+                inner_fee + carrier_fee
+                if inner_fee is not None and carrier_fee is not None
+                else None
+            )
+            preview.facts.extend(
+                [
+                    (
+                        "Inner transaction fee (estimated)",
+                        str(inner_fee) if inner_fee is not None else "unavailable",
+                    ),
+                    (
+                        "Shield carrier fee (estimated)",
+                        str(carrier_fee) if carrier_fee is not None else "unavailable",
+                    ),
+                    (
+                        "Total transaction fee (estimated)",
+                        str(preview.estimated_fee)
+                        if preview.estimated_fee is not None
+                        else "unavailable",
+                    ),
+                ]
+            )
+        else:
+            preview.estimated_fee = inner_fee
+
+    def _violations(
+        self, intent: Intent, fee: Any, policy: Optional[Policy], extras: Optional[dict] = None
+    ) -> list[str]:
         active = self._active_policy(policy)
-        return active.check(intent, fee) if active else []
+        return (
+            active.check(intent, fee, additional_spend=self._setup_reserve(extras))
+            if active
+            else []
+        )
 
     def _enforce(
         self,
@@ -623,8 +808,9 @@ class Executor:
         fee: Any,
         policy: Optional[Policy],
         blocks: Optional[list[str]] = None,
+        extras: Optional[dict] = None,
     ) -> None:
-        violations = self._violations(intent, fee, policy)
+        violations = self._violations(intent, fee, policy, extras)
         violations.extend(blocks or [])
         if violations:
             raise PolicyError(violations)
@@ -642,22 +828,30 @@ class Executor:
         *,
         proxy_for: Optional[str] = None,
         proxy_type: Optional[str] = None,
+        shielded: bool | None = None,
+        period: Optional[int] = DEFAULT_ERA_PERIOD,
     ) -> IntentPreflight:
         """Preview intent state against its actual dispatch origin and fee payer.
 
-        ``estimated_fee`` is always filled in when possible: intents with their
-        own fee model (root claim, registration) supply it from their preflight;
+        ``estimated_fee`` covers the selected route, including both the inner
+        transaction and carrier when Shield is selected. Intents with their
+        own fee model (root claim, registration) supply the inner quote;
         for everything else the composed call is priced via payment info
         (best-effort — a failed estimate leaves the field None).
         """
         wallet = as_wallet(wallet)
-        intent = _coerce_addresses(intent)
-        call, _extras = await _compose_intent_call(
+        proxy_for = await account_for_read(self.substrate, proxy_for)
+        intent = await _coerce_addresses(self.substrate, intent)
+        call, extras = await _compose_intent_call(
             self.substrate,
             intent,
             wallet,
             proxy_for=proxy_for,
             proxy_type=proxy_type,
+        )
+        route = await self._use_shield(intent, call, shielded)
+        signing_period = (
+            MEV_SHIELD_ERA_PERIOD if route and period in (None, DEFAULT_ERA_PERIOD) else period
         )
         preview = await self._preflight(
             intent,
@@ -665,13 +859,17 @@ class Executor:
             proxy_for=proxy_for,
             proxy_type=proxy_type,
             call=call,
+            extras=extras,
+            period=signing_period,
         )
-        if preview.estimated_fee is None:
-            # Fee estimation is best-effort; the preview stands without it.
-            with contextlib.suppress(Exception):
-                preview.estimated_fee = await self.substrate.estimate_fee(
-                    call, self._public_keypair(wallet, intent.signer)
-                )
+        await self._quote_submission(
+            preview,
+            intent,
+            wallet,
+            call,
+            shielded=route,
+            period=signing_period,
+        )
         return preview
 
     async def _preflight(
@@ -682,11 +880,14 @@ class Executor:
         proxy_for: Optional[str] = None,
         proxy_type: Optional[str] = None,
         call: Any = None,
+        extras: Optional[dict] = None,
+        period: Optional[int] = DEFAULT_ERA_PERIOD,
     ) -> IntentPreflight:
         wallet = as_wallet(wallet)
-        intent = _coerce_addresses(intent)
+        proxy_for = await account_for_read(self.substrate, proxy_for)
+        intent = await _coerce_addresses(self.substrate, intent)
         if call is None:
-            call, _extras = await _compose_intent_call(
+            call, extras = await _compose_intent_call(
                 self.substrate,
                 intent,
                 wallet,
@@ -699,12 +900,167 @@ class Executor:
             wallet,
             proxy_for,
         )
-        return await intent.preflight(
-            self.substrate,
+        prepared, recipients = await prepare_recipient_intent(
+            self.substrate, intent.semantic_intent()
+        )
+        # Wrappers own their preview; ordinary intents must receive chain
+        # addresses for state queries without changing the stored user input.
+        preview_intent = prepared if intent.semantic_intent() is intent else intent
+        preview = await preview_intent.preflight(
+            cast(
+                Substrate,
+                _FeePeriodView(self.substrate, period, self._public_keypair(wallet, intent.signer)),
+            ),
             dispatch_origin,
             fee_payer,
             call=call,
         )
+        preview.registration_sponsorship = registration_sponsorship_quote(
+            extras or {}, dispatch_origin
+        )
+        preview.account_registration = await contains_account_registration(self.substrate, call)
+        for recipient in recipients.values():
+            preview.effects = [
+                effect.replace(recipient.account, recipient.address) for effect in preview.effects
+            ]
+        maximum = Balance.from_rao(
+            int((extras or {}).get("hashed_registration_max_deposit_rao", 0))
+        )
+        if maximum.rao:
+            preview.facts.append(
+                ("Account setup reserve (maximum, permanently locked if needed)", str(maximum))
+            )
+            if not (extras or {}).get("hashed_registration"):
+                preview.effects.insert(
+                    0, "recipient is already set up; no new reserve unless chain state rolls back"
+                )
+        if extras and "hashed_registration_deposit_rao" in extras:
+            deposit = Balance.from_rao(extras["hashed_registration_deposit_rao"])
+            preview.effects.insert(
+                0, f"set up recipient and permanently reserve {deposit} from the sender"
+            )
+            preview.facts.append(("Account setup reserve", str(deposit)))
+            # Existing intent-specific quotes may have priced only the
+            # semantic call. Reprice the complete setup batch.
+            preview.estimated_fee = None
+            if preview.required_free is not None:
+                preview.required_free += deposit
+            if prepared.op in ("transfer", "transfer_all"):
+                # Quote the whole batch before unlocking a signer. The runtime
+                # transfer_all remains after registration, so it sweeps only
+                # the remainder after reserving setup and charging the fee.
+                account = await self.substrate.query("System", "Account", [dispatch_origin])
+                data = (account or {}).get("data") or {}
+                free = int(data.get("free", 0))
+                frozen = int(data.get("frozen", 0))
+                # The new reserve keeps a Balances consumer even when the
+                # sender requested allow-death, so ED must remain funded.
+                minimum = int(await self.substrate.constant("Balances", "ExistentialDeposit") or 0)
+                try:
+                    fee = await self.substrate.estimate_fee(
+                        call, self._public_keypair(wallet, intent.signer), period=period
+                    )
+                except Exception as error:
+                    preview.blocks.append(
+                        f"could not quote first-payment fee before account setup: {error}"
+                    )
+                else:
+                    spend = prepared.spend()
+                    amount = spend.rao if isinstance(spend, Balance) else 0
+                    required = amount + deposit.rao + fee.rao + max(frozen, minimum)
+                    preview.required_free = Balance.from_rao(required)
+                    preview.available_free = Balance.from_rao(free)
+                    preview.estimated_fee = fee
+                    if free < required:
+                        preview.blocks.append(
+                            "insufficient spendable balance for payment, account setup reserve "
+                            "and transaction fee"
+                        )
+        if extras and "protected_pure_registration_deposit_rao" in extras:
+            deposit = Balance.from_rao(extras["protected_pure_registration_deposit_rao"])
+            refundable = Balance.from_rao(extras["pure_proxy_deposit_rao"])
+            preview.effects.append(
+                f"authorize a permanent reserve of {deposit} when protected pure-proxy "
+                "creation executes; "
+                "killing the proxy does not refund this registration reserve"
+            )
+            preview.facts.extend(
+                [
+                    ("Authorized pure-proxy registration reserve (permanent)", str(deposit)),
+                    ("Authorized pure-proxy deposit (refundable on kill)", str(refundable)),
+                ]
+            )
+        if extras and (
+            "protected_pure_registration_deposit_rao" in extras or extras.get("multisig_approvals")
+        ):
+            try:
+                fee = await self.substrate.estimate_fee(
+                    call, self._public_keypair(wallet, intent.signer), period=period
+                )
+                minimum = int(await self.substrate.constant("Balances", "ExistentialDeposit") or 0)
+                spend = intent.semantic_intent().spend()
+                preview.estimated_fee = fee
+                # Proxy and multisig origins pay their reserves, while the
+                # outer signer pays transaction fees even if it owes no reserve.
+                # Aggregate by AccountId so SS58 prefixes cannot split one
+                # account's balance obligations into separate checks.
+                fee_payer_id = bytes(ss58_decode(fee_payer))
+                dispatch_origin_id = bytes(ss58_decode(dispatch_origin))
+                reserves: dict[bytes, int] = {}
+                payers: dict[bytes, str] = {}
+                for payer, reserve in extras.get("pure_proxy_reserves", {}).items():
+                    payer_id = bytes(ss58_decode(payer))
+                    reserves[payer_id] = reserves.get(payer_id, 0) + int(reserve)
+                    payers[payer_id] = payer
+                approval_deposit = 0
+                for approval in extras.get("multisig_approvals", []):
+                    payer = approval["payer"]
+                    payer_id = bytes(ss58_decode(payer))
+                    reserve = (
+                        await multisig_deposit_rao(self.substrate, approval["threshold"])
+                        if approval["opening"] and approval["threshold"] >= 2
+                        else 0
+                    )
+                    approval_deposit += reserve
+                    reserves[payer_id] = reserves.get(payer_id, 0) + reserve
+                    payers[payer_id] = payer
+                if approval_deposit:
+                    preview.facts.append(
+                        (
+                            "Multisig approval reserve (refundable)",
+                            str(Balance.from_rao(approval_deposit)),
+                        )
+                    )
+                reserves.setdefault(fee_payer_id, 0)
+                payers[fee_payer_id] = fee_payer
+                for payer_id, reserve in reserves.items():
+                    payer = payers[payer_id]
+                    account = await self.substrate.query("System", "Account", [payer])
+                    data = (account or {}).get("data") or {}
+                    free = Balance.from_rao(int(data.get("free", 0)))
+                    required = Balance.from_rao(
+                        reserve
+                        + max(int(data.get("frozen", 0)), minimum)
+                        + (fee.rao if payer_id == fee_payer_id else 0)
+                        + (
+                            (spend.rao if isinstance(spend, Balance) else 0) + maximum.rao
+                            if payer_id == dispatch_origin_id
+                            else 0
+                        )
+                    )
+                    if payer_id == fee_payer_id:
+                        preview.required_free = max(preview.required_free or required, required)
+                        preview.available_free = free
+                    if free < required:
+                        preview.blocks.append(
+                            "insufficient spendable balance for account reserves, "
+                            "payment and transaction fee"
+                        )
+            except Exception as error:
+                preview.blocks.append(
+                    f"could not quote account reserves and transaction fee: {error}"
+                )
+        return preview
 
     async def plan(
         self,
@@ -714,8 +1070,13 @@ class Executor:
         policy: Optional[Policy] = None,
         proxy_for: Optional[str] = None,
         proxy_type: Optional[str] = None,
+        shielded: bool | None = None,
+        period: Optional[int] = DEFAULT_ERA_PERIOD,
     ) -> Plan:
-        """Dry-run: build the call, simulate the fee, and check policy. No submit.
+        """Dry-run: select the route, quote its total fee, and check policy.
+
+        ``shielded`` and ``period`` follow :meth:`execute`; the fee includes
+        both transactions for Shield. No private keys are needed.
 
         ``proxy_for`` switches to proxy signing: the call is wrapped in
         ``Proxy.proxy(real=proxy_for)`` so it dispatches with that account's
@@ -724,7 +1085,8 @@ class Executor:
         optionally forces the exact proxy type to match (``force_proxy_type``).
         """
         wallet = as_wallet(wallet)
-        intent = _coerce_addresses(intent)
+        proxy_for = await account_for_read(self.substrate, proxy_for)
+        intent = await _coerce_addresses(self.substrate, intent)
         call, extras = await _compose_intent_call(
             self.substrate,
             intent,
@@ -732,30 +1094,41 @@ class Executor:
             proxy_for=proxy_for,
             proxy_type=proxy_type,
         )
-        pub = self._public_keypair(wallet, intent.signer)
         _origin, signer_address = _intent_accounts(self.substrate, intent, wallet, proxy_for)
+        route = await self._use_shield(intent, call, shielded)
+        signing_period = (
+            MEV_SHIELD_ERA_PERIOD if route and period in (None, DEFAULT_ERA_PERIOD) else period
+        )
         preflight = await self._preflight(
             intent,
             wallet,
             proxy_for=proxy_for,
             call=call,
+            extras=extras,
+            period=signing_period,
+        )
+        await self._quote_submission(
+            preflight,
+            intent,
+            wallet,
+            call,
+            shielded=route,
+            period=signing_period,
         )
         warnings: list[str] = list(preflight.warnings)
         if intent.signer == "hotkey" and proxy_for is None and charges_coldkey_fee(call):
             warnings.append(COLDKEY_FEE_WARNING)
         fee = preflight.estimated_fee
-        if fee is None:
-            try:
-                fee = await self.substrate.estimate_fee(call, pub)
-            except Exception as error:  # fee estimation is best-effort
-                warnings.append(f"could not estimate fee: {error}")
 
         effects = list(preflight.effects)
         if proxy_for is not None:
             effects.append(f"dispatched via proxy as {proxy_for} (signed by {signer_address})")
-        violations = self._violations(intent, fee, policy)
+        violations = self._violations(intent, fee, policy, extras)
         violations.extend(preflight.blocks)
 
+        spend = intent.semantic_intent().spend()
+        if spend is not UNBOUNDED and self._setup_reserve(extras).rao:
+            spend = (spend or Balance.from_rao(0)) + self._setup_reserve(extras)
         return Plan(
             op=intent.op,
             summary=intent.summary(),
@@ -767,9 +1140,10 @@ class Executor:
             violations=violations,
             call=call,
             extras=extras,
-            spend=intent.semantic_intent().spend(),
+            spend=spend,
             args={k: v for k, v in intent.to_dict().items() if k != "op"},
             preview=dict(preflight.preview),
+            shielded=route,
         )
 
     async def execute(
@@ -787,6 +1161,9 @@ class Executor:
         wait_for_registration: bool = True,
         registration_timeout: Optional[float] = None,
         on_progress: Any = None,
+        max_registration_deposit: Balance | None = None,
+        on_registration_sponsorship: RegistrationSponsorshipCallback | None = None,
+        shielded: bool | None = None,
     ) -> ExtrinsicResult:
         """Plan, then sign and submit. Raises ``PolicyError`` if the plan violates
         policy. (To preview without submitting, call ``plan`` instead.)
@@ -802,6 +1179,9 @@ class Executor:
 
         Intents with ``mev_shield_required`` (collateral AMM buys) are redirected
         to :meth:`submit_shielded`; they cannot be submitted in the clear.
+        Account registration defaults to Shield when the network provides it.
+        ``shielded=False`` opts out; ``shielded=True`` requires Shield without
+        public fallback. Other intents retain their existing SDK defaults.
 
         ``register_subnet`` has a second completion boundary: when subnet
         capacity is full the successful extrinsic queues behind multi-block
@@ -809,25 +1189,72 @@ class Executor:
         event and returns its netuid. Set ``wait_for_registration=False`` to
         return the queue receipt instead. ``registration_timeout`` and the
         optional ``on_progress(dict)`` callback apply only to that wait.
+
+        Automatic recipient registration requires explicit sponsorship consent
+        before requesting a signature. Set ``max_registration_deposit`` to a
+        native TAO ``Balance`` cap, or supply ``on_registration_sponsorship``
+        returning exactly ``True`` for the current quote. The deposit remains
+        permanently reserved from the sender, separate from payment and fees.
+        When both are given, the callback cannot override the cap.
         """
-        if intent.semantic_intent().mev_shield_required:
+        validate_registration_deposit_limit(max_registration_deposit)
+        proxy_for = await account_for_read(self.substrate, proxy_for)
+        if intent.semantic_intent().mev_shield_required or shielded is True:
             return await self.submit_shielded(
                 intent,
                 wallet,
                 policy=policy,
                 proxy_for=proxy_for,
                 proxy_type=proxy_type,
+                period=MEV_SHIELD_ERA_PERIOD
+                if period in (None, DEFAULT_ERA_PERIOD)
+                else int(period),
                 wait_for_inclusion=wait_for_inclusion,
                 wait_for_finalization=wait_for_finalization,
                 wait_for_registration=wait_for_registration,
                 registration_timeout=registration_timeout,
                 on_progress=on_progress,
+                max_registration_deposit=max_registration_deposit,
+                on_registration_sponsorship=on_registration_sponsorship,
             )
         plan = await self.plan(
-            intent, wallet, policy=policy, proxy_for=proxy_for, proxy_type=proxy_type
+            intent,
+            wallet,
+            policy=policy,
+            proxy_for=proxy_for,
+            proxy_type=proxy_type,
+            shielded=shielded,
+            period=period,
         )
         if not plan.ok:
             raise PolicyError(plan.violations)
+
+        if plan.shielded:
+            return await self._submit_shielded_prepared(
+                intent,
+                as_wallet(wallet),
+                plan.call,
+                plan.extras,
+                policy=policy,
+                proxy_for=proxy_for,
+                period=MEV_SHIELD_ERA_PERIOD
+                if period in (None, DEFAULT_ERA_PERIOD)
+                else int(period),
+                wait_for_inclusion=wait_for_inclusion,
+                wait_for_finalization=wait_for_finalization,
+                wait_for_registration=wait_for_registration,
+                registration_timeout=registration_timeout,
+                on_progress=on_progress,
+                max_registration_deposit=max_registration_deposit,
+                on_registration_sponsorship=on_registration_sponsorship,
+            )
+
+        await authorize_registration_sponsorship(
+            plan.extras,
+            plan.signer_address,
+            max_registration_deposit=max_registration_deposit,
+            on_registration_sponsorship=on_registration_sponsorship,
+        )
 
         keypair = resolve_signer(wallet, intent.signer)
         attempts = max(0, int(retries)) + 1
@@ -849,7 +1276,7 @@ class Executor:
         result = _with_nested_dispatch_failure(result)
         if result.success:
             data = dict(result.data)
-            semantic_intent = _coerce_addresses(intent.semantic_intent())
+            semantic_intent = await _coerce_addresses(self.substrate, intent.semantic_intent())
             if semantic_intent.op == "create_pure_proxy":
                 data.update(_pure_created_data(result))
             data.update(plan.extras)
@@ -861,8 +1288,10 @@ class Executor:
             and wait_for_registration
             and (wait_for_inclusion or wait_for_finalization)
         ):
-            resolved_intent = _coerce_addresses(intent)
-            semantic_intent = _coerce_addresses(resolved_intent.semantic_intent())
+            resolved_intent = await _coerce_addresses(self.substrate, intent)
+            semantic_intent = await _coerce_addresses(
+                self.substrate, resolved_intent.semantic_intent()
+            )
             resolved_wallet = as_wallet(wallet)
             owner, _fee_payer = _intent_accounts(
                 self.substrate,
@@ -876,6 +1305,7 @@ class Executor:
                 resolved_wallet,
                 proxy_for,
             )
+            semantic_intent, _ = await prepare_recipient_intent(self.substrate, semantic_intent)
             hotkey = semantic_intent.hotkey_address(
                 origin_view, getattr(semantic_intent, "hotkey_ss58", None)
             )
@@ -909,6 +1339,8 @@ class Executor:
         wait_for_registration: bool = True,
         registration_timeout: Optional[float] = None,
         on_progress: Any = None,
+        max_registration_deposit: Balance | None = None,
+        on_registration_sponsorship: RegistrationSponsorshipCallback | None = None,
     ) -> ExtrinsicResult:
         """Submit an intent MEV-shielded via the MevShield pallet.
 
@@ -917,67 +1349,80 @@ class Executor:
         ``MevShield.submit_encrypted`` (signed at nonce). It stays encrypted in the
         pool until the block author decrypts and executes it, so the mempool can't
         front-run it. Policy is enforced on the intent before anything is signed;
-        ``max_fee_tao`` is checked against the inner call's estimated fee (the
-        outer carrier extrinsic pays its own small fee on top).
+        ``max_fee_tao`` is checked against the total estimated fee of the inner
+        call and its outer carrier before either transaction is signed.
 
         ``proxy_for`` / ``proxy_type`` are the same as on :meth:`plan` and
         :meth:`execute`: the inner signed extrinsic is the already-composed
         call (semantic → sudo → proxy → adapter). Shield wraps that; it does
         not replace the proxy wrap.
+
+        Automatic registration uses the same ``max_registration_deposit`` /
+        ``on_registration_sponsorship`` consent as :meth:`execute`, before
+        signing either the inner transaction or its carrier.
         """
+        validate_registration_deposit_limit(max_registration_deposit)
         wallet = as_wallet(wallet)
-        intent = _coerce_addresses(intent)
-        semantic_intent = _coerce_addresses(intent.semantic_intent())
+        proxy_for = await account_for_read(self.substrate, proxy_for)
+        intent = await _coerce_addresses(self.substrate, intent)
         call, extras = await _compose_intent_call(
             self.substrate, intent, wallet, proxy_for=proxy_for, proxy_type=proxy_type
         )
+        return await self._submit_shielded_prepared(
+            intent,
+            wallet,
+            call,
+            extras,
+            policy=policy,
+            proxy_for=proxy_for,
+            period=period,
+            wait_for_inclusion=wait_for_inclusion,
+            wait_for_finalization=wait_for_finalization,
+            wait_for_registration=wait_for_registration,
+            registration_timeout=registration_timeout,
+            on_progress=on_progress,
+            max_registration_deposit=max_registration_deposit,
+            on_registration_sponsorship=on_registration_sponsorship,
+        )
+
+    async def _submit_shielded_prepared(
+        self,
+        intent,
+        wallet,
+        call,
+        extras,
+        *,
+        policy,
+        proxy_for,
+        period,
+        wait_for_inclusion,
+        wait_for_finalization,
+        wait_for_registration,
+        registration_timeout,
+        on_progress,
+        max_registration_deposit,
+        on_registration_sponsorship,
+    ) -> ExtrinsicResult:
+        """Submit the already selected call; never rebuild after selecting its route."""
+        semantic_intent = await _coerce_addresses(self.substrate, intent.semantic_intent())
         dispatch_origin, fee_payer = _intent_accounts(self.substrate, intent, wallet, proxy_for)
         preflight = await self._preflight(
             intent,
             wallet,
             proxy_for=proxy_for,
             call=call,
+            extras=extras,
+            period=period,
         )
-        fee = preflight.estimated_fee
-        active = self._active_policy(policy)
-        if active is not None and active.max_fee_tao is not None and fee is None:
-            # A fee guardrail must not fail open: if the estimate is
-            # unavailable the submission is blocked, unlike ``plan`` where a
-            # failed estimate only warns.
-            try:
-                fee = await self.substrate.estimate_fee(
-                    call, self._public_keypair(wallet, intent.signer)
-                )
-            except Exception as error:
-                raise PolicyError(
-                    [f"could not estimate fee to enforce max_fee_tao: {error}"]
-                ) from error
-        blocks = list(preflight.blocks)
-        if preflight.required_free is not None:
-            try:
-                if preflight.available_free is None:
-                    account = await self.substrate.query("System", "Account", [fee_payer])
-                    free_rao = int(((account or {}).get("data") or {}).get("free") or 0)
-                else:
-                    free_rao = preflight.available_free.rao
-                carrier_fee = await estimate_shielded_carrier_fee(
-                    self.substrate,
-                    fee_payer,
-                )
-            except Exception as error:
-                blocks.append(
-                    "could not verify free TAO for the shielded call plus its carrier fee; "
-                    f"refusing to risk a post-carrier reserve shortfall ({error})"
-                )
-            else:
-                combined_rao = preflight.required_free.rao + carrier_fee.rao
-                if preflight.required_free.rao <= free_rao < combined_rao:
-                    blocks.append(
-                        f"free TAO ({Balance.from_rao(free_rao)}) covers the inner claim "
-                        f"reserve ({preflight.required_free}) but not that reserve plus the "
-                        f"MEV-shield carrier fee (~{Balance.from_rao(combined_rao)})"
-                    )
-        self._enforce(intent, fee, policy, blocks)
+        await self._quote_submission(preflight, intent, wallet, call, shielded=True, period=period)
+        self._enforce(intent, preflight.estimated_fee, policy, preflight.blocks, extras)
+
+        await authorize_registration_sponsorship(
+            extras,
+            fee_payer,
+            max_registration_deposit=max_registration_deposit,
+            on_registration_sponsorship=on_registration_sponsorship,
+        )
 
         keypair = resolve_signer(wallet, intent.signer)
         result = await self._submit_encrypted_call(
@@ -988,6 +1433,8 @@ class Executor:
             wait_for_inclusion=wait_for_inclusion,
             wait_for_finalization=wait_for_finalization,
         )
+        if result.success and semantic_intent.op == "create_pure_proxy":
+            result = replace(result, data={**result.data, **_pure_created_data(result)})
         if (
             result.success
             and semantic_intent.op == "register_subnet"
@@ -1000,6 +1447,7 @@ class Executor:
                 wallet,
                 proxy_for,
             )
+            semantic_intent, _ = await prepare_recipient_intent(self.substrate, semantic_intent)
             hotkey = semantic_intent.hotkey_address(
                 origin_view, getattr(semantic_intent, "hotkey_ss58", None)
             )
@@ -1035,14 +1483,43 @@ class Executor:
             raise ChainError("MEV Shield NextKey not available; is the MevShield pallet active?")
 
         await _prepare_shielded_signer(keypair)
-        nonce = await self.substrate.account_next_index(keypair.ss58_address)
-        inner_bytes, inner_hash = await self.substrate.sign_extrinsic(
-            call, keypair, nonce=nonce + 1, period=period
+        snapshot = (
+            await self.substrate.prepare_hashed_snapshot(
+                keypair, **({"reserve_nonces": True} if is_stateless_pq(keypair) else {})
+            )
+            if keypair.crypto_type in REGISTERED_CRYPTO_TYPES
+            else None
         )
-        ciphertext = _core.encrypt_mlkem768(pubkey, inner_bytes, include_key_hash=True)
-        outer = await self.substrate.compose(
-            generated_calls.MevShield.submit_encrypted(ciphertext=ciphertext)
+        nonce = (
+            snapshot.nonce
+            if snapshot is not None
+            else await self.substrate.account_next_index(keypair.ss58_address)
         )
+        inner_options = {"nonce": nonce + 1, "period": period}
+        if keypair.crypto_type in REGISTERED_CRYPTO_TYPES:
+            # The inner call consumes n+1 after its carrier. Rotating accounts
+            # also advance generation; standard MS always signs at generation zero.
+            inner_options["hashed_generation_offset"] = 1
+            inner_options["hashed_signing_snapshot"] = snapshot
+        try:
+            inner_bytes, inner_hash = await self.substrate.sign_extrinsic(
+                call, keypair, **inner_options
+            )
+            ciphertext = _core.encrypt_mlkem768(pubkey, inner_bytes, include_key_hash=True)
+            limit = MAX_SHIELDED_CIPHERTEXT_BYTES
+            if len(ciphertext) > limit:
+                raise ValueError(f"encrypted transaction exceeds the {limit}-byte carrier limit")
+            outer = await self.substrate.compose(
+                generated_calls.Call(
+                    "MevShield",
+                    "submit_encrypted",
+                    {"ciphertext": ciphertext},
+                )
+            )
+        except BaseException:
+            if is_stateless_pq(keypair):
+                self.substrate.release_nonce_reservation(keypair.ss58_address, nonce, 2)
+            raise
         result = await self.substrate.submit(
             outer,
             keypair,
@@ -1050,6 +1527,10 @@ class Executor:
             period=period,
             wait_for_inclusion=wait_for_inclusion,
             wait_for_finalization=wait_for_finalization,
+            **({"hashed_signing_snapshot": snapshot} if snapshot is not None else {}),
+        )
+        release_reservation = not result.success and not result.data.get(
+            "submission_outcome_unknown", False
         )
         if result.success:
             result = replace(
@@ -1059,6 +1540,7 @@ class Executor:
                     **extras,
                     "shielded": True,
                     "inner_extrinsic_hash": inner_hash,
+                    "shield_carrier_fee_rao": result.fee.rao if result.fee is not None else None,
                 },
             )
         if result.success and (wait_for_inclusion or wait_for_finalization):
@@ -1069,6 +1551,11 @@ class Executor:
                 wait_for_finalization=wait_for_finalization,
             )
             result = _with_nested_dispatch_failure(result)
+            release_reservation = (
+                result.error is not None and result.error.name == "ShieldInnerExpired"
+            )
+        if release_reservation and is_stateless_pq(keypair):
+            self.substrate.release_nonce_reservation(keypair.ss58_address, nonce, 2)
         return result
 
     async def _resolve_shielded_inner(
@@ -1085,7 +1572,7 @@ class Executor:
         extrinsic as a regular extrinsic — normally in the carrier's own block.
         Scan from the carrier's block until the inner hash is found and return
         its receipt (success flag, block, extrinsic id, error) merged with the
-        carrier's shield metadata. If the inner extrinsic has not appeared by
+        carrier's shield metadata and both fees. If the inner extrinsic has not appeared by
         the end of its mortal era, report the submission failed rather than
         letting the carrier's success stand in for it.
         """
@@ -1201,8 +1688,31 @@ class Executor:
                         if inner is None:
                             block += 1
                             continue
-                return replace(inner, data={**inner.data, **outer.data})
+                return replace(
+                    inner,
+                    fee=(
+                        Balance.from_rao(inner.fee.rao + outer.fee.rao)
+                        if inner.fee is not None and outer.fee is not None
+                        else None
+                    ),
+                    data={
+                        **inner.data,
+                        **outer.data,
+                        "shield_carrier_fee_rao": outer.fee.rao if outer.fee is not None else None,
+                        "shield_inner_fee_rao": inner.fee.rao if inner.fee is not None else None,
+                    },
+                )
             block += 1
+        if block <= deadline:
+            raise ChainError("could not determine whether the shielded inner transaction expired")
+        try:
+            finalized = await self.substrate.finalized_block_number()
+        except Exception as error:
+            raise ChainError(
+                "could not verify shielded inner expiration against finalized state"
+            ) from error
+        if finalized < deadline:
+            raise ChainError("shielded inner expiration is not yet finalized")
         message = (
             "the MEV shield accepted the encrypted submission, but the decrypted "
             f"extrinsic ({inner_hash}) was not included before its era expired"
@@ -1211,7 +1721,12 @@ class Executor:
             outer,
             success=False,
             message=message,
-            error=ChainError(message),
+            error=ChainError(message, "ShieldInnerExpired"),
+            data={
+                **outer.data,
+                "shield_carrier_fee_rao": outer.fee.rao if outer.fee is not None else None,
+                "shield_inner_fee_rao": 0,
+            },
         )
 
     async def submit_call(
@@ -1224,7 +1739,7 @@ class Executor:
         period: Optional[int] = DEFAULT_ERA_PERIOD,
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = True,
-        shielded: bool = False,
+        shielded: bool | None = None,
     ) -> ExtrinsicResult:
         """Escape hatch: sign and submit a generated raw call with no intent wrapper.
 
@@ -1232,11 +1747,14 @@ class Executor:
         exposes, including ones no intent wraps). There is no plan/preview, so an
         active policy cannot bound the spend — raw calls are refused unless the
         policy sets ``allow_raw_calls=True``. No policy means no restriction,
-        exactly as for intents. ``shielded=True`` encrypts the composed call
-        the same way :meth:`submit_shielded` does for intents.
+        exactly as for intents. Account registration defaults to Shield when
+        available. ``shielded=False`` opts out; ``shielded=True`` requires it
+        without public fallback, like :meth:`submit_shielded`.
         """
         self._enforce_raw_call(policy)
         composed = await self.substrate.compose(call)
+        if shielded is None:
+            shielded = await registration_shield_default(self.substrate, composed)
         keypair = resolve_signer(wallet, signer)
         if shielded:
             era = MEV_SHIELD_ERA_PERIOD if period in (None, DEFAULT_ERA_PERIOD) else int(period)

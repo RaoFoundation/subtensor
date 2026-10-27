@@ -10,8 +10,9 @@ import {
     generateKeyringPair,
     keyringPairFromUri,
     rootRegister,
-    startCall,
+    sudoSetAdminFreezeWindow,
     sudoSetLockReductionInterval,
+    sudoSetSubtokenEnabled,
     waitForBlocks,
 } from "../../utils";
 import { sudoSetStakeThreshold } from "../../utils/admin_utils.ts";
@@ -26,14 +27,16 @@ describeSuite({
 
         beforeAll(async () => {
             api = context.papi("Node").getTypedApi(subtensor);
+            // ROOT staking is disabled in the fresh local genesis. Enable it
+            // through sudo; Alice is not ROOT's subnet owner for start_call.
+            await sudoSetAdminFreezeWindow(api, 0);
+            await sudoSetSubtokenEnabled(api, 0, true);
         });
 
         it({
             id: "T01",
             title: "auto-delegation: validator with flag=true gets child, validator with flag=false does not",
             test: async () => {
-                const rootSubnetOwner = keyringPairFromUri("//Alice");
-
                 const rootVal1Coldkey = generateKeyringPair("sr25519"); // will opt-OUT
                 const rootVal1Hotkey = generateKeyringPair("sr25519");
                 const rootVal2Coldkey = generateKeyringPair("sr25519"); // default opt-IN
@@ -69,8 +72,6 @@ describeSuite({
                 log(`Bootstrap netuid: ${bootstrapNetuid}`);
 
                 await rootRegister(api, rootVal1Coldkey, rootVal1Hotkey.address);
-
-                await startCall(api, 0, rootSubnetOwner);
 
                 await burnedRegister(api, bootstrapNetuid, rootVal2Hotkey.address, rootVal2Coldkey);
 

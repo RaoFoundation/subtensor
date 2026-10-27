@@ -29,6 +29,7 @@ async function assertPrecompileGasScaling(
         const balanceBefore = await getBalance(api, convertH160ToSS58(wallet.address));
         const tx = await call(iterations);
         const receipt = await tx.wait();
+        if (receipt == null) throw new Error("Transaction was not mined");
         // Wait for the receipt's own block to finalize rather than a fixed
         // block count: when GRANDPA lags best by more than 2 blocks, a fixed
         // wait ends before the fee deduction is in finalized state and the

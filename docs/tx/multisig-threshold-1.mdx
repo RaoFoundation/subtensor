@@ -14,7 +14,7 @@ supplied even though nobody else signs. For thresholds above 1 use
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Multisig | `Multisig.as_multi_threshold_1` |
+| `coldkey` | signed account (pallet role may apply) | Multisig | `Multisig.as_multi_threshold_1`, `Multisig.as_multi_threshold_1_safe` |
 
 ## Parameters
 
@@ -22,6 +22,7 @@ supplied even though nobody else signs. For thresholds above 1 use
 | --- | --- | --- | --- |
 | `other_signatories` | array | yes | The other members of the multisig (every signatory except the signer), as a JSON list of addresses. The same set must be given on every approval; order does not matter (sorted automatically). |
 | `call` | object | yes | The inner call to dispatch from the multisig account, as a JSON object \{"op": \<intent name>, ...args}. All approvals must describe the identical call — it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet. |
+| `account_mode` | string | no | Account derivation mode: legacy or safe; must match every approval. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -67,5 +68,7 @@ result = sub.execute_tool("multisig_threshold_1", {...}, wallet)
 ## On-chain implementation
 
 `Multisig.as_multi_threshold_1` is implemented by Substrate's `pallet_multisig`, outside this repository's pallets.
+
+`Multisig.as_multi_threshold_1_safe` is implemented by Substrate's `pallet_multisig`, outside this repository's pallets.
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

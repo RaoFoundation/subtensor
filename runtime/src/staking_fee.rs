@@ -223,6 +223,8 @@ fn leaves(call: &RuntimeCall) -> Vec<&RuntimeCall> {
             }
             RuntimeCall::Utility(
                 UtilityCall::as_derivative { call, .. }
+                | UtilityCall::as_safe_derivative { call, .. }
+                | UtilityCall::as_protected_derivative { call, .. }
                 | UtilityCall::dispatch_as { call, .. }
                 | UtilityCall::dispatch_as_fallible { call, .. },
             )
@@ -911,6 +913,57 @@ mod tests {
             let batch_discount = Runtime::fee_weight_discount(&batch, &info);
             assert_eq!(batch_discount, expected);
             assert!(batch_discount.all_lt(info.call_weight));
+        });
+    }
+
+    #[test]
+    fn safe_and_protected_derivatives_preserve_leaf_fee_discounts() {
+        new_test_ext().execute_with(|| {
+            let inner = remove_stake();
+            let expected = discount(&inner);
+            assert!(expected.ref_time() > 0);
+            for wrapped in [
+                RuntimeCall::Utility(UtilityCall::as_safe_derivative {
+                    index: 1,
+                    call: alloc::boxed::Box::new(inner.clone()),
+                }),
+                RuntimeCall::Utility(UtilityCall::as_protected_derivative {
+                    index: 1,
+                    call: alloc::boxed::Box::new(inner),
+                }),
+            ] {
+                assert_eq!(discount(&wrapped), expected);
+                let nested = RuntimeCall::Utility(UtilityCall::batch_all {
+                    calls: vec![wrapped],
+                });
+                assert_eq!(discount(&nested), expected);
+            }
+        });
+    }
+
+    #[test]
+    fn safe_derivative_validation_charges_each_additional_account_derivation() {
+        new_test_ext().execute_with(|| {
+            let old = crate::hashed_auth::TestVerificationWeight::get();
+            let derivation = Weight::from_parts(10_000_000, 128);
+            crate::hashed_auth::TestVerificationWeight::set(derivation);
+            let extension = pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new();
+            let inner = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+            let base = extension.weight(&inner);
+            let once = RuntimeCall::Utility(UtilityCall::as_safe_derivative {
+                index: 1,
+                call: alloc::boxed::Box::new(inner),
+            });
+            let twice = RuntimeCall::Utility(UtilityCall::as_safe_derivative {
+                index: 2,
+                call: alloc::boxed::Box::new(once.clone()),
+            });
+            assert_eq!(extension.weight(&once), base.saturating_add(derivation));
+            assert_eq!(
+                extension.weight(&twice),
+                base.saturating_add(derivation.saturating_mul(2))
+            );
+            crate::hashed_auth::TestVerificationWeight::set(old);
         });
     }
 

@@ -194,7 +194,9 @@ describeSuite({
                     Binary.fromBytes(data.asBytes())
                 );
 
-                expect(response.result.success).toBeTruthy();
+                if (response.result.success === false) {
+                    throw new Error(`Contract call failed: ${response.result.value.type}`);
+                }
                 const result = queryMessage.decode(response.result.value).value.value;
 
                 if (
@@ -365,7 +367,7 @@ describeSuite({
                 )?.stake;
 
                 expect(stakeBeforeOrigin > BigInt(0)).toBeTruthy();
-                expect(stakeBeforeDest).toBeDefined();
+                if (stakeBeforeDest == null) throw new Error("Destination stake is missing before transfer");
 
                 // Transfer stake
                 const transferAmount = stakeBeforeOrigin / BigInt(2);
@@ -390,7 +392,7 @@ describeSuite({
                     )
                 )?.stake;
 
-                expect(stakeAfterDest).toBeDefined();
+                if (stakeAfterDest == null) throw new Error("Destination stake is missing after transfer");
                 expect(stakeAfterOrigin < stakeBeforeOrigin).toBeTruthy();
                 expect(stakeAfterDest > requireDefined(stakeBeforeDest, "stakeBeforeDest")).toBeTruthy();
             },
@@ -625,7 +627,9 @@ describeSuite({
                     Binary.fromBytes(data.asBytes())
                 );
 
-                expect(response.result.success).toBeTruthy();
+                if (response.result.success === false) {
+                    throw new Error(`Contract call failed: ${response.result.value.type}`);
+                }
                 const result = message.decode(response.result.value).value.value;
 
                 expect(result).toBeDefined();
@@ -758,7 +762,7 @@ describeSuite({
                         undefined,
                         Binary.fromBytes(data.asBytes())
                     );
-                    if (response.result.success) {
+                    if (response.result.success === true) {
                         throw new Error("Caller-authorized contract operation unexpectedly executed");
                     }
                     expect(response.result.value.type).toEqual("BadOrigin");
@@ -835,7 +839,9 @@ describeSuite({
                     Binary.fromBytes(data.asBytes())
                 );
 
-                expect(response.result.success).toBeTruthy();
+                if (response.result.success === false) {
+                    throw new Error(`Contract call failed: ${response.result.value.type}`);
+                }
                 const result = queryMessage.decode(response.result.value).value.value;
                 if (
                     typeof result === "object" &&
@@ -872,7 +878,9 @@ describeSuite({
                         undefined,
                         Binary.fromBytes(data.asBytes())
                     );
-                    expect(response.result.success).toBeTruthy();
+                    if (response.result.success === false) {
+                        throw new Error(`Contract call failed: ${response.result.value.type}`);
+                    }
                     return queryMessage.decode(response.result.value).value.value as
                         | {
                               locked_mass: bigint;
@@ -934,7 +942,9 @@ describeSuite({
                     Binary.fromBytes(data.asBytes())
                 );
 
-                expect(response.result.success).toBeTruthy();
+                if (response.result.success === false) {
+                    throw new Error(`Contract call failed: ${response.result.value.type}`);
+                }
                 const result = queryMessage.decode(response.result.value).value.value;
                 if (
                     typeof result === "object" &&

@@ -138,7 +138,7 @@ fn make_signed_order_inner(
     let sig = keyring.pair().sign(&order.encode());
     SignedOrder {
         order,
-        signature: MultiSignature::Sr25519(sig),
+        signature: MultiSignature::Sr25519(sig).into(),
         partial_fill: None,
     }
 }
@@ -330,7 +330,7 @@ fn execute_orders_ecdsa_signature_rejected() {
         assert!(signature.verify(order.encode().as_slice(), &ecdsa_id));
         let signed = SignedOrder {
             order,
-            signature,
+            signature: signature.into(),
             partial_fill: None,
         };
 
@@ -381,7 +381,7 @@ fn execute_orders_chain_id_mismatch_rejected() {
         let sig = alice.pair().sign(&order.encode());
         let signed = SignedOrder {
             order,
-            signature: MultiSignature::Sr25519(sig),
+            signature: MultiSignature::Sr25519(sig).into(),
             partial_fill: None,
         };
 
@@ -504,7 +504,7 @@ fn execute_orders_ed25519_wrapped_signature_executes() {
         let ed_sig = ed_pair.sign(&payload);
         let signed = SignedOrder {
             order,
-            signature: MultiSignature::Ed25519(ed_sig),
+            signature: MultiSignature::Ed25519(ed_sig).into(),
             partial_fill: None,
         };
 
@@ -561,7 +561,7 @@ fn execute_orders_wrapped_sr25519_signature_executes() {
         );
         let id = order_id(&signed.order);
         let payload = [b"<Bytes>".as_slice(), id.as_bytes(), b"</Bytes>".as_slice()].concat();
-        signed.signature = MultiSignature::Sr25519(alice.pair().sign(&payload));
+        signed.signature = MultiSignature::Sr25519(alice.pair().sign(&payload)).into();
 
         assert_ok!(LimitOrders::execute_orders(
             RuntimeOrigin::signed(relayer),
@@ -2896,7 +2896,7 @@ fn execute_batched_orders_readable_signature_executes() {
         let sig = alice.pair().sign(&readable_signed_bytes(&inner));
         let signed = SignedOrder {
             order,
-            signature: MultiSignature::Sr25519(sig),
+            signature: MultiSignature::Sr25519(sig).into(),
             partial_fill: None,
         };
 

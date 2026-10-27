@@ -54,6 +54,7 @@ import typer
 
 from .. import calls
 from ..executor import nest_origin_wrappers
+from ..shielding import ACCOUNT_REGISTRATION_CALLS, contains_account_registration
 from . import multisig_helpers as ms_helpers
 from .call_names import resolve_builder_params
 from .context import ctx_of
@@ -76,7 +77,7 @@ def _shield_policy_for_target(target: str) -> tuple[bool, bool]:
     from ..intents import REGISTRY
 
     pair = (pallet, function)
-    default = False
+    default = pair in ACCOUNT_REGISTRATION_CALLS
     for cls in REGISTRY.values():
         if pair not in cls.wraps:
             continue
@@ -168,6 +169,11 @@ def call(
         "--multisig",
         help="Named multisig wallet (see `btcli multisig list`).",
     ),
+    account_mode: Optional[str] = typer.Option(
+        None,
+        "--multisig-account-mode",
+        help="Account derivation: legacy or safe; must match the existing group.",
+    ),
     multisig_threshold: Optional[int] = typer.Option(
         None,
         "--multisig-threshold",
@@ -216,10 +222,6 @@ def call(
             "must be 'coldkey', 'hotkey', or a signing backend (wallet, vault, ledger, extension)",
             param_hint="--signer",
         )
-    shield_default, shield_required = _shield_policy_for_target(target)
-    shield, shield_forced = app_ctx.resolve_mev_shield(
-        default=shield_default, required=shield_required, op=target
-    )
     proxy_for = app_ctx.resolve_dispatch_proxy()
     force_proxy_type = app_ctx.force_proxy_type
     if force_proxy_type is not None and proxy_for is None:
@@ -227,14 +229,25 @@ def call(
     threshold, sigs, preset, _signatory_refs = _resolve_multisig(
         app_ctx,
         multisig_name=multisig,
+        account_mode=account_mode,
         threshold=multisig_threshold,
         signatories=signatories,
         other_signatories=other_signatories,
         signer=signer,
         wallet_default=app_ctx.wallet_name,
     )
+    account_mode = getattr(app_ctx, "multisig_account_mode", "legacy")
     builder = _resolve_builder(target)
     params = resolve_builder_params(app_ctx, target, _load_params(args, args_file))
+    shield_default, shield_required = _shield_policy_for_target(target)
+
+    async def _registration_default(client):
+        return await contains_account_registration(client._substrate, builder(**params))
+
+    shield_default = shield_default or app_ctx.run(_registration_default)
+    shield, shield_forced = app_ctx.resolve_mev_shield(
+        default=shield_default, required=shield_required, op=target
+    )
     proxy_type_value = (
         str(getattr(force_proxy_type, "value", force_proxy_type)) if force_proxy_type else None
     )
@@ -358,7 +371,7 @@ def call(
 
             async def _dry_run_multisig(client):
                 await _compose_only(client, prepare)
-                return await _multisig_address(client, sigs, threshold)
+                return await _multisig_address(client, sigs, threshold, account_mode=account_mode)
 
             ms_addr = app_ctx.run(_dry_run_multisig)
             fields["multisig_threshold"] = threshold
@@ -466,10 +479,14 @@ def call(
                             "skipping the remaining signatories[/green]"
                         )
                         return result
-                    await ms_helpers.await_pending_visible(client, sigs, threshold, call_hash)
+                    await ms_helpers.await_pending_visible(
+                        client, sigs, threshold, call_hash, account_mode=account_mode
+                    )
                 app_ctx.signatory_wallet = ss58
                 app_ctx.signer_backend = None if backend == "wallet" else backend
-                app_ctx.signer_address = None if backend == "wallet" else ss58
+                app_ctx.signer_address = (
+                    None if backend == "wallet" else name if backend == "vault" else ss58
+                )
                 app_ctx._vault_signer = None
                 app_ctx._ledger_signer = None
                 app_ctx.reset_extension_session()
@@ -489,7 +506,7 @@ def call(
             return result
 
         async def _submit_multisig(client):
-            ms = await client.multisig(sigs, threshold)
+            ms = await client.multisig(sigs, threshold, account_mode=account_mode)
             call = await prepare(client)
             composed = await client.compose(call)
             call_hash = ms_helpers.hex_bytes(composed.call_hash)
@@ -571,9 +588,9 @@ async def _compose_only(client, prepare):
     return await client.compose(await prepare(client))
 
 
-async def _multisig_address(client, signatories, threshold):
+async def _multisig_address(client, signatories, threshold, *, account_mode="legacy"):
     """Derive the on-chain multisig account address for a signer set."""
-    ms = await client.multisig(signatories, threshold)
+    ms = await client.multisig(signatories, threshold, account_mode=account_mode)
     return ms.address
 
 

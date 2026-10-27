@@ -3,4 +3,4 @@ source: runtime/tests/fee_baseline.rs
 description: proxy_create_pure
 expression: fee
 ---
-80542
+118042

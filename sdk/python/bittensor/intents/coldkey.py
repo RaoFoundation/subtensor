@@ -22,7 +22,7 @@ stay raw-only on purpose.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 from .._generated import calls
 from .base import Intent
@@ -62,6 +62,10 @@ class AnnounceColdkeySwap(Intent):
             "help": "Coldkey that will take over everything this coldkey owns once the "
             "swap executes; validated and reserved before the announcement fee is charged."
         }
+    )
+    hashed_descriptor: Optional[str] = field(
+        default=None,
+        metadata={"help": "Public descriptor hex for a remote hashed destination's registration."},
     )
 
     async def build(self, substrate, wallet: Any):

@@ -1,0 +1,9 @@
+.table_scroller {
+  width: 100%;
+  max-width: calc(100vw - 64px);
+  overflow-x: auto;
+}
+
+.table_scroller table {
+  min-width: 560px;
+}

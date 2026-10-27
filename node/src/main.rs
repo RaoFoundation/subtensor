@@ -20,6 +20,7 @@ mod conditional_evm_block_import;
 mod consensus;
 mod dev_keystore;
 mod ethereum;
+mod execution_admission;
 mod rpc;
 mod service;
 

@@ -61,7 +61,7 @@ describeSuite({
             title: "Happy path: wrapper and inner tx are included in the same block",
             test: async () => {
                 const nextKey = await getNextKey(api);
-                expect(nextKey).toBeDefined();
+                if (nextKey == null) throw new Error("Shield encryption key is unavailable");
 
                 const balanceBefore = await getBalance(api, bob.address);
 
@@ -83,7 +83,7 @@ describeSuite({
             title: "Failed inner tx: wrapper succeeds but inner transfer has no effect",
             test: async () => {
                 const nextKey = await getNextKey(api);
-                expect(nextKey).toBeDefined();
+                if (nextKey == null) throw new Error("Shield encryption key is unavailable");
 
                 const balanceBefore = await getBalance(api, dave.address);
 
@@ -131,7 +131,7 @@ describeSuite({
                 // Use different signers to avoid nonce ordering issues between
                 // the outer wrappers and decrypted inner transactions.
                 const nextKey = await getNextKey(api);
-                expect(nextKey).toBeDefined();
+                if (nextKey == null) throw new Error("Shield encryption key is unavailable");
 
                 const balanceBefore = await getBalance(api, t04Recipient.address);
 
@@ -162,7 +162,7 @@ describeSuite({
             title: "Wrong key hash is not included by the block proposer",
             test: async () => {
                 const nextKey = await getNextKey(api);
-                if (nextKey === undefined) throw new Error("MEV Shield NextKey is not available");
+                if (nextKey == null) throw new Error("Shield encryption key is unavailable");
 
                 const balanceBefore = await getBalance(api, dave.address);
 
@@ -202,7 +202,7 @@ describeSuite({
             title: "Stale key is not included after rotation",
             test: async () => {
                 const staleKey = await getNextKey(api);
-                if (staleKey === undefined) throw new Error("MEV Shield NextKey is not available");
+                if (staleKey == null) throw new Error("Shield encryption key is unavailable");
 
                 // Wait for enough blocks that the key has rotated past both
                 // currentKey and nextKey positions.

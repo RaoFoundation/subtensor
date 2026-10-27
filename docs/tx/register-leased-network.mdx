@@ -73,7 +73,7 @@ result = sub.execute_tool("register_leased_network", {...}, wallet)
 
 ```rust
 #[pallet::call_index(110)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_leased_network(T::MaxContributors::get()))]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_leased_network(T::MaxContributors::get()).saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(2)))]
 pub fn register_leased_network(
     origin: OriginFor<T>,
     emissions_share: Percent,
