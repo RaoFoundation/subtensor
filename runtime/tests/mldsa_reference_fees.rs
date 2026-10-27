@@ -12,10 +12,12 @@ use node_subtensor_runtime::{
     sudo_wrapper, transaction_payment_wrapper,
 };
 use pallet_hashed_accounts::{CapabilityRole, CapabilityScope, DerivedDescriptor};
-use pallet_limit_orders::{MlDsaOrderProof, OrderSignature, SignedOrder, VersionedOrder};
+use pallet_limit_orders::{
+    MlDsaOrderProof, Order, OrderSignature, OrderType, SignedOrder, VersionedOrder,
+};
 use sp_runtime::{generic::Era, traits::TransactionExtension};
 use subtensor_hashed::mldsa;
-use subtensor_runtime_common::{AccountId, ProxyType, Signature, TaoBalance, Token};
+use subtensor_runtime_common::{AccountId, NetUid, ProxyType, Signature, TaoBalance, Token};
 
 fn extra() -> TxExtension {
     (
@@ -99,24 +101,23 @@ fn envelope_for_profile(call: RuntimeCall, profile: Option<u8>, nonce: u32) -> U
 }
 
 fn sample_order() -> VersionedOrder<AccountId> {
-    let line = include_str!("fee_baseline/pins.tsv")
-        .lines()
-        .find(|line| line.starts_with("LimitOrders.cancel_order\t"))
-        .expect("order fixture");
-    let encoded = line.split('\t').nth(1).expect("call hex");
-    let bytes: Vec<u8> = encoded
-        .as_bytes()
-        .chunks_exact(2)
-        .map(|pair| {
-            u8::from_str_radix(core::str::from_utf8(pair).expect("ascii"), 16).expect("hex")
-        })
-        .collect();
-    match RuntimeCall::decode(&mut bytes.as_slice()).expect("call") {
-        RuntimeCall::LimitOrders(pallet_limit_orders::Call::cancel_order { order }) => {
-            order.with_nonce(0).expect("authorized terms")
-        }
-        _ => panic!("wrong fixture"),
-    }
+    VersionedOrder::V1(Order {
+        signer: AccountId::from([1; 32]),
+        hotkey: AccountId::from([1; 32]),
+        netuid: NetUid::from(1u16),
+        order_type: OrderType::LimitBuy,
+        amount: 1,
+        limit_price: 1,
+        expiry: 1,
+        fee_rate: sp_runtime::Perbill::from_parts(1),
+        fee_recipient: AccountId::from([1; 32]),
+        relayer: None,
+        max_slippage: None,
+        chain_id: 1,
+        partial_fills_enabled: false,
+    })
+    .with_nonce(0)
+    .expect("authorized terms")
 }
 
 #[test]
