@@ -105,6 +105,12 @@ export class PreparedOrder {
     return {order:authorizedOrder(this.nonce,this.terms),signature:'AccountApproved',partial_fill:partialFill == null ? null : u64(partialFill)}
   }
 }
+/**
+ * Pin order terms with a nonce above the owner's ApprovedOrders.highest_nonce.
+ * An existing System account can hold eight live approvals. Cancellation or
+ * expiry frees a slot on the next approval without resetting the nonce watermark.
+ * Account reaping removes all approvals. Preparation does not reserve a slot.
+ */
 export async function prepareOrder(client: ProtectedWorkflowAdapter, nonce: bigint | number, order: VersionedOrder): Promise<PreparedOrder> {
   const reader = await client.intentReader(await client.finalizedHead()), canonical = await orderForChain(reader,order)
   const normalized = u64(nonce), data = await reader.composeCall({pallet:'LimitOrders',call:'authorize_order',params:{order:authorizedOrder(normalized,canonical)}})

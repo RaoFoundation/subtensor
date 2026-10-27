@@ -5,13 +5,25 @@ const { ChainError, JsonRpcError } = require('../dist/transport')
 const { mapNativeError, RpcError, PolicyError } = require('../dist/errors')
 
 test('all current module error names have a semantic classification', () => {
-  assert.equal(CHAIN_ERROR_CATALOG.length, 445)
+  assert.equal(CHAIN_ERROR_CATALOG.length, 447)
   for (const item of CHAIN_ERROR_CATALOG) assert.notEqual(classifyError('', item.name), ErrorCode.UNKNOWN, item.name)
   assert.equal(classifyError('insufficient balance', 'UnknownNewFailure'), ErrorCode.UNKNOWN)
   assert.equal(classifyError('', 'NewRateLimitExceeded'), ErrorCode.RATE_LIMITED)
   assert.equal(classifyError('', '__proto__'), ErrorCode.UNKNOWN)
   assert.equal(classifyChainError('SubtensorModule.UnknownNewFailure: insufficient balance').code, ErrorCode.UNKNOWN)
   assert.equal(classifyChainError('UnknownNewFailure: insufficient balance').code, ErrorCode.UNKNOWN)
+})
+
+test('bounded order approval failures retain their chain semantics', () => {
+  const full = classifyChainError('LimitOrders.TooManyApprovedOrders')
+  assert.equal(full.code, ErrorCode.LIMIT_EXCEEDED)
+  assert.match(full.docs, /eight live account-approved orders/)
+  const missing = classifyChainError('LimitOrders.OrderAccountMissing')
+  assert.equal(missing.code, ErrorCode.NOT_FOUND)
+  assert.match(missing.docs, /existing System account/)
+  const nonce = classifyChainError('LimitOrders.OrderNonceUsed')
+  assert.equal(nonce.code, ErrorCode.ALREADY_EXISTS)
+  assert.match(nonce.docs, /consumed/)
 })
 
 test('pool custom, nonce, and watch failures carry structured semantics', () => {

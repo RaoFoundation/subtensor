@@ -466,7 +466,6 @@ export const storage = Object.freeze({
   LimitOrders: Object.freeze({
     Orders: ["LimitOrders", "Orders"] as const,
     ApprovedOrders: ["LimitOrders", "ApprovedOrders"] as const,
-    OrderNonces: ["LimitOrders", "OrderNonces"] as const,
     LimitOrdersEnabled: ["LimitOrders", "LimitOrdersEnabled"] as const,
     LinkedOutputs: ["LimitOrders", "LinkedOutputs"] as const,
     HasMigrationRun: ["LimitOrders", "HasMigrationRun"] as const,

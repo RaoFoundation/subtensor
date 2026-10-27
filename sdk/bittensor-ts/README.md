@@ -65,7 +65,11 @@ their already encoded transaction with `submitSigned`.
 `derivativeCall`, and `multisigProtection` expose the new composite account
 modes. `Lock` is included in proxy types. `session.prepareOrder` pins complete
 order terms and exposes `accountApproved()` for authorization through an on-chain
-`authorize_order` transaction. The four order intents cover authorization,
+`authorize_order` transaction. Owners need an existing System account and can
+hold eight live approvals. Choose new nonces above the owner's
+`ApprovedOrders.highest_nonce`; cancellation or expiry frees a slot on the next
+approval without resetting this watermark. Account reaping removes approvals.
+The four order intents cover authorization,
 cancellation, relay, and netted relay. Protected keys do not sign detached orders
 or arbitrary messages; the release has removed wallet capability delegation and
 PQ HTTP authentication. Classical `httpAuth.verify` requires a trusted

@@ -435,6 +435,8 @@ export const CHAIN_ERROR_CODES = {
   "OrderNonceUsed": "already_exists",
   "OrderNotApproved": "not_authorized",
   "OrderBatchTooLarge": "limit_exceeded",
+  "TooManyApprovedOrders": "limit_exceeded",
+  "OrderAccountMissing": "not_found",
   "InvalidAuthorizationMode": "invalid_argument",
   "Disabled": "disabled",
   "UnsupportedDescriptor": "invalid_argument",
@@ -3606,7 +3608,7 @@ export const CHAIN_ERROR_CATALOG = [
     "errorIndex": 28,
     "pallet": "LimitOrders",
     "name": "OrderNonceUsed",
-    "docs": "The owner nonce already names a different canonical order."
+    "docs": "The nonce was already consumed or names a different canonical order."
   },
   {
     "palletIndex": 32,
@@ -3628,6 +3630,20 @@ export const CHAIN_ERROR_CATALOG = [
     "pallet": "LimitOrders",
     "name": "InvalidAuthorizationMode",
     "docs": "Nonce-bearing terms and proof authorization must use the same mode."
+  },
+  {
+    "palletIndex": 32,
+    "errorIndex": 32,
+    "pallet": "LimitOrders",
+    "name": "TooManyApprovedOrders",
+    "docs": "The owner already has eight live account-approved orders."
+  },
+  {
+    "palletIndex": 32,
+    "errorIndex": 33,
+    "pallet": "LimitOrders",
+    "name": "OrderAccountMissing",
+    "docs": "The owner must have an existing System account to hold approvals."
   },
   {
     "palletIndex": 33,

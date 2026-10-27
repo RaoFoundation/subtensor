@@ -271,7 +271,9 @@ test('Node and snapshot namespaces expose snake and camel methods at the origina
 test('generated catalogs expose every metadata category and exact call parameter names', () => {
   const descriptors = require('../dist/descriptors')
   const count = catalog => Object.values(catalog).reduce((sum, value) => sum + Object.keys(value).length, 0)
-  assert.equal(count(descriptors.storage), 418)
+  assert.equal(count(descriptors.storage), 417)
+  assert.deepEqual(descriptors.storage.LimitOrders.ApprovedOrders, ['LimitOrders', 'ApprovedOrders'])
+  assert.equal(descriptors.storage.LimitOrders.OrderNonces, undefined)
   assert.equal(count(descriptors.constants), 142)
   assert.equal(count(descriptors.runtimeApi), 125)
   assert.equal(count(descriptors.calls), 334)
