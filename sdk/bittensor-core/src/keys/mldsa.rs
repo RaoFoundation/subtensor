@@ -410,25 +410,14 @@ mod tests {
                 expected
             );
         }
-        // Fixed-profile vectors independently computed with Python HMAC-SHA512.
-        for (role, index, expected) in [(
-            0,
-            0,
-            "753832bab3583b97195c3878523e70d03a5695675a62c6527a004ef1957cb736",
-        )] {
-            assert_eq!(
-                hex::encode(
-                    *MldsaKeypair::derive_seed_for_profile(
-                        &[7; 32],
-                        mldsa::FIXED_ALGORITHM,
-                        role,
-                        index
-                    )
+        // Fixed-profile vector independently computed with Python HMAC-SHA512.
+        assert_eq!(
+            hex::encode(
+                *MldsaKeypair::derive_seed_for_profile(&[7; 32], mldsa::FIXED_ALGORITHM, 0, 0)
                     .unwrap()
-                ),
-                expected
-            );
-        }
+            ),
+            "753832bab3583b97195c3878523e70d03a5695675a62c6527a004ef1957cb736"
+        );
         for unsupported_role in [1, 2, 3, u8::MAX] {
             assert!(MldsaKeypair::derive_seed(&[7; 32], unsupported_role, 0).is_err());
         }
