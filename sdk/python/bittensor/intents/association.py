@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .._generated import calls
+from ..signing import public_view
 from .base import Intent
 from .registry import register
 
@@ -34,7 +35,12 @@ class AssociateHotkey(Intent):
     )
 
     async def build(self, substrate, wallet: Any):
-        hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
+        public = public_view(wallet, "hotkey") if self.hotkey_ss58 is None else None
+        hotkey = (
+            public.ss58_address
+            if public is not None and public is not wallet
+            else self.hotkey_address(wallet, self.hotkey_ss58)
+        )
         return await substrate.compose(calls.SubtensorModule.try_associate_hotkey(hotkey=hotkey))
 
     def summary(self) -> str:

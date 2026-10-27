@@ -111,6 +111,24 @@
         }
       ]
     },
+    "AccountPolicyViolation": {
+      "code": "not_authorized",
+      "description": "This proxy delegation would weaken the protected account's authorization. Use a compatible hashed delegate; a classical proxy cannot bypass hashed authorization.",
+      "docs_url": "/docs/errors/chain/AccountPolicyViolation",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AccountPolicyViolation/content.md",
+      "pallets": [
+        "Proxy"
+      ],
+      "sources": [
+        {
+          "pallet": "Proxy",
+          "path": "pallets/proxy/src/lib.rs",
+          "line": 916,
+          "url": "/code/pallets/proxy/src/lib.rs#L916",
+          "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+        }
+      ]
+    },
     "AccountRejectsLockedAlpha": {
       "code": "policy_violation",
       "description": "Locked alpha was being transferred to a coldkey whose `AccountFlags` do not have the accept-locked-alpha bit set, e.g. during a lock transfer or coldkey swap of locks. Check the destination coldkey's `AccountFlags` storage and have the recipient opt in to receiving locked alpha before retrying.",
@@ -234,6 +252,24 @@
           "line": 245,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L245",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "AliasCollision": {
+      "code": "already_exists",
+      "description": "The derived EVM alias is already bound to another account. This descriptor cannot be registered safely; create a new hashed wallet and use its new descriptor.",
+      "docs_url": "/docs/errors/chain/AliasCollision",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AliasCollision/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 300,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L300",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -411,8 +447,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 814,
-          "url": "/code/pallets/proxy/src/lib.rs#L814",
+          "line": 912,
+          "url": "/code/pallets/proxy/src/lib.rs#L912",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -429,9 +465,27 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 445,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L445",
+          "line": 520,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L520",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "AuthenticationKindConflict": {
+      "code": "policy_violation",
+      "description": "The account already has a different permanent authorization kind. Direct and derived authorities cannot replace one another; check the registered account and descriptor.",
+      "docs_url": "/docs/errors/chain/AuthenticationKindConflict",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AuthenticationKindConflict/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 302,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L302",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -474,8 +528,8 @@
         {
           "pallet": "MevShield",
           "path": "pallets/shield/src/lib.rs",
-          "line": 234,
-          "url": "/code/pallets/shield/src/lib.rs#L234",
+          "line": 238,
+          "url": "/code/pallets/shield/src/lib.rs#L238",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
         }
       ]
@@ -771,8 +825,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 202,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L202",
+          "line": 212,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L212",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1002,6 +1056,96 @@
         }
       ]
     },
+    "CapabilityEpochMismatch": {
+      "code": "not_authorized",
+      "description": "The capability epoch is stale or does not match the owner's permanent epoch counter. Refresh finalized capability state; revocation permanently invalidates old proofs.",
+      "docs_url": "/docs/errors/chain/CapabilityEpochMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CapabilityEpochMismatch/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 308,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L308",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "CapabilityExpired": {
+      "code": "expired",
+      "description": "The capability's block-height expiry has passed. The owner must install a new grant and the purpose key must sign with its new epoch.",
+      "docs_url": "/docs/errors/chain/CapabilityExpired",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CapabilityExpired/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 309,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L309",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "CapabilityInvalid": {
+      "code": "invalid_argument",
+      "description": "The capability key, scope, expiry, or proof is invalid. Check the full capability record and ensure the signing key matches its registered commitment.",
+      "docs_url": "/docs/errors/chain/CapabilityInvalid",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CapabilityInvalid/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 307,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L307",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "CapabilityMissing": {
+      "code": "not_authorized",
+      "description": "No active capability authorizes this owner's purpose key. Install the intended Order or Message capability through the owner's authority before signing.",
+      "docs_url": "/docs/errors/chain/CapabilityMissing",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CapabilityMissing/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 311,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L311",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "CapabilityScopeViolation": {
+      "code": "policy_violation",
+      "description": "The operation exceeds the installed capability's identities, fee, audience, per-order amount, or total spending limits. Obtain an appropriate owner-approved grant.",
+      "docs_url": "/docs/errors/chain/CapabilityScopeViolation",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CapabilityScopeViolation/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 310,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L310",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
     "ChainIdMismatch": {
       "code": "invalid_argument",
       "description": "The order payload's `chain_id` field differs from this chain's configured EVM chain id, e.g. an order signed for testnet was submitted to mainnet. Compare the order's `chain_id` with the runtime's `pallet_evm_chain_id` value and re-sign if needed.",
@@ -1014,8 +1158,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 439,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L439",
+          "line": 514,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L514",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -1338,8 +1482,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 226,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L226",
+          "line": 236,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L236",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1356,8 +1500,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 224,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L224",
+          "line": 234,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L234",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1707,8 +1851,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 222,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L222",
+          "line": 232,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L232",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -1717,6 +1861,60 @@
           "line": 182,
           "url": "/code/pallets/swap/src/pallet/mod.rs#L182",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
+        }
+      ]
+    },
+    "DerivedAuthorityTooComplex": {
+      "code": "limit_exceeded",
+      "description": "The derived authority exceeds the runtime's member, depth, or resolution bounds. Use a smaller supported authority structure.",
+      "docs_url": "/docs/errors/chain/DerivedAuthorityTooComplex",
+      "markdown_url": "/llms.mdx/docs/errors/chain/DerivedAuthorityTooComplex/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 306,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L306",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "DescriptorMismatch": {
+      "code": "invalid_argument",
+      "description": "The descriptor does not match the account's permanent authorization record. Check the destination and exported public descriptor; re-registration cannot reset keys.",
+      "docs_url": "/docs/errors/chain/DescriptorMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/DescriptorMismatch/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 286,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L286",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "Disabled": {
+      "code": "disabled",
+      "description": "Hashed accounts are not enabled on this chain. Check AdminUtils.HashedAccountsEnabled; creating a wallet locally does not activate runtime support.",
+      "docs_url": "/docs/errors/chain/Disabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/Disabled/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 282,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L282",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -1768,8 +1966,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 806,
-          "url": "/code/pallets/proxy/src/lib.rs#L806",
+          "line": 904,
+          "url": "/code/pallets/proxy/src/lib.rs#L904",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -1822,8 +2020,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 447,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L447",
+          "line": 522,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L522",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2215,6 +2413,24 @@
         "EVM"
       ]
     },
+    "GenerationExhausted": {
+      "code": "limit_exceeded",
+      "description": "The account has reached the maximum authorization sequence and cannot sign again. Do not wrap or reset the counter; further authorization requires a protocol upgrade.",
+      "docs_url": "/docs/errors/chain/GenerationExhausted",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GenerationExhausted/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 296,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L296",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
     "GrandpaChangeDelayMustBeZero": {
       "code": "invalid_argument",
       "description": "`schedule_grandpa_change` was given a nonzero `in_blocks` delay. GRANDPA authority changes submitted through AdminUtils must activate at the end of the current block so the authority set and its set ID remain consistent. Pass `in_blocks=0`.",
@@ -2227,8 +2443,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 228,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L228",
+          "line": 238,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L238",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2359,6 +2575,24 @@
         }
       ]
     },
+    "HotkeyOwnerPolicyViolation": {
+      "code": "not_authorized",
+      "description": "This ownership change would weaken a protected hotkey's authorization. Use a coldkey account with a compatible authorization policy before registering, associating or moving ownership of the hotkey.",
+      "docs_url": "/docs/errors/chain/HotkeyOwnerPolicyViolation",
+      "markdown_url": "/llms.mdx/docs/errors/chain/HotkeyOwnerPolicyViolation/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 467,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L467",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "IncorrectCommitRevealVersion": {
       "code": "invalid_argument",
       "description": "The `commit_reveal_version` argument does not match the chain's current commit-reveal weights version. Query the `CommitRevealWeightsVersion` storage item and upgrade or configure the client to commit with that version.",
@@ -2389,8 +2623,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 435,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L435",
+          "line": 510,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L510",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2574,6 +2808,24 @@
         }
       ]
     },
+    "InvalidAuthorizationMode": {
+      "code": "invalid_argument",
+      "description": "The order terms and authorization scheme do not match. Classical signatures require original V1 or V2 terms; account approval and ML-DSA proofs require Authorized terms containing the owner-local nonce. Prepare and authorize the complete order again.",
+      "docs_url": "/docs/errors/chain/InvalidAuthorizationMode",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidAuthorizationMode/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 553,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L553",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
     "InvalidBatchLength": {
       "code": "invalid_argument",
       "description": "A per-subnet weight batch (`batch_set_weights`, `batch_commit_weights`, `batch_reveal_weights`) was empty or had more items than there are networks. Send at least one item and at most one per subnet.",
@@ -2676,8 +2928,8 @@
         {
           "pallet": "Utility",
           "path": "pallets/utility/src/lib.rs",
-          "line": 171,
-          "url": "/code/pallets/utility/src/lib.rs#L171",
+          "line": 200,
+          "url": "/code/pallets/utility/src/lib.rs#L200",
           "raw_url": "/code/raw/pallets/utility/src/lib.rs"
         }
       ]
@@ -2694,9 +2946,27 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 816,
-          "url": "/code/pallets/proxy/src/lib.rs#L816",
+          "line": 914,
+          "url": "/code/pallets/proxy/src/lib.rs#L914",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+        }
+      ]
+    },
+    "InvalidDerivedAuthority": {
+      "code": "invalid_argument",
+      "description": "The composite descriptor, derived account ID, or approving origin is invalid. Multisig protection must be approved by the composite's actual quorum.",
+      "docs_url": "/docs/errors/chain/InvalidDerivedAuthority",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidDerivedAuthority/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 304,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L304",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -2844,6 +3114,24 @@
         }
       ]
     },
+    "InvalidNextCommitment": {
+      "code": "invalid_argument",
+      "description": "Hashed accounts require a new nonzero commitment different from the current key. Restore the wallet with its original signing scheme and account mode.",
+      "docs_url": "/docs/errors/chain/InvalidNextCommitment",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidNextCommitment/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 294,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L294",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
     "InvalidNonce": {
       "code": "invalid_argument",
       "description": "The transaction nonce does not match the sender's current account nonce, being either too low (already used) or too high. Compare the transaction's `nonce` with the sender's on-chain nonce from `eth_getTransactionCount`.",
@@ -2979,6 +3267,15 @@
         }
       ]
     },
+    "InvalidSafeAccountId": {
+      "code": "invalid_argument",
+      "description": "The safe composite hash could not decode to the runtime account type without changing its 32-byte identity. This runtime account type is incompatible with safe composite derivation; the call made no account.",
+      "docs_url": "/docs/errors/chain/InvalidSafeAccountId",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidSafeAccountId/content.md",
+      "pallets": [
+        "Multisig"
+      ]
+    },
     "InvalidSchedule": {
       "code": "invalid_argument",
       "description": "The pallet's schedule is misconfigured, e.g. a zero weight or zero `ref_time_by_fuel` for a basic operation, making gas conversion impossible. This is a runtime configuration issue; inspect the `Schedule` constant rather than call arguments.",
@@ -3008,21 +3305,29 @@
     },
     "InvalidSignature": {
       "code": "invalid_argument",
-      "description": "Signature verification failed: the sender of an Ethereum or EVM transaction could not be recovered from its signature, or a limit order's Sr25519 signature does not match the order payload and signer. Check the signing key, chain id, and the exact payload bytes that were signed.",
+      "description": "Signature verification failed: the sender of an Ethereum or EVM transaction could not be recovered from its signature, or a limit order's Sr25519 signature does not match the order payload and signer, or a hashed account's rotation proof is invalid. Check the signing key, chain id, and the exact payload bytes that were signed.",
       "docs_url": "/docs/errors/chain/InvalidSignature",
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidSignature/content.md",
       "pallets": [
         "Ethereum",
         "EVM",
-        "LimitOrders"
+        "LimitOrders",
+        "HashedAccounts"
       ],
       "sources": [
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 411,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L411",
+          "line": 486,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L486",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        },
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 298,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L298",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -3073,8 +3378,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 216,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L216",
+          "line": 226,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L226",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3262,8 +3567,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 429,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L429",
+          "line": 504,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L504",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3280,8 +3585,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 462,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L462",
+          "line": 537,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L537",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3298,8 +3603,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 458,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L458",
+          "line": 533,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L533",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3316,8 +3621,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 460,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L460",
+          "line": 535,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L535",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3334,8 +3639,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 468,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L468",
+          "line": 543,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L543",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3352,8 +3657,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 456,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L456",
+          "line": 531,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L531",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3433,8 +3738,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 200,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L200",
+          "line": 210,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L210",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3451,8 +3756,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 214,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L214",
+          "line": 224,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L224",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3469,8 +3774,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 212,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L212",
+          "line": 222,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L222",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3541,8 +3846,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 198,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L198",
+          "line": 208,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L208",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3639,8 +3944,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 208,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L208",
+          "line": 218,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L218",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3657,8 +3962,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 210,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L210",
+          "line": 220,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L220",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3774,8 +4079,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 204,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L204",
+          "line": 214,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L214",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3963,8 +4268,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 454,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L454",
+          "line": 529,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L529",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4008,8 +4313,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 808,
-          "url": "/code/pallets/proxy/src/lib.rs#L808",
+          "line": 906,
+          "url": "/code/pallets/proxy/src/lib.rs#L906",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -4026,8 +4331,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 812,
-          "url": "/code/pallets/proxy/src/lib.rs#L812",
+          "line": 910,
+          "url": "/code/pallets/proxy/src/lib.rs#L910",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -4298,8 +4603,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 800,
-          "url": "/code/pallets/proxy/src/lib.rs#L800",
+          "line": 898,
+          "url": "/code/pallets/proxy/src/lib.rs#L898",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -4334,8 +4639,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 218,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L218",
+          "line": 228,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L228",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4352,8 +4657,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 802,
-          "url": "/code/pallets/proxy/src/lib.rs#L802",
+          "line": 900,
+          "url": "/code/pallets/proxy/src/lib.rs#L900",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -4373,6 +4678,24 @@
           "line": 281,
           "url": "/code/pallets/crowdloan/src/lib.rs#L281",
           "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+        }
+      ]
+    },
+    "NotRegistered": {
+      "code": "not_registered",
+      "description": "The hashed account has no authorization record. A sponsor must register its public descriptor before funds or account roles are assigned to it.",
+      "docs_url": "/docs/errors/chain/NotRegistered",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NotRegistered/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 288,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L288",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -4442,8 +4765,26 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 413,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L413",
+          "line": 488,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L488",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "OrderBatchTooLarge": {
+      "code": "limit_exceeded",
+      "description": "The batch contains more than eight account-approved or ML-DSA-authorized orders. Split execution into supported batches, retaining each signed order's original bytes and nonce. Classical orders retain the pallet's original total batch limit.",
+      "docs_url": "/docs/errors/chain/OrderBatchTooLarge",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderBatchTooLarge/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 551,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L551",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4460,8 +4801,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 415,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L415",
+          "line": 490,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L490",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4478,8 +4819,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 417,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L417",
+          "line": 492,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L492",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4496,8 +4837,44 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 427,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L427",
+          "line": 502,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L502",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "OrderNonceUsed": {
+      "code": "already_exists",
+      "description": "This owner already bound the nonce to different order bytes. Keep the original order or allocate a new nonce; cancellation does not make a nonce reusable.",
+      "docs_url": "/docs/errors/chain/OrderNonceUsed",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderNonceUsed/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 547,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L547",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "OrderNotApproved": {
+      "code": "not_authorized",
+      "description": "The account-approved order has no matching on-chain owner approval. Execute authorize_order through the owner's authority with the exact nonce and order.",
+      "docs_url": "/docs/errors/chain/OrderNotApproved",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderNotApproved/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 549,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L549",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4514,8 +4891,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 470,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L470",
+          "line": 545,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L545",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4612,8 +4989,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 220,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L220",
+          "line": 230,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L230",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4630,8 +5007,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 443,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L443",
+          "line": 518,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L518",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4648,8 +5025,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 464,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L464",
+          "line": 539,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L539",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4666,8 +5043,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 466,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L466",
+          "line": 541,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L541",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4684,8 +5061,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 433,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L433",
+          "line": 508,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L508",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4729,8 +5106,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 419,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L419",
+          "line": 494,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L494",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4882,8 +5259,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 431,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L431",
+          "line": 506,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L506",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4900,8 +5277,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 437,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L437",
+          "line": 512,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L512",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5062,8 +5439,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 425,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L425",
+          "line": 500,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L500",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5137,6 +5514,33 @@
           "line": 363,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L363",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "SafeDerivationFailed": {
+      "code": "invalid_argument",
+      "description": "The canonical bounded search could not derive an off-curve composite account. No fallback account was created. Choose a different signer manifest or derivation index for a new account; retain the original mode and parameters when restoring one.",
+      "docs_url": "/docs/errors/chain/SafeDerivationFailed",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SafeDerivationFailed/content.md",
+      "pallets": [
+        "Utility",
+        "Multisig",
+        "Proxy"
+      ],
+      "sources": [
+        {
+          "pallet": "Utility",
+          "path": "pallets/utility/src/lib.rs",
+          "line": 202,
+          "url": "/code/pallets/utility/src/lib.rs#L202",
+          "raw_url": "/code/raw/pallets/utility/src/lib.rs"
+        },
+        {
+          "pallet": "Proxy",
+          "path": "pallets/proxy/src/lib.rs",
+          "line": 918,
+          "url": "/code/pallets/proxy/src/lib.rs#L918",
+          "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
     },
@@ -5440,8 +5844,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 196,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L196",
+          "line": 206,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L206",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5538,8 +5942,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 423,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L423",
+          "line": 498,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L498",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5625,6 +6029,15 @@
         "Contracts"
       ]
     },
+    "ThresholdTooHigh": {
+      "code": "invalid_argument",
+      "description": "The safe multisig threshold exceeds the full signatory count, including the sender. Use a threshold no greater than the number of distinct group members.",
+      "docs_url": "/docs/errors/chain/ThresholdTooHigh",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ThresholdTooHigh/content.md",
+      "pallets": [
+        "Multisig"
+      ]
+    },
     "TimelockRevealFailedNotAllowed": {
       "code": "invalid_argument",
       "description": "The submitted commitment contains `TimelockRevealFailed`, a terminal audit state that only the runtime may create after an automatic reveal fails. Submit a `TimelockEncrypted` field instead.",
@@ -5683,8 +6096,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 798,
-          "url": "/code/pallets/proxy/src/lib.rs#L798",
+          "line": 896,
+          "url": "/code/pallets/proxy/src/lib.rs#L896",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -5701,8 +6114,8 @@
         {
           "pallet": "Utility",
           "path": "pallets/utility/src/lib.rs",
-          "line": 169,
-          "url": "/code/pallets/utility/src/lib.rs#L169",
+          "line": 198,
+          "url": "/code/pallets/utility/src/lib.rs#L198",
           "raw_url": "/code/raw/pallets/utility/src/lib.rs"
         }
       ]
@@ -5773,8 +6186,8 @@
         {
           "pallet": "MevShield",
           "path": "pallets/shield/src/lib.rs",
-          "line": 238,
-          "url": "/code/pallets/shield/src/lib.rs#L238",
+          "line": 242,
+          "url": "/code/pallets/shield/src/lib.rs#L242",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
         }
       ]
@@ -6097,8 +6510,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 810,
-          "url": "/code/pallets/proxy/src/lib.rs#L810",
+          "line": 908,
+          "url": "/code/pallets/proxy/src/lib.rs#L908",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -6116,8 +6529,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 421,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L421",
+          "line": 496,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L496",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -6206,8 +6619,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 804,
-          "url": "/code/pallets/proxy/src/lib.rs#L804",
+          "line": 902,
+          "url": "/code/pallets/proxy/src/lib.rs#L902",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -6224,9 +6637,27 @@
         {
           "pallet": "MevShield",
           "path": "pallets/shield/src/lib.rs",
-          "line": 236,
-          "url": "/code/pallets/shield/src/lib.rs#L236",
+          "line": 240,
+          "url": "/code/pallets/shield/src/lib.rs#L240",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
+        }
+      ]
+    },
+    "UnsupportedDescriptor": {
+      "code": "invalid_argument",
+      "description": "The hashed descriptor version or underlying signing scheme is unsupported. Use the descriptor exported by a wallet version supported by this runtime.",
+      "docs_url": "/docs/errors/chain/UnsupportedDescriptor",
+      "markdown_url": "/llms.mdx/docs/errors/chain/UnsupportedDescriptor/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 284,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L284",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -6296,8 +6727,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 206,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L206",
+          "line": 216,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L216",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -6368,8 +6799,8 @@
         {
           "pallet": "MevShield",
           "path": "pallets/shield/src/lib.rs",
-          "line": 240,
-          "url": "/code/pallets/shield/src/lib.rs#L240",
+          "line": 244,
+          "url": "/code/pallets/shield/src/lib.rs#L244",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
         }
       ]
@@ -6417,6 +6848,42 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/WithdrawFailed/content.md",
       "pallets": [
         "EVM"
+      ]
+    },
+    "WrongCommitment": {
+      "code": "not_authorized",
+      "description": "The revealed signing key does not match the account's current commitment. Check the mnemonic, derivation version, and current generation before signing again.",
+      "docs_url": "/docs/errors/chain/WrongCommitment",
+      "markdown_url": "/llms.mdx/docs/errors/chain/WrongCommitment/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 292,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L292",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "WrongGeneration": {
+      "code": "invalid_argument",
+      "description": "The authorization proof uses a different sequence from HashedAccounts.Accounts. Wait for pending transactions and refresh chain state before signing again.",
+      "docs_url": "/docs/errors/chain/WrongGeneration",
+      "markdown_url": "/llms.mdx/docs/errors/chain/WrongGeneration/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 290,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L290",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
       ]
     },
     "WrongTimepoint": {
@@ -6467,8 +6934,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 452,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L452",
+          "line": 527,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L527",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]

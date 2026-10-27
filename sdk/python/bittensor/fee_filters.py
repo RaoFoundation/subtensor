@@ -84,7 +84,12 @@ def iter_call_leaves(call: Any) -> Iterator[tuple[str, str]]:
             yield from iter_call_leaves(inner)
         return
 
-    if module == "Multisig" and function in {"as_multi", "as_multi_threshold_1"}:
+    if module == "Multisig" and function in {
+        "as_multi",
+        "as_multi_threshold_1",
+        "as_multi_safe",
+        "as_multi_threshold_1_safe",
+    }:
         inner = _arg_value(call_dict, "call")
         if inner is not None:
             yield from iter_call_leaves(inner)

@@ -6,6 +6,8 @@
 //! `{"Variant": payload}` (unit variants as bare strings), Options unwrap,
 //! newtype composites unwrap, BTreeMaps become dicts with native keys, and
 //! `Era` renders as `"00"` / `(period, phase)`.
+//! New ML-DSA capability scopes always render byte sequences as hex so
+//! arbitrary audience bytes cannot collide with UTF-8 display strings.
 
 // Client-side codec, not runtime code: slices are guarded by the cursor and
 // explicit length checks; arithmetic operates on lengths and era math.
@@ -49,6 +51,8 @@ pub struct Cursor<'a> {
     /// Reject non-canonical/lossy encodings (bad bools, invalid UTF-8, invalid
     /// Unicode scalars, non-minimal compacts) instead of silently coercing.
     pub strict: bool,
+    /// Capability audiences are binary security boundaries, not display text.
+    binary_sequences: bool,
 }
 
 impl<'a> Cursor<'a> {
@@ -62,7 +66,18 @@ impl<'a> Cursor<'a> {
             depth: 0,
             elements_remaining: budget,
             strict: false,
+            binary_sequences: false,
         }
+    }
+
+    fn sequence_bytes(&mut self, len: usize) -> Result<Value, CoreError> {
+        let binary = self.binary_sequences;
+        let raw = self.take(len)?;
+        Ok(if binary {
+            Value::hex(raw)
+        } else {
+            bytes_value(raw)
+        })
     }
 
     fn descend(&mut self) -> Result<(), CoreError> {
@@ -216,7 +231,7 @@ impl Runtime {
             TypeSpec::Sequence(inner) => {
                 let len = compact_len(cursor)?;
                 if matches!(**inner, TypeSpec::Primitive(Primitive::U8)) {
-                    return Ok(bytes_value(cursor.take(len)?));
+                    return cursor.sequence_bytes(len);
                 }
                 let mut items = Vec::with_capacity(len.min(1024));
                 for _ in 0..len {
@@ -253,7 +268,7 @@ impl Runtime {
             TypeSpec::Compact(_) => Ok(uint_value(compact_u128(cursor)?)),
             TypeSpec::Bytes => {
                 let len = compact_len(cursor)?;
-                Ok(bytes_value(cursor.take(len)?))
+                cursor.sequence_bytes(len)
             }
             TypeSpec::AccountId => {
                 let raw: [u8; 32] = cursor
@@ -368,12 +383,23 @@ impl Runtime {
                         _ => self.decode_fields_payload(&chosen.fields, cursor),
                     };
                 }
-                self.decode_variant(chosen, cursor)
+                // This new protocol scope must preserve arbitrary audience bytes.
+                // Legacy Vec<u8> display conventions remain unchanged elsewhere.
+                let previous = cursor.binary_sequences;
+                if is_path(
+                    segments,
+                    &["pallet_hashed_accounts", "capabilities", "CapabilityScope"],
+                ) {
+                    cursor.binary_sequences = true;
+                }
+                let decoded = self.decode_variant(chosen, cursor);
+                cursor.binary_sequences = previous;
+                decoded
             }
             TypeDef::Sequence(s) => {
                 let len = compact_len(cursor)?;
                 if self.is_u8(s.type_param.id) {
-                    return Ok(bytes_value(cursor.take(len)?));
+                    return cursor.sequence_bytes(len);
                 }
                 let mut items = Vec::with_capacity(len.min(4096));
                 for _ in 0..len {
@@ -877,4 +903,80 @@ fn fixed<const N: usize>(slice: &[u8]) -> Result<[u8; N], CoreError> {
     slice
         .try_into()
         .map_err(|_| CoreError::Codec("bad fixed-width slice".into()))
+}
+
+#[cfg(test)]
+mod audience_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use codec::Encode;
+
+    #[test]
+    fn capability_audiences_keep_binary_identity_and_legacy_vectors_keep_their_shape() {
+        let mut runtime = crate::codec::extrinsic::hashed_tests::runtime_mldsa();
+        let sequence = runtime.types.types.iter().find(|ty| {
+            matches!(&ty.ty.type_def, TypeDef::Sequence(sequence) if runtime.is_u8(sequence.type_param.id))
+        }).unwrap().id;
+        let mut scope = runtime
+            .types
+            .types
+            .iter()
+            .find(|ty| matches!(ty.ty.type_def, TypeDef::Variant(_)))
+            .unwrap()
+            .ty
+            .clone();
+        scope.path.segments = vec![
+            "pallet_hashed_accounts".into(),
+            "capabilities".into(),
+            "CapabilityScope".into(),
+        ];
+        let TypeDef::Variant(variants) = &mut scope.type_def else {
+            unreachable!()
+        };
+        variants.variants = vec![Variant {
+            name: "Message".into(),
+            index: 2,
+            docs: vec![],
+            fields: vec![Field {
+                name: Some("audience".into()),
+                ty: sequence.into(),
+                type_name: None,
+                docs: vec![],
+            }],
+        }];
+        let id = runtime.types.types.len() as u32;
+        runtime
+            .types
+            .types
+            .push(scale_info::PortableType { id, ty: scope });
+        for audience in [
+            b"bittensor/wallet-message".as_slice(),
+            b"0xff",
+            &[0xff],
+            &[0, 0xff, 128],
+        ] {
+            let mut encoded = vec![2];
+            encoded.extend_from_slice(&audience.to_vec().encode());
+            let expected = Value::record(vec![(
+                "Message".into(),
+                Value::record(vec![("audience".into(), Value::hex(audience))]),
+            )]);
+            assert_eq!(
+                runtime
+                    .decode_spec(&TypeSpec::Id(id), &encoded, true)
+                    .unwrap(),
+                expected
+            );
+            assert_eq!(
+                runtime.encode_spec(&TypeSpec::Id(id), &expected).unwrap(),
+                encoded
+            );
+            assert_eq!(
+                runtime
+                    .decode_spec(&TypeSpec::Id(sequence), &audience.to_vec().encode(), true)
+                    .unwrap(),
+                bytes_value(audience)
+            );
+        }
+    }
 }

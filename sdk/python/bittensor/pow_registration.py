@@ -14,6 +14,7 @@ from eth_utils import keccak
 
 from ._generated import storage as st
 from ._transport.codec import ss58_decode
+from .receiving import parse_recipient
 
 DOMAIN = b"subtensor-pow-register-v1"
 MAX_WORK_AGE_BLOCKS = 5
@@ -104,6 +105,11 @@ async def mine_registration(
     Select GPU explicitly to require hardware, or CPU to avoid GPU discovery.
     """
     from .intents.registration import PowRegister
+
+    # CLI wallet addresses may include a registration descriptor.
+    # Mine against AccountIds, retaining the hotkey descriptor for submission.
+    hot_recipient, cold_recipient = parse_recipient(hotkey), parse_recipient(coldkey)
+    hotkey, coldkey = hot_recipient.account, cold_recipient.account
 
     if not 1 <= workers <= 32 or not 0 < max_seconds <= 3600:
         raise ValueError("workers must be 1..32 and max_seconds must be 0..3600")
@@ -243,7 +249,7 @@ async def mine_registration(
                             work_block=work_block,
                             nonce=nonce,
                             work_hex=work_hex,
-                            hotkey_ss58=hotkey,
+                            hotkey_ss58=hot_recipient.address,
                             mining_workers=workers,
                             mining_timeout=max_seconds,
                             mining_backend=backend,

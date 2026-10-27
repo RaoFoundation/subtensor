@@ -141,6 +141,31 @@ parameter_types! {
     pub const MaxProposals: u32 = 100;
     pub const MaxMembers: u32 = 100;
     pub MaxProposalWeight: Weight = BlockWeights::get().max_block.saturating_div(2);
+    pub static ProtectedTestAccount: Option<u64> = None;
+    pub static RejectProtectedDerivative: bool = false;
+}
+
+pub struct TestDerivedPolicy;
+impl crate::DerivedAccountPolicy<u64> for TestDerivedPolicy {
+    fn requires_protection(account: &u64) -> bool {
+        ProtectedTestAccount::get() == Some(*account)
+    }
+    fn on_protected_derivative(parent: &u64, child: &u64, index: u16) -> Result<(), DispatchError> {
+        sp_io::storage::set(
+            b":protected-derivative-test",
+            &(parent, child, index).encode(),
+        );
+        frame_support::ensure!(
+            !RejectProtectedDerivative::get(),
+            DispatchError::Other("test derivative rejected")
+        );
+        Ok(())
+    }
+    #[cfg(feature = "runtime-benchmarks")]
+    fn setup_protected_benchmark(account: &u64) -> Result<u64, DispatchError> {
+        ProtectedTestAccount::set(Some(*account));
+        Ok(*account)
+    }
 }
 
 impl example::Config for Test {}
@@ -165,9 +190,27 @@ impl Config for Test {
     type RuntimeCall = RuntimeCall;
     type PalletsOrigin = OriginCaller;
     type WeightInfo = ();
+    type DerivedAccountPolicy = TestDerivedPolicy;
+    type SafeDerivationWeight = ();
 }
 
 type ExampleCall = example::Call<Test>;
+
+#[test]
+fn safe_derivative_rejects_truncated_account_type_before_dispatch() {
+    new_test_ext().execute_with(|| {
+        assert_noop!(
+            Utility::as_safe_derivative(
+                RuntimeOrigin::signed(1),
+                0,
+                Box::new(RuntimeCall::System(SystemCall::remark_with_event {
+                    remark: vec![1],
+                })),
+            ),
+            Error::<Test>::SafeDerivationFailed
+        );
+    });
+}
 type UtilityCall = crate::Call<Test>;
 
 use frame_system::Call as SystemCall;
@@ -176,6 +219,8 @@ use pallet_root_testing::Call as RootTestingCall;
 use pallet_timestamp::Call as TimestampCall;
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
+    ProtectedTestAccount::set(None);
+    RejectProtectedDerivative::set(false);
     let mut t = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap();
@@ -189,6 +234,53 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     let mut ext = sp_io::TestExternalities::new(t);
     ext.execute_with(|| System::set_block_number(1));
     ext
+}
+
+#[test]
+fn protected_derivative_preserves_filters_and_registers_atomically_with_inner_call() {
+    new_test_ext().execute_with(|| {
+        ProtectedTestAccount::set(Some(1));
+        let child = Utility::derivative_account_id(1, 7).unwrap();
+        let call = || Box::new(RuntimeCall::System(SystemCall::remark { remark: vec![] }));
+        assert_noop!(
+            Utility::as_derivative(RuntimeOrigin::signed(1), 7, call()),
+            DispatchError::Other("ProtectedDerivativeRequired")
+        );
+        RejectProtectedDerivative::set(true);
+        assert_noop!(
+            Utility::as_protected_derivative(RuntimeOrigin::signed(1), 7, call()),
+            DispatchError::Other("test derivative rejected")
+        );
+        assert!(sp_io::storage::get(b":protected-derivative-test").is_none());
+        RejectProtectedDerivative::set(false);
+        let filtered = Box::new(RuntimeCall::Balances(BalancesCall::transfer_keep_alive {
+            dest: 2,
+            value: 1,
+        }));
+        let error =
+            Utility::as_protected_derivative(RuntimeOrigin::signed(1), 7, filtered).unwrap_err();
+        assert_eq!(
+            error.error,
+            frame_system::Error::<Test>::CallFiltered.into()
+        );
+        assert!(sp_io::storage::get(b":protected-derivative-test").is_none());
+        assert_ok!(Utility::as_protected_derivative(
+            RuntimeOrigin::signed(1),
+            7,
+            call()
+        ));
+        let registered = sp_io::storage::get(b":protected-derivative-test").unwrap();
+        assert_eq!(registered.as_ref(), &(1u64, child, 7u16).encode());
+        let filtered = Box::new(RuntimeCall::Balances(BalancesCall::transfer_keep_alive {
+            dest: 2,
+            value: 1,
+        }));
+        assert!(Utility::as_protected_derivative(RuntimeOrigin::signed(1), 7, filtered).is_err());
+        assert_eq!(
+            sp_io::storage::get(b":protected-derivative-test"),
+            Some(registered)
+        );
+    });
 }
 
 fn call_transfer(dest: u64, value: u64) -> RuntimeCall {

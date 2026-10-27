@@ -36,6 +36,14 @@ class MaxRetriesExceeded(SubstrateRequestException):
     pass
 
 
+class ExtrinsicSubmissionRejected(SubstrateRequestException):
+    """The submission response establishes that the extrinsic was not admitted.
+
+    Transport failures, accepted-watch failures, and already-imported responses
+    cannot establish this and must retain potentially pending nonce reservations.
+    """
+
+
 class RpcPolicyRejection(SubstrateRequestException):
     """The endpoint explicitly refused traffic under an access or load policy."""
 

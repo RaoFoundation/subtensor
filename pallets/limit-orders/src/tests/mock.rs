@@ -16,7 +16,7 @@ use frame_system as system;
 use sp_core::{H256, Pair};
 use sp_keyring::Sr25519Keyring as AccountKeyring;
 use sp_runtime::{
-    AccountId32, BuildStorage, MultiSignature,
+    AccountId32, BuildStorage,
     traits::{AccountIdConversion, BlakeTwo256, IdentityLookup},
 };
 use substrate_fixed::types::U64F64;
@@ -137,10 +137,19 @@ pub struct MockSwap;
 
 parameter_types! {
     pub static FrozenOrderSigner: Option<AccountId> = None;
+    pub static ProtectedOrderSigner: Option<AccountId> = None;
 }
 
 pub struct OrderSignerFilter;
 impl frame_support::traits::Contains<AccountId> for OrderSignerFilter {
+    fn contains(signer: &AccountId) -> bool {
+        FrozenOrderSigner::get().as_ref() != Some(signer)
+            && ProtectedOrderSigner::get().as_ref() != Some(signer)
+    }
+}
+
+pub struct AuthenticatedOrderSignerFilter;
+impl frame_support::traits::Contains<AccountId> for AuthenticatedOrderSignerFilter {
     fn contains(signer: &AccountId) -> bool {
         FrozenOrderSigner::get().as_ref() != Some(signer)
     }
@@ -548,6 +557,8 @@ pub fn fee_recipient() -> AccountId {
 impl pallet_limit_orders::Config for Test {
     type SwapInterface = MockSwap;
     type OrderSignerFilter = OrderSignerFilter;
+    type AuthenticatedOrderSignerFilter = AuthenticatedOrderSignerFilter;
+    type Capabilities = super::authorization::MockCapabilities;
     type TimeProvider = MockTime;
     type MaxOrdersPerBatch = ConstU32<64>;
     type PalletId = LimitOrdersPalletId;
@@ -619,7 +630,7 @@ pub fn make_signed_order(
     let sig = keyring.pair().sign(&order_signing_payload(&order));
     crate::SignedOrder {
         order,
-        signature: MultiSignature::Sr25519(sig),
+        signature: crate::OrderSignature::Sr25519(sig),
         partial_fill: None,
     }
 }
@@ -657,7 +668,7 @@ pub fn make_partial_fill_order(
     let sig = keyring.pair().sign(&order_signing_payload(&order));
     crate::SignedOrder {
         order,
-        signature: MultiSignature::Sr25519(sig),
+        signature: crate::OrderSignature::Sr25519(sig),
         partial_fill: Some(partial_fill),
     }
 }
@@ -702,7 +713,7 @@ pub fn make_signed_v2_order(
     let sig = keyring.pair().sign(&order_signing_payload(&order));
     crate::SignedOrder {
         order,
-        signature: MultiSignature::Sr25519(sig),
+        signature: crate::OrderSignature::Sr25519(sig),
         partial_fill: None,
     }
 }
@@ -720,6 +731,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     ext.execute_with(|| {
         System::set_block_number(1);
         FrozenOrderSigner::set(None);
+        ProtectedOrderSigner::set(None);
         MockSwap::clear_log();
         // Simulate genesis_build: register the pallet hotkey and enable the pallet.
         let pallet_acct: AccountId = LimitOrdersPalletId::get().into_account_truncating();

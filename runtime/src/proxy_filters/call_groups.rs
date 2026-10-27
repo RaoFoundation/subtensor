@@ -17,6 +17,7 @@ use pallet_drand::Call as DrandCall;
 use pallet_ethereum::Call as EthereumCall;
 use pallet_evm::Call as EvmCall;
 use pallet_grandpa::Call as GrandpaCall;
+use pallet_hashed_accounts::Call as HashedAccountsCall;
 use pallet_limit_orders::Call as LimitOrdersCall;
 use pallet_multisig::Call as MultisigCall;
 use pallet_preimage::Call as PreimageCall;
@@ -80,6 +81,38 @@ call_filter_group!(
 call_filter_group!(
     EthereumCalls,
     [RuntimeCall::Ethereum(EthereumCall::transact),]
+);
+
+// Registration reserves the sponsor's funds and requires a direct outer signer.
+// Keep it inventory-only; restricted proxy grants must not sponsor accounts.
+call_filter_group!(
+    HashedAccountsCalls,
+    [
+        RuntimeCall::HashedAccounts(HashedAccountsCall::register),
+        RuntimeCall::HashedAccounts(HashedAccountsCall::register_derived),
+        RuntimeCall::HashedAccounts(HashedAccountsCall::register_derived_sponsored),
+        RuntimeCall::HashedAccounts(HashedAccountsCall::install_capability),
+        RuntimeCall::HashedAccounts(HashedAccountsCall::revoke_capability),
+    ]
+);
+
+call_filter_group!(
+    HashedAccountChecks,
+    [
+        RuntimeCall::HashedAccounts(HashedAccountsCall::check_registered),
+        RuntimeCall::HashedAccounts(HashedAccountsCall::check_derived),
+    ]
+);
+
+// These calls cannot create accounts or spend funds. batch_all retains the
+// proxy origin's filter for every child and rolls back on a rejected child.
+call_filter_group!(
+    RecipientGuardCalls,
+    [
+        RuntimeCall::HashedAccounts(HashedAccountsCall::check_registered),
+        RuntimeCall::HashedAccounts(HashedAccountsCall::check_derived),
+        RuntimeCall::Utility(UtilityCall::batch_all),
+    ]
 );
 
 call_filter_group!(
@@ -186,11 +219,30 @@ call_filter_group!(
     ]
 );
 
+// An approval delegates future asset movement to a relayer, after the proxy
+// origin's filter is gone. Only full authority may create that permission.
+call_filter_group!(
+    LimitOrderApprovalCalls,
+    [RuntimeCall::LimitOrders(LimitOrdersCall::authorize_order),]
+);
+
+// These wrappers install permanent authority records and reserve the principal's
+// registration deposit. Restricted grants cannot acquire that spending power
+// merely because ordinary utility/proxy administration is allowed.
+call_filter_group!(
+    ProtectedAccountCreationCalls,
+    [
+        RuntimeCall::Utility(UtilityCall::as_protected_derivative),
+        RuntimeCall::Proxy(ProxyCall::create_protected_pure),
+    ]
+);
+
 call_filter_group!(
     UtilityCalls,
     [
         RuntimeCall::Utility(UtilityCall::batch),
         RuntimeCall::Utility(UtilityCall::as_derivative),
+        RuntimeCall::Utility(UtilityCall::as_safe_derivative),
         RuntimeCall::Utility(UtilityCall::batch_all),
         RuntimeCall::Utility(UtilityCall::dispatch_as),
         RuntimeCall::Utility(UtilityCall::force_batch),
@@ -219,6 +271,11 @@ call_filter_group!(
         RuntimeCall::Multisig(MultisigCall::approve_as_multi),
         RuntimeCall::Multisig(MultisigCall::cancel_as_multi),
         RuntimeCall::Multisig(MultisigCall::poke_deposit),
+        RuntimeCall::Multisig(MultisigCall::as_multi_threshold_1_safe),
+        RuntimeCall::Multisig(MultisigCall::as_multi_safe),
+        RuntimeCall::Multisig(MultisigCall::approve_as_multi_safe),
+        RuntimeCall::Multisig(MultisigCall::cancel_as_multi_safe),
+        RuntimeCall::Multisig(MultisigCall::poke_deposit_safe),
     ]
 );
 
@@ -258,6 +315,8 @@ call_filter_group!(
         RuntimeCall::Proxy(ProxyCall::remove_proxies),
         RuntimeCall::Proxy(ProxyCall::create_pure),
         RuntimeCall::Proxy(ProxyCall::kill_pure),
+        RuntimeCall::Proxy(ProxyCall::create_safe_pure),
+        RuntimeCall::Proxy(ProxyCall::kill_safe_pure),
         RuntimeCall::Proxy(ProxyCall::announce),
         RuntimeCall::Proxy(ProxyCall::remove_announcement),
         RuntimeCall::Proxy(ProxyCall::reject_announcement),
@@ -281,13 +340,14 @@ call_filter_group!(
     [RuntimeCall::Commitments(CommitmentsCall::set_max_space),]
 );
 
-// Ordinary balance transfers — moving your own free balance.
+// Ordinary balance transfers, including funding an EVM address without executing code.
 call_filter_group!(
     BalanceTransferCalls,
     [
         RuntimeCall::Balances(BalancesCall::transfer_keep_alive),
         RuntimeCall::Balances(BalancesCall::transfer_allow_death),
         RuntimeCall::Balances(BalancesCall::transfer_all),
+        RuntimeCall::EVM(EvmCall::deposit),
     ]
 );
 
@@ -665,6 +725,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_epochs_per_block),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_concentration_cap),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_trading_enabled),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_hashed_accounts_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_trading_frozen),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_daily_turnover_cap),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_liquidity_cap),
@@ -720,6 +781,8 @@ call_filter_group!(SudoSetCodeCalls, [
 // re-dispatch a caller-supplied inner call on a freshly built origin
 // (`MultisigCalls`: `as_multi_threshold_1` drops the proxy filter;
 // `MevShieldStoreEncryptedCalls`: decrypt-and-dispatch drops the filter).
+// Deferred approvals and protected-account creation also stay inventory-only:
+// they grant future spending or permanently reserve registration deposits.
 // Shared by the proxy policy in `mod.rs` and by the `WholesalePalletCalls`
 // inventory below so the list lives in one place.
 pub(super) type InfraCommonCalls = (
@@ -752,9 +815,13 @@ pub(super) type AllCalls = (
 #[cfg(test)]
 type WholesalePalletCalls = (
     InfraCommonCalls,
+    HashedAccountsCalls,
+    HashedAccountChecks,
     SudoCalls,
     MultisigCalls,
     MevShieldStoreEncryptedCalls,
+    LimitOrderApprovalCalls,
+    ProtectedAccountCreationCalls,
     EvmCalls,
     CrowdloanCalls,
     ContractsCalls,

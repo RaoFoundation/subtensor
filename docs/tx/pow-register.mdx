@@ -80,7 +80,7 @@ result = sub.execute_tool("pow_register", {...}, wallet)
 
 ```rust
 #[pallet::call_index(152)]
-#[pallet::weight((<T as crate::pallet::Config>::WeightInfo::pow_register(), Pays::No))]
+#[pallet::weight((<T as crate::pallet::Config>::WeightInfo::pow_register().saturating_add(Pallet::<T>::hotkey_owner_policy_weight()), Pays::No))]
 pub fn pow_register(
     origin: OriginFor<T>,
     netuid: NetUid,

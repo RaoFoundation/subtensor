@@ -1,7 +1,7 @@
 use super::*;
 
 use frame_benchmarking::v2::*;
-use frame_support::{BoundedVec, pallet_prelude::ConstU32};
+use frame_support::BoundedVec;
 use frame_system::RawOrigin;
 use sp_core::sr25519;
 use sp_std::{vec, vec::Vec};
@@ -52,7 +52,7 @@ fn initialize_block_with_slot<T: frame_system::Config>(slot: u64) {
 /// Build a real max-size encrypted ciphertext (8192 bytes wire format).
 ///
 /// Returns `(wire_ciphertext, dec_key)` so the benchmark can measure decryption.
-fn build_max_encrypted_payload() -> (Vec<u8>, DecapsulationKey<MlKem768Params>) {
+fn build_max_encrypted_payload(size: usize) -> (Vec<u8>, DecapsulationKey<MlKem768Params>) {
     let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
     let (dec_key, enc_key) = MlKem768::generate(&mut rng);
     let (kem_ct, shared_secret) = enc_key.encapsulate(&mut rng).unwrap();
@@ -60,7 +60,7 @@ fn build_max_encrypted_payload() -> (Vec<u8>, DecapsulationKey<MlKem768Params>) 
     // Wire overhead: key_hash(16) + kem_ct_len(2) + kem_ct(1088) + nonce(24) = 1130.
     // Max aead_ct = 8192 − 1130 = 7062.
     // Poly1305 tag = 16 bytes ⇒ max plaintext = 7046.
-    let plaintext = vec![0x42u8; 7046];
+    let plaintext = vec![0x42u8; size.checked_sub(1146).expect("ciphertext overhead")];
 
     let nonce = [0u8; 24];
     let cipher = XChaCha20Poly1305::new(shared_secret.as_slice().into());
@@ -77,14 +77,14 @@ fn build_max_encrypted_payload() -> (Vec<u8>, DecapsulationKey<MlKem768Params>) 
     let kem_ct_bytes = kem_ct.as_slice();
     let key_hash = [0u8; 16];
 
-    let mut wire = Vec::with_capacity(8192);
+    let mut wire = Vec::with_capacity(size);
     wire.extend_from_slice(&key_hash);
     wire.extend_from_slice(&(kem_ct_bytes.len() as u16).to_le_bytes());
     wire.extend_from_slice(kem_ct_bytes);
     wire.extend_from_slice(&nonce);
     wire.extend_from_slice(&aead_ct);
 
-    debug_assert_eq!(wire.len(), 8192);
+    debug_assert_eq!(wire.len(), size);
 
     (wire, dec_key)
 }
@@ -150,8 +150,51 @@ mod benches {
         let who: T::AccountId = whitelisted_caller();
 
         // Build a real max-size encrypted payload.
-        let (wire, dec_key) = build_max_encrypted_payload();
-        let ciphertext: BoundedVec<u8, ConstU32<8192>> = BoundedVec::truncate_from(wire);
+        let (wire, dec_key) = build_max_encrypted_payload(8192);
+        let ciphertext: BoundedVec<u8, MaxEncryptedCarrier> = BoundedVec::truncate_from(wire);
+
+        #[block]
+        {
+            // 1. On-chain dispatch (event deposit).
+            Pallet::<T>::submit_encrypted(
+                RawOrigin::Signed(who.clone()).into(),
+                ciphertext.clone(),
+            )
+            .expect("submit_encrypted dispatch must succeed");
+
+            // 2. Parse wire-format ciphertext (proposer decode).
+            let shielded_tx =
+                ShieldedTransaction::parse(&ciphertext).expect("wire format must be valid");
+
+            // 3. ML-KEM-768 decapsulate (proposer crypto).
+            let ct = Ciphertext::<MlKem768>::try_from(shielded_tx.kem_ct.as_slice())
+                .expect("kem_ct must be valid ML-KEM-768 ciphertext");
+            let shared_secret = dec_key
+                .decapsulate(&ct)
+                .expect("decapsulation must succeed");
+            let ss: [u8; 32] = shared_secret.into();
+
+            // 4. AEAD decrypt (proposer crypto).
+            let aead = XChaCha20Poly1305::new((&ss).into());
+            let _plaintext = aead
+                .decrypt(
+                    XNonce::from_slice(&shielded_tx.nonce),
+                    Payload {
+                        msg: &shielded_tx.aead_ct,
+                        aad: &[],
+                    },
+                )
+                .expect("AEAD decryption must succeed");
+        }
+    }
+
+    #[benchmark]
+    fn submit_encrypted_large() {
+        let who: T::AccountId = whitelisted_caller();
+
+        // Build a real max-size encrypted payload.
+        let (wire, dec_key) = build_max_encrypted_payload(32768);
+        let ciphertext: BoundedVec<u8, MaxEncryptedCarrier> = BoundedVec::truncate_from(wire);
 
         #[block]
         {

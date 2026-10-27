@@ -309,7 +309,7 @@ where
                 });
             }
         };
-        let caller = handle.caller_account_id::<R>();
+        let caller = handle.caller_account_id::<R>()?;
         let call = pallet_admin_utils::Call::<R>::sudo_set_recycle_or_burn {
             netuid: NetUid::from(netuid),
             recycle_or_burn,
@@ -323,7 +323,7 @@ where
         netuid: u16,
         burn_half_life: u16,
     ) -> EvmResult<()> {
-        let caller = handle.caller_account_id::<R>();
+        let caller = handle.caller_account_id::<R>()?;
         let call = pallet_admin_utils::Call::<R>::sudo_set_burn_half_life {
             netuid: NetUid::from(netuid),
             burn_half_life,
@@ -337,7 +337,7 @@ where
         netuid: u16,
         raw_multiplier: u128,
     ) -> EvmResult<()> {
-        let caller = handle.caller_account_id::<R>();
+        let caller = handle.caller_account_id::<R>()?;
         let call = pallet_admin_utils::Call::<R>::sudo_set_burn_increase_mult {
             netuid: NetUid::from(netuid),
             burn_increase_mult: U64F64::from_bits(raw_multiplier),

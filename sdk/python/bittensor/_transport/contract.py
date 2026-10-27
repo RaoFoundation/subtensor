@@ -14,6 +14,19 @@ from typing import Any, ClassVar, Optional
 
 
 @dataclass(frozen=True)
+class HashedSigningSnapshot:
+    """One finalized authority state shared by a Shield inner/outer proof pair."""
+
+    block_hash: str
+    address: str
+    crypto_type: int
+    descriptor: bytes
+    generation: int
+    commitment: bytes
+    nonce: int
+
+
+@dataclass(frozen=True)
 class CallBytes:
     """A composed call: raw SCALE call bytes plus the spec version they were
     composed against.
@@ -142,6 +155,7 @@ class MultisigAccount:
     threshold: int
     public_key: bytes
     ss58_address: str
+    account_mode: str = "legacy"
 
 
 @dataclass

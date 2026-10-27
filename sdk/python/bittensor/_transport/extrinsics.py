@@ -28,6 +28,7 @@ import inspect
 from hashlib import blake2b
 from typing import Any, Optional
 
+from ..sp_core import PQ_CRYPTO_TYPES, REGISTERED_CRYPTO_TYPES, pq_lengths
 from .codec import RuntimeCodec
 from .contract import SignedExtrinsic, SigningContext, UnsignedExtrinsic
 from .errors import SubstrateRequestException
@@ -50,38 +51,90 @@ from .utils.receipt import (
 )
 
 IMMORTAL = "00"
+HASHED_PROOF_LENGTH = 136
+MLDSA_PROOF_LENGTH = 5367
+
+# Shield wire: key hash + KEM length + ML-KEM-768 ciphertext + XChaCha nonce + AEAD tag.
+SHIELD_ENCRYPTION_OVERHEAD = 16 + 2 + 1088 + 24 + 16
+MAX_SHIELDED_CIPHERTEXT_BYTES = 32768
+
+
+def shielded_ciphertext_size(extrinsic_size: int) -> int:
+    size = extrinsic_size + SHIELD_ENCRYPTION_OVERHEAD
+    if size > MAX_SHIELDED_CIPHERTEXT_BYTES:
+        raise ValueError(
+            f"encrypted transaction exceeds the {MAX_SHIELDED_CIPHERTEXT_BYTES}-byte carrier limit"
+        )
+    return size
+
+
+def hashed_proof_length(crypto_type: int) -> int:
+    if crypto_type in PQ_CRYPTO_TYPES:
+        public_key, signature = pq_lengths(crypto_type)
+        return 106 + public_key + signature
+    if crypto_type not in REGISTERED_CRYPTO_TYPES:
+        raise ValueError("unsupported hashed signing scheme")
+    return HASHED_PROOF_LENGTH
 
 
 class NonceCache:
     """Per-account next-nonce cache for pipelined submissions.
 
-    The first request for an account asks the node (``account_nextIndex``);
-    subsequent requests increment locally so concurrent submissions get
-    distinct consecutive nonces. A failed submission must clear the account:
-    the chain never consumed that nonce.
+    Each reservation reconciles the node's ``account_nextIndex`` with local
+    reservations so other clients and Shield inner transactions can advance
+    the account while concurrent submissions get distinct consecutive nonces.
+    A definitely abandoned submission releases its own reservation. Unknown
+    outcomes keep their reservation because the transaction may still be pending.
     """
 
     def __init__(self, session: RpcSession):
         self._session = session
         self._nonces: dict[str, int] = {}
+        self._released: dict[str, set[int]] = {}
         self._lock = asyncio.Lock()
 
     async def next_for(self, address: str, *, use_cache: bool = True) -> int:
         if not use_cache:
             return await self._session.request("account_nextIndex", [address])
+        return await self.reserve(address)
+
+    async def reserve(self, address: str, count: int = 1) -> int:
+        """Reserve consecutive nonces atomically, including a Shield pair."""
+        if count < 1:
+            raise ValueError("nonce reservation must contain at least one transaction")
         async with self._lock:
-            if address not in self._nonces:
-                self._nonces[address] = await self._session.request("account_nextIndex", [address])
-            else:
-                self._nonces[address] += 1
-            return self._nonces[address]
+            observed = await self._session.request("account_nextIndex", [address])
+            released = self._released.get(address, set())
+            released.difference_update(nonce for nonce in tuple(released) if nonce < observed)
+            if released:
+                first = min(released)
+                last = self._nonces.get(address, -1)
+                if any(
+                    nonce not in released and nonce <= last for nonce in range(first, first + count)
+                ):
+                    raise ValueError(
+                        "cannot reserve a Shield pair across an abandoned nonce gap; "
+                        "submit one ordinary transaction first"
+                    )
+                released.difference_update(range(first, first + count))
+                self._nonces[address] = max(last, first + count - 1)
+                return first
+            first = max(observed, self._nonces.get(address, -1) + 1)
+            self._nonces[address] = first + count - 1
+            return first
 
     def pin(self, address: str, nonce: int) -> None:
         """Record an explicitly-chosen nonce as the account's latest."""
-        self._nonces[address] = nonce
+        self._nonces[address] = max(nonce, self._nonces.get(address, -1))
+        self._released.get(address, set()).discard(nonce)
+
+    def release(self, address: str, first: int, count: int) -> None:
+        """Return only an abandoned reservation, preserving concurrent signers."""
+        self._released.setdefault(address, set()).update(range(first, first + count))
 
     def clear(self, address: str) -> None:
         self._nonces.pop(address, None)
+        self._released.pop(address, None)
 
 
 def signer_payload_json(
@@ -153,6 +206,10 @@ def prepare_extrinsic(
     self-contained: it can cross a process boundary (QR display, file export)
     and later be reunited with a signature via :func:`attach_signature`.
     """
+    if crypto_type in REGISTERED_CRYPTO_TYPES:
+        raise ValueError(
+            "hashed accounts require live generation synchronization; use the local wallet signer"
+        )
     call_data, included_in_extrinsic, included_in_signed_data = codec.signature_payload_parts(
         call,
         era=era,
@@ -224,6 +281,8 @@ def attach_signature(
     anywhere — an in-process keypair, an extension, a QR round-trip. The call
     is spliced back in from its raw bytes, so nothing needs re-composing.
     """
+    if unsigned.crypto_type in REGISTERED_CRYPTO_TYPES:
+        raise ValueError("hashed accounts require the synchronized local wallet signing path")
     signature, signature_version = _normalize_signature(signature, unsigned.crypto_type)
     data, extrinsic_hash = codec.encode_signed_extrinsic(
         unsigned.call_data,
@@ -284,6 +343,19 @@ async def create_signed_extrinsic(
     ``signature`` short-circuits signing (externally-signed or fee-estimation
     paths); a 65-byte value carries the signature version in its first byte.
     """
+    if keypair.crypto_type in REGISTERED_CRYPTO_TYPES:
+        return create_hashed_extrinsic(
+            codec,
+            call,
+            keypair,
+            era=era,
+            nonce=nonce,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+            genesis_hash=genesis_hash,
+            era_block_hash=era_block_hash,
+            proof=signature,
+        )
     public_key = keypair.public_key
     assert public_key is not None
     if signature is not None:
@@ -316,6 +388,57 @@ async def create_signed_extrinsic(
         metadata_hash=await resolve_metadata_hash(codec, keypair, genesis_hash),
     )
     return attach_signature(codec, unsigned, await sign_unsigned(unsigned, keypair))
+
+
+def create_hashed_extrinsic(
+    codec: RuntimeCodec,
+    call: Any,
+    keypair: Any,
+    *,
+    era: dict | str,
+    nonce: int,
+    tip: int,
+    tip_asset_id: Optional[int],
+    genesis_hash: str,
+    era_block_hash: str,
+    proof: Optional[bytes | str] = None,
+) -> SignedExtrinsic:
+    """Sign a direct v4 call with rotation data in its standard raw signer address."""
+    account = bytes(keypair.public_key)
+    if len(account) != 32:
+        raise ValueError("hashed account IDs must contain exactly 32 bytes")
+    call_data = codec.call_data(call)
+    if proof is None:
+        _, extra, additional = codec.signature_payload_parts(
+            call_data,
+            era=era,
+            nonce=nonce,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+            genesis_hash=genesis_hash,
+            era_block_hash=era_block_hash,
+        )
+        # V1 binds and hashes the address; v2 signs the domain/header/full
+        # payload in pure ML-DSA mode. Neither uses the 256-byte shortcut.
+        proof = bytes(keypair.sign_hashed(call_data + extra + additional))
+    elif isinstance(proof, str):
+        proof = bytes.fromhex(proof.removeprefix("0x"))
+    if len(proof) != hashed_proof_length(keypair.crypto_type):
+        raise ValueError(
+            "hashed authorization requires a complete "
+            f"{hashed_proof_length(keypair.crypto_type)}-byte rotation proof"
+        )
+    data, extrinsic_hash = codec.encode_signed_extrinsic(
+        call_data,
+        public_key=account,
+        signature=proof,
+        signature_version=keypair.crypto_type,
+        era=era,
+        nonce=nonce,
+        tip=tip,
+        tip_asset_id=tip_asset_id,
+    )
+    return SignedExtrinsic(data=data, extrinsic_hash=extrinsic_hash)
 
 
 async def sign_unsigned(unsigned: UnsignedExtrinsic, keypair: Any) -> bytes:

@@ -69,9 +69,22 @@ COVERED_PALLETS = (
     "Commitments",
     "AdminUtils",
     "Contracts",
+    "HashedAccounts",
 )
 
 RAW_ONLY: dict[str, set[str]] = {
+    # Ordinary funding and migration intents insert registration automatically
+    # when they have the recipient descriptor. Expose standalone sponsorship
+    # through the raw call surface, not a second wallet-creation workflow.
+    "HashedAccounts": {
+        "register",
+        "check_registered",
+        # Composite protection is composed by MultisigGroup and derivative
+        # helpers, with the exact call approved by its actual authority.
+        "register_derived",
+        "register_derived_sponsored",
+        "check_derived",
+    },
     "SubtensorModule": {
         # sudo/admin/root-origin operations — deliberately not agent-executable
         "sudo_set_max_childkey_take",
@@ -138,6 +151,8 @@ RAW_ONLY: dict[str, set[str]] = {
         "force_batch",
         # origin/dispatch plumbing — niche
         "as_derivative",
+        "as_protected_derivative",
+        "as_safe_derivative",
         "dispatch_as",
         "dispatch_as_fallible",
         "if_else",
@@ -146,6 +161,7 @@ RAW_ONLY: dict[str, set[str]] = {
     "Multisig": {
         # deposit maintenance — niche; the four multisig operations are wrapped
         "poke_deposit",
+        "poke_deposit_safe",
     },
     "Swap": {
         # all user LP calls are DEPRECATED on-chain (per runtime metadata docs);
@@ -158,11 +174,8 @@ RAW_ONLY: dict[str, set[str]] = {
         "toggle_user_liquidity",
     },
     "LimitOrders": {
-        # signed Order payloads (constructed off-chain) and admin-gated execution;
-        # not a fit for a declarative intent. Reachable via the raw-call escape hatch.
-        "cancel_order",
-        "execute_orders",
-        "execute_batched_orders",
+        # Order execution and owner-authorized operations have intents.
+        # Administrative maintenance remains available as raw calls.
         "set_pallet_status",
         "prune_linked_output",
     },
@@ -262,6 +275,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_basket_concentration_cap",
         # validator basket trading gates and budget — root-only governance toggles
         "sudo_set_basket_trading_enabled",
+        "sudo_set_hashed_accounts_enabled",
         "sudo_set_basket_trading_frozen",
         "sudo_set_basket_daily_turnover_cap",
         "sudo_set_basket_liquidity_cap",

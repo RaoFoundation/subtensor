@@ -362,7 +362,27 @@ parameter_types! {
     pub const MaxEpochsPerBlock: u8 = 32;
 }
 
+parameter_types! {
+    pub static ProtectedOwnerAccounts: Vec<U256> = Vec::new();
+}
+
+pub struct MockHotkeyOwnerPolicy;
+impl crate::HotkeyOwnerPolicy<U256> for MockHotkeyOwnerPolicy {
+    fn allows_owner(coldkey: &U256, hotkey: &U256) -> bool {
+        let protected = ProtectedOwnerAccounts::get();
+        !protected.contains(hotkey) || protected.contains(coldkey)
+    }
+    fn allows_coldkey_swap(old: &U256, new: &U256) -> bool {
+        let protected = ProtectedOwnerAccounts::get();
+        !protected.contains(old) || protected.contains(new)
+    }
+    fn weight() -> Weight {
+        Weight::zero()
+    }
+}
+
 impl crate::Config for Test {
+    type HotkeyOwnerPolicy = MockHotkeyOwnerPolicy;
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type InitialIssuance = InitialIssuance;
@@ -526,6 +546,8 @@ impl pallet_scheduler::Config for Test {
 }
 
 impl pallet_utility::Config for Test {
+    type SafeDerivationWeight = ();
+    type DerivedAccountPolicy = ();
     type RuntimeCall = RuntimeCall;
     type PalletsOrigin = OriginCaller;
     type WeightInfo = pallet_utility::weights::SubstrateWeight<Test>;
@@ -650,6 +672,8 @@ parameter_types! {
 }
 
 impl pallet_proxy::Config for Test {
+    type SafeDerivationWeight = ();
+    type AccountPolicy = frame_support::traits::Everything;
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type ProxyType = subtensor_runtime_common::ProxyType;
@@ -788,6 +812,7 @@ pub fn init_logs_for_tests() {
 #[allow(dead_code)]
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext(block_number: BlockNumber) -> sp_io::TestExternalities {
+    ProtectedOwnerAccounts::set(Vec::new());
     init_logs_for_tests();
     let t = frame_system::GenesisConfig::<Test>::default()
         .build_storage()

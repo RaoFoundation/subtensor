@@ -47,6 +47,22 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | --- | --- | --- | --- |
 | [`evm-withdraw`](/docs/tx/evm-withdraw) | coldkey | signed account (pallet role may apply) | Claim TAO deposited to the coldkey's truncated EVM mirror. |
 
+## HashedAccounts
+
+| Operation | Signer | Origin | Summary |
+| --- | --- | --- | --- |
+| [`install-order-capability`](/docs/tx/install-order-capability) | coldkey | signed account (pallet role may apply) | Grant a revocable post-quantum order key with an explicit trading scope. |
+| [`revoke-order-capability`](/docs/tx/revoke-order-capability) | coldkey | signed account (pallet role may apply) | Revoke the active order key and permanently advance its epoch tombstone. |
+
+## LimitOrders
+
+| Operation | Signer | Origin | Summary |
+| --- | --- | --- | --- |
+| [`authorize-order`](/docs/tx/authorize-order) | coldkey | signed account (pallet role may apply) | Authorize every economic term of a order through the account's origin. |
+| [`cancel-order`](/docs/tx/cancel-order) | coldkey | signed account (pallet role may apply) | Cancel a order and any unfilled remainder using its complete terms. |
+| [`execute-batched-orders`](/docs/tx/execute-batched-orders) | coldkey | signed account (pallet role may apply) | Relay a bounded order batch through the atomic subnet netting engine. |
+| [`execute-orders`](/docs/tx/execute-orders) | coldkey | signed account (pallet role may apply) | Relay classical orders and up to eight account-approved or post-quantum orders. |
+
 ## Multisig
 
 | Operation | Signer | Origin | Summary |

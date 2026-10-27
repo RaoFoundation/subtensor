@@ -24,6 +24,7 @@ Server side::
         request_headers, raw_body,
         method="POST", path="/generate",
         self_hotkey_ss58=my_hotkey,
+        expected_crypto_type=trusted_sender_crypto_type,
     )
     caller.hotkey_ss58   # the authenticated sender
 
@@ -50,10 +51,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
+from .mldsa import (
+    MessageCapability,
+    capability_proof_crypto_type,
+    capability_proof_length,
+    sign_payload,
+    verify_payload,
+)
 from .result import BittensorError
 from .signing import WalletLike, resolve_signer
+from .sp_core import (
+    CLASSICAL_HASHED_CRYPTO_TYPES,
+    CRYPTO_FALCON512_HASHED,
+    CRYPTO_FALCON1024_HASHED,
+    CRYPTO_MLDSA65,
+)
 from .sp_core import verify as _sp_core_verify
-from .wallets import CRYPTO_TYPE_NAMES, parse_crypto_type
+from .wallets import CRYPTO_TYPE_NAMES, parse_crypto_type, signing_scheme_name
 
 PROTOCOL = "btauth/1"
 VERSION = "1"
@@ -73,6 +87,16 @@ DEFAULT_ALLOWED_SKEW = 2.0
 _NO_RECEIVER = "-"
 
 _DEFAULT_SCHEME = "sr25519"
+
+# Post-quantum authentication transports a bounded capability proof in the binary body.
+# It does not put a public key and hexadecimal signature in HTTP headers.
+_MLDSA_MAGIC = b"btauth/2\x00"
+DEFAULT_MAX_MLDSA_BODY_BYTES = 1024 * 1024
+_PQ_HTTP_SCHEMES = {
+    "mldsa65": CRYPTO_MLDSA65,
+    "falcon512": CRYPTO_FALCON512_HASHED,
+    "falcon1024": CRYPTO_FALCON1024_HASHED,
+}
 
 
 class AuthError(BittensorError):
@@ -110,6 +134,178 @@ class Caller:
     hotkey_ss58: str
     nonce_ns: int
     crypto_type: int
+
+
+@dataclass(frozen=True)
+class SignedRequest:
+    headers: dict[str, str]
+    body: bytes
+
+
+@dataclass(frozen=True)
+class AuthenticatedRequest:
+    caller: Caller
+    body: bytes
+
+
+def _mldsa_payload(
+    *,
+    capability: MessageCapability,
+    method: str,
+    path: str,
+    body: bytes,
+    nonce: int,
+    receiver: str,
+    scheme: str = "mldsa65",
+) -> bytes:
+    if not 0 <= nonce < 2**64:
+        raise ValueError("nonce must be a u64 nanosecond timestamp")
+    for value, limit in ((method, 32), (path, 8192), (receiver, 128)):
+        if not value or len(value.encode()) > limit or "\n" in value or "\r" in value:
+            raise ValueError("invalid HTTP authentication field")
+    from .sp_core import ss58_decode
+
+    ss58_decode(receiver)
+    lines = (
+        "btauth/2",
+        scheme,
+        capability.genesis_hash.hex(),
+        str(capability.epoch),
+        capability.audience.hex(),
+        method.upper(),
+        path,
+        hashlib.shake_256(body).hexdigest(64),
+        str(nonce),
+        capability.owner,
+        receiver,
+    )
+    return "\n".join(lines).encode()
+
+
+def sign_mldsa(
+    wallet: WalletLike,
+    *,
+    capability: MessageCapability,
+    method: str,
+    path: str,
+    receiver_ss58: str,
+    body: bytes = b"",
+    nonce_ns: int | None = None,
+    max_body_bytes: int = DEFAULT_MAX_MLDSA_BODY_BYTES,
+) -> SignedRequest:
+    """Sign with an owner-approved message key; send the returned body verbatim."""
+    if max_body_bytes < 0 or len(body) > max_body_bytes:
+        raise ValueError("HTTP body exceeds the configured post-quantum limit")
+    signer = resolve_signer(wallet, role="hotkey")
+    scheme = signing_scheme_name(signer.crypto_type)
+    if scheme not in _PQ_HTTP_SCHEMES:
+        raise ValueError("post-quantum HTTP authentication requires a post-quantum message key")
+    nonce = time.time_ns() if nonce_ns is None else nonce_ns
+    payload = _mldsa_payload(
+        capability=capability,
+        method=method,
+        path=path,
+        body=body,
+        nonce=nonce,
+        receiver=receiver_ss58,
+        scheme=scheme,
+    )
+    proof = sign_payload(signer, payload, capability)
+    if capability_proof_crypto_type(proof) != _PQ_HTTP_SCHEMES[scheme]:
+        raise ValueError("message proof does not match its signing scheme")
+    return SignedRequest(
+        {
+            HEADER_VERSION: "2",
+            HEADER_HOTKEY: capability.owner,
+            HEADER_RECEIVER: receiver_ss58,
+            HEADER_NONCE: str(nonce),
+            HEADER_CRYPTO: scheme,
+        },
+        _MLDSA_MAGIC + proof + body,
+    )
+
+
+def verify_mldsa(
+    headers: Mapping[str, str],
+    body: bytes,
+    *,
+    capability: MessageCapability,
+    method: str,
+    path: str,
+    self_hotkey_ss58: str,
+    max_age: float = DEFAULT_MAX_AGE,
+    allowed_skew: float = DEFAULT_ALLOWED_SKEW,
+    nonce_store: NonceStore | None = None,
+    now_ns: int | None = None,
+    max_body_bytes: int = DEFAULT_MAX_MLDSA_BODY_BYTES,
+) -> AuthenticatedRequest:
+    """Verify against fresh trusted chain state, then return the original body.
+
+    Resolve the capability for the claimed sender and the server's configured
+    audience at a finalized block. Refresh it on each request or enforce a
+    documented revocation-latency bound; request fields are never a registry.
+    Apply the same total body limit in the HTTP server before reading the body.
+    """
+    lowered = {key.lower(): value for key, value in headers.items()}
+    scheme = lowered.get(HEADER_CRYPTO.lower())
+    if scheme not in _PQ_HTTP_SCHEMES:
+        raise BadSignature("unsupported post-quantum HTTP signing scheme")
+    crypto_type = _PQ_HTTP_SCHEMES[scheme]
+    prefix = len(_MLDSA_MAGIC) + capability_proof_length(crypto_type)
+    if (
+        max_body_bytes < 0
+        or not prefix <= len(body) <= prefix + max_body_bytes
+        or not body.startswith(_MLDSA_MAGIC)
+    ):
+        raise MalformedAuth("invalid or oversized post-quantum authentication body")
+    if (
+        lowered.get(HEADER_VERSION.lower()) != "2"
+        or lowered.get(HEADER_HOTKEY.lower()) != capability.owner
+    ):
+        raise BadSignature("HTTP authentication does not match the trusted capability")
+    receiver = lowered.get(HEADER_RECEIVER.lower())
+    if receiver != self_hotkey_ss58:
+        raise WrongReceiver("request was signed for a different receiving hotkey")
+    raw_nonce = lowered.get(HEADER_NONCE.lower(), "")
+    if not raw_nonce.isascii() or not raw_nonce.isdecimal() or len(raw_nonce) > 20:
+        raise MalformedAuth("invalid post-quantum nonce")
+    nonce = int(raw_nonce)
+    if raw_nonce != str(nonce) or nonce >= 2**64:
+        raise MalformedAuth("noncanonical post-quantum nonce")
+    if not (0 <= max_age < float("inf") and 0 <= allowed_skew < float("inf")):
+        raise ValueError("freshness bounds must be finite and nonnegative")
+    now = time.time_ns() if now_ns is None else now_ns
+    if now - nonce > max_age * 1e9 or nonce - now > allowed_skew * 1e9:
+        raise StaleRequest("request is outside the freshness window")
+    original = body[prefix:]
+    try:
+        payload = _mldsa_payload(
+            capability=capability,
+            method=method,
+            path=path,
+            body=original,
+            nonce=nonce,
+            receiver=receiver,
+            scheme=scheme,
+        )
+    except ValueError as error:
+        raise MalformedAuth(str(error)) from None
+    proof = body[len(_MLDSA_MAGIC) : prefix]
+    try:
+        proof_type = capability_proof_crypto_type(proof)
+    except ValueError as error:
+        raise MalformedAuth(str(error)) from None
+    if proof_type != crypto_type or not verify_payload(proof, payload, capability):
+        raise BadSignature("post-quantum proof does not match the trusted message capability")
+    store = nonce_store if nonce_store is not None else _default_nonce_store
+    retention = getattr(store, "retention", None)
+    if retention is not None and max_age + allowed_skew > retention:
+        raise ValueError("nonce store retention is shorter than the freshness window")
+    if not store.check_and_store(capability.owner, nonce):
+        raise ReplayedRequest("this nonce was already accepted from this hotkey")
+    # This identifies the capability scheme, not the owner's spending mode.
+    # A capability can also belong to a multisig or proxy.
+    return AuthenticatedRequest(Caller(capability.owner, nonce, crypto_type), original)
 
 
 class NonceStore(Protocol):
@@ -185,6 +381,47 @@ def build_payload(
     return "\n".join(lines).encode()
 
 
+async def prepare_signer(wallet: WalletLike, *, client):
+    """Prepare a hotkey for synchronous HTTP signing using finalized chain state.
+
+    Hashed SR/ED signatures reveal their original identity key, so generation
+    zero must already be retired by a finalized on-chain transaction. Keyfiles
+    intentionally do not persist a trusted generation. This checks the actual
+    signing key's descriptor and returns a prepared signer for :func:`sign`;
+    ordinary SR/ED signers require no chain access. The returned hashed signer
+    can be reused: normal spending-key rotations never reactivate generation zero.
+
+    ``client`` is a connected :class:`bittensor.Client`. post-quantum requests use
+    :func:`sign_mldsa` and a finalized message capability instead.
+    """
+    from .hashed import descriptor_bytes
+
+    signer = resolve_signer(wallet, role="hotkey")
+    if signer.crypto_type not in CLASSICAL_HASHED_CRYPTO_TYPES:
+        return signer
+    derive = getattr(signer, "at_generation", None)
+    if not callable(derive):
+        raise ValueError("hashed HTTP signing requires a generation-aware signer")
+    # Resolve the private signer before any query: a stale public companion
+    # must not lend another account's retired generation to an active key.
+    signer = derive(0)
+    finalized = await client._substrate.block_hash(await client.finalized_block())
+    if not finalized:
+        raise ValueError("could not verify finalized hashed hotkey registration")
+    state = await client._substrate.query(
+        "HashedAccounts", "Accounts", [signer.ss58_address], block_hash=finalized
+    )
+    if state is None or descriptor_bytes(state["descriptor"]) != bytes(signer.hashed_descriptor):
+        raise ValueError("hashed hotkey is not registered on the selected chain")
+    generation = int(state["generation"])
+    if generation < 1:
+        raise ValueError(
+            "hashed HTTP signing requires generation zero to be retired by a finalized "
+            "on-chain transaction first"
+        )
+    return signer.at_generation(generation)
+
+
 def sign(
     wallet: WalletLike,
     *,
@@ -205,6 +442,10 @@ def sign(
     The signature scheme follows the signer's ``crypto_type``; the
     ``X-Bittensor-Crypto`` header is emitted only for non-default schemes
     (absent means sr25519).
+
+    For a disk-backed hashed SR/ED hotkey, first obtain a signer with
+    ``await prepare_signer(wallet, client=client)``. Do not manually advance
+    its generation to bypass the finalized-state check.
     """
     signer = resolve_signer(wallet, role="hotkey")
     scheme = CRYPTO_TYPE_NAMES.get(signer.crypto_type)
@@ -246,6 +487,7 @@ def verify(
     method: str,
     path: str,
     self_hotkey_ss58: str,
+    expected_crypto_type: int,
     max_age: float = DEFAULT_MAX_AGE,
     allowed_skew: float = DEFAULT_ALLOWED_SKEW,
     require_receiver: bool = True,
@@ -262,10 +504,15 @@ def verify(
     Checks, in order: header shape (:class:`MalformedAuth`), receiver binding
     (:class:`WrongReceiver`), freshness — ``max_age`` seconds back,
     ``allowed_skew`` seconds of forward clock drift (:class:`StaleRequest`),
-    the signature under the declared scheme only, never try-both
+    the signature under the server's trusted scheme only, never try-both
     (:class:`BadSignature`), and replay (:class:`ReplayedRequest`). The replay
     store is written only after the signature verifies, so unauthenticated
     traffic cannot poison it against a legitimate sender.
+
+    ``expected_crypto_type`` must come from trusted configuration or a registry
+    lookup for the claimed sender, never from the request's crypto header. Bare
+    SS58 identities do not encode a scheme; accepting the header alone would
+    allow classical signatures to impersonate a hashed identity.
     """
     lowered = {key.lower(): value for key, value in headers.items()}
 
@@ -289,6 +536,10 @@ def verify(
     # Rebuild the canonical scheme name rather than echoing the header value,
     # so the signed bytes are never client-influenced beyond the scheme choice.
     scheme = CRYPTO_TYPE_NAMES[crypto_type]
+    if expected_crypto_type not in CRYPTO_TYPE_NAMES:
+        raise ValueError("unsupported trusted sender crypto type")
+    if crypto_type != expected_crypto_type:
+        raise BadSignature("declared signature scheme does not match the trusted sender scheme")
     raw_signature = lowered.get(HEADER_SIGNATURE.lower())
     if raw_signature is None:
         raise MalformedAuth(f"missing {HEADER_SIGNATURE}")
@@ -355,15 +606,27 @@ __all__ = [
     "PROTOCOL",
     "VERSION",
     "AuthError",
+    "AuthenticatedRequest",
     "BadSignature",
     "Caller",
     "InMemoryNonceStore",
     "MalformedAuth",
+    "MessageCapability",
     "NonceStore",
     "ReplayedRequest",
+    "SignedRequest",
     "StaleRequest",
     "WrongReceiver",
     "build_payload",
     "sign",
+    "sign_mldsa",
+    "sign_pq",
     "verify",
+    "verify_mldsa",
+    "verify_pq",
 ]
+
+
+# These names accept every supported post-quantum capability profile.
+sign_pq = sign_mldsa
+verify_pq = verify_mldsa
