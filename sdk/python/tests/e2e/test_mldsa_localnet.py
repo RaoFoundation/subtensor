@@ -217,7 +217,7 @@ async def test_offline_replay_capabilities_native_evm_and_derived_accounts(code)
         )
         before = await record(client, key)
         before_account = await account(client, key)
-        with pytest.raises(ValueError, match="invalid ML-DSA transaction proof"):
+        with pytest.raises(ValueError, match="invalid post-quantum transaction proof"):
             await raw.attach_mldsa_proof(prepared, proof[:-1] + bytes([proof[-1] ^ 1]))
         signed = await raw.attach_mldsa_proof(prepared, proof)
         corrupted = SignedExtrinsic(
