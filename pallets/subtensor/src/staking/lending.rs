@@ -475,6 +475,11 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
     fn subtoken_enabled(netuid: NetUid) -> bool {
         SubtokenEnabled::<T>::get(netuid)
     }
+
+    fn network_alive(netuid: NetUid) -> bool {
+        // Registration-time seed: do not require start-call / subtoken yet.
+        !netuid.is_root() && Self::if_subnet_exist(netuid) && SubnetMechanism::<T>::get(netuid) == 1
+    }
 }
 
 impl<T: Config> Pallet<T> {

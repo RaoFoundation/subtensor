@@ -9,7 +9,7 @@
 use super::*;
 use codec::{Decode, Encode};
 use frame_support::{
-    assert_err, assert_ok, construct_runtime, derive_impl, parameter_types,
+    BoundedVec, assert_err, assert_ok, construct_runtime, derive_impl, parameter_types,
     traits::{ConstU32, ConstU64, Get, Hooks},
     weights::{Weight, WeightMeter},
 };
@@ -221,6 +221,10 @@ impl OrderSwapInterface<Account> for MockPool {
 
 impl LendingPoolInterface<Account> for MockPool {
     fn subnet_exists(_: NetUid) -> bool {
+        true
+    }
+
+    fn network_alive(_: NetUid) -> bool {
         true
     }
 
@@ -1986,4 +1990,106 @@ fn warm_reference_ages_g_ema_via_on_finalize_before_min_age() {
             Error::<Test>::SubnetTooNew
         );
     });
+}
+
+fn warm_migration_key() -> BoundedVec<u8, ConstU32<128>> {
+    BoundedVec::truncate_from(b"migrate_warm_references_v1".to_vec())
+}
+
+#[test]
+fn migration_warms_existing_subnets_and_is_idempotent() {
+    cold_lending_ext().execute_with(|| {
+        assert!(!HasMigrationRun::<Test>::get(warm_migration_key()));
+        assert!(References::<Test>::get(netuid()).is_none());
+
+        let _w1 = <Lending as Hooks<_>>::on_runtime_upgrade();
+        assert!(HasMigrationRun::<Test>::get(warm_migration_key()));
+        assert!(References::<Test>::get(netuid()).is_some());
+        assert!(Lifts::<Test>::get(netuid()).g_ema > 0);
+        assert!(ActiveNets::<Test>::contains_key(netuid()));
+        let valid_after = References::<Test>::get(netuid()).unwrap().valid_after;
+        let g_ema = Lifts::<Test>::get(netuid()).g_ema;
+        let active = ActiveNetCount::<Test>::get();
+
+        // Second upgrade is a no-op for the warm migration (state unchanged).
+        let _w2 = <Lending as Hooks<_>>::on_runtime_upgrade();
+        assert!(HasMigrationRun::<Test>::get(warm_migration_key()));
+        assert_eq!(
+            References::<Test>::get(netuid()).unwrap().valid_after,
+            valid_after
+        );
+        assert_eq!(Lifts::<Test>::get(netuid()).g_ema, g_ema);
+        assert_eq!(ActiveNetCount::<Test>::get(), active);
+    });
+}
+
+#[test]
+fn migration_skips_zero_price_subnet_cleanly() {
+    cold_lending_ext().execute_with(|| {
+        // Empty pool → zero price; migration must not panic or mark a half seed.
+        set_pool(0, 0);
+        let _ = <Lending as Hooks<_>>::on_runtime_upgrade();
+        assert!(HasMigrationRun::<Test>::get(warm_migration_key()));
+        assert!(References::<Test>::get(netuid()).is_none());
+        assert_eq!(Lifts::<Test>::get(netuid()).g_ema, 0);
+        assert!(!ActiveNets::<Test>::contains_key(netuid()));
+    });
+}
+
+#[test]
+fn registration_hook_seeds_without_manual_warm_and_open_succeeds_after_gate() {
+    cold_lending_ext().execute_with(|| {
+        // Simulate pre-start-call registration: pool priced, subtoken still off.
+        set_subtoken_enabled(false);
+        System::set_block_number(10);
+        <Lending as LendingInterface<_>>::on_subnet_registered(netuid());
+
+        let reference = References::<Test>::get(netuid()).unwrap();
+        assert!(Lifts::<Test>::get(netuid()).g_ema > 0);
+        assert!(ActiveNets::<Test>::contains_key(netuid()));
+        // No manual warm_reference.
+
+        // Start-call fallback is idempotent.
+        set_subtoken_enabled(true);
+        <Lending as LendingInterface<_>>::on_subtoken_enabled(netuid());
+        assert_eq!(
+            References::<Test>::get(netuid()).unwrap().valid_after,
+            reference.valid_after
+        );
+
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        let params = LiftParams::default();
+        // Past min age + Cap ramp + reference warmup. Finalize once so G_ema
+        // `last` advances (seeded early at block 10, needs ≥ settle_ema_blocks).
+        let ready = params
+            .new_subnet_min_age
+            .saturating_add(params.new_subnet_ramp)
+            .max(params.settle_ema_blocks)
+            .max(reference.valid_after)
+            .saturating_add(1);
+        System::set_block_number(ready);
+        <Lending as Hooks<_>>::on_finalize(ready);
+
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            hotkey,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_some());
+    });
+}
+
+#[test]
+fn max_active_net_updates_covers_global_subnet_cap() {
+    // on_initialize / on_finalize share this cap; it must cover every possible
+    // live subnet so EMA aging cannot outrun the reserved weight.
+    assert_eq!(MAX_ACTIVE_NET_UPDATES, 4_096);
 }

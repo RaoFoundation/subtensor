@@ -1754,5 +1754,5 @@ class Lending:
 
     @staticmethod
     def warm_reference(netuid: 'NetUid') -> Call:
-        'Permissionless seed of the lending reference price and `G_ema` book.  Opens are `#[transactional]` and call `ensure_new_subnet_gate` before any reference init. Seeding inside an open that then returns `ReferenceWarmingUp` / `SubnetTooNew` would roll back. Call this once after subtoken enable; wait for `valid_after` (and the new-subnet min age / `G_ema` age gate) before opening.  Idempotent: re-calling after the reference exists returns `Ok` and only fills a missing `G_ema` seed / `ActiveNets` entry.'
+        'Permissionless fallback seed of the lending reference and `G_ema`.  Prefer automatic seeding: registration (`on_subnet_registered`), start-call (`on_subtoken_enabled`), and the upgrade migration. This extrinsic remains for ops recovery. Idempotent.'
         return Call('Lending', 'warm_reference', {'netuid': netuid})

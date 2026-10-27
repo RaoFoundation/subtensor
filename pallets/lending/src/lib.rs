@@ -17,9 +17,17 @@ extern crate alloc;
 pub use pallet::*;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+pub(crate) mod migrations;
 #[cfg(test)]
 mod tests;
 pub mod weights;
+
+/// Bound on `ActiveNets` walked per block. Matches `GLOBAL_MAX_SUBNET_COUNT` so
+/// every seeded subnet can age its reference / `G_ema` without exceeding the
+/// production block weight budget (`update_reference × 4096` ≪ block limit).
+pub const MAX_ACTIVE_NET_UPDATES: u64 = 4_096;
+
+type MigrationKeyMaxLen = frame_support::traits::ConstU32<128>;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::{PalletId, pallet_prelude::*, transactional, weights::WeightMeter};
@@ -249,6 +257,15 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     fn network_registered_at(netuid: NetUid) -> u64;
     /// Owner start-call / subtoken trading enabled (`SubtokenEnabled`).
     fn subtoken_enabled(netuid: NetUid) -> bool;
+
+    /// Subnet is present and uses the dynamic (lendable) mechanism.
+    ///
+    /// Unlike [`Self::subnet_exists`], this does **not** require subtoken /
+    /// start-call. Used to seed references at registration so EMAs age during
+    /// the new-subnet wait.
+    fn network_alive(netuid: NetUid) -> bool {
+        Self::subnet_exists(netuid)
+    }
 }
 
 /// Subtensor dissolution / hotkey integration.
@@ -275,6 +292,15 @@ pub trait LendingInterface<AccountId> {
     fn is_lending_custody(hotkey: &AccountId, coldkey: &AccountId, netuid: NetUid) -> bool;
     /// Whether `hotkey` is the lending custody hotkey (reject third-party stake, §14).
     fn is_custody_hotkey(hotkey: &AccountId) -> bool;
+    /// Best-effort seed after a subnet is created (pool reserves exist).
+    fn on_subnet_registered(netuid: NetUid) {
+        let _ = netuid;
+    }
+    /// Best-effort seed when start-call enables the subtoken (fallback if
+    /// registration-time price was zero).
+    fn on_subtoken_enabled(netuid: NetUid) {
+        let _ = netuid;
+    }
 }
 
 impl<AccountId> LendingInterface<AccountId> for () {
@@ -317,6 +343,8 @@ impl<AccountId> LendingInterface<AccountId> for () {
     fn is_custody_hotkey(_: &AccountId) -> bool {
         false
     }
+    fn on_subnet_registered(_: NetUid) {}
+    fn on_subtoken_enabled(_: NetUid) {}
 }
 
 #[derive(
@@ -667,7 +695,7 @@ pub mod pallet {
     pub type ConversionCursor<T> = StorageValue<_, NetUid, OptionQuery>;
     #[pallet::storage]
     pub type PalletHotkey<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
-    /// Subnets that have ever had a lift book / reference (for EMA finalize).
+    /// Subnets with a seeded lending reference (EMA finalize walk).
     #[pallet::storage]
     pub type ActiveNets<T> = StorageMap<_, Identity, NetUid, (), OptionQuery>;
     /// Count of `ActiveNets` entries — drives on_initialize weight.
@@ -676,6 +704,10 @@ pub mod pallet {
     /// Settlement TAO EMA per subnet (§13.2). Basis is `pool_tao + held_tao`.
     #[pallet::storage]
     pub type TaoEma<T> = StorageMap<_, Identity, NetUid, u64, OptionQuery>;
+    /// One-shot migration markers (name → ran).
+    #[pallet::storage]
+    pub type HasMigrationRun<T: Config> =
+        StorageMap<_, Identity, BoundedVec<u8, super::MigrationKeyMaxLen>, bool, ValueQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -867,10 +899,9 @@ pub mod pallet {
         }
 
         fn on_initialize(_: BlockNumberFor<T>) -> Weight {
-            // Reserve only for ActiveNets that on_finalize walks. When lending is
+            // Reserve for ActiveNets that on_finalize walks. When lending is
             // unused the count is 0 and we charge a single reference unit so the
-            // block remains usable (never MaxPositionsPerSubnet × update).
-            const MAX_ACTIVE_NET_UPDATES: u64 = 512;
+            // block remains usable. Cap matches `MAX_ACTIVE_NET_UPDATES`.
             let n = u64::from(ActiveNetCount::<T>::get()).clamp(1, MAX_ACTIVE_NET_UPDATES);
             T::WeightInfo::update_reference()
                 .saturating_mul(n)
@@ -879,8 +910,12 @@ pub mod pallet {
 
         fn on_finalize(now: BlockNumberFor<T>) {
             let params = LiftParamsStore::<T>::get();
-            // Only subnets that have used lending — not every live subnet.
+            // Seeded nets only — registration / migration / warm_reference enroll.
+            let mut updated = 0u64;
             for (netuid, _) in ActiveNets::<T>::iter() {
+                if updated >= MAX_ACTIVE_NET_UPDATES {
+                    break;
+                }
                 if Dissolutions::<T>::contains_key(netuid) {
                     continue;
                 }
@@ -898,10 +933,13 @@ pub mod pallet {
                         }
                     }
                 });
+                updated = updated.saturating_add(1);
             }
         }
 
         fn on_runtime_upgrade() -> Weight {
+            let weight = migrations::migrate_warm_references::<T>();
+
             // Initialize missing TaoEma entries to the current settlement basis.
             let mut writes = 0u64;
             let mut reads = 0u64;
@@ -916,7 +954,7 @@ pub mod pallet {
                 TaoEma::<T>::insert(netuid, basis);
                 writes = writes.saturating_add(1);
             }
-            // Sync ActiveNetCount after storage item introduction.
+            // Sync ActiveNetCount after storage item introduction / migration.
             let active = ActiveNets::<T>::iter().count() as u32;
             reads = reads.saturating_add(u64::from(active).saturating_add(1));
             if ActiveNetCount::<T>::get() != active {
@@ -936,7 +974,7 @@ pub mod pallet {
                     writes = writes.saturating_add(1);
                 }
             }
-            T::DbWeight::get().reads_writes(reads, writes)
+            weight.saturating_add(T::DbWeight::get().reads_writes(reads, writes))
         }
 
         fn on_idle(now: BlockNumberFor<T>, remaining: Weight) -> Weight {
@@ -1109,16 +1147,11 @@ pub mod pallet {
             )
         }
 
-        /// Permissionless seed of the lending reference price and `G_ema` book.
+        /// Permissionless fallback seed of the lending reference and `G_ema`.
         ///
-        /// Opens are `#[transactional]` and call `ensure_new_subnet_gate` before
-        /// any reference init. Seeding inside an open that then returns
-        /// `ReferenceWarmingUp` / `SubnetTooNew` would roll back. Call this
-        /// once after subtoken enable; wait for `valid_after` (and the
-        /// new-subnet min age / `G_ema` age gate) before opening.
-        ///
-        /// Idempotent: re-calling after the reference exists returns `Ok` and
-        /// only fills a missing `G_ema` seed / `ActiveNets` entry.
+        /// Prefer automatic seeding: registration (`on_subnet_registered`),
+        /// start-call (`on_subtoken_enabled`), and the upgrade migration.
+        /// This extrinsic remains for ops recovery. Idempotent.
         #[pallet::call_index(7)]
         #[pallet::weight(T::WeightInfo::warm_reference())]
         pub fn warm_reference(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
@@ -1288,19 +1321,30 @@ pub mod pallet {
             Self::ensure_reference_warm(netuid)
         }
 
-        /// Commit a lending reference and seed `G_ema` for `netuid`.
+        /// Best-effort seed of `References`, `G_ema`, and `ActiveNets`.
         ///
-        /// Returns `Ok` on first seed and on later idempotent calls. Enrolls
-        /// the subnet in `ActiveNets` so `on_finalize` ages the reference EMA
-        /// and `G_ema` without scanning every live subnet.
-        pub fn do_warm_reference(netuid: NetUid) -> DispatchResult {
-            Self::ensure_lending_live(netuid)?;
-            ensure!(T::Pool::subtoken_enabled(netuid), Error::<T>::SubnetTooNew);
-            Self::initialize_custody()?;
-            let now = frame_system::Pallet::<T>::block_number();
+        /// Does **not** require lending `Enabled` or subtoken (start call): used
+        /// at registration, start-call, and the upgrade migration so EMAs age
+        /// during the new-subnet wait. Returns `false` when the subnet cannot
+        /// be seeded (missing / dissolving / zero price / custody unavailable).
+        /// Idempotent when already seeded.
+        pub fn try_seed_reference(netuid: NetUid) -> bool {
+            if Dissolutions::<T>::contains_key(netuid) {
+                return false;
+            }
+            if !T::Pool::network_alive(netuid) {
+                return false;
+            }
             let spot = T::Pool::current_alpha_price(netuid);
-            ensure!(spot.to_bits() > 0, Error::<T>::ReferenceUnavailable);
+            if spot.to_bits() == 0 {
+                // Keep an already-seeded reference; otherwise wait for a price.
+                return References::<T>::contains_key(netuid);
+            }
+            if Self::initialize_custody().is_err() {
+                return false;
+            }
 
+            let now = frame_system::Pallet::<T>::block_number();
             let (valid_after, created) = if let Some(reference) = References::<T>::get(netuid) {
                 (reference.valid_after, false)
             } else {
@@ -1324,7 +1368,6 @@ pub mod pallet {
                 book.g_ema
             });
             Self::note_active_net(netuid);
-            // Ensure settlement TAO EMA has a basis once the book is active.
             let _ = Self::ensure_tao_ema(netuid);
 
             if created {
@@ -1334,6 +1377,19 @@ pub mod pallet {
                     g_ema,
                 });
             }
+            true
+        }
+
+        /// Permissionless fallback: require lending live + subtoken, then seed.
+        ///
+        /// Prefer automatic seeding via registration / start-call / migration.
+        pub fn do_warm_reference(netuid: NetUid) -> DispatchResult {
+            Self::ensure_lending_live(netuid)?;
+            ensure!(T::Pool::subtoken_enabled(netuid), Error::<T>::SubnetTooNew);
+            ensure!(
+                Self::try_seed_reference(netuid),
+                Error::<T>::ReferenceUnavailable
+            );
             Ok(())
         }
 
@@ -3972,6 +4028,12 @@ pub mod pallet {
         }
         fn is_custody_hotkey(hotkey: &T::AccountId) -> bool {
             Self::is_custody_hotkey(hotkey)
+        }
+        fn on_subnet_registered(netuid: NetUid) {
+            let _ = Self::try_seed_reference(netuid);
+        }
+        fn on_subtoken_enabled(netuid: NetUid) {
+            let _ = Self::try_seed_reference(netuid);
         }
     }
 }

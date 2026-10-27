@@ -509,3 +509,4 @@ class Lending:
     ActiveNets = Item('Lending', 'ActiveNets', '()')
     ActiveNetCount = Item('Lending', 'ActiveNetCount', 'u32')
     TaoEma = Item('Lending', 'TaoEma', 'u64')
+    HasMigrationRun = Item('Lending', 'HasMigrationRun', 'bool')
