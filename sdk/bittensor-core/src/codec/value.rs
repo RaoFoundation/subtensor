@@ -7,6 +7,15 @@
 
 use std::fmt;
 
+#[path = "value_navigation.rs"]
+mod navigation;
+
+/// Portable navigation helpers for decoded SCALE values.
+pub use navigation::{
+    as_bool, as_str, as_u128, field, first_byte, tuple_item, value_bytes, variant, variant_name,
+    ValueExt,
+};
+
 /// One decoded SCALE value in cyscale's shape conventions.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
