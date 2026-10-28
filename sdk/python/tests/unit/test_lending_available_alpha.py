@@ -19,12 +19,12 @@ class _RecordingSubstrate:
         return None
 
     async def query(self, module, storage_function, params=None, block_hash=None):
-        self.queries.append((module, storage_function, list(params or []), block_hash))
+        params = list(params or [])
+        self.queries.append((module, storage_function, params, block_hash))
         if storage_function == "MinerCollateral":
-            if params is not None and len(params) != 3:
-                raise TypeError(
-                    f"Storage function requires 3 parameters, {len(params)} given"
-                )
+            # Simulate scale codec / substrate-interface arity check.
+            if len(params) != 3:
+                raise TypeError(f"Storage function requires 3 parameters, {len(params)} given")
             return {"locked": 0, "min_locked": 0, "earned": 0, "drain_ratio": {"bits": 0}}
         return None
 
@@ -42,20 +42,3 @@ async def test_available_alpha_queries_miner_collateral_with_three_keys():
     ]
     assert len(collateral_queries) == 1
     assert collateral_queries[0][2] == [netuid, hotkey, owner]
-
-
-@pytest.mark.asyncio
-async def test_available_alpha_rejects_single_tuple_key():
-    """Regression: wrapping the triple as one list element must not be used."""
-
-    class _Strict(_RecordingSubstrate):
-        async def query(self, module, storage_function, params=None, block_hash=None):
-            if storage_function == "MinerCollateral":
-                # Simulate scale codec / substrate-interface arity check.
-                if params is not None and len(params) == 1 and isinstance(params[0], tuple):
-                    raise TypeError("Storage function requires 3 parameters, 1 given")
-            return await super().query(module, storage_function, params, block_hash)
-
-    substrate = _Strict()
-    # Correct call path succeeds.
-    await lending_intent._available_alpha(substrate, "5Owner", "5Hotkey", 1)
