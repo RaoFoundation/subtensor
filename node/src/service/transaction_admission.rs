@@ -95,7 +95,7 @@ fn pq_account(xt: &OpaqueExtrinsic) -> Option<[u8; 32]> {
     <[u8; 32]>::decode(input).ok()
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Request {
     count: usize,
     bytes: usize,
@@ -155,7 +155,7 @@ impl State {
         }
     }
 
-    fn admit(&mut self, request: &Request, now: Instant) -> Result<(), PoolError> {
+    fn check(&self, request: &Request) -> Result<(), PoolError> {
         let count = self.count.checked_add(request.count).ok_or_else(busy)?;
         let bytes = self.bytes.checked_add(request.bytes).ok_or_else(busy)?;
         if count > MAX_PENDING
@@ -172,6 +172,13 @@ impl State {
                 return Err(busy());
             }
         }
+        if self.tokens < request.accounts.len() as u32 {
+            return Err(busy());
+        }
+        Ok(())
+    }
+
+    fn refill(&mut self, now: Instant) {
         if let Some(elapsed) = now.checked_duration_since(self.refilled_at) {
             let refill = elapsed
                 .as_nanos()
@@ -186,14 +193,15 @@ impl State {
                 self.refilled_at = now;
             }
         }
-        let needed = request.accounts.len() as u32;
-        if self.tokens < needed {
-            return Err(busy());
-        }
-        self.tokens = self.tokens.saturating_sub(needed);
-        self.count = count;
-        self.bytes = bytes;
-        self.accounts.extend(unique);
+    }
+
+    fn admit(&mut self, request: &Request, now: Instant) -> Result<(), PoolError> {
+        self.refill(now);
+        self.check(request)?;
+        self.tokens = self.tokens.saturating_sub(request.accounts.len() as u32);
+        self.count = self.count.saturating_add(request.count);
+        self.bytes = self.bytes.saturating_add(request.bytes);
+        self.accounts.extend(request.accounts.iter().copied());
         Ok(())
     }
 
@@ -230,7 +238,7 @@ struct Queue {
     count: usize,
     bytes: usize,
     next_ticket: u64,
-    waiting: VecDeque<u64>,
+    waiting: VecDeque<(u64, Request)>,
 }
 
 struct Reservation {
@@ -258,7 +266,7 @@ impl Reservation {
         budget.next_ticket = ticket.checked_add(1).ok_or_else(busy)?;
         budget.count = count;
         budget.bytes = bytes;
-        budget.waiting.push_back(ticket);
+        budget.waiting.push_back((ticket, request.clone()));
         drop(budget);
         Ok(Self {
             queue,
@@ -270,19 +278,30 @@ impl Reservation {
 
     fn start(&self, state: &Mutex<State>, request: &Request) -> Result<bool, PoolError> {
         let mut queue = self.queue.lock().map_err(|_| busy())?;
-        if queue.waiting.front() != Some(&self.ticket) {
-            return Ok(false);
+        let mut state = state.lock().map_err(|_| busy())?;
+        let now = Instant::now();
+        state.refill(now);
+        let mut earlier_accounts = HashSet::new();
+        for (index, (ticket, pending)) in queue.waiting.iter().enumerate() {
+            // A blocked account must not idle another verifier, but later
+            // requests sharing any account must retain their original order.
+            if pending
+                .accounts
+                .iter()
+                .any(|account| earlier_accounts.contains(account))
+                || state.check(pending).is_err()
+            {
+                earlier_accounts.extend(pending.accounts.iter().copied());
+                continue;
+            }
+            if *ticket != self.ticket {
+                return Ok(false);
+            }
+            state.admit(request, now)?;
+            queue.waiting.remove(index);
+            return Ok(true);
         }
-        if state
-            .lock()
-            .map_err(|_| busy())?
-            .admit(request, Instant::now())
-            .is_err()
-        {
-            return Ok(false);
-        }
-        queue.waiting.pop_front();
-        Ok(true)
+        Ok(false)
     }
 }
 
@@ -291,7 +310,7 @@ impl Drop for Reservation {
         if let Ok(mut queue) = self.queue.lock() {
             queue.count = queue.count.saturating_sub(self.count);
             queue.bytes = queue.bytes.saturating_sub(self.bytes);
-            queue.waiting.retain(|ticket| *ticket != self.ticket);
+            queue.waiting.retain(|(ticket, _)| *ticket != self.ticket);
         }
     }
 }
@@ -314,8 +333,8 @@ async fn admit_queued(
                 _reservation: reservation,
             });
         }
-        // FIFO admission prevents new requests stealing a released slot. Polling
-        // at the token refill interval also bounds wakeups for a saturated queue.
+        // The earliest admissible request owns the next slot, with FIFO order
+        // per account. Polling at the refill interval bounds saturated wakeups.
         tokio::time::sleep(PQ_REFILL).await;
     }
 }
@@ -662,6 +681,77 @@ mod tests {
     }
 
     #[test]
+    fn blocked_account_does_not_idle_another_slot_or_reorder_its_requests() {
+        let state = Mutex::new(State::new(Instant::now()));
+        let queue = Arc::new(Mutex::new(Queue::default()));
+        state
+            .lock()
+            .unwrap()
+            .admit(&request(1), Instant::now())
+            .unwrap();
+        let a1 = Reservation::new(queue.clone(), &request(1)).unwrap();
+        let a2 = Reservation::new(queue.clone(), &request(1)).unwrap();
+        let b = Reservation::new(queue.clone(), &request(2)).unwrap();
+        let c = Reservation::new(queue.clone(), &request(3)).unwrap();
+        // Even if C polls first, B is the earliest admissible request.
+        assert!(!c.start(&state, &request(3)).unwrap());
+        assert!(b.start(&state, &request(2)).unwrap());
+        assert_eq!(state.lock().unwrap().count, 2);
+        assert!(!a1.start(&state, &request(1)).unwrap());
+        assert!(!c.start(&state, &request(3)).unwrap());
+        state.lock().unwrap().release(&request(2));
+        drop(b);
+        assert!(c.start(&state, &request(3)).unwrap());
+        state.lock().unwrap().release(&request(1));
+        assert!(!a2.start(&state, &request(1)).unwrap());
+        assert!(a1.start(&state, &request(1)).unwrap());
+        state.lock().unwrap().release(&request(1));
+        drop(a1);
+        assert!(a2.start(&state, &request(1)).unwrap());
+        state.lock().unwrap().release(&request(1));
+        state.lock().unwrap().release(&request(3));
+        drop((a2, c));
+        assert_eq!(queue.lock().unwrap().count, 0);
+        assert_eq!(queue.lock().unwrap().bytes, 0);
+        assert!(queue.lock().unwrap().waiting.is_empty());
+    }
+
+    #[test]
+    fn blocked_batch_preserves_order_for_every_account_it_contains() {
+        let state = Mutex::new(State::new(Instant::now()));
+        let queue = Arc::new(Mutex::new(Queue::default()));
+        state
+            .lock()
+            .unwrap()
+            .admit(&request(1), Instant::now())
+            .unwrap();
+        let batch = Request {
+            count: 2,
+            bytes: 12_000,
+            accounts: vec![[1; 32], [2; 32]],
+        };
+        let first = Reservation::new(queue.clone(), &batch).unwrap();
+        let b = Reservation::new(queue.clone(), &request(2)).unwrap();
+        let c = Reservation::new(queue.clone(), &request(3)).unwrap();
+        assert!(!b.start(&state, &request(2)).unwrap());
+        assert!(c.start(&state, &request(3)).unwrap());
+        state.lock().unwrap().release(&request(1));
+        // The two-account batch cannot fit yet; B must still stay behind it.
+        assert!(!first.start(&state, &batch).unwrap());
+        assert!(!b.start(&state, &request(2)).unwrap());
+        state.lock().unwrap().release(&request(3));
+        drop(c);
+        assert!(first.start(&state, &batch).unwrap());
+        assert!(!b.start(&state, &request(2)).unwrap());
+        state.lock().unwrap().release(&batch);
+        drop(first);
+        assert!(b.start(&state, &request(2)).unwrap());
+        state.lock().unwrap().release(&request(2));
+        drop(b);
+        assert_eq!(queue.lock().unwrap().count, 0);
+    }
+
+    #[test]
     fn cancelled_queued_request_releases_budget_and_does_not_block_followers() {
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -676,19 +766,19 @@ mod tests {
                 let cancelled =
                     tokio::spawn(admit_queued(state.clone(), queue.clone(), request(1)));
                 tokio::task::yield_now().await;
-                let follower = tokio::spawn(admit_queued(state.clone(), queue.clone(), request(2)));
+                let follower = tokio::spawn(admit_queued(state.clone(), queue.clone(), request(1)));
                 tokio::task::yield_now().await;
                 assert!(!follower.is_finished());
                 cancelled.abort();
                 assert!(matches!(cancelled.await, Err(error) if error.is_cancelled()));
+                drop(first);
                 let follower = tokio::time::timeout(Duration::from_secs(2), follower)
                     .await
                     .unwrap()
                     .unwrap()
                     .unwrap();
-                assert_eq!(state.lock().unwrap().count, 2);
-                assert_eq!(queue.lock().unwrap().count, 2);
-                drop(first);
+                assert_eq!(state.lock().unwrap().count, 1);
+                assert_eq!(queue.lock().unwrap().count, 1);
                 drop(follower);
                 assert_eq!(queue.lock().unwrap().count, 0);
             });

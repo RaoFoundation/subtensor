@@ -34,19 +34,16 @@ def mirror(
     recipient = app_ctx.run(
         lambda client: evm_addresses.resolve_evm_funding_recipient(client._substrate, h160)
     )
+    direct = recipient.account != evm_addresses.h160_to_ss58(h160)
     app_ctx.output.detail(
         None,
         {
             "address": h160,
-            (
-                "native receiving address" if recipient.descriptor else "ss58 mirror"
-            ): recipient.address,
+            ("native receiving address" if direct else "ss58 mirror"): recipient.address,
         },
         json_fields={
             "address": h160,
-            (
-                "native_receiving_address" if recipient.descriptor else "ss58_mirror"
-            ): recipient.address,
+            ("native_receiving_address" if direct else "ss58_mirror"): recipient.address,
         },
     )
 
@@ -72,13 +69,12 @@ def pubkey(
 
 @with_globals
 def deposit_address(ctx: typer.Context):
-    """Where to send TAO from an EVM wallet so the coldkey can claim it.
+    """Where to send TAO from an EVM wallet to this native account.
 
     Every native account controls one EVM address (the first 20 bytes of its
-    public key). Send TAO from MetaMask to the EVM address below, then pull
-    the funds into the coldkey with `btcli evm claim-deposit` — no EVM gas or
-    extra key needed. This is not `btcli evm send-to-ss58`, which spends from a
-    stored EVM key via the balance-transfer precompile.
+    AccountId). Registered aliases credit the native account directly. Other
+    addresses receive deposits at a mirror, recoverable with
+    `btcli evm claim-deposit` without EVM gas or an extra key.
     """
     app_ctx = ctx_of(ctx)
     coldkey = app_ctx.resolve_address("coldkey_ss58", None)
@@ -86,7 +82,7 @@ def deposit_address(ctx: typer.Context):
     truncated, recipient = app_ctx.run(
         lambda client: evm_addresses.resolve_evm_deposit(client._substrate, coldkey)
     )
-    if recipient.descriptor is not None:
+    if recipient.account != evm_addresses.h160_to_ss58(truncated):
         app_ctx.output.detail(
             f"EVM deposit address for {app_ctx.wallet_name}",
             {

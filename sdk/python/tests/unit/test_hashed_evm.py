@@ -176,14 +176,51 @@ async def test_atomic_evm_funding_keeps_h160_until_runtime_dispatch(
     assert await has_receiving_setup_inputs(substrate, object(), intent)
 
 
-@pytest.mark.parametrize("amount", [1, "all"])
-async def test_protected_claim_is_blocked_before_balance_query_or_composition(protected, amount):
-    substrate, key, _ = protected
+@pytest.fixture(params=["direct", "derived"])
+def bound_alias(protected, request):
+    substrate, key, alias = protected
+    if request.param == "derived":
+        substrate.seed("HashedAccounts", "Accounts", [key.ss58_address], None)
+        substrate.seed_constant("HashedAccounts", "MlDsaRegistrationDeposit", 200_000_000)
+        substrate.seed(
+            "HashedAccounts", "DerivedAuthorities", [key.ss58_address], {"kind": "proxy"}
+        )
+    return substrate, key, alias
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+@pytest.mark.parametrize("mirror_balance", [0, 123, 9_000_000_000])
+async def test_bound_alias_claim_all_recovers_only_legacy_balance(
+    bound_alias, enabled, mirror_balance
+):
+    substrate, key, alias = bound_alias
+    substrate.seed("AdminUtils", "HashedAccountsEnabled", [], enabled)
+    substrate.seed("System", "Account", [key.ss58_address], {"data": {"free": 5_000_000_000}})
+    mirror = h160_to_ss58(alias)
+    substrate.seed("System", "Account", [mirror], {"data": {"free": mirror_balance}})
     substrate.query = AsyncMock(wraps=substrate.query)
-    substrate.compose = AsyncMock(side_effect=AssertionError("unnecessary claim composed"))
-    with pytest.raises(BittensorError, match="already credited"):
-        await EvmWithdraw(amount).build(substrate, key)
-    assert all(call.args[:2] != ("System", "Account") for call in substrate.query.call_args_list)
+    if mirror_balance:
+        call = await EvmWithdraw("all").build(substrate, key)
+        assert (call.module, call.function) == ("EVM", "withdraw")
+        assert call.params == {"address": alias, "value": mirror_balance}
+    else:
+        substrate.compose = AsyncMock(side_effect=AssertionError("empty mirror claim composed"))
+        with pytest.raises(BittensorError, match="legacy EVM mirror is empty"):
+            await EvmWithdraw("all").build(substrate, key)
+    assert [
+        call.args[2]
+        for call in substrate.query.call_args_list
+        if call.args[:2] == ("System", "Account")
+    ] == [[mirror]]
+
+
+async def test_bound_alias_explicit_claim_and_funding_warning(bound_alias):
+    substrate, key, alias = bound_alias
+    call = await EvmWithdraw(1).build(substrate, key)
+    assert call.params == {"address": alias, "value": 1_000_000_000}
+    assert await FundEvmKey(alias, 1).warnings(substrate, "") == [
+        "this EVM alias credits its registered hashed native account directly"
+    ]
 
 
 async def test_ordinary_claim_still_reads_legacy_mirror(protected):
@@ -229,7 +266,15 @@ def evm_cli(tmp_path, monkeypatch, protected):
     return substrate, key, alias
 
 
-def test_cli_protected_deposit_address_says_no_claim(evm_cli):
+@pytest.mark.parametrize("derived", [False, True])
+def test_cli_protected_deposit_address_says_no_claim(evm_cli, derived):
+    substrate, key, _ = evm_cli
+    if derived:
+        substrate.seed("HashedAccounts", "Accounts", [key.ss58_address], None)
+        substrate.seed_constant("HashedAccounts", "MlDsaRegistrationDeposit", 200_000_000)
+        substrate.seed(
+            "HashedAccounts", "DerivedAuthorities", [key.ss58_address], {"kind": "proxy"}
+        )
     _, key, alias = evm_cli
     result = CliRunner().invoke(
         app, ["--yes", "--json", "--network", "local", "evm", "deposit-address"]
@@ -242,7 +287,15 @@ def test_cli_protected_deposit_address_says_no_claim(evm_cli):
     assert h160_to_ss58(alias) not in result.output
 
 
-def test_cli_protected_mirror_is_a_full_receiving_address(evm_cli):
+@pytest.mark.parametrize("derived", [False, True])
+def test_cli_protected_mirror_is_a_full_receiving_address(evm_cli, derived):
+    substrate, key, _ = evm_cli
+    if derived:
+        substrate.seed("HashedAccounts", "Accounts", [key.ss58_address], None)
+        substrate.seed_constant("HashedAccounts", "MlDsaRegistrationDeposit", 200_000_000)
+        substrate.seed(
+            "HashedAccounts", "DerivedAuthorities", [key.ss58_address], {"kind": "proxy"}
+        )
     _, key, alias = evm_cli
     result = CliRunner().invoke(
         app, ["--yes", "--json", "--network", "local", "evm", "mirror", alias]

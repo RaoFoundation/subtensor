@@ -343,22 +343,31 @@ def create(
     ``on_mnemonic`` receives ``("coldkey" | "hotkey", mnemonic)`` for each new
     key and replaces the default plain-stdout echo of the mnemonics.
     """
+    # Resolve and validate both keys before either existing key can be replaced.
+    coldkey_crypto_type = account_crypto_type(coldkey_crypto_type, account_type)
+    hotkey_crypto_type = account_crypto_type(
+        coldkey_crypto_type if hotkey_crypto_type is None else hotkey_crypto_type,
+        account_type if hotkey_account_type is None else hotkey_account_type,
+    )
+    if (
+        n_words is not None
+        and n_words != 24
+        and (coldkey_crypto_type in PQ_CRYPTO_TYPES or hotkey_crypto_type in PQ_CRYPTO_TYPES)
+    ):
+        raise ValueError("post-quantum wallets require a fresh 24-word mnemonic")
     wallet = Wallet(name=name, hotkey=hotkey, path=path)
     wallet.create_new_coldkey(
         n_words=n_words,
         use_password=use_password,
         overwrite=overwrite,
-        crypto_type=account_crypto_type(coldkey_crypto_type, account_type),
+        crypto_type=coldkey_crypto_type,
         on_mnemonic=(lambda m: on_mnemonic("coldkey", m)) if on_mnemonic else None,
     )
     wallet.create_new_hotkey(
         n_words=n_words,
         use_password=False,
         overwrite=overwrite,
-        crypto_type=account_crypto_type(
-            coldkey_crypto_type if hotkey_crypto_type is None else hotkey_crypto_type,
-            account_type if hotkey_account_type is None else hotkey_account_type,
-        ),
+        crypto_type=hotkey_crypto_type,
         on_mnemonic=(lambda m: on_mnemonic("hotkey", m)) if on_mnemonic else None,
     )
     return wallet

@@ -435,3 +435,77 @@ def test_mldsa_short_mnemonic_rejected_before_wallet_write(wallet_path):
     with pytest.raises(ValueError, match="24-word"):
         wallets.create(name="schemes", path=str(wallet_path), coldkey_crypto_type=7, n_words=12)
     assert not wallet_path.exists()
+
+
+@pytest.mark.parametrize("coldkey_type", [CRYPTO_ED25519, CRYPTO_SR25519])
+@pytest.mark.parametrize("hotkey_type", PQ_CRYPTO_TYPES)
+def test_mixed_wallet_json_creation_preserves_existing_keys_on_invalid_words(
+    wallet_path, coldkey_type, hotkey_type
+):
+    wallets.create(
+        name="schemes", path=str(wallet_path), use_password=False, on_mnemonic=lambda *_: None
+    )
+    before = {
+        p.relative_to(wallet_path): p.read_bytes() for p in wallet_path.rglob("*") if p.is_file()
+    }
+    result = invoke(
+        "create",
+        "--crypto-type",
+        str(coldkey_type),
+        "--hotkey-crypto-type",
+        str(hotkey_type),
+        "--n-words",
+        "12",
+        "--overwrite",
+        "--no-password",
+    )
+    assert result.exit_code != 0
+    assert "24-word" in result.output
+    assert "coldkey_mnemonic" not in json.loads(result.output)
+    after = {
+        p.relative_to(wallet_path): p.read_bytes() for p in wallet_path.rglob("*") if p.is_file()
+    }
+    assert after == before
+
+
+@pytest.mark.parametrize(
+    "hotkey_options",
+    [
+        {"hotkey_crypto_type": 255},
+        {"hotkey_account_type": "invalid"},
+        {"hotkey_crypto_type": 7, "n_words": 12},
+    ],
+)
+def test_wallet_create_validates_both_schemes_before_generating_keys(wallet_path, hotkey_options):
+    seen = []
+    with pytest.raises(ValueError):
+        wallets.create(
+            name="schemes",
+            path=str(wallet_path),
+            use_password=False,
+            on_mnemonic=lambda *args: seen.append(args),
+            **hotkey_options,
+        )
+    assert seen == []
+    assert not wallet_path.exists()
+
+
+@pytest.mark.parametrize("n_words", [None, 24])
+def test_mixed_wallet_creation_keeps_each_keys_valid_word_count(wallet_path, n_words):
+    seen = {}
+    wallet = wallets.create(
+        name="schemes",
+        path=str(wallet_path),
+        use_password=False,
+        coldkey_crypto_type=CRYPTO_SR25519,
+        hotkey_crypto_type=7,
+        n_words=n_words,
+        on_mnemonic=lambda role, phrase: seen.update({role: phrase}),
+    )
+    assert len(seen["coldkey"].split()) == (12 if n_words is None else 24)
+    assert len(seen["hotkey"].split()) == 24
+    for role, phrase in seen.items():
+        key = getattr(wallet, role)
+        assert (
+            Keypair.create_from_mnemonic(phrase, key.crypto_type).ss58_address == key.ss58_address
+        )
