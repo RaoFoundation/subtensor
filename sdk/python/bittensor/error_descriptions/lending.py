@@ -27,7 +27,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "AmountTooSmall": (
         "The loan opening value (or remaining dust after a partial repay) is below the runtime "
-        "minimum (~0.001 TAO). Increase collateral / principal, or close the remainder fully."
+        "minimum (~0.001 TAO), and side capacity is not the binder. Increase collateral / "
+        "principal, or close the remainder fully. When the side cap is what blocks a minimum "
+        "loan, the call returns SideCapacity instead."
     ),
     "PrincipalZero": (
         "Principal, principal_part, or borrow amount is zero. Pass a positive amount; a young "
@@ -37,8 +39,9 @@ DESCRIPTIONS: dict[str, str] = {
         "Collateral is zero. Pass a positive collateral amount (alpha for longs, TAO for shorts)."
     ),
     "SideCapacity": (
-        "This loan would exceed the short or long side capacity for the subnet. Reduce size or "
-        "wait for repayment; inspect lending_reserves for headroom."
+        "Side-cap headroom cannot fit this borrow (or any MinimumLoanValue-sized borrow). "
+        "A large top-up can still hit this when remaining capacity is exhausted. Reduce size "
+        "or wait for repayment; inspect lending_reserves for headroom."
     ),
     "DepthBelowThreshold": (
         "Legacy depth refusal. Prefer EmptyPool / PrincipalExceedsAlphaIn / "

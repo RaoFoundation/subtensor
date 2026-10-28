@@ -958,8 +958,10 @@ pub mod pallet {
         PositionExists,
         PositionMissing,
         /// Opening value or accrued interest is below the runtime minimum
-        /// (non-zero principal that still fails economic floors).
+        /// (non-zero principal that still fails economic floors). Prefer
+        /// [`SideCapacity`] when the side cap is what blocks a minimum loan.
         AmountTooSmall,
+        /// Side-cap headroom cannot fit this (or any MinimumLoanValue) borrow.
         SideCapacity,
         /// Legacy depth refusal; prefer [`EmptyPool`] /
         /// [`PrincipalExceedsAlphaIn`] / [`PrincipalExceedsTaoIn`].
@@ -1832,12 +1834,135 @@ pub mod pallet {
             })
         }
 
+        /// Side-cap headroom in TAO lift legs (`Cap_side − L_side`).
+        fn side_headroom_tao(
+            netuid: NetUid,
+            side: Side,
+            params: &LiftParams,
+        ) -> Result<u64, DispatchError> {
+            let (_cap, cap_short, cap_long) = Self::side_caps(netuid, params)?;
+            let book = Lifts::<T>::get(netuid);
+            Ok(match side {
+                Side::Short => cap_short.saturating_sub(book.l_s),
+                Side::Long => cap_long.saturating_sub(book.l_l),
+            })
+        }
+
+        /// Preview a position after pending interest without mutating storage.
+        ///
+        /// Returns `None` when the charge would forfeit (exhausted collateral).
+        /// Quotes must use this so sizing matches `do_open`'s pre-size accrual.
+        fn preview_after_interest(
+            position: &Position<T::AccountId, BlockNumberFor<T>>,
+            until: BlockNumberFor<T>,
+        ) -> Result<Option<Position<T::AccountId, BlockNumberFor<T>>>, DispatchError> {
+            let (due, remainder) = Self::interest_due(position, until, false)?;
+            if due > 0 && due >= position.collateral {
+                return Ok(None);
+            }
+            let mut next = position.clone();
+            next.collateral = next.collateral.saturating_sub(due);
+            next.last_accrued = until;
+            next.interest_remainder = remainder;
+            Ok(Some(next))
+        }
+
+        /// True when side capacity cannot fit a MinimumLoanValue-sized borrow.
+        fn capacity_blocks_minimum_loan(
+            netuid: NetUid,
+            side: Side,
+            price: U64F64,
+            params: &LiftParams,
+        ) -> Result<bool, DispatchError> {
+            let headroom = Self::side_headroom_tao(netuid, side, params)?;
+            if headroom == 0 {
+                return Ok(true);
+            }
+            let min_value = T::MinimumLoanValue::get();
+            let min_principal = match side {
+                Side::Long => min_value,
+                // Short opening value is TAO; need enough alpha that ⌈P·price⌉ ≥ min.
+                Side::Short => Self::alpha_for_tao(min_value, price, true)?.max(1),
+            };
+            match Self::lift_tao_for_principal(netuid, side, min_principal) {
+                Ok(delta_l) => Ok(delta_l > headroom),
+                Err(_) => Ok(true),
+            }
+        }
+
+        /// Map a zero / dust additional principal to SideCapacity when the side
+        /// cap is what prevents a MinimumLoanValue borrow; otherwise AmountTooSmall.
+        fn refuse_dust_or_capacity(
+            netuid: NetUid,
+            side: Side,
+            price: U64F64,
+            params: &LiftParams,
+        ) -> DispatchError {
+            match Self::capacity_blocks_minimum_loan(netuid, side, price, params) {
+                Ok(true) => Error::<T>::SideCapacity.into(),
+                _ => Error::<T>::AmountTooSmall.into(),
+            }
+        }
+
+        /// Shared open-size gate for quotes and extrinsics.
+        ///
+        /// Zero principal or an `opening_quote` economic-floor miss becomes
+        /// `SideCapacity` when the side cannot fit a MinimumLoanValue borrow,
+        /// else `AmountTooSmall`. Keeps quote Ok ⇒ dispatch Ok for the same
+        /// sized principal.
+        fn validate_sized_principal(
+            netuid: NetUid,
+            side: Side,
+            principal: u64,
+            price: U64F64,
+            collateral: u64,
+            v_dyn: u64,
+            escrow_estimate: u64,
+            params: &LiftParams,
+        ) -> Result<OpeningQuote, DispatchError> {
+            if principal == 0 {
+                return Err(Self::refuse_dust_or_capacity(netuid, side, price, params));
+            }
+            match Self::opening_quote(
+                side,
+                principal,
+                price,
+                collateral,
+                v_dyn,
+                escrow_estimate,
+                params,
+            ) {
+                Ok(q) => Ok(q),
+                Err(e) if e == Error::<T>::AmountTooSmall.into() => {
+                    Err(Self::refuse_dust_or_capacity(netuid, side, price, params))
+                }
+                Err(e) => Err(e),
+            }
+        }
+
+        /// Size against the same post-interest book `do_open` / raise use.
+        ///
+        /// `None` means the pending charge would forfeit — treat as a fresh open.
+        fn existing_after_interest_preview(
+            existing: Option<Position<T::AccountId, BlockNumberFor<T>>>,
+            until: BlockNumberFor<T>,
+        ) -> Result<Option<Position<T::AccountId, BlockNumberFor<T>>>, DispatchError> {
+            match existing {
+                None => Ok(None),
+                Some(pos) => Self::preview_after_interest(&pos, until),
+            }
+        }
+
         /// Max additional principal for collateral under LTV·V_dyn and side caps.
         ///
         /// Side-cap headroom (`Cap_side − L_side`) is always in **TAO lift legs**.
         /// Long principal is already TAO, so that headroom is the principal bound.
         /// Short principal is **alpha**; invert `ΔL = floor(y·P/x) ≤ headroom_tao`
         /// before searching so a cheap subnet is not capped at `headroom_tao` alpha.
+        ///
+        /// Returns `Err(SideCapacity)` when the side has no TAO headroom (or the
+        /// headroom cannot size any principal). Returns `Ok(0)` only when
+        /// collateral/LTV cannot support a positive borrow despite capacity.
         fn max_principal_for_collateral(
             netuid: NetUid,
             side: Side,
@@ -1851,19 +1976,17 @@ pub mod pallet {
             let old_collateral = existing.map(|p| p.collateral).unwrap_or(0);
             let total_collateral = Self::add(old_collateral, collateral)?;
             let ltv = Self::ltv_tier_bps(netuid, side, params);
-            let (_cap, cap_short, cap_long) = Self::side_caps(netuid, params)?;
-            let book = Lifts::<T>::get(netuid);
-            let headroom_tao = match side {
-                Side::Short => cap_short.saturating_sub(book.l_s),
-                Side::Long => cap_long.saturating_sub(book.l_l),
-            };
-            if headroom_tao == 0 || total_collateral == 0 {
+            let headroom_tao = Self::side_headroom_tao(netuid, side, params)?;
+            if headroom_tao == 0 {
+                return Err(Error::<T>::SideCapacity.into());
+            }
+            if total_collateral == 0 {
                 return Ok(0);
             }
             let y = T::Pool::pool_tao(netuid).to_u64();
             let x = T::Pool::pool_alpha(netuid).to_u64();
             if y == 0 || x == 0 {
-                return Ok(0);
+                return Err(Error::<T>::EmptyPool.into());
             }
             // Additional principal upper bound in the side's native units.
             let add_cap = match side {
@@ -1875,7 +1998,7 @@ pub mod pallet {
                 Side::Long => headroom_tao.min(y.saturating_sub(1)),
             };
             if add_cap == 0 {
-                return Ok(0);
+                return Err(Error::<T>::SideCapacity.into());
             }
             // Bisection over *total* principal in [old, old+add_cap].
             let mut lo = old_principal;
@@ -2108,9 +2231,13 @@ pub mod pallet {
                     &params,
                 )?
             };
-            ensure!(principal >= min_borrow, Error::<T>::BelowMinimumBorrow);
 
             let price = reference.price.min(T::Pool::current_alpha_price(netuid));
+            // Dust / side-capacity before V_dyn and min_borrow so a capacity-bound
+            // zero sizes as SideCapacity (not PrincipalZero / BelowMinimumBorrow).
+            if principal == 0 {
+                return Err(Self::refuse_dust_or_capacity(netuid, side, price, &params));
+            }
             let v = match side {
                 // Short collateral is already TAO; do not price it as alpha.
                 Side::Short => Self::add(
@@ -2127,7 +2254,17 @@ pub mod pallet {
                     Self::v_dyn(netuid, total_c, total_p, &reference, Some(&owner))?
                 }
             };
-            let quote = Self::opening_quote(side, principal, price, collateral, v, 0, &params)?;
+            let quote = Self::validate_sized_principal(
+                netuid,
+                side,
+                principal,
+                price,
+                collateral,
+                v,
+                0,
+                &params,
+            )?;
+            ensure!(principal >= min_borrow, Error::<T>::BelowMinimumBorrow);
 
             let increasing = existing.is_some();
             let mut position = if let Some(position) = existing {
@@ -3257,6 +3394,16 @@ pub mod pallet {
                     &reference,
                     &params,
                 )?;
+                // Same dust/capacity map as `do_open` / quotes before min_borrow.
+                if p == 0 {
+                    let price = reference.price.min(price_before);
+                    return Err(Self::refuse_dust_or_capacity(
+                        netuid,
+                        Side::Long,
+                        price,
+                        &params,
+                    ));
+                }
                 ensure!(p >= min_borrow_tao, Error::<T>::BelowMinimumBorrow);
                 (c, p)
             } else {
@@ -4603,14 +4750,31 @@ pub mod pallet {
             // Same gate order as `do_open`: live + §2.3 before amount/depth.
             Self::ensure_lending_live(netuid)?;
             Self::ensure_new_subnet_gate(netuid)?;
+            if let Some(o) = owner {
+                ensure!(T::Pool::owner_allowed(o), Error::<T>::SubnetUnavailable);
+            }
             ensure!(collateral > 0, Error::<T>::CollateralZero);
             if let Some(p) = requested {
                 ensure!(p > 0, Error::<T>::PrincipalZero);
             }
             let reference = Self::ensure_reference_warm(netuid)?;
-            let existing = owner.and_then(|o| Positions::<T>::get(o, netuid));
+            let now = frame_system::Pallet::<T>::block_number();
+            let mut existing = owner.and_then(|o| Positions::<T>::get(o, netuid));
             if let (Some(pos), Some(hk)) = (&existing, hotkey) {
                 Self::ensure_matching_position(pos, side, hk)?;
+            }
+            // Match `do_open`: size against post-interest collateral so a quote
+            // Ok cannot become BelowMinimumBorrow after accrual on dispatch.
+            existing = Self::existing_after_interest_preview(existing, now)?;
+            if existing.is_none() && owner.is_some() {
+                ensure!(
+                    PositionCount::<T>::get(netuid) < T::MaxPositionsPerSubnet::get(),
+                    Error::<T>::TooManyPositions
+                );
+                ensure!(
+                    TotalPositions::<T>::get() < T::MaxTotalPositions::get(),
+                    Error::<T>::TooManyPositions
+                );
             }
             let params = Self::lift_params();
             let principal = if let Some(p) = requested {
@@ -4631,6 +4795,8 @@ pub mod pallet {
                     )?,
                     Error::<T>::InsufficientCollateral
                 );
+                let delta_l = Self::lift_tao_for_principal(netuid, side, p)?;
+                Self::ensure_side_capacity(netuid, side, delta_l)?;
                 p
             } else {
                 Self::max_principal_for_collateral(
@@ -4643,14 +4809,16 @@ pub mod pallet {
                     &params,
                 )?
             };
-            // Collateral-only sizing that rounds to zero principal (LTV / capacity):
-            // report AmountTooSmall for both sides — not a depth / pool error.
-            ensure!(principal > 0, Error::<T>::AmountTooSmall);
+            let price = reference.price.min(T::Pool::current_alpha_price(netuid));
+            // Zero additional principal: map via shared dust/capacity gate before
+            // V_dyn / EMA (those require a positive principal).
+            if principal == 0 {
+                return Err(Self::refuse_dust_or_capacity(netuid, side, price, &params));
+            }
             // Post-trade EMA band for both exact and collateral-only sizing
             // (same gate as `do_open`; catches OpenLoan / quote_open without amount).
             let spot_after = Self::simulate_open_spot_after(netuid, side, principal)?;
             Self::ensure_open_ema_band(side, spot_after, reference.price, &params)?;
-            let price = reference.price.min(T::Pool::current_alpha_price(netuid));
             let total_p = Self::add(
                 existing.as_ref().map(|p| p.principal).unwrap_or(0),
                 principal,
@@ -4664,7 +4832,9 @@ pub mod pallet {
                 Side::Short => total_c,
                 Side::Long => Self::v_dyn(netuid, total_c, total_p, &reference, owner)?,
             };
-            Self::opening_quote(side, principal, price, collateral, v, 0, &params)
+            Self::validate_sized_principal(
+                netuid, side, principal, price, collateral, v, 0, &params,
+            )
         }
 
         /// Approximate post-forced-trade spot after a proportional lift + buy/sell.
@@ -4791,7 +4961,7 @@ pub mod pallet {
         pub fn quote_raise(
             owner: &T::AccountId,
             netuid: NetUid,
-            _hotkey: &T::AccountId,
+            hotkey: &T::AccountId,
             amount: Option<u64>,
             collateral: Option<u64>,
             sell: Option<u64>,
@@ -4803,16 +4973,27 @@ pub mod pallet {
             // Same gate order as `do_open_long_and_sell`.
             Self::ensure_lending_live(netuid)?;
             Self::ensure_new_subnet_gate(netuid)?;
+            ensure!(
+                T::Pool::owner_allowed(owner),
+                Error::<T>::SubnetUnavailable
+            );
             let reference = Self::ensure_reference_warm(netuid)?;
             let params = Self::lift_params();
             let price_before = T::Pool::current_alpha_price(netuid);
+            let now = frame_system::Pallet::<T>::block_number();
+            let mut existing = Positions::<T>::get(owner, netuid);
+            if let Some(ref pos) = existing {
+                Self::ensure_matching_position(pos, Side::Long, hotkey)?;
+            }
+            // Match raise extrinsic: size after pending interest / forfeit.
+            existing = Self::existing_after_interest_preview(existing, now)?;
             let (c, p) = if let Some(col) = collateral {
                 ensure!(col > 0, Error::<T>::CollateralZero);
                 let p = Self::max_principal_for_collateral(
                     netuid,
                     Side::Long,
                     col,
-                    Positions::<T>::get(owner, netuid).as_ref(),
+                    existing.as_ref(),
                     Some(owner),
                     &reference,
                     &params,
@@ -4821,23 +5002,62 @@ pub mod pallet {
             } else {
                 let p = amount.ok_or(Error::<T>::ConflictingSizing)?;
                 ensure!(p > 0, Error::<T>::PrincipalZero);
-                // Estimate collateral at LTV * V_dyn ≈ need C such that LTV*V_dyn(C)>=P
+                // Same feasibility (LTV + side capacity) as `do_open_long_and_sell`.
+                let old_p = existing.as_ref().map(|x| x.principal).unwrap_or(0);
+                let total_p = Self::add(old_p, p)?;
                 let ltv = Self::ltv_tier_bps(netuid, Side::Long, &params);
+                let delta_l = Self::lift_tao_for_principal(netuid, Side::Long, p)?;
+                Self::ensure_side_capacity(netuid, Side::Long, delta_l)?;
                 let mut lo = 1u64;
                 let mut hi = u64::MAX / 4;
-                let mut best = hi;
+                let mut best = None;
                 for _ in 0..BISECTION_STEPS {
+                    if lo > hi {
+                        break;
+                    }
                     let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
-                    let v = Self::v_dyn(netuid, mid, p, &reference, Some(owner))?;
-                    if Self::mul_bps(v, ltv)? >= p {
-                        best = mid;
+                    let total_c =
+                        Self::add(existing.as_ref().map(|x| x.collateral).unwrap_or(0), mid)?;
+                    if Self::principal_feasible(
+                        netuid,
+                        Side::Long,
+                        total_p,
+                        total_c,
+                        old_p,
+                        Some(owner),
+                        &reference,
+                        ltv,
+                        &params,
+                    )? {
+                        best = Some(mid);
                         hi = mid.saturating_sub(1);
                     } else {
                         lo = mid.saturating_add(1);
                     }
                 }
+                let best = best.ok_or(Error::<T>::InsufficientCollateral)?;
                 (best, p)
             };
+            let price = reference.price.min(price_before);
+            // Same dust / capacity / MinimumLoanValue gate as `do_open`.
+            if p == 0 {
+                return Err(Self::refuse_dust_or_capacity(
+                    netuid,
+                    Side::Long,
+                    price,
+                    &params,
+                ));
+            }
+            let interest_alpha = Self::alpha_for_tao(p, price, true)?;
+            let annual_interest = Self::mul_bps(interest_alpha, params.apr_bps)?;
+            if annual_interest == 0 || p < T::MinimumLoanValue::get() {
+                return Err(Self::refuse_dust_or_capacity(
+                    netuid,
+                    Side::Long,
+                    price,
+                    &params,
+                ));
+            }
             // Simulate the raise's reserve path: lift → forced buy → wallet sale.
             // Sale must be quoted on the *post-buy* pool (not live pre-trade).
             let y = T::Pool::pool_tao(netuid).to_u64();
@@ -4864,7 +5084,6 @@ pub mod pallet {
             let (_cap, _cs, cl) = Self::side_caps(netuid, &params)?;
             let book = Lifts::<T>::get(netuid);
             let headroom = cl.saturating_sub(book.l_l);
-            let interest = Self::alpha_for_tao(p, price_before, true)?;
             Ok(RaiseQuote {
                 principal_tao: p,
                 collateral_alpha: c,
@@ -4877,7 +5096,7 @@ pub mod pallet {
                 v_dyn: Self::v_dyn(netuid, c, p, &reference, Some(owner))?,
                 ltv_tier_bps: Self::ltv_tier_bps(netuid, Side::Long, &params),
                 long_cap_headroom: headroom,
-                annual_interest_alpha: Self::mul_bps(interest, params.apr_bps)?,
+                annual_interest_alpha: annual_interest,
             })
         }
 

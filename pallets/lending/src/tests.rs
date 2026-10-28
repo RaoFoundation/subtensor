@@ -4515,3 +4515,170 @@ fn gema_warming_up_is_distinct_from_subnet_too_new() {
         );
     });
 }
+
+/// Quote Ok with `min_borrow = quoted.principal` must dispatch Ok in the same
+/// block — including after pending interest would shrink collateral.
+#[test]
+fn quote_ok_implies_open_ok_for_random_sizes_and_interest() {
+    new_test_ext().execute_with(|| {
+        let collaterals: [u64; 6] = [
+            1_000_000_000,
+            7_500_000_000,
+            50_000_000_000,
+            250_000_000_000,
+            1_000_000_000_000,
+            4_000_000_000_000,
+        ];
+        for (i, &collateral) in collaterals.iter().enumerate() {
+            let owner = account(20 + i as u8);
+            let hotkey = account(60 + i as u8);
+            mint_tao(&owner, collateral.saturating_mul(4).max(10_000_000_000_000));
+            let side = if i % 2 == 0 { Side::Short } else { Side::Long };
+            if side == Side::Long {
+                mint_alpha(&owner, &hotkey, netuid(), collateral.saturating_mul(4));
+            }
+            match Lending::quote_open_for(&owner, netuid(), side, collateral, &hotkey) {
+                Ok(quoted) => {
+                    assert!(quoted.principal > 0);
+                    assert_ok!(Lending::open(
+                        RuntimeOrigin::signed(owner.clone()),
+                        netuid(),
+                        side,
+                        collateral,
+                        hotkey.clone(),
+                        quoted.principal,
+                        0,
+                        0,
+                        deadline(),
+                    ));
+                    let opened = Positions::<Test>::get(&owner, netuid()).unwrap();
+                    assert_eq!(opened.principal, quoted.principal);
+                    assert_eq!(opened.side, side);
+                }
+                Err(_) => {
+                    assert!(
+                        Lending::open(
+                            RuntimeOrigin::signed(owner.clone()),
+                            netuid(),
+                            side,
+                            collateral,
+                            hotkey,
+                            1,
+                            0,
+                            0,
+                            deadline(),
+                        )
+                        .is_err(),
+                        "quote Err must not become open Ok for collateral {collateral}"
+                    );
+                }
+            }
+        }
+
+        // Existing short + accrued interest: quote must size post-interest so
+        // min_borrow = quoted.principal cannot hit BelowMinimumBorrow.
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 100_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            hotkey.clone(),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        System::set_block_number(System::block_number().saturating_add(400));
+        let top_up = 2_000_000_000_000u64;
+        mint_tao(&owner, top_up);
+        let quoted =
+            Lending::quote_open_for(&owner, netuid(), Side::Short, top_up, &hotkey).unwrap();
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            top_up,
+            hotkey,
+            quoted.principal,
+            0,
+            0,
+            deadline(),
+        ));
+    });
+}
+
+/// Near-full short capacity: a large TAO top-up must report SideCapacity (the
+/// binder), not AmountTooSmall — and the quote must match the extrinsic.
+#[test]
+fn short_top_up_near_capacity_is_side_capacity_in_quote_and_open() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            1_000_000_000_000,
+            hotkey.clone(),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        // Exhaust short-side TAO headroom while leaving the position open.
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.l_s = u64::MAX / 2;
+        });
+        let add = 200_000_000_000u64; // ~200 τ — large relative to a dust binder
+        assert_err!(
+            Lending::quote_open_for(&owner, netuid(), Side::Short, add, &hotkey),
+            Error::<Test>::SideCapacity
+        );
+        assert_err!(
+            Lending::open(
+                RuntimeOrigin::signed(owner),
+                netuid(),
+                Side::Short,
+                add,
+                hotkey,
+                1,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SideCapacity
+        );
+    });
+}
+
+#[test]
+fn quote_raise_ok_implies_open_long_and_sell_ok() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        let collateral = 5_000_000_000_000u64;
+        mint_alpha(&owner, &hotkey, netuid(), collateral.saturating_mul(4));
+        let quoted =
+            Lending::quote_raise(&owner, netuid(), &hotkey, None, Some(collateral), None).unwrap();
+        assert!(quoted.principal_tao > 0);
+        assert_ok!(Lending::open_long_and_sell(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey,
+            Some(collateral),
+            None,
+            collateral,
+            quoted.principal_tao,
+            Some(quoted.sell_alpha),
+            0,
+            0,
+            deadline(),
+        ));
+        let opened = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(opened.principal, quoted.principal_tao);
+    });
+}
