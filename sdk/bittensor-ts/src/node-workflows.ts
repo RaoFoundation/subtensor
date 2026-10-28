@@ -194,7 +194,7 @@ export class WorkflowClient {
   }
 
   private async submitShieldedCall(call: CallLike, signer: SignerLike, address: string, options: SubmitOptions, extras: Record<string, unknown> = {}, reserved?: { native: NativeChainClient; nonce: number }): Promise<WorkflowResult> {
-    let broadcastStarted = false
+    let broadcastStarted = false, carrierReturned = false
     try {
     if (options.signal?.aborted) throw options.signal.reason ?? new Error('shielded submission aborted')
     if (options.nonce != null && (!Number.isSafeInteger(options.nonce) || options.nonce < 0 || options.nonce >= Number.MAX_SAFE_INTEGER)) throw new RangeError('invalid shielded nonce')
@@ -220,10 +220,13 @@ export class WorkflowClient {
     options.signal?.throwIfAborted()
     broadcastStarted = true
     const result = await this.client.submitSigned(outer, address, wait)
+    carrierReturned = true
     if (reserved && result.data?.submission_rejected === true) await reserved.native.releaseNonces(address, reserved.nonce, 2)
-    return await followShieldedResult({ ...result, data: { ...extras, ...result.data } }, '0x' + Buffer.from(inner.hash).toString('hex'), 8, this.client, wait)
+    const followed = await followShieldedResult({ ...result, data: { ...extras, ...result.data } }, '0x' + Buffer.from(inner.hash).toString('hex'), 8, this.client, wait)
+    if (reserved && followed.data?.inner_expiry_finalized === true) await reserved.native.releaseNonces(address, nonce + 1, 1)
+    return followed
     } catch (error) {
-      if (reserved && (!broadcastStarted || isDefiniteSubmissionRejection(error))) await reserved.native.releaseNonces(address, reserved.nonce, 2)
+      if (reserved && (!broadcastStarted || !carrierReturned && isDefiniteSubmissionRejection(error))) await reserved.native.releaseNonces(address, reserved.nonce, 2)
       throw error
     }
   }
@@ -296,7 +299,7 @@ export class NodeMultisig {
     await checkFunding()
     const publicKey = shielded ? chainBytes(await this.client.query('MevShield', 'NextKey', [])) : undefined
     if (shielded && publicKey?.length !== 1184) throw new Error('MevShield.NextKey is unavailable or invalid')
-    let reserved = false, broadcastStarted = false
+    let reserved = false, broadcastStarted = false, carrierReturned = false
     try {
     if (shielded && options.nonce == null) { nonce = await native.reserveNonces(identity.address, 2); reserved = true; await checkFunding() }
     const resolved = bindSignerIdentity(signer instanceof Wallet ? await signer.signer('coldkey', options) : signer, identity)
@@ -312,10 +315,13 @@ export class NodeMultisig {
     options.signal?.throwIfAborted()
     broadcastStarted = true
     const result = await this.client.submitSigned(outer, identity.address, signerQueueOptions({ waitForInclusion: true, ...submitOptions(options) }, permit))
+    carrierReturned = true
     if (reserved && result.data?.submission_rejected === true) await native.releaseNonces(identity.address, nonce, 2)
-    return await followShieldedResult({ ...result, data: { ...data, ...result.data } }, '0x' + Buffer.from(signedInner.hash).toString('hex'), 8, this.client, submission)
+    const followed = await followShieldedResult({ ...result, data: { ...data, ...result.data } }, '0x' + Buffer.from(signedInner.hash).toString('hex'), 8, this.client, submission)
+    if (reserved && followed.data?.inner_expiry_finalized === true) await native.releaseNonces(identity.address, nonce + 1, 1)
+    return followed
     } catch (error) {
-      if (reserved && (!broadcastStarted || isDefiniteSubmissionRejection(error))) await native.releaseNonces(identity.address, nonce, 2)
+      if (reserved && (!broadcastStarted || !carrierReturned && isDefiniteSubmissionRejection(error))) await native.releaseNonces(identity.address, nonce, 2)
       throw error
     }
   }

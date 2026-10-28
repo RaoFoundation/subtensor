@@ -55,6 +55,10 @@ runs:
       with:
         version: 10
 
+    - name: Install SDK runtime dependencies
+      shell: bash
+      working-directory: sdk/bittensor-ts
+      run: npm ci --omit=dev --ignore-scripts
     - name: Install e2e dependencies
       shell: bash
       working-directory: ts-tests

@@ -1,3 +1,5 @@
+import { CRYPTO_ED25519 } from './keys'
+import type { SignerPayloadContext } from './client'
 import native, { type NativeLedgerHandle } from './native'
 import { nativeAsync } from './errors'
 import { toBuffer } from './wire'
@@ -10,7 +12,10 @@ export interface LedgerSignerOptions {
   confirmAddress?: boolean
 }
 
+type LedgerSigningContext = Partial<Pick<SignerPayloadContext, 'callData' | 'includedInExtrinsic' | 'includedInSignedData'>> & { proof?: ByteLike; metadataProof?: ByteLike }
+
 export class LedgerSigner {
+  readonly cryptoType = CRYPTO_ED25519
   readonly requiresMetadataProof = true
 
   constructor(
@@ -29,23 +34,29 @@ export class LedgerSigner {
 
   signBytes(
     payload: ByteLike,
-    context: { proof?: ByteLike; metadataProof?: ByteLike } = {},
+    context: LedgerSigningContext = {},
   ): Promise<Buffer> {
     const proof = context.metadataProof ?? context.proof
     if (proof == null) {
       throw new Error('Ledger signing requires an RFC-0078 metadata proof')
     }
+    const { callData, includedInExtrinsic, includedInSignedData } = context
+    if ((callData != null || includedInExtrinsic != null || includedInSignedData != null) &&
+        (callData == null || includedInExtrinsic == null || includedInSignedData == null)) {
+      throw new Error('Ledger signing requires the complete transaction context')
+    }
+    const fullPayload = callData == null ? payload : Buffer.concat([callData, includedInExtrinsic!, includedInSignedData!])
     return this.device.sign(
       this.options.account ?? 0,
       this.options.index ?? 0,
-      payload,
+      fullPayload,
       proof,
     )
   }
 
   signPayload(
     payload: unknown,
-    context: { proof?: ByteLike; metadataProof?: ByteLike } = {},
+    context: LedgerSigningContext = {},
   ): Promise<Buffer> {
     if (!(Buffer.isBuffer(payload) || payload instanceof Uint8Array)) {
       throw new Error('LedgerSigner.signPayload does not accept structured payloads; use signBytes')

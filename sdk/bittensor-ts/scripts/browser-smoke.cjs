@@ -403,9 +403,9 @@ try {
   receiptClient.findExtrinsic = async () => ({ ...carrier, status: 'failed', success: false, message: 'inner dispatch failed', extrinsicHash: 'inner', fee: sdk.Balance.fromRao(7) })
   const innerFailure = await receiptClient.resolveShieldedInner(carrier, 'inner', 8, {})
   assert(innerFailure.success === false && innerFailure.extrinsicHash === 'inner' && innerFailure.fee.rao === 12n, 'shield follows inner outcome and combines actual fees')
-  receiptClient.findExtrinsic = async () => null
+  receiptClient.findExtrinsic = async hash => hash === 'carrier' ? carrier : null
   const expired = await receiptClient.resolveShieldedInner(carrier, 'inner', 8, {})
-  assert(expired.success === false && expired.message.includes('era expired'), 'carrier acceptance cannot mask missing inner execution')
+  assert(expired.success === false && expired.message.includes('era expired') && expired.data.inner_expiry_finalized === true, 'carrier acceptance cannot mask missing inner execution')
   await receiptClient.close()
   await client.close()
 

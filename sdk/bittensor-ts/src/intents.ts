@@ -158,7 +158,10 @@ export class Intent {
         continue
       }
       const type = tool.input_schema.properties[key]?.type
-      if (type === 'integer') unsigned(value, key)
+      if (type === 'integer') {
+        const integer = unsigned(value, key)
+        normalized[key] = typeof value === 'number' ? Number(integer) : integer
+      }
       if (type === 'boolean' && typeof value !== 'boolean') throw new TypeError(`${key} must be boolean`)
       if (type === 'string' && typeof value !== 'string') throw new TypeError(`${key} must be a string`)
       if (type === 'array' && !Array.isArray(value) && !(key === 'weights' && typeof value === 'object')) throw new TypeError(`${key} must be an array`)
@@ -442,7 +445,8 @@ async function prepare(intent: Intent, reader: IntentReader, context: IntentCont
     case 'remove_proxies': plan.call = descriptor('Proxy', op); break
     case 'execute_proxy_announced': {
       if (a.force_proxy_type != null && !PROXY_TYPES.includes(a.force_proxy_type)) throw new RangeError('unknown force_proxy_type')
-      const innerIntent = new Intent(a.inner_op, a.inner_args), inner = await innerIntent.prepare(reader, { coldkey: a.real_ss58, hotkey: catalog.get(a.inner_op)?.signer === 'hotkey' ? a.real_ss58 : undefined, feePayer: plan.feePayer })
+      const innerIntent = new Intent(a.inner_op, a.inner_args), hotkey = intentSignerRole(innerIntent) === 'hotkey'
+      const inner = await innerIntent.prepare(reader, { coldkey: a.real_ss58, hotkey: hotkey ? a.real_ss58 : undefined, hotkeyPublicKey: hotkey ? required(reader.decodeAddress, 'decodeAddress').call(reader, a.real_ss58) : undefined, feePayer: plan.feePayer, accountMode: context.accountMode })
       mergeChild(plan, inner)
       plan.dispatchOrigin = inner.dispatchOrigin
       plan.call = descriptor('Proxy', 'proxy_announced', { delegate: a.delegate_ss58, real: a.real_ss58, force_proxy_type: a.force_proxy_type, call: inner.call }); break
@@ -820,8 +824,8 @@ async function multisig(plan: MutablePlan, reader: IntentReader, context: Intent
   const others = [...unique].sort(([a], [b]) => a.localeCompare(b)).map(([, address]) => address)
   if (threshold < (plan.op === 'multisig_threshold_1' ? 1 : 2) || threshold > others.length + 1) throw new RangeError('invalid multisig threshold')
   const account = required(reader.multisigAccount, 'multisigAccount').call(reader, [context.coldkey, ...others], threshold, mode === 'safe')
-  const semantic = intentFromJSON(a.call), innerRole = catalog.get(semantic.op)!.signer
-  const inner = await semantic.prepare(reader, { coldkey: account.address, hotkey: innerRole === 'hotkey' ? account.address : undefined, hotkeyPublicKey: innerRole === 'hotkey' ? account.publicKey : undefined, feePayer: plan.feePayer })
+  const semantic = intentFromJSON(a.call), innerRole = intentSignerRole(semantic)
+  const inner = await semantic.prepare(reader, { coldkey: account.address, hotkey: innerRole === 'hotkey' ? account.address : undefined, hotkeyPublicKey: innerRole === 'hotkey' ? account.publicKey : undefined, feePayer: plan.feePayer, accountMode: mode })
   mergeChild(plan, inner)
   plan.dispatchOrigin = inner.dispatchOrigin
   const params: Record<string, unknown> = { other_signatories: others }

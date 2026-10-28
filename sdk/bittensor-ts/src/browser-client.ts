@@ -60,6 +60,7 @@ export interface WorkflowOptions extends SubmitOptions, RegistrationSponsorshipO
 export interface ExtrinsicResult {
   status: 'submitted' | 'inBlock' | 'finalized' | 'failed' | 'unknown'; success?: boolean; message: string
   extrinsicHash: string; blockHash?: string; blockNumber?: number; extrinsicIndex?: number; finalized?: boolean
+  data?: Record<string, unknown>
   events: unknown[]; fee?: Balance; error?: unknown; chainError?: ChainErrorInfo; shielded?: boolean; innerExtrinsicHash?: string; carrierExtrinsicHash?: string; carrierFee?: Balance
 }
 export interface PreparedTransaction extends UnsignedTransaction {
@@ -524,12 +525,12 @@ export class Client {
     return reader
   }
   multisig(signatories: readonly string[], threshold: number, accountMode: 'legacy' | 'safe' = 'legacy'): BrowserMultisig { return new BrowserMultisig(this, signatories, threshold, accountMode) }
-  private async submitPreparedCall(call: Call, signer: BrowserSigner, options: SubmitOptions, at?: string): Promise<ExtrinsicResult> {
+  private async submitPreparedCall(call: Call, signer: BrowserSigner, options: SubmitOptions, at?: string, ownsReservation = false): Promise<ExtrinsicResult> {
     const blockHash = at ?? await this.blockHash()
     const address = signer.ss58Address ?? signer.address!
-    const reserved = options.nonce == null, count = options.mevShield ? 2 : 1
+    const reserved = ownsReservation || options.nonce == null, count = options.mevShield ? 2 : 1
     const nonce = options.nonce ?? this.reserveNonceRange(address, await this.peekNonce(address), count)
-    let broadcastStarted = false
+    let broadcastStarted = false, carrierReturned = false
     try {
     options = { ...options, nonce }
     const { policy: _policy, ...submissionOptions } = options
@@ -552,10 +553,14 @@ export class Client {
     options.signal?.throwIfAborted()
     broadcastStarted = true
     const result = await this.broadcastExtrinsic(outer.bytes, submissionOptions)
-    return await this.resolveShieldedInner(result, hex(inner.hash), Number(signingOptions.period), options)
+    carrierReturned = true
+    const followed = await this.resolveShieldedInner(result, hex(inner.hash), Number(signingOptions.period), options)
+    const accountKey = hex(publicKeyFromSs58(address))
+    if (reserved && followed.data?.inner_expiry_finalized === true && this.nonceFloors.get(accountKey) === nonce + 2) this.nonceFloors.set(accountKey, nonce + 1)
+    return followed
     } catch (error) {
       const key = hex(publicKeyFromSs58(address))
-      if (reserved && (!broadcastStarted || isDefiniteSubmissionRejection(error)) && this.nonceFloors.get(key) === nonce + count) this.nonceFloors.set(key, nonce)
+      if (reserved && (!broadcastStarted || !carrierReturned && isDefiniteSubmissionRejection(error)) && this.nonceFloors.get(key) === nonce + count) this.nonceFloors.set(key, nonce)
       throw error
     }
   }
@@ -645,7 +650,7 @@ export class Client {
       const shield = options.mevShield ?? prepared.mevShieldDefault
       if (prepared.mevShieldRequired && !shield) throw new ChainError('this intent requires MEV shielding')
       const submissionNonce = options.nonce == null ? this.reserveNonceRange(address, nonce, shield ? 2 : 1) : nonce
-      return this.submitPreparedCall(call, signer, { ...signingOptions, nonce: submissionNonce, mevShield: shield }, blockHash)
+      return this.submitPreparedCall(call, signer, { ...signingOptions, nonce: submissionNonce, mevShield: shield }, blockHash, options.nonce == null)
 
     })
   }

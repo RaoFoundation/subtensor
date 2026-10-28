@@ -131,3 +131,63 @@ test('raw shielding releases both nonces on signing failure and definite rejecti
     assert.deepEqual(releases, failedAt === 'uncertain' ? [] : [[f.address,7,2]])
   }
 })
+
+
+test('Node shielding reuses the inner nonce only after canonical finalized expiry', async () => {
+  for (const canonical of [false, true]) {
+    const outer = { status: 'inBlock', success: true, message: 'Success', extrinsicHash: 'outer', blockNumber: 100, events: [] }
+    const state = fixture({
+      submitSigned: async () => outer,
+      rpc: async (method, params) => method === 'chain_getHeader' ? { number: 108 } : method === 'chain_getFinalizedHead' ? 'final' : `block-${params[0]}`,
+      findExtrinsic: async hash => hash === 'outer' && canonical ? outer : null,
+    })
+    const native = await state.client.requireNativeClient(), released = []
+    native.releaseNonces = async (...args) => released.push(args)
+    const result = await state.workflow.submitRawShielded(Buffer.from([1]), state.signer, { allowRawCall: true })
+    assert.equal(result.data.inner_expiry_finalized === true, canonical)
+    assert.deepEqual(released, canonical ? [[state.address, 8, 1]] : [])
+    await state.client.close()
+  }
+})
+
+
+test('a receipt RPC error after carrier acceptance cannot release submitted nonces', async () => {
+  const { JsonRpcError } = require('../dist/transport')
+  const state = fixture({
+    submitSigned: async () => ({ success: true, extrinsicHash: 'outer', blockNumber: 100, events: [] }),
+    rpc: async () => { throw new JsonRpcError('read method unavailable', -32601) },
+  })
+  const native = await state.client.requireNativeClient(), released = []
+  native.releaseNonces = async (...args) => released.push(args)
+  await assert.rejects(state.workflow.submitRawShielded(Buffer.from([1]), state.signer, { allowRawCall: true }), /read method unavailable/)
+  assert.deepEqual(released, [])
+  await state.client.close()
+})
+
+
+test('Node multisig shielding releases the expired inner reservation', async () => {
+  const sdk = require('../dist'), { NodeMultisig } = require('../dist/node-workflows'), { toWire } = require('../dist/wire')
+  const golden = require('../../python/tests/fixtures/golden.json')
+  const runtime = new sdk.Runtime(sdk.decodeOptionalOpaqueMetadata(Buffer.from(golden.metadata.v15_hex.slice(2), 'hex')), 419, 1, 42)
+  const outer = { status: 'inBlock', success: true, message: 'Success', extrinsicHash: 'outer', blockNumber: 100, events: [] }
+  const state = fixture({
+    runtimeAt: async () => runtime, blockHash: async () => '0x' + '11'.repeat(32), blockNumber: async () => 100,
+    constant: async () => 100n,
+    query: async (_pallet, item) => item === 'NextKey' ? Buffer.alloc(1184, 0x42) : item === 'Multisigs' ? null : { data: { free: 1000000n } },
+    composeCall: async (...args) => runtime.composeCall(...args.slice(0, 3)),
+    submitSigned: async () => outer,
+    rpc: async (method, params) => method === 'payment_queryInfo' ? { weight: { ref_time: 1, proof_size: 0 } } : method === 'chain_getHeader' ? { number: 108 } : method === 'chain_getFinalizedHead' ? 'final' : `block-${params[0]}`,
+    findExtrinsic: async hash => hash === 'outer' ? outer : null,
+  })
+  const native = await state.client.requireNativeClient(), released = []
+  native.accountNextIndex = async () => 7
+  native.externalSigningPlan = async (data, _address, publicKey) => ({ runtime: runtime.handle, publicKey, callData: data, feeRao: 10n, txParams: { era: toWire('00'), nonce: 7n, tip: 0n } })
+  native.externalSigningPlanForIntent = async () => ({ feeRao: 10n })
+  native.releaseNonces = async (...args) => released.push(args)
+  const multisig = new NodeMultisig(state.client, [state.address, Keypair.fromUri('//Bob').ss58Address], 2)
+  const result = await multisig.approve({ pallet: 'System', call: 'remark', params: { remark: Buffer.from([1]) } }, state.signer, { allowRawCall: true, mevShield: true })
+  assert.equal(result.data.inner_expiry_finalized, true)
+  assert.deepEqual(state.signed.map(value => value.options.nonce), [8, 7])
+  assert.deepEqual(released, [[state.address, 8, 1]])
+  await state.client.close()
+})

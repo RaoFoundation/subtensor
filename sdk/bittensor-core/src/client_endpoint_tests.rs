@@ -5,6 +5,13 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 
 fn server(replies: Vec<(&'static str, Option<JsonValue>)>) -> (String, thread::JoinHandle<()>) {
+    inspected_server(replies, |_| {})
+}
+
+fn inspected_server(
+    replies: Vec<(&'static str, Option<JsonValue>)>,
+    inspect: impl Fn(&JsonValue) + Send + 'static,
+) -> (String, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
     let endpoint = format!("http://{}", listener.local_addr().expect("local address"));
     let worker = thread::spawn(move || {
@@ -41,6 +48,7 @@ fn server(replies: Vec<(&'static str, Option<JsonValue>)>) -> (String, thread::J
                 body["method"], method,
                 "unvalidated endpoint received application request"
             );
+            inspect(&body);
             if method == "chain_getBlockHash" {
                 assert_eq!(body["params"], json!([0]));
             }
@@ -380,4 +388,104 @@ fn shield_fee_cap_checks_carrier_before_any_signing() {
         "{result:?}"
     );
     worker.join().unwrap();
+}
+
+#[test]
+fn explicit_block_reads_resolve_historical_and_upgraded_metadata() {
+    let fixture: JsonValue =
+        serde_json::from_str(include_str!("../../python/tests/fixtures/golden.json")).unwrap();
+    let template = test_client(vec![], HashMap::new());
+    let runtime = template.runtime().unwrap();
+    let info = storage_info(&runtime, "SubtensorModule", "NetworksAdded").unwrap();
+    let key = hex_prefixed(&runtime.storage_key(&info, &[Value::Uint(7)]).unwrap());
+    // Exercise both historical reads and a new head on a client whose live
+    // metadata cache still holds the previous runtime.
+    for version in [418, 420] {
+        let hash = format!("0x{version:064x}");
+        let mut replies = Vec::new();
+        for operation in 0..4 {
+            replies.push((
+                "state_getRuntimeVersion",
+                Some(json!({"specVersion":version,"transactionVersion":2})),
+            ));
+            replies.push(("state_call", Some(fixture["metadata"]["v15_hex"].clone())));
+            match operation {
+                0 => replies.push(("state_getStorage", Some(json!("0x01")))),
+                1 => replies.push((
+                    "state_queryStorageAt",
+                    Some(json!([{"changes":[[key,"0x01"]]}])),
+                )),
+                2 => {
+                    replies.push(("state_getKeysPaged", Some(json!([key]))));
+                    replies.push((
+                        "state_queryStorageAt",
+                        Some(json!([{"changes":[[key,"0x01"]]}])),
+                    ));
+                }
+                _ => replies.push(("state_call", Some(json!("0x0c000000")))),
+            }
+        }
+        let expected_hash = hash.clone();
+        let (endpoint, worker) = inspected_server(replies, move |request| {
+            assert_eq!(
+                request["params"].as_array().unwrap().last().unwrap(),
+                &json!(expected_hash)
+            );
+        });
+        let client = test_client(vec![endpoint], HashMap::from([(0, Instant::now())]));
+        {
+            let mut guard = client.runtime.write().unwrap();
+            let cached = Arc::get_mut(&mut guard).unwrap();
+            // Deliberately incompatible cached layouts must never be used.
+            for pallet in &mut cached.pallets {
+                pallet.storage.clear();
+            }
+            cached.apis.clear();
+        }
+        assert_eq!(
+            client
+                .query(
+                    "SubtensorModule",
+                    "NetworksAdded",
+                    &[Value::Uint(7)],
+                    Some(&hash)
+                )
+                .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            client
+                .query_batch(
+                    "SubtensorModule",
+                    "NetworksAdded",
+                    &[vec![Value::Uint(7)]],
+                    Some(&hash)
+                )
+                .unwrap(),
+            vec![Value::Bool(true)]
+        );
+        assert_eq!(
+            client
+                .query_map("SubtensorModule", "NetworksAdded", &[], Some(&hash))
+                .unwrap(),
+            vec![(Value::Int(7), Value::Bool(true))]
+        );
+        assert_eq!(
+            client
+                .runtime_call(
+                    "AccountNonceApi",
+                    "account_nonce",
+                    &[Value::Bytes(vec![0; 32])],
+                    Some(&hash)
+                )
+                .unwrap(),
+            Value::Int(12)
+        );
+        assert_eq!(
+            client.runtime().unwrap().spec_version,
+            419,
+            "historical reads must not replace the live cache"
+        );
+        worker.join().unwrap();
+    }
 }

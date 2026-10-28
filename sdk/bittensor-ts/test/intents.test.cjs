@@ -310,3 +310,39 @@ test('emission weights enforce exact sum, baseline, and owner rate limit', async
   const sameOwner = await buildIntent('set_subnet_emission_weights', { netuid: 1, slots: ['owner'], values: ['0.18'], renormalize: true }).prepare(alias, context)
   assert.equal(sameOwner.violations.length, 0)
 })
+
+
+test('integer strings and bigint JSON round trips produce encodable quantities', async () => {
+  const core = require('../dist'), golden = require('../../python/tests/fixtures/golden.json')
+  const runtime = new core.Runtime(core.decodeOptionalOpaqueMetadata(Buffer.from(golden.metadata.v15_hex.slice(2), 'hex')), 419, 1, 42)
+  const address = core.Keypair.fromUri('//Alice').ss58Address
+  const proxy = buildIntent('add_proxy', { delegate_ss58: address, proxy_type: 'Any', delay: '1' })
+  const prepared = await proxy.prepare(reader(), { coldkey: address })
+  assert.equal(prepared.call.params.delay, 1n)
+  await encodeIntentCall(prepared.call, (pallet, call, params) => runtime.composeCall(pallet, call, params))
+  const large = buildIntent('associate_evm_key', { netuid: 1, evm_key: '0x' + '11'.repeat(20), block_number: 9007199254740993n, signature: '0x' + '11'.repeat(65) })
+  assert.equal(intentFromJSON(large.toJSON()).args.block_number, 9007199254740993n)
+  assert.throws(() => buildIntent('add_proxy', { delegate_ss58: address, proxy_type: 'Any', delay: '-1' }), /unsigned|nonnegative/)
+})
+
+test('nested multisig and announced proxy weights use the dispatch hotkey identity', async () => {
+  for (const announced of [false, true]) {
+    const seen = [], encrypted = [], base = reader()
+    const wrappedReader = reader({
+      query: async (pallet, item, params) => {
+        if (item === 'Uids') seen.push(params[1])
+        return item === 'CommitRevealWeightsEnabled' ? true : base.query(pallet, item, params)
+      },
+      encryptWeightsV2: async options => { encrypted.push(options.hotkey); return { commit: new Uint8Array([1]), revealRound: 123n } },
+    })
+    const nested = { op: 'batch', intents: [{ op: 'set_weights', netuid: 1, uids: [0, 1], weights: [0.5, 1] }] }
+    const intent = announced
+      ? buildIntent('execute_proxy_announced', { delegate_ss58: 'other', real_ss58: 'real', inner_op: 'batch', inner_args: { intents: nested.intents } })
+      : buildIntent('multisig_execute', { threshold: 2, other_signatories: ['other'], call: nested })
+    const prepared = await intent.prepare(wrappedReader, context)
+    assert.deepEqual(seen, [announced ? 'real' : 'multisig'])
+    assert.deepEqual(encrypted, [announced ? base.decodeAddress('real') : new Uint8Array(32)])
+    assert.equal(prepared.dispatchOrigin, announced ? 'real' : 'multisig')
+    assert.equal(prepared.feePayer, 'coldkey')
+  }
+})

@@ -754,7 +754,7 @@ test('fallible Runtime construction uses the native factory', () => {
   )
 })
 
-test('Runtime signer payload encodes signed extension fields through metadata', () => {
+test('Runtime signer payload uses numeric hexadecimal for extension JSON', () => {
   const runtime = new core.Runtime(goldenMetadataBytes(), 419, 1, 42)
   const genesisHash = Buffer.alloc(32, 0)
   const eraBlockHash = Buffer.alloc(32, 0x42)
@@ -772,9 +772,11 @@ test('Runtime signer payload encodes signed extension fields through metadata', 
   assert.equal(payload.address, '5F')
   assert.equal(payload.method, '0x050607')
   assert.equal(payload.blockHash, `0x${eraBlockHash.toString('hex')}`)
-  assert.equal(payload.blockNumber, '0x46000000')
-  assert.equal(payload.nonce, '0x30')
-  assert.equal(payload.tip, '0x04')
+  assert.equal(payload.blockNumber, '0x00000046')
+  assert.equal(payload.nonce, '0x0000000c')
+  assert.equal(payload.tip, '0x00000000000000000000000000000001')
+  assert.equal(payload.specVersion, '0x000001a3')
+  assert.equal(payload.transactionVersion, '0x00000001')
   assert.equal(payload.assetId == null, true)
   assert.equal(payload.metadataHash, `0x${metadataHash.toString('hex')}`)
   assert.equal(payload.mode, 1)
@@ -3267,7 +3269,8 @@ test('Client generates RFC-0078 proof for Ledger metadata-verifying signers', as
     confirm: true,
   })
   assert.deepEqual(captures.partsParams.metadataHash, expectedMetadataHash)
-  assert.deepEqual(ledgerCalls.sign.payload, Buffer.from([9, 9, 9]))
+  assert.deepEqual(ledgerCalls.sign.payload, Buffer.concat([vector.callData, vector.includedInExtrinsic, vector.includedInSignedData]))
+  assert.equal(signer.cryptoType, core.CRYPTO_ED25519)
   assert.deepEqual(ledgerCalls.sign.proof, expectedProof)
   assert.deepEqual(captures.encoded.callData, vector.callData)
   assert.deepEqual(captures.encoded.signature, Buffer.alloc(64, 7))
@@ -3566,4 +3569,42 @@ test('cancellation while connecting cannot send a submission afterward', async (
   await assert.rejects(transport.request('author_submitExtrinsic',['0x01'],{signal:controller.signal}), error=>error.name==='SubmissionNotSentError')
   assert.equal(sends,0)
   await transport.close()
+})
+
+
+test('Ledger sends full large payloads and declares ed25519 before planning', async () => {
+  const runtime = new core.Runtime(goldenMetadataBytes(), 419, 1, 42)
+  const key = core.Keypair.fromSeed(Buffer.alloc(32, 9), core.CRYPTO_ED25519)
+  const callData = runtime.composeCall('System', 'remark', { remark: Buffer.alloc(512, 7) })
+  const txParams = { era: '00', nonce: 12, tip: 1n, genesisHash: Buffer.alloc(32), eraBlockHash: Buffer.alloc(32), metadataHash: Buffer.alloc(32, 3) }
+  const parts = runtime.signaturePayloadParts(txParams), payload = runtime.signaturePayload(callData, txParams)
+  const complete = Buffer.concat([callData, parts.includedInExtrinsic, parts.includedInSignedData])
+  assert.equal(payload.length, 32)
+  assert.ok(complete.length > 256)
+  const signer = new core.LedgerSigner({
+    address: async () => ({ publicKey: key.publicKey, ss58Address: key.ss58Address }),
+    sign: async (_account, _index, bytes) => { assert.deepEqual(bytes, complete); return key.sign(core.blake2_256(bytes)) },
+  })
+  const client = fakeSigningClient(runtime, callData)
+  assert.equal((await client.resolveSigner(signer, runtime)).cryptoType, core.CRYPTO_ED25519)
+  const signature = await signer.signBytes(payload, { callData, ...parts, metadataProof: Buffer.from([1]) })
+  assert.equal(key.verify(payload, signature), true)
+  assert.throws(() => signer.signBytes(payload, { callData, metadataProof: Buffer.from([1]) }), /complete transaction context/)
+})
+
+
+test('extension JSON numbers reconstruct exactly the payload signed by the runtime', () => {
+  const runtime = new core.Runtime(goldenMetadataBytes(), 419, 1, 42)
+  const key = core.Keypair.fromUri('//Alice'), call = runtime.composeCall('System', 'remark', { remark: Buffer.from('extension') })
+  for (const [nonce, tip, current] of [[12, 1n, 70], [16384, (1n << 100n) + 123n, 12345678]]) {
+    const params = { era: { period: 64, current }, nonce, tip, genesisHash: Buffer.alloc(32, 1), eraBlockHash: Buffer.alloc(32, 2), metadataHash: Buffer.alloc(32, 3) }
+    const json = runtime.signerPayload(key.ss58Address, call, params)
+    const extensionRuntime = new core.Runtime(goldenMetadataBytes(), Number(BigInt(json.specVersion)), Number(BigInt(json.transactionVersion)), 42)
+    const reconstructed = extensionRuntime.signaturePayload(Buffer.from(json.method.slice(2), 'hex'), {
+      ...params, nonce: Number(BigInt(json.nonce)), tip: BigInt(json.tip), era: { period: 64, current: Number(BigInt(json.blockNumber)) },
+    })
+    const expected = runtime.signaturePayload(call, params)
+    assert.deepEqual(reconstructed, expected)
+    assert.equal(key.verify(expected, key.sign(reconstructed)), true)
+  }
 })

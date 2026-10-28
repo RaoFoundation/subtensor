@@ -198,3 +198,22 @@ for (const crypto of [sdk.CRYPTO_HASHED, sdk.CRYPTO_MLDSA65, sdk.CRYPTO_MLDSA65_
     }
   })
 }
+
+
+test('protected Shield expiry releases the unused nonce and generation only after finality', async () => {
+  for (const crypto of [sdk.CRYPTO_HASHED, sdk.CRYPTO_FALCON512]) {
+    for (const finalized of [false, true]) {
+      const f = fixture(crypto)
+      f.adapter.submitBytes = async () => ({ success: true, blockHash: 'carrier', extrinsicHash: 'outer' })
+      f.adapter.followShielded = async () => ({ data: { carrier_only: true, inner_expiry_finalized: finalized }, chainError: { name: 'ExtrinsicExpired' } })
+      await f.session.submit(remark, { allowRawCall: true, mevShield: true })
+      f.state.nonce++; f.state.pending++; f.state.generation++
+      if (!finalized && crypto === sdk.CRYPTO_HASHED) {
+        await assert.rejects(f.session.submit(remark, { allowRawCall: true }), /not reconciled/)
+      } else {
+        await f.session.submit(remark, { allowRawCall: true })
+        assert.equal(f.state.encoded.at(-1).params.nonce, finalized ? 4n : 5n)
+      }
+    }
+  }
+})

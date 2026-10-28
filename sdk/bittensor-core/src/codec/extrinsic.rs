@@ -116,8 +116,8 @@ impl Runtime {
         format!("0x{}", hex::encode(data))
     }
 
-    fn u32_le_hex(value: u32) -> String {
-        Self::hex_prefixed(&value.to_le_bytes())
+    fn u32_hex(value: u32) -> String {
+        format!("0x{value:08x}")
     }
 
     fn record_u64_field(value: &Value, name: &str) -> Option<u64> {
@@ -135,7 +135,7 @@ impl Runtime {
         let current = Self::record_u64_field(era, "current").unwrap_or(0);
         let current = u32::try_from(current)
             .map_err(|_| CoreError::Codec("mortal era current block does not fit u32".into()))?;
-        Ok(Self::u32_le_hex(current))
+        Ok(Self::u32_hex(current))
     }
 
     fn signed_extension(&self, identifier: &str) -> Option<&SignedExtensionInfo> {
@@ -193,31 +193,24 @@ impl Runtime {
         self.encode_value_hex(ty, value)
     }
 
-    fn signer_payload_nonce(&self, params: &TxParams) -> Result<String, CoreError> {
-        match self.signed_extension("CheckNonce") {
-            Some(extension) => self.encode_extension_field_hex(
-                extension,
-                "nonce",
-                &Value::Uint(u128::from(params.nonce)),
-            ),
-            None => Ok("0x00".into()),
-        }
+    fn signer_payload_nonce(&self, params: &TxParams) -> String {
+        let nonce = if self.signed_extension("CheckNonce").is_some() {
+            params.nonce
+        } else {
+            0
+        };
+        format!("0x{nonce:08x}")
     }
 
-    fn signer_payload_tip(&self, params: &TxParams) -> Result<String, CoreError> {
-        for extension in &self.extrinsic.signed_extensions {
-            match extension.identifier.as_str() {
-                "ChargeTransactionPayment" | "ChargeAssetTxPayment" => {
-                    return self.encode_extension_field_hex(
-                        extension,
-                        "tip",
-                        &Value::Uint(params.tip),
-                    );
-                }
-                _ => {}
-            }
-        }
-        Ok("0x00".into())
+    fn signer_payload_tip(&self, params: &TxParams) -> String {
+        let tip = if self.signed_extension("ChargeTransactionPayment").is_some()
+            || self.signed_extension("ChargeAssetTxPayment").is_some()
+        {
+            params.tip
+        } else {
+            0
+        };
+        format!("0x{tip:032x}")
     }
 
     fn signer_payload_asset_id(&self, params: &TxParams) -> Result<Option<String>, CoreError> {
@@ -413,8 +406,8 @@ impl Runtime {
     }
 
     /// Build the structured signer payload expected by browser/extension
-    /// signers. The same metadata-driven encoders as the raw payload path are
-    /// used for era, nonce, tip, asset id, and metadata-hash mode.
+    /// signers. Numeric JSON fields use big-endian hexadecimal quantities;
+    /// era and other encoded fields retain their SCALE representation.
     pub fn signer_payload(
         &self,
         address: &str,
@@ -431,16 +424,16 @@ impl Runtime {
             era: Self::hex_prefixed(&era),
             genesis_hash: Self::hex_prefixed(&params.genesis_hash),
             method: Self::hex_prefixed(call_data),
-            nonce: self.signer_payload_nonce(params)?,
+            nonce: self.signer_payload_nonce(params),
             signed_extensions: self
                 .extrinsic
                 .signed_extensions
                 .iter()
                 .map(|extension| extension.identifier.clone())
                 .collect(),
-            spec_version: Self::u32_le_hex(self.spec_version),
-            tip: self.signer_payload_tip(params)?,
-            transaction_version: Self::u32_le_hex(self.transaction_version),
+            spec_version: Self::u32_hex(self.spec_version),
+            tip: self.signer_payload_tip(params),
+            transaction_version: Self::u32_hex(self.transaction_version),
             version: self.extrinsic.version,
             asset_id: self.signer_payload_asset_id(params)?,
             metadata_hash: params.metadata_hash.map(|hash| Self::hex_prefixed(&hash)),

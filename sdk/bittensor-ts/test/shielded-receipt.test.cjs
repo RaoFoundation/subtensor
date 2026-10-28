@@ -28,12 +28,13 @@ test('shield finality scans only finalized heights and absent inner fails at exp
       if (method === 'chain_getHeader') { assert.deepEqual(params, ['final']); return { number: 108 } }
       return `block-${params[0]}`
     },
-    findExtrinsic: async (_hash, _block, finalized) => { assert.equal(finalized, true); return null },
+    findExtrinsic: async (hash, _block, finalized) => { assert.equal(finalized, true); return hash === 'outer' ? outer : null },
   }, { waitForFinalization: true })
   assert.equal(result.success, false)
   assert.match(result.message, /era expired/)
   assert.equal(result.chainError.code, 'expired')
-  assert.equal(seen.filter(([method]) => method === 'chain_getBlockHash').length, 9)
+  assert.equal(seen.filter(([method]) => method === 'chain_getBlockHash').length, 10)
+  assert.equal(result.data.inner_expiry_finalized, true)
 })
 test('shield followup aborts a stalled adapter and does not scan submission-only or failed carriers', async () => {
   await assert.rejects(followShieldedResult(outer, 'inner', 8, { rpc: () => new Promise(() => {}), findExtrinsic: async () => null }, { timeoutMs: 5 }), /timed out/)
@@ -55,4 +56,35 @@ test('Node receipt decodes upgrade events with parent metadata and surfaces nest
   assert.equal(result.chainError.code, 'not_authorized')
   assert.deepEqual(decodedAt, ['parent'])
   await client.close()
+})
+
+
+test('best-head expiry rescans finality and never releases a reorged carrier', async () => {
+  for (const carrierPresent of [false, true]) {
+    const checks = []
+    let finalityRequested = false
+    const result = await followShieldedResult(outer, 'inner', 8, {
+      rpc: async (method, params) => {
+        if (method === 'chain_getFinalizedHead') { finalityRequested = true; return 'final' }
+        if (method === 'chain_getHeader') return { number: 108 }
+        return `block-${params[0]}`
+      },
+      findExtrinsic: async (hash, _block, finalized) => { checks.push([hash, finalized]); return hash === 'outer' && carrierPresent ? outer : null },
+    })
+    assert.equal(finalityRequested, true)
+    assert.equal(checks.filter(([hash, finalized]) => hash === 'inner' && finalized).length, 9)
+    assert.equal(result.data.inner_expiry_finalized === true, carrierPresent)
+    if (!carrierPresent) { assert.equal(result.status, 'unknown'); assert.equal(result.data.submission_uncertain, true) }
+  }
+})
+
+test('expiry on a best fork cannot hide an inner inclusion in finalized history', async () => {
+  const result = await followShieldedResult(outer, 'inner', 8, {
+    rpc: async (method, params) => method === 'chain_getHeader' ? { number: 108 } : method === 'chain_getFinalizedHead' ? 'final' : `block-${params[0]}`,
+    findExtrinsic: async (hash, _block, finalized) => hash === 'inner' && finalized ? { ...outer, finalized: true, extrinsicHash: 'inner' } : null,
+  })
+  assert.equal(result.extrinsicHash, 'inner')
+  assert.equal(result.success, true)
+  assert.equal(result.data.carrier_only, false)
+  assert.equal(result.data.inner_expiry_finalized, undefined)
 })

@@ -25,24 +25,31 @@ export async function followShieldedResult(outer: ShieldedReceipt, innerHash: st
   const request = withRequestSignal({ timeoutMs: options.timeoutMs ?? 120_000, signal: options.signal })
   const signal = request.signal!, deadline = outer.blockNumber + period, scanned = new Map<number, string>()
   const rpc = (method: string, params: unknown[]) => guarded(() => adapter.rpc(method, params, { signal }), signal)
+  let finalized = !!options.waitForFinalization
   try {
     for (;;) {
       signal.throwIfAborted()
       // Waiting for finality scans only canonical finalized blocks, so a
       // receipt from an unfinalized fork can never become a finalized result.
-      const headHash = options.waitForFinalization ? await rpc('chain_getFinalizedHead', []) : undefined
+      const headHash = finalized ? await rpc('chain_getFinalizedHead', []) : undefined
       const head = normalizeHeader(await rpc('chain_getHeader', headHash ? [headHash] : [])).number
       for (let block = outer.blockNumber; block <= Math.min(head, deadline); block++) {
         const hash = await rpc('chain_getBlockHash', [block])
         if (typeof hash !== 'string') throw new ChainError(`canonical block ${block} is unavailable while resolving shielded receipt`)
         if (scanned.get(block) === hash) continue
-        const inner = await guarded(() => adapter.findExtrinsic(innerHash, hash, !!options.waitForFinalization, { signal }), signal)
+        const inner = await guarded(() => adapter.findExtrinsic(innerHash, hash, finalized, { signal }), signal)
         if (inner) return { ...inner, ...metadata, data: { ...inner.data, ...data, carrier_only: false }, fee: inner.fee && outer.fee ? Balance.fromRao(inner.fee.rao + outer.fee.rao) : inner.fee }
         scanned.set(block, hash)
       }
       if (head >= deadline) {
+        // A best-head expiry can be undone by a reorg. Re-scan finalized
+        // history before releasing any nonce from this envelope.
+        if (!finalized) { finalized = true; scanned.clear(); continue }
+        const carrierHash = await rpc('chain_getBlockHash', [outer.blockNumber])
+        const carrier = await guarded(() => adapter.findExtrinsic(outer.extrinsicHash, carrierHash, true, { signal }), signal)
+        if (!carrier?.success) return { ...outer, ...metadata, status: 'unknown', success: undefined, message: 'carrier inclusion changed before finalized expiry', data: { ...data, carrier_only: true, submission_uncertain: true } }
         const message = `encrypted carrier was accepted, but inner extrinsic ${innerHash} was not included before its era expired`
-        return { ...outer, ...metadata, data: { ...data, carrier_only: true }, status: 'failed', success: false, message, error: new ChainError(message), chainError: classifyChainError(message, { name: 'ExtrinsicExpired' }) }
+        return { ...outer, ...metadata, data: { ...data, carrier_only: true, inner_expiry_finalized: true }, status: 'failed', success: false, message, error: new ChainError(message), chainError: classifyChainError(message, { name: 'ExtrinsicExpired' }) }
       }
       await delay(1000, signal)
     }

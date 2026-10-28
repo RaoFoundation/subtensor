@@ -69,3 +69,25 @@ test('EVM V3 keystores are encrypted, owner-only, recoverable and refuse path es
   await fs.symlink(info.path, store.keyfilePath('link'))
   await assert.rejects(store.export('link'), /ELOOP|symbolic link/i)
 })
+
+
+test('EVM withdrawal recovers legacy mirror funds even for a registered native alias', async () => {
+  const { buildIntent } = require('../dist/intents')
+  const key = Keypair.fromSeed(Buffer.alloc(32, 7), require('../dist').CRYPTO_MLDSA65)
+  const addresses = createEvmAddressUtilities(crypto)
+  const evmAddress = '0x' + key.publicKey.subarray(0, 20).toString('hex')
+  const mirror = addresses.h160ToSs58(evmAddress), reads = []
+  const reader = {
+    decodeAddress: publicKeyFromSs58, evmMirror: addresses.h160ToSs58,
+    query: async (pallet, item, params) => {
+      reads.push([pallet, item, params])
+      assert.equal(params[0], mirror)
+      return { data: { free: 123456n } }
+    },
+  }
+  const plan = await buildIntent('evm_withdraw', { amount_tao: 'all' }).prepare(reader, { coldkey: key.ss58Address })
+  assert.equal(plan.call.call, 'withdraw')
+  assert.equal(plan.call.params.address, evmAddress)
+  assert.equal(plan.call.params.value, 123456n)
+  assert.deepEqual(reads, [['System', 'Account', [mirror]]])
+})

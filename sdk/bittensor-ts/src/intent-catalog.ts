@@ -1018,7 +1018,7 @@ export const INTENT_CATALOG = [
   {
     "name": "evm_withdraw",
     "summary": "Claim TAO deposited to the coldkey's truncated EVM mirror.",
-    "description": "Claim TAO deposited to the coldkey's truncated EVM mirror.\n\nEvery native account controls one EVM address: the first 20 bytes of its\npublic key (the *truncated* mapping). TAO sent from MetaMask to that\naddress's mirror can be pulled into the native account with this call —\nthe EVM-to-substrate path that needs no EVM gas. The flow: send TAO from\nthe EVM wallet to the address shown by `btcli evm deposit-address`, then\nclaim it with `btcli evm claim-deposit` (or `btcli tx evm-withdraw`).\nThis is not `btcli evm send-to-ss58`, which spends from a stored EVM key\nvia the balance-transfer precompile. Fails if the mirror holds less than\nthe amount. Pass `all` to claim the entire deposit.",
+    "description": "Claim TAO deposited to the coldkey's truncated EVM mirror.\n\nEvery native account controls one EVM address: the first 20 bytes of its\nAccountId (the *truncated* mapping). For an unbound address, EVM deposits\narrive at its legacy mirror and can be claimed without EVM gas. A registered\nalias credits the native account directly; this call only recovers any\nseparate balance left at its legacy mirror, such as a delayed payout.\nThis is not `btcli evm send-to-ss58`, which spends from a stored EVM key\nvia the balance-transfer precompile. Fails if the mirror holds less than\nthe amount. Pass `all` to claim the entire deposit.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,

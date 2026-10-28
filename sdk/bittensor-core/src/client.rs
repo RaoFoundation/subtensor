@@ -441,6 +441,33 @@ impl Client {
         self.runtime()
     }
 
+    // Explicit block reads must use that block's runtime, without replacing
+    // the live cache with historical metadata.
+    fn runtime_for_block(&self, block_hash: Option<&str>) -> Result<Arc<Runtime>, CoreError> {
+        let Some(hash) = block_hash else {
+            return self.current_runtime();
+        };
+        let version =
+            parse_runtime_version(self.rpc_value("state_getRuntimeVersion", json!([hash]))?)?;
+        let current = self.runtime()?;
+        if current.spec_version == version.spec_version
+            && current.transaction_version == version.transaction_version
+        {
+            return Ok(current);
+        }
+        let metadata = fetch_metadata(|method, params| {
+            let mut params = params.as_array().cloned().unwrap_or_default();
+            params.push(json!(hash));
+            self.rpc_value(method, json!(params))
+        })?;
+        Ok(Arc::new(Runtime::parse(
+            &metadata,
+            version.spec_version,
+            version.transaction_version,
+            self.ss58_format,
+        )?))
+    }
+
     /// Refresh metadata after a runtime upgrade. Returns true when the cached
     /// runtime changed.
     pub fn refresh_runtime(&self) -> Result<bool, CoreError> {
@@ -690,11 +717,7 @@ impl Client {
         params: &[Value],
         block_hash: Option<&str>,
     ) -> Result<Value, CoreError> {
-        let runtime = if block_hash.is_some() {
-            self.runtime()?
-        } else {
-            self.current_runtime()?
-        };
+        let runtime = self.runtime_for_block(block_hash)?;
         self.query_with_runtime(&runtime, pallet, storage, params, block_hash)
     }
 
@@ -722,11 +745,7 @@ impl Client {
         if param_sets.is_empty() {
             return Ok(Vec::new());
         }
-        let runtime = if block_hash.is_some() {
-            self.runtime()?
-        } else {
-            self.current_runtime()?
-        };
+        let runtime = self.runtime_for_block(block_hash)?;
         let info = storage_info(&runtime, pallet, storage)?;
         let mut keys = Vec::with_capacity(param_sets.len());
         for params in param_sets {
@@ -746,11 +765,7 @@ impl Client {
         fixed_params: &[Value],
         block_hash: Option<&str>,
     ) -> Result<Vec<(Value, Value)>, CoreError> {
-        let runtime = if block_hash.is_some() {
-            self.runtime()?
-        } else {
-            self.current_runtime()?
-        };
+        let runtime = self.runtime_for_block(block_hash)?;
         let info = storage_info(&runtime, pallet, storage)?;
         if fixed_params.len() > info.key_types.len() {
             return Err(CoreError::Codec(format!(
@@ -782,11 +797,7 @@ impl Client {
         params: &[Value],
         block_hash: Option<&str>,
     ) -> Result<Value, CoreError> {
-        let runtime = if block_hash.is_some() {
-            self.runtime()?
-        } else {
-            self.current_runtime()?
-        };
+        let runtime = self.runtime_for_block(block_hash)?;
         let method_info = runtime_api_method(&runtime, api, method)?.clone();
         if method_info.inputs.len() != params.len() {
             return Err(CoreError::Codec(format!(

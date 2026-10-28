@@ -170,7 +170,7 @@ export class ProtectedWalletClient {
     const carrier = await submit(outer.bytes, 2, { ...options, waitForInclusion: true })
     if (carrier.data?.submission_rejected === true || carrier.data?.submission_uncertain === true) return carrier
     const result = await this.adapter.followShielded(carrier, typeof inner.hash === 'string' ? inner.hash : hex(inner.hash), signing.period, options)
-    if (carrier.success === false && carrier.blockHash || result.data?.carrier_only && result.chainError?.name === 'ExtrinsicExpired') markSubmitted(1)
+    if (carrier.success === false && carrier.finalized || result.data?.inner_expiry_finalized === true) markSubmitted(1)
     return result
   }
   async execute(intent: Intent, options: ProtectedWorkflowOptions = {}): Promise<any> {
