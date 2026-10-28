@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Callable, Optional
 
 import typer
@@ -22,6 +23,7 @@ from rich.text import Text
 from .. import config as cfg
 from .. import wallets
 from ..balance import Balance
+from ..keyfiles import KeyfileError
 from ..reads import StakePosition, StakeValuation
 from ..receiving import parse_recipient
 from .context import AppContext, address_cli_name
@@ -37,6 +39,7 @@ from .output import (
     prompt_hint,
 )
 from .prompt import PromptSpec, ask
+from .wallet_addresses import public_key_from_file
 
 # Positions whose spot value is below this are dust: hidden from the pickers
 # (unless everything is dust) but still selectable by typing the netuid/hotkey.
@@ -275,10 +278,15 @@ def _dest_choices(app_ctx: AppContext) -> list[_DestChoice]:
     for coldkey in wallets.list_wallets_detailed(app_ctx.wallet_path):
         if coldkey.name == app_ctx.wallet_name:
             continue
-        address = coldkey.ss58
-        if coldkey.crypto_type in wallets.REGISTERED_CRYPTO_TYPES:
-            public = wallets.open_wallet(name=coldkey.name, path=app_ctx.wallet_path).coldkeypub
+        try:
+            public = public_key_from_file(
+                Path(app_ctx.wallet_path).expanduser() / coldkey.name / "coldkeypub.txt"
+            )
             address = app_ctx.wallet_address(public)
+        except (OSError, ValueError, KeyfileError):
+            # Never offer an unvalidated bare address as a fallback, or unlock
+            # private keys just to populate the public destination picker.
+            continue
         _add(coldkey.name, address, "wallet")
     return choices
 
