@@ -225,8 +225,12 @@ class OpenLoan(Intent):
                 raise BittensorError("amount to borrow must be greater than zero")
             if cast(Balance, self.min_borrow).rao > requested.rao:
                 raise BittensorError("min_borrow cannot exceed the exact amount to borrow")
-        if self.side == "Short" and self.hotkey_ss58 is not None:
-            raise BittensorError("short open is TAO-only; omit hotkey_ss58")
+        # Shorts are TAO-only. Clear any wallet-defaulted or stray hotkey so
+        # the generic `btcli tx` path (which resolves hotkey_ss58 from the
+        # wallet when omitted) still opens shorts with source_hotkey=None.
+        # `btcli lending open --side short --hotkey …` still rejects at the CLI.
+        if self.side == "Short":
+            self.hotkey_ss58 = None
 
     async def build(self, substrate, wallet: Any):
         collateral = cast(Balance, self.collateral)
