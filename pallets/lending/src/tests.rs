@@ -3375,6 +3375,80 @@ fn quote_close_escrowed_short_refund_matches_execution() {
 }
 
 #[test]
+fn short_wallet_close_rejects_when_max_payment_below_principal() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            hotkey.clone(),
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        // Fund enough alpha that repay would succeed if max_payment were ignored.
+        mint_alpha(
+            &owner,
+            &hotkey,
+            netuid(),
+            position.principal.saturating_mul(2),
+        );
+        let alpha_before = alpha(&owner, &hotkey, netuid());
+        let principal = position.principal;
+        assert_err!(
+            Lending::close(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                true,
+                principal.saturating_sub(1),
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SlippageExceeded
+        );
+        assert!(Positions::<Test>::get(&owner, netuid()).is_some());
+        assert_eq!(
+            alpha(&owner, &hotkey, netuid()),
+            alpha_before,
+            "failed max_payment must not debit alpha"
+        );
+        // Partial repay must honor the same ceiling.
+        assert_err!(
+            Lending::repay(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                principal / 2,
+                true,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SlippageExceeded
+        );
+        assert_eq!(
+            Positions::<Test>::get(&owner, netuid()).unwrap().principal,
+            principal
+        );
+        // Adequate ceiling closes cleanly.
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            true,
+            principal,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+    });
+}
+
+#[test]
 fn long_amm_close_sells_minimal_collateral_and_refunds_alpha() {
     new_test_ext().execute_with(|| {
         let owner = account(1);

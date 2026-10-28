@@ -2274,6 +2274,11 @@ pub mod pallet {
             let (refund, escrow_returned) = match side {
                 Side::Short => {
                     let payment = if repay_from_wallet {
+                        // §5.2: max_payment caps alpha repaid (post-interest P).
+                        ensure!(
+                            position.principal <= max_payment,
+                            Error::<T>::SlippageExceeded
+                        );
                         T::Pool::repay_alpha(
                             &owner,
                             &position.hotkey,
@@ -2568,6 +2573,8 @@ pub mod pallet {
             let (refund, escrow_returned) = match side {
                 Side::Short => {
                     if repay_from_wallet {
+                        // §5.2: max_payment caps alpha repaid on the slice.
+                        ensure!(slice_p <= max_payment, Error::<T>::SlippageExceeded);
                         T::Pool::repay_alpha(
                             &owner,
                             &position.hotkey,
