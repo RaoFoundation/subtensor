@@ -165,6 +165,7 @@
     "HotKeySetTxRateLimitExceeded",
     "HotKeySwapOnSubnetIntervalNotPassed",
     "HotkeyMismatch",
+    "HotkeyNotOwned",
     "IncorrectCommitRevealVersion",
     "IncorrectPartialFillAmount",
     "IncorrectWeightVersionKey",
