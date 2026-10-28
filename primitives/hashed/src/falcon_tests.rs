@@ -103,6 +103,73 @@ fn fixed_accounts_are_self_authenticating_and_rotating_profiles_are_not() {
 }
 
 #[test]
+fn every_encoded_proof_byte_is_authenticated_for_every_falcon_profile() {
+    let payload = b"release validation: canonical proof mutation sweep";
+    for profile in [
+        ALGORITHM_512,
+        FIXED_ALGORITHM_512,
+        ALGORITHM_1024,
+        FIXED_ALGORITHM_1024,
+    ] {
+        let (seed, header) = header(profile);
+        let proof = header.sign(&seed, payload, &[0x63; 32]).unwrap();
+        assert!(proof.verify(payload));
+        let mut encoded = proof.encode();
+        // Includes every public-key and signature byte, including Falcon padding.
+        for offset in 0..encoded.len() {
+            encoded[offset] ^= 1;
+            if let Ok(mutated) = SignerAddress::from_bytes(&encoded) {
+                assert!(
+                    !mutated.verify(payload),
+                    "profile {profile} accepted mutated proof byte {offset}"
+                );
+            }
+            encoded[offset] ^= 1;
+        }
+        assert_eq!(SignerAddress::from_bytes(&encoded).unwrap(), proof);
+    }
+}
+
+#[test]
+fn valid_falcon_signatures_cannot_bypass_fixed_account_authority_rules() {
+    let payload = b"valid cryptography with invalid account authority";
+    for profile in [FIXED_ALGORITHM_512, FIXED_ALGORITHM_1024] {
+        let (seed, header) = header(profile);
+        let proof = header.sign(&seed, payload, &[0x64; 32]).unwrap();
+        for mutation in 0..4 {
+            let mut forged = proof.clone();
+            match mutation {
+                0 => forged.generation = 1,
+                1 => forged.generation = u64::MAX,
+                2 => forged.next_commitment = [0; COMMITMENT_LEN],
+                _ => forged.account = [0; 32],
+            }
+            let forged_header = forged.header();
+            assert!(!forged_header.is_valid_stateless());
+            assert!(forged_header.sign(&seed, payload, &[0x64; 32]).is_err());
+            // Bypass the safe signing API to give the invalid authority a real,
+            // cryptographically valid signature, as a hostile client could.
+            let digest = forged_header.representative(&RawPayload(payload)).unwrap();
+            let (_, signature) =
+                signing::sign_digest(profile, &seed, &digest, &[0x64; 32]).unwrap();
+            forged.signature = signature;
+            assert!(verify_digest(
+                profile,
+                &forged.public_key,
+                &digest,
+                &forged.signature,
+            ));
+            assert!(!forged.verify(payload));
+            assert!(
+                !SignerAddress::from_bytes(&forged.encode())
+                    .unwrap()
+                    .verify(payload)
+            );
+        }
+    }
+}
+
+#[test]
 fn detached_messages_bind_context_profile_and_canonical_padding() {
     for profile in [ALGORITHM_512, ALGORITHM_1024] {
         let seed = [0x39; 32];

@@ -117,6 +117,28 @@ fn stateless_header() -> ([u8; 32], Header) {
 }
 
 #[test]
+fn every_encoded_proof_byte_is_authenticated_for_both_mldsa_profiles() {
+    let payload = b"release validation: canonical proof mutation sweep";
+    for (seed, header) in [([11; 32], header(&[11; 32])), stateless_header()] {
+        let proof = header.sign(&seed, payload, &[0x63; 32]).unwrap();
+        assert!(proof.verify(payload));
+        let mut encoded = proof.encode();
+        for offset in 0..encoded.len() {
+            encoded[offset] ^= 1;
+            if let Ok(mutated) = SignerAddress::from_bytes(&encoded) {
+                assert!(
+                    !mutated.verify(payload),
+                    "profile {} accepted mutated proof byte {offset}",
+                    header.algorithm
+                );
+            }
+            encoded[offset] ^= 1;
+        }
+        assert_eq!(SignerAddress::from_bytes(&encoded).unwrap(), proof);
+    }
+}
+
+#[test]
 fn stateless_authority_is_bound_to_the_key_profile_and_complete_payload() {
     let (seed, header) = stateless_header();
     assert!(header.is_valid_stateless());

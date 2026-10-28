@@ -256,6 +256,85 @@ fn falcon_included_failure_consumes_nonce_and_only_rotating_authority_advances()
 }
 
 #[test]
+fn falcon_unaffordable_tip_preserves_authority_and_allows_the_same_proof_after_funding() {
+    for profile in [6, 7, 8, 9] {
+        ext().execute_with(|| {
+            let wallet = Wallet::new(160, profile);
+            wallet.prepare();
+            let nonce = System::account_nonce(&wallet.account);
+            let mut extension = extra(nonce);
+            extension.1.0 = transaction_payment_wrapper::ChargeTransactionPaymentWrapper::new(
+                TaoBalance::new(2_000_000_000_000_000),
+            );
+            let tx = wallet.sign_with_extra(call(), extension, 0);
+            let before = frame_system::Account::<Runtime>::get(&wallet.account);
+            let authority = MlDsaAccounts::<Runtime>::get(&wallet.account);
+            assert_eq!(
+                Executive::apply_extrinsic(tx.clone()),
+                Err(InvalidTransaction::Payment.into())
+            );
+            assert_eq!(
+                frame_system::Account::<Runtime>::get(&wallet.account),
+                before
+            );
+            assert_eq!(MlDsaAccounts::<Runtime>::get(&wallet.account), authority);
+
+            let _ = Balances::make_free_balance_be(
+                &wallet.account,
+                TaoBalance::new(4_000_000_000_000_000),
+            );
+            assert_ok!(Executive::apply_extrinsic(tx).unwrap());
+            assert_eq!(System::account_nonce(&wallet.account), nonce + 1);
+            if wallet.descriptor.is_rotating() {
+                assert_eq!(
+                    MlDsaAccounts::<Runtime>::get(&wallet.account)
+                        .unwrap()
+                        .generation,
+                    1
+                );
+            } else {
+                assert_registrationless(&wallet.account);
+            }
+        });
+    }
+}
+
+#[test]
+fn falcon_exhausted_native_nonce_cannot_wrap_charge_or_rotate_any_profile() {
+    for profile in [6, 7, 8, 9] {
+        ext().execute_with(|| {
+            let wallet = Wallet::new(161, profile);
+            wallet.prepare();
+            frame_system::Account::<Runtime>::mutate(&wallet.account, |account| {
+                account.nonce = u32::MAX;
+            });
+            let before = frame_system::Account::<Runtime>::get(&wallet.account);
+            let authority = MlDsaAccounts::<Runtime>::get(&wallet.account);
+            let tx = wallet.sign_nonce(call(), u32::MAX);
+            assert!(
+                Executive::validate_transaction(
+                    TransactionSource::External,
+                    tx.clone(),
+                    System::parent_hash(),
+                )
+                .is_err()
+            );
+            assert_eq!(
+                frame_system::Account::<Runtime>::get(&wallet.account),
+                before
+            );
+            assert_eq!(MlDsaAccounts::<Runtime>::get(&wallet.account), authority);
+            assert!(Executive::apply_extrinsic(tx).is_err());
+            assert_eq!(
+                frame_system::Account::<Runtime>::get(&wallet.account),
+                before
+            );
+            assert_eq!(MlDsaAccounts::<Runtime>::get(&wallet.account), authority);
+        });
+    }
+}
+
+#[test]
 fn falcon_malformed_envelopes_cannot_charge_fees_or_consume_authority() {
     for profile in [6, 7, 8, 9] {
         ext().execute_with(|| {
