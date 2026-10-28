@@ -494,8 +494,6 @@ class Lending:
     OpenByNetuid = Item('Lending', 'OpenByNetuid', '()')
     PositionCount = Item('Lending', 'PositionCount', 'u32')
     TotalPositions = Item('Lending', 'TotalPositions', 'u32')
-    LoanHotkeys = Item('Lending', 'LoanHotkeys', 'u32')
-    OpenByHotkey = Item('Lending', 'OpenByHotkey', '()')
     EscrowOwner = Item('Lending', 'EscrowOwner', 'AccountId32')
     References = Item('Lending', 'References', 'LendingReference')
     Dissolutions = Item('Lending', 'Dissolutions', 'Dissolution')

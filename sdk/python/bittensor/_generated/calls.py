@@ -1736,12 +1736,12 @@ class Lending:
 
     @staticmethod
     def close(netuid: 'NetUid', hotkey: 'AccountId32', repay_from_wallet: 'bool', max_payment: 'u64', min_refund: 'u64', valid_until: 'u32') -> Call:
-        'Close a position. Shorts buy back (or repay alpha); longs repay TAO (or sell escrow). Wallet alpha repayment is drawn from stake on `hotkey`, and returned alpha is staked to `hotkey`.'
+        'Close a position. Shorts buy back (or repay alpha); longs repay TAO (or sell escrow).  Wallet alpha repayment is drawn from stake on `hotkey`, and returned alpha is staked to `hotkey`.'
         return Call('Lending', 'close', {'netuid': netuid, 'hotkey': hotkey, 'repay_from_wallet': repay_from_wallet, 'max_payment': max_payment, 'min_refund': min_refund, 'valid_until': valid_until})
 
     @staticmethod
     def open(netuid: 'NetUid', side: 'Side', collateral: 'u64', source_hotkey: 'Any', min_borrow: 'u64', min_proceeds: 'u64', min_escrow_alpha: 'u64', valid_until: 'u32') -> Call:
-        'Open or increase a loan. Shorts force-sell; longs force-buy into escrow. Longs require `source_hotkey` (collateral alpha is locked from that stake). Shorts are TAO-only and must pass `None` — no hotkey is stored on the position either way.'
+        'Open or increase a loan. Shorts force-sell; longs force-buy into escrow.  Longs require `source_hotkey` (collateral alpha is locked from that stake). Shorts are TAO-only and must pass `None` — no hotkey is stored on the position either way.'
         return Call('Lending', 'open', {'netuid': netuid, 'side': side, 'collateral': collateral, 'source_hotkey': source_hotkey, 'min_borrow': min_borrow, 'min_proceeds': min_proceeds, 'min_escrow_alpha': min_escrow_alpha, 'valid_until': valid_until})
 
     @staticmethod
@@ -1756,7 +1756,7 @@ class Lending:
 
     @staticmethod
     def repay(netuid: 'NetUid', hotkey: 'AccountId32', principal_part: 'u64', repay_from_wallet: 'bool', max_payment: 'u64', min_refund: 'u64', valid_until: 'u32') -> Call:
-        'Partial repay of `principal_part` (§4.4). `principal_part == principal` closes. `hotkey` is the alpha source and destination, as in close.'
+        'Partial repay of `principal_part` (§4.4). `principal_part == principal` closes.  `hotkey` is the alpha source and destination, as in [`Pallet::close`].'
         return Call('Lending', 'repay', {'netuid': netuid, 'hotkey': hotkey, 'principal_part': principal_part, 'repay_from_wallet': repay_from_wallet, 'max_payment': max_payment, 'min_refund': min_refund, 'valid_until': valid_until})
 
     @staticmethod

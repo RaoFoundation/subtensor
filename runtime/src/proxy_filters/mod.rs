@@ -1598,7 +1598,7 @@ mod pow_proxy_tests {
             netuid,
             side: Side::Short,
             collateral: 1,
-            hotkey: hotkey.clone(),
+            source_hotkey: None,
             min_borrow: 1,
             min_proceeds: 0,
             min_escrow_alpha: 0,
@@ -1608,7 +1608,7 @@ mod pow_proxy_tests {
             netuid,
             side: Side::Long,
             collateral: 1,
-            hotkey: hotkey.clone(),
+            source_hotkey: Some(hotkey.clone()),
             principal: 1,
             min_proceeds: 0,
             min_escrow_alpha: 0,
@@ -1616,6 +1616,7 @@ mod pow_proxy_tests {
         });
         let close = RuntimeCall::Lending(LendingCall::close {
             netuid,
+            hotkey: hotkey.clone(),
             repay_from_wallet: true,
             max_payment: u64::MAX,
             min_refund: 0,
@@ -1623,6 +1624,7 @@ mod pow_proxy_tests {
         });
         let repay = RuntimeCall::Lending(LendingCall::repay {
             netuid,
+            hotkey: hotkey.clone(),
             principal_part: 1,
             repay_from_wallet: true,
             max_payment: u64::MAX,
