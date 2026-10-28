@@ -3024,7 +3024,7 @@ fn coldkey_swap_rewinds_expiry_cursor_so_due_loan_still_settles() {
 }
 
 #[test]
-fn fixed_term_add_keeps_original_expiry() {
+fn fixed_term_partial_repay_keeps_expiry_after_increase_restart() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let hotkey = account(2);
@@ -3041,8 +3041,7 @@ fn fixed_term_add_keeps_original_expiry() {
             deadline(),
         ));
         let first = Positions::<Test>::get(&owner, netuid()).unwrap();
-        let expires_at = first.expires_at;
-        // Advance a few blocks, then top up — term must not extend.
+        // Advance, then increase — term restarts (Skeptic short near-expiry drain).
         System::set_block_number(System::block_number().saturating_add(20));
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
@@ -3056,10 +3055,11 @@ fn fixed_term_add_keeps_original_expiry() {
             deadline(),
         ));
         let after_add = Positions::<Test>::get(&owner, netuid()).unwrap();
-        assert_eq!(after_add.expires_at, expires_at);
+        assert!(after_add.expires_at > first.expires_at);
         assert!(after_add.principal > first.principal);
+        let expires_at = after_add.expires_at;
 
-        // Partial repay also leaves expires_at unchanged.
+        // Partial repay leaves the (possibly restarted) expires_at unchanged.
         let half = after_add.principal / 2;
         mint_alpha(&owner, &hotkey, netuid(), half);
         assert_ok!(Lending::repay(
@@ -3119,6 +3119,60 @@ fn long_collateral_top_up_restarts_fixed_term() {
             after.expires_at,
             now.saturating_add(520),
             "long collateral top-up must restart the term"
+        );
+        assert!(after.expires_at > first.expires_at);
+        assert!(!Expiry::<Test>::contains_key(
+            first.expires_at,
+            (&owner, netuid())
+        ));
+        assert!(Expiry::<Test>::contains_key(
+            after.expires_at,
+            (&owner, netuid())
+        ));
+    });
+}
+
+/// Skeptic: short increases must restart the term so fresh principal sold at
+/// live spot cannot inherit an imminent EMA settlement below that sale.
+#[test]
+fn short_increase_restarts_fixed_term() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 100_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            hotkey.clone(),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let first = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let opened_at = System::block_number();
+        assert_eq!(first.expires_at, opened_at.saturating_add(520));
+        System::set_block_number(opened_at.saturating_add(100));
+        mint_tao(&owner, 20_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            2_000_000_000_000,
+            hotkey,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let now = System::block_number();
+        assert_eq!(
+            after.expires_at,
+            now.saturating_add(520),
+            "short increase must restart the term"
         );
         assert!(after.expires_at > first.expires_at);
         assert!(!Expiry::<Test>::contains_key(

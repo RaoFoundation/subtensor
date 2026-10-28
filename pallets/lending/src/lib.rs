@@ -516,7 +516,7 @@ pub struct LiftBook {
     pub last: u64,
 }
 
-#[freeze_struct("f63daa52fbcc44c0")]
+#[freeze_struct("c028154d007a921f")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
 )]
@@ -540,7 +540,8 @@ pub struct Position<AccountId, BlockNumber> {
     pub last_accrued: BlockNumber,
     pub interest_remainder: u64,
     pub due: BlockNumber,
-    /// Fixed one-year term end (§15). Set at open; adds and partial repay keep it.
+    /// Fixed one-year term end (§15). Set at open; increases restart it;
+    /// partial repay keeps it.
     pub expires_at: BlockNumber,
     /// Current `Expiry` queue bucket for this position. Equals `expires_at` at
     /// open; advances when a failed settle is deferred onto a retry slot so
@@ -2331,7 +2332,7 @@ pub mod pallet {
                     !EscrowOwner::<T>::contains_key(netuid, &escrow),
                     Error::<T>::EscrowInUse
                 );
-                // One-year fixed term from open (§15). Increases keep this value.
+                // One-year fixed term from open (§15). Increases restart it.
                 let term: BlockNumberFor<T> = T::BlocksPerYear::get().saturated_into();
                 Position {
                     side,
@@ -2462,11 +2463,12 @@ pub mod pallet {
                 Expiry::<T>::insert(expires_at, (&owner, netuid), ());
                 Self::note_expiry_inserted(expires_at);
                 Self::note_active_net(netuid);
-            } else if side == Side::Long && collateral > 0 {
-                // Fresh long collateral must not inherit an imminent EMA cash
-                // settlement (§15). Restart the one-year term on collateral
-                // top-ups (Jacob allowed keep-or-restart; keep-original enabled
-                // a near-expiry drain of the pot).
+            } else if principal > 0 || collateral > 0 {
+                // Restart the one-year term on increases (Jacob allowed
+                // keep-or-restart). Keep-original enabled near-expiry drains:
+                // long collateral redeemed from the pot at EMA above AMM, and
+                // short principal force-sold at live spot then settled at a
+                // lower EMA (§15 / Skeptic).
                 let term: BlockNumberFor<T> = T::BlocksPerYear::get().saturated_into();
                 let new_expiry = now.saturating_add(term);
                 if new_expiry != position.expiry_due {
