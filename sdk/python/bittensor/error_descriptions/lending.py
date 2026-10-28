@@ -34,8 +34,11 @@ DESCRIPTIONS: dict[str, str] = {
         "wait for repayment; inspect lending_reserves for headroom."
     ),
     "DepthBelowThreshold": (
-        "Pool depth after the lift would fall below the buy-depth threshold. Reduce principal "
-        "or wait for deeper reserves."
+        "This open would lift more than the pool can spare: principal must be strictly less "
+        "than the relevant reserve (TAO for longs, alpha for shorts), and both reserves must "
+        "be non-zero. On mainnet the swap MinimumReserve is also 0.001 τ, so tiny loans "
+        "(e.g. ~10 alpha on a thin subnet) often fail here — try a larger principal (100+ "
+        "alpha is a practical floor on deep pools) or wait for deeper reserves."
     ),
     "DynamicCollateral": (
         "Collateral is below the Karl dynamic valuation requirement at the current LTV tier. "
