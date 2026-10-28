@@ -1,3 +1,4 @@
+import { isDefiniteSubmissionRejection, SubmissionUncertainError, SubmissionNotSentError } from './transport'
 import { serializeUnsignedTransaction, restoreUnsignedTransaction, type UnsignedTransactionState, type UnsignedRuntime, type SerializedUnsignedTransaction } from './unsigned-transaction'
 import { ProtectedWalletClient } from './protected-transactions'
 import type { ProtectedKeypair } from './protected-accounts'
@@ -51,7 +52,7 @@ export interface BrowserSigner {
   signRaw?(request: { address: string; data: string; type: 'bytes' }): unknown | Promise<unknown>
 }
 export interface SubmitOptions {
-  nonce?: number; period?: number | null; tip?: bigint; tipAssetId?: bigint | null; metadataHash?: Uint8Array
+  nonce?: number; period?: number | null; tip?: bigint; tipAssetId?: bigint | null; metadataHash?: Uint8Array | null
   allowRawCall?: boolean; policy?: IntentPolicy; waitForInclusion?: boolean; waitForFinalization?: boolean
   timeoutMs?: number; signal?: AbortSignal; mevShield?: boolean; expectedCallHash?: string
 }
@@ -299,7 +300,11 @@ export class Client {
     const eraBlockHash = period == null ? genesisHash : await this.blockHash(eraBirth(period, eraAnchor))
     const callData = await this.compose(call, hash)
     const chain = [Number(first(properties.ss58Format ?? properties.ss58Prefix) ?? 42), Number(first(properties.tokenDecimals) ?? 9), String(first(properties.tokenSymbol) ?? 'TAO')] as const
-    const metadataHash = options.metadataHash ?? ((signer.requiresMetadataHash || signer.requiresMetadataProof) ? metadataDigest(metadata, runtime.specVersion, version.specName, ...chain) : undefined)
+    const required = signer.requiresMetadataHash || signer.requiresMetadataProof
+    if (options.metadataHash === null && required) throw new ChainError('metadataHash cannot be disabled for a signer that requires metadata proof')
+    const metadataHash = options.metadataHash === undefined
+      ? (required || runtime.signedExtensionIdentifiers().includes('CheckMetadataHash') ? metadataDigest(metadata, runtime.specVersion, version.specName, ...chain) : undefined)
+      : options.metadataHash ?? undefined
     const txParams = { era, nonce, tip: options.tip ?? 0n, tipAssetId: options.tipAssetId, genesisHash: hexBytes(genesisHash), eraBlockHash: hexBytes(eraBlockHash), metadataHash }
     const parts = runtime.signaturePayloadParts(txParams), payload = runtime.signaturePayload(callData, txParams)
     const proof = signer.requiresMetadataProof ? generateExtrinsicProof(callData, parts.includedInExtrinsic, parts.includedInSignedData, metadata, runtime.specVersion, version.specName, ...chain) : undefined
@@ -372,7 +377,10 @@ export class Client {
   }
   private async broadcastExtrinsic(bytes: Uint8Array, options: SubmitOptions): Promise<ExtrinsicResult> {
     const hash = hex(blake2_256(bytes))
-    if (options.waitForInclusion === false && !options.waitForFinalization) { const accepted = await this.rpc('author_submitExtrinsic', [hex(bytes)], options); if (String(accepted).toLowerCase() !== hash) throw new ChainError('node returned a different submitted extrinsic hash'); return { status: 'submitted', message: 'Submitted', extrinsicHash: hash, events: [] } }
+    if (options.waitForInclusion === false && !options.waitForFinalization) { try { const accepted = await this.rpc('author_submitExtrinsic', [hex(bytes)], options); if (String(accepted).toLowerCase() !== hash) throw new ChainError('node returned a different submitted extrinsic hash'); return { status: 'submitted', message: 'Submitted', extrinsicHash: hash, events: [] } } catch (error) { if (isDefiniteSubmissionRejection(error)) throw error; throw new SubmissionUncertainError(hash, error) } }
+    let startBlock: number
+    try { options.signal?.throwIfAborted(); startBlock = await this.blockNumber() }
+    catch (error) { throw new SubmissionNotSentError(error) }
     const request = withRequestSignal({ timeoutMs: options.timeoutMs ?? 120_000, signal: options.signal })
     let sub: Awaited<ReturnType<JsonRpcTransport['subscribe']>> | undefined
     let error: Error | undefined
@@ -384,10 +392,24 @@ export class Client {
         const status = normalizeStatus(raw), fatal = ['usurped', 'finalitytimeout', 'dropped', 'invalid'].find(key => key in status)
         if (fatal) throw new ChainError(`extrinsic ${fatal}`, raw)
         const included = options.waitForFinalization ? status.finalized : status.inblock ?? status.finalized
-        if (included != null) return this.resolveInclusion(hash, String(included), status.finalized != null)
+        if (included != null) return await this.resolveInclusion(hash, String(included), status.finalized != null)
       }
       throw error ?? new ChainError('extrinsic watch ended before inclusion')
-    } finally { request.cleanup(); await sub?.unsubscribe() }
+    } catch (error) {
+      if (!sub && isDefiniteSubmissionRejection(error)) throw error
+      if (!request.signal?.aborted) {
+        try {
+          const head = options.waitForFinalization ? await this.finalizedHead() : await this.blockHash()
+          const end = await this.blockNumber(head)
+          for (let height = Math.max(startBlock, end - 64); height <= end; height++) {
+            request.signal?.throwIfAborted()
+            const receipt = await this.findExtrinsic(hash, height, !!options.waitForFinalization)
+            if (receipt) return receipt
+          }
+        } catch { /* A failed read cannot establish rejection. */ }
+      }
+      throw new SubmissionUncertainError(hash, error)
+    } finally { request.cleanup(); await sub?.unsubscribe().catch(() => {}) }
   }
   private async eventsAt(blockHash: string, header?: any): Promise<{ runtime: Runtime; events: unknown[] }> {
     header ??= await this.rpc('chain_getHeader', [blockHash])
@@ -505,10 +527,18 @@ export class Client {
   private async submitPreparedCall(call: Call, signer: BrowserSigner, options: SubmitOptions, at?: string): Promise<ExtrinsicResult> {
     const blockHash = at ?? await this.blockHash()
     const address = signer.ss58Address ?? signer.address!
-    const nonce = options.nonce ?? this.reserveNonceRange(address, await this.peekNonce(address), options.mevShield ? 2 : 1)
+    const reserved = options.nonce == null, count = options.mevShield ? 2 : 1
+    const nonce = options.nonce ?? this.reserveNonceRange(address, await this.peekNonce(address), count)
+    let broadcastStarted = false
+    try {
     options = { ...options, nonce }
     const { policy: _policy, ...submissionOptions } = options
-    if (!options.mevShield) return this.broadcastExtrinsic((await this.signPrepared(await this.prepareRaw(call, signer, options, blockHash), signer)).bytes, submissionOptions)
+    if (!options.mevShield) {
+      const signed = await this.signPrepared(await this.prepareRaw(call, signer, options, blockHash), signer)
+      options.signal?.throwIfAborted()
+      broadcastStarted = true
+      return await this.broadcastExtrinsic(signed.bytes, submissionOptions)
+    }
     const signingOptions = shieldOptions(options)
     if (!Number.isSafeInteger(nonce) || nonce < 0 || nonce >= Number.MAX_SAFE_INTEGER) throw new TypeError('invalid shielded nonce')
     const rawKey = await this.query(['MevShield', 'NextKey'], [], blockHash)
@@ -519,8 +549,15 @@ export class Client {
     if (ciphertext.length > 8192) throw new ChainError('shielded ciphertext exceeds 8192 bytes')
     const carrier = { pallet: 'MevShield', call: 'submit_encrypted', params: { ciphertext } }
     const outer = await this.signPrepared(await this.prepareRaw(carrier, signer, { ...signingOptions, nonce }, blockHash), signer)
+    options.signal?.throwIfAborted()
+    broadcastStarted = true
     const result = await this.broadcastExtrinsic(outer.bytes, submissionOptions)
-    return this.resolveShieldedInner(result, hex(inner.hash), Number(signingOptions.period), options)
+    return await this.resolveShieldedInner(result, hex(inner.hash), Number(signingOptions.period), options)
+    } catch (error) {
+      const key = hex(publicKeyFromSs58(address))
+      if (reserved && (!broadcastStarted || isDefiniteSubmissionRejection(error)) && this.nonceFloors.get(key) === nonce + count) this.nonceFloors.set(key, nonce)
+      throw error
+    }
   }
   async prepareMultisig(request: MultisigApprovalRequest, block?: BlockRef) { return prepareMultisigApproval(await this.intentReader(block), request) }
   upgrades(): UpgradeClient {

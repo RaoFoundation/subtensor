@@ -185,15 +185,33 @@ transaction builders to avoid confusing `"1"` rao with `"1.0"` TAO. Decimal
 TAO/alpha amounts with more than nine fractional digits are rejected.
 
 `client.submit()` delegates automatic nonce selection to the Rust client when
-submitting with a native `Keypair`. Low-level manual signing APIs such as
-`signExtrinsic()` require an explicit `nonce`, and detached flows using
-`submitSigned()` and `watchSigned()` delegate encoded submission and receipt
+submitting with a native `Keypair`. Native `Client.signExtrinsic()` can also
+reserve a nonce for detached signing; the JavaScript `BrowserChainClient`
+requires an explicit nonce. Detached flows using `submitSigned()` and
+`watchSigned()` delegate encoded submission and receipt
 tracking to Rust. On `BrowserChainClient`, `watchSigned()` uses the TypeScript
 WebSocket transport for custom/browser subscription handling.
 
+Ordinary signing binds the transaction to the RFC-0078 metadata digest whenever
+`CheckMetadataHash` is declared by the runtime. The SDK never disables this check
+in response to an RPC failure. Development runtimes that declare the extension
+but omit the embedded hash require an explicit `metadataHash: null` opt-out
+(`MetadataHashMode::Disabled` for Rust external signing plans). Proof-requiring
+signers cannot opt out.
+
+Submission requests are never automatically resent. A lost response is uncertain,
+not a rejection: Node results expose `status: 'unknown'` and
+`data.submission_uncertain`; browser errors expose `SubmissionUncertainError`
+with the transaction hash. Receipt tracking attempts read-only reconciliation.
+Use the hash to reconcile inclusion before retrying the operation.
+
 Automatic submissions share a per-account queue. Shielded submissions reserve
 both the carrier and inner nonce, including when the caller returns before
-inclusion or loses the response. Plans and fee estimates do not reserve nonces.
+inclusion or loses the response. Semantic previews and fee estimates do not
+reserve nonces; detached signing plans may reserve them. Failed preparation,
+failed signing, and definite admission rejection release unused reservations.
+Protected wallets also restore the previous generation marker on definite
+rejection, while retaining it when delivery is uncertain.
 After reconciling an abandoned or expired transaction, use
 `await client.invalidateNonce(address)` before retrying with automatic nonces.
 Do not clear a reservation while its carrier or inner transaction may still

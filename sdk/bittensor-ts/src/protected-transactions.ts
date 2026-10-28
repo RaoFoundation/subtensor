@@ -1,3 +1,4 @@
+import { isDefiniteSubmissionRejection } from './transport'
 import { bytesHex as hex, concatBytes, hexBytes } from './portable'
 import { isProtectedCrypto, isRotatingCrypto, u64 } from './wallet-types'
 import { signingAuthority, assertAuthorityCurrent, registrationCall, rotationCall, type SigningAuthority, type ProtectedAccountClient, type ProtectedKeypair } from './protected-accounts'
@@ -11,7 +12,7 @@ export interface ProtectedTransactionOptions {
   period?: number | null
   tip?: bigint
   tipAssetId?: bigint | null
-  metadataHash?: Uint8Array
+  metadataHash?: Uint8Array | null
   waitForInclusion?: boolean
   waitForFinalization?: boolean
   timeoutMs?: number
@@ -128,6 +129,22 @@ export class ProtectedWalletClient {
   }
   private async submitSelected(call: IntentDescriptor | Uint8Array, options: ProtectedTransactionOptions, selected?: SigningAuthority): Promise<any> {
     const authority = selected ?? await this.selectAuthority(options), account = hex(this.keypair.publicKey)
+    const previous = submitted.get(this.queueOwner)?.get(account)
+    const restore = () => {
+      const entries = submitted.get(this.queueOwner)
+      if (previous) entries?.set(account, previous); else entries?.delete(account)
+    }
+    const submit = async (bytes: Uint8Array, count: number, submissionOptions: ProtectedTransactionOptions) => {
+      markSubmitted(count)
+      try {
+        const result = await this.adapter.submitBytes(bytes, this.keypair.ss58Address, submissionOptions)
+        if (result.data?.submission_rejected === true && !result.blockHash) restore()
+        return result
+      } catch (error) {
+        if (isDefiniteSubmissionRejection(error)) restore()
+        throw error
+      }
+    }
     const markSubmitted = (count: number) => {
       let entries = submitted.get(this.queueOwner)
       if (!entries) {entries = new Map(); submitted.set(this.queueOwner,entries)}
@@ -137,8 +154,7 @@ export class ProtectedWalletClient {
       const signed = await this.signed(call, authority, options)
       await assertAuthorityCurrent(this.adapter, authority)
       options.signal?.throwIfAborted()
-      markSubmitted(1)
-      return this.adapter.submitBytes(signed.bytes, this.keypair.ss58Address, options)
+      return submit(signed.bytes, 1, options)
     }
     if (options.period === null || options.period != null && (options.period < 4 || options.period > 8)) throw new RangeError('shielding requires a 4..8 block era')
     const signing = { ...options, period: options.period ?? 8 }
@@ -151,10 +167,10 @@ export class ProtectedWalletClient {
     const outer = await this.signed({ pallet: 'MevShield', call: 'submit_encrypted', params: { ciphertext } }, authority, signing)
     await assertAuthorityCurrent(this.adapter, authority)
     options.signal?.throwIfAborted()
-    markSubmitted(2)
-    const carrier = await this.adapter.submitBytes(outer.bytes, this.keypair.ss58Address, { ...options, waitForInclusion: true })
+    const carrier = await submit(outer.bytes, 2, { ...options, waitForInclusion: true })
+    if (carrier.data?.submission_rejected === true || carrier.data?.submission_uncertain === true) return carrier
     const result = await this.adapter.followShielded(carrier, typeof inner.hash === 'string' ? inner.hash : hex(inner.hash), signing.period, options)
-    if (carrier.success === false || result.data?.carrier_only && result.chainError?.name === 'ExtrinsicExpired') markSubmitted(1)
+    if (carrier.success === false && carrier.blockHash || result.data?.carrier_only && result.chainError?.name === 'ExtrinsicExpired') markSubmitted(1)
     return result
   }
   async execute(intent: Intent, options: ProtectedWorkflowOptions = {}): Promise<any> {
@@ -223,4 +239,4 @@ export class ProtectedWalletClient {
       return {intent:prepared,call,feeRao:fee,carrierFeeRao:carrierFee,feePayer:payer.address,shielded:shield,blockHash:block,violations:errors,ok:errors.length === 0}
   }
 }
-function structuredOptions<T extends ProtectedTransactionOptions>(options: T): T { return { ...options, metadataHash: options.metadataHash?.slice() } }
+function structuredOptions<T extends ProtectedTransactionOptions>(options: T): T { return { ...options, metadataHash: options.metadataHash === null ? null : options.metadataHash?.slice() } }

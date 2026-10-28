@@ -122,6 +122,28 @@ export type EndpointRequest = (method: string, params?: unknown[]) => Promise<un
 
 export type EndpointValidator = (endpoint: string, request: EndpointRequest) => Promise<void>
 
+/** Only explicit admission errors prove a submission was not accepted. */
+export function isDefiniteSubmissionRejection(error: unknown): boolean {
+  return error instanceof SubmissionNotSentError || error instanceof JsonRpcError && [-32600, -32601, -32602, 1010, 1011, 1012, 1014].includes(error.code ?? 0)
+}
+
+/** Preparation failed before the transport attempted to send the transaction. */
+export class SubmissionNotSentError extends Error {
+  constructor(readonly cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause))
+    this.name = 'SubmissionNotSentError'
+  }
+}
+
+/** The transaction may have reached the node. Reconcile its hash before retrying. */
+export class SubmissionUncertainError extends Error {
+  readonly submissionUncertain = true
+  constructor(readonly extrinsicHash: string, readonly cause: unknown) {
+    super(`submission uncertain for ${extrinsicHash}; reconcile by hash before retrying: ${cause instanceof Error ? cause.message : String(cause)}`)
+    this.name = 'SubmissionUncertainError'
+  }
+}
+
 export class JsonRpcError extends Error {
   readonly code?: number
   readonly data?: unknown
@@ -226,15 +248,16 @@ export class JsonRpcTransport {
   }
 
   async request(method: string, params: unknown[] = [], options: RpcRequestOptions = {}): Promise<unknown> {
-    if (this.closed) throw new ChainError('transport closed')
+    if (this.closed) { const error = new ChainError('transport closed'); throw method.startsWith('author_submit') ? new SubmissionNotSentError(error) : error }
     const requestOptions = {
       ...options,
       timeoutMs: options.timeoutMs ?? this.requestTimeoutMs,
     }
-    throwIfAborted(requestOptions.signal)
+    try { throwIfAborted(requestOptions.signal) } catch (error) { throw method.startsWith('author_submit') ? new SubmissionNotSentError(error) : error }
     const retryByDefault = IDEMPOTENT_RPC_METHODS.has(method)
-    const maxRetries = requestOptions.maxRetries ?? (retryByDefault ? this.maxRequestRetries : 0)
-    const retryForever = requestOptions.retryForever ?? (retryByDefault ? this.retryForever : false)
+    const submitting = method.startsWith('author_submit')
+    const maxRetries = submitting ? 0 : requestOptions.maxRetries ?? (retryByDefault ? this.maxRequestRetries : 0)
+    const retryForever = submitting ? false : requestOptions.retryForever ?? (retryByDefault ? this.retryForever : false)
     const retryBackoffMs = requestOptions.retryBackoffMs ?? this.retryBackoffMs
     const maxRetryBackoffMs = requestOptions.maxRetryBackoffMs ?? this.maxRetryBackoffMs
     let attempt = 0
@@ -243,12 +266,15 @@ export class JsonRpcTransport {
       const endpointAttempt = this.currentAttempt()
       attemptedEndpoints.add(endpointAttempt.endpoint)
       try {
-        await this.ensureEndpointValidated(endpointAttempt, requestOptions)
+        await this.ensureEndpointValidated(endpointAttempt, requestOptions).catch(error => {
+          if (submitting) throw new SubmissionNotSentError(error)
+          throw error
+        })
         return this.isHttpEndpoint(endpointAttempt.endpoint)
           ? await this.httpRequest(endpointAttempt, method, params, requestOptions)
           : await this.wsRequest(endpointAttempt, method, params, requestOptions)
       } catch (error) {
-        if (error instanceof RequestAbortedError || error instanceof JsonRpcError) throw error
+        if (error instanceof SubmissionNotSentError || error instanceof RequestAbortedError || error instanceof JsonRpcError) throw error
         if (error instanceof EndpointValidationError) {
           this.validatedEndpoints.delete(endpointAttempt.endpoint)
           if (attemptedEndpoints.size >= this.endpoints.length || !this.rotateEndpoint(endpointAttempt)) throw error
@@ -268,24 +294,28 @@ export class JsonRpcTransport {
     params: unknown[] = [],
     options: RpcRequestOptions = {},
   ): Promise<unknown> {
-    if (this.closed) throw new ChainError('transport closed')
+    if (this.closed) { const error = new ChainError('transport closed'); throw method.startsWith('author_submit') ? new SubmissionNotSentError(error) : error }
     const requestOptions = {
       ...options,
       timeoutMs: options.timeoutMs ?? this.requestTimeoutMs,
     }
-    throwIfAborted(requestOptions.signal)
-    const maxRetries = requestOptions.maxRetries ?? this.maxRequestRetries
-    const retryForever = requestOptions.retryForever ?? this.retryForever
+    try { throwIfAborted(requestOptions.signal) } catch (error) { throw method.startsWith('author_submit') ? new SubmissionNotSentError(error) : error }
+    const submitting = method === 'author_submitAndWatchExtrinsic'
+    const maxRetries = submitting ? 0 : requestOptions.maxRetries ?? this.maxRequestRetries
+    const retryForever = submitting ? false : requestOptions.retryForever ?? this.retryForever
     const retryBackoffMs = requestOptions.retryBackoffMs ?? this.retryBackoffMs
     const maxRetryBackoffMs = requestOptions.maxRetryBackoffMs ?? this.maxRetryBackoffMs
     let attempt = 0
     for (;;) {
       const endpointAttempt = this.currentWebSocketAttempt()
       try {
-        await this.ensureEndpointValidated(endpointAttempt, requestOptions)
+        await this.ensureEndpointValidated(endpointAttempt, requestOptions).catch(error => {
+          if (submitting) throw new SubmissionNotSentError(error)
+          throw error
+        })
         return await this.wsRequest(endpointAttempt, method, params, requestOptions)
       } catch (error) {
-        if (error instanceof RequestAbortedError || error instanceof JsonRpcError) throw error
+        if (error instanceof SubmissionNotSentError || error instanceof RequestAbortedError || error instanceof JsonRpcError) throw error
         if (error instanceof EndpointValidationError) this.validatedEndpoints.delete(endpointAttempt.endpoint)
         if (!retryForever && attempt >= maxRetries) throw error
         attempt += 1
@@ -346,12 +376,13 @@ export class JsonRpcTransport {
     unsubscribeMethod: string,
     options: SubscriptionOptions = {},
   ): Promise<AsyncIterable<unknown> & { unsubscribe(): Promise<void> }> {
-    this.currentWebSocketAttempt()
+    try { this.currentWebSocketAttempt() }
+    catch (error) { throw subscribeMethod === 'author_submitAndWatchExtrinsic' ? new SubmissionNotSentError(error) : error }
     const state: SubscriptionState = {
       queue: [],
       waiters: [],
       closed: false,
-      resubscribe: options.resubscribe ?? true,
+      resubscribe: subscribeMethod === 'author_submitAndWatchExtrinsic' ? false : options.resubscribe ?? true,
       subscribeMethod,
       params,
       unsubscribeMethod,
@@ -439,7 +470,12 @@ export class JsonRpcTransport {
     params: unknown[],
     options: RpcRequestOptions,
   ): Promise<unknown> {
-    const connection = await this.connect(attempt, options)
+    const connection = await this.connect(attempt, options).catch(error => {
+      if (method.startsWith('author_submit')) throw new SubmissionNotSentError(error)
+      throw error
+    })
+    try { throwIfAborted(options.signal) }
+    catch (error) { throw method.startsWith('author_submit') ? new SubmissionNotSentError(error) : error }
     const id = this.id++
     const promise = new Promise<unknown>((resolve, reject) => {
       const request = withRequestSignal(options)

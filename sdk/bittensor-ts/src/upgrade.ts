@@ -248,7 +248,10 @@ export async function checkUpgradeProposal(adapter: UpgradeAdapter, bundle: Upgr
       const assets = manifest.assets ?? {}
       for (const key of ['wasm', 'digest', 'call_data', 'manifest'] as const) check(`release ${key} asset`, assets[key] === bundle.release.assetUrl(UPGRADE_ASSETS[key]), 'manifest asset URL must refer to this exact release')
     }
-  } else if (options.expectedSpecVersion != null && result.specVersion == null) check('expected spec version', false, 'neither embedded version nor release manifest can establish expectedSpecVersion')
+  } else {
+    if (options.expectedCommit != null) check('manifest commit', false, 'a release manifest is required to establish expectedCommit')
+    if (options.expectedSpecVersion != null && result.specVersion == null) check('expected spec version', false, 'neither embedded version nor release manifest can establish expectedSpecVersion')
+  }
   result.ok = checks.every(item => item.ok !== false)
   return result
 }

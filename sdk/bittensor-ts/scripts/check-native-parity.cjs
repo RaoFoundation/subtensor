@@ -443,6 +443,7 @@ const coreClientCoverage = new Map(Object.entries({
   runtime_call: ['native:NativeClient.runtimeCall', 'node:Snapshot.runtime', 'browser:Snapshot.runtime'],
   account_next_index: ['native:NativeClient.accountNextIndex'],
   reserve_nonces: ['native:NativeClient.reserveNonces'],
+  release_nonces: ['native:NativeClient.releaseNonces'],
   invalidate_nonce: ['native:NativeClient.invalidateNonce'],
   chain_info: ['native:NativeClient.chainInfo'],
   external_signing_plan: ['native:NativeClient.externalSigningPlan'],

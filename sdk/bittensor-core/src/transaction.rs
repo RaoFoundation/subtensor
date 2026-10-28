@@ -1225,10 +1225,20 @@ impl<'a> Executor<'a> {
         let active = policy.or(self.policy.as_ref());
         // Runtime payment_queryInfo excludes the tip even for an encoded signed
         // extrinsic. Guard the complete amount before releasing a signing plan.
-        let fee_rao = fee_with_tip(plan.fee_rao, plan.params.tip)?;
-        let violations = active.map_or_else(Vec::new, |policy| policy.check(intent, fee_rao));
-        if !violations.is_empty() {
-            return Err(CoreError::Policy(violations.join("; ")));
+        let checked = (|| -> Result<(), CoreError> {
+            let fee_rao = fee_with_tip(plan.fee_rao, plan.params.tip)?;
+            let violations = active.map_or_else(Vec::new, |policy| policy.check(intent, fee_rao));
+            if !violations.is_empty() {
+                return Err(CoreError::Policy(violations.join("; ")));
+            }
+            Ok(())
+        })();
+        if let Err(error) = checked {
+            if plan.reserved_nonce {
+                self.client
+                    .release_nonces(&plan.signer_address, plan.params.nonce, 1)?;
+            }
+            return Err(error);
         }
         Ok(plan)
     }
@@ -1274,8 +1284,17 @@ impl<'a> Executor<'a> {
         if !plan.ok() {
             return Err(CoreError::Policy(plan.violations.join("; ")));
         }
-        self.client
-            .submit_shielded(&plan.call_data, wallet.signer(intent.signer), false)
+        // Quote a maximum-size carrier with a dummy signature before either
+        // real signature is requested. The policy covers the whole workflow.
+        let signer = wallet.signer(intent.signer);
+        let fee = self.client.estimate_shielded_fee(&plan.call_data, signer)?;
+        let violations = policy
+            .or(self.policy.as_ref())
+            .map_or_else(Vec::new, |policy| policy.check(intent, Some(fee)));
+        if !violations.is_empty() {
+            return Err(CoreError::Policy(violations.join("; ")));
+        }
+        self.client.submit_shielded(&plan.call_data, signer, false)
     }
 }
 

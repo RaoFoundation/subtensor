@@ -516,6 +516,7 @@ export interface NativeClientHandle {
   runtimeCall(api: string, method: string, params: unknown, blockHash?: string | null): Promise<unknown>
   accountNextIndex(address: string): Promise<bigint>
   reserveNonces(address: string, count: bigint): Promise<bigint>
+  releaseNonces(address: string, nonce: bigint, count: bigint): Promise<void>
   invalidateNonce(address: string): Promise<void>
   signExtrinsic(
     callData: Buffer,

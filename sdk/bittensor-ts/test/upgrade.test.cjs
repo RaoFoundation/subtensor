@@ -79,3 +79,11 @@ test('fetching distinguishes absent optional assets from malformed payloads, cap
   await assert.rejects(u.fetchUpgradeBytes('http://example.test/x',{fetch}),/HTTPS/)
   assert.equal(urls.every(([,o])=>o.headers.Authorization==null),true)
 })
+
+test('raw upgrade proposals cannot approve an unverifiable expected commit', async () => {
+  const f = fixture(), bundle = { ...f.bundle, manifest: undefined }
+  const result = await u.checkUpgradeProposal(f.adapter, bundle, f.options)
+  assert.equal(result.ok, false)
+  assert.equal(result.checks.find(c => c.name === 'manifest commit').ok, false)
+  await assert.rejects(u.planUpgradeApproval(f.adapter, bundle, { ...f.options, signer: f.signers[1], sudoSignatories: f.signers, sudoThreshold: 2 }), /commit|verification|checks|manifest/i)
+})

@@ -2455,7 +2455,7 @@ test('Client callData composes trusted Rust intent calls', async () => {
   assert.equal(captures.composeCall.block, 99)
 })
 
-test('Client does not enable metadata hash by default for software signers', async () => {
+test('Client enables metadata hash by default for software signers', async () => {
   const callData = Buffer.from([5, 6, 7])
   const metadataBytes = goldenMetadataBytes()
   const { runtime, captures } = fakeSigningRuntime({
@@ -2479,9 +2479,12 @@ test('Client does not enable metadata hash by default for software signers', asy
 
   await client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true })
 
-  assert.equal(captures.encoded.params.metadataHashEnabled, false)
-  assert.equal(captures.payloadParams.metadataHash, null)
-  assert.equal(request.metadataHash, undefined)
+  assert.equal(captures.encoded.params.metadataHashEnabled, true)
+  assert.equal(captures.payloadParams.metadataHash.length, 32)
+  assert.equal(request.metadataHash, `0x${captures.payloadParams.metadataHash.toString('hex')}`)
+
+  await client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true, metadataHash: undefined })
+  assert.equal(captures.encoded.params.metadataHashEnabled, true)
 
   await client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true, metadataHash: null })
   assert.equal(captures.encoded.params.metadataHashEnabled, false)
@@ -2688,11 +2691,12 @@ test('Client submit delegates automatic Keypair nonces to the Rust client', asyn
     warnings: [],
   }
   client.requireNativeClient = () => ({
+    assembleExternal: async () => ({hash:'0x'+'11'.repeat(32)}),
     externalSigningPlan(submittedCallData, signerAddress, publicKey, cryptoType, requiresMetadataProof, options) {
       calls.push({ stage: 'plan', submittedCallData, signerAddress, publicKey, cryptoType, requiresMetadataProof, options })
       return plan
     },
-    submitExternal(submittedPlan, signature, options, cryptoType) {
+    async submitExternal(submittedPlan, signature, options, cryptoType) {
       calls.push({ stage: 'submit', submittedPlan, signature, options, cryptoType })
       return {
         success: true,
@@ -2779,11 +2783,12 @@ test('Client submit uses the Rust signing plan for external signers', async () =
   }
   const calls = []
   client.requireNativeClient = () => ({
+    assembleExternal: async () => ({hash:'0x'+'11'.repeat(32)}),
     externalSigningPlan(submittedCallData, signerAddress, submittedPublicKey, cryptoType, requiresMetadataProof, options) {
       calls.push({ stage: 'plan', submittedCallData, signerAddress, submittedPublicKey, cryptoType, requiresMetadataProof, options })
       return plan
     },
-    submitExternal(submittedPlan, signature, options, cryptoType) {
+    async submitExternal(submittedPlan, signature, options, cryptoType) {
       calls.push({ stage: 'submit', submittedPlan, signature, options, cryptoType })
       return {
         success: true,
@@ -3177,7 +3182,7 @@ test('Client submission watches support timeout for explicit-nonce JavaScript su
 
   await assert.rejects(
     () => client.submit(callData, signer, { period: null, nonce: 60, allowRawCall: true, waitForInclusion: true, timeoutMs: 5 }),
-    (error) => error.name === 'RequestTimeoutError',
+    (error) => error.name === 'SubmissionUncertainError' && error.cause.name === 'RequestTimeoutError' && /^0x[0-9a-f]{64}$/.test(error.extrinsicHash),
   )
   assert.deepEqual(capturedNonces, [60])
   assert.equal(
@@ -3496,4 +3501,69 @@ test('rustCore mirrors the Rust CoreError module and root re-export', () => {
   assert.equal(core.rustCore.error.CodecError, core.CodecError)
   assert.equal(core.rustCore.error.CryptoError, core.CryptoError)
   assert.equal(core.rustCore.error.DeviceError, core.DeviceError)
+})
+
+test('submission setup never retries even with retryForever and retries explicitly enabled', async t => {
+  const { FakeWebSocket, restore } = installFakeWebSocket(); t.after(restore)
+  for (const watch of [false, true]) {
+    let count = 0
+    FakeWebSocket.onSend = (socket, message) => { if (message.method.startsWith('author_submit')) { count++; socket.close() } }
+    const transport = new core.JsonRpcTransport('ws://node-a', ['ws://node-b'], true, { requestTimeoutMs: 30, maxRequestRetries: 4, retryBackoffMs: 0 })
+    const options = { maxRetries: 4, retryForever: true, resubscribe: true }
+    await assert.rejects(watch ? transport.subscribe('author_submitAndWatchExtrinsic', ['0x01'], 'author_unwatchExtrinsic', options) : transport.request('author_submitExtrinsic', ['0x01'], options), /closed/)
+    assert.equal(count, 1)
+    await transport.close()
+  }
+})
+
+test('ordinary signing defaults to metadata binding and explicit null is the only opt-out', async () => {
+  const runtime = new core.Runtime(goldenMetadataBytes(), 419, 1, 42)
+  const vector = { callData: runtime.composeCall('System', 'remark', {remark: Buffer.from([1])}), chainInfo: {specVersion:419,specName:'node-subtensor',base58Prefix:42,decimals:9,tokenSymbol:'TAO'} }
+  const alice = core.Keypair.fromUri('//Alice'), client = fakeSigningClient(runtime, vector.callData), captured = []
+  client.chainInfo = async () => vector.chainInfo
+  const signer = { address: alice.ss58Address, publicKey: alice.publicKey, cryptoType: 1, sign: (bytes, context) => { captured.push(context); return alice.sign(bytes) } }
+  await client.signExtrinsic(vector.callData, signer, { allowRawCall: true, nonce: 0 })
+  assert.deepEqual(Buffer.from(captured[0].metadataHash), core.metadataDigest(runtime.metadataBytes, vector.chainInfo))
+  await client.signExtrinsic(vector.callData, signer, { allowRawCall: true, nonce: 0, metadataHash: null })
+  assert.equal(captured[1].metadataHash, null)
+  await client.close()
+})
+
+test('Node historical map pages and values use archive fallback', async () => {
+  const hash = '0x' + '44'.repeat(32), client = new core.Client('local', { endpoint: 'http://primary', archiveEndpoints: ['http://archive'] }), requests = []
+  client.runtimeAt = async () => ({storageKey: () => Buffer.from([0]), storageEntry: () => ({valueType:'u8'}),decodeStorageKeyParams:(_p,_n,key)=>[key[0]], decode:(_type,bytes)=>bytes[0]})
+  client.genesisHash = async () => hash
+  client.requireNativeClient = async () => ({ queryMap: async () => { throw new Error('State already discarded') }, rpcValue: async () => { throw new Error('State already discarded') } })
+  client.nodeArchiveTransport = { request: async (method,params) => { requests.push([method,params]); if (method === 'state_getKeysPaged') return params[2] == null ? ['0x01'] : []; if (method === 'state_queryStorageAt') return [{changes:[['0x01','0x05']]}]; throw new Error(method) }, close:async()=>{} }
+  assert.deepEqual(await client.queryMap('Example','Map',[],hash, {pageSize:1}),[[1,5]])
+  assert.deepEqual(requests.map(r=>r[0]),['state_getKeysPaged','state_queryStorageAt','state_getKeysPaged'])
+  assert(requests.every(r=>r[1].at(-1)===hash))
+  await client.close()
+})
+
+test('Node block subscriptions retain the configured fallback endpoints', async t => {
+  const { FakeWebSocket, restore } = installFakeWebSocket(); t.after(restore)
+  const genesis = '0x' + '11'.repeat(32), endpoints = []
+  FakeWebSocket.onSend = (socket, message) => {
+    endpoints.push(socket.url)
+    if (socket.url.includes('node-a')) { socket.close(); return }
+    if (message.method === 'chain_getBlockHash') queueMicrotask(()=>socket.serverMessage({jsonrpc:'2.0',id:message.id,result:genesis}))
+    if (message.method === 'chain_subscribeNewHeads') queueMicrotask(()=>{ socket.serverMessage({jsonrpc:'2.0',id:message.id,result:'heads'}); setImmediate(()=>socket.serverMessage({jsonrpc:'2.0',method:'chain_newHead',params:{subscription:'heads',result:{number:'0x2',parentHash:genesis,hash:genesis}}})) })
+    if (message.method === 'chain_unsubscribeNewHeads') queueMicrotask(()=>socket.serverMessage({jsonrpc:'2.0',id:message.id,result:true}))
+  }
+  const client = new core.Client('local',{endpoint:'ws://node-a',fallbackEndpoints:['ws://node-b'],expectedGenesisHash:genesis,retryBackoffMs:0,requestTimeoutMs:50})
+  client.requireNativeClient = async () => ({ genesisHash: async()=>genesis })
+  const iterator = client.blocks()[Symbol.asyncIterator]()
+  const block = await iterator.next()
+  assert.equal(block.value.number,2); assert(endpoints.some(e=>e.includes('node-b')))
+  await iterator.return(); await client.close()
+})
+
+test('cancellation while connecting cannot send a submission afterward', async () => {
+  const transport = new core.JsonRpcTransport('ws://node-a'), controller = new AbortController()
+  let sends = 0
+  transport.connect = async () => { controller.abort(); return { generation:0, socket:{send:()=>sends++} } }
+  await assert.rejects(transport.request('author_submitExtrinsic',['0x01'],{signal:controller.signal}), error=>error.name==='SubmissionNotSentError')
+  assert.equal(sends,0)
+  await transport.close()
 })

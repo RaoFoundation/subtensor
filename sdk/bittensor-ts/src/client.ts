@@ -1,3 +1,5 @@
+import { SubmissionUncertainError, SubmissionNotSentError, isDefiniteSubmissionRejection } from './transport'
+export { SubmissionUncertainError, SubmissionNotSentError } from './transport'
 import { serializeUnsignedTransaction, restoreUnsignedTransaction, type SerializedUnsignedTransaction, type UnsignedTransactionState, type UnsignedRuntime } from './unsigned-transaction'
 import { ProtectedWalletClient } from './protected-transactions'
 import type { ProtectedKeypair } from './protected-accounts'
@@ -214,6 +216,7 @@ export interface ExtrinsicResult {
   events: unknown[]
   error?: unknown
   chainError?: ChainErrorInfo
+  data?: Record<string, unknown>
 }
 
 export interface SignedExtrinsicResult extends SignedExtrinsic {
@@ -605,8 +608,8 @@ export class BrowserChainClient {
     }
   }
 
-  rpc(method: string, params: unknown[] = []): Promise<unknown> {
-    return this.transport.request(method, params)
+  rpc(method: string, params: unknown[] = [], options: RpcRequestOptions = {}): Promise<unknown> {
+    return this.transport.request(method, params, options)
   }
 
   async query<T extends ScaleValue = ScaleValue>(
@@ -673,7 +676,7 @@ export class BrowserChainClient {
       const pageStart = startKey ?? ''
       if (seenPageStarts.has(pageStart)) throw new ChainError('queryMap pagination did not advance')
       seenPageStarts.add(pageStart)
-      const keys = (await this.transport.request('state_getKeysPaged', [
+      const keys = (await this.rpc('state_getKeysPaged', [
         hex(prefix),
         options.pageSize,
         startKey,
@@ -685,7 +688,7 @@ export class BrowserChainClient {
       if (lastKey == null || (startKey != null && lastKey.toLowerCase() === startKey.toLowerCase())) {
         throw new ChainError('queryMap pagination did not advance')
       }
-      const raw = await this.transport.request('state_queryStorageAt', [keys, ...(blockHash == null ? [] : [blockHash])], { signal: options.signal })
+      const raw = await this.rpc('state_queryStorageAt', [keys, ...(blockHash == null ? [] : [blockHash])], { signal: options.signal })
       const changes = ((raw as Array<{ changes?: Array<[string, string | null]> }>)[0]?.changes ?? [])
       const valueByKey = new Map(changes.map(([key, value]) => [key.toLowerCase(), value]))
       for (const key of keys) {
@@ -980,9 +983,9 @@ export class BrowserChainClient {
     const { era, eraBlockHash } = await this.normalizeEra(period, snapshot)
     const tip = taoTransactionAmountRao(options.tip ?? 0n, 'tip')
     const tipAssetId = options.tipAssetId == null ? null : assetIdValue(options.tipAssetId, 'tipAssetId')
-    const metadataHashOptionProvided = hasOwn(options, 'metadataHash')
-    const defaultMetadataHash = resolved.requiresMetadataProof
-    if (metadataHashOptionProvided && options.metadataHash == null && defaultMetadataHash) {
+    const metadataHashOptionProvided = options.metadataHash !== undefined
+    const defaultMetadataHash = resolved.requiresMetadataProof || runtime.signedExtensionIdentifiers().includes('CheckMetadataHash')
+    if (metadataHashOptionProvided && options.metadataHash == null && resolved.requiresMetadataProof) {
       throw new ChainError(
         'metadataHash cannot be disabled for a signer that requires metadata proof',
       )
@@ -1087,18 +1090,20 @@ export class BrowserChainClient {
         retryForever: false,
       }))
     } catch (error) {
-      throw error
+      if (isDefiniteSubmissionRejection(error)) throw error
+      throw new SubmissionUncertainError(extrinsicHash, error)
     }
     let returnedHash: string
     try {
       returnedHash = normalizeHash32(hash, 'author_submitExtrinsic hash')
     } catch (error) {
-      throw error
+      if (isDefiniteSubmissionRejection(error)) throw error
+      throw new SubmissionUncertainError(extrinsicHash, error)
     }
     if (!sameHex(returnedHash, extrinsicHash)) {
-      throw new ChainError(
+      throw new SubmissionUncertainError(extrinsicHash, new ChainError(
         `author_submitExtrinsic returned hash ${returnedHash}, expected ${extrinsicHash}`,
-      )
+      ))
     }
     return { status: 'submitted', message: 'Submitted', extrinsicHash, events: [] }
   }
@@ -1128,7 +1133,8 @@ export class BrowserChainClient {
         },
       )
     } catch (error) {
-      throw error
+      if (isDefiniteSubmissionRejection(error)) throw error
+      throw new SubmissionUncertainError(extrinsicHash, error)
     }
     const result = this.resolveWatchedExtrinsic(
       subscription,
@@ -1138,7 +1144,7 @@ export class BrowserChainClient {
         timeoutMs: options.timeoutMs,
         signal: options.signal,
       },
-    )
+    ).catch(error => { throw new SubmissionUncertainError(extrinsicHash, error) })
     return {
       extrinsicHash,
       result,
@@ -1662,7 +1668,7 @@ export class Client extends BrowserChainClient {
     const [label] = resolveEndpoint(options.endpoint ?? network)
     const fallbackEndpoints = options.fallbackEndpoints ?? [...FALLBACK_ENDPOINTS[label] ?? []]
     if (fallbackEndpoints.length && options.expectedGenesisHash == null && trustedGenesisHash(label) == null) throw new ChainError('fallbackEndpoints require expectedGenesisHash for custom or untrusted networks')
-    super(network, { ...options, fallbackEndpoints: [], autoConnect: false })
+    super(network, { ...options, fallbackEndpoints, autoConnect: false })
     this.nodeOptions = options
     this.nodeArchiveEndpoints = options.archiveEndpoints ?? [...ARCHIVE_ENDPOINTS[label] ?? []]
     this.nodeEndpoints = [this.endpoint, ...fallbackEndpoints.filter((endpoint) => endpoint !== this.endpoint)]
@@ -1775,8 +1781,9 @@ export class Client extends BrowserChainClient {
     return nativeChainInfoToChainInfo(await (await this.requireNativeClient()).chainInfo())
   }
 
-  override async rpc(method: string, params: unknown[] = []): Promise<unknown> {
-    try { return await (await this.requireNativeClient()).rpcValue(method, params) }
+  override async rpc(method: string, params: unknown[] = [], options: RpcRequestOptions = {}): Promise<unknown> {
+    throwIfAborted(options.signal)
+    try { const result = await (await this.requireNativeClient()).rpcValue(method, params); throwIfAborted(options.signal); return result }
     catch (error) {
       if (!this.nodeArchiveEndpoints.length || !isPrunedState(error) || !/^(?:state_(?:call|getStorage|queryStorageAt|getKeysPaged|getMetadata|getRuntimeVersion)|chain_get(?:Block|Header))$/.test(method)) throw error
       const expected = await this.genesisHash()
@@ -1784,7 +1791,7 @@ export class Client extends BrowserChainClient {
         ...this.nodeOptions,
         validateEndpoint: async (endpoint, request) => { if (!sameHex(String(await request('chain_getBlockHash', [0])), expected)) throw new EndpointValidationError(`archive endpoint ${endpoint} belongs to another chain`) },
       })
-      return this.nodeArchiveTransport.request(method, params)
+      return this.nodeArchiveTransport.request(method, params, options)
     }
   }
 
@@ -1867,10 +1874,15 @@ export class Client extends BrowserChainClient {
     return runSignerQueue(this, resolved.ss58Address, async () => {
       options.signal?.throwIfAborted()
       const planned = await this.nativeSigningPlan(call, bound, options, await this.requireNativeClient())
+      try {
       options.signal?.throwIfAborted()
       const context = Object.freeze(nativePlanSignerContext(this, planned.runtime, planned.resolved, planned.plan))
       preparedCalls.set(context, { owner: this, planned })
       return context
+      } catch (error) {
+        if (options.nonce == null) await planned.native.releaseNonces(planned.resolved.ss58Address, BigInt(planned.plan.nonce), 1)
+        throw error
+      }
     }, options)
   }
 
@@ -1928,6 +1940,7 @@ export class Client extends BrowserChainClient {
       options.signal?.throwIfAborted()
       const native = await this.requireNativeClient()
       const planned = await this.nativeSigningPlan(call, bound, options, native)
+      try {
       options.signal?.throwIfAborted()
       const signature = await this.signRustPlan(planned)
       options.signal?.throwIfAborted()
@@ -1939,31 +1952,51 @@ export class Client extends BrowserChainClient {
         signerAddress: planned.resolved.ss58Address,
         nonce: parseNonce(planned.plan.nonce, 'native signing plan nonce'),
       }
+      } catch (error) {
+        if (options.nonce == null) await native.releaseNonces(planned.resolved.ss58Address, BigInt(planned.plan.nonce), 1)
+        throw error
+      }
     }, options)
   }
 
   override async submit(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    const submissionOptions = nativeSubmitOptions(options)
     const resolved = await this.resolveSigner(signer, await this.runtimeAt())
     const bound = bindSignerIdentity(resolved.signer, { ...resolved, address: resolved.ss58Address })
     return runSignerQueue(this, resolved.ss58Address, async () => {
     options.signal?.throwIfAborted()
     const native = await this.requireNativeClient()
     const planned = await this.nativeSigningPlan(call, bound, options, native)
-    options.signal?.throwIfAborted()
-    const signature = await this.signRustPlan(planned)
-    options.signal?.throwIfAborted()
+    let signature: Awaited<ReturnType<Client['signRustPlan']>>
+    try {
+      options.signal?.throwIfAborted()
+      signature = await this.signRustPlan(planned)
+      options.signal?.throwIfAborted()
+    } catch (error) {
+      if (options.nonce == null) await native.releaseNonces(planned.resolved.ss58Address, parseNonce(planned.plan.nonce, 'nonce'), 1)
+      throw error
+    }
+    let extrinsicHash: string
+    try {
+      extrinsicHash = (await native.assembleExternal(planned.plan, signature.signature, signature.cryptoType)).hash
+      options.signal?.throwIfAborted()
+    }
+    catch (error) {
+      if (options.nonce == null) await native.releaseNonces(planned.resolved.ss58Address, parseNonce(planned.plan.nonce, 'nonce'), 1)
+      throw error
+    }
     const cancellation = nativeCancellationForSignal(options.signal)
     const outcome = await abortableNative(
       native.submitExternal(
         planned.plan,
         signature.signature,
-        nativeSubmitOptions(options),
+        submissionOptions,
         signature.cryptoType,
         cancellation,
       ),
       options.signal,
       cancellation,
-    )
+    ).catch(error => { throw new SubmissionUncertainError(extrinsicHash, error) })
     return nativeOutcomeToExtrinsicResult(
       outcome,
       options.waitForFinalization === true,
@@ -1992,11 +2025,16 @@ export class Client extends BrowserChainClient {
     const bytes = Buffer.from(Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
       ? toBuffer(extrinsic, 'extrinsic')
       : toBuffer(extrinsic.bytes, 'extrinsic.bytes'))
-    const address = await this.signedExtrinsicAccount(bytes, signerAddress)
+    let address: string | undefined
+    try { address = await this.signedExtrinsicAccount(bytes, signerAddress) }
+    catch (error) { throw new SubmissionNotSentError(error) }
     const broadcast = async () => {
-    options.signal?.throwIfAborted()
-    const native = await this.requireNativeClient()
-    options.signal?.throwIfAborted()
+    let native: NativeChainClient
+    try {
+      options.signal?.throwIfAborted()
+      native = await this.requireNativeClient()
+      options.signal?.throwIfAborted()
+    } catch (error) { throw new SubmissionNotSentError(error) }
     const extrinsicHash = hex(blake2_256(bytes))
     const cancellation = nativeCancellationForSignal(options.signal)
     const outcome = await abortableNative(
@@ -2008,7 +2046,7 @@ export class Client extends BrowserChainClient {
       ),
       options.signal,
       cancellation,
-    )
+    ).catch(error => { throw new SubmissionUncertainError(extrinsicHash, error) })
     return nativeOutcomeToExtrinsicResult(
       outcome,
       options.waitForFinalization === true,
@@ -2161,7 +2199,11 @@ export class Client extends BrowserChainClient {
         planOptions,
       )
     }
-    return { native, runtime: Runtime.fromNativeHandle(plan.runtime), resolved, plan }
+    try { return { native, runtime: Runtime.fromNativeHandle(plan.runtime), resolved, plan } }
+    catch (error) {
+      if (options.nonce == null) await native.releaseNonces(resolved.ss58Address, BigInt(plan.nonce), 1)
+      throw error
+    }
   }
 
   private async signRustPlan(planned: NativeSigningPlan): Promise<NormalizedSignature> {
@@ -3097,7 +3139,7 @@ function nativeExternalSigningOptions(options: SubmitOptions): NativeExternalSig
   if (options.tipAssetId != null) {
     out.tipAssetId = assetIdValue(options.tipAssetId, 'tipAssetId')
   }
-  if (hasOwn(options, 'metadataHash')) {
+  if (options.metadataHash !== undefined) {
     if (options.metadataHash == null) {
       out.metadataHashMode = 'disabled'
     } else {
@@ -3185,7 +3227,7 @@ function nativeCancellationForSignal(signal?: AbortSignal): NativeCancellationTo
   return signal == null ? undefined : createNativeCancellationToken()
 }
 
-function abortableNative<T>(
+async function abortableNative<T>(
   promise: Promise<T>,
   signal?: AbortSignal,
   cancellation?: NativeCancellationToken,
@@ -3403,11 +3445,14 @@ function nativeOutcomeToExtrinsicResult(outcome: NativeTxOutcome, finalized: boo
   const blockNumber = outcome.blockNumber == null ? undefined : Number(outcome.blockNumber)
   const extrinsicIndex = outcome.extrinsicIndex ?? undefined
   const included = outcome.blockHash != null && blockNumber != null && extrinsicIndex != null
+  const data = (outcome.data ?? {}) as Record<string, unknown>
+  const uncertain = data.submission_uncertain === true
   return {
-    status: outcome.success
+    data,
+    status: uncertain ? 'unknown' : outcome.success
       ? finalized ? 'finalized' : included ? 'inBlock' : 'submitted'
       : included ? 'failed' : 'failed',
-    success: outcome.success,
+    success: uncertain ? undefined : outcome.success,
     message: outcome.message,
     extrinsicHash: outcome.extrinsicHash,
     blockHash: outcome.blockHash ?? undefined,
@@ -3418,7 +3463,7 @@ function nativeOutcomeToExtrinsicResult(outcome: NativeTxOutcome, finalized: boo
     fee: outcome.feeRao == null ? undefined : Balance.fromRao(outcome.feeRao),
     events: outcome.events,
     error: outcome.error ?? undefined,
-    chainError: outcome.error != null || outcome.success === false ? classifyChainError(outcome.message, { payload: outcome.error }) : undefined,
+    chainError: !uncertain && (outcome.error != null || outcome.success === false) ? classifyChainError(outcome.message, { payload: outcome.error }) : undefined,
   }
 }
 

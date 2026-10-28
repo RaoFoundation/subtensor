@@ -106,3 +106,41 @@ test('Node nonce-range bridge validates range size and never narrows an unsafe n
   await client.invalidateNonce(alice.ss58Address)
   assert.deepEqual(calls.at(-1), ['reset', alice.ss58Address])
 })
+
+test('Node releases automatic nonce on signing failure without broadcasting', async () => {
+  const { client, call, order } = fixture(), native = await client.requireNativeClient(), released = []
+  native.releaseNonces = async (...args) => released.push(args)
+  client.signRustPlan = async () => { throw new Error('user declined') }
+  await assert.rejects(client.submit(call, alice, { allowRawCall: true }), /user declined/)
+  assert.deepEqual(released, [[alice.ss58Address, 0, 1]])
+  assert(!order.includes('submit'))
+  await assert.rejects(client.submit(call, alice, { allowRawCall: true, nonce: 9 }), /user declined/)
+  assert.equal(released.length, 1, 'explicit nonces do not own reservations')
+  await client.close()
+})
+
+test('Node exposes uncertain native outcomes with their hash and no rejection', async () => {
+  const { client, call } = fixture(), native = await client.requireNativeClient()
+  native.submitExternal = async () => ({ success: false, message: 'lost response', extrinsicHash: '0xabc', events: [], data: { submission_uncertain: true } })
+  const result = await client.submit(call, alice, { allowRawCall: true })
+  assert.equal(result.status, 'unknown'); assert.equal(result.success, undefined)
+  assert.equal(result.chainError, undefined); assert.equal(result.extrinsicHash, '0xabc')
+  assert.equal(result.data.submission_uncertain, true)
+  await client.close()
+})
+
+test('detached Node signing releases an automatic nonce if the signer fails', async () => {
+  const {client,call}=fixture(), native=await client.requireNativeClient(), released=[]
+  native.releaseNonces=async(...args)=>released.push(args)
+  client.signRustPlan=async()=>{throw new Error('user declined')}
+  await assert.rejects(client.signExtrinsic(call,alice,{allowRawCall:true}),/user declined/)
+  assert.deepEqual(released,[[alice.ss58Address,0n,1]])
+  await client.close()
+})
+
+test('Node rejects invalid submission options before reserving or signing', async () => {
+  const {client,call,order}=fixture()
+  await assert.rejects(client.submit(call,alice,{allowRawCall:true,timeoutMs:-1}),/timeoutMs/)
+  assert.deepEqual(order,[])
+  await client.close()
+})

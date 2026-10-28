@@ -119,3 +119,15 @@ test('uncertain delivery retains the shielded pair until explicit reconciled rec
   await state.client.invalidateNonce(state.address)
   assert.equal(await state.client.reserveNonces(state.address, 1), 7)
 })
+
+test('raw shielding releases both nonces on signing failure and definite rejection', async () => {
+  for (const failedAt of ['sign', 'reject', 'uncertain']) {
+    const f = fixture(), native = await f.client.requireNativeClient(), releases = []
+    native.releaseNonces = async (...args) => releases.push(args)
+    if (failedAt === 'sign') f.client.signExtrinsic = async () => { throw new Error('user declined') }
+    else f.client.submitSigned = async () => ({ status: failedAt === 'reject' ? 'failed' : 'unknown', success: false, extrinsicHash: 'outer', events: [], data: { [failedAt === 'reject' ? 'submission_rejected' : 'submission_uncertain']: true } })
+    const result = f.workflow.submitRawShielded(Buffer.from([1]), f.signer, { allowRawCall: true })
+    if (failedAt === 'sign') await assert.rejects(result, /user declined/); else await result
+    assert.deepEqual(releases, failedAt === 'uncertain' ? [] : [[f.address,7,2]])
+  }
+})

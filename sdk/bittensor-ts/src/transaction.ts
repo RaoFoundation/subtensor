@@ -564,6 +564,11 @@ export class NativeChainClient {
     return Number(first)
   }
 
+  /** Release our unused reservation; uncertain submissions must retain it. */
+  releaseNonces(address: string, nonce: number | bigint, count: number): Promise<void> {
+    return nativeAsync(() => this.native.releaseNonces(address, BigInt(nonce), BigInt(count)))
+  }
+
   /** Reset the cached floor from RPC only after reconciling all pending detached and shielded transactions. */
   invalidateNonce(address: string): Promise<void> {
     return nativeAsync(() => this.native.invalidateNonce(address))

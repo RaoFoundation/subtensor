@@ -1,3 +1,4 @@
+import { isDefiniteSubmissionRejection } from './transport'
 import { Balance, assetIdValue, taoTransactionAmountRao } from './balance'
 import { nativeRustClient, type Client, type SignerLike, type ChainSigner, type ExtrinsicResult, type SubmitOptions, type CallLike } from './client'
 import { Intent, intentFromJSON, intentSignerRole, checkIntentPolicy, encodeIntentCall, type IntentContext, type IntentDescriptor, type IntentPolicy, type IntentReader, type PreparedIntent } from './intents'
@@ -150,12 +151,16 @@ export class WorkflowClient {
       if (!publicKeyFromSs58(plan.signerAddress).equals(identity.publicKey)) throw new Error('signer account changed after preflight')
       if (!plan.ok) throw new Error(`intent preflight refused: ${plan.violations.join('; ')}`)
       let executionOptions = options
+      let reserved: { native: NativeChainClient; nonce: number } | undefined
+      let delegated = false
+      try {
       if (plan.shielded && options.nonce == null) {
         const nextKey = chainBytes(await this.client.query('MevShield', 'NextKey', []))
         if (nextKey.length !== 1184) throw new Error('MevShield.NextKey is unavailable or not an ML-KEM-768 key')
         const native = await nativeRustClient(this.client)
         if (!native) throw new Error('native workflow requires a native Client')
-        executionOptions = { ...options, nonce: await native.reserveNonces(identity.address, 2) }
+        reserved = { native, nonce: await native.reserveNonces(identity.address, 2) }
+        executionOptions = { ...options, nonce: reserved.nonce }
         // The reservation may follow detached plans. Reprice at its exact nonce
         // so compact nonce length cannot invalidate a fee cap before signing.
         plan = await this.plan(intent, planningSigner, executionOptions)
@@ -167,9 +172,14 @@ export class WorkflowClient {
       const submission = signerQueueOptions(submitOptions({ ...executionOptions, period: plan.shielded ? 8 : options.period === undefined ? 128 : options.period }), permit)
       if (!plan.shielded) {
         const result = await this.client.submit(plan.call, resolvedSigner, { waitForInclusion: true, ...submission, policy: options.policy as any })
-        return { ...result, data: { ...plan.intent.extras } }
+        return { ...result, data: { ...plan.intent.extras, ...result.data } }
       }
-      return this.submitShieldedCall(plan.call, resolvedSigner, identity.address, { ...submission, policy: options.policy as any }, { ...plan.intent.extras })
+      delegated = true
+      return await this.submitShieldedCall(plan.call, resolvedSigner, identity.address, { ...submission, policy: options.policy as any }, { ...plan.intent.extras }, reserved)
+      } catch (error) {
+        if (reserved && !delegated) await reserved.native.releaseNonces(identity.address, reserved.nonce, 2)
+        throw error
+      }
     })
   }
 
@@ -183,7 +193,9 @@ export class WorkflowClient {
     return runSignerQueue(this.client, identity.address, permit => this.submitShieldedCall(call, bound, identity.address, signerQueueOptions({ ...options, allowRawCall: true }, permit)))
   }
 
-  private async submitShieldedCall(call: CallLike, signer: SignerLike, address: string, options: SubmitOptions, extras: Record<string, unknown> = {}): Promise<WorkflowResult> {
+  private async submitShieldedCall(call: CallLike, signer: SignerLike, address: string, options: SubmitOptions, extras: Record<string, unknown> = {}, reserved?: { native: NativeChainClient; nonce: number }): Promise<WorkflowResult> {
+    let broadcastStarted = false
+    try {
     if (options.signal?.aborted) throw options.signal.reason ?? new Error('shielded submission aborted')
     if (options.nonce != null && (!Number.isSafeInteger(options.nonce) || options.nonce < 0 || options.nonce >= Number.MAX_SAFE_INTEGER)) throw new RangeError('invalid shielded nonce')
     const nextKey = await this.client.query('MevShield', 'NextKey', [])
@@ -193,6 +205,7 @@ export class WorkflowClient {
     const native = await nativeRustClient(this.client)
     if (!native && options.nonce == null) throw new Error('automatic shielded nonces require a native Client')
     const nonce = options.nonce ?? await native!.reserveNonces(address, 2)
+    if (options.nonce == null) reserved = { native: native!, nonce }
     ;(signer as SignerLike & { beginTwoStageSigning?(): void }).beginTwoStageSigning?.()
     const submission = { ...options, period: 8 }
     const inner = await this.client.signExtrinsic(call, signer, { ...submission, nonce: nonce + 1 })
@@ -204,8 +217,15 @@ export class WorkflowClient {
     const { policy: _policy, ...carrierOptions } = submission
     const outer = await this.client.signExtrinsic(carrier, signer, { ...carrierOptions, nonce, allowRawCall: true })
     const wait = { ...carrierOptions, waitForInclusion: options.waitForInclusion ?? true }
+    options.signal?.throwIfAborted()
+    broadcastStarted = true
     const result = await this.client.submitSigned(outer, address, wait)
-    return followShieldedResult({ ...result, data: extras }, '0x' + Buffer.from(inner.hash).toString('hex'), 8, this.client, wait)
+    if (reserved && result.data?.submission_rejected === true) await reserved.native.releaseNonces(address, reserved.nonce, 2)
+    return await followShieldedResult({ ...result, data: { ...extras, ...result.data } }, '0x' + Buffer.from(inner.hash).toString('hex'), 8, this.client, wait)
+    } catch (error) {
+      if (reserved && (!broadcastStarted || isDefiniteSubmissionRejection(error))) await reserved.native.releaseNonces(address, reserved.nonce, 2)
+      throw error
+    }
   }
 
 }
@@ -276,7 +296,9 @@ export class NodeMultisig {
     await checkFunding()
     const publicKey = shielded ? chainBytes(await this.client.query('MevShield', 'NextKey', [])) : undefined
     if (shielded && publicKey?.length !== 1184) throw new Error('MevShield.NextKey is unavailable or invalid')
-    if (shielded && options.nonce == null) { nonce = await native.reserveNonces(identity.address, 2); await checkFunding() }
+    let reserved = false, broadcastStarted = false
+    try {
+    if (shielded && options.nonce == null) { nonce = await native.reserveNonces(identity.address, 2); reserved = true; await checkFunding() }
     const resolved = bindSignerIdentity(signer instanceof Wallet ? await signer.signer('coldkey', options) : signer, identity)
     const submission = signerQueueOptions({ ...submitOptions(options), policy, allowRawCall: options.allowRawCall }, permit)
     const data = { multisig_account: this.address, multisig_call_hash: approval.callHash, opening: approval.opening }
@@ -287,8 +309,15 @@ export class NodeMultisig {
     if (ciphertext.length > 8192) throw new RangeError('shielded ciphertext exceeds 8192 bytes')
     const encodedCarrier = await this.client.composeCall('MevShield', 'submit_encrypted', { ciphertext })
     const outer = await this.client.signExtrinsic(encodedCarrier, resolved, signerQueueOptions({ ...submitOptions(options), period: 8, nonce, allowRawCall: true }, permit))
+    options.signal?.throwIfAborted()
+    broadcastStarted = true
     const result = await this.client.submitSigned(outer, identity.address, signerQueueOptions({ waitForInclusion: true, ...submitOptions(options) }, permit))
-    return followShieldedResult({ ...result, data }, '0x' + Buffer.from(signedInner.hash).toString('hex'), 8, this.client, submission)
+    if (reserved && result.data?.submission_rejected === true) await native.releaseNonces(identity.address, nonce, 2)
+    return await followShieldedResult({ ...result, data: { ...data, ...result.data } }, '0x' + Buffer.from(signedInner.hash).toString('hex'), 8, this.client, submission)
+    } catch (error) {
+      if (reserved && (!broadcastStarted || isDefiniteSubmissionRejection(error))) await native.releaseNonces(identity.address, nonce, 2)
+      throw error
+    }
   }
 }
 
@@ -378,7 +407,7 @@ function nativeOptions(options: WorkflowOptions): NativeExternalSigningOptions {
   if (options.period === null) result.immortal = true
   else if (options.period !== undefined) result.period = BigInt(options.period)
   if (options.tipAssetId != null) result.tipAssetId = assetIdValue(options.tipAssetId)
-  if (Object.hasOwn(options, 'metadataHash')) {
+  if (options.metadataHash !== undefined) {
     result.metadataHashMode = options.metadataHash == null ? 'disabled' : 'explicit'
     if (options.metadataHash != null) result.metadataHash = chainBytes(options.metadataHash)
   }

@@ -174,3 +174,27 @@ test('safe derivative and multisig calls preserve explicit account mode', async 
   assert.equal(safe.accountMode,'safe')
   await client.close()
 })
+
+for (const crypto of [sdk.CRYPTO_HASHED, sdk.CRYPTO_MLDSA65, sdk.CRYPTO_MLDSA65_FIXED, sdk.CRYPTO_FALCON512, sdk.CRYPTO_FALCON512_HASHED, sdk.CRYPTO_FALCON1024, sdk.CRYPTO_FALCON1024_HASHED]) {
+  test(`protected wallet ${crypto} reuses rejected authority but retains uncertain delivery`, async () => {
+    const { JsonRpcError, SubmissionUncertainError } = require('../dist/transport')
+    for (const mevShield of [false, true]) {
+      const f = fixture(crypto), submitted = f.adapter.submitBytes
+      f.adapter.submitBytes = async () => { throw new JsonRpcError('invalid transaction', 1010) }
+      await assert.rejects(f.session.submit(remark, { allowRawCall: true, mevShield }), /invalid transaction/)
+      f.adapter.submitBytes = async () => ({ success: false, events: [], data: { submission_rejected: true } })
+      await f.session.submit(remark, { allowRawCall: true, mevShield })
+      f.adapter.submitBytes = submitted
+      await f.session.submit(remark, { allowRawCall: true, mevShield })
+      assert.equal(f.state.encoded.at(-1).params.nonce, 3n)
+      const g = fixture(crypto)
+      g.adapter.submitBytes = async () => { throw new SubmissionUncertainError('0xabc', new Error('response lost')) }
+      await assert.rejects(g.session.submit(remark, { allowRawCall: true, mevShield }), /submission uncertain/)
+      g.adapter.submitBytes = submitted
+      if ([sdk.CRYPTO_MLDSA65_FIXED, sdk.CRYPTO_FALCON512, sdk.CRYPTO_FALCON1024].includes(crypto)) {
+        await g.session.submit(remark, { allowRawCall: true, mevShield })
+        assert.equal(g.state.encoded.at(-1).params.nonce, mevShield ? 5n : 4n)
+      } else await assert.rejects(g.session.submit(remark, { allowRawCall: true, mevShield }), /not reconciled/)
+    }
+  })
+}

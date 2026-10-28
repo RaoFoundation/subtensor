@@ -1314,6 +1314,21 @@ impl NativeClient {
         )))
     }
 
+    #[napi(js_name = "releaseNonces")]
+    pub fn release_nonces(
+        &self,
+        address: String,
+        nonce: BigInt,
+        count: BigInt,
+    ) -> NapiResult<AsyncTask<ClientUnitTask>> {
+        let nonce = bigint_u64("nonce", &nonce)?;
+        let count = bigint_u64("count", &count)?;
+        Ok(AsyncTask::new(ClientUnitTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.release_nonces(&address, nonce, count),
+        )))
+    }
+
     #[napi(js_name = "invalidateNonce")]
     pub fn invalidate_nonce(&self, address: String) -> AsyncTask<ClientUnitTask> {
         AsyncTask::new(ClientUnitTask::new(

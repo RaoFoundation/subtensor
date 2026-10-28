@@ -1,3 +1,4 @@
+export { SubmissionUncertainError, SubmissionNotSentError } from './transport'
 import type {
   ModuleError,
   ScaleValue,
