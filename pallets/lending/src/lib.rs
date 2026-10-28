@@ -504,7 +504,7 @@ pub struct LiftBook {
     pub last: u64,
 }
 
-#[freeze_struct("1fe694a4520b3428")]
+#[freeze_struct("f63daa52fbcc44c0")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
 )]
@@ -530,6 +530,10 @@ pub struct Position<AccountId, BlockNumber> {
     pub due: BlockNumber,
     /// Fixed one-year term end (§15). Set at open; adds and partial repay keep it.
     pub expires_at: BlockNumber,
+    /// Current `Expiry` queue bucket for this position. Equals `expires_at` at
+    /// open; advances when a failed settle is deferred onto a retry slot so
+    /// coldkey re-key / remove always find the live claim.
+    pub expiry_due: BlockNumber,
 }
 
 #[freeze_struct("78138cda5aaf128")]
@@ -2080,6 +2084,7 @@ pub mod pallet {
                     interest_remainder: 0,
                     due: now.saturating_add(T::InterestPeriod::get()),
                     expires_at: now.saturating_add(term),
+                    expiry_due: now.saturating_add(term),
                 }
             };
 
@@ -3427,8 +3432,8 @@ pub mod pallet {
             if Due::<T>::take(position.due, (owner, netuid)).is_some() {
                 Self::note_due_removed(position.due);
             }
-            if Expiry::<T>::take(position.expires_at, (owner, netuid)).is_some() {
-                Self::note_expiry_removed(position.expires_at);
+            if Expiry::<T>::take(position.expiry_due, (owner, netuid)).is_some() {
+                Self::note_expiry_removed(position.expiry_due);
             }
             PositionCount::<T>::mutate(netuid, |count| *count = count.saturating_sub(1));
             let remaining = TotalPositions::<T>::mutate(|count| {
@@ -3825,17 +3830,20 @@ pub mod pallet {
                             // Preserve coverage, but do not pin NextExpiry on this
                             // bucket: a persistently failing loan would otherwise
                             // starve later expiries on every subnet. Drop orphan
-                            // claims; defer live ones onto a bounded retry slot.
+                            // claims; defer live ones onto a bounded retry slot and
+                            // record `expiry_due` so coldkey re-key finds the claim.
                             if Expiry::<T>::contains_key(at, (&owner, netuid)) {
                                 Expiry::<T>::remove(at, (&owner, netuid));
                                 Self::note_expiry_removed(at);
                             }
-                            if Positions::<T>::contains_key(&owner, netuid) {
+                            if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
                                 let retry_at = now.saturating_add(T::ExpiryRetryDelay::get());
                                 if !Expiry::<T>::contains_key(retry_at, (&owner, netuid)) {
                                     Expiry::<T>::insert(retry_at, (&owner, netuid), ());
                                     Self::note_expiry_inserted(retry_at);
                                 }
+                                position.expiry_due = retry_at;
+                                Positions::<T>::insert(&owner, netuid, position);
                             }
                         }
                     }
@@ -4800,8 +4808,8 @@ pub mod pallet {
                     Due::<T>::insert(position.due, (new, netuid), ());
                     rekeyed_due = true;
                 }
-                if Expiry::<T>::take(position.expires_at, (old, netuid)).is_some() {
-                    Expiry::<T>::insert(position.expires_at, (new, netuid), ());
+                if Expiry::<T>::take(position.expiry_due, (old, netuid)).is_some() {
+                    Expiry::<T>::insert(position.expiry_due, (new, netuid), ());
                     rekeyed_expiry = true;
                 }
             }

@@ -2335,12 +2335,87 @@ fn long_expiry_preserves_collateral_when_pot_payout_fails() {
         ));
         let retry_at = snap.expires_at.saturating_add(5);
         assert!(Expiry::<Test>::contains_key(retry_at, (&owner, netuid())));
+        assert_eq!(still.expiry_due, retry_at);
+        assert_eq!(still.expires_at, snap.expires_at);
         assert!(
             System::events()
                 .into_iter()
                 .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. }))),
             "must not emit Expired after a failed payout"
         );
+    });
+}
+
+#[test]
+fn coldkey_swap_rekeys_deferred_expiry_retry_bucket() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let new_owner = account(9);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            hotkey,
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.annual_interest = 0;
+                p.interest_remainder = 0;
+                p.last_accrued = snap.expires_at;
+            }
+        });
+        References::<Test>::mutate(netuid(), |r| {
+            if let Some(r) = r {
+                r.price = U64F64::from_num(100u64);
+            }
+        });
+        set_pool(1, pool_alpha());
+        System::set_block_number(snap.expires_at);
+        let _ = <Lending as Hooks<_>>::on_idle(snap.expires_at, Weight::MAX);
+        let deferred = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let retry_at = deferred.expiry_due;
+        assert!(retry_at > snap.expires_at);
+        assert!(Expiry::<Test>::contains_key(retry_at, (&owner, netuid())));
+        assert_ok!(Lending::on_coldkey_swap(&owner, &new_owner));
+        assert!(!Positions::<Test>::contains_key(&owner, netuid()));
+        assert!(!Expiry::<Test>::contains_key(retry_at, (&owner, netuid())));
+        assert!(Expiry::<Test>::contains_key(
+            retry_at,
+            (&new_owner, netuid())
+        ));
+        assert_eq!(
+            Positions::<Test>::get(&new_owner, netuid())
+                .unwrap()
+                .expiry_due,
+            retry_at
+        );
+        // Restore pot liquidity and settle under the new owner on the retry slot.
+        References::<Test>::mutate(netuid(), |r| {
+            if let Some(r) = r {
+                r.price = MockPool::price();
+            }
+        });
+        set_pool(1_000_000_000_000_000, pool_alpha());
+        System::set_block_number(retry_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(retry_at, Weight::MAX);
+        assert!(!Positions::<Test>::contains_key(&new_owner, netuid()));
+        assert!(System::events().into_iter().any(|e| matches!(
+            e.event,
+            RuntimeEvent::Lending(Event::Expired {
+                owner: ref o,
+                side: Side::Long,
+                ..
+            }) if o == &new_owner
+        )));
     });
 }
 
