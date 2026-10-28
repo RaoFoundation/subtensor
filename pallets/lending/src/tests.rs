@@ -2465,6 +2465,101 @@ fn coldkey_swap_rekeys_deferred_expiry_retry_bucket() {
 }
 
 #[test]
+fn expiry_stops_after_interest_forfeits_short() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            hotkey,
+            1,
+            1,
+            1,
+            deadline(),
+        ));
+        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
+        // Leave a tiny coupon balance and force a final charge that exhausts it.
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.collateral = 1;
+                p.annual_interest = 10_000_000_000_000;
+                p.interest_remainder = 0;
+                p.last_accrued = snap.expires_at.saturating_sub(100);
+            }
+        });
+        System::set_block_number(snap.expires_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(snap.expires_at, Weight::MAX);
+        assert!(
+            !Positions::<Test>::contains_key(&owner, netuid()),
+            "forfeit must clear the position"
+        );
+        assert!(!Expiry::<Test>::contains_key(
+            snap.expires_at,
+            (&owner, netuid())
+        ));
+        assert!(
+            System::events()
+                .into_iter()
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. })))
+        );
+        assert!(
+            System::events()
+                .into_iter()
+                .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. }))),
+            "must not continue to Expired after forfeit"
+        );
+    });
+}
+
+#[test]
+fn expiry_stops_after_interest_forfeits_long() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            hotkey,
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.collateral = 1;
+                p.annual_interest = 10_000_000_000_000;
+                p.interest_remainder = 0;
+                p.last_accrued = snap.expires_at.saturating_sub(100);
+            }
+        });
+        System::set_block_number(snap.expires_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(snap.expires_at, Weight::MAX);
+        assert!(!Positions::<Test>::contains_key(&owner, netuid()));
+        assert!(
+            System::events()
+                .into_iter()
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. })))
+        );
+        assert!(
+            System::events()
+                .into_iter()
+                .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Expired { .. })))
+        );
+    });
+}
+
+#[test]
 fn failed_expiry_does_not_block_later_bucket() {
     new_test_ext().execute_with(|| {
         let owner_fail = account(1);

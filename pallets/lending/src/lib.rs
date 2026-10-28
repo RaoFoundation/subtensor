@@ -4217,6 +4217,13 @@ pub mod pallet {
         ) -> DispatchResult {
             // Accrue and burn interest through the cutoff before settlement.
             Self::charge_interest(owner, netuid, &mut position, interest_until, true)?;
+            // Live-path interest can exhaust collateral and `forfeit`, which already
+            // restored lifts, moved escrow, and removed the claim. Do not reinsert
+            // or continue settlement on a forfeited loan (would double-recover and
+            // fail, then defer forever). Dissolution skips forfeit above.
+            if !Positions::<T>::contains_key(owner, netuid) {
+                return Ok(());
+            }
             Positions::<T>::insert(owner, netuid, position.clone());
 
             let escrow = position.custody.clone();
