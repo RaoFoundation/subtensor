@@ -721,15 +721,27 @@ fn raise_after_interest_forfeit_sells_full_new_escrow() {
         });
         System::set_block_number(now.saturating_add(520));
         mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        // Auditor: quote must preview forfeit (capacity + pool re-add), not
+        // refuse SideCapacity against the pre-forfeit book.
+        let collateral = 3_000_000_000_000u64;
+        let before_l_l = Lifts::<Test>::get(netuid()).l_l;
+        let before_pool_alpha = pool_alpha();
+        let quoted = Lending::quote_raise(&owner, netuid(), &hotkey, None, Some(collateral), None)
+            .expect("quote must succeed once forfeit frees Cap_long / reserves");
+        assert!(quoted.principal_tao > 0);
+        // Quote rolls back accrual/forfeit — live book unchanged until dispatch.
+        assert!(Positions::<Test>::contains_key(&owner, netuid()));
+        assert_eq!(Lifts::<Test>::get(netuid()).l_l, before_l_l);
+        assert_eq!(pool_alpha(), before_pool_alpha);
         System::reset_events();
         assert_ok!(Lending::open_long_and_sell(
             RuntimeOrigin::signed(owner.clone()),
             netuid(),
             hotkey.clone(),
-            Some(3_000_000_000_000),
+            Some(collateral),
             None,
-            3_000_000_000_000,
-            1,
+            collateral,
+            quoted.principal_tao,
             None,
             1,
             0,
@@ -764,6 +776,69 @@ fn raise_after_interest_forfeit_sells_full_new_escrow() {
         // Fresh open after forfeit — principal is only this raise's borrow.
         assert!(pos.principal > 0);
         assert!(pos.principal < first.principal.saturating_add(pos.principal));
+    });
+}
+
+/// Auditor: when an exhausted short occupies remaining Cap_short, quote must
+/// preview forfeit (free capacity) rather than return SideCapacity while
+/// dispatch would succeed after releasing the book.
+#[test]
+fn quote_open_matches_dispatch_when_forfeit_frees_side_capacity() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_tao(&owner, 100_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            hotkey.clone(),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let opened = Positions::<Test>::get(&owner, netuid()).unwrap();
+        // Fill Cap_short so a fresh open would fail without releasing this loan.
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.l_s = u64::MAX / 2;
+        });
+        assert_err!(
+            Lending::quote_open(netuid(), Side::Short, 1_000_000_000_000),
+            Error::<Test>::SideCapacity
+        );
+        // Exhaust collateral on the next interest charge → forfeit on open path.
+        let now = System::block_number();
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(pos) = p {
+                pos.annual_interest = opened.collateral.saturating_mul(2).max(1);
+                pos.interest_remainder = 0;
+                pos.last_accrued = 0;
+            }
+        });
+        System::set_block_number(now.saturating_add(520));
+        mint_tao(&owner, 10_000_000_000_000);
+        let add = 2_000_000_000_000u64;
+        let quoted = Lending::quote_open_for(&owner, netuid(), Side::Short, add, &hotkey)
+            .expect("quote must see post-forfeit capacity");
+        assert!(quoted.principal > 0);
+        // Quote rolled back: position and stuffed Cap still present.
+        assert!(Positions::<Test>::contains_key(&owner, netuid()));
+        assert_eq!(Lifts::<Test>::get(netuid()).l_s, u64::MAX / 2);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            add,
+            hotkey,
+            quoted.principal,
+            0,
+            0,
+            deadline(),
+        ));
+        let after = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(after.principal, quoted.principal);
     });
 }
 

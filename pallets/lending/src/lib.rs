@@ -1849,23 +1849,32 @@ pub mod pallet {
             })
         }
 
-        /// Preview a position after pending interest without mutating storage.
-        ///
-        /// Returns `None` when the charge would forfeit (exhausted collateral).
-        /// Quotes must use this so sizing matches `do_open`'s pre-size accrual.
-        fn preview_after_interest(
-            position: &Position<T::AccountId, BlockNumberFor<T>>,
-            until: BlockNumberFor<T>,
+        /// Accrue pending interest on an existing position the same way
+        /// `do_open` / raise do before sizing. May forfeit (re-add lift legs,
+        /// free side capacity, mutate pool reserves). Callers that must not
+        /// persist those effects wrap this in a rolled-back storage transaction.
+        fn accrue_existing_before_size(
+            owner: &T::AccountId,
+            netuid: NetUid,
+            side: Side,
+            hotkey: Option<&T::AccountId>,
+            now: BlockNumberFor<T>,
         ) -> Result<Option<Position<T::AccountId, BlockNumberFor<T>>>, DispatchError> {
-            let (due, remainder) = Self::interest_due(position, until, false)?;
-            if due > 0 && due >= position.collateral {
-                return Ok(None);
+            let mut existing = Positions::<T>::get(owner, netuid);
+            if let (Some(position), Some(hk)) = (&existing, hotkey) {
+                Self::ensure_matching_position(position, side, hk)?;
             }
-            let mut next = position.clone();
-            next.collateral = next.collateral.saturating_sub(due);
-            next.last_accrued = until;
-            next.interest_remainder = remainder;
-            Ok(Some(next))
+            if let Some(mut position) = existing.take() {
+                Self::charge_interest(owner, netuid, &mut position, now, false)?;
+                if Positions::<T>::contains_key(owner, netuid) {
+                    Positions::<T>::insert(owner, netuid, &position);
+                    existing = Some(position);
+                } else {
+                    // Exhausted and forfeited — treat as a fresh open.
+                    existing = None;
+                }
+            }
+            Ok(existing)
         }
 
         /// True when side capacity cannot fit a MinimumLoanValue borrow that
@@ -1975,19 +1984,6 @@ pub mod pallet {
                     Err(Self::refuse_dust_or_capacity(netuid, side, price, params))
                 }
                 Err(e) => Err(e),
-            }
-        }
-
-        /// Size against the same post-interest book `do_open` / raise use.
-        ///
-        /// `None` means the pending charge would forfeit — treat as a fresh open.
-        fn existing_after_interest_preview(
-            existing: Option<Position<T::AccountId, BlockNumberFor<T>>>,
-            until: BlockNumberFor<T>,
-        ) -> Result<Option<Position<T::AccountId, BlockNumberFor<T>>>, DispatchError> {
-            match existing {
-                None => Ok(None),
-                Some(pos) => Self::preview_after_interest(&pos, until),
             }
         }
 
@@ -4803,6 +4799,24 @@ pub mod pallet {
             hotkey: Option<&T::AccountId>,
             requested: Option<u64>,
         ) -> Result<OpeningQuote, DispatchError> {
+            // Accrual / forfeit mutates pool + capacity; always roll back so a
+            // quote cannot persist those effects while still matching dispatch.
+            use frame_support::storage::{TransactionOutcome, with_transaction};
+            with_transaction(|| {
+                TransactionOutcome::Rollback(Self::quote_open_for_inner_after_accrual(
+                    owner, netuid, side, collateral, hotkey, requested,
+                ))
+            })
+        }
+
+        fn quote_open_for_inner_after_accrual(
+            owner: Option<&T::AccountId>,
+            netuid: NetUid,
+            side: Side,
+            collateral: u64,
+            hotkey: Option<&T::AccountId>,
+            requested: Option<u64>,
+        ) -> Result<OpeningQuote, DispatchError> {
             // Same gate order as `do_open`: live + §2.3 before amount/depth.
             Self::ensure_lending_live(netuid)?;
             Self::ensure_new_subnet_gate(netuid)?;
@@ -4815,13 +4829,13 @@ pub mod pallet {
             }
             let reference = Self::ensure_reference_warm(netuid)?;
             let now = frame_system::Pallet::<T>::block_number();
-            let mut existing = owner.and_then(|o| Positions::<T>::get(o, netuid));
-            if let (Some(pos), Some(hk)) = (&existing, hotkey) {
-                Self::ensure_matching_position(pos, side, hk)?;
-            }
-            // Match `do_open`: size against post-interest collateral so a quote
-            // Ok cannot become BelowMinimumBorrow after accrual on dispatch.
-            existing = Self::existing_after_interest_preview(existing, now)?;
+            // Match `do_open`: charge interest (may forfeit → re-add lift /
+            // free Cap_side) before sizing so quote Ok ⇒ dispatch Ok.
+            let existing = if let Some(o) = owner {
+                Self::accrue_existing_before_size(o, netuid, side, hotkey, now)?
+            } else {
+                None
+            };
             if existing.is_none() && owner.is_some() {
                 ensure!(
                     PositionCount::<T>::get(netuid) < T::MaxPositionsPerSubnet::get(),
@@ -5022,6 +5036,23 @@ pub mod pallet {
             collateral: Option<u64>,
             sell: Option<u64>,
         ) -> Result<RaiseQuote, DispatchError> {
+            // Accrual / forfeit mutates pool + capacity; roll back after sizing.
+            use frame_support::storage::{TransactionOutcome, with_transaction};
+            with_transaction(|| {
+                TransactionOutcome::Rollback(Self::quote_raise_after_accrual(
+                    owner, netuid, hotkey, amount, collateral, sell,
+                ))
+            })
+        }
+
+        fn quote_raise_after_accrual(
+            owner: &T::AccountId,
+            netuid: NetUid,
+            hotkey: &T::AccountId,
+            amount: Option<u64>,
+            collateral: Option<u64>,
+            sell: Option<u64>,
+        ) -> Result<RaiseQuote, DispatchError> {
             ensure!(
                 amount.is_some() ^ collateral.is_some(),
                 Error::<T>::ConflictingSizing
@@ -5032,14 +5063,12 @@ pub mod pallet {
             ensure!(T::Pool::owner_allowed(owner), Error::<T>::SubnetUnavailable);
             let reference = Self::ensure_reference_warm(netuid)?;
             let params = Self::lift_params();
-            let price_before = T::Pool::current_alpha_price(netuid);
             let now = frame_system::Pallet::<T>::block_number();
-            let mut existing = Positions::<T>::get(owner, netuid);
-            if let Some(ref pos) = existing {
-                Self::ensure_matching_position(pos, Side::Long, hotkey)?;
-            }
-            // Match raise extrinsic: size after pending interest / forfeit.
-            existing = Self::existing_after_interest_preview(existing, now)?;
+            // Match raise extrinsic: charge interest (may forfeit → re-add α_L+A
+            // and free Cap_long) before sizing / sale simulation.
+            let existing =
+                Self::accrue_existing_before_size(owner, netuid, Side::Long, Some(hotkey), now)?;
+            let price_before = T::Pool::current_alpha_price(netuid);
             let (c, p) = if let Some(col) = collateral {
                 ensure!(col > 0, Error::<T>::CollateralZero);
                 let p = Self::max_principal_for_collateral(
